@@ -359,7 +359,7 @@ export function evaluatePairedMeasurements<TRun>(
     delta: overall.delta,
     lowerBound: overall.confidenceInterval.lower,
     deltaThreshold,
-    minProductiveRuns,
+    minProductiveRuns: significance.minimumRequired,
     confidence,
     sharedScorerChannel: options.sharedScorerChannel,
   })
@@ -431,12 +431,18 @@ export function evaluatePairedMeasurements<TRun>(
     { name: 'budget', passed: budgetPassed },
   ]
   const shipped = checks.every((check) => check.passed)
+  const hardFailure =
+    incompleteRuns.length > 0 ||
+    failedCandidateResults.length > 0 ||
+    regressions.length > 0 ||
+    missingCriticalDimensions.length > 0 ||
+    !budgetPassed
   const reasons = [
     ...(significance.significant
       ? []
       : [
           significance.fewRuns
-            ? `only ${significance.n} paired runs; ${minProductiveRuns} required`
+            ? `only ${significance.n} paired runs; ${significance.minimumRequired} required`
             : `paired interval lower bound ${significance.bootstrap.low} did not clear ${deltaThreshold}`,
         ]),
     ...(powerSufficient || significance.fewRuns ? [] : [power.reason]),
@@ -466,9 +472,11 @@ export function evaluatePairedMeasurements<TRun>(
     decision: {
       outcome: shipped
         ? 'ship'
-        : significance.fewRuns || !powerSufficient
-          ? 'need_more_work'
-          : 'hold',
+        : hardFailure
+          ? 'hold'
+          : significance.fewRuns || !powerSufficient
+            ? 'need_more_work'
+            : 'hold',
       reasons: reasons.length > 0 ? reasons : ['all measured checks passed'],
       contributingChecks: checks,
     },

@@ -48,9 +48,9 @@ All are repaired, each with a regression test that fails on the pristine blob an
 | Statistic | Status | Decision | Measured evidence | Regime caveat |
 | --- | --- | --- | --- | --- |
 | `normalCdf` | defective, **fixed** | keep-and-fix | `t = 1/(1+p·|x|)` used the unscaled argument while the exponential used `exp(-x²/2) = exp(-z²)` with `z = x/√2`; max abs CDF error `3.7189e-2` at `x = 0.567`. Repaired to evaluate both halves at `z = |x|/√2`; worst deviation from `scipy.stats.norm.cdf` now `4e-10` at `x = 1.6` and `3.4e-8` at `x = 0.565`, inside the A&S 7.1.26 bound of `7.5e-8`. | None once fixed. |
-| `normalCdf` duplicate in `src/baseline.ts` | defective, **fixed** | keep-and-fix | A byte-identical second copy of the same defect reached production verdicts through `welchsTTest → studentTCdf → normalCdf`. Deleted with its duplicated `studentTCdf`/`incompleteBeta`/`lnGamma`; the shared math now lives in `src/math/normal.ts`, `src/math/student-t.ts` and `src/math/special-functions.ts`. A `df = 298` case moved from `p = 0.010887` to `0.014570`. | Now one implementation repo-wide: `grep 0.3275911` returns a single site. |
+| `normalCdf` duplicate in `src/baseline.ts` | defective, **fixed** | keep-and-fix | A byte-identical second copy of the same defect reached production verdicts through `welchsTTest → studentTCdf`. Deleted with its duplicated `studentTCdf`/`incompleteBeta`/`lnGamma`; the shared math now lives in `src/math/normal.ts`, `src/math/student-t.ts` and `src/math/special-functions.ts`. A `df = 298` case moved from `p = 0.010887` to the true Student-t `0.015150`. | Now one implementation repo-wide: `grep 0.3275911` returns a single site. |
 | `mcnemarPower` | defective, **fixed** | keep-and-fix | Reached the normal distribution through the broken forward CDF while its documented inverse `mcnemarRequiredN` reached it through `zQuantile`, so the two were not inverses. `mcnemarPower({p10:0.2, p01:0.1, nPairs:200})` returned `0.773437` against a true `0.736522`; it now returns `0.736522`. | Power was **overstated** above 0.5 and understated below it, so pre-registered N read off this function was too small. |
-| `studentTCdf` `df > 100` branch | defective, **fixed** | keep-and-fix | The `df > 100` branch short-circuits to `normalCdf` and inherited the defect. Now correct to `5.3e-9` of the exact normal-approximation answer at `t = 2.442903, df = 298`. | The branch is still a normal approximation: at that point it sits `5.81e-4` from the exact Student-t p, by design. |
+| `studentTCdf` `df > 100` branch | defective, **deleted** | delete | The branch short-circuited to `normalCdf`, which changed a two-sided `df = 102, t = 1.98` result from the true `0.050398` to `0.047703` and flipped a 5% decision. | Every finite degree of freedom now uses the regularized incomplete beta. |
 | `studentTCdf` / `incompleteBeta` at `df ≤ 100` | defective, **fixed** | keep-and-fix | The continued fraction omits the mandatory symmetry branch (`x < (a+1)/(a+b+2)`, else `1 − I(1−x, b, a)`), so it is evaluated outside its convergence domain for small `|t|` and collapses as `x → 1`. `studentTCdf(0.005, 100)` returns `0.89152130` against a true `0.50198972`, an error of `0.3895`. Through `pairedTTest` at `df = 7`: `t = 0.001` reports `p = 0.15130173` against a true `0.99923002`, and `t = 1e-6` reports `p = 0.00015251`. There is a discontinuity at zero — `t = 1e-8` returns exactly `p = 1.0` because `x ≥ 1` short-circuits. | A perfectly null paired result reports `p < 0.05`. The materially wrong band is `|t| ≲ 0.02` at `df = 2–10`, widening to `|t| ≲ 0.058` near `df = 100`; outside it `pairedTTest` matched `scipy.stats.ttest_rel` to `≤ 1e-6` relative across 166 cases. |
 | `interRaterReliability` | defective, **fixed** | keep-and-fix | The grouping loop iterates judge-major and opens a new item bucket whenever the last holds `judgeScores.length` entries, so each bucket collects consecutive scores from the *same* judge. It measures within-judge spread, not between-judge agreement, and is anti-correlated with the truth. Two identical judges scoring `[0,100]` return **`−0.500000`** where the true α is `+1.0`; two maximally disagreeing judges (`[0,0]` versus `[100,100]`) return **`+1.000000`** where the true α is `−0.5`. Perfect agreement on three items returns `−0.250000`, on four items `+0.650000`. | The result is also unstable in the item count, because bucket boundaries depend on how the item count divides by the judge count. Zero test coverage repo-wide; consumed by `src/pipelines/judge-agreement.ts:73`. |
 | `mannWhitneyU` (NaN input) | defective, **fixed** | keep-and-fix | The tie-grouping loop advances via `while (j < len && combined[j].v === combined[i].v) j++` then `i = j`. `NaN === NaN` is false, so `j` never leaves `i` and the process spins forever. `mannWhitneyU([1,2,3,4,5,6],[NaN,2,3,4,5,6])` did not return within 8 s and blocked the event loop hard enough that a 4 s `setTimeout` never fired. | A single NaN score hangs a campaign rather than failing it. `ranks` is safe only because it uses `i = j + 1`. |
@@ -67,17 +67,16 @@ All are repaired, each with a regression test that fails on the pristine blob an
 
 ## Correct mathematics, misleading regime
 
-These 6 compute what they claim.
+These 5 compute what they claim.
 They mislead at 3–10 repetitions because the asymptotic assumption does not hold there, and no change to the implementation fixes that.
 
 | Statistic | Status | Decision | Measured evidence | Regime caveat |
 | --- | --- | --- | --- | --- |
-| `mannWhitneyU` small-n | approximation limit, **exact path added** | keep-and-fix (add exact path) | The normal approximation was applied unconditionally, including `n = 1`, with no switchover threshold. At three per group the exact minimum attainable two-sided p is `0.100000`, yet complete separation returned `p = 0.04953448`. The default is now exact by enumeration at `n₁ + n₂ ≤ 24`, and `[1.0]` versus `[2.0]` returns `p = 1.0000` with `pFloor = 1.0000` instead of `0.2593`. | Repairing the CDF did not fix this; only an exact test does. Discreteness is the binding constraint, and `pFloor` now reports it on every result. |
+| `mannWhitneyU` small-n | approximation limit, **exact path added** | keep-and-fix (add exact path) | The normal approximation was applied unconditionally, including `n = 1`, with no switchover threshold. At three per group the exact minimum attainable two-sided p is `0.100000`, yet complete separation returned `p = 0.04953448`. The default now selects exact computation from the dynamic program's actual state and work, so balanced 12+12 and imbalanced 1+24 designs are both exact. Above that limit, the automatic permutation seed is invariant to observation order and group order; the prior seed changed a two-sided result from `0.04960` to `0.04420` when the groups were swapped. | Repairing the CDF did not fix this; only an exact test does. Discreteness is the binding constraint, and tie-aware `pFloor` now reports it on every result. |
 | `wilcoxonSignedRank` small-n | approximation limit, **exact path added** | keep-and-fix (add exact path) | Where the approximation ran it was anti-conservative at `n = 6–7` (minimum attainable `p = 0.0209` against an exact `0.0312` at `n = 6`) and conservative from `n ≥ 8`. The default is now exact by sign-flip enumeration at `n ≤ 20`. | The `n < 6` hard return is gone. `pFloor = 2^(1−n)` is reported on every result, so a design that cannot reach alpha says so. |
 | `confidenceInterval` / `pairedBootstrap` | approximation limit, **floor declared** | keep-and-fix (add an n floor) | Percentile bootstrap, correctly constructed. The gate-relevant quantity is `P(low > 0)` under a true null against a nominal 2.5 %. Measured over 4,000 seeded trials on a continuous null: **13.53 % at `n = 3`**, 3.33 % at `n = 5`, 4.45 % at `n = 8`, 3.52 % at `n = 10`, 3.10 % at `n = 20` for the median statistic; 13.85 %, 7.95 %, 5.80 %, 4.90 %, 3.80 % for the mean statistic. On a five-value discrete grid resembling judge scores: 6.02 % at `n = 3` (median), 6.68 % (mean), still 3.43 % at `n = 10` (mean). | This is an intrinsic limit of bootstrapping three points, not an implementation error — scipy's BCa on the same `n = 3` data gives 16.0 %. The defect is the docstring, which states that `low > threshold` means the gain is real at the confidence level. At `n = 3` that claim is wrong by more than 5×. Consumed by `promotion-policy.ts:133`, `held-out-gate.ts:272`, `statistical-heldout.ts:174`, `measured-comparison.ts:995`, `analyze-runs.ts:908`. `pairedBootstrap` now returns `gateEligible`, false below `BOOTSTRAP_GATE_MIN_N = 20`. |
 | `pairedRiskDifference` | approximation limit | keep-and-fix | The point estimate and the variance formula both matched the closed form exactly on 6 configurations, but the interval is Wald: empirical coverage against a nominal 95 % is 73.80 % at `n = 5`, 86.48 % at `n = 10`, 93.80 % at `n = 20`, 94.73 % at `n = 200`. With no discordant pairs the variance is exactly zero, so `pairedRiskDifference([0,0,0],[1,1,1])` returns `riskDifference = 1, lower = 1, upper = 1` — a zero-width 95 % interval asserting certainty from three observations, and ten concordant pairs return `[0, 0]`. | The module already ships `wilson` and its own comment block argues against exactly this Wald approach for proportions. A Wilson-style or Tango score interval is the standard fix. |
 | `requiredSampleSize`, `requiredPairedSampleSize`, `pairedMde` | approximation limit, **documented** | keep-with-CI-oracle | All three match their stated normal-approximation formulas exactly against `scipy.stats.norm.ppf` closed forms, and are numerically unchanged by the CDF fix because they route through `zQuantile` rather than the forward CDF (`requiredSampleSize({effect: 0.5}) = 63` before and after). They use normal quantiles with no t correction, so they understate required n where n is small: `requiredPairedSampleSize({effect: 0.5})` returns **32** against an exact t-based **34**, and `{effect: 0.8}` returns **13** against **15**. | A 6–13 % shortfall, precisely in the range a caller consults to decide whether 3–10 reps suffice. Both docstrings now say "treat as a lower bound". |
-| `studentTCdf` `df > 100` branch | approximation limit | keep-with-CI-oracle | Deliberately a normal approximation above `df = 100`. At `t = 2.442903, df = 298` it returns `0.01456966` against an exact Student-t `0.01515021`. | The `5.81e-4` gap is the branch's design, not residual CDF error, and should not be mistaken for one. |
 
 ## Correct
 
@@ -85,7 +84,7 @@ These 17 matched their references with zero mismatches and stay as they are, pin
 
 | Statistic | Decision | Measured evidence |
 | --- | --- | --- |
-| `pairedTTest` (normal range) | keep-with-CI-oracle | Across 166 cases the t statistic matched `scipy.stats.ttest_rel` to `≤ 1.5e-15` and p to `≤ 1e-6` relative in all but 4. Type-I under a true null over 20,000 replicates: 5.20 % at `n = 3`, 4.74 % at `n = 4`, 4.97 % at `n = 6`, 5.17 % at `n = 8`, 5.03 % at `n = 10` — correctly calibrated at this package's actual sample sizes. Its one remaining caveat is inherited, not its own: the `df > 100` short-circuit to the normal approximation. |
+| `pairedTTest` (normal range) | keep-with-CI-oracle | Across 166 cases the t statistic matched `scipy.stats.ttest_rel` to `≤ 1.5e-15` and p to `≤ 1e-6` relative in all but 4. Type-I under a true null over 20,000 replicates: 5.20 % at `n = 3`, 4.74 % at `n = 4`, 4.97 % at `n = 6`, 5.17 % at `n = 8`, 5.03 % at `n = 10` — correctly calibrated at this package's actual sample sizes. |
 | `mcnemar` | keep-with-CI-oracle | Exact two-sided binomial on discordant pairs; matched `scipy.stats.binomtest` two-sided to `< 1e-9` on all 13 `(b,c)` configurations including `(0,0)`, `(10,0)`, `(100,70)`. A `b = 1, c = 5` case returns `pValue = 0.21875`. Log-space accumulation via `lnGamma` keeps it stable at large counts. |
 | `pairedSignTest` | keep-with-CI-oracle | Exact one-sided binomial; matched `scipy.stats.binomtest(..., alternative='greater')` to `< 1e-12` on all 9 cases. `pairedSignTest([0.5,0.5,0.5], 'greater')` returns `0.125`. Ties are excluded from the denominator and still reported; `alternative` must be passed explicitly and an invalid value throws, which prevents post-hoc direction selection. |
 | `wilson` | keep-with-CI-oracle | Matched the closed form to `< 1e-8` on all 13 `(successes, n)` pairs including `0/1`, `10/10`, `1/1000`, `0/0`. Correctly asymmetric at the boundaries: `wilson(0, 10)` returns `[0, 0.27753280]`. |
@@ -105,12 +104,12 @@ These 17 matched their references with zero mismatches and stay as they are, pin
 
 ## Public surface change
 
-`normalCdf` and `studentTCdf` were private on `origin/main` and are exported on `fix/statistics-integrity`, because `baseline.ts` and `contract/analyze-runs.ts` now import them instead of holding their own copies.
+`normalCdf` and `studentTCdf` were private on `origin/main` and are now exported with explicit accuracy contracts.
+`baseline.ts` owns the single Welch implementation, and `contract/analyze-runs.ts` consumes that result instead of carrying another normal-approximation copy.
 That is the right trade: one implementation with one accuracy contract beats three copies of which two were wrong.
 It also means both functions are now public API and owe callers a stated accuracy bound.
 `normalCdf` is documented at `7.5e-8` absolute.
-`studentTCdf` is exact to the incomplete beta's own precision below `df = 100` and matches `scipy.stats.t.cdf` to `1e-9` across the pinned oracle cases; the residual floor near `t = 0` is float64 cancellation in `x = df/(df + t²)`, not the approximation.
-Above `df = 100` it is deliberately the normal approximation and is pinned against `scipy.stats.norm` rather than `scipy.stats.t`.
+`studentTCdf` is exact to the incomplete beta's own precision at every finite degree of freedom and matches `scipy.stats.t.cdf` to `1e-9` across the pinned oracle cases; the residual floor near `t = 0` is float64 cancellation in `x = df/(df + t²)`, not the approximation.
 
 ## Dependency verdict
 
@@ -144,8 +143,8 @@ This is roughly 150 lines, not a research project.
 
 The libraries that are correct are correct at things this module already gets right.
 
-`@stdlib/stats-padjust` matches `statsmodels.multipletests` to `1e-9` on `holm`, `bh`, and `bonferroni` — and so does this module's own `holm`, `benjaminiHochberg`, and `bonferroni` on the same reference vector.
-Adopting it buys zero correctness for 190 packages and 7.3 MB.
+`@stdlib/stats-padjust` matches `statsmodels.multipletests` to `1e-9` on `holm`, `bh`, and `bonferroni`, and so does this module's own `holm`, `benjaminiHochberg`, and `bonferroni` on the same frozen reference vectors.
+It was removed even as a development dependency because it bought zero additional coverage for 190 locked packages.
 `@stdlib/stats-ranks` and `jstat.rank` both do average-rank-with-ties correctly, and so does `ranks` here.
 `@sipemu/anofox-statistics`'s count-based exact tests are correct (`fisherExact([[3,0],[0,3]]) = 0.09999999999999992`, `binomTest(3,3,0.5) = 0.25000000000000006`, `mcnemarExact = 0.21875000000000008`), and so are `mcnemar` and `pairedSignTest` here.
 
@@ -167,11 +166,11 @@ Adding 190–286 for statistics we already compute correctly would be inherited 
 scipy is the CI oracle and never ships.
 
 Pin scipy-generated golden values as a JSON fixture under `tests/`, regenerated by a checked-in script, and assert every **keep-with-CI-oracle** statistic against it.
-That is `scripts/generate-statistics-oracle.py` → `tests/fixtures/statistics-oracle.json`, asserted by `tests/statistics-oracle.test.ts`: 153 cases across 22 statistics, each carrying its own tolerance (`7.5e-8` where A&S bounds it, `1e-8` where Acklam's inverse normal does, `1e-12` elsewhere).
+That is `scripts/generate-statistics-oracle.py` → `tests/fixtures/statistics-oracle.json`, asserted by `tests/statistics-oracle.test.ts`: 154 cases across 22 statistics, each carrying its own tolerance (`7.5e-8` where A&S bounds it, `1e-8` where Acklam's inverse normal does, `1e-12` elsewhere).
 scipy 1.13.1 was the reference for every number in this document and it catches exactly the class of defect found here: a hand-rolled approximation that is plausible on inspection and wrong by `3.7e-2`.
-`@stdlib/stats-padjust` and `lib-r-math.js` are **devDependencies only**, cross-checking the three correction functions and the untied exact null distributions in `tests/statistics-library-crosscheck.test.ts`.
-Neither is imported by `src/`.
-One thing that survey missed and this cross-check found: `padjust` adjusts IN PLACE and returns the array it was handed, so a caller that reuses its input silently corrects an already-corrected family — a second reason it does not belong on the runtime path.
+`lib-r-math.js` is a **devDependency only**, cross-checking the untied exact null distributions in `tests/statistics-library-crosscheck.test.ts`.
+The three correction functions are independently covered by the statsmodels-generated fixture.
+Neither reference implementation is imported by `src/`.
 `fast-check` is already a devDependency, so the invariants that no fixture can express — a p-value never below the attainable floor, monotonicity of p in the statistic, an exact and an asymptotic path agreeing as `n` grows — belong there.
 
 ## Exact versus asymptotic policy
@@ -185,7 +184,7 @@ No better approximation reaches the right answer here; only an exact test does.
 
 | Test | Exact by enumeration | Seeded Monte Carlo permutation | Asymptotic |
 | --- | --- | --- | --- |
-| Two-sample rank (`mannWhitneyU`) | `n₁ + n₂ ≤ 24` — 3.7 ms at 10 v 10, 33 ms at 12 v 12 | above that, default 100,000 permutations | never the default; only on explicit request above the exact threshold |
+| Two-sample rank (`mannWhitneyU`) | dynamic program up to 8,192 cells and 250,000 transitions; includes 12 v 12 and 1 v 24 | above that, default 100,000 permutations | never the default; only on explicit request above the exact work limits |
 | Paired signed-rank (`wilcoxonSignedRank`) | `n ≤ 20` — `2²⁰ = 1,048,576` sign flips | above that, default 100,000 sign flips | same |
 | Paired sign test (`pairedSignTest`) | always exact — binomial, already correct | — | never |
 | McNemar (`mcnemar`) | always exact — binomial, already correct | — | never |
@@ -202,7 +201,7 @@ Refuse, loudly, in the package's own idiom.
 
 Every rank test takes `method: 'exact' | 'asymptotic' | 'auto'`, defaulting to `'auto'`.
 `'auto'` selects exact whenever the design is inside the enumeration threshold, Monte Carlo permutation above it, and asymptotic never.
-An explicit `method: 'asymptotic'` inside the exact-feasible range **throws a `ValidationError`** naming the smallest attainable p at that design — *"mannWhitneyU: method 'asymptotic' is refused at n1=3, n2=3 — the exact p-grid at this design starts at 0.1000, so an asymptotic p below it describes no attainable outcome. Use method 'exact' (the default) or add repetitions past 24 total observations."*
+An explicit `method: 'asymptotic'` inside the exact-feasible range **throws a `ValidationError`** naming the smallest attainable p at that design and the exact work limits.
 An explicit `method: 'exact'` ABOVE the threshold throws too, rather than enumerating a distribution whose cost is unbounded.
 
 This is a refusal, not a warning, and the reason is the package's own doctrine.
@@ -220,7 +219,8 @@ This is the field `@stdlib/stats-wilcoxon` omits, which is why its silent exact-
 
 Still to do: every gate that consumes a rank test should state its minimum n at construction and fail its own precondition check when the data is smaller, rather than accepting whatever the test returns.
 A gate that cannot reach its alpha at the n it was handed should report *underpowered*, which is a true statement about the experiment, not *not significant*, which is a false statement about the effect.
-`pFloor` and `gateEligible` are what make that check expressible; wiring it into `held-out-gate.ts`, `promotion-policy.ts`, and `statistical-heldout.ts` is a separate change.
+`pFloor` and `gateEligible` make that check expressible.
+Promotion paths now use `pairedDeltaTest`: an exact one-sided sign test carries decisions from 6 through 19 pairs, and the bootstrap interval carries them from 20 onward.
 
 ## Consumer notice
 
@@ -235,7 +235,7 @@ The normal CDF itself was corrected in 0.133.1; every other row below was still 
 | --- | --- | --- | --- |
 | `mannWhitneyU` | `normalCdf`, then the asymptotic path itself | p too small | `[1,2,3]` v `[4,5,6]`: reported `0.03769147`. Repairing the CDF alone gives `0.04953448` (1.31×); the shipped exact answer is `0.10000000` (2.65×), and `0.05` is unreachable at 3 v 3 in the first place. `[1..5]` v `[10..14]`: reported `0.00671001`, shipped exact `0.00793651` (1.18×). |
 | `wilcoxonSignedRank` | `normalCdf`, then the asymptotic path itself | p too small, or fabricated as 1 | `n = 8` constant shift: reported `0.00873623`, CDF-repaired `0.01171872`, shipped exact `0.00781250`. Below six non-zero differences the old code returned `p = 1` regardless of the data: a clean 5-of-5 shift reported `1.0` where the exact answer is `0.0625`. |
-| `pairedTTest` at `df > 100` | `studentTCdf` → `normalCdf` | p too small | A `df = 298` case: reported `0.010887`, correct `0.014570`. |
+| `pairedTTest` at `df > 100` | deleted `studentTCdf` normal shortcut | p too small | A `df = 298` case: reported `0.010887`, correct Student-t `0.015150`. |
 | `welchsTTest`, `compareToBaseline` | duplicate `normalCdf` in `baseline.ts` | p too small | Same `df = 298` case, same shift. This drives the improved / regressed / stable verdict at `baseline.ts:97`. |
 | `mcnemarPower` | `normalCdf` | power **overstated** above 0.5, understated below | `{p10: 0.2, p01: 0.1, nPairs: 200}`: reported `0.773437`, correct `0.736522`. At `n = 80`: `0.9368` against `0.9197`. At `n = 20`: `0.3294` against a correct `0.3627`. |
 | `pairedTTest` at `df ≤ 100`, small `\|t\|` | `incompleteBeta` — **fixed** | p wildly too small near `t = 0` | `df = 7, t = 0.001`: reported `0.15130173`, correct `0.99923002`. `df = 100, t = 1e-6`: reported `0.00004411`, correct ≈ `1.0`. |

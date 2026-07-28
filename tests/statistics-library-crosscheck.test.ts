@@ -1,83 +1,16 @@
-import padjust from '@stdlib/stats-padjust'
 import { describe, expect, it } from 'vitest'
-import {
-  benjaminiHochberg,
-  bonferroni,
-  holm,
-  mannWhitneyU,
-  wilcoxonSignedRank,
-} from '../src/statistics'
+import { mannWhitneyU, wilcoxonSignedRank } from '../src/statistics'
 
-// A second independent implementation of the parts of this module that a
-// maintained library DOES cover correctly. Both packages are devDependencies
-// and neither is imported by `src/`: the survey behind
+// An independent implementation of the exact untied nulls that a maintained
+// library covers correctly. It is a devDependency and is never imported by
+// `src/`: the survey behind
 // docs/design/statistics-decisions.md found no npm package that computes an
 // exact rank test under ties, Cliff's delta, or a paired bootstrap interval,
 // so adopting one would buy zero correctness at a cost every consumer of this
 // package would inherit.
 //
-// The imports are narrow on purpose — the correction functions and the untied
-// exact null distributions, nothing else.
-
-const FAMILIES: number[][] = [
-  [0.01, 0.04, 0.05],
-  [0.0125, 0.0125, 0.0125, 0.0125],
-  [0.05, 0.05],
-  [0.2, 0.2, 0.2, 0.2, 0.2],
-  [0.001, 0.5, 0.5, 0.5],
-  [
-    0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, 0.212, 0.216, 0.222, 0.251, 0.269, 0.275,
-    0.34,
-  ],
-  [0.03, 0.001, 0.6, 0.02, 0.9, 0.045],
-]
-
-/** `padjust` adjusts IN PLACE and returns the same array it was handed, so a
- *  caller that reuses its input silently corrects an already-corrected family.
- *  Copy on the way in. */
-function reference(family: readonly number[], method: string): number[] {
-  return padjust([...family], method) as number[]
-}
-
-describe('multiple-comparison corrections vs @stdlib/stats-padjust', () => {
-  for (const family of FAMILIES) {
-    it(`bonferroni matches on ${family.length} hypotheses`, () => {
-      const want = reference(family, 'bonferroni')
-      const ours = bonferroni(family).adjusted
-      for (let i = 0; i < family.length; i++) {
-        expect(Math.abs(ours[i]! - want[i]!)).toBeLessThanOrEqual(1e-12)
-      }
-    })
-
-    it(`holm matches on ${family.length} hypotheses`, () => {
-      const want = reference(family, 'holm')
-      const ours = holm(family).adjusted
-      for (let i = 0; i < family.length; i++) {
-        expect(Math.abs(ours[i]! - want[i]!)).toBeLessThanOrEqual(1e-12)
-      }
-    })
-
-    it(`benjamini-hochberg matches on ${family.length} hypotheses`, () => {
-      const want = reference(family, 'bh')
-      const ours = benjaminiHochberg(family).qValues
-      for (let i = 0; i < family.length; i++) {
-        expect(Math.abs(ours[i]! - want[i]!)).toBeLessThanOrEqual(1e-12)
-      }
-    })
-  }
-
-  it('leaves the caller-supplied family untouched, unlike padjust', () => {
-    const family = [0.01, 0.04, 0.05]
-    bonferroni(family)
-    holm(family)
-    benjaminiHochberg(family)
-    expect(family).toEqual([0.01, 0.04, 0.05])
-
-    const mutated = [0.01, 0.04, 0.05]
-    padjust(mutated, 'bonferroni')
-    expect(mutated).not.toEqual([0.01, 0.04, 0.05])
-  })
-})
+// Multiple-comparison corrections remain independently pinned to
+// statsmodels in tests/fixtures/statistics-oracle.json.
 
 describe('exact rank-test nulls vs lib-r-math.js', () => {
   // lib-r-math.js ships R's distributions, not R's tests: `pwilcox(q, m, n)`

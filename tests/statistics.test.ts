@@ -1089,6 +1089,10 @@ describe('incompleteBeta symmetry branch — Student-t near t = 0', () => {
     })
   }
 
+  it('keeps the true Student-t tail above 100 degrees of freedom', () => {
+    expect(2 * (1 - studentTCdf(1.98, 102))).toBeCloseTo(0.05039751399722791, 12)
+  })
+
   it('reports a near-null paired shift as near-null, not significant', () => {
     // Deltas average 1e-6 of their own spread: p must be ≈ 1, not < 0.05.
     const before = [0, 1, 2, 3, 4, 5, 6, 7]
@@ -1297,6 +1301,16 @@ describe('rank tests: exact-versus-asymptotic policy', () => {
     expect(() => mannWhitneyU(a, b, { method: 'exact' })).toThrow(/out of range/)
   })
 
+  it('uses exact work estimates for an imbalanced 1+24 design', () => {
+    const r = mannWhitneyU(
+      [0],
+      Array.from({ length: 24 }, (_, index) => index + 1),
+    )
+    expect(r.method).toBe('exact')
+    expect(r.p).toBeCloseTo(0.08, 12)
+    expect(r.pFloor).toBeCloseTo(0.08, 12)
+  })
+
   it("'auto' takes the permutation path above the threshold, never asymptotic", () => {
     const a = Array.from({ length: 14 }, (_, i) => i + 1)
     const b = Array.from({ length: 14 }, (_, i) => i + 8)
@@ -1319,12 +1333,45 @@ describe('rank tests: exact-versus-asymptotic policy', () => {
     expect(Math.abs(r.p - 0.0007867974321958436)).toBeLessThanOrEqual(1.5e-7)
   })
 
-  it('permutation results are reproducible without an explicit seed', () => {
-    const a = Array.from({ length: 15 }, (_, i) => i * 1.5)
-    const b = Array.from({ length: 15 }, (_, i) => i * 1.5 + 2)
-    const first = mannWhitneyU(a, b, { permutations: 5000 })
-    const second = mannWhitneyU(a, b, { permutations: 5000 })
-    expect(first.p).toBe(second.p)
+  it('permutation results are invariant to observation order without an explicit seed', () => {
+    const a = Array.from({ length: 13 }, (_, index) => index)
+    const b = a.map((value) => value + 3.5)
+    const forward = mannWhitneyU(a, b, { permutations: 10_000 })
+    const reversed = mannWhitneyU([...a].reverse(), [...b].reverse(), {
+      permutations: 10_000,
+    })
+    expect(forward.p).toBe(reversed.p)
+  })
+
+  it('permutation results are invariant when the two groups are swapped', () => {
+    const a = Array.from({ length: 13 }, (_, index) => index)
+    const b = a.map((value) => value + 3.5)
+    const forward = mannWhitneyU(a, b, { permutations: 10_000 })
+    const swapped = mannWhitneyU(b, a, { permutations: 10_000 })
+    expect(forward.p).toBe(swapped.p)
+    expect(forward.pFloor).toBe(swapped.pFloor)
+  })
+
+  it('uses the conditional tie floor and never samples below it', () => {
+    const a = Array<number>(13).fill(0)
+    const b = [...Array<number>(7).fill(0), ...Array<number>(6).fill(1)]
+    const r = mannWhitneyU(a, b, { permutations: 10_000, seed: 8 })
+    expect(r.method).toBe('permutation')
+    expect(r.pFloor).toBeCloseTo(0.014906832298136646, 12)
+    expect(r.p).toBe(r.pFloor)
+  })
+
+  it('reports an all-tied sampled design as incapable of rejecting', () => {
+    const r = mannWhitneyU(Array<number>(13).fill(0), Array<number>(13).fill(0))
+    expect(r.method).toBe('permutation')
+    expect(r.pFloor).toBe(1)
+    expect(r.p).toBe(1)
+  })
+
+  it('prints a non-zero exact floor with significant digits', () => {
+    const a = Array.from({ length: 12 }, (_, index) => index)
+    const b = Array.from({ length: 12 }, (_, index) => index + 12)
+    expect(() => mannWhitneyU(a, b, { method: 'asymptotic' })).toThrow(/starts at 7\.396e-7/)
   })
 
   it('rejects a non-integer permutation count', () => {
@@ -1521,11 +1568,54 @@ describe('welchsTTest / compareToBaseline — the unguarded promotion path', () 
     ]
     for (const { a, b, t, df, p } of CASES) {
       const r = welchsTTest(a, b)
+      expect(r.status).toBe('ok')
       expect(r.t).toBeCloseTo(t, 12)
       expect(r.df).toBeCloseTo(df, 12)
-      // df ≤ 100 here, so this is the exact Student-t tail, not the normal one.
       expect(r.p).toBeCloseTo(p, 12)
     }
+  })
+
+  it('returns the complete Welch result with a Student-t 95% interval', () => {
+    const r = welchsTTest([0.4, 0.5, 0.6, 0.55, 0.45, 0.5], [0.7, 0.8, 0.75, 0.72, 0.78, 0.74])
+    expect(r).toMatchObject({
+      status: 'ok',
+      ci95: expect.any(Array),
+    })
+    expect(r.meanA).toBeCloseTo(0.5, 12)
+    expect(r.meanB).toBeCloseTo(0.7483333333333334, 12)
+    expect(r.delta).toBeCloseTo(0.2483333333333334, 12)
+    expect(r.standardError).toBeCloseTo(0.03260027266416307, 12)
+    expect(r.ci95![0]).toBeCloseTo(0.17238725256665494, 12)
+    expect(r.ci95![1]).toBeCloseTo(0.3242794141000119, 12)
+    expect(r.cohensD).toBeCloseTo(4.397979069861191, 12)
+  })
+
+  it('marks fewer than two observations per side as insufficient', () => {
+    const r = welchsTTest([1], [2])
+    expect(r.status).toBe('insufficient-sample')
+    expect(r.meanA).toBe(1)
+    expect(r.meanB).toBe(2)
+    expect(r.delta).toBe(1)
+    expect(r.standardError).toBeNaN()
+    expect(r.t).toBeNaN()
+    expect(r.df).toBeNaN()
+    expect(r.p).toBeNaN()
+    expect(r.ci95).toBeNull()
+    expect(r.cohensD).toBeNull()
+  })
+
+  it('does not fabricate certainty for separated constant samples', () => {
+    const r = welchsTTest(Array<number>(32).fill(0.25), Array<number>(32).fill(0.75))
+    expect(r.status).toBe('zero-variance')
+    expect(r.meanA).toBe(0.25)
+    expect(r.meanB).toBe(0.75)
+    expect(r.delta).toBe(0.5)
+    expect(r.standardError).toBe(0)
+    expect(r.t).toBe(Number.POSITIVE_INFINITY)
+    expect(r.df).toBeNaN()
+    expect(r.p).toBeNaN()
+    expect(r.ci95).toBeNull()
+    expect(r.cohensD).toBeNull()
   })
 
   it('drives improved / regressed / stable verdicts off those numbers', () => {
@@ -1563,7 +1653,7 @@ describe('welchsTTest / compareToBaseline — the unguarded promotion path', () 
     expect(report.hasRegression).toBe(true)
   })
 
-  it('surfaces an unbounded effect as null rather than a finite Cohen d', () => {
+  it('does not promote a separated constant sample without defined inference', () => {
     const report = compareToBaseline([
       {
         metric: 'passRate',
@@ -1573,6 +1663,7 @@ describe('welchsTTest / compareToBaseline — the unguarded promotion path', () 
       },
     ])
     expect(report.metrics[0]!.cohensD).toBeNull()
-    expect(report.metrics[0]!.verdict).toBe('improved')
+    expect(report.metrics[0]!.welchP).toBeNaN()
+    expect(report.metrics[0]!.verdict).toBe('stable')
   })
 })

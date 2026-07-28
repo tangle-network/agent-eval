@@ -74,6 +74,7 @@ describe('analyzeRuns — prior-period comparison', () => {
     expect(ppc!.baselineN).toBe(30)
     expect(ppc!.currentN).toBe(30)
     expect(ppc!.metrics.composite).toBeDefined()
+    expect(ppc!.metrics.composite!.status).toBe('ok')
     expect(ppc!.metrics.composite!.delta).toBeCloseTo(0.1, 1)
     expect(ppc!.metrics.composite!.significant).toBe(true)
     expect(ppc!.improvedMetrics).toContain('composite')
@@ -150,6 +151,36 @@ describe('analyzeRuns — prior-period comparison', () => {
     expect(ppc.metrics.composite!.significant).toBe(false)
   })
 
+  it('surfaces a constant shift without fabricating inferential statistics', async () => {
+    const current = Array.from({ length: 32 }, (_, i) =>
+      makeRun({ id: `cur-${i}`, composite: 0.25 }),
+    )
+    const baseline = Array.from({ length: 32 }, (_, i) =>
+      makeRun({ id: `bas-${i}`, composite: 0.75 }),
+    )
+    const report = await analyzeRuns({ runs: current, baselineRuns: baseline })
+    const metric = report.priorPeriodComparison!.metrics.composite!
+
+    expect(metric).toMatchObject({
+      status: 'zero-variance',
+      delta: -0.5,
+      ci95: null,
+      pValue: null,
+      cohensD: null,
+      significant: false,
+    })
+    expect(report.priorPeriodComparison!.inconclusiveMetrics).toContain('composite')
+    expect(report.recommendations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          priority: 'high',
+          kind: 'investigate',
+          title: expect.stringContaining('composite changed'),
+        }),
+      ]),
+    )
+  })
+
   it('produces per-dimension comparisons when judge scores are present in both', async () => {
     const judgesCur = { default: { clarity: 0.9, concision: 0.8 } }
     const judgesBas = { default: { clarity: 0.5, concision: 0.8 } }
@@ -185,6 +216,8 @@ describe('analyzeRuns — prior-period comparison', () => {
     )
     const report = await analyzeRuns({ runs: current, baselineRuns: baseline })
     const d = report.priorPeriodComparison!.metrics.composite!
+    expect(d.status).toBe('ok')
+    if (d.status !== 'ok') throw new Error('expected a valid Welch comparison')
     expect(d.delta).toBeCloseTo(0.1, 2)
     expect(d.ci95[0]).toBeLessThan(d.delta)
     expect(d.ci95[1]).toBeGreaterThan(d.delta)

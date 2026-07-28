@@ -418,8 +418,8 @@ function profileMeasurements(): Array<{
   baseline: PlatformProfileRun
   candidate: PlatformProfileRun
 }> {
-  return [0, 1, 2].map((index) => {
-    const baseline = 0.2 + index * 0.05
+  return [0, 1, 2, 3, 4, 5].map((index) => {
+    const baseline = 0.2 + (index % 3) * 0.05
     const candidate = baseline + 0.5
     const run = (score: number): PlatformProfileRun => ({
       score,
@@ -470,13 +470,13 @@ describe('candidate experiment comparison', () => {
       preparationCost: { usd: 0.25, provenance: 'observed' },
     })
 
-    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
+    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
     expect(result.decision.outcome).toBe('ship')
     expect(result.measurementCost).toMatchObject({ provenance: 'observed' })
-    expect(result.measurementCost.usd).toBeCloseTo(0.06, 12)
+    expect(result.measurementCost.usd).toBeCloseTo(0.12, 12)
     expect(result.totalCost).toMatchObject({ provenance: 'observed' })
-    expect(result.totalCost.usd).toBeCloseTo(0.31, 12)
-    expect(result.measurementWorkDurationMs).toBe(600)
+    expect(result.totalCost.usd).toBeCloseTo(0.37, 12)
+    expect(result.measurementWorkDurationMs).toBe(1_200)
     expect(() =>
       evaluatePairedMeasurements({
         measurements: [measurements[0]!, measurements[0]!],
@@ -506,7 +506,7 @@ describe('candidate experiment comparison', () => {
 
   it('uses observed paired precision instead of baseline-only variance', () => {
     const template = profileMeasurements()[0]!.baseline
-    const baselines = [0.1, 0.9, 0.1, 0.9]
+    const baselines = [0.1, 0.9, 0.1, 0.9, 0.1, 0.9]
     const measurements = baselines.map((baseline, index) => {
       const run = (score: number): PlatformProfileRun => ({
         ...template,
@@ -525,7 +525,7 @@ describe('candidate experiment comparison', () => {
       policy: {
         ...experiment().policy,
         deltaThreshold: 0.05,
-        minProductiveRuns: 4,
+        minProductiveRuns: 6,
       },
       adapter: profileRunAdapter,
       sharedScorerChannel: true,
@@ -653,15 +653,15 @@ describe('candidate experiment comparison', () => {
   })
 
   it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
-    const frozen = experiment()
+    const frozen = experiment(6)
     const observedSeeds: number[] = []
     const run = await runCandidateExperiment({
       experiment: frozen,
       maxConcurrency: 3,
       async execute(input) {
         observedSeeds.push(input.seed)
-        const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition]!
-        const candidate = [0.7, 0.75, 0.8][input.benchmarkCell.repetition]!
+        const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition % 3]!
+        const candidate = [0.7, 0.75, 0.8][input.benchmarkCell.repetition % 3]!
         return executionEvidence({
           experiment: input.experiment,
           arm: input.arm,
@@ -694,16 +694,16 @@ describe('candidate experiment comparison', () => {
       },
     })
 
-    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
+    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
     expect(comparison.decision.outcome).toBe('ship')
     expect(comparison.diff).toContain('--- baseline/profile')
     expect(comparison.diff).toContain('verify every claim')
-    expect(comparison.measurements).toHaveLength(3)
+    expect(comparison.measurements).toHaveLength(6)
     expect(comparison.evaluation).toMatchObject({
       preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
-      measurement: { workDurationMs: 600, cost: { usd: 0.06, provenance: 'observed' } },
+      measurement: { workDurationMs: 1_200, cost: { usd: 0.12, provenance: 'observed' } },
     })
-    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.31, provenance: 'observed' })
+    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.37, provenance: 'observed' })
     expect(verifyCandidateExperimentComparison(comparison)).toEqual(comparison)
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
@@ -712,7 +712,7 @@ describe('candidate experiment comparison', () => {
       ]),
     )
     expect(observedSeeds.sort((left, right) => left - right)).toEqual([
-      101, 101, 102, 102, 103, 103,
+      101, 101, 102, 102, 103, 103, 104, 104, 105, 105, 106, 106,
     ])
   })
 

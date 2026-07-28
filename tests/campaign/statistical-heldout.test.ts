@@ -42,7 +42,6 @@ async function decide(opts: {
   return gate.decide(ctx)
 }
 const gateDetail = (r: Awaited<ReturnType<typeof decide>>, name: string) =>
-  // biome-ignore lint/suspicious/noExplicitAny: test reads opaque contributingGate detail
   r.contributingGates.find((c) => c.name === name)?.detail as any
 
 describe('pairHoldout — full-cellId pairing (the trap that fakes a tight CI)', () => {
@@ -80,16 +79,21 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
         'h2:0': { composite: 88 },
         'h3:0': { composite: 95 },
         'h4:0': { composite: 90 },
+        'h5:0': { composite: 89 },
+        'h6:0': { composite: 93 },
       },
       candidate: {
         'h1:0': { composite: 95 },
         'h2:0': { composite: 84 },
         'h3:0': { composite: 93 },
         'h4:0': { composite: 92 },
+        'h5:0': { composite: 87 },
+        'h6:0': { composite: 95 },
       },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4'],
+      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     })
     expect(r.decision).toBe('hold')
+    expect(gateDetail(r, 'heldout-significance').fewRuns).toBe(false)
     expect(gateDetail(r, 'heldout-significance').ciLow).toBeLessThanOrEqual(0)
   })
 
@@ -100,14 +104,18 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
         'h2:0': { composite: 82 },
         'h3:0': { composite: 78 },
         'h4:0': { composite: 81 },
+        'h5:0': { composite: 79 },
+        'h6:0': { composite: 83 },
       },
       candidate: {
         'h1:0': { composite: 86 },
         'h2:0': { composite: 88 },
         'h3:0': { composite: 84 },
         'h4:0': { composite: 87 },
+        'h5:0': { composite: 85 },
+        'h6:0': { composite: 89 },
       },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4'],
+      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     })
     expect(r.decision).toBe('ship')
     expect(gateDetail(r, 'heldout-significance').ciLow).toBeGreaterThan(0)
@@ -117,7 +125,7 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
     const r = await decide({
       baseline: { 'h1:0': { composite: 80 }, 'h2:0': { composite: 80 } },
       candidate: { 'h1:0': { composite: 90 }, 'h2:0': { composite: 90 } },
-      scenarioIds: ['h1', 'h2'], // n=2 < default minProductiveRuns 3
+      scenarioIds: ['h1', 'h2'], // n=2 cannot attain the default confidence
     })
     expect(r.decision).toBe('hold')
     expect(gateDetail(r, 'heldout-significance').fewRuns).toBe(true)
@@ -134,14 +142,18 @@ describe('defaultProductionGate — per-dimension regression guard (anti-Goodhar
         'h2:0': { composite: 82, dimensions: { hallucination_free: 100 } },
         'h3:0': { composite: 78, dimensions: { hallucination_free: 95 } },
         'h4:0': { composite: 81, dimensions: { hallucination_free: 100 } },
+        'h5:0': { composite: 79, dimensions: { hallucination_free: 98 } },
+        'h6:0': { composite: 83, dimensions: { hallucination_free: 97 } },
       },
       candidate: {
         'h1:0': { composite: 86, dimensions: { hallucination_free: 72 } },
         'h2:0': { composite: 88, dimensions: { hallucination_free: 70 } },
         'h3:0': { composite: 84, dimensions: { hallucination_free: 68 } },
         'h4:0': { composite: 87, dimensions: { hallucination_free: 71 } },
+        'h5:0': { composite: 85, dimensions: { hallucination_free: 69 } },
+        'h6:0': { composite: 89, dimensions: { hallucination_free: 70 } },
       },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4'],
+      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
       criticalDimensions: ['hallucination_free'],
     })
     expect(r.decision).toBe('hold')
@@ -157,14 +169,18 @@ describe('defaultProductionGate — per-dimension regression guard (anti-Goodhar
         'h2:0': { composite: 82, dimensions: { hallucination_free: 100 } },
         'h3:0': { composite: 78, dimensions: { hallucination_free: 100 } },
         'h4:0': { composite: 81, dimensions: { hallucination_free: 99 } },
+        'h5:0': { composite: 79, dimensions: { hallucination_free: 100 } },
+        'h6:0': { composite: 83, dimensions: { hallucination_free: 99 } },
       },
       candidate: {
         'h1:0': { composite: 86, dimensions: { hallucination_free: 100 } },
         'h2:0': { composite: 88, dimensions: { hallucination_free: 100 } },
         'h3:0': { composite: 84, dimensions: { hallucination_free: 99 } },
         'h4:0': { composite: 87, dimensions: { hallucination_free: 100 } },
+        'h5:0': { composite: 85, dimensions: { hallucination_free: 100 } },
+        'h6:0': { composite: 89, dimensions: { hallucination_free: 100 } },
       },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4'],
+      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
       criticalDimensions: ['hallucination_free'],
     })
     expect(r.decision).toBe('ship')

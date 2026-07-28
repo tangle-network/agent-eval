@@ -55,8 +55,8 @@ export interface DefaultProductionGateOptions {
   /** Fixed bootstrap seed for a deterministic verdict. Default 1337. */
   bootstrapSeed?: number
   /** Minimum paired holdout observations (scenarios × reps) before a
-   *  significance claim is allowed; below it the gate HOLDS with `few_runs`
-   *  rather than reading a degenerate CI. Default 3. */
+   *  significance claim is allowed. The exact small-sample test may require
+   *  more observations at the selected confidence. Default 3. */
   minProductiveRuns?: number
   /** Ship statistic for the held-out significance test. Default `'mean'`
    *  (tie-robust — see `heldoutSignificance`). Pass `'median'` for
@@ -187,7 +187,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
               : ''
           reasons.push(
             sig.fewRuns
-              ? `held-out: only ${sig.n} paired runs (< ${minProductiveRuns}) — too few to claim significance`
+              ? `held-out: only ${sig.n} paired runs (< ${sig.minimumRequired}) — too few to claim significance`
               : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${heldoutStatistic} Δ ${delta.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]${tieNote})`,
           )
         }

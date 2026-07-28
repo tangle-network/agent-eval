@@ -33,9 +33,10 @@
  */
 
 import { pairRunRecords } from './paired-arms'
+import { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
-import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
+import { wilcoxonSignedRank } from './statistics'
 
 export type HeldOutGateRejectionCode =
   | 'few_runs'
@@ -48,7 +49,8 @@ export type HeldOutGateRejectionCode =
 
 export interface HeldOutGateConfig {
   /** Minimum number of paired (candidate, baseline) holdout observations
-   *  required before the gate will even consider promoting. Default 3. */
+   *  required before promotion. The exact small-sample test may require more
+   *  observations at the selected confidence. */
   minProductiveRuns?: number
   /** The bootstrap-CI lower bound on the median paired holdout delta
    *  must exceed this to promote. Default 0. */
@@ -154,11 +156,14 @@ export class HeldOutGate {
     if (!config.baselineKey) {
       throw new Error('HeldOutGate: baselineKey is required')
     }
-    this.minProductiveRuns = config.minProductiveRuns ?? 3
+    this.confidence = config.confidence ?? 0.95
+    this.minProductiveRuns = Math.max(
+      config.minProductiveRuns ?? 3,
+      minimumPairsForPairedDeltaTest(this.confidence),
+    )
     this.pairedDeltaThreshold = config.pairedDeltaThreshold ?? 0
     this.overfitGapThreshold = config.overfitGapThreshold ?? 0.15
     this.baselineKey = config.baselineKey
-    this.confidence = config.confidence ?? 0.95
     this.resamples = config.bootstrapResamples ?? 2000
     this.seed = config.seed
     if (
@@ -269,13 +274,15 @@ export class HeldOutGate {
       throw new Error('HeldOutGate: complete split scores did not produce overfit gaps')
     }
 
-    // Paired bootstrap on holdout deltas.
-    const ci = pairedBootstrap(beforeHoldout, afterHoldout, {
+    const deltaTest = pairedDeltaTest(beforeHoldout, afterHoldout, {
       confidence: this.confidence,
       resamples: this.resamples,
       statistic: 'median',
       seed: this.seed,
+      threshold: this.pairedDeltaThreshold,
+      minPairs: this.minProductiveRuns,
     })
+    const ci = deltaTest.bootstrap
     const wilcoxon = wilcoxonSignedRank(beforeHoldout, afterHoldout)
 
     const evidence: GateEvidence = {
@@ -298,8 +305,7 @@ export class HeldOutGate {
       }
     }
 
-    // Negative-delta gate (CI lower bound must clear the threshold).
-    if (!(ci.low > this.pairedDeltaThreshold)) {
+    if (!deltaTest.significant) {
       return {
         promote: false,
         candidateId,
@@ -307,7 +313,8 @@ export class HeldOutGate {
         evidence,
         reason:
           `negative_delta: paired holdout median Δ=${fmt(ci.median)} ` +
-          `CI=[${fmt(ci.low)}, ${fmt(ci.high)}] does not clear threshold ${fmt(this.pairedDeltaThreshold)}`,
+          `${deltaTest.method === 'bootstrap-ci' ? `CI=[${fmt(ci.low)}, ${fmt(ci.high)}]` : `exact one-sided p=${fmt(deltaTest.pValue ?? 1)}`} ` +
+          `does not clear threshold ${fmt(this.pairedDeltaThreshold)}`,
         rejectionCode: 'negative_delta',
       }
     }

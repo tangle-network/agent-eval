@@ -12,6 +12,9 @@ const scenarios: Scenario[] = [
   { id: 'one', kind: 'test' },
   { id: 'two', kind: 'test' },
   { id: 'three', kind: 'test' },
+  { id: 'four', kind: 'test' },
+  { id: 'five', kind: 'test' },
+  { id: 'six', kind: 'test' },
 ]
 
 function scores(values: number[]) {
@@ -35,8 +38,8 @@ function context(): GateContext<{ text: string }, Scenario> {
       scenarios.map((scenario) => [`${scenario.id}:0`, { text: 'ordinary output' }]),
     ),
     baselineArtifacts: new Map(),
-    judgeScores: scores([0.8, 0.9, 0.7]),
-    baselineJudgeScores: scores([0.5, 0.6, 0.4]),
+    judgeScores: scores([0.8, 0.9, 0.7, 0.8, 0.9, 0.7]),
+    baselineJudgeScores: scores([0.5, 0.6, 0.4, 0.5, 0.6, 0.4]),
     scenarios,
     cost: { candidate: 1, baseline: 1 },
     signal: new AbortController().signal,

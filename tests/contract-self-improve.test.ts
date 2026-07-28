@@ -49,10 +49,9 @@ const MARKER = 'STRICT_SCHEMA'
 const RATIONALE = 'baseline under-specifies output; pin the strict schema'
 const LABEL = 'pin-schema'
 
-// Twelve scenarios so the 0.25 holdout split yields >=3 holdout cells — the
-// rigorous gate's minProductiveRuns floor for a paired-bootstrap significance
-// claim (2 holdout would correctly hold as too-few-runs).
-const SCENARIOS: S[] = Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, kind: 'chat' }))
+// Twenty-four scenarios make the 0.25 holdout split yield six cells, the
+// smallest sample that can clear the default 95% exact sign test.
+const SCENARIOS: S[] = Array.from({ length: 24 }, (_, i) => ({ id: `s${i}`, kind: 'chat' }))
 
 const judge: JudgeConfig<A, S> = {
   name: 'has-marker',

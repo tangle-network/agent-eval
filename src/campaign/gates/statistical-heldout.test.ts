@@ -26,16 +26,18 @@ const composite = (s: JudgeScore) => s.composite
 describe('pairHoldout + heldoutSignificance — promotion gate decision core', () => {
   it('a clear held-out gain is SIGNIFICANT (gate ships)', () => {
     const paired = pairHoldout(
-      cells([0.8, 0.8, 0.8, 0.8, 0.8]),
-      cells([0.5, 0.5, 0.5, 0.5, 0.5]),
-      scenarioIds(5),
+      cells([0.8, 0.8, 0.8, 0.8, 0.8, 0.8]),
+      cells([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+      scenarioIds(6),
       composite,
     )
-    expect(paired.before).toEqual([0.5, 0.5, 0.5, 0.5, 0.5])
-    expect(paired.after).toEqual([0.8, 0.8, 0.8, 0.8, 0.8])
+    expect(paired.before).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+    expect(paired.after).toEqual([0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
     const sig = heldoutSignificance(paired)
-    expect(sig.n).toBe(5)
+    expect(sig.n).toBe(6)
     expect(sig.fewRuns).toBe(false)
+    expect(sig.decisionMethod).toBe('exact-sign')
+    expect(sig.pValue).toBeCloseTo(1 / 64, 12)
     expect(sig.bootstrap.low).toBeGreaterThan(0)
     expect(sig.significant).toBe(true)
   })
@@ -65,7 +67,7 @@ describe('pairHoldout + heldoutSignificance — promotion gate decision core', (
 
   it('thin n (< minProductiveRuns) is REFUSED even with a huge delta (fewRuns, not significant)', () => {
     const paired = pairHoldout(cells([0.95, 0.95]), cells([0.1, 0.1]), scenarioIds(2), composite)
-    const sig = heldoutSignificance(paired) // default minProductiveRuns = 3
+    const sig = heldoutSignificance(paired)
     expect(sig.n).toBe(2)
     expect(sig.fewRuns).toBe(true)
     expect(sig.significant).toBe(false) // 2 runs is not evidence, however large the gap

@@ -74,7 +74,7 @@ describe('public normal-approximation callers', () => {
     expect(mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: 63 })).toBeCloseTo(0.843250705551538, 6)
   })
 
-  it('uses the corrected normal tail for a paired t-test above 100 degrees of freedom', () => {
+  it('uses the Student-t tail for a paired test above 100 degrees of freedom', () => {
     const n = 102
     const result = pairedTTest(
       Array<number>(n).fill(0),
@@ -83,10 +83,10 @@ describe('public normal-approximation callers', () => {
 
     expect(result.df).toBe(101)
     expect(result.t).toBeCloseTo(1.96, 12)
-    expect(result.p).toBeCloseTo(0.049995790296440745, 6)
+    expect(result.p).toBeCloseTo(0.052751249508782364, 9)
   })
 
-  it('uses the shared Student-t CDF for Welch tests above 100 degrees of freedom', () => {
+  it('uses the Student-t tail for a Welch test above 100 degrees of freedom', () => {
     const n = 102
     const result = welchsTTest(
       unitVarianceSamples(n),
@@ -95,6 +95,6 @@ describe('public normal-approximation callers', () => {
 
     expect(result.df).toBeCloseTo(202, 12)
     expect(result.t).toBeCloseTo(1.96, 12)
-    expect(result.p).toBeCloseTo(0.049995790296440745, 6)
+    expect(result.p).toBeCloseTo(0.05137106281388464, 9)
   })
 })

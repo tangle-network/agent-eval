@@ -24,6 +24,7 @@
  *      so `-0.10` on [0,1] doesn't silently become a no-op on a 0-100 dimension.
  */
 
+import { pairedDeltaTest } from '../../paired-delta-test'
 import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
 import type { JudgeScore } from '../types'
 
@@ -127,9 +128,15 @@ export interface HeldoutSignificance {
   tieFraction: number
   /** n paired observations. */
   n: number
-  /** True iff n >= minProductiveRuns AND the CI lower bound clears the threshold. */
+  /** Effective minimum after applying the bootstrap's hard statistical floor. */
+  minimumRequired: number
+  /** Statistical method that carried the decision. */
+  decisionMethod: 'bootstrap-ci' | 'exact-sign'
+  /** Exact one-sided p-value on the small-sample path; otherwise null. */
+  pValue: number | null
+  /** True iff n >= minimumRequired AND the CI lower bound clears the threshold. */
   significant: boolean
-  /** Set when n < minProductiveRuns — too little evidence to claim significance. */
+  /** Set when n < minimumRequired — too little evidence to claim significance. */
   fewRuns: boolean
 }
 
@@ -145,16 +152,14 @@ export interface HeldoutSignificanceOptions {
 
 /** Significance of the held-out composite lift: ship only when the paired
  *  bootstrap CI lower bound on (candidate − baseline) exceeds `deltaThreshold`
- *  (default 0 ⇒ "confidently positive"). Below `minProductiveRuns` paired
- *  observations there is not enough evidence to claim significance → not
- *  significant (`fewRuns`). Interpret `deltaThreshold` in the judge's native
- *  composite scale. */
+ *  (default 0 ⇒ "confidently positive"). At small n, where the percentile
+ *  bootstrap is descriptive only, a pre-registered exact sign test carries
+ *  the decision. Interpret `deltaThreshold` in the judge's native scale. */
 export function heldoutSignificance(
   paired: PairedHoldout,
   opts: HeldoutSignificanceOptions = {},
 ): HeldoutSignificance {
   const deltaThreshold = opts.deltaThreshold ?? 0
-  const minProductiveRuns = opts.minProductiveRuns ?? 3
   const confidence = opts.confidence ?? 0.95
   const resamples = opts.resamples ?? 2000
   const seed = opts.seed ?? 1337
@@ -171,12 +176,15 @@ export function heldoutSignificance(
   // median is kept as a reported diagnostic. Callers wanting outlier-robustness at
   // the cost of tie-blindness can still pass `statistic: 'median'`.
   const statistic = opts.statistic ?? 'mean'
-  const bootstrap = pairedBootstrap(paired.before, paired.after, {
+  const decision = pairedDeltaTest(paired.before, paired.after, {
     confidence,
     resamples,
     statistic,
     seed,
+    threshold: deltaThreshold,
+    minPairs: opts.minProductiveRuns,
   })
+  const bootstrap = decision.bootstrap
   const medianBootstrap =
     statistic === 'median'
       ? bootstrap
@@ -194,9 +202,20 @@ export function heldoutSignificance(
     if (Math.abs(after - before) < 1e-9) ties += 1
   }
   const tieFraction = n === 0 ? 0 : ties / n
-  const fewRuns = n < minProductiveRuns
-  const significant = !fewRuns && bootstrap.low > deltaThreshold
-  return { paired, bootstrap, medianBootstrap, tieFraction, n, significant, fewRuns }
+  const fewRuns = !decision.sufficient
+  const significant = decision.significant
+  return {
+    paired,
+    bootstrap,
+    medianBootstrap,
+    tieFraction,
+    n,
+    minimumRequired: decision.minimumPairs,
+    decisionMethod: decision.method,
+    pValue: decision.pValue,
+    significant,
+    fewRuns,
+  }
 }
 
 export interface DimensionRegression {
@@ -240,10 +259,17 @@ export function dimensionRegressions(
       statistic: 'median',
       seed: opts.seed ?? 1337,
     })
+    const regression = pairedDeltaTest(paired.after, paired.before, {
+      confidence: opts.confidence ?? 0.95,
+      resamples: opts.resamples ?? 2000,
+      statistic: 'median',
+      seed: opts.seed ?? 1337,
+      threshold: tolerance,
+    })
     out.push({
       dimension: dim,
       bootstrap,
-      regressed: bootstrap.low < -tolerance,
+      regressed: regression.significant,
       tolerance,
       n: paired.before.length,
     })
