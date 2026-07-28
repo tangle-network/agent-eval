@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.134.2] - 2026-07-28 - complete multishot cost accounting
+
+### Fixed
+
+- Multishot matrices now include conversation, code, and content judge calls in cell and run cost totals.
+- Judge usage and cost survive malformed judge output, and unknown spend is marked explicitly.
+- Matrix cost limits now stop new work based on combined simulation and judge spend.
+
 ## [0.134.1] - 2026-07-28 - complete comparison evidence
 
 ### Fixed
