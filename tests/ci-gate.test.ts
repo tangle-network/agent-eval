@@ -63,6 +63,64 @@ describe('evaluateContract', () => {
     expect(report.breaches.some((b) => b.includes('pass_rate'))).toBe(true)
   })
 
+  it('fails when only 3 of 10 candidate runs report the declared metric', async () => {
+    const store = new InMemoryTraceStore()
+    await seedRuns(store, 'baseline', [0.8, 0.81, 0.79, 0.82, 0.8, 0.81, 0.79, 0.8, 0.81, 0.8])
+    for (let index = 0; index < 10; index++) {
+      const emitter = new TraceEmitter(store)
+      await emitter.startRun({ scenarioId: 'scn', variantId: 'candidate' })
+      await emitter.endRun(index < 3 ? { pass: true, score: 0.99 } : { pass: false })
+    }
+
+    const report = await evaluateContract(store, {
+      name: 'scn',
+      baseline: { variantId: 'baseline' },
+      candidate: { variantId: 'candidate' },
+      metrics: [{ metric: 'score', higherIsBetter: true, maxRegression: 0.02 }],
+    })
+
+    expect(report.pass).toBe(false)
+    expect(report.breaches).toContain(
+      'metric "score" measured 3/10 candidate and 10/10 baseline run(s); every supplied run must report the metric',
+    )
+  })
+
+  it('fails when no candidate run reports the declared metric', async () => {
+    const store = new InMemoryTraceStore()
+    await seedRuns(store, 'baseline', [0.9, 0.9, 0.9, 0.9, 0.9])
+    for (let index = 0; index < 5; index++) {
+      const emitter = new TraceEmitter(store)
+      await emitter.startRun({ scenarioId: 'scn', variantId: 'candidate' })
+      await emitter.endRun({ pass: false })
+    }
+
+    const report = await evaluateContract(store, {
+      name: 'scn',
+      baseline: { variantId: 'baseline' },
+      candidate: { variantId: 'candidate' },
+      metrics: [{ metric: 'score', higherIsBetter: true }],
+    })
+
+    expect(report.pass).toBe(false)
+    expect(report.breaches[0]).toMatch(/measured 0\/5 candidate/)
+  })
+
+  it('fails when a fully measured metric has fewer than 2 samples per arm', async () => {
+    const store = new InMemoryTraceStore()
+    await seedRuns(store, 'baseline', [0.8])
+    await seedRuns(store, 'candidate', [0.9])
+
+    const report = await evaluateContract(store, {
+      name: 'scn',
+      baseline: { variantId: 'baseline' },
+      candidate: { variantId: 'candidate' },
+      metrics: [{ metric: 'score', higherIsBetter: true }],
+    })
+
+    expect(report.pass).toBe(false)
+    expect(report.breaches[0]).toMatch(/too few comparable samples/)
+  })
+
   it('returns explicit failure when no candidates match', async () => {
     const store = new InMemoryTraceStore()
     const report = await evaluateContract(store, {
