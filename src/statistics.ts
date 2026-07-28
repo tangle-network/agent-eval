@@ -5,7 +5,7 @@ import {
   continuousAgreement,
 } from './judge-calibration'
 import { normalCdf } from './math/normal'
-import { lnGamma } from './math/special-functions'
+import { lnGamma, regularizedIncompleteBeta } from './math/special-functions'
 import { studentTCdf } from './math/student-t'
 import type { JudgeScore } from './types'
 
@@ -1108,6 +1108,15 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
  * Empty input is NOT binary: there is no evidence of the outcome's shape, and
  * defaulting an empty vector into the binary branch would pick a statistic on
  * no data at all.
+ *
+ * NOT the right discriminator for a gate. It recognises the literal {0, 1}
+ * encoding and nothing else, so a pass/fail dimension emitted on 0-100 — which
+ * judges in this codebase do routinely — reads as non-binary, and a single
+ * partial-credit score in an otherwise pass/fail vector flips it to false while
+ * leaving the median just as blind. Gates want {@link pairedBinaryScale} (any
+ * two-point encoding) or {@link pairedDeltaBootstrapStatistic} (two-point OR
+ * tie-dominated). This predicate remains for callers that specifically mean
+ * "literally 0/1".
  */
 export function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
   if (values.length === 0) return false
@@ -1192,6 +1201,13 @@ export interface RiskDifferenceResult {
  * the discordant counts, not the independent-samples formula (which overstates
  * the interval by ignoring the pairing). Inputs are paired 0/1 (or boolean)
  * arrays, control first. Throws on unequal lengths.
+ *
+ * REPORTING ONLY — do NOT decide a promotion on this interval. The CI is a Wald
+ * normal approximation, which badly UNDERCOVERS when only a handful of pairs are
+ * discordant: at n = 3 with b = 2, c = 0 it returns [0.133, 1.000], excluding 0,
+ * while McNemar's exact test on the same data gives p = 0.50. A gate keying on
+ * `lower > 0` would promote noise. Use {@link pairedRiskDifferenceExact}, whose
+ * interval is dual to the exact test by construction, for any decision.
  */
 export function pairedRiskDifference(
   control: ArrayLike<number | boolean>,
@@ -1226,6 +1242,233 @@ export function pairedRiskDifference(
     upper: Math.min(1, rd + half),
     confidence,
   }
+}
+
+/** A paired binary effect size with an EXACT interval and the exact test that
+ *  bounds it — one object so a caller cannot read the estimate without the
+ *  significance it is entitled to. */
+export interface ExactRiskDifferenceResult {
+  /** Total paired observations. */
+  n: number
+  /** Discordant pairs: treatment-win count. */
+  b: number
+  /** Discordant pairs: control-win count. */
+  c: number
+  /** Discordant pairs (b + c) — the only ones carrying information. */
+  nDiscordant: number
+  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  riskDifference: number
+  /** Exact conditional CI lower bound. 0 when there are no discordant pairs. */
+  lower: number
+  /** Exact conditional CI upper bound. 0 when there are no discordant pairs. */
+  upper: number
+  /** Confidence level used. */
+  confidence: number
+  /** McNemar's exact two-sided p-value on the same discordant counts. */
+  pValue: number
+}
+
+/**
+ * Paired risk difference with the EXACT CONDITIONAL interval — the estimator a
+ * promotion gate may decide on.
+ *
+ * Conditional on the number of discordant pairs m = b + c, the treatment-win
+ * count b is Binomial(m, π) with π = P(treatment wins | discordant), and the
+ * risk difference is an exact reparameterisation: RD = (2π − 1)·m/n. So a
+ * Clopper-Pearson exact interval for π maps straight onto RD. This buys the
+ * property the Wald interval in {@link pairedRiskDifference} does not have:
+ *
+ *   **`lower > 0` ⟺ McNemar's exact test rejects at α = 1 − confidence.**
+ *
+ * Clopper-Pearson excludes π = 0.5 exactly when the two-sided exact binomial
+ * test of π = 0.5 rejects, and that test IS {@link mcnemar}'s p-value — so the
+ * interval and the test can never disagree, and a gate keyed on `lower` cannot
+ * promote what the exact test refuses. The exact p is returned in the same
+ * object so the two are impossible to compute apart.
+ *
+ * The interval is conservative (exact intervals over-cover; conditioning on m
+ * discards the concordant pairs' information about m itself). That is the
+ * correct direction for a promotion gate: it refuses more often, never less.
+ *
+ * With m = 0 there are no discordant pairs and π is not identified: the result
+ * is the degenerate [0, 0] with p = 1. That is NOT evidence of equivalence —
+ * callers must treat a zero-width interval as "cannot decide", not as "no
+ * difference". Inputs are paired 0/1 (or boolean) arrays, control first.
+ * Throws on unequal lengths.
+ */
+export function pairedRiskDifferenceExact(
+  control: ArrayLike<number | boolean>,
+  treatment: ArrayLike<number | boolean>,
+  confidence = 0.95,
+): ExactRiskDifferenceResult {
+  if (control.length !== treatment.length) {
+    throw new Error(
+      `pairedRiskDifferenceExact: unequal sample sizes (${control.length} vs ${treatment.length})`,
+    )
+  }
+  if (confidence <= 0 || confidence >= 1) {
+    throw new Error(`pairedRiskDifferenceExact: confidence must be in (0,1), got ${confidence}`)
+  }
+  const n = control.length
+  if (n === 0) {
+    return {
+      n: 0,
+      b: 0,
+      c: 0,
+      nDiscordant: 0,
+      riskDifference: 0,
+      lower: 0,
+      upper: 0,
+      confidence,
+      pValue: 1,
+    }
+  }
+  let b = 0
+  let c = 0
+  for (let i = 0; i < n; i++) {
+    const ctrl = control[i] ? 1 : 0
+    const treat = treatment[i] ? 1 : 0
+    if (treat === 1 && ctrl === 0) b++
+    else if (treat === 0 && ctrl === 1) c++
+  }
+  const m = b + c
+  const riskDifference = (b - c) / n
+  const pValue = binomialSignTwoSided(b, c)
+  if (m === 0) {
+    return { n, b, c, nDiscordant: 0, riskDifference: 0, lower: 0, upper: 0, confidence, pValue }
+  }
+  const alpha = 1 - confidence
+  const piLow = b === 0 ? 0 : betaQuantile(alpha / 2, b, m - b + 1)
+  const piHigh = b === m ? 1 : betaQuantile(1 - alpha / 2, b + 1, m - b)
+  const scale = m / n
+  return {
+    n,
+    b,
+    c,
+    nDiscordant: m,
+    riskDifference,
+    lower: Math.max(-1, (2 * piLow - 1) * scale),
+    upper: Math.min(1, (2 * piHigh - 1) * scale),
+    confidence,
+    pValue,
+  }
+}
+
+/** Inverse regularized incomplete beta by bisection on
+ *  {@link regularizedIncompleteBeta},
+ *  which is monotone increasing in x. 80 halvings of [0,1] resolve well past the
+ *  continued fraction's own ~3e-7 accuracy, so the quantile is as exact as the
+ *  CDF it inverts. */
+function betaQuantile(p: number, a: number, b: number): number {
+  if (p <= 0) return 0
+  if (p >= 1) return 1
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2
+    if (regularizedIncompleteBeta(mid, a, b) < p) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+/**
+ * The common positive level `s` such that EVERY value across both paired arms is
+ * exactly 0 or `s` — i.e. the outcome is pass/fail, whatever encoding it arrived
+ * in. Returns null when the outcomes are not two-point, when the two arms use
+ * different levels, or when no positive value was observed at all (all-zero
+ * arms: the level is not identified, and there is nothing to decide anyway).
+ *
+ * This is the scale-aware successor to {@link isBinaryOutcomeVector}, which only
+ * recognises literal {0, 1}. Judges in this codebase emit dimensions on 0-100 as
+ * well as [0,1] (see `detectScale` in `campaign/gates/statistical-heldout.ts`),
+ * so a pass/fail dimension routinely arrives as {0, 100} and a {0,1}-only test
+ * silently sends it down the median path that cannot see it. Any positive level
+ * is accepted, not just 1 and 100: for a two-point {0, s} outcome the mean paired
+ * delta is exactly s·(b − c)/n, so the binary estimators apply after dividing by
+ * s and rescaling the result back into the caller's native units.
+ *
+ * Non-finite values ⇒ null: an unusable outcome must not be classified as a
+ * clean pass/fail shape.
+ */
+export function pairedBinaryScale(
+  before: ArrayLike<number>,
+  after: ArrayLike<number>,
+): number | null {
+  let level: number | null = null
+  for (const arm of [before, after]) {
+    for (let i = 0; i < arm.length; i++) {
+      const v = arm[i]!
+      if (!Number.isFinite(v)) return null
+      if (v === 0) continue
+      if (v < 0) return null
+      if (level === null) level = v
+      else if (v !== level) return null
+    }
+  }
+  return level
+}
+
+/** Fraction of paired observations whose delta is an exact tie (|after − before|
+ *  < 1e-9). Throws on unequal sample sizes; 0 pairs ⇒ 0. */
+export function pairedDeltaTieFraction(
+  before: ArrayLike<number>,
+  after: ArrayLike<number>,
+): number {
+  if (before.length !== after.length) {
+    throw new Error(
+      `pairedDeltaTieFraction: unequal sample sizes (${before.length} vs ${after.length})`,
+    )
+  }
+  const n = before.length
+  if (n === 0) return 0
+  let ties = 0
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(after[i]! - before[i]!) < 1e-9) ties++
+  }
+  return ties / n
+}
+
+/** Tie fraction at or above which the MEDIAN paired delta is structurally
+ *  uninformative. At half the pairs tied the sample median of the deltas is 0
+ *  regardless of how large the shift on the remaining pairs is, and a bootstrap
+ *  CI around it collapses to [0, 0] — so `ci.low > threshold` answers "no"
+ *  forever at a non-negative threshold and "yes" forever at a negative one. */
+export const MEDIAN_BLIND_TIE_FRACTION = 0.5
+
+/**
+ * Which paired-delta statistic can actually see this data.
+ *
+ * `'median'` is the robust default for continuous outcomes, but it goes BLIND in
+ * two regimes that eval data lands in constantly:
+ *   - two-point (pass/fail) outcomes on any encoding — see {@link pairedBinaryScale};
+ *   - any outcome where at least {@link MEDIAN_BLIND_TIE_FRACTION} of pairs tie,
+ *     which includes low-cardinality scores like {0, ½, 1} and block scores like
+ *     {⅔, 1} that arise from averaging pass/fail leaves.
+ * In both, the median paired delta is pinned at 0 and its whole CI collapses, so
+ * the gate can see neither a gain nor a regression. The MEAN paired delta is
+ * exactly the change in success rate on two-point data and stays well defined
+ * under tie domination, so it is the statistic those regimes get.
+ *
+ * Callers that need the interval to be dual to an exact test (a promotion gate)
+ * should prefer {@link pairedRiskDifferenceExact} on the two-point case rather
+ * than a mean bootstrap; this helper is for the bootstrap-shaped call sites that
+ * must return a `PairedBootstrapResult`.
+ *
+ * ALL pairs tied is left on `'median'` deliberately. The switch exists to stop
+ * ties HIDING a shift, and with zero discordant pairs there is no shift to hide:
+ * both statistics are exactly 0 with a CI of [0, 0], so the label would change
+ * while no verdict does. A caller must treat that collapsed interval as "cannot
+ * decide" whichever statistic produced it.
+ */
+export function pairedDeltaBootstrapStatistic(
+  before: ArrayLike<number>,
+  after: ArrayLike<number>,
+): 'mean' | 'median' {
+  const tieFraction = pairedDeltaTieFraction(before, after)
+  if (tieFraction === 1) return 'median'
+  if (pairedBinaryScale(before, after) !== null) return 'mean'
+  return tieFraction >= MEDIAN_BLIND_TIE_FRACTION ? 'mean' : 'median'
 }
 
 /**

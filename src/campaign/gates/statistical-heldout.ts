@@ -25,9 +25,9 @@
  */
 
 import {
-  isBinaryOutcomeVector,
   type PairedBootstrapResult,
   pairedBootstrap,
+  pairedDeltaBootstrapStatistic,
 } from '../../statistics'
 import type { JudgeScore } from '../types'
 
@@ -208,8 +208,9 @@ export interface DimensionRegression {
   bootstrap: PairedBootstrapResult
   /** Which paired statistic `bootstrap.low` is the lower bound of, and therefore
    *  what `regressed` was decided on. `'median'` for continuous dimensions;
-   *  `'mean'` when the dimension is binary (0/1) — the median is pinned at 0
-   *  there by tie domination, so a median-based guard can never fire. */
+   *  `'mean'` when ties pin the median at 0 — which covers pass/fail dimensions
+   *  on ANY encoding ({0,1} and {0,100} alike) and low-cardinality dimensions,
+   *  where a median-based guard can never fire. */
   bootstrapStatistic: 'median' | 'mean'
   /** True iff the CI lower bound on (candidate − baseline) is below −tolerance:
    *  the candidate may have regressed this dimension by more than tolerance. */
@@ -232,11 +233,13 @@ export function detectScale(values: number[]): 1 | 100 {
  *  posture for safety dimensions like `hallucination_free`). When `tolerance`
  *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100.
  *
- *  A BINARY (0/1) dimension is bootstrapped on the MEAN paired delta instead of
- *  the median. This guard fails OPEN otherwise: on binary data the paired delta
- *  vector is dominated by zeros, so the median CI collapses to [0,0], never
- *  drops below −tolerance, and a real regression on a safety dimension is
- *  reported as `regressed: false`. Continuous dimensions are unchanged. */
+ *  A TIE-DOMINATED dimension is bootstrapped on the MEAN paired delta instead of
+ *  the median. This guard fails OPEN otherwise: when most pairs tie — which is
+ *  automatic for a pass/fail dimension, on {0,1} and on the 0-100 encoding
+ *  `detectScale` exists to support, and common for low-cardinality ones — the
+ *  median CI collapses to [0,0], never drops below −tolerance, and a real
+ *  regression on a safety dimension is reported as `regressed: false`.
+ *  Continuous dimensions are unchanged. */
 export function dimensionRegressions(
   candidate: Map<string, Record<string, JudgeScore>>,
   baseline: Map<string, Record<string, JudgeScore>>,
@@ -249,10 +252,7 @@ export function dimensionRegressions(
     const paired = pairHoldout(candidate, baseline, scenarioIds, (s) => s.dimensions[dim])
     if (paired.before.length === 0) continue // dimension not scored on this judge
     const tolerance = opts.tolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
-    const bootstrapStatistic: 'median' | 'mean' =
-      isBinaryOutcomeVector(paired.before) && isBinaryOutcomeVector(paired.after)
-        ? 'mean'
-        : 'median'
+    const bootstrapStatistic = pairedDeltaBootstrapStatistic(paired.before, paired.after)
     const bootstrap = pairedBootstrap(paired.before, paired.after, {
       confidence: opts.confidence ?? 0.95,
       resamples: opts.resamples ?? 2000,

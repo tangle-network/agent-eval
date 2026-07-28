@@ -23,23 +23,48 @@
  *
  * ## Choosing the statistic
  *
- * CONTINUOUS holdout scores are decided on the bootstrap CI of the MEDIAN
- * paired delta — robust to the occasional wild per-item score.
+ * The median paired delta is the robust default, but it goes BLIND wherever
+ * ties dominate: with more than half the pairs tied its sample value is exactly
+ * 0 whatever the shift on the rest, and the whole bootstrap CI collapses to
+ * [0, 0]. `low > threshold` is then "no" forever at a non-negative threshold
+ * and "yes" forever at a negative one — the gate refuses real gains AND
+ * promotes real regressions. Measured: 76 held-out items with 15 candidate
+ * wins, 5 candidate losses and 56 ties is a real +13.2pp lift whose median
+ * paired delta is 0; the median-CI gate refused it at every non-negative
+ * threshold while PROMOTING the mirror-image −13.2pp regression at any
+ * negative one.
  *
- * BINARY holdout scores (every value exactly 0 or 1 — what a pass/fail eval
- * produces) are decided on the paired RISK DIFFERENCE instead, because the
- * median cannot see them at all: the paired delta vector then lives in
- * {-1, 0, +1} and is dominated by zeros (both arms solve, or both arms miss,
- * most items), so its median — and the whole bootstrap CI around it — is
- * pinned at exactly 0 however large the real shift is. Measured: 76 held-out
- * items with 15 candidate wins, 5 candidate losses and 56 ties is a real
- * +13.2pp lift whose median paired delta is 0, and the median-CI gate refused
- * it at every non-negative threshold while PROMOTING the mirror-image −13.2pp
- * regression at any negative one. The paired risk difference
- * (`(wins − losses) / n`, the change in success rate) is the effect size
- * `pairedDeltaThreshold` already means to a pass/fail caller, and McNemar's
- * exact test on the discordant pairs ships alongside it as evidence. Set
- * `deltaStatistic: 'median'` to force the old behaviour.
+ * So the statistic is picked by the shape of the data, in three cases:
+ *
+ * 1. **Two-point (pass/fail) outcomes on ANY encoding** — every value on both
+ *    arms is either 0 or one common positive level, so {0,1} and {0,100} and
+ *    {0,5} all qualify (see `pairedBinaryScale`). Decided on the EXACT paired
+ *    risk difference: the change in success rate, rescaled into the caller's
+ *    native units, with a Clopper-Pearson conditional interval that is dual to
+ *    McNemar's exact test by construction. `lower > 0` holds exactly when the
+ *    exact test rejects, so the gate can never promote what the exact test
+ *    refuses — the Wald normal-approximation interval (`pairedRiskDifference`)
+ *    does NOT have that property and undercovers badly on a handful of
+ *    discordant pairs (n = 3, b = 2, c = 0: Wald [0.133, 1.000], exact
+ *    [−0.456, 0.667], McNemar p = 0.50). McNemar's b/c/p ship as evidence.
+ * 2. **Tie-dominated outcomes** (≥ `MEDIAN_BLIND_TIE_FRACTION` of pairs exactly
+ *    tied) — low-cardinality scores like {0, ½, 1}, block scores like {⅔, 1}
+ *    from averaging pass/fail leaves, and asymmetric arms (pass/fail baseline
+ *    vs partial-credit candidate). The median is blind for the same reason;
+ *    these are decided on the bootstrap CI of the MEAN paired delta.
+ * 3. **Everything else** — the bootstrap CI of the MEDIAN paired delta,
+ *    unchanged and byte-identical to previous releases.
+ *
+ * Set `deltaStatistic: 'median'` to force case 3 on every input.
+ *
+ * ## Fail closed
+ *
+ * A CI of exactly [0, 0] carries no directional information at all: it cannot
+ * tell a gain from a regression, and it clears every negative threshold. That
+ * is not a promotion, it is an absence of evidence, so the gate refuses with
+ * `indeterminate_delta` rather than answering "promote". It arises when every
+ * pair is concordant (no discordant pairs on the binary path) or every paired
+ * delta is an exact tie.
  *
  * The decision carries a machine-readable `rejectionCode` plus an
  * `evidence` block with every number the gate looked at, so the
@@ -47,8 +72,8 @@
  * verdict without re-running.
  *
  * See also:
- *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`,
- *     and `mcnemar` + `pairedRiskDifference` for the binary path
+ *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`, and
+ *     `pairedRiskDifferenceExact` (+ `pairedBinaryScale`) for the binary path
  *   - `src/run-record.ts` for the input row schema
  *   - `src/reference-replay.ts` for the older, reference-replay-
  *     specific promotion path (still useful for replay-style evals).
@@ -58,10 +83,11 @@ import { pairRunRecords } from './paired-arms'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import {
-  isBinaryOutcomeVector,
-  mcnemar,
+  pairedBinaryScale,
   pairedBootstrap,
-  pairedRiskDifference,
+  pairedDeltaBootstrapStatistic,
+  pairedDeltaTieFraction,
+  pairedRiskDifferenceExact,
   wilcoxonSignedRank,
 } from './statistics'
 
@@ -70,6 +96,7 @@ export type HeldOutGateRejectionCode =
   | 'missing_split_scores'
   | 'missing_cost'
   | 'negative_delta'
+  | 'indeterminate_delta'
   | 'overfit_gap'
   | 'cost_ceiling'
 
@@ -85,12 +112,12 @@ export interface HeldOutGateConfig {
   /**
    * Which paired statistic carries the promotion CI.
    *
-   * `'auto'` (default) picks by outcome shape: binary (0/1) holdout scores on
-   * both arms are decided on the paired RISK DIFFERENCE + McNemar, everything
-   * else on the bootstrap CI of the MEDIAN paired delta. `'median'` forces the
-   * median bootstrap on every input, including binary — where it is
-   * structurally blind (see the module header) and will refuse a real lift and
-   * accept a real regression. Only set it to reproduce a pre-existing verdict.
+   * `'auto'` (default) picks by outcome shape — two-point outcomes on the exact
+   * paired risk difference, tie-dominated outcomes on the mean, everything else
+   * on the median (see the module header). `'median'` forces the median
+   * bootstrap on every input, including shapes where it is structurally blind
+   * and will refuse a real lift and accept a real regression. Only set it to
+   * reproduce a pre-existing verdict.
    */
   deltaStatistic?: 'auto' | 'median'
   /** Maximum allowed worsening of (search − holdout) gap relative to
@@ -122,6 +149,18 @@ export interface HeldOutGateConfig {
   costPerTaskCeiling?: number
 }
 
+/** Which paired statistic a `HeldOutGate` verdict was decided on. */
+export type DeltaStatistic = 'median_bootstrap' | 'mean_bootstrap' | 'paired_risk_difference'
+
+/** The outcome shape the gate detected, and the statistic it admits. */
+interface OutcomeShape {
+  statistic: DeltaStatistic
+  /** Common positive level of a two-point outcome; null when not two-point. */
+  binaryScale: number | null
+  /** Exact-tie fraction over the paired deltas; null when there are no pairs. */
+  tieFraction: number | null
+}
+
 export interface GateEvidence {
   /** Number of paired (candidate, baseline) holdout observations used. */
   productiveRuns: number
@@ -137,9 +176,12 @@ export interface GateEvidence {
   /** Which paired statistic the promotion CI was computed on, and therefore
    *  what `decidingDelta` / `pairedCI` mean. `'median_bootstrap'` = bootstrap
    *  CI on the median paired delta (continuous outcomes).
-   *  `'paired_risk_difference'` = change in success rate on binary (0/1)
-   *  outcomes, where the median is structurally pinned at 0. */
-  deltaStatistic: 'median_bootstrap' | 'paired_risk_difference'
+   *  `'mean_bootstrap'` = bootstrap CI on the mean paired delta, used when ties
+   *  dominate and pin the median at 0. `'paired_risk_difference'` = change in
+   *  success rate on a two-point (pass/fail) outcome, on an EXACT conditional
+   *  interval dual to McNemar's exact test, rescaled to the outcome's native
+   *  units (so a 0-100 dimension reports points, not a rate). */
+  deltaStatistic: DeltaStatistic
   /** Point estimate of `deltaStatistic` — the number the `pairedDeltaThreshold`
    *  check is about. Null when no CI was computed. */
   decidingDelta: number | null
@@ -150,9 +192,22 @@ export interface GateEvidence {
    *  paths, so this field never changes meaning. */
   pairedPValue: number | null
   /** McNemar's exact paired-binary test on the holdout pairs, or null when the
-   *  outcomes were not binary (or no CI was computed). `b` = candidate-only
-   *  wins, `c` = baseline-only wins; only these discordant pairs carry signal. */
+   *  outcomes were not two-point (or no CI was computed). `b` = candidate-only
+   *  wins, `c` = baseline-only wins; only these discordant pairs carry signal.
+   *  When present it is not merely reported: the promotion interval is dual to
+   *  this p-value, so a promotion at a non-negative threshold implies
+   *  `pValue < 1 − confidence`. */
   mcnemar: { b: number; c: number; nDiscordant: number; pValue: number } | null
+  /** The common positive level of a two-point outcome — 1 for {0,1}, 100 for a
+   *  0-100 pass/fail dimension — or null when the outcome is not two-point.
+   *  Non-null is exactly the condition for the `paired_risk_difference` path,
+   *  and it is the factor `decidingDelta` / `pairedCI` were rescaled by. */
+  binaryScale: number | null
+  /** Fraction of paired holdout deltas that are exact ties, or null when there
+   *  are no pairs. At or above {@link MEDIAN_BLIND_TIE_FRACTION} the median is
+   *  structurally pinned at 0 — this is the number that explains why
+   *  `deltaStatistic` is not `'median_bootstrap'`. */
+  tieFraction: number | null
   /** Mean candidate score on the search split, or null when absent. */
   searchScore: number | null
   /** Mean candidate score on the holdout split, or null when absent. */
@@ -290,14 +345,17 @@ export class HeldOutGate {
     /** Evidence for the early exits, where no CI was computed at all. The
      *  statistic that WOULD have decided is still reported so a caller can see
      *  which branch their data lands in without producing a verdict. */
+    const earlyShape = this.chooseShape(beforeHoldout, afterHoldout)
     const noCiEvidence = {
       ...commonEvidence,
       medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
-      deltaStatistic: this.chooseStatistic(beforeHoldout, afterHoldout),
+      deltaStatistic: earlyShape.statistic,
       decidingDelta: null,
       pairedCI: null,
       pairedPValue: null,
       mcnemar: null,
+      binaryScale: earlyShape.binaryScale,
+      tieFraction: earlyShape.tieFraction,
     }
 
     const missingSplitScores = [
@@ -332,9 +390,9 @@ export class HeldOutGate {
     }
 
     // The paired holdout delta, on the statistic the outcome's shape admits.
-    // `medianPairedDelta` stays the literal median on BOTH paths so the number
+    // `medianPairedDelta` stays the literal median on EVERY path so the number
     // that made the old gate blind remains visible in the evidence.
-    const statistic = this.chooseStatistic(beforeHoldout, afterHoldout)
+    const shape = this.chooseShape(beforeHoldout, afterHoldout)
     const literalMedian = medianDelta(beforeHoldout, afterHoldout)
     const wilcoxon = wilcoxonSignedRank(beforeHoldout, afterHoldout)
 
@@ -343,39 +401,99 @@ export class HeldOutGate {
     let high: number
     let mcnemarEvidence: GateEvidence['mcnemar'] = null
     let deltaLabel: string
-    if (statistic === 'paired_risk_difference') {
-      const rd = pairedRiskDifference(beforeHoldout, afterHoldout, this.confidence)
-      const mc = mcnemar(beforeHoldout, afterHoldout)
-      decidingDelta = rd.riskDifference
-      low = rd.lower
-      high = rd.upper
-      mcnemarEvidence = { b: mc.b, c: mc.c, nDiscordant: mc.nDiscordant, pValue: mc.pValue }
+    if (shape.statistic === 'paired_risk_difference') {
+      // `binaryScale` is non-null exactly on this branch (see chooseShape).
+      const scale = shape.binaryScale as number
+      // Normalise the two-point encoding to {0,1} so the estimator sees the
+      // pass/fail structure, then rescale the answer back into the caller's
+      // native units — `pairedDeltaThreshold` is documented as being read in
+      // the units of the holdout scores, so a 0-100 dimension must be gated in
+      // points, not in a rate.
+      const exact = pairedRiskDifferenceExact(
+        beforeHoldout.map((v) => v / scale),
+        afterHoldout.map((v) => v / scale),
+        this.confidence,
+      )
+      decidingDelta = exact.riskDifference * scale
+      low = exact.lower * scale
+      high = exact.upper * scale
+      mcnemarEvidence = {
+        b: exact.b,
+        c: exact.c,
+        nDiscordant: exact.nDiscordant,
+        pValue: exact.pValue,
+      }
       deltaLabel = 'success-rate'
     } else {
+      const bootstrapStatistic = shape.statistic === 'mean_bootstrap' ? 'mean' : 'median'
       const ci = pairedBootstrap(beforeHoldout, afterHoldout, {
         confidence: this.confidence,
         resamples: this.resamples,
-        statistic: 'median',
+        statistic: bootstrapStatistic,
         seed: this.seed,
       })
-      decidingDelta = ci.median
+      decidingDelta = bootstrapStatistic === 'mean' ? ci.mean : ci.median
       low = ci.low
       high = ci.high
-      deltaLabel = 'median'
+      deltaLabel = bootstrapStatistic
     }
 
     const evidence: GateEvidence = {
       ...commonEvidence,
       medianPairedDelta: literalMedian,
-      deltaStatistic: statistic,
+      deltaStatistic: shape.statistic,
       decidingDelta,
       pairedCI: { low, high },
       pairedPValue: wilcoxon.p,
       mcnemar: mcnemarEvidence,
+      binaryScale: shape.binaryScale,
+      tieFraction: shape.tieFraction,
     }
 
+    // FAIL CLOSED. A degenerate interval decides nothing: [0, 0] cannot tell a
+    // gain from a regression, and it clears every negative threshold, which is
+    // exactly how a tie-pinned median laundered a −13.2pp regression into a
+    // promotion. Absence of evidence is not evidence of improvement — refuse
+    // and say which way the data was empty.
+    if (!Number.isFinite(low) || !Number.isFinite(high) || (low === 0 && high === 0)) {
+      const cause =
+        mcnemarEvidence !== null && mcnemarEvidence.nDiscordant === 0
+          ? 'every pair is concordant (0 discordant pairs)'
+          : shape.tieFraction === 1
+            ? 'every paired delta is an exact tie'
+            : `the ${deltaLabel} CI collapsed to a point at 0`
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence,
+        reason:
+          `indeterminate_delta: ${cause}, so the paired holdout CI is ` +
+          `[${fmt(low)}, ${fmt(high)}] and carries no direction — ` +
+          `it cannot clear threshold ${fmt(this.pairedDeltaThreshold)} on evidence`,
+        rejectionCode: 'indeterminate_delta',
+      }
+    }
+
+    // The exact test is a VETO on the two-point path. Redundant by construction
+    // — `pairedRiskDifferenceExact`'s interval is dual to this p-value, so
+    // `low > 0` already implies `pValue < 1 − confidence` (verified over 8108
+    // (b, c, ties, confidence) shapes) — and kept anyway so that swapping the
+    // estimator for one without that duality (the Wald interval, which
+    // undercovers on a handful of discordant pairs) cannot silently reintroduce
+    // "promotes what the exact test refuses". Only applies at a non-negative
+    // threshold: a negative threshold is a non-inferiority question, which
+    // McNemar's test of "no difference" is not the right test for.
+    const exactTestVetoes =
+      mcnemarEvidence !== null &&
+      this.pairedDeltaThreshold >= 0 &&
+      !(mcnemarEvidence.pValue < 1 - this.confidence)
+
     // Negative-delta gate (CI lower bound must clear the threshold).
-    if (!(low > this.pairedDeltaThreshold)) {
+    if (!(low > this.pairedDeltaThreshold) || exactTestVetoes) {
+      const detail = exactTestVetoes
+        ? ` McNemar exact p=${mcnemarEvidence?.pValue.toExponential(2)} does not reject at α=${fmt(1 - this.confidence)}.`
+        : ''
       return {
         promote: false,
         candidateId,
@@ -383,7 +501,7 @@ export class HeldOutGate {
         evidence,
         reason:
           `negative_delta: paired holdout ${deltaLabel} Δ=${fmt(decidingDelta)} ` +
-          `CI=[${fmt(low)}, ${fmt(high)}] does not clear threshold ${fmt(this.pairedDeltaThreshold)}`,
+          `CI=[${fmt(low)}, ${fmt(high)}] does not clear threshold ${fmt(this.pairedDeltaThreshold)}.${detail}`,
         rejectionCode: 'negative_delta',
       }
     }
@@ -448,22 +566,34 @@ export class HeldOutGate {
   }
 
   /**
-   * Which paired statistic can actually see this data.
+   * Which paired statistic can actually see this data, and the shape facts that
+   * decided it.
    *
-   * Binary on BOTH arms ⇒ the paired risk difference; anything else (or an
-   * explicit `deltaStatistic: 'median'`) ⇒ the median bootstrap. Requiring
-   * both arms to be binary is deliberate: a continuous baseline against a
-   * pass/fail candidate is not a paired-binary comparison, and treating it as
-   * one would silently reinterpret the caller's threshold units.
+   * Two-point on BOTH arms at a COMMON level ⇒ the exact paired risk
+   * difference. The level is shared by construction: a pass/fail baseline
+   * against a partial-credit candidate ({0,1} vs {0,0.4}) is not a paired
+   * binary comparison, so it does not take this branch — but it must not fall
+   * back to the blind median either, and it does not: mixed arms of that kind
+   * are tie-dominated, which is case 2.
+   *
+   * Otherwise: tie-dominated ⇒ the mean bootstrap, anything else ⇒ the median
+   * bootstrap. `deltaStatistic: 'median'` forces the median on every input.
    */
-  private chooseStatistic(
-    before: number[],
-    after: number[],
-  ): 'median_bootstrap' | 'paired_risk_difference' {
-    if (this.deltaStatistic === 'median') return 'median_bootstrap'
-    return isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after)
-      ? 'paired_risk_difference'
-      : 'median_bootstrap'
+  private chooseShape(before: number[], after: number[]): OutcomeShape {
+    const tieFraction = before.length === 0 ? null : pairedDeltaTieFraction(before, after)
+    if (this.deltaStatistic === 'median') {
+      return { statistic: 'median_bootstrap', binaryScale: null, tieFraction }
+    }
+    const binaryScale = pairedBinaryScale(before, after)
+    if (binaryScale !== null) {
+      return { statistic: 'paired_risk_difference', binaryScale, tieFraction }
+    }
+    // One definition of the tie rule, shared with the campaign gates.
+    const statistic =
+      pairedDeltaBootstrapStatistic(before, after) === 'mean'
+        ? 'mean_bootstrap'
+        : 'median_bootstrap'
+    return { statistic, binaryScale: null, tieFraction }
   }
 }
 

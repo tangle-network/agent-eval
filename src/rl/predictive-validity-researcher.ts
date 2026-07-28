@@ -186,6 +186,8 @@ export class PredictiveValidityResearcher implements Researcher {
         pairedCI: null,
         pairedPValue: null,
         mcnemar: null,
+        binaryScale: null,
+        tieFraction: null,
         searchScore: null,
         holdoutScore: null,
         overfitGap: null,

@@ -621,3 +621,218 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
     expect(d.promote).toBe(true)
   })
 })
+
+/**
+ * Every shape that a {0,1}-only detector let through. Each of these was
+ * measured promoting-what-it-should-refuse (or refusing-what-it-should-see)
+ * against the first binary fix; they are the regression suite for the
+ * *neighbourhood* of the binary case, not just the case itself.
+ *
+ * Paired holdout outcomes on an arbitrary two-point encoding {0, level}:
+ * `wins` items the candidate flips 0→level, `losses` it flips level→0, `ties`
+ * both solve. Search mirrors holdout so the overfit gap is 0 on both arms and
+ * only the delta gate is under test.
+ */
+function twoPointPairs(
+  wins: number,
+  losses: number,
+  ties: number,
+  level = 1,
+): { candidate: RunRecord[]; baseline: RunRecord[] } {
+  const pairs: ReturnType<typeof makePair>[] = []
+  let seed = 0
+  for (let i = 0; i < wins; i++, seed++) pairs.push(makePair('cand', seed, level, level, 0, 0))
+  for (let i = 0; i < losses; i++, seed++) pairs.push(makePair('cand', seed, 0, 0, level, level))
+  for (let i = 0; i < ties; i++, seed++)
+    pairs.push(makePair('cand', seed, level, level, level, level))
+  return joinPairs(...pairs)
+}
+
+describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
+  it('REFUSES 2-of-3 wins: the Wald interval promotes it, the exact test does not', () => {
+    // n=3, b=2, c=0, 1 tie. minProductiveRuns defaults to 3, so this is the
+    // smallest promotable sample and it is reachable on defaults. The Wald
+    // normal-approximation CI gives [0.133, 1.000] and promotes; McNemar's
+    // exact test on the same discordant counts gives p=0.50.
+    const pairs = twoPointPairs(2, 0, 1)
+    const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+      pairs.candidate,
+      pairs.baseline,
+    )
+    expect(d.evidence.productiveRuns).toBe(3)
+    expect(d.evidence.deltaStatistic).toBe('paired_risk_difference')
+    expect(d.evidence.mcnemar).toMatchObject({ b: 2, c: 0, nDiscordant: 2 })
+    expect(d.evidence.mcnemar!.pValue).toBeCloseTo(0.5, 12)
+    expect(d.evidence.pairedCI!.low).toBeLessThan(0)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+  })
+
+  it('never promotes what McNemar refuses — over every (wins, losses) shape up to 8', () => {
+    const promoted: string[] = []
+    for (let wins = 0; wins <= 8; wins++) {
+      for (let losses = 0; losses <= 8; losses++) {
+        const pairs = twoPointPairs(wins, losses, 5)
+        const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+          pairs.candidate,
+          pairs.baseline,
+        )
+        if (!d.promote) continue
+        promoted.push(`${wins}w/${losses}l`)
+        // α = 1 − confidence = 0.05. A promotion the exact test cannot support
+        // is exactly the hole the Wald CI opened.
+        expect(d.evidence.mcnemar!.pValue).toBeLessThan(0.05)
+        expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
+      }
+    }
+    // Not vacuous: the gate must still promote the shapes that ARE significant.
+    expect(promoted).toEqual(['6w/0l', '7w/0l', '8w/0l', '8w/1l'])
+  })
+
+  it('one partial-credit pair does NOT re-open the fail-open', () => {
+    // The −13.2pp regression with ONE 0.5/0.5 pair added: the mean paired delta
+    // is unchanged (that pair's delta is 0) but the vector is no longer {0,1},
+    // so a literal-{0,1} detector fell back to the median, got CI [0,0], and
+    // promoted the regression at every negative threshold.
+    const clean = twoPointPairs(5, 15, 56)
+    const contaminated = joinPairs(
+      { candidate: clean.candidate, baseline: clean.baseline },
+      makePair('cand', 999, 0.5, 0.5, 0.5, 0.5),
+    )
+    const decisions = [-0.01, -0.05, -0.1, -0.2].map((pairedDeltaThreshold) =>
+      new HeldOutGate({ baselineKey: 'baseline', seed: 1337, pairedDeltaThreshold }).evaluate(
+        contaminated.candidate,
+        contaminated.baseline,
+      ),
+    )
+    expect(decisions.map((d) => d.promote)).toEqual([false, false, false, false])
+    expect(decisions[0]!.evidence.productiveRuns).toBe(77)
+    expect(decisions[0]!.evidence.deltaStatistic).not.toBe('median_bootstrap')
+    expect(decisions[0]!.evidence.medianPairedDelta).toBe(0)
+    expect(decisions[0]!.evidence.decidingDelta).toBeCloseTo(-10 / 77, 6)
+    expect(decisions[0]!.evidence.pairedCI!.low).toBeLessThan(-0.2)
+  })
+
+  it('sees a regression encoded on 0-100, not only on {0,1}', () => {
+    // `detectScale` exists because judges emit dimensions on 0-100 as well as
+    // [0,1]. A {0,1}-only detector read this −13.16-POINT drop as continuous,
+    // collapsed to CI [0,0], and promoted it at −1, −5 and −10.
+    const pairs = twoPointPairs(5, 15, 56, 100)
+    const decisions = [0, -1, -5, -10].map((pairedDeltaThreshold) =>
+      new HeldOutGate({
+        baselineKey: 'baseline',
+        seed: 1337,
+        pairedDeltaThreshold,
+        overfitGapThreshold: 15,
+      }).evaluate(pairs.candidate, pairs.baseline),
+    )
+    expect(decisions.map((d) => d.promote)).toEqual([false, false, false, false])
+    const [first] = decisions
+    expect(first!.evidence.deltaStatistic).toBe('paired_risk_difference')
+    // The threshold is read in the outcome's NATIVE units, so the deciding
+    // delta is −13.16 POINTS, not a −0.13 rate.
+    expect(first!.evidence.binaryScale).toBe(100)
+    expect(first!.evidence.decidingDelta).toBeCloseTo((-10 / 76) * 100, 6)
+    expect(first!.evidence.pairedCI!.low).toBeLessThan(-10)
+  })
+
+  it('promotes a real +13.16-point lift encoded on 0-100', () => {
+    const pairs = twoPointPairs(15, 5, 56, 100)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      overfitGapThreshold: 15,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(true)
+    expect(d.evidence.decidingDelta).toBeCloseTo((10 / 76) * 100, 6)
+    expect(d.evidence.mcnemar!.pValue).toBeLessThan(0.05)
+  })
+
+  it('REFUSES an asymmetric-arm regression (pass/fail baseline, partial-credit candidate)', () => {
+    // 20 items drop 1 → 0.4, 56 tie: a real −15.8pp mean drop. The arms are not
+    // a common two-point encoding, so this is NOT the binary path — and it must
+    // not land on the blind median either.
+    const pairs = joinPairs(
+      ...Array.from({ length: 20 }, (_, i) => makePair('cand', i, 0.4, 0.4, 1, 1)),
+      ...Array.from({ length: 56 }, (_, i) => makePair('cand', 100 + i, 1, 1, 1, 1)),
+    )
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.productiveRuns).toBe(76)
+    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.medianPairedDelta).toBe(0)
+    expect(d.evidence.decidingDelta).toBeCloseTo((20 * -0.6) / 76, 6)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+  })
+
+  it('reaches the bench/rung2 caller: block scores in {2/3, 1}', () => {
+    // ratchet.ts deals leaves into blocks of 3 and scores a block as the MEAN
+    // of its leaves, so block scores land in {0, 1/3, 2/3, 1} — never {0,1}.
+    // 20 blocks lose one leaf (1 → 2/3), 56 tie: a real −8.8pp drop that the
+    // median cannot see, at the exact `pairedDeltaThreshold: -0.05` that
+    // bench/rung2/report.ts ships.
+    const third = 2 / 3
+    const pairs = joinPairs(
+      ...Array.from({ length: 20 }, (_, i) => makePair('cand', i, third, third, 1, 1)),
+      ...Array.from({ length: 56 }, (_, i) => makePair('cand', 100 + i, 1, 1, 1, 1)),
+    )
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.tieFraction).toBeCloseTo(56 / 76, 12)
+    expect(d.evidence.decidingDelta).toBeCloseTo((20 * -(1 / 3)) / 76, 6)
+    expect(d.promote).toBe(false)
+  })
+
+  it('FAILS CLOSED when every pair ties — a [0,0] CI decides nothing', () => {
+    // 40 identical pairs. The CI is [0,0], which clears any negative threshold
+    // by arithmetic while containing no evidence of anything. Absence of
+    // evidence must not be laundered into a promotion.
+    const pairs = twoPointPairs(0, 0, 40)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
+    expect(d.evidence.mcnemar).toMatchObject({ b: 0, c: 0, nDiscordant: 0 })
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('indeterminate_delta')
+    expect(d.reason).toMatch(/concordant/)
+  })
+
+  it('FAILS CLOSED on an all-tie CONTINUOUS holdout too', () => {
+    const pairs = joinPairs(
+      ...Array.from({ length: 12 }, (_, i) => makePair('cand', i, 0.42, 0.42, 0.42, 0.42)),
+    )
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('indeterminate_delta')
+    expect(d.evidence.tieFraction).toBe(1)
+  })
+
+  it('deltaStatistic:"median" still forces the old, blind behaviour on demand', () => {
+    const pairs = twoPointPairs(15, 5, 56)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      deltaStatistic: 'median',
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
+    // The escape hatch reproduces the pre-fix verdict — including its blindness,
+    // which is now caught by the fail-closed rule instead of silently refusing.
+    expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
+    expect(d.promote).toBe(false)
+  })
+})
