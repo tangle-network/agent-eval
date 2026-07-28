@@ -137,13 +137,14 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (1) optimization loop produces a winner ────────────────────────
   const optimization = await runOptimization({ ...opts, dispatchTimeoutMs, costLedger })
+  const baselineSurface = optimization.baselineSurface
 
   // No candidate beat the training baseline ⇒ the "winner" IS the baseline
   // (empty diff). Re-scoring the baseline against ITSELF on the holdout and
   // gating the resulting model noise as "lift" is a false positive — it
   // promotes nothing and reports run-to-run variance as an improvement. Detect
   // it up front: skip the redundant winner-holdout pass and force a `hold`.
-  const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
+  const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(baselineSurface)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
   const holdoutDeferred = (opts.holdout ?? 'measured') === 'deferred'
@@ -172,7 +173,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
         costPhase: 'holdout.baseline',
         dispatchTimeoutMs,
         scenarios: opts.holdoutScenarios,
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(baselineSurface, scenario, ctx),
         runDir: `${opts.runDir}/holdout-baseline`,
       })
 
@@ -257,7 +258,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
   let neutralizedSurface: MutableSurface | undefined
   if (opts.neutralize && !winnerIsBaseline && !holdoutDeferred) {
-    const surface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
+    const surface = opts.neutralize(optimization.winnerSurface, baselineSurface)
     neutralizedSurface = surface
     neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
@@ -333,9 +334,9 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // what the loop actually changed, needed for the provenance artifact whether
   // or not a PR is opened. winner == baseline ⇒ empty diff (nothing changed).
   const promotedDiff =
-    optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
+    optimization.winnerSurfaceHash === surfaceHash(baselineSurface)
       ? ''
-      : renderSurfaceDiff(optimization.winnerSurface, opts.baselineSurface)
+      : renderSurfaceDiff(optimization.winnerSurface, baselineSurface)
 
   let prResult: ReturnType<typeof openAutoPr> | undefined
   if (opts.autoOnPromote === 'pr' && gateResult.decision === 'ship') {

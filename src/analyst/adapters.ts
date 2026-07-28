@@ -265,10 +265,8 @@ function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): Analys
     evidence_refs: s.evidence
       ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: s.evidence }]
       : [],
-    // Provenance: this finding IS a judge verdict (an acceptance score), not an
-    // observation of behavior. The steer firewall (assertNoJudgeVerdict) rejects
-    // it from steering — even when it cites an artifact above — because letting a
-    // verdict steer the next attempt is the held-out judge leaking into the loop.
+    // Descriptive origin only. A caller may admit search feedback into candidate
+    // generation, but final evaluation findings have no allowed proposal origin.
     derived_from_judge: true,
     metadata: { judge_name: s.judgeName, dimension: s.dimension, score_10: score10 },
   })

@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- `runOptimization()` now accepts only findings labeled from search runs or observed production behavior.
+- `ProposalFinding` carries the required `proposal_origin`.
+- Removed opaque `report` and capture-store access from `ProposeContext`; final evaluation data has no internal path into candidate generation.
+- Removed `assertNoJudgeVerdict`, `isJudgeVerdict`, and `isTraceObservable`; use validated `ProposalFinding` inputs instead.
+- `runOptimization()` snapshots its baseline and candidate outputs before measurement.
+
 ## [0.133.3] - 2026-07-27 - trustworthy statistical decisions
 
 ### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0

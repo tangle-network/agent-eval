@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeProposalFinding } from '../../src/analyst/types'
 import {
   buildLoopProvenanceRecord,
   type CodeSurface,
@@ -70,6 +71,21 @@ interface FakeScenario extends Scenario {
 
 interface FakeArtifact {
   text: string
+}
+
+function searchFinding(claim: string, metadata?: Record<string, unknown>) {
+  return makeProposalFinding({
+    analyst_id: 'search-analysis',
+    severity: 'medium',
+    area: 'optimization',
+    claim,
+    confidence: 1,
+    evidence_refs: [],
+    derived_from_judge: false,
+    proposal_origin: 'search',
+    produced_at: '2026-07-28T00:00:00.000Z',
+    ...(metadata ? { metadata } : {}),
+  })
 }
 
 const SCENARIOS: FakeScenario[] = [
@@ -1062,7 +1078,7 @@ describe('runOptimization', () => {
         proposeCount += 1
         return new Array(populationSize).fill(currentSurface)
       },
-      decide({ history }: { history: unknown[] }) {
+      decide({ history }: { history: ReadonlyArray<unknown> }) {
         // Stop once one generation has been recorded.
         return { stop: history.length >= 1, reason: 'converged' }
       },
@@ -1086,12 +1102,10 @@ describe('runOptimization', () => {
     expect(result.generations).toHaveLength(1)
   })
 
-  it('forwards the widened ProposeContext (dataset, report, maxImprovementShots)', async () => {
-    // Proves the loop hands a code-tier proposer the data it needs to ground
-    // proposals: the dataset handle, the analysis report, and the depth knob.
+  it('keeps capture stores and opaque reports out of candidate context', async () => {
     const seen: Array<{
       hasDataset: boolean
-      report: unknown
+      hasReport: boolean
       maxImprovementShots: number | undefined
     }> = []
     const contextSnoopProposer = {
@@ -1099,13 +1113,11 @@ describe('runOptimization', () => {
       async propose(ctx: {
         currentSurface: MutableSurface
         populationSize: number
-        report?: unknown
-        dataset?: unknown
         maxImprovementShots?: number
       }) {
         seen.push({
-          hasDataset: ctx.dataset !== undefined,
-          report: ctx.report,
+          hasDataset: 'dataset' in ctx,
+          hasReport: 'report' in ctx,
           maxImprovementShots: ctx.maxImprovementShots,
         })
         return new Array(ctx.populationSize).fill(ctx.currentSurface)
@@ -1125,14 +1137,13 @@ describe('runOptimization', () => {
       maxGenerations: 1,
       labeledStore: store,
       captureSource: 'eval-run',
-      report: { findings: ['rubric too lax'], diff: { regressions: 0 } },
       maxImprovementShots: 5,
       runDir,
     })
 
     expect(seen).toHaveLength(1)
-    expect(seen[0]!.hasDataset).toBe(true)
-    expect(seen[0]!.report).toEqual({ findings: ['rubric too lax'], diff: { regressions: 0 } })
+    expect(seen[0]!.hasDataset).toBe(false)
+    expect(seen[0]!.hasReport).toBe(false)
     expect(seen[0]!.maxImprovementShots).toBe(5)
   })
 })
@@ -1661,22 +1672,22 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       maxGenerations: 3,
       runDir,
       seed: 1,
-      findings: [{ claim: 'seed' }],
+      findings: [searchFinding('seed')],
       analyzeGeneration: async ({ generation, candidates }) => {
         // The producer sees this generation's scored candidates (real wire:
         // it would read their traces). Return a finding keyed by generation.
         expect(candidates.length).toBe(1)
         analyzed.push(generation)
-        return [{ claim: `gen-${generation} finding` }]
+        return [searchFinding(`gen-${generation} finding`)]
       },
     })
 
     expect(seen).toHaveLength(3)
     // Gen 0 sees the baseline (gen -1) analysis — not the static seed; gen 1
     // sees gen-0's produced finding; gen 2 gen-1's.
-    expect(seen[0]).toEqual([{ claim: 'gen--1 finding' }])
-    expect(seen[1]).toEqual([{ claim: 'gen-0 finding' }])
-    expect(seen[2]).toEqual([{ claim: 'gen-1 finding' }])
+    expect(seen[0]).toEqual([searchFinding('gen--1 finding')])
+    expect(seen[1]).toEqual([searchFinding('gen-0 finding')])
+    expect(seen[2]).toEqual([searchFinding('gen-1 finding')])
     // Producer runs on the baseline (-1) and after gens 0 and 1, NOT the last
     // (gen 2 has no next propose()).
     expect(analyzed).toEqual([-1, 0, 1])
@@ -1701,7 +1712,7 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       maxGenerations: 1,
       runDir,
       seed: 1,
-      findings: [{ claim: 'seed' }],
+      findings: [searchFinding('seed')],
       analyzeGeneration: async ({ generation, runDir: analyzedDir, candidates, history }) => {
         // The single propose() of the run is fed by a BASELINE analysis:
         // generation -1 (the baseline convention), the baseline runDir, no
@@ -1717,13 +1728,12 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
           (c) => (c.artifact as FakeArtifact).text,
         )
         expect(artifacts).toEqual(['BASE', 'BASE'])
-        return [{ claim: 'baseline finding', from: artifacts.join(',') }]
+        return [searchFinding('baseline finding', { from: artifacts.join(',') })]
       },
     })
 
-    // Gen 0 proposed WITH the baseline analysis (not the static seed), and the
-    // report is traceably derived from the baseline artifacts.
-    expect(seen).toEqual([[{ claim: 'baseline finding', from: 'BASE,BASE' }]])
+    // Gen 0 proposed with the baseline analysis instead of the static seed.
+    expect(seen).toEqual([[searchFinding('baseline finding', { from: 'BASE,BASE' })]])
     expect(result.generations).toHaveLength(1)
   })
 
@@ -1748,10 +1758,10 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
         maxGenerations: 1,
         runDir,
         seed: 1,
-        findings: [{ claim: 'seed' }],
+        findings: [searchFinding('seed')],
         analyzeGeneration: async ({ generation }) => {
           analyzed.push(generation)
-          return [{ claim: 'should not run' }]
+          return [searchFinding('should not run')]
         },
       }),
     ).rejects.toThrow(/no complete cell-quality scores/)
@@ -1778,8 +1788,8 @@ describe('runOptimization — analyzeGeneration feeds findings forward', () => {
       maxGenerations: 2,
       runDir,
       seed: 1,
-      findings: [{ claim: 'seed' }],
+      findings: [searchFinding('seed')],
     })
-    expect(seen).toEqual([[{ claim: 'seed' }], [{ claim: 'seed' }]])
+    expect(seen).toEqual([[searchFinding('seed')], [searchFinding('seed')]])
   })
 })

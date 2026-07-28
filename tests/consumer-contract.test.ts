@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as builderEval from '../src/builder-eval/index'
+import * as campaign from '../src/campaign/index'
+import * as contract from '../src/contract/index'
 import type {
   ChatCallOpts,
   ChatClient,
@@ -12,6 +14,7 @@ import type {
   DirectProviderTransportOpts,
   JudgeScoresRecord,
   MockTransportOpts,
+  ProposalFinding,
   RouterTransportOpts,
   RunOutcome,
   SandboxSdkTransportOpts,
@@ -196,5 +199,24 @@ describe('public-surface contract for consumers', () => {
     expect(await client.chat(request, callOpts)).toBe(response)
     expect(await custom.chat(request, callOpts)).toBe(response)
     expect(custom.maximumAttempts).toBe(2)
+  })
+
+  it('exposes the proposal finding contract', () => {
+    const finding: ProposalFinding = {
+      schema_version: '1.0.0',
+      finding_id: 'finding-1',
+      analyst_id: 'trace-analysis',
+      produced_at: '2026-07-28T00:00:00.000Z',
+      severity: 'medium',
+      area: 'tool-use',
+      claim: 'The worker retried the same failed call.',
+      evidence_refs: [],
+      confidence: 1,
+      derived_from_judge: false,
+      proposal_origin: 'search',
+    }
+    expect(finding.proposal_origin).toBe('search')
+    expect(campaign.makeProposalFinding).toBe(agentEval.makeProposalFinding)
+    expect(contract.makeProposalFinding).toBe(agentEval.makeProposalFinding)
   })
 })

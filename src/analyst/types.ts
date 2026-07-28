@@ -58,20 +58,23 @@ export interface AnalystFinding {
    * diff cleanly across runs.
    */
   subject?: string
-  /** FIREWALL provenance (docs/learning-flywheel.md): true iff this finding was
-   *  lifted from a JUDGE verdict (an acceptance score), not OBSERVED from the
-   *  agent's behavior. A judge-derived finding must NEVER be admitted as a
-   *  steering input — that is the held-out judge leaking into the loop. Set at
-   *  the lift site (createJudgeAdapter); checked by `assertNoJudgeVerdict`.
-   *  Provenance, not evidence presence, is the correct discriminator: an
-   *  evidence-less trace-analyst observation legitimately steers, while a judge
-   *  verdict that happens to cite an artifact must not. */
+  /** True when this finding was lifted from a judge result rather than observed
+   *  directly in a trace or artifact. Descriptive only: proposal access is
+   *  controlled by `ProposalFinding.proposal_origin`. */
   derived_from_judge?: boolean
   /** Analyst-private extras; renderers ignore unless they know the analyst. */
   metadata?: Record<string, unknown>
 }
 
 export type AnalystSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+/** Data sources that candidate generation may intentionally learn from. */
+export type ProposalFindingOrigin = 'search' | 'production'
+
+/** A finding explicitly admitted as candidate-generation input. */
+export type ProposalFinding = AnalystFinding & {
+  readonly proposal_origin: ProposalFindingOrigin
+}
 
 export interface EvidenceRef {
   /**
@@ -271,6 +274,17 @@ export function makeFinding(
     produced_at: produced_at ?? new Date().toISOString(),
     ...rest,
   }
+}
+
+/** Build a finding whose source is explicitly allowed during candidate generation. */
+export function makeProposalFinding(
+  init: Omit<ProposalFinding, 'schema_version' | 'finding_id' | 'produced_at'> & {
+    id_basis?: string
+    produced_at?: string
+  },
+): ProposalFinding {
+  const { proposal_origin, ...finding } = init
+  return { ...makeFinding(finding), proposal_origin }
 }
 
 // ── Registry result envelope ────────────────────────────────────────
