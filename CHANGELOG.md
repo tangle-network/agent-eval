@@ -53,8 +53,60 @@ Three further cautions, independent of the CDF:
 Full evidence, per-statistic verdicts, and the dependency argument:
 [`docs/design/statistics-decisions.md`](./docs/design/statistics-decisions.md).
 
+### Consumer notice — `HeldOutGate` promoted candidates that scored nothing on most held-out items
+
+Every release through 0.133.2 decided a promotion over the items where BOTH arms
+produced a finite score, and dropped the rest without a word. An item the candidate
+crashed on, timed out on, or wrote no row for simply left the comparison.
+
+**Measured, deterministic fixture, no model calls:** 26 held-out items, a candidate
+that produced no score at all on 20 of them and 0.95 on the 6 it answered against a
+0.60 baseline. Published 0.133.2 and `origin/main` PROMOTE it at every threshold
+from −0.05 to +0.30 — `productiveRuns: 6`, `unpairedBaselineRuns: 20` sitting in the
+evidence, read by nothing. The control, the same 20 failures scored as the 0 they
+earned, is correctly refused at a mean paired delta of −0.3808. An agent that failed
+77 % of its tasks was promoted, and the paired-delta, overfit-gap and cost gates all
+sat behind that filter.
+
+A second shape, same cause: a crashed first attempt plus a scored retry at the same
+`(experimentId, scenarioId, seed)` PROMOTED on 0.133.2, even though the gate's own
+docstring says duplicate identities throw — the crashed row was filtered out before
+the duplicate could be seen. It now throws, exactly as two scored rows already did.
+
+**How to re-check a decision you already made.** Read `unpairedBaselineRuns` and
+`unpairedCandidateRuns` on any recorded `GateDecision`: a nonzero value means the
+verdict was computed over a subset. `productiveRuns` below the number of held-out
+items you dealt means the same thing. Those promotions are not valid at the stated
+threshold and should be re-run on this release.
+
 ### Fixed
 
+- `HeldOutGate`'s cost median is taken over the rows that DECIDED the verdict — the
+  matched pairs on both splits — instead of over every row the caller passed. The old
+  population was a denominator nobody measured and was trivially movable: 48 rows tagged
+  `dev` at \$0.0001, which the gate never scores, drag a real \$5.00/task candidate to a
+  reported \$0.0001 and clear a \$1.00 `costPerTaskCeiling`. Measured on `origin/main`
+  (2789970): 12 fully-covered items at \$5.00/task, ceiling \$1.00 — 0 pad rows rejects
+  with `cost_ceiling`, 24 pad rows reports \$2.50005, 48 pad rows reports \$0.0001 and
+  PROMOTES. The population is derived from the pairing rather than from a list of split
+  tags, so there is no tag that sits outside the rule. On a comparison with no rows
+  outside the two decided splits the reported number is unchanged.
+- `HeldOutGate` requires COVERAGE before it decides anything: on both the search and
+  the holdout split, `answered / dealt` must be at least the new `minCoverage`
+  (default **1** — every item the comparison was dealt carries a real score on both
+  arms), else it refuses with the new `incomplete_coverage` rejection code. The
+  denominator is measured, not declared: it is what `pairRunRecords` reports when
+  given every row of a split rather than only the scored ones, so an item counts as
+  dealt because a row for it exists on at least one arm. The gate does not impute a
+  value for a missing score — it does not know the failure value of the caller's
+  metric, and a caller who does knows to write it onto the record before calling.
+  `GateEvidence` gains `holdoutCoverage` and `searchCoverage` (`SplitCoverage`:
+  `dealt`, `answered`, `unscoredPairs`, `candidateOnly`, `baselineOnly`, `coverage`),
+  so a shrunken denominator can never be read without seeing it.
+  Verified monotone against `origin/main` over 6000 randomised comparisons: on
+  complete inputs the verdict, rejection code, CI and n are identical in 3000/3000
+  cases; across both sweeps there are 0 cases where the new gate promotes something
+  the old one refused.
 - `regularizedIncompleteBeta` takes the mandatory symmetry branch `I_x(a,b) = 1 − I_{1−x}(b,a)`.
   `studentTCdf(0.005, 100)` returned `0.89152130` against a true `0.50198972`; a
   perfectly null paired result reported `p < 0.05`. This survived 0.133.1, which
