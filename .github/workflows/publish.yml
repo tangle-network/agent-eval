@@ -194,7 +194,7 @@ jobs:
     # idempotent and succeeds when the version is already on the registry, so
     # reruns can still repair a missing PyPI artifact without creating skew.
     needs: [verify, publish-npm]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
