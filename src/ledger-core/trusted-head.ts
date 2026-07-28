@@ -133,8 +133,8 @@ export function readTrustedHeadFile(
  * pin or the new one and never a torn file that would lock a journal out of
  * its own trust record.
  *
- * Module-internal on purpose. It takes no lock, checks no chain, and enforces
- * no monotonicity, so an exported form would be the one call in this package
+ * Not re-exported from the package's public surface. It takes no lock, checks no
+ * chain, and enforces no monotonicity, so a public form would be the one call
  * able to move a pin BACKWARD onto a journal it never read — which is the
  * truncation the pin exists to refuse. `FileLedgerJournal.pinTrustedHead` is
  * the public writer: locked, chain-verified, forward-only. */
@@ -155,11 +155,13 @@ export function writeTrustedHeadFile(
 /** Outcome of discarding a pin: the guarantee that was given up. `unreadable`
  * carries why the discarded pin could not be named — corruption, a permission
  * fault, a wrong file type — so a caller recording the decision never has to
- * treat "no pin was there" and "the pin could not be read" as one state. */
+ * treat "no pin was there" and "the pin could not be read" as one state.
+ * `cleanupError` reports a stale atomic-write sibling that remains after the
+ * actual pin was cleared. */
 export type LedgerTrustedHeadRemoval =
-  | { removed: true; head: LedgerTrustedHead }
-  | { removed: true; head: null; unreadable: string }
-  | { removed: false }
+  | { removed: true; head: LedgerTrustedHead; cleanupError?: string }
+  | { removed: true; head: null; unreadable: string; cleanupError?: string }
+  | { removed: false; cleanupError?: string }
 
 /** Discard a journal's pin, reporting what was discarded. The journal file is
  * untouched and reads as unpinned afterwards, so the next pinning append opens
@@ -181,12 +183,19 @@ export function clearTrustedHeadFile(
     // but it is reported, never flattened into "there was no pin".
     unreadable = error instanceof Error ? error.message : String(error)
   }
-  // The atomic writer's temporary sibling would otherwise outlive the pin it
-  // was staging, leaving the reset half-done.
-  removeLedgerFile(`${path}.tmp`, context)
-  if (!removeLedgerFile(path, context)) return { removed: false }
-  if (head === null) return { removed: true, head: null, unreadable }
-  return { removed: true, head }
+  const removed = removeLedgerFile(path, context)
+  let cleanupError: string | undefined
+  try {
+    // Cleanup cannot block the requested trust-state change. Report a stale
+    // atomic-write sibling so the caller can repair it before the next write.
+    removeLedgerFile(`${path}.tmp`, context)
+  } catch (error) {
+    cleanupError = error instanceof Error ? error.message : String(error)
+  }
+  const cleanup = cleanupError === undefined ? {} : { cleanupError }
+  if (!removed) return { removed: false, ...cleanup }
+  if (head === null) return { removed: true, head: null, unreadable, ...cleanup }
+  return { removed: true, head, ...cleanup }
 }
 
 /** How a journal is named when a trusted-head check refuses it. */

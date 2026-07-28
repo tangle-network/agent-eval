@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -468,6 +469,30 @@ describe('a pin left behind by a deleted journal', () => {
     await expect(open(path).clearTrustedHead()).resolves.toMatchObject({ removed: true })
     expect(existsSync(`${path}.head.tmp`)).toBe(false)
   })
+
+  it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
+    'clears the pin and reports a temporary sibling it cannot remove',
+    async () => {
+      const path = journalPath()
+      await seed(path, 2, { pinHead: true })
+      const temporaryPath = `${path}.head.tmp`
+      mkdirSync(temporaryPath)
+      writeFileSync(join(temporaryPath, 'blocked'), 'stale\n')
+      chmodSync(temporaryPath, 0o500)
+
+      try {
+        await expect(open(path).clearTrustedHead()).resolves.toEqual({
+          removed: true,
+          head: expect.any(Object),
+          cleanupError: expect.stringContaining(temporaryPath),
+        })
+        expect(existsSync(`${path}.head`)).toBe(false)
+        expect(existsSync(temporaryPath)).toBe(true)
+      } finally {
+        chmodSync(temporaryPath, 0o700)
+      }
+    },
+  )
 })
 
 describe('an unpinned journal is not given a misleading pin', () => {
