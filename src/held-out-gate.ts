@@ -11,14 +11,35 @@
  *   1. **Productive runs**: the candidate has at least
  *      `minProductiveRuns` paired observations on items where BOTH
  *      candidate and baseline produced a real (non-silent) score.
- *   2. **Paired delta**: the lower bound of the bootstrap CI on the
- *      median per-item delta (candidate − baseline) on the HOLDOUT
- *      split is strictly greater than `pairedDeltaThreshold`.
+ *   2. **Paired delta**: the lower bound of the CI on the per-item
+ *      holdout delta (candidate − baseline) is strictly greater than
+ *      `pairedDeltaThreshold`. WHICH paired statistic carries that CI
+ *      depends on the outcome's shape — see "Choosing the statistic".
  *   3. **Overfit gap**: the candidate's gap between search-split
  *      score and holdout-split score is no worse (more positive)
  *      than the baseline's gap by more than `overfitGapThreshold`.
  *      "Better on search, worse on holdout" is the canonical
  *      overfit pattern; this catches it.
+ *
+ * ## Choosing the statistic
+ *
+ * CONTINUOUS holdout scores are decided on the bootstrap CI of the MEDIAN
+ * paired delta — robust to the occasional wild per-item score.
+ *
+ * BINARY holdout scores (every value exactly 0 or 1 — what a pass/fail eval
+ * produces) are decided on the paired RISK DIFFERENCE instead, because the
+ * median cannot see them at all: the paired delta vector then lives in
+ * {-1, 0, +1} and is dominated by zeros (both arms solve, or both arms miss,
+ * most items), so its median — and the whole bootstrap CI around it — is
+ * pinned at exactly 0 however large the real shift is. Measured: 76 held-out
+ * items with 15 candidate wins, 5 candidate losses and 56 ties is a real
+ * +13.2pp lift whose median paired delta is 0, and the median-CI gate refused
+ * it at every non-negative threshold while PROMOTING the mirror-image −13.2pp
+ * regression at any negative one. The paired risk difference
+ * (`(wins − losses) / n`, the change in success rate) is the effect size
+ * `pairedDeltaThreshold` already means to a pass/fail caller, and McNemar's
+ * exact test on the discordant pairs ships alongside it as evidence. Set
+ * `deltaStatistic: 'median'` to force the old behaviour.
  *
  * The decision carries a machine-readable `rejectionCode` plus an
  * `evidence` block with every number the gate looked at, so the
@@ -26,7 +47,8 @@
  * verdict without re-running.
  *
  * See also:
- *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`
+ *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`,
+ *     and `mcnemar` + `pairedRiskDifference` for the binary path
  *   - `src/run-record.ts` for the input row schema
  *   - `src/reference-replay.ts` for the older, reference-replay-
  *     specific promotion path (still useful for replay-style evals).
@@ -35,7 +57,13 @@
 import { pairRunRecords } from './paired-arms'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
-import { pairedBootstrap, wilcoxonSignedRank } from './statistics'
+import {
+  isBinaryOutcomeVector,
+  mcnemar,
+  pairedBootstrap,
+  pairedRiskDifference,
+  wilcoxonSignedRank,
+} from './statistics'
 
 export type HeldOutGateRejectionCode =
   | 'few_runs'
@@ -50,9 +78,22 @@ export interface HeldOutGateConfig {
   /** Minimum number of paired (candidate, baseline) holdout observations
    *  required before the gate will even consider promoting. Default 3. */
   minProductiveRuns?: number
-  /** The bootstrap-CI lower bound on the median paired holdout delta
-   *  must exceed this to promote. Default 0. */
+  /** The CI lower bound on the paired holdout delta must exceed this to
+   *  promote. Read in the same units as the holdout scores: with binary
+   *  (0/1) outcomes that is a change in success RATE (0.05 = +5pp).
+   *  Default 0. */
   pairedDeltaThreshold?: number
+  /**
+   * Which paired statistic carries the promotion CI.
+   *
+   * `'auto'` (default) picks by outcome shape: binary (0/1) holdout scores on
+   * both arms are decided on the paired RISK DIFFERENCE + McNemar, everything
+   * else on the bootstrap CI of the MEDIAN paired delta. `'median'` forces the
+   * median bootstrap on every input, including binary — where it is
+   * structurally blind (see the module header) and will refuse a real lift and
+   * accept a real regression. Only set it to reproduce a pre-existing verdict.
+   */
+  deltaStatistic?: 'auto' | 'median'
   /** Maximum allowed worsening of (search − holdout) gap relative to
    *  baseline. Default 0.15 (i.e. candidate may overfit by up to 15
    *  absolute score points more than baseline before rejection). */
@@ -89,12 +130,30 @@ export interface GateEvidence {
   unpairedCandidateRuns: number
   /** Baseline holdout rows with no candidate row at the same work identity. */
   unpairedBaselineRuns: number
-  /** Median of paired holdout deltas, or null when there are no pairs. */
+  /** Median of paired holdout deltas, or null when there are no pairs.
+   *  ALWAYS the literal median — a diagnostic, not necessarily the statistic
+   *  the verdict keyed on (see `deltaStatistic` / `decidingDelta`). On binary
+   *  outcomes this is normally 0 by construction. */
   medianPairedDelta: number | null
-  /** Bootstrap CI on the median paired holdout delta, if computed. */
+  /** Which paired statistic the promotion CI was computed on, and therefore
+   *  what `decidingDelta` / `pairedCI` mean. `'median_bootstrap'` = bootstrap
+   *  CI on the median paired delta (continuous outcomes).
+   *  `'paired_risk_difference'` = change in success rate on binary (0/1)
+   *  outcomes, where the median is structurally pinned at 0. */
+  deltaStatistic: 'median_bootstrap' | 'paired_risk_difference'
+  /** Point estimate of `deltaStatistic` — the number the `pairedDeltaThreshold`
+   *  check is about. Null when no CI was computed. */
+  decidingDelta: number | null
+  /** CI on `deltaStatistic`, if computed. The gate promotes iff
+   *  `pairedCI.low > pairedDeltaThreshold`. */
   pairedCI: { low: number; high: number } | null
-  /** Wilcoxon signed-rank p-value, if computed. */
+  /** Wilcoxon signed-rank p-value, if computed. Always the Wilcoxon, on both
+   *  paths, so this field never changes meaning. */
   pairedPValue: number | null
+  /** McNemar's exact paired-binary test on the holdout pairs, or null when the
+   *  outcomes were not binary (or no CI was computed). `b` = candidate-only
+   *  wins, `c` = baseline-only wins; only these discordant pairs carry signal. */
+  mcnemar: { b: number; c: number; nDiscordant: number; pValue: number } | null
   /** Mean candidate score on the search split, or null when absent. */
   searchScore: number | null
   /** Mean candidate score on the holdout split, or null when absent. */
@@ -149,6 +208,7 @@ export class HeldOutGate {
   private readonly resamples: number
   private readonly seed?: number
   private readonly costPerTaskCeiling?: number
+  private readonly deltaStatistic: 'auto' | 'median'
 
   constructor(config: HeldOutGateConfig) {
     if (!config.baselineKey) {
@@ -161,6 +221,7 @@ export class HeldOutGate {
     this.confidence = config.confidence ?? 0.95
     this.resamples = config.bootstrapResamples ?? 2000
     this.seed = config.seed
+    this.deltaStatistic = config.deltaStatistic ?? 'auto'
     if (
       config.costPerTaskCeiling !== undefined &&
       !(Number.isFinite(config.costPerTaskCeiling) && config.costPerTaskCeiling > 0)
@@ -227,6 +288,18 @@ export class HeldOutGate {
       medianBaselineCost,
       realnessGatedRuns,
     }
+    /** Evidence for the early exits, where no CI was computed at all. The
+     *  statistic that WOULD have decided is still reported so a caller can see
+     *  which branch their data lands in without producing a verdict. */
+    const noCiEvidence = {
+      ...commonEvidence,
+      medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
+      deltaStatistic: this.chooseStatistic(beforeHoldout, afterHoldout),
+      decidingDelta: null,
+      pairedCI: null,
+      pairedPValue: null,
+      mcnemar: null,
+    }
 
     const missingSplitScores = [
       candidateSearch.length === 0 ? 'candidate search' : null,
@@ -239,12 +312,7 @@ export class HeldOutGate {
         promote: false,
         candidateId,
         baselineId,
-        evidence: {
-          ...commonEvidence,
-          medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
-          pairedCI: null,
-          pairedPValue: null,
-        },
+        evidence: noCiEvidence,
         reason: `missing_split_scores: ${missingSplitScores.join(', ')} score evidence is absent`,
         rejectionCode: 'missing_split_scores',
       }
@@ -255,12 +323,7 @@ export class HeldOutGate {
         promote: false,
         candidateId,
         baselineId,
-        evidence: {
-          ...commonEvidence,
-          medianPairedDelta: productiveRuns > 0 ? medianDelta(beforeHoldout, afterHoldout) : null,
-          pairedCI: null,
-          pairedPValue: null,
-        },
+        evidence: noCiEvidence,
         reason: `few_runs: ${productiveRuns} paired holdout observation(s) < min ${this.minProductiveRuns}`,
         rejectionCode: 'few_runs',
       }
@@ -269,20 +332,47 @@ export class HeldOutGate {
       throw new Error('HeldOutGate: complete split scores did not produce overfit gaps')
     }
 
-    // Paired bootstrap on holdout deltas.
-    const ci = pairedBootstrap(beforeHoldout, afterHoldout, {
-      confidence: this.confidence,
-      resamples: this.resamples,
-      statistic: 'median',
-      seed: this.seed,
-    })
+    // The paired holdout delta, on the statistic the outcome's shape admits.
+    // `medianPairedDelta` stays the literal median on BOTH paths so the number
+    // that made the old gate blind remains visible in the evidence.
+    const statistic = this.chooseStatistic(beforeHoldout, afterHoldout)
+    const literalMedian = medianDelta(beforeHoldout, afterHoldout)
     const wilcoxon = wilcoxonSignedRank(beforeHoldout, afterHoldout)
+
+    let decidingDelta: number
+    let low: number
+    let high: number
+    let mcnemarEvidence: GateEvidence['mcnemar'] = null
+    let deltaLabel: string
+    if (statistic === 'paired_risk_difference') {
+      const rd = pairedRiskDifference(beforeHoldout, afterHoldout, this.confidence)
+      const mc = mcnemar(beforeHoldout, afterHoldout)
+      decidingDelta = rd.riskDifference
+      low = rd.lower
+      high = rd.upper
+      mcnemarEvidence = { b: mc.b, c: mc.c, nDiscordant: mc.nDiscordant, pValue: mc.pValue }
+      deltaLabel = 'success-rate'
+    } else {
+      const ci = pairedBootstrap(beforeHoldout, afterHoldout, {
+        confidence: this.confidence,
+        resamples: this.resamples,
+        statistic: 'median',
+        seed: this.seed,
+      })
+      decidingDelta = ci.median
+      low = ci.low
+      high = ci.high
+      deltaLabel = 'median'
+    }
 
     const evidence: GateEvidence = {
       ...commonEvidence,
-      medianPairedDelta: ci.median,
-      pairedCI: { low: ci.low, high: ci.high },
+      medianPairedDelta: literalMedian,
+      deltaStatistic: statistic,
+      decidingDelta,
+      pairedCI: { low, high },
       pairedPValue: wilcoxon.p,
+      mcnemar: mcnemarEvidence,
     }
 
     if (!Number.isFinite(ci.low) || !Number.isFinite(ci.high) || (ci.low === 0 && ci.high === 0)) {
@@ -299,15 +389,15 @@ export class HeldOutGate {
     }
 
     // Negative-delta gate (CI lower bound must clear the threshold).
-    if (!(ci.low > this.pairedDeltaThreshold)) {
+    if (!(low > this.pairedDeltaThreshold)) {
       return {
         promote: false,
         candidateId,
         baselineId,
         evidence,
         reason:
-          `negative_delta: paired holdout median Δ=${fmt(ci.median)} ` +
-          `CI=[${fmt(ci.low)}, ${fmt(ci.high)}] does not clear threshold ${fmt(this.pairedDeltaThreshold)}`,
+          `negative_delta: paired holdout ${deltaLabel} Δ=${fmt(decidingDelta)} ` +
+          `CI=[${fmt(low)}, ${fmt(high)}] does not clear threshold ${fmt(this.pairedDeltaThreshold)}`,
         rejectionCode: 'negative_delta',
       }
     }
@@ -363,12 +453,31 @@ export class HeldOutGate {
       baselineId,
       evidence,
       reason:
-        `promote: paired holdout median Δ=${fmt(ci.median)} ` +
-        `CI=[${fmt(ci.low)}, ${fmt(ci.high)}] over ${productiveRuns} pairs; ` +
+        `promote: paired holdout ${deltaLabel} Δ=${fmt(decidingDelta)} ` +
+        `CI=[${fmt(low)}, ${fmt(high)}] over ${productiveRuns} pairs; ` +
         `overfit gap candidate=${fmt(overfitGap)} vs baseline=${fmt(baselineOverfitGap)}; ` +
         `median cost candidate=$${fmt(medianCandidateCost)} vs baseline=$${fmt(medianBaselineCost)}`,
       rejectionCode: null,
     }
+  }
+
+  /**
+   * Which paired statistic can actually see this data.
+   *
+   * Binary on BOTH arms ⇒ the paired risk difference; anything else (or an
+   * explicit `deltaStatistic: 'median'`) ⇒ the median bootstrap. Requiring
+   * both arms to be binary is deliberate: a continuous baseline against a
+   * pass/fail candidate is not a paired-binary comparison, and treating it as
+   * one would silently reinterpret the caller's threshold units.
+   */
+  private chooseStatistic(
+    before: number[],
+    after: number[],
+  ): 'median_bootstrap' | 'paired_risk_difference' {
+    if (this.deltaStatistic === 'median') return 'median_bootstrap'
+    return isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after)
+      ? 'paired_risk_difference'
+      : 'median_bootstrap'
   }
 }
 

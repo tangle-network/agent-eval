@@ -452,6 +452,7 @@ export {
   holm,
   interpretCliffs,
   interRaterReliability,
+  isBinaryOutcomeVector,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,

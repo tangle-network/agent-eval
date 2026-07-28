@@ -1092,6 +1092,32 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
   }
 }
 
+/**
+ * Are these per-item outcomes binary (every value exactly 0 or 1)?
+ *
+ * The discriminator a promotion gate needs before choosing a paired statistic.
+ * On binary outcomes the paired delta vector lives in {-1, 0, +1} and is
+ * normally dominated by zeros (both arms solve, or both arms miss, most items),
+ * so its MEDIAN is pinned at exactly 0 no matter how large the real shift in
+ * success rate is — and a bootstrap CI on that median collapses to [0, 0].
+ * A gate keying on `ci.low > threshold` is then structurally unable to see
+ * either a gain or a regression. Detect this shape and switch to the
+ * paired-binary estimators ({@link mcnemar}, {@link pairedRiskDifference})
+ * instead of silently answering "no" forever.
+ *
+ * Empty input is NOT binary: there is no evidence of the outcome's shape, and
+ * defaulting an empty vector into the binary branch would pick a statistic on
+ * no data at all.
+ */
+export function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
+  if (values.length === 0) return false
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]!
+    if (v !== 0 && v !== 1) return false
+  }
+  return true
+}
+
 /** Result of a McNemar paired-binary significance test. */
 export interface McNemarResult {
   /** Total paired observations. */

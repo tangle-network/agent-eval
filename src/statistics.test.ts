@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pairedBootstrap } from './statistics'
+import { isBinaryOutcomeVector, pairedBootstrap } from './statistics'
 
 /**
  * The load-bearing statistical core of the promotion gate: `pairedBootstrap`
@@ -56,5 +56,34 @@ describe('pairedBootstrap — promotion-gate CI core', () => {
     expect(pairedBootstrap(before, after, { seed: 42 })).toEqual(
       pairedBootstrap(before, after, { seed: 42 }),
     )
+  })
+})
+
+describe('isBinaryOutcomeVector — the statistic discriminator', () => {
+  it('accepts only vectors whose every value is exactly 0 or 1', () => {
+    expect(isBinaryOutcomeVector([0, 1, 1, 0, 1])).toBe(true)
+    expect(isBinaryOutcomeVector([1, 1, 1])).toBe(true)
+    expect(isBinaryOutcomeVector([0, 0])).toBe(true)
+    expect(isBinaryOutcomeVector([0, 1, 0.5])).toBe(false)
+    expect(isBinaryOutcomeVector([0, 1, 2])).toBe(false)
+    expect(isBinaryOutcomeVector([0, 1, -0.0])).toBe(true) // -0 === 0
+    expect(isBinaryOutcomeVector([0, Number.NaN])).toBe(false)
+  })
+
+  it('treats an empty vector as NOT binary — no evidence of the outcome shape', () => {
+    expect(isBinaryOutcomeVector([])).toBe(false)
+  })
+
+  it('names the regime where the median paired delta goes blind', () => {
+    // 15 wins, 5 losses, 56 ties: a real +13.2pp shift whose median is 0.
+    const before = [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1)]
+    const after = [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1)]
+    expect(isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after)).toBe(true)
+    const med = pairedBootstrap(before, after, { statistic: 'median', seed: 1337 })
+    const avg = pairedBootstrap(before, after, { statistic: 'mean', seed: 1337 })
+    expect(med.low).toBe(0)
+    expect(med.high).toBe(0)
+    expect(avg.mean).toBeCloseTo(10 / 76, 6)
+    expect(avg.low).toBeGreaterThan(0)
   })
 })
