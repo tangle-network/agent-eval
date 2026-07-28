@@ -42,6 +42,7 @@ export type HeldOutGateRejectionCode =
   | 'missing_split_scores'
   | 'missing_cost'
   | 'negative_delta'
+  | 'indeterminate_delta'
   | 'overfit_gap'
   | 'cost_ceiling'
 
@@ -282,6 +283,19 @@ export class HeldOutGate {
       medianPairedDelta: ci.median,
       pairedCI: { low: ci.low, high: ci.high },
       pairedPValue: wilcoxon.p,
+    }
+
+    if (!Number.isFinite(ci.low) || !Number.isFinite(ci.high) || (ci.low === 0 && ci.high === 0)) {
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence,
+        reason:
+          `indeterminate_delta: paired holdout median CI=[${fmt(ci.low)}, ${fmt(ci.high)}] ` +
+          'carries no direction',
+        rejectionCode: 'indeterminate_delta',
+      }
     }
 
     // Negative-delta gate (CI lower bound must clear the threshold).
