@@ -25,9 +25,9 @@
  */
 
 import {
+  DECISION_PAIRED_DELTA_STATISTIC,
   type PairedBootstrapResult,
   pairedBootstrap,
-  pairedDeltaBootstrapStatistic,
 } from '../../statistics'
 import type { JudgeScore } from '../types'
 
@@ -207,10 +207,9 @@ export interface DimensionRegression {
   dimension: string
   bootstrap: PairedBootstrapResult
   /** Which paired statistic `bootstrap.low` is the lower bound of, and therefore
-   *  what `regressed` was decided on. `'median'` for continuous dimensions;
-   *  `'mean'` when ties pin the median at 0 — which covers pass/fail dimensions
-   *  on ANY encoding ({0,1} and {0,100} alike) and low-cardinality dimensions,
-   *  where a median-based guard can never fire. */
+   *  what `regressed` was decided on. `'mean'` unless the caller asked for the
+   *  median. `bootstrap.median` still carries the median point estimate either
+   *  way. */
   bootstrapStatistic: 'median' | 'mean'
   /** True iff the CI lower bound on (candidate − baseline) is below −tolerance:
    *  the candidate may have regressed this dimension by more than tolerance. */
@@ -233,26 +232,34 @@ export function detectScale(values: number[]): 1 | 100 {
  *  posture for safety dimensions like `hallucination_free`). When `tolerance`
  *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100.
  *
- *  A TIE-DOMINATED dimension is bootstrapped on the MEAN paired delta instead of
- *  the median. This guard fails OPEN otherwise: when most pairs tie — which is
- *  automatic for a pass/fail dimension, on {0,1} and on the 0-100 encoding
- *  `detectScale` exists to support, and common for low-cardinality ones — the
- *  median CI collapses to [0,0], never drops below −tolerance, and a real
- *  regression on a safety dimension is reported as `regressed: false`.
- *  Continuous dimensions are unchanged. */
+ *  The CI is on the MEAN paired delta by default
+ *  ({@link DECISION_PAIRED_DELTA_STATISTIC}). On the median this guard fails
+ *  OPEN: when most pairs tie — automatic for a pass/fail dimension, on {0,1}
+ *  and on the 0-100 encoding `detectScale` exists to support — the median CI
+ *  collapses to [0,0], never drops below −tolerance, and a real regression on a
+ *  safety dimension is reported as `regressed: false`. Pass
+ *  `statistic: 'median'` to restore the pre-0.134 behaviour. */
 export function dimensionRegressions(
   candidate: Map<string, Record<string, JudgeScore>>,
   baseline: Map<string, Record<string, JudgeScore>>,
   scenarioIds: Set<string>,
   criticalDimensions: string[],
-  opts: { tolerance?: number; confidence?: number; resamples?: number; seed?: number } = {},
+  opts: {
+    tolerance?: number
+    confidence?: number
+    resamples?: number
+    seed?: number
+    /** Paired statistic the CI is computed on. Default `'mean'` — see
+     *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
+    statistic?: 'mean' | 'median'
+  } = {},
 ): DimensionRegression[] {
   const out: DimensionRegression[] = []
   for (const dim of criticalDimensions) {
     const paired = pairHoldout(candidate, baseline, scenarioIds, (s) => s.dimensions[dim])
     if (paired.before.length === 0) continue // dimension not scored on this judge
     const tolerance = opts.tolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
-    const bootstrapStatistic = pairedDeltaBootstrapStatistic(paired.before, paired.after)
+    const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
     const bootstrap = pairedBootstrap(paired.before, paired.after, {
       confidence: opts.confidence ?? 0.95,
       resamples: opts.resamples ?? 2000,

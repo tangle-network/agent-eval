@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DECISION_PAIRED_DELTA_STATISTIC,
   isBinaryOutcomeVector,
   pairedBinaryScale,
   pairedBootstrap,
-  pairedDeltaBootstrapStatistic,
   pairedDeltaTieFraction,
 } from './statistics'
 
@@ -122,56 +122,79 @@ describe('pairedBinaryScale — two-point outcomes on ANY encoding', () => {
   })
 })
 
-describe('pairedDeltaTieFraction / pairedDeltaBootstrapStatistic', () => {
+describe('pairedDeltaTieFraction + DECISION_PAIRED_DELTA_STATISTIC', () => {
   it('counts exact ties', () => {
     expect(pairedDeltaTieFraction([1, 1, 0, 1], [1, 0, 0, 1])).toBe(0.75)
     expect(pairedDeltaTieFraction([], [])).toBe(0)
     expect(() => pairedDeltaTieFraction([1, 2], [1])).toThrow(/unequal sample sizes/)
   })
 
-  it('switches off the median wherever ties pin it at 0', () => {
-    const bin = {
-      before: [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1)],
-      after: [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1)],
-    }
-    // {0,1}, and the same data on 0-100 — the same shape, one encoding over.
-    expect(pairedDeltaBootstrapStatistic(bin.before, bin.after)).toBe('mean')
-    expect(
-      pairedDeltaBootstrapStatistic(
-        bin.before.map((v) => v * 100),
-        bin.after.map((v) => v * 100),
-      ),
-    ).toBe('mean')
-    // One partial-credit pair: no longer {0,1}, median just as blind.
-    expect(pairedDeltaBootstrapStatistic([...bin.before, 0.5], [...bin.after, 0.5])).toBe('mean')
-    // Block scores in {2/3, 1} (a block scored as the mean of 3 pass/fail leaves).
-    expect(
-      pairedDeltaBootstrapStatistic(
-        [...Array(20).fill(1), ...Array(56).fill(1)],
-        [...Array(20).fill(2 / 3), ...Array(56).fill(1)],
-      ),
-    ).toBe('mean')
-    // Asymmetric arms: pass/fail baseline vs partial-credit candidate.
-    expect(
-      pairedDeltaBootstrapStatistic(
-        [...Array(20).fill(1), ...Array(56).fill(1)],
-        [...Array(20).fill(0.4), ...Array(56).fill(1)],
-      ),
-    ).toBe('mean')
+  it('is the MEAN, and every shape below is why', () => {
+    expect(DECISION_PAIRED_DELTA_STATISTIC).toBe('mean')
   })
 
-  it('leaves genuinely continuous data on the median', () => {
-    expect(pairedDeltaBootstrapStatistic([0.5, 0.55, 0.6, 0.52], [0.7, 0.72, 0.8, 0.71])).toBe(
-      'median',
-    )
-    // Ties present but not dominant (2 of 5).
-    expect(
-      pairedDeltaBootstrapStatistic([0.5, 0.5, 0.6, 0.7, 0.8], [0.5, 0.5, 0.7, 0.9, 0.6]),
-    ).toBe('median')
+  /** Each case: the median CI cannot see the effect, the mean CI can. These are
+   *  the measured shapes, not hypotheticals — the reason the decision statistic
+   *  is a constant and not a tie-fraction heuristic. */
+  const blind = (before: number[], after: number[]) => {
+    const med = pairedBootstrap(before, after, { statistic: 'median', seed: 1337 })
+    const avg = pairedBootstrap(before, after, { statistic: 'mean', seed: 1337 })
+    return { med, avg, tieFraction: pairedDeltaTieFraction(before, after) }
+  }
+
+  it('pass/fail on {0,1}: median CI [0,0], mean CI excludes 0', () => {
+    const before = [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1)]
+    const after = [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1)]
+    const { med, avg } = blind(before, after)
+    expect([med.low, med.high]).toEqual([0, 0])
+    expect(avg.low).toBeGreaterThan(0)
   })
 
-  it('leaves an ALL-tie vector on the median — no shift exists for ties to hide', () => {
-    expect(pairedDeltaBootstrapStatistic([1, 1, 1], [1, 1, 1])).toBe('median')
-    expect(pairedDeltaBootstrapStatistic([0.5, 0.5], [0.5, 0.5])).toBe('median')
+  it('the same pass/fail data on 0-100: identical blindness, one encoding over', () => {
+    const before = [...Array(15).fill(0), ...Array(5).fill(100), ...Array(56).fill(100)]
+    const after = [...Array(15).fill(100), ...Array(5).fill(0), ...Array(56).fill(100)]
+    const { med, avg } = blind(before, after)
+    expect([med.low, med.high]).toEqual([0, 0])
+    expect(avg.low).toBeGreaterThan(0)
+  })
+
+  it('one partial-credit pair does not un-blind the median', () => {
+    const before = [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1), 0.5]
+    const after = [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1), 0.5]
+    const { med, avg } = blind(before, after)
+    expect([med.low, med.high]).toEqual([0, 0])
+    expect(avg.low).toBeGreaterThan(0)
+  })
+
+  it('asymmetric arms (pass/fail vs partial credit): median CI [0,0] on a −15.8pp drop', () => {
+    const before = [...Array(20).fill(1), ...Array(56).fill(1)]
+    const after = [...Array(20).fill(0.4), ...Array(56).fill(1)]
+    const { med, avg } = blind(before, after)
+    expect([med.low, med.high]).toEqual([0, 0])
+    expect(avg.high).toBeLessThan(0)
+  })
+
+  it('LOW-CARDINALITY lattice at only 23% ties: median lower bound pins to 0 on a real +12.8pp lift', () => {
+    // 26 blocks of 3 pass/fail leaves, scored as the block mean ⇒ scores in
+    // {2/3, 1}: 15 blocks up, 5 down, 6 tied. This is the case a tie-fraction
+    // cutoff misses — the median is not pinned by ties, it is pinned by the
+    // lattice its bootstrap percentiles land on.
+    const third = 1 / 3
+    const before = [...Array(15).fill(2 / 3), ...Array(5).fill(1), ...Array(6).fill(1)]
+    const after = [...Array(15).fill(1), ...Array(5).fill(2 / 3), ...Array(6).fill(1)]
+    const { med, avg, tieFraction } = blind(before, after)
+    expect(tieFraction).toBeCloseTo(6 / 26, 12)
+    expect(med.median).toBeCloseTo(third, 12)
+    expect(med.low).toBe(0) // ⇒ `low > 0` is false ⇒ a real lift refused
+    expect(avg.mean).toBeCloseTo(10 / 3 / 26, 12)
+    expect(avg.low).toBeGreaterThan(0) // the mean sees it
+  })
+
+  it('genuinely continuous data: both statistics see the same clear gain', () => {
+    const before = [0.5, 0.55, 0.6, 0.52, 0.58, 0.51, 0.49, 0.53]
+    const after = [0.7, 0.72, 0.8, 0.71, 0.79, 0.7, 0.68, 0.74]
+    const { med, avg } = blind(before, after)
+    expect(med.low).toBeGreaterThan(0)
+    expect(avg.low).toBeGreaterThan(0)
   })
 })

@@ -366,17 +366,27 @@ describe('buildEvidenceVector — binary (0/1) axes', () => {
     expect(axis.bootstrapStatistic).toBe('mean')
   })
 
-  it('leaves continuous axes on the median statistic', () => {
+  it('decides continuous axes on the mean, and still offers the median', () => {
     const continuous = ctxFrom(
       cells(
         () => ({ composite: 0.8, dimensions: { speed: 0.5 } }),
         () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
       ),
     )
-    const ev = buildEvidenceVector(continuous, [
+    const objectives = [
       QUALITY,
-      { name: 'speed', source: { kind: 'dimension', dimension: 'speed' }, direction: 'maximize' },
-    ])
-    for (const axis of ev.axes) expect(axis.bootstrapStatistic).toBe('median')
+      {
+        name: 'speed',
+        source: { kind: 'dimension' as const, dimension: 'speed' },
+        direction: 'maximize' as const,
+      },
+    ]
+    const ev = buildEvidenceVector(continuous, objectives)
+    for (const axis of ev.axes) expect(axis.bootstrapStatistic).toBe('mean')
+    expect(ev.axes.map((a) => a.verdict)).toEqual(['improved', 'flat'])
+    // The pre-0.134 median path is still exactly reachable, same verdicts here.
+    const med = buildEvidenceVector(continuous, objectives, { statistic: 'median' })
+    for (const axis of med.axes) expect(axis.bootstrapStatistic).toBe('median')
+    expect(med.axes.map((a) => a.verdict)).toEqual(['improved', 'flat'])
   })
 })
