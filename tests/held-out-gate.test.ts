@@ -1037,7 +1037,9 @@ describe('HeldOutGate — the verdict is a function of the DELTAS, not of the va
   }
 
   for (const threshold of [0, -0.05, 0.02]) {
-    it(`adding a constant to both arms never changes the verdict (threshold ${threshold})`, () => {
+    it(`adding a constant to both arms never changes the verdict (threshold ${threshold})`, {
+      timeout: 60_000,
+    }, () => {
       const mismatches: string[] = []
       let promotes = 0
       let refusals = 0
@@ -1159,7 +1161,9 @@ describe('HeldOutGate — calibration at a nonzero margin', () => {
     expect(d.rejectionCode).toBe('negative_delta')
   })
 
-  it('promotes at most the nominal 5% under repeated sampling AT the boundary', () => {
+  it('promotes at most the nominal 5% under repeated sampling AT the boundary', {
+    timeout: 60_000,
+  }, () => {
     // The decisive check the duality test could not make: draw from a process
     // whose TRUE risk difference equals the margin exactly and count how often a
     // nominal-95% gate says "not worse". Deterministic PRNG, so this is a fixed

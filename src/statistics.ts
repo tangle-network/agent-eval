@@ -1802,9 +1802,11 @@ export function empiricalLikelihoodMeanInterval(
     // mu outside the convex hull of the data: no reweighting attains it.
     if (!(zMin < 0 && zMax > 0)) return Number.POSITIVE_INFINITY
     // g(λ) = Σ z/(1+λz) is strictly decreasing with one root in this bracket.
+    // 64 halvings resolve it to ~1e-19 of the bracket, far past what the outer
+    // search needs, and the whole interval stays O(n) per iteration.
     let lo = -1 / zMax
     let hi = -1 / zMin
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 64; i++) {
       const mid = (lo + hi) / 2
       let g = 0
       for (const x of xs) {
@@ -1834,7 +1836,7 @@ export function empiricalLikelihoodMeanInterval(
   const boundary = (rejected: number): number => {
     let lo = rejected
     let hi = mean
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 64; i++) {
       const mid = (lo + hi) / 2
       if (statistic(mid) > critical) lo = mid
       else hi = mid

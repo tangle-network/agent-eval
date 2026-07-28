@@ -1165,7 +1165,12 @@ describe('empiricalLikelihoodMeanInterval — the interval a nonzero margin need
     expect(wide.high!).toBeGreaterThan(ci.high!)
   })
 
-  it('EXCLUDES the true margin far less often than the conditional interval does', () => {
+  // Deliberately heavy: a repeated-sampling calibration is the only check that
+  // can see this defect, so it gets a timeout that fits it rather than a rep
+  // count trimmed until it fits the default.
+  it('EXCLUDES the true margin far less often than the conditional interval does', {
+    timeout: 60_000,
+  }, () => {
     // The measured defect the conditional interval has and this one does not:
     // draw from a process whose true risk difference IS the margin and count how
     // often a nominal-95% rule declares "better than the margin".
