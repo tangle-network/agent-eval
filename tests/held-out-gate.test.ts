@@ -998,12 +998,19 @@ describe('HeldOutGate — coverage cannot be laundered', () => {
 })
 
 describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', () => {
-  it('pins the pre-0.134 numbers byte-for-byte on a fully covered comparison', () => {
+  it('pins the pre-coverage numbers byte-for-byte on a fully covered comparison', () => {
+    // Every number asserted here was produced by the gate on `origin/main`
+    // (2789970, published 0.133.3) with the identical fixture and seed. The
+    // coverage check must not move any of them.
     const pairs = joinPairs(
       makePair('cand', 0, 0.82, 0.78, 0.65, 0.6),
       makePair('cand', 1, 0.82, 0.81, 0.65, 0.62),
       makePair('cand', 2, 0.82, 0.79, 0.65, 0.61),
       makePair('cand', 3, 0.82, 0.8, 0.65, 0.59),
+      makePair('cand', 4, 0.82, 0.77, 0.65, 0.6),
+      makePair('cand', 5, 0.82, 0.82, 0.65, 0.63),
+      makePair('cand', 6, 0.82, 0.8, 0.65, 0.61),
+      makePair('cand', 7, 0.82, 0.79, 0.65, 0.6),
     )
     const d = new HeldOutGate({
       baselineKey: 'baseline',
@@ -1016,12 +1023,13 @@ describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', 
 
     expect(d.promote).toBe(true)
     expect(d.rejectionCode).toBeNull()
-    expect(d.evidence.productiveRuns).toBe(4)
-    expect(d.evidence.medianPairedDelta).toBe(0.18500000000000005)
+    expect(d.evidence.productiveRuns).toBe(8)
+    expect(d.evidence.medianPairedDelta).toBe(0.19)
     expect(d.evidence.pairedCI).toEqual({
       low: 0.18000000000000005,
-      high: 0.21000000000000008,
+      high: 0.19000000000000006,
     })
+    expect(d.evidence.pairedPValue).toBe(0.0078125)
     expect(d.evidence.holdoutCoverage.coverage).toBe(1)
     expect(d.evidence.searchCoverage.coverage).toBe(1)
   })
