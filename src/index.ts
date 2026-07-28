@@ -432,11 +432,13 @@ export type {
   CorpusScoreRecord,
   ExactRiskDifferenceResult,
   McNemarResult,
+  MeanIntervalResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
   PairedSignTestResult,
   ProportionInterval,
   RiskDifferenceResult,
+  SignFlipTestResult,
   SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,
@@ -451,6 +453,7 @@ export {
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
   DECISION_PAIRED_DELTA_STATISTIC,
+  empiricalLikelihoodMeanInterval,
   holm,
   interpretCliffs,
   interRaterReliability,
@@ -463,6 +466,7 @@ export {
   pairedBinaryScale,
   pairedBootstrap,
   pairedCohensDz,
+  pairedDeltaMagnitude,
   pairedDeltaTieFraction,
   pairedMde,
   pairedRiskDifference,
@@ -475,6 +479,7 @@ export {
   ranks,
   requiredPairedSampleSize,
   requiredSampleSize,
+  signFlipMeanTest,
   spearmanR,
   weightedComposite,
   weightedMean,
@@ -1367,11 +1372,13 @@ export {
   weightedRecall,
 } from './golden-matcher'
 export type {
+  DeltaIntervalMethod,
   DeltaStatistic,
   GateDecision,
   GateEvidence,
   HeldOutGateConfig,
   HeldOutGateRejectionCode,
+  SignFlipEvidence,
 } from './held-out-gate'
 export { HeldOutGate } from './held-out-gate'
 export type {

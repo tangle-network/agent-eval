@@ -7,6 +7,7 @@ import {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  empiricalLikelihoodMeanInterval,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
@@ -14,6 +15,7 @@ import {
   normalizeScores,
   pairedBootstrap,
   pairedCohensDz,
+  pairedDeltaMagnitude,
   pairedMde,
   pairedRiskDifference,
   pairedRiskDifferenceExact,
@@ -25,6 +27,7 @@ import {
   ranks,
   requiredPairedSampleSize,
   requiredSampleSize,
+  signFlipMeanTest,
   spearmanR,
   weightedMean,
   wilcoxonSignedRank,
@@ -989,5 +992,196 @@ describe('spearmanR — rank correlation', () => {
   it('inherits the n<2 / length-mismatch NaN contract', () => {
     expect(spearmanR([1], [2])).toBeNaN()
     expect(spearmanR([1, 2, 3], [1, 2])).toBeNaN()
+  })
+})
+
+describe('pairedDeltaMagnitude — pass/fail recognised WITHOUT needing a zero', () => {
+  it('reads the delta step, so an additive shift cannot change it', () => {
+    expect(pairedDeltaMagnitude([0, 1, 1], [1, 1, 0])).toBe(1)
+    expect(pairedDeltaMagnitude([100, 0], [0, 0])).toBe(100)
+    // The shapes `pairedBinaryScale` misses because they contain no zero:
+    expect(pairedDeltaMagnitude([2 / 3, 1], [1, 1])).toBeCloseTo(1 / 3, 15)
+    expect(pairedDeltaMagnitude([10, 10 + 1 / 3], [10 + 1 / 3, 10 + 1 / 3])).toBeCloseTo(1 / 3, 12)
+    expect(pairedDeltaMagnitude([-5, -4], [-4, -4])).toBe(1)
+  })
+
+  it('is null when the non-tied deltas carry more than one magnitude, or none', () => {
+    expect(pairedDeltaMagnitude([0, 0], [1, 0.5])).toBeNull()
+    expect(pairedDeltaMagnitude([1, 1], [1, 1])).toBeNull() // no non-tied pair
+    expect(pairedDeltaMagnitude([0], [Number.NaN])).toBeNull()
+    expect(() => pairedDeltaMagnitude([0, 1], [0])).toThrow(/unequal sample sizes/)
+  })
+
+  it('is invariant to an additive shift on a random sweep, to float precision', () => {
+    let seed = 424242
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return seed / 2147483648
+    }
+    const levels = [0, 1 / 3, 2 / 3, 1]
+    for (let trial = 0; trial < 200; trial++) {
+      const n = 2 + Math.floor(rand() * 8)
+      const before = Array.from({ length: n }, () => levels[Math.floor(rand() * 4)]!)
+      const after = Array.from({ length: n }, () => levels[Math.floor(rand() * 4)]!)
+      const base = pairedDeltaMagnitude(before, after)
+      for (const offset of [0.25, 2 / 3, 7, -3.5, 1e5]) {
+        const shifted = pairedDeltaMagnitude(
+          before.map((x) => x + offset),
+          after.map((x) => x + offset),
+        )
+        if (base === null) expect(shifted).toBeNull()
+        else expect(shifted!).toBeCloseTo(base, 9)
+      }
+    }
+  })
+})
+
+describe('signFlipMeanTest — the veto, and why the binary test is a derived case', () => {
+  it('EQUALS McNemar exactly on every single-magnitude shape up to 12x12', () => {
+    // If this ever stops holding, the "binary" test has become a separate branch
+    // again and a new encoding can miss it.
+    let checked = 0
+    for (let b = 0; b <= 12; b++) {
+      for (let c = 0; c <= 12; c++) {
+        for (const magnitude of [1, 100, 1 / 3]) {
+          const deltas = [
+            ...Array.from({ length: b }, () => magnitude),
+            ...Array.from({ length: c }, () => -magnitude),
+            ...Array.from({ length: 5 }, () => 0),
+          ]
+          const sf = signFlipMeanTest(deltas)
+          const mc = mcnemar(
+            deltas.map((d) => (d < 0 ? 1 : 0)),
+            deltas.map((d) => (d > 0 ? 1 : 0)),
+          )
+          expect(sf.method).toBe('exact')
+          expect(sf.pValue).toBeCloseTo(mc.pValue, 12)
+          expect(sf).toMatchObject({ improved: b, worsened: c, tied: 5 })
+          checked++
+        }
+      }
+    }
+    expect(checked).toBe(507)
+  })
+
+  it('refuses what an interval alone would promote at small n', () => {
+    // Five paired observations all in the same direction is p = 2/2^5, whatever
+    // their magnitudes: no alpha=0.05 promotion can come from five pairs.
+    expect(signFlipMeanTest([1, 1, 1, 1, 1]).pValue).toBeCloseTo(0.0625, 12)
+    expect(signFlipMeanTest([0.1, 0.9, 0.3, 0.4, 0.2]).pValue).toBeCloseTo(0.0625, 12)
+    expect(signFlipMeanTest([1, 1, 1, 1, 1, 1]).pValue).toBeCloseTo(0.03125, 12)
+    // 4 improvements out of 26 — the round-3 break, and its multi-magnitude twin
+    const four = (a: number, b: number) => [a, a, a, b, ...Array.from({ length: 22 }, () => 0)]
+    expect(signFlipMeanTest(four(1 / 3, 1 / 3)).pValue).toBeCloseTo(0.125, 12)
+    expect(signFlipMeanTest(four(1 / 3, 2 / 3)).pValue).toBeCloseTo(0.125, 12)
+  })
+
+  it('weights by magnitude, so a minority of large gains is not thrown away', () => {
+    // 8 large gains vs 6 tiny losses: the unweighted sign test sees 8-vs-6 and
+    // says nothing happened; the permutation test sees the mean move. (The
+    // floor is still 2/2^m over all m non-tied pairs, so magnitude weighting
+    // buys power, never significance out of too few observations.)
+    const deltas = [5, 5, 5, 5, 5, 5, 5, 5, -0.01, -0.01, -0.01, -0.01, -0.01, -0.01]
+    const sign = mcnemar(
+      deltas.map((d) => (d < 0 ? 1 : 0)),
+      deltas.map((d) => (d > 0 ? 1 : 0)),
+    )
+    expect(sign.pValue).toBeGreaterThan(0.5)
+    expect(signFlipMeanTest(deltas).pValue).toBeLessThan(0.05)
+  })
+
+  it('is deterministic and reports honestly when it falls back to Monte Carlo', () => {
+    const deltas = Array.from({ length: 60 }, (_, i) => (i % 2 === 0 ? 1 : -1) * (1 + i / 100))
+    const a = signFlipMeanTest(deltas)
+    const b = signFlipMeanTest(deltas)
+    expect(a.method).toBe('monte_carlo')
+    expect(a.resamples).toBe(10_000)
+    expect(a.pValue).toBe(b.pValue) // same input, same verdict, always
+    // The add-one estimator can never report 0, so it can never manufacture
+    // significance out of a finite number of draws.
+    expect(a.pValue).toBeGreaterThan(0)
+    // All-tied input carries no signal at all.
+    expect(signFlipMeanTest([0, 0, 0])).toMatchObject({ pValue: 1, improved: 0, worsened: 0 })
+    expect(() => signFlipMeanTest([1, Number.NaN])).toThrow(/non-finite/)
+  })
+
+  it('is invariant to scaling every delta by a positive constant', () => {
+    const deltas = [0.4, -0.1, 0.3, 0, 0.2, 0.9, -0.05]
+    for (const k of [1, 100, 0.001]) {
+      expect(signFlipMeanTest(deltas.map((d) => d * k)).pValue).toBeCloseTo(
+        signFlipMeanTest(deltas).pValue,
+        12,
+      )
+    }
+  })
+})
+
+describe('empiricalLikelihoodMeanInterval — the interval a nonzero margin needs', () => {
+  it('declines rather than claiming certainty when the deltas have no spread', () => {
+    expect(empiricalLikelihoodMeanInterval([0.05, 0.05, 0.05])).toMatchObject({
+      low: null,
+      high: null,
+    })
+    expect(empiricalLikelihoodMeanInterval([0, 0, 0])).toMatchObject({ low: null, high: null })
+    expect(empiricalLikelihoodMeanInterval([])).toMatchObject({ low: null, high: null })
+    expect(empiricalLikelihoodMeanInterval([1, Number.NaN])).toMatchObject({ low: null })
+    expect(() => empiricalLikelihoodMeanInterval([0, 1], 1.5)).toThrow(/confidence/)
+  })
+
+  it('brackets the sample mean and lies inside the data range', () => {
+    const deltas = [0.1, -0.2, 0.4, 0.05, 0.3, -0.1, 0.25, 0.15]
+    const mean = deltas.reduce((s, x) => s + x, 0) / deltas.length
+    const ci = empiricalLikelihoodMeanInterval(deltas, 0.95)
+    expect(ci.low!).toBeLessThan(mean)
+    expect(ci.high!).toBeGreaterThan(mean)
+    expect(ci.low!).toBeGreaterThanOrEqual(Math.min(...deltas))
+    expect(ci.high!).toBeLessThanOrEqual(Math.max(...deltas))
+    // Wider confidence, wider interval.
+    const wide = empiricalLikelihoodMeanInterval(deltas, 0.99)
+    expect(wide.low!).toBeLessThan(ci.low!)
+    expect(wide.high!).toBeGreaterThan(ci.high!)
+  })
+
+  it('EXCLUDES the true margin far less often than the conditional interval does', () => {
+    // The measured defect the conditional interval has and this one does not:
+    // draw from a process whose true risk difference IS the margin and count how
+    // often a nominal-95% rule declares "better than the margin".
+    let s = 13571113 >>> 0
+    const rnd = () => {
+      s ^= s << 13
+      s >>>= 0
+      s ^= s >> 17
+      s ^= s << 5
+      s >>>= 0
+      return s / 4294967296
+    }
+    let elPromotes = 0
+    let exactPromotes = 0
+    const reps = 400
+    for (let r = 0; r < reps; r++) {
+      const control: number[] = []
+      const treatment: number[] = []
+      for (let i = 0; i < 76; i++) {
+        control.push(rnd() < 0.05 ? 1 : 0)
+        treatment.push(0)
+      }
+      const deltas = control.map((c, i) => treatment[i]! - c)
+      const el = empiricalLikelihoodMeanInterval(deltas, 0.95)
+      if (el.low !== null && el.high !== null && el.low > -0.05) elPromotes++
+      const exact = pairedRiskDifferenceExact(control, treatment, 0.95)
+      if (exact.lower !== exact.upper && exact.lower > -0.05) exactPromotes++
+    }
+    expect(elPromotes / reps).toBeLessThanOrEqual(0.05)
+    expect(exactPromotes / reps).toBeGreaterThan(0.3)
+  })
+
+  it('shifts with the data and is otherwise unchanged', () => {
+    const deltas = [0.1, -0.2, 0.4, 0.05, 0.3]
+    const base = empiricalLikelihoodMeanInterval(deltas)
+    for (const k of [3, -12.5]) {
+      const moved = empiricalLikelihoodMeanInterval(deltas.map((d) => d + k))
+      expect(moved.low!).toBeCloseTo(base.low! + k, 9)
+      expect(moved.high!).toBeCloseTo(base.high! + k, 9)
+    }
   })
 })

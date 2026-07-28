@@ -1205,8 +1205,9 @@ export interface RiskDifferenceResult {
  * normal approximation, which badly UNDERCOVERS when only a handful of pairs are
  * discordant: at n = 3 with b = 2, c = 0 it returns [0.133, 1.000], excluding 0,
  * while McNemar's exact test on the same data gives p = 0.50. A gate keying on
- * `lower > 0` would promote noise. Use {@link pairedRiskDifferenceExact}, whose
- * interval is dual to the exact test by construction, for any decision.
+ * `lower > 0` would promote noise. Decisions belong to
+ * {@link empiricalLikelihoodMeanInterval} (the interval) and
+ * {@link signFlipMeanTest} (the test); see their notes for the measured reason.
  */
 export function pairedRiskDifference(
   control: ArrayLike<number | boolean>,
@@ -1268,8 +1269,20 @@ export interface ExactRiskDifferenceResult {
 }
 
 /**
- * Paired risk difference with the EXACT CONDITIONAL interval — the estimator a
- * promotion gate may decide on.
+ * Paired risk difference with the EXACT CONDITIONAL interval.
+ *
+ * VALID AS A TEST OF RD = 0. NOT A CONFIDENCE INTERVAL AT A NONZERO MARGIN, so
+ * a gate must not decide `lower > θ` on it for θ ≠ 0. Conditioning on m throws
+ * away the sampling variability of m/n itself, and at a nonzero margin that
+ * variability is most of the answer. Measured, 2000 replications at the exact
+ * boundary (n = 76, P(candidate-only win) = 0, P(baseline-only loss) = 0.05, so
+ * the true RD is exactly the margin −0.05, nominal 95%): this interval clears
+ * the margin in 44.8% of samples — a decision that is wrong nine times more
+ * often than it claims. It does not improve with n: 44.8% again at n = 200.
+ * {@link empiricalLikelihoodMeanInterval} is 0.0% / 2.2% on the same two
+ * simulations and is what {@link empiricalLikelihoodMeanInterval}'s callers
+ * decide on. (Reported by review on PR #457, 2026-07-28; reproduced in
+ * `probe/r3-interval-bakeoff.mts`.)
  *
  * Conditional on the number of discordant pairs m = b + c, the treatment-win
  * count b is Binomial(m, π) with π = P(treatment wins | discordant), and the
@@ -1389,6 +1402,17 @@ function betaQuantile(p: number, a: number, b: number): number {
  *
  * Non-finite values ⇒ null: an unusable outcome must not be classified as a
  * clean pass/fail shape.
+ *
+ * DESCRIPTIVE ONLY — NOT a discriminator a decision may branch on. It reads the
+ * VALUES, so it is not invariant to adding the same constant to both arms:
+ * {0, 1} is recognised and {⅔, 1} — the same evidence shifted by ⅔, and the
+ * shape `bench/rung2` actually produces — is not. A gate that routes on it
+ * answers differently depending on whether a zero happens to appear in the data.
+ * Measured: 4 pairs improving by ⅓ out of 26, threshold 0, all defaults —
+ * refused at offset 0, promoted at offsets ⅓, ⅔, 1 and 10, with byte-identical
+ * paired deltas in all five (`probe/r3-ground-truth.mts`, D1). Decisions key on
+ * the paired DELTAS, which no shift can change: {@link pairedDeltaMagnitude},
+ * {@link signFlipMeanTest}, {@link empiricalLikelihoodMeanInterval}.
  */
 export function pairedBinaryScale(
   before: ArrayLike<number>,
@@ -1429,6 +1453,340 @@ export function pairedDeltaTieFraction(
 }
 
 /**
+ * A paired delta smaller than this in absolute value counts as an exact tie, and
+ * a delta vector whose whole SPREAD is under it carries no variation at all.
+ *
+ * One constant, shared by every delta-shape routine here and re-exported for the
+ * gates, so "tied" cannot come to mean two different things in two places. It
+ * has to be a tolerance and not `=== 0`: recomputing the same deltas after
+ * adding a constant to both arms perturbs them by ~1e-16, and an exact-zero test
+ * turns that float dust into a different verdict — which is the same
+ * value-dependence this whole module exists to remove.
+ */
+export const PAIRED_DELTA_TIE_EPSILON = 1e-9
+
+/**
+ * The single magnitude `d > 0` such that every non-tied paired delta is exactly
+ * `+d` or `−d`, or null when the non-tied deltas carry more than one magnitude
+ * (or there are none, or any value is non-finite).
+ *
+ * This is the SHIFT-INVARIANT statement of "the outcome is pass/fail". A
+ * two-point outcome on levels {a, b} produces deltas in {−(b−a), 0, +(b−a)}
+ * whatever `a` is, so {0,1}, {0,100}, {⅔,1} and {10, 10⅓} all return their step
+ * and all get identical treatment — which is the property
+ * {@link pairedBinaryScale} does not have, because it reads the levels and
+ * therefore needs a zero to be present.
+ *
+ * Nothing ROUTES on this: it is reported as evidence, and it is the condition
+ * under which {@link signFlipMeanTest} coincides exactly with McNemar's exact
+ * test, so a caller can see why the two p-values agree. Comparison of
+ * magnitudes is relative (1e-9), so a delta recomputed after an additive shift
+ * still groups with its unshifted self.
+ */
+export function pairedDeltaMagnitude(
+  before: ArrayLike<number>,
+  after: ArrayLike<number>,
+): number | null {
+  if (before.length !== after.length) {
+    throw new Error(
+      `pairedDeltaMagnitude: unequal sample sizes (${before.length} vs ${after.length})`,
+    )
+  }
+  let magnitude: number | null = null
+  for (let i = 0; i < before.length; i++) {
+    const b = before[i]!
+    const a = after[i]!
+    if (!Number.isFinite(b) || !Number.isFinite(a)) return null
+    const abs = Math.abs(a - b)
+    if (abs < PAIRED_DELTA_TIE_EPSILON) continue
+    if (magnitude === null) magnitude = abs
+    else if (Math.abs(abs - magnitude) > 1e-9 * Math.max(abs, magnitude)) return null
+  }
+  return magnitude
+}
+
+/** Outcome of {@link signFlipMeanTest}. */
+export interface SignFlipTestResult {
+  /** Two-sided p-value for H0 "the candidate changed nothing": each paired delta
+   *  is as likely to have come out `+δ` as `−δ`. Exact, or a valid Monte-Carlo
+   *  p-value — never an asymptotic approximation. */
+  pValue: number
+  /** `'exact'` = the whole sign-flip distribution was enumerated.
+   *  `'monte_carlo'` = estimated from `resamples` sign draws with the
+   *  add-one correction, which keeps P(p ≤ α | H0) ≤ α exactly. */
+  method: 'exact' | 'monte_carlo'
+  /** Sign draws used, or null when exact. */
+  resamples: number | null
+  /** Pairs where the candidate scored higher / lower / the same. */
+  improved: number
+  worsened: number
+  tied: number
+}
+
+/**
+ * Exact sign-flip (paired permutation) test on the MEAN paired delta — the
+ * significance test a promotion gate can apply to ANY outcome shape.
+ *
+ * Under "the candidate changed nothing" the sign of each paired delta is
+ * exchangeable, so the null distribution of the total Σδ is the 2^m equiprobable
+ * sign assignments of the non-tied deltas; the two-sided p is the mass at least
+ * as extreme as the observed total. Three properties are why the gate keys on
+ * this and not on a shape-specific test:
+ *
+ *  1. TOTAL. Defined for every real delta vector. There is no shape it declines
+ *     to judge, so there is no branch on which a promotion goes unchecked.
+ *  2. SHIFT-INVARIANT. It reads only the deltas.
+ *  3. IT SUBSUMES McNemar. When every non-tied delta has the same magnitude
+ *     (see {@link pairedDeltaMagnitude}) — which is exactly the paired-binary
+ *     case on any encoding — the distribution of Σδ is `d·(2B − m)` with
+ *     `B ~ Binomial(m, ½)`, so `pValue` equals {@link mcnemar}'s exact p-value
+ *     to the last bit. The binary test is a derived special case, not a
+ *     separately-maintained branch that a new encoding can miss.
+ *
+ * Unlike the sign test it weights by magnitude, so a real mean lift carried by a
+ * minority of large improvements is not thrown away.
+ *
+ * Exactness: the null distribution is a convolution of one Binomial per DISTINCT
+ * delta magnitude, so it is enumerated exactly whenever the product of
+ * (count + 1) over distinct magnitudes fits `maxExactStates` — always, for
+ * pass/fail-shaped data at any n. Otherwise `resamples` deterministic sign draws
+ * give p = (1 + #{|Σ| ≥ |Σobs|}) / (resamples + 1), which is a valid level-α
+ * p-value (Phipson & Smyth 2010), not an approximation to one. `method` says
+ * which happened; a caller must not be told "exact" about a number that is not.
+ */
+export function signFlipMeanTest(
+  deltas: ArrayLike<number>,
+  opts: { maxExactStates?: number; resamples?: number; seed?: number } = {},
+): SignFlipTestResult {
+  const maxExactStates = opts.maxExactStates ?? 200_000
+  const resamples = opts.resamples ?? 10_000
+  let improved = 0
+  let worsened = 0
+  let tied = 0
+  let observed = 0
+  let absTotal = 0
+  const nonTied: number[] = []
+  for (let i = 0; i < deltas.length; i++) {
+    const d = deltas[i]!
+    if (!Number.isFinite(d)) {
+      throw new Error(`signFlipMeanTest: non-finite delta at index ${i}`)
+    }
+    observed += d
+    absTotal += Math.abs(d)
+    if (Math.abs(d) < PAIRED_DELTA_TIE_EPSILON) {
+      tied++
+      continue
+    }
+    if (d > 0) improved++
+    else worsened++
+    nonTied.push(Math.abs(d))
+  }
+  // No non-tied pair carries any signal: the null distribution is the point mass
+  // at 0, so nothing is more extreme than the observation. p = 1, refuse.
+  if (nonTied.length === 0) {
+    return { pValue: 1, method: 'exact', resamples: null, improved, worsened, tied }
+  }
+  // Floating-point slack on "at least as extreme", scaled to the data so it is
+  // meaningful on 0-100 dimensions as well as on [0,1] ones.
+  const slack = 1e-9 * Math.max(absTotal, 1e-12)
+  const target = Math.abs(observed) - slack
+
+  // Distinct magnitudes and their multiplicities. Exact enumeration is a
+  // convolution of one Binomial(count, ½) per magnitude.
+  const sorted = [...nonTied].sort((a, b) => a - b)
+  const magnitudes: Array<{ value: number; count: number }> = []
+  for (const abs of sorted) {
+    const last = magnitudes[magnitudes.length - 1]
+    if (last !== undefined && Math.abs(abs - last.value) <= 1e-9 * Math.max(abs, last.value)) {
+      last.count++
+    } else {
+      magnitudes.push({ value: abs, count: 1 })
+    }
+  }
+  let states = 1
+  for (const m of magnitudes) {
+    states *= m.count + 1
+    if (states > maxExactStates) break
+  }
+
+  if (states <= maxExactStates) {
+    // Exact: distribution over Σ = Σ_j d_j (2·B_j − m_j).
+    let dist = new Map<number, number>([[0, 1]])
+    for (const { value, count } of magnitudes) {
+      const next = new Map<number, number>()
+      const logHalf = count * Math.log(0.5)
+      for (let k = 0; k <= count; k++) {
+        const weight = Math.exp(
+          lnGamma(count + 1) - lnGamma(k + 1) - lnGamma(count - k + 1) + logHalf,
+        )
+        const shift = value * (2 * k - count)
+        for (const [sum, prob] of dist) {
+          const key = sum + shift
+          next.set(key, (next.get(key) ?? 0) + prob * weight)
+        }
+      }
+      dist = next
+    }
+    let p = 0
+    for (const [sum, prob] of dist) {
+      if (Math.abs(sum) >= target) p += prob
+    }
+    return {
+      pValue: Math.min(1, Math.max(0, p)),
+      method: 'exact',
+      resamples: null,
+      improved,
+      worsened,
+      tied,
+    }
+  }
+
+  // Monte-Carlo sign flips. The seed is fixed by default: a promotion verdict
+  // must be reproducible from the data alone, never a function of when it ran.
+  const rng = mulberry32(opts.seed ?? 0x5f1de5)
+  let atLeastAsExtreme = 0
+  for (let r = 0; r < resamples; r++) {
+    let sum = 0
+    for (const abs of nonTied) sum += rng() < 0.5 ? abs : -abs
+    if (Math.abs(sum) >= target) atLeastAsExtreme++
+  }
+  return {
+    pValue: (1 + atLeastAsExtreme) / (resamples + 1),
+    method: 'monte_carlo',
+    resamples,
+    improved,
+    worsened,
+    tied,
+  }
+}
+
+/** An interval for the mean, and whether the method could be applied at all. */
+export interface MeanIntervalResult {
+  /** Lower/upper confidence bounds, or null when the method does not apply. */
+  low: number | null
+  high: number | null
+  confidence: number
+}
+
+/**
+ * Empirical-likelihood confidence interval for the MEAN paired delta (Owen
+ * 1988) — the interval a promotion gate decides on at ANY margin.
+ *
+ * The nonparametric analogue of a score interval: for each candidate mean μ it
+ * reweights the observed deltas to the multinomial closest to uniform whose mean
+ * is μ, and keeps every μ whose −2 log likelihood ratio is under χ²₁. That makes
+ * it shape-free (no notion of "binary" appears) and shift-invariant (it reads
+ * only the deltas), and — unlike a conditional exact interval — it never
+ * discards the sampling variability of how MANY pairs moved, which is what makes
+ * a nonzero margin decidable at all.
+ *
+ * Measured type-I error at the exact boundary, nominal 95%, true effect equal to
+ * the margin (2000 replications, `probe/r3-el.mts`):
+ *
+ * | shape                                    | this | percentile bootstrap | exact conditional |
+ * |------------------------------------------|------|----------------------|-------------------|
+ * | n=76 pass/fail, margin −0.05             | 0.0% | 7.8%                 | 44.8%             |
+ * | n=200 pass/fail, margin −0.05            | 2.2% | 2.4%                 | 44.8%             |
+ * | n=76 two loss magnitudes, margin −0.05   | 0.0% | 10.7%                | 63.1%             |
+ * | n=300 two loss magnitudes, margin −0.05  | 3.3% | 4.1%                 | 84.4%             |
+ *
+ * IT IS NOT A SIGNIFICANCE TEST AT MARGIN 0 ON SPARSE DATA — measured 22.8%
+ * type-I at n = 26 with 2% wins and 2% losses, where the convex hull holds only
+ * a handful of non-tied deltas. That is why a gate pairs it with
+ * {@link signFlipMeanTest}, which is exact on precisely that regime; neither is
+ * sufficient alone and both are cheap.
+ *
+ * `low`/`high` are null when the method does not apply — every delta identical,
+ * so the convex hull is a point and the likelihood ratio is degenerate. A caller
+ * must treat that as "cannot decide", never as a zero-width certainty.
+ */
+export function empiricalLikelihoodMeanInterval(
+  deltas: ArrayLike<number>,
+  confidence = 0.95,
+): MeanIntervalResult {
+  if (confidence <= 0 || confidence >= 1) {
+    throw new Error(
+      `empiricalLikelihoodMeanInterval: confidence must be in (0,1), got ${confidence}`,
+    )
+  }
+  const n = deltas.length
+  if (n === 0) return { low: null, high: null, confidence }
+  const xs: number[] = []
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+  let sum = 0
+  for (let i = 0; i < n; i++) {
+    const d = deltas[i]!
+    if (!Number.isFinite(d)) return { low: null, high: null, confidence }
+    xs.push(d)
+    sum += d
+    if (d < min) min = d
+    if (d > max) max = d
+  }
+  // Degenerate support: the convex hull is a point (or float dust away from
+  // one), so there is no interval to report and certainly no certainty to claim
+  // from it. Tolerant rather than exact so an additive shift cannot flip it.
+  if (!(max - min > PAIRED_DELTA_TIE_EPSILON)) return { low: null, high: null, confidence }
+  const mean = sum / n
+  // χ²₁ critical value = z², and zQuantile is already the module's normal inverse.
+  const critical = zQuantile(1 - (1 - confidence) / 2) ** 2
+
+  /** −2 log empirical likelihood ratio for H0: mean = mu. */
+  const statistic = (mu: number): number => {
+    let zMin = Number.POSITIVE_INFINITY
+    let zMax = Number.NEGATIVE_INFINITY
+    for (const x of xs) {
+      const z = x - mu
+      if (z < zMin) zMin = z
+      if (z > zMax) zMax = z
+    }
+    // mu outside the convex hull of the data: no reweighting attains it.
+    if (!(zMin < 0 && zMax > 0)) return Number.POSITIVE_INFINITY
+    // g(λ) = Σ z/(1+λz) is strictly decreasing with one root in this bracket.
+    let lo = -1 / zMax
+    let hi = -1 / zMin
+    for (let i = 0; i < 100; i++) {
+      const mid = (lo + hi) / 2
+      let g = 0
+      for (const x of xs) {
+        const z = x - mu
+        const denom = 1 + mid * z
+        if (denom <= 0) {
+          g = Number.NaN
+          break
+        }
+        g += z / denom
+      }
+      if (Number.isNaN(g)) hi = mid
+      else if (g > 0) lo = mid
+      else hi = mid
+    }
+    const lambda = (lo + hi) / 2
+    let acc = 0
+    for (const x of xs) {
+      const denom = 1 + lambda * (x - mu)
+      if (!(denom > 0)) return Number.POSITIVE_INFINITY
+      acc += Math.log(denom)
+    }
+    return 2 * acc
+  }
+
+  /** Bisect between a rejected end and the (always accepted) sample mean. */
+  const boundary = (rejected: number): number => {
+    let lo = rejected
+    let hi = mean
+    for (let i = 0; i < 100; i++) {
+      const mid = (lo + hi) / 2
+      if (statistic(mid) > critical) lo = mid
+      else hi = mid
+    }
+    return (lo + hi) / 2
+  }
+
+  return { low: boundary(min), high: boundary(max), confidence }
+}
+
+/**
  * The paired-delta statistic a DECISION is computed on, package-wide.
  *
  * The mean paired delta is the estimator that answers the question a promotion
@@ -1438,8 +1796,7 @@ export function pairedDeltaTieFraction(
  * eval data actually lands in:
  *   - TWO-POINT (pass/fail) outcomes on any encoding: the delta vector lives in
  *     {−s, 0, +s} dominated by zeros, so the median and its whole bootstrap CI
- *     are pinned at exactly 0 however large the shift. (Decide these on
- *     {@link pairedRiskDifferenceExact} instead — same estimand, exact interval.)
+ *     are pinned at exactly 0 however large the shift.
  *   - TIE-DOMINATED outcomes: at half the pairs tied the sample median is 0 by
  *     construction, and `ci.low > threshold` then answers "no" forever at a
  *     non-negative threshold and "yes" forever at a negative one.

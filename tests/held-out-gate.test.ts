@@ -155,9 +155,14 @@ describe('HeldOutGate — rejection paths', () => {
     }).evaluate(pairs.candidate, pairs.baseline)
 
     expect(decision.evidence.medianPairedDelta).toBe(0)
-    expect(decision.evidence.pairedCI).toEqual({ low: 0, high: 0 })
     expect(decision.promote).toBe(false)
-    expect(decision.rejectionCode).toBe('indeterminate_delta')
+    // Still refused, and now for a STRONGER reason than #459's: the interval is
+    // no longer the directionless [0,0] a tie-pinned median produced, it is
+    // measurably negative, so the gate can say the candidate is worse rather
+    // than only that it cannot tell.
+    expect(decision.rejectionCode).toBe('negative_delta')
+    expect(decision.evidence.pairedCI!.high).toBeLessThan(0)
+    expect(decision.evidence.decidingDelta).toBeCloseTo(-10 / 76, 6)
   })
 
   it('rejects on excessive overfit gap', () => {
@@ -170,14 +175,19 @@ describe('HeldOutGate — rejection paths', () => {
       pairedDeltaThreshold: 0,
       seed: 1,
     })
+    // Holdout deltas vary and there are six of them: the delta gate PASSES
+    // (sign-flip p = 2/64 = 0.031, interval strictly above 0), so the rejection
+    // this test is named for is the one that actually fires. Six identical
+    // deltas would instead give a zero-width interval and be refused as
+    // indeterminate before the overfit check was ever reached.
     const pairs = joinPairs(
-      // search=0.95, holdout=0.55 (gap=0.40); baseline search=0.55, holdout=0.50 (gap=0.05).
-      makePair('cand', 0, 0.95, 0.55, 0.55, 0.5),
+      // search=0.95, holdout≈0.55 (gap≈0.40); baseline search=0.55, holdout=0.50 (gap=0.05).
+      makePair('cand', 0, 0.95, 0.54, 0.55, 0.5),
       makePair('cand', 1, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 2, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 3, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 4, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 5, 0.95, 0.55, 0.55, 0.5),
+      makePair('cand', 2, 0.95, 0.56, 0.55, 0.5),
+      makePair('cand', 3, 0.95, 0.57, 0.55, 0.5),
+      makePair('cand', 4, 0.95, 0.53, 0.55, 0.5),
+      makePair('cand', 5, 0.95, 0.58, 0.55, 0.5),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
@@ -230,10 +240,15 @@ describe('HeldOutGate — rejection paths', () => {
       overfitGapThreshold: 0.05,
       seed: 1,
     })
+    // Six varied pairs so the delta gate passes and `overfit_gap` is the
+    // rejection under test (see the note on the previous case).
     const pairs = joinPairs(
-      makePair('cand', 0, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 0, 0.9, 0.59, 0.5, 0.5),
       makePair('cand', 1, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 2, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 2, 0.9, 0.61, 0.5, 0.5),
+      makePair('cand', 3, 0.9, 0.62, 0.5, 0.5),
+      makePair('cand', 4, 0.9, 0.58, 0.5, 0.5),
+      makePair('cand', 5, 0.9, 0.63, 0.5, 0.5),
     )
     const matchedOnly = g.evaluate(pairs.candidate, pairs.baseline)
     const unmatchedCandidateRows = Array.from({ length: 10 }, (_, index) =>
@@ -426,13 +441,19 @@ describe('HeldOutGate — cost ceiling', () => {
       seed: 1,
       costPerTaskCeiling: 0.02,
     })
-    // Candidate is strictly better on quality but costs 4x baseline.
+    // Candidate is strictly better on quality but costs 4x baseline. Eight
+    // pairs, not five: five all-positive paired observations have exact
+    // sign-flip p = 2/2^5 = 0.0625, so the delta veto would refuse before the
+    // cost check and this test would pass for the wrong reason.
     const pairs = joinPairs(
       makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 6, 0.69, 0.69, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 7, 0.76, 0.76, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
@@ -455,6 +476,9 @@ describe('HeldOutGate — cost ceiling', () => {
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 6, 0.69, 0.69, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 7, 0.76, 0.76, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
@@ -483,10 +507,16 @@ describe('HeldOutGate — cost ceiling', () => {
       seed: 1,
       costPerTaskCeiling: 0.05,
     })
+    // Eight pairs so the delta gate passes and `missing_cost` is what fires.
     const pairs = joinPairs(
       makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 6, 0.69, 0.69, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 7, 0.76, 0.76, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
     )
     pairs.candidate[0] = record({
       ...pairs.candidate[0],
@@ -575,10 +605,16 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
     expect(d.evidence.medianPairedDelta).toBe(0)
     // 15 wins vs 5 losses out of 76 paired items = +0.1316 success-rate lift.
     expect(d.evidence.decidingDelta).toBeCloseTo(10 / 76, 6)
-    expect(d.evidence.deltaStatistic).toBe('paired_risk_difference')
+    expect(d.evidence.deltaStatistic).toBe('mean')
     expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
     expect(d.evidence.mcnemar).toMatchObject({ b: 15, c: 5, nDiscordant: 20 })
     expect(d.evidence.mcnemar!.pValue).toBeLessThan(0.05)
+    // A pass/fail outcome is recognised by its DELTA step, not by its levels,
+    // and on such data the sign-flip veto IS McNemar's exact test.
+    expect(d.evidence.deltaMagnitude).toBe(1)
+    expect(d.evidence.signFlip!.method).toBe('exact')
+    expect(d.evidence.signFlip!.pValue).toBeCloseTo(d.evidence.mcnemar!.pValue, 15)
+    expect(d.evidence.signFlip).toMatchObject({ improved: 15, worsened: 5, tied: 56 })
   })
 
   it('still REFUSES a binary regression, including at a negative threshold', () => {
@@ -634,8 +670,8 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
       makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
-    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
-    expect(d.evidence.mcnemar).toBeNull()
+    expect(d.evidence.deltaStatistic).toBe('median')
+    expect(d.evidence.intervalMethods.map((m) => m.method)).toEqual(['median_bootstrap'])
     // Exact numbers pinned from the pre-fix gate so a future change to the
     // median path cannot pass silently.
     expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
@@ -663,8 +699,13 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
       makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
-    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
-    expect(d.evidence.mcnemar).toBeNull()
+    expect(d.evidence.deltaStatistic).toBe('mean')
+    // Both applicable interval methods ran; the decision took the lower of them.
+    expect(d.evidence.intervalMethods.map((m) => m.method).sort()).toEqual([
+      'empirical_likelihood',
+      'percentile_bootstrap',
+    ])
+    expect(d.evidence.pairedCI!.low).toBe(Math.min(...d.evidence.intervalMethods.map((m) => m.low)))
     // The literal median is still reported as a diagnostic, unchanged.
     expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
     expect(d.evidence.decidingDelta).toBeCloseTo(0.22749999999999998, 12)
@@ -711,12 +752,13 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
       pairs.baseline,
     )
     expect(d.evidence.productiveRuns).toBe(3)
-    expect(d.evidence.deltaStatistic).toBe('paired_risk_difference')
+    expect(d.evidence.deltaStatistic).toBe('mean')
     expect(d.evidence.mcnemar).toMatchObject({ b: 2, c: 0, nDiscordant: 2 })
     expect(d.evidence.mcnemar!.pValue).toBeCloseTo(0.5, 12)
-    expect(d.evidence.pairedCI!.low).toBeLessThan(0)
+    expect(d.evidence.signFlip!.pValue).toBeCloseTo(0.5, 12)
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.reason).toMatch(/Sign-flip exact p=/)
   })
 
   it('never promotes what McNemar refuses — over every (wins, losses) shape up to 8', () => {
@@ -779,10 +821,11 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     )
     expect(decisions.map((d) => d.promote)).toEqual([false, false, false, false])
     const [first] = decisions
-    expect(first!.evidence.deltaStatistic).toBe('paired_risk_difference')
+    expect(first!.evidence.deltaStatistic).toBe('mean')
     // The threshold is read in the outcome's NATIVE units, so the deciding
-    // delta is −13.16 POINTS, not a −0.13 rate.
-    expect(first!.evidence.binaryScale).toBe(100)
+    // delta is −13.16 POINTS, not a −0.13 rate. Nothing rescales anything: the
+    // mean paired delta is already in points because the deltas are.
+    expect(first!.evidence.deltaMagnitude).toBe(100)
     expect(first!.evidence.decidingDelta).toBeCloseTo((-10 / 76) * 100, 6)
     expect(first!.evidence.pairedCI!.low).toBeLessThan(-10)
   })
@@ -815,7 +858,7 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('negative_delta')
     expect(d.evidence.productiveRuns).toBe(76)
-    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.deltaStatistic).toBe('mean')
     expect(d.evidence.medianPairedDelta).toBe(0)
     expect(d.evidence.decidingDelta).toBeCloseTo((20 * -0.6) / 76, 6)
   })
@@ -837,9 +880,12 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
       pairedDeltaThreshold: -0.05,
     }).evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
-    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.deltaStatistic).toBe('mean')
     expect(d.evidence.tieFraction).toBeCloseTo(56 / 76, 12)
     expect(d.evidence.decidingDelta).toBeCloseTo((20 * -(1 / 3)) / 76, 6)
+    // {2/3, 1} contains no zero, and it is still recognised as pass/fail-shaped
+    // because the recognition is on the delta STEP.
+    expect(d.evidence.deltaMagnitude).toBeCloseTo(1 / 3, 15)
   })
 
   it('promotes a real +12.8pp lift on a lattice the median cannot resolve', () => {
@@ -862,8 +908,10 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     expect(d.promote).toBe(true)
     expect(d.evidence.productiveRuns).toBe(26)
     expect(d.evidence.tieFraction).toBeCloseTo(6 / 26, 12)
-    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.deltaStatistic).toBe('mean')
     expect(d.evidence.decidingDelta).toBeCloseTo(10 / 3 / 26, 10)
+    // and the veto agreed it was significant rather than being absent
+    expect(d.evidence.signFlip!.pValue).toBeLessThan(0.05)
 
     // ...and the median path on the SAME data is exactly the refusal: this pins
     // the reason, so the test cannot silently start passing for another one.
@@ -888,9 +936,10 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     }).evaluate(pairs.candidate, pairs.baseline)
     expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
     expect(d.evidence.mcnemar).toMatchObject({ b: 0, c: 0, nDiscordant: 0 })
+    expect(d.evidence.signFlip).toMatchObject({ improved: 0, worsened: 0, tied: 40, pValue: 1 })
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('indeterminate_delta')
-    expect(d.reason).toMatch(/concordant/)
+    expect(d.reason).toMatch(/every paired delta is an exact tie/)
   })
 
   it('FAILS CLOSED on an all-tie CONTINUOUS holdout too', () => {
@@ -914,10 +963,271 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
       seed: 1337,
       deltaStatistic: 'median',
     }).evaluate(pairs.candidate, pairs.baseline)
-    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
+    expect(d.evidence.deltaStatistic).toBe('median')
+    expect(d.evidence.intervalMethods.map((m) => m.method)).toEqual(['median_bootstrap'])
     // The escape hatch reproduces the pre-fix verdict — including its blindness,
     // which is now caught by the fail-closed rule instead of silently refusing.
     expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
     expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('indeterminate_delta')
+  })
+})
+
+/**
+ * THE PROPERTY THAT WOULD HAVE CAUGHT ALL THREE ROUNDS OF THIS BUG.
+ *
+ * A promotion gate answers "did the candidate score HIGHER than the baseline,
+ * and by enough". That question is about a difference, so adding the same
+ * constant to every score on both arms cannot change its answer — the paired
+ * deltas are byte-identical and nothing else is evidence. Each earlier version
+ * violated it in a way that looked like a different bug (median blindness, a
+ * {0,1}-literal detector, a {0,s} detector that still needs a zero present);
+ * this asserts the invariant itself rather than the shapes that broke it.
+ */
+function shiftedPairs(
+  holdoutBaseline: number[],
+  holdoutCandidate: number[],
+  offset: number,
+): { candidate: RunRecord[]; baseline: RunRecord[] } {
+  return joinPairs(
+    ...holdoutBaseline.map((b, i) =>
+      // search mirrors holdout, so overfit gaps are 0 on both arms and shift too
+      makePair(
+        'cand',
+        i,
+        holdoutCandidate[i]! + offset,
+        holdoutCandidate[i]! + offset,
+        b + offset,
+        b + offset,
+      ),
+    ),
+  )
+}
+
+describe('HeldOutGate — the verdict is a function of the DELTAS, not of the values', () => {
+  const OFFSETS = [0, 1 / 3, 2 / 3, 1, 10, -7.25, 1e4]
+
+  /** Randomised paired outcomes covering every shape the three rounds hit. */
+  function* datasets(): Generator<{ label: string; before: number[]; after: number[] }> {
+    const shapes: Array<[string, number[], number]> = [
+      ['pass/fail {0,1}', [0, 1], 1],
+      ['blocks of 3 {0,1/3,2/3,1}', [0, 1 / 3, 2 / 3, 1], 1],
+      ['0-100 judge dimension', [0, 100], 1],
+      ['continuous', [0.11, 0.37, 0.52, 0.68, 0.94], 1],
+    ]
+    // deterministic LCG so the property test is reproducible, not flaky
+    let seed = 2026_07_27
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296
+      return seed / 4294967296
+    }
+    for (const [label, levels] of shapes) {
+      for (const n of [3, 6, 12, 26]) {
+        for (let trial = 0; trial < 6; trial++) {
+          const before: number[] = []
+          const after: number[] = []
+          for (let i = 0; i < n; i++) {
+            before.push(levels[Math.floor(rand() * levels.length)]!)
+            after.push(levels[Math.floor(rand() * levels.length)]!)
+          }
+          yield { label: `${label} n=${n} trial=${trial}`, before, after }
+        }
+      }
+    }
+  }
+
+  for (const threshold of [0, -0.05, 0.02]) {
+    it(`adding a constant to both arms never changes the verdict (threshold ${threshold})`, () => {
+      const mismatches: string[] = []
+      let promotes = 0
+      let refusals = 0
+      let cases = 0
+      for (const { label, before, after } of datasets()) {
+        const decide = (offset: number) =>
+          new HeldOutGate({
+            baselineKey: 'baseline',
+            seed: 1337,
+            pairedDeltaThreshold: threshold,
+            overfitGapThreshold: 1e9,
+          }).evaluate(
+            ...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, offset)),
+          )
+        const base = decide(0)
+        cases++
+        if (base.promote) promotes++
+        else refusals++
+        for (const offset of OFFSETS.slice(1)) {
+          const shifted = decide(offset)
+          // The VERDICT must be exactly equal — no tolerance, because nothing
+          // about it is a function of the score values.
+          const exactlySame =
+            shifted.promote === base.promote && shifted.rejectionCode === base.rejectionCode
+          // The numbers are recomputed from shifted floats (1/3 + 10 - 10 is not
+          // 1/3), so they agree to float precision rather than bit-for-bit.
+          const near = (a: number | null | undefined, b: number | null | undefined) =>
+            a == null || b == null ? a === b : Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b))
+          const numbersSame =
+            near(shifted.evidence.signFlip?.pValue, base.evidence.signFlip?.pValue) &&
+            near(shifted.evidence.decidingDelta, base.evidence.decidingDelta) &&
+            near(shifted.evidence.pairedCI?.low, base.evidence.pairedCI?.low) &&
+            near(shifted.evidence.pairedCI?.high, base.evidence.pairedCI?.high) &&
+            near(shifted.evidence.deltaMagnitude, base.evidence.deltaMagnitude) &&
+            near(shifted.evidence.tieFraction, base.evidence.tieFraction)
+          if (!exactlySame || !numbersSame) {
+            mismatches.push(
+              `${label} offset=${offset}: ${base.promote}/${base.rejectionCode}` +
+                `/p=${base.evidence.signFlip?.pValue}/Δ=${base.evidence.decidingDelta}` +
+                ` -> ${shifted.promote}/${shifted.rejectionCode}` +
+                `/p=${shifted.evidence.signFlip?.pValue}/Δ=${shifted.evidence.decidingDelta}`,
+            )
+          }
+        }
+      }
+      expect(mismatches).toEqual([])
+      // Not vacuous: the sweep must contain both verdicts, or invariance is free.
+      expect(cases).toBeGreaterThan(90)
+      expect(promotes).toBeGreaterThan(0)
+      expect(refusals).toBeGreaterThan(0)
+    })
+  }
+
+  it('THE ROUND-3 BREAK: 4 of 26 pairs improve by 1/3 — same verdict at every offset', () => {
+    // Measured on the previous fix: REFUSED at offset 0 and PROMOTED at 1/3,
+    // 2/3, 1 and 10, with byte-identical paired deltas in all five. The gate
+    // was answering "is there a zero in the data", not "did the score move".
+    const before = Array.from({ length: 26 }, () => 0)
+    const after = before.map((_, i) => (i < 4 ? 1 / 3 : 0))
+    const decisions = [0, 1 / 3, 2 / 3, 1, 10].map((offset) =>
+      new HeldOutGate({ baselineKey: 'baseline', seed: 1337, overfitGapThreshold: 1e9 }).evaluate(
+        ...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, offset)),
+      ),
+    )
+    expect(decisions.map((d) => d.promote)).toEqual([false, false, false, false, false])
+    expect(decisions.map((d) => d.rejectionCode)).toEqual(Array(5).fill('negative_delta'))
+    // and it is refused for the RIGHT reason: 4 improvements out of 26 with no
+    // regressions is exact sign-flip p = 2/2^4 = 0.125, which does not reject.
+    for (const d of decisions) {
+      expect(d.evidence.signFlip!.pValue).toBeCloseTo(0.125, 12)
+      expect(d.evidence.deltaMagnitude).toBeCloseTo(1 / 3, 12)
+    }
+  })
+
+  it('THE NEIGHBOUR OF THAT BREAK: multi-magnitude improvements cannot skip the veto', () => {
+    // Same 4 improvements out of 26 and the same exact p = 0.125, but the
+    // winners move by TWO different amounts, so NO single-magnitude or
+    // two-point detector can fire on it. Without a veto that every shape
+    // reaches, the interval alone promotes this: its bootstrap lower bound sits
+    // one lattice atom above zero because only 1.3% of resamples draw no winner.
+    const before = Array.from({ length: 26 }, () => 0)
+    const after = before.map((_, i) => (i < 3 ? 1 / 3 : i === 3 ? 2 / 3 : 0))
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      overfitGapThreshold: 1e9,
+    }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+    expect(d.evidence.deltaMagnitude).toBeNull() // no single magnitude to detect
+    expect(d.evidence.signFlip!.pValue).toBeCloseTo(0.125, 12)
+    expect(d.evidence.pairedCI!.low).toBeGreaterThan(0) // the interval alone would promote
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.reason).toMatch(/Sign-flip exact p=/)
+  })
+})
+
+/**
+ * A NONZERO `pairedDeltaThreshold` IS A DIFFERENT QUESTION, and the interval has
+ * to be calibrated for it. `bench/rung2` ships `pairedDeltaThreshold: -0.05`,
+ * so this is the live path, not a corner.
+ */
+describe('HeldOutGate — calibration at a nonzero margin', () => {
+  it('refuses the boundary case an exact CONDITIONAL interval promotes', () => {
+    // 76 pairs, 0 candidate wins, 3 baseline wins, 73 ties, threshold −0.05.
+    // The conditional Clopper-Pearson interval returns [−0.0395, 0.0164] and
+    // PROMOTES, because conditioning on the 3 discordant pairs throws away the
+    // variability in how many discordant pairs there were.
+    const before = Array.from({ length: 76 }, (_, i) => (i < 3 ? 1 : 0))
+    const after = Array.from({ length: 76 }, () => 0)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+      overfitGapThreshold: 1e9,
+    }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+    expect(d.evidence.decidingDelta).toBeCloseTo(-3 / 76, 12)
+    expect(d.evidence.pairedCI!.low).toBeLessThan(-0.05)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
+  })
+
+  it('promotes at most the nominal 5% under repeated sampling AT the boundary', () => {
+    // The decisive check the duality test could not make: draw from a process
+    // whose TRUE risk difference equals the margin exactly and count how often a
+    // nominal-95% gate says "not worse". Deterministic PRNG, so this is a fixed
+    // number, not a flaky one.
+    let s = 987654321 >>> 0
+    const rnd = () => {
+      s ^= s << 13
+      s >>>= 0
+      s ^= s >> 17
+      s ^= s << 5
+      s >>>= 0
+      return s / 4294967296
+    }
+    const reps = 300
+    let promoted = 0
+    for (let r = 0; r < reps; r++) {
+      const before: number[] = []
+      const after: number[] = []
+      for (let i = 0; i < 76; i++) {
+        before.push(rnd() < 0.05 ? 1 : 0) // true RD = -0.05 = the margin
+        after.push(0)
+      }
+      const d = new HeldOutGate({
+        baselineKey: 'baseline',
+        seed: 1337,
+        pairedDeltaThreshold: -0.05,
+        overfitGapThreshold: 1e9,
+      }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+      if (d.promote) promoted++
+    }
+    // Published 0.125.0 promotes 95.2% of these and the exact conditional
+    // interval 44.8%; nominal is 5%.
+    expect(promoted / reps).toBeLessThanOrEqual(0.05)
+  })
+})
+
+describe('HeldOutGate — fail closed on a directionless interval, at ANY location', () => {
+  it('refuses a zero-width interval that is not at zero', () => {
+    // Three pairs all improving by exactly 1/3. The percentile bootstrap of
+    // identical deltas has zero width — CI [0.3333, 0.3333] — which is a claim
+    // of certainty from three observations, and the previous rule only caught
+    // zero width AT zero.
+    const before = [0, 0, 0]
+    const after = [1 / 3, 1 / 3, 1 / 3]
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      overfitGapThreshold: 1e9,
+    }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+    expect(d.evidence.pairedCI!.low).toBe(d.evidence.pairedCI!.high)
+    expect(d.evidence.pairedCI!.low).toBeCloseTo(1 / 3, 12)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('indeterminate_delta')
+    expect(d.reason).toMatch(/no spread for any interval to measure/)
+  })
+
+  it('refuses identical continuous deltas however many of them there are', () => {
+    const before = Array.from({ length: 12 }, () => 0.5)
+    const after = Array.from({ length: 12 }, () => 0.55)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      overfitGapThreshold: 1e9,
+    }).evaluate(...((p) => [p.candidate, p.baseline] as const)(shiftedPairs(before, after, 0)))
+    // The sign-flip test alone WOULD accept this (p = 2/2^12), so the
+    // fail-closed rule is doing independent work here.
+    expect(d.evidence.signFlip!.pValue).toBeLessThan(0.05)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('indeterminate_delta')
   })
 })
