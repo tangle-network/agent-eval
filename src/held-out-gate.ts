@@ -47,15 +47,22 @@
  *    does NOT have that property and undercovers badly on a handful of
  *    discordant pairs (n = 3, b = 2, c = 0: Wald [0.133, 1.000], exact
  *    [−0.456, 0.667], McNemar p = 0.50). McNemar's b/c/p ship as evidence.
- * 2. **Tie-dominated outcomes** (≥ `MEDIAN_BLIND_TIE_FRACTION` of pairs exactly
- *    tied) — low-cardinality scores like {0, ½, 1}, block scores like {⅔, 1}
- *    from averaging pass/fail leaves, and asymmetric arms (pass/fail baseline
- *    vs partial-credit candidate). The median is blind for the same reason;
- *    these are decided on the bootstrap CI of the MEAN paired delta.
- * 3. **Everything else** — the bootstrap CI of the MEDIAN paired delta,
- *    unchanged and byte-identical to previous releases.
+ * 2. **Everything else** — the bootstrap CI of the MEAN paired delta. The mean
+ *    is the estimator that answers the gate's own question ("by how much did
+ *    the score move") in the caller's units, and it is well defined on every
+ *    shape the median loses: tie-dominated vectors, low-cardinality lattices
+ *    (block scores in {⅔, 1} from averaging pass/fail leaves; integer 0-100
+ *    judge dimensions), and mixed arms. Measured: 26 blocks of 3 pass/fail
+ *    leaves carrying a real +12.8pp lift, only 23% of pairs tied, give a
+ *    median CI of [0, 0.333] — a lower bound of exactly 0 refuses a real lift
+ *    at threshold 0, which is the original bug one lattice over. There is
+ *    therefore no tie-fraction cutoff: any cutoff leaves the lattice case open
+ *    on the far side of it. `heldoutSignificance` has defaulted to the mean
+ *    since #316 for the same reason.
  *
- * Set `deltaStatistic: 'median'` to force case 3 on every input.
+ * Set `deltaStatistic: 'median'` to force the median on every input — the
+ * pre-0.134 behaviour, kept for callers who want outlier robustness and accept
+ * the blindness that comes with it.
  *
  * ## Fail closed
  *
@@ -83,9 +90,9 @@ import { pairRunRecords } from './paired-arms'
 import { isRealnessGated, observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import {
+  DECISION_PAIRED_DELTA_STATISTIC,
   pairedBinaryScale,
   pairedBootstrap,
-  pairedDeltaBootstrapStatistic,
   pairedDeltaTieFraction,
   pairedRiskDifferenceExact,
   wilcoxonSignedRank,
@@ -113,11 +120,11 @@ export interface HeldOutGateConfig {
    * Which paired statistic carries the promotion CI.
    *
    * `'auto'` (default) picks by outcome shape — two-point outcomes on the exact
-   * paired risk difference, tie-dominated outcomes on the mean, everything else
-   * on the median (see the module header). `'median'` forces the median
-   * bootstrap on every input, including shapes where it is structurally blind
-   * and will refuse a real lift and accept a real regression. Only set it to
-   * reproduce a pre-existing verdict.
+   * paired risk difference, everything else on the mean bootstrap (see the
+   * module header). `'median'` forces the median bootstrap on every input,
+   * including shapes where it is structurally blind and will refuse a real lift
+   * and accept a real regression. Set it for outlier robustness on genuinely
+   * continuous outcomes, or to reproduce a pre-0.134 verdict.
    */
   deltaStatistic?: 'auto' | 'median'
   /** Maximum allowed worsening of (search − holdout) gap relative to
@@ -204,9 +211,9 @@ export interface GateEvidence {
    *  and it is the factor `decidingDelta` / `pairedCI` were rescaled by. */
   binaryScale: number | null
   /** Fraction of paired holdout deltas that are exact ties, or null when there
-   *  are no pairs. At or above {@link MEDIAN_BLIND_TIE_FRACTION} the median is
-   *  structurally pinned at 0 — this is the number that explains why
-   *  `deltaStatistic` is not `'median_bootstrap'`. */
+   *  are no pairs. At or above 0.5 the median paired delta is pinned at 0 by
+   *  construction; this is the diagnostic for why a median-decided verdict
+   *  (`deltaStatistic: 'median'`) saw nothing. */
   tieFraction: number | null
   /** Mean candidate score on the search split, or null when absent. */
   searchScore: number | null
@@ -566,18 +573,18 @@ export class HeldOutGate {
   }
 
   /**
-   * Which paired statistic can actually see this data, and the shape facts that
-   * decided it.
+   * Which paired statistic decides this data, and the shape facts behind it.
    *
    * Two-point on BOTH arms at a COMMON level ⇒ the exact paired risk
-   * difference. The level is shared by construction: a pass/fail baseline
-   * against a partial-credit candidate ({0,1} vs {0,0.4}) is not a paired
-   * binary comparison, so it does not take this branch — but it must not fall
-   * back to the blind median either, and it does not: mixed arms of that kind
-   * are tie-dominated, which is case 2.
+   * difference. A shared level is required: a pass/fail baseline against a
+   * partial-credit candidate ({0,1} vs {0,0.4}) is not a paired binary
+   * comparison and its threshold units would be silently reinterpreted.
    *
-   * Otherwise: tie-dominated ⇒ the mean bootstrap, anything else ⇒ the median
-   * bootstrap. `deltaStatistic: 'median'` forces the median on every input.
+   * Everything else ⇒ the mean bootstrap
+   * ({@link DECISION_PAIRED_DELTA_STATISTIC}), which is well defined on every
+   * shape the median goes blind on — tie-dominated, low-cardinality lattices
+   * like block scores in {⅔, 1}, and mixed arms.
+   * `deltaStatistic: 'median'` forces the median on every input.
    */
   private chooseShape(before: number[], after: number[]): OutcomeShape {
     const tieFraction = before.length === 0 ? null : pairedDeltaTieFraction(before, after)
@@ -588,11 +595,9 @@ export class HeldOutGate {
     if (binaryScale !== null) {
       return { statistic: 'paired_risk_difference', binaryScale, tieFraction }
     }
-    // One definition of the tie rule, shared with the campaign gates.
+    // One definition of the decision statistic, shared with the campaign gates.
     const statistic =
-      pairedDeltaBootstrapStatistic(before, after) === 'mean'
-        ? 'mean_bootstrap'
-        : 'median_bootstrap'
+      DECISION_PAIRED_DELTA_STATISTIC === 'mean' ? 'mean_bootstrap' : 'median_bootstrap'
     return { statistic, binaryScale: null, tieFraction }
   }
 }

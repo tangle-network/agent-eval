@@ -610,7 +610,41 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
     expect(d.evidence.decidingDelta).toBeCloseTo(0, 12)
   })
 
-  it('keeps CONTINUOUS outcomes on the median bootstrap, byte-identical', () => {
+  it('keeps CONTINUOUS outcomes byte-identical under deltaStatistic:"median"', () => {
+    // The pre-0.134 median verdict, pinned to the digit. The default is now the
+    // mean (see the next test) because the median cannot resolve the lattice
+    // shapes eval data lands in; this asserts the old path is still exactly
+    // reachable, so no verdict capability was lost.
+    const g = new HeldOutGate({
+      baselineKey: 'baseline',
+      minProductiveRuns: 3,
+      pairedDeltaThreshold: 0,
+      overfitGapThreshold: 0.5,
+      seed: 1,
+      deltaStatistic: 'median',
+    })
+    const pairs = joinPairs(
+      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5),
+      makePair('cand', 1, 0.72, 0.72, 0.5, 0.51),
+      makePair('cand', 2, 0.74, 0.74, 0.51, 0.5),
+      makePair('cand', 3, 0.71, 0.71, 0.5, 0.5),
+      makePair('cand', 4, 0.73, 0.73, 0.51, 0.5),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.51),
+      makePair('cand', 6, 0.76, 0.76, 0.51, 0.5),
+      makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
+    )
+    const d = g.evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
+    expect(d.evidence.mcnemar).toBeNull()
+    // Exact numbers pinned from the pre-fix gate so a future change to the
+    // median path cannot pass silently.
+    expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
+    expect(d.evidence.decidingDelta).toBe(0.22999999999999998)
+    expect(d.evidence.pairedCI).toEqual({ low: 0.20999999999999996, high: 0.24 })
+    expect(d.promote).toBe(true)
+  })
+
+  it('decides CONTINUOUS outcomes on the mean by default, same verdict', () => {
     const g = new HeldOutGate({
       baselineKey: 'baseline',
       minProductiveRuns: 3,
@@ -629,13 +663,12 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
       makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
-    expect(d.evidence.deltaStatistic).toBe('median_bootstrap')
+    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
     expect(d.evidence.mcnemar).toBeNull()
-    // Exact numbers pinned from the pre-fix gate so a future change to the
-    // continuous path cannot pass silently.
+    // The literal median is still reported as a diagnostic, unchanged.
     expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
-    expect(d.evidence.decidingDelta).toBe(0.22999999999999998)
-    expect(d.evidence.pairedCI).toEqual({ low: 0.20999999999999996, high: 0.24 })
+    expect(d.evidence.decidingDelta).toBeCloseTo(0.22749999999999998, 12)
+    expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
     expect(d.promote).toBe(true)
   })
 })
@@ -779,12 +812,12 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
       seed: 1337,
       pairedDeltaThreshold: -0.05,
     }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('negative_delta')
     expect(d.evidence.productiveRuns).toBe(76)
     expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
     expect(d.evidence.medianPairedDelta).toBe(0)
     expect(d.evidence.decidingDelta).toBeCloseTo((20 * -0.6) / 76, 6)
-    expect(d.promote).toBe(false)
-    expect(d.rejectionCode).toBe('negative_delta')
   })
 
   it('reaches the bench/rung2 caller: block scores in {2/3, 1}', () => {
@@ -803,10 +836,44 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
       seed: 1337,
       pairedDeltaThreshold: -0.05,
     }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.promote).toBe(false)
     expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
     expect(d.evidence.tieFraction).toBeCloseTo(56 / 76, 12)
     expect(d.evidence.decidingDelta).toBeCloseTo((20 * -(1 / 3)) / 76, 6)
-    expect(d.promote).toBe(false)
+  })
+
+  it('promotes a real +12.8pp lift on a lattice the median cannot resolve', () => {
+    // bench/rung2 deals leaves into blocks of 3 and scores a block as the MEAN
+    // of its leaves, so block scores live in {2/3, 1}. 26 blocks: 15 up, 5
+    // down, 6 tied — a real +12.8pp lift at only 23% ties, i.e. BELOW any
+    // tie-fraction cutoff. The median's bootstrap percentiles land on the
+    // lattice: its CI lower bound is exactly 0, so a median-decided gate
+    // refuses this lift at threshold 0. That is the original bug, one lattice
+    // over, in the direction that silently holds real improvements.
+    const two3 = 2 / 3
+    const pairs = joinPairs(
+      ...Array.from({ length: 15 }, (_, i) => makePair('cand', i, 1, 1, two3, two3)),
+      ...Array.from({ length: 5 }, (_, i) => makePair('cand', 100 + i, two3, two3, 1, 1)),
+      ...Array.from({ length: 6 }, (_, i) => makePair('cand', 200 + i, 1, 1, 1, 1)),
+    )
+    const cfg = { baselineKey: 'baseline', seed: 1337, pairedDeltaThreshold: 0 }
+    const d = new HeldOutGate(cfg).evaluate(pairs.candidate, pairs.baseline)
+    // The verdict first — a real lift must not be held.
+    expect(d.promote).toBe(true)
+    expect(d.evidence.productiveRuns).toBe(26)
+    expect(d.evidence.tieFraction).toBeCloseTo(6 / 26, 12)
+    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.decidingDelta).toBeCloseTo(10 / 3 / 26, 10)
+
+    // ...and the median path on the SAME data is exactly the refusal: this pins
+    // the reason, so the test cannot silently start passing for another one.
+    const median = new HeldOutGate({ ...cfg, deltaStatistic: 'median' }).evaluate(
+      pairs.candidate,
+      pairs.baseline,
+    )
+    expect(median.evidence.pairedCI!.low).toBe(0)
+    expect(median.promote).toBe(false)
+    expect(median.rejectionCode).toBe('negative_delta')
   })
 
   it('FAILS CLOSED when every pair ties — a [0,0] CI decides nothing', () => {

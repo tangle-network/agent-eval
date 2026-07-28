@@ -1114,9 +1114,8 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
  * judges in this codebase do routinely — reads as non-binary, and a single
  * partial-credit score in an otherwise pass/fail vector flips it to false while
  * leaving the median just as blind. Gates want {@link pairedBinaryScale} (any
- * two-point encoding) or {@link pairedDeltaBootstrapStatistic} (two-point OR
- * tie-dominated). This predicate remains for callers that specifically mean
- * "literally 0/1".
+ * two-point encoding). This predicate remains for callers that specifically
+ * mean "literally 0/1".
  */
 export function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
   if (values.length === 0) return false
@@ -1429,47 +1428,35 @@ export function pairedDeltaTieFraction(
   return ties / n
 }
 
-/** Tie fraction at or above which the MEDIAN paired delta is structurally
- *  uninformative. At half the pairs tied the sample median of the deltas is 0
- *  regardless of how large the shift on the remaining pairs is, and a bootstrap
- *  CI around it collapses to [0, 0] — so `ci.low > threshold` answers "no"
- *  forever at a non-negative threshold and "yes" forever at a negative one. */
-export const MEDIAN_BLIND_TIE_FRACTION = 0.5
-
 /**
- * Which paired-delta statistic can actually see this data.
+ * The paired-delta statistic a DECISION is computed on, package-wide.
  *
- * `'median'` is the robust default for continuous outcomes, but it goes BLIND in
- * two regimes that eval data lands in constantly:
- *   - two-point (pass/fail) outcomes on any encoding — see {@link pairedBinaryScale};
- *   - any outcome where at least {@link MEDIAN_BLIND_TIE_FRACTION} of pairs tie,
- *     which includes low-cardinality scores like {0, ½, 1} and block scores like
- *     {⅔, 1} that arise from averaging pass/fail leaves.
- * In both, the median paired delta is pinned at 0 and its whole CI collapses, so
- * the gate can see neither a gain nor a regression. The MEAN paired delta is
- * exactly the change in success rate on two-point data and stays well defined
- * under tie domination, so it is the statistic those regimes get.
+ * The mean paired delta is the estimator that answers the question a promotion
+ * gate asks — "by how much did the candidate move the score" — in the caller's
+ * own units, and it equals the aggregate lift everyone quotes. The MEDIAN
+ * answers a different question and loses the answer to this one in every regime
+ * eval data actually lands in:
+ *   - TWO-POINT (pass/fail) outcomes on any encoding: the delta vector lives in
+ *     {−s, 0, +s} dominated by zeros, so the median and its whole bootstrap CI
+ *     are pinned at exactly 0 however large the shift. (Decide these on
+ *     {@link pairedRiskDifferenceExact} instead — same estimand, exact interval.)
+ *   - TIE-DOMINATED outcomes: at half the pairs tied the sample median is 0 by
+ *     construction, and `ci.low > threshold` then answers "no" forever at a
+ *     non-negative threshold and "yes" forever at a negative one.
+ *   - LOW-CARDINALITY outcomes, even well below half ties: judge dimensions on
+ *     integer 0-100, and block scores like {⅔, 1} from averaging pass/fail
+ *     leaves, put the median on a coarse lattice whose bootstrap percentiles
+ *     land on atoms. Measured: 26 blocks of 3 pass/fail leaves carrying a real
+ *     +12.8pp lift, only 23% of pairs tied, gives a median CI of [0, 0.333] —
+ *     lower bound exactly 0, so a gate at threshold 0 refuses a real lift.
+ * That last case is why there is no tie-fraction threshold here: any cutoff on
+ * ties leaves the lattice case open on the other side of it.
  *
- * Callers that need the interval to be dual to an exact test (a promotion gate)
- * should prefer {@link pairedRiskDifferenceExact} on the two-point case rather
- * than a mean bootstrap; this helper is for the bootstrap-shaped call sites that
- * must return a `PairedBootstrapResult`.
- *
- * ALL pairs tied is left on `'median'` deliberately. The switch exists to stop
- * ties HIDING a shift, and with zero discordant pairs there is no shift to hide:
- * both statistics are exactly 0 with a CI of [0, 0], so the label would change
- * while no verdict does. A caller must treat that collapsed interval as "cannot
- * decide" whichever statistic produced it.
+ * `heldoutSignificance` has defaulted to the mean since #316 for the same
+ * reason. The median remains available per call site for callers who
+ * specifically want outlier robustness and accept the blindness.
  */
-export function pairedDeltaBootstrapStatistic(
-  before: ArrayLike<number>,
-  after: ArrayLike<number>,
-): 'mean' | 'median' {
-  const tieFraction = pairedDeltaTieFraction(before, after)
-  if (tieFraction === 1) return 'median'
-  if (pairedBinaryScale(before, after) !== null) return 'mean'
-  return tieFraction >= MEDIAN_BLIND_TIE_FRACTION ? 'mean' : 'median'
-}
+export const DECISION_PAIRED_DELTA_STATISTIC: 'mean' = 'mean'
 
 /**
  * Unbiased pass@k for code generation (Chen et al. 2021, "Evaluating Large

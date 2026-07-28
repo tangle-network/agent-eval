@@ -171,7 +171,7 @@ describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
     expect(reg!.bootstrapStatistic).toBe('mean')
   })
 
-  it('leaves continuous dimensions on the median statistic', () => {
+  it('decides continuous dimensions on the mean, and still offers the median', () => {
     const cand = new Map<string, Record<string, JudgeScore>>()
     const base = new Map<string, Record<string, JudgeScore>>()
     for (let i = 0; i < 6; i++) {
@@ -179,7 +179,14 @@ describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
       cand.set(`sc${i}:0`, { quality: score(0.6, { safety: 0.3 }) })
     }
     const [reg] = dimensionRegressions(cand, base, scenarioIds(6), ['safety'])
-    expect(reg!.bootstrapStatistic).toBe('median')
+    expect(reg!.bootstrapStatistic).toBe('mean')
     expect(reg!.regressed).toBe(true)
+    // The pre-0.134 median path is still exactly reachable, same verdict here.
+    const [med] = dimensionRegressions(cand, base, scenarioIds(6), ['safety'], {
+      statistic: 'median',
+    })
+    expect(med!.bootstrapStatistic).toBe('median')
+    expect(med!.regressed).toBe(true)
+    expect(med!.bootstrap.low).toBe(reg!.bootstrap.low) // identical deltas ⇒ identical CI
   })
 })

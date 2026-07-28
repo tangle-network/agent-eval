@@ -25,9 +25,9 @@
 
 import type { Direction } from '../../pareto'
 import {
+  DECISION_PAIRED_DELTA_STATISTIC,
   type PairedBootstrapResult,
   pairedBootstrap,
-  pairedDeltaBootstrapStatistic,
 } from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
@@ -102,6 +102,9 @@ export interface BuildEvidenceVectorOptions {
   resamples?: number
   /** Fixed bootstrap seed for a deterministic, reproducible verdict. Default 1337. */
   seed?: number
+  /** Paired statistic every axis CI is computed on. Default `'mean'` — see
+   *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
+  statistic?: 'mean' | 'median'
 }
 
 /**
@@ -140,14 +143,13 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // positive bootstrap always reads as "candidate better on this axis".
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
-    // TIE-DOMINATED axes are decided on the MEAN paired delta — which for a
-    // pass/fail axis is exactly the change in success rate. The median is
-    // structurally blind there: with most pairs tied its bootstrap CI collapses
-    // to [0,0] and the axis reads 'flat', hiding real gains AND real
-    // regressions. That covers pass/fail axes on ANY encoding ({0,1} and the
-    // 0-100 one `detectScale` exists for) plus low-cardinality axes.
-    // Continuous axes are unchanged.
-    const bootstrapStatistic = pairedDeltaBootstrapStatistic(before, after)
+    // Axes are decided on the MEAN paired delta — which for a pass/fail axis is
+    // exactly the change in success rate. The median is structurally blind on
+    // the shapes eval data lands in: with most pairs tied its bootstrap CI
+    // collapses to [0,0] and the axis reads 'flat', hiding real gains AND real
+    // regressions — pass/fail axes on ANY encoding ({0,1} and the 0-100 one
+    // `detectScale` exists for), and low-cardinality axes even below half ties.
+    const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
     const bootstrap = pairedBootstrap(before, after, {
       confidence,
       resamples,
