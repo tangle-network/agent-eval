@@ -24,11 +24,17 @@ export interface RouterToolCall {
 export interface RouterCompletionResponse {
   message: { content?: string | null; tool_calls?: RouterToolCall[] }
   usage?: { prompt_tokens?: number; completion_tokens?: number }
+  /** Provider-reported spend when the endpoint supplies it. */
+  costUsd?: number
+  /** Model echoed by the provider, falling back to the requested model. */
+  model: string
+  durationMs: number
 }
 
 export async function routerCompletion(
   req: RouterCompletionRequest,
 ): Promise<RouterCompletionResponse> {
+  const startedAt = Date.now()
   const body: Record<string, unknown> = {
     model: req.model,
     messages: req.messages,
@@ -50,10 +56,22 @@ export async function routerCompletion(
   const json = (await res.json()) as {
     choices: Array<{ message: { content?: string | null; tool_calls?: RouterToolCall[] } }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
+    model?: unknown
+    _response_cost?: unknown
+    cost_usd?: unknown
   }
   const choice = json.choices[0]
   if (!choice) throw new Error(`router returned no choices: ${JSON.stringify(json).slice(0, 200)}`)
-  return { message: choice.message, usage: json.usage }
+  const rawCost = json._response_cost ?? json.cost_usd
+  const costUsd =
+    typeof rawCost === 'number' && Number.isFinite(rawCost) && rawCost >= 0 ? rawCost : undefined
+  return {
+    message: choice.message,
+    usage: json.usage,
+    ...(costUsd === undefined ? {} : { costUsd }),
+    model: typeof json.model === 'string' && json.model ? json.model : req.model,
+    durationMs: Date.now() - startedAt,
+  }
 }
 
 // Rough per-model cost estimator. Used for cost-ceiling enforcement.
