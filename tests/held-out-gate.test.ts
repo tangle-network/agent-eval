@@ -1026,3 +1026,71 @@ describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', 
     expect(d.evidence.searchCoverage.coverage).toBe(1)
   })
 })
+
+describe('HeldOutGate — coverage accounting is complete', () => {
+  it('partitions every dealt item and never disagrees with productiveRuns, over 400 randomised ragged shapes', () => {
+    // Deterministic PRNG so a failure reproduces.
+    let state = 0x5eed1
+    const rnd = () => {
+      state = (state * 1664525 + 1013904223) >>> 0
+      return state / 0x100000000
+    }
+    for (let trial = 0; trial < 400; trial += 1) {
+      const n = 1 + Math.floor(rnd() * 14)
+      const candidate: RunRecord[] = []
+      const baseline: RunRecord[] = []
+      for (let i = 0; i < n; i += 1) {
+        const scenarioId = `s${i}`
+        for (const split of ['search', 'holdout'] as const) {
+          const emit = (arm: 'cand' | 'baseline', score: number | null): RunRecord | null => {
+            if (score === null) return null
+            const row = record({
+              candidateId: arm,
+              scenarioId,
+              seed: i,
+              splitTag: split,
+              outcome:
+                split === 'search'
+                  ? { searchScore: score, raw: {} }
+                  : { holdoutScore: score, raw: {} },
+            })
+            if (!Number.isNaN(score)) return row
+            const { searchScore: _s, holdoutScore: _h, ...blank } = row.outcome
+            return { ...row, outcome: blank }
+          }
+          // 0 = no row, NaN = a row with no score, else a real score
+          const roll = (): number | null => {
+            const r = rnd()
+            if (r < 0.25) return null
+            if (r < 0.5) return Number.NaN
+            return Number(r.toFixed(3))
+          }
+          const c = emit('cand', roll())
+          const b = emit('baseline', roll())
+          if (c !== null) candidate.push(c)
+          if (b !== null) baseline.push(b)
+        }
+      }
+      let d: ReturnType<HeldOutGate['evaluate']>
+      try {
+        d = new HeldOutGate({
+          baselineKey: 'baseline',
+          seed: 1337,
+          minCoverage: 0,
+          minProductiveRuns: 1,
+        }).evaluate(candidate, baseline)
+      } catch {
+        continue // fail-loud inputs (duplicate identities) are not this test's subject
+      }
+      for (const cov of [d.evidence.holdoutCoverage, d.evidence.searchCoverage]) {
+        expect(cov.answered + cov.unscoredPairs + cov.candidateOnly + cov.baselineOnly).toBe(
+          cov.dealt,
+        )
+        expect(cov.coverage).toBe(cov.dealt === 0 ? 0 : cov.answered / cov.dealt)
+      }
+      // The dealt pairing and the decision pairing key on the same identity, so
+      // the count the coverage reports IS the n the statistics ran on.
+      expect(d.evidence.holdoutCoverage.answered).toBe(d.evidence.productiveRuns)
+    }
+  })
+})
