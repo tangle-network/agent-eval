@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.133.3] - 2026-07-27 - trustworthy statistical decisions
 
 ### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0
 
