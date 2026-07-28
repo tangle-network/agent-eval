@@ -25,6 +25,7 @@ import type { AnalystFinding } from '../analyst/types'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { continuousAgreement } from '../judge-calibration'
+import { normalCdf } from '../math/normal'
 import { pairRunRecords } from '../paired-arms'
 import { observedSplitScore } from '../rollout/reward'
 import {
@@ -604,7 +605,7 @@ function welchCompare(baseline: number[], current: number[]): MetricDelta {
 
   // p-value via normal approximation to the t-statistic.
   const t = se > 0 ? delta / se : 0
-  const pValue = se > 0 ? 2 * (1 - standardNormalCdf(Math.abs(t))) : 1
+  const pValue = se > 0 ? 2 * (1 - normalCdf(Math.abs(t))) : 1
 
   // Cohen's d — pooled stddev.
   const pooledStddev = Math.sqrt(
@@ -634,21 +635,6 @@ function sampleVariance(xs: number[], xsMean: number): number {
   let s = 0
   for (const x of xs) s += (x - xsMean) ** 2
   return s / (xs.length - 1)
-}
-
-/** Abramowitz & Stegun approximation to Φ(z). Maximum error ~7.5e-8. */
-function standardNormalCdf(z: number): number {
-  const a1 = 0.254829592
-  const a2 = -0.284496736
-  const a3 = 1.421413741
-  const a4 = -1.453152027
-  const a5 = 1.061405429
-  const p = 0.3275911
-  const sign = z < 0 ? -1 : 1
-  const x = Math.abs(z) / Math.SQRT2
-  const t = 1 / (1 + p * x)
-  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
-  return 0.5 * (1 + sign * y)
 }
 
 // ── Composite + split selection ─────────────────────────────────────

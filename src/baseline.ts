@@ -13,6 +13,7 @@
  * Returns a structured verdict: improved | regressed | stable | unstable.
  */
 
+import { studentTCdf } from './math/student-t'
 import { cohensD } from './statistics'
 
 export interface MetricSamples {
@@ -163,73 +164,4 @@ export function welchsTTest(a: number[], b: number[]): { t: number; df: number; 
 
 function variance(xs: number[], m: number): number {
   return xs.reduce((acc, x) => acc + (x - m) ** 2, 0) / (xs.length - 1)
-}
-
-// Re-used from statistics.ts via small local copy to avoid exporting internals.
-function studentTCdf(t: number, df: number): number {
-  if (df <= 0) return 0.5
-  if (df > 100) return normalCdf(t)
-  const x = df / (df + t * t)
-  const ib = incompleteBeta(x, df / 2, 0.5)
-  return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib
-}
-
-function incompleteBeta(x: number, a: number, b: number): number {
-  if (x <= 0) return 0
-  if (x >= 1) return 1
-  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b)
-  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lnBeta) / a
-  let c = 1
-  let d = 1 - ((a + b) * x) / (a + 1)
-  if (Math.abs(d) < 1e-30) d = 1e-30
-  d = 1 / d
-  let f = d
-  for (let m = 1; m <= 200; m++) {
-    const m2 = 2 * m
-    let num = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2))
-    d = 1 + num * d
-    if (Math.abs(d) < 1e-30) d = 1e-30
-    c = 1 + num / c
-    if (Math.abs(c) < 1e-30) c = 1e-30
-    d = 1 / d
-    f *= d * c
-    num = -((a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1))
-    d = 1 + num * d
-    if (Math.abs(d) < 1e-30) d = 1e-30
-    c = 1 + num / c
-    if (Math.abs(c) < 1e-30) c = 1e-30
-    d = 1 / d
-    const delta = d * c
-    f *= delta
-    if (Math.abs(delta - 1) < 3e-7) break
-  }
-  return front * f
-}
-
-function lnGamma(z: number): number {
-  const coefs = [
-    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
-    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
-    1.5056327351493116e-7,
-  ]
-  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
-  z -= 1
-  let x = coefs[0]!
-  for (let i = 1; i < 9; i++) x += coefs[i]! / (z + i)
-  const t = z + 7.5
-  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
-}
-
-function normalCdf(x: number): number {
-  const a1 = 0.254829592
-  const a2 = -0.284496736
-  const a3 = 1.421413741
-  const a4 = -1.453152027
-  const a5 = 1.061405429
-  const p = 0.3275911
-  const sign = x < 0 ? -1 : 1
-  const absX = Math.abs(x)
-  const t = 1 / (1 + p * absX)
-  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp((-absX * absX) / 2)
-  return 0.5 * (1 + sign * y)
 }
