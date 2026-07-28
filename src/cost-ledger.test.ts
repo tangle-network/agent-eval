@@ -1655,6 +1655,43 @@ describe('CostLedger', () => {
     ).toThrow(/does not match pricing snapshot/)
   })
 
+  it('accepts equivalent estimated costs after pricing-unit conversion', () => {
+    const inputTokens = 30_054
+    const outputTokens = 20
+    const costUsd = costForTokenPricing(
+      { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 },
+      { inputTokens, outputTokens },
+    )
+    const serialized = eventFor(
+      {
+        status: 'settled',
+        callId: 'pricing-unit-conversion',
+        channel: 'agent',
+        phase: 'search',
+        actor: 'worker',
+        model: 'gpt-5.6-sol',
+        inputTokens,
+        outputTokens,
+        costUsd,
+        costUnknown: false,
+        pricing: { inputUsdPerThousand: 0.00125, outputUsdPerThousand: 0.01 },
+        timestamp: 1,
+      },
+      2,
+    )
+
+    expect(costUsd).toBe(0.0377675)
+    expect(
+      () =>
+        new CostLedger({
+          persistence: {
+            read: () => ({ revision: revision(serialized), events: serialized }),
+            append: () => undefined,
+          },
+        }),
+    ).not.toThrow()
+  })
+
   it('rejects persisted reasoning usage that exceeds total output', () => {
     const invalid = eventFor(
       {

@@ -1095,12 +1095,17 @@ function validateCostReceipt(
   }
 
   const expected = costFromPricing(receipt, receipt.pricing)
-  if (receipt.costUsd !== expected) {
+  if (!costAmountsMatch(receipt.costUsd, expected)) {
     ctx.addIssue({
       code: 'custom',
       message: `estimated cost ${receipt.costUsd} does not match pricing snapshot ${expected}`,
     })
   }
+}
+
+function costAmountsMatch(left: number, right: number): boolean {
+  const scale = Math.max(1, Math.abs(left), Math.abs(right))
+  return Math.abs(left - right) <= Number.EPSILON * scale * 8
 }
 
 const CostLedgerEventSchema = z.union([
