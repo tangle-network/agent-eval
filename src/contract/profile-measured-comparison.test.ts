@@ -217,7 +217,7 @@ function comparisonAccounting(
 
 describe('profile improvement measured comparison', () => {
   it('runs exact profile states through one paired measurement path', async () => {
-    const frozen = experiment()
+    const frozen = experiment(6)
     const observed: Array<{
       arm: string
       stateDigest: Sha256Digest
@@ -249,7 +249,7 @@ describe('profile improvement measured comparison', () => {
       },
     })
 
-    expect(observed).toHaveLength(6)
+    expect(observed).toHaveLength(12)
     expect(observed.filter((entry) => entry.arm === 'baseline')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ stateDigest: frozen.baseline.stateDigest }),
@@ -260,17 +260,17 @@ describe('profile improvement measured comparison', () => {
         expect.objectContaining({ stateDigest: frozen.candidate.stateDigest }),
       ]),
     )
-    expect(new Set(observed.map((entry) => entry.cellDigest)).size).toBe(6)
-    expect(comparison.overall.n).toBe(3)
+    expect(new Set(observed.map((entry) => entry.cellDigest)).size).toBe(12)
+    expect(comparison.overall.n).toBe(6)
     expect(comparison.overall.baseline).toBeCloseTo(0.2)
     expect(comparison.overall.candidate).toBeCloseTo(0.8)
     expect(comparison.overall.delta).toBeCloseTo(0.6)
     expect(comparison.decision.outcome).toBe('ship')
     expect(comparison.evaluation).toMatchObject({
       preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
-      measurement: { workDurationMs: 660, cost: { usd: 0.00000066, provenance: 'observed' } },
+      measurement: { workDurationMs: 1_320, cost: { usd: 0.00000132, provenance: 'observed' } },
     })
-    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.25000066, provenance: 'observed' })
+    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.25000132, provenance: 'observed' })
     expect(comparison.diff).toContain('add-source-and-uncertainty')
     expect(verifyAgentProfileImprovementExperimentComparison(comparison)).toEqual(comparison)
   })

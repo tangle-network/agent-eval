@@ -234,6 +234,9 @@ describe('HeldOutGate — rejection paths', () => {
       makePair('cand', 0, 0.9, 0.6, 0.5, 0.5),
       makePair('cand', 1, 0.9, 0.6, 0.5, 0.5),
       makePair('cand', 2, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 3, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 4, 0.9, 0.6, 0.5, 0.5),
+      makePair('cand', 5, 0.9, 0.6, 0.5, 0.5),
     )
     const matchedOnly = g.evaluate(pairs.candidate, pairs.baseline)
     const unmatchedCandidateRows = Array.from({ length: 10 }, (_, index) =>
@@ -295,6 +298,7 @@ describe('HeldOutGate — promotion path', () => {
       makePair('cand', 2, 0.62, 0.63, 0.5, 0.5),
       makePair('cand', 3, 0.63, 0.6, 0.5, 0.5),
       makePair('cand', 4, 0.64, 0.61, 0.5, 0.5),
+      makePair('cand', 5, 0.65, 0.62, 0.5, 0.5),
     )
     const a = g1.evaluate(pairs.candidate, pairs.baseline)
     const b = g2.evaluate(pairs.candidate, pairs.baseline)
@@ -433,6 +437,7 @@ describe('HeldOutGate — cost ceiling', () => {
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
       makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
@@ -455,6 +460,7 @@ describe('HeldOutGate — cost ceiling', () => {
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
@@ -487,6 +493,9 @@ describe('HeldOutGate — cost ceiling', () => {
       makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
       makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
     )
     pairs.candidate[0] = record({
       ...pairs.candidate[0],

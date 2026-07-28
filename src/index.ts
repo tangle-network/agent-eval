@@ -341,6 +341,11 @@ export type {
 // pass/fail, pairedBootstrap + wilcoxonSignedRank per metric). Arm names
 // are parameters — no domain literal ships here.
 export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
+export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-delta-test'
+export {
+  minimumPairsForPairedDeltaTest,
+  pairedDeltaTest,
+} from './paired-delta-test'
 export type {
   PrReviewAuditCase,
   PrReviewBenchmarkSummary,

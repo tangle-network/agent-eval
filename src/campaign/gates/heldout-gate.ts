@@ -21,7 +21,9 @@ export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
   deltaThreshold?: number
   /** Bootstrap CI confidence. Default 0.95. */
   confidence?: number
-  /** Minimum paired holdout observations to claim significance. Default 3. */
+  /** Minimum paired holdout observations to claim significance. The exact
+   *  small-sample test may require more observations at the selected
+   *  confidence. Default 3. */
   minProductiveRuns?: number
   /** Bootstrap resamples. Default 2000. */
   resamples?: number
@@ -78,7 +80,7 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
             ]
           : [
               sig.fewRuns
-                ? `held-out: only ${sig.n} paired runs — too few to claim significance`
+                ? `held-out: only ${sig.n} paired runs; ${sig.minimumRequired} required — too few to claim significance`
                 : `held-out mean Δ ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
             ],
         contributingGates: [

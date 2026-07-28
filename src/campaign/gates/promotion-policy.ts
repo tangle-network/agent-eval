@@ -23,8 +23,9 @@
  * constraints (compose with a budget gate via `composeGate`), not faked CIs.
  */
 
+import { pairedDeltaTest } from '../../paired-delta-test'
 import type { Direction } from '../../pareto'
-import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
+import type { PairedBootstrapResult } from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
 
@@ -61,6 +62,8 @@ export interface AxisEvidence {
   bootstrap: PairedBootstrapResult
   /** Paired observations contributing to this axis. */
   n: number
+  minimumRequired: number
+  decisionMethod: 'bootstrap-ci' | 'exact-sign'
   gainThreshold: number
   floorTolerance: number
   verdict: AxisVerdict
@@ -84,7 +87,8 @@ export type PromotionPolicy = (ev: EvidenceVector) => GateResult
 
 export interface BuildEvidenceVectorOptions {
   /** Minimum paired observations before an axis can claim significance; below
-   *  it the axis is `few_runs`. Default 3. */
+   *  it the axis is `few_runs`. The exact small-sample test may require more
+   *  observations at the selected confidence. */
   minProductiveRuns?: number
   /** Confidence level for every axis bootstrap. Default 0.95. */
   confidence?: number
@@ -108,7 +112,6 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
   if (objectives.length === 0) {
     throw new Error('buildEvidenceVector: at least 1 objective required')
   }
-  const minProductiveRuns = opts.minProductiveRuns ?? 3
   const confidence = opts.confidence ?? 0.95
   const resamples = opts.resamples ?? 2000
   const seed = opts.seed ?? 1337
@@ -130,35 +133,47 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // positive bootstrap always reads as "candidate better on this axis".
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
-    const bootstrap = pairedBootstrap(before, after, {
-      confidence,
-      resamples,
-      statistic: 'median',
-      seed,
-    })
     const n = paired.before.length
     const floorTolerance =
       obj.floorTolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const gainThreshold = obj.gainThreshold ?? 0
+    const improvement = pairedDeltaTest(before, after, {
+      confidence,
+      resamples,
+      statistic: 'median',
+      seed,
+      threshold: gainThreshold,
+      minPairs: opts.minProductiveRuns,
+    })
+    const regression = pairedDeltaTest(after, before, {
+      confidence,
+      resamples,
+      statistic: 'median',
+      seed,
+      threshold: floorTolerance,
+      minPairs: opts.minProductiveRuns,
+    })
+    const bootstrap = improvement.bootstrap
     // Floor check precedes the gain check: a credible regression must never be
     // masked as "improved". With the defaults (gainThreshold 0, positive floor)
     // the regions are disjoint and order is moot, but a consumer who sets a
     // negative gainThreshold ("accept small dips") could otherwise have a real
     // floor breach classified as a gain — anti-Goodhart wins the tie.
-    const verdict: AxisVerdict =
-      n < minProductiveRuns
-        ? 'few_runs'
-        : bootstrap.low < -floorTolerance
-          ? 'regressed'
-          : bootstrap.low > gainThreshold
-            ? 'improved'
-            : 'flat'
+    const verdict: AxisVerdict = !improvement.sufficient
+      ? 'few_runs'
+      : regression.significant
+        ? 'regressed'
+        : improvement.significant
+          ? 'improved'
+          : 'flat'
     axes.push({
       name: obj.name,
       source: obj.source,
       direction: obj.direction,
       bootstrap,
       n,
+      minimumRequired: improvement.minimumPairs,
+      decisionMethod: improvement.method,
       gainThreshold,
       floorTolerance,
       verdict,

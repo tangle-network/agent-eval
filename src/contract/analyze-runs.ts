@@ -35,6 +35,7 @@ import {
   validateRunRecord,
 } from '../run-record'
 import {
+  BOOTSTRAP_GATE_MIN_N,
   pairedBootstrap,
   pairedCohensDz,
   pairedMde,
@@ -929,6 +930,8 @@ function computeLift(
     ci95: [bootstrap.low, bootstrap.high],
     pValue: tTest.p,
     n: pairedBaseline.length,
+    minimumRequired: BOOTSTRAP_GATE_MIN_N,
+    decisionEligible: bootstrap.gateEligible,
     unpairedBaseline: pairing.unpairedBaseline.length,
     unpairedCandidate: pairing.unpairedTreatment.length,
     cohensD: d,
@@ -1084,16 +1087,18 @@ function buildReleaseScorecard(
   const liftPass =
     lift === undefined
       ? ('not_evaluated' as const)
-      : lift.ci95[0] > 0
-        ? ('pass' as const)
-        : lift.delta > 0
-          ? ('warn' as const)
-          : ('fail' as const)
+      : !lift.decisionEligible
+        ? ('not_evaluated' as const)
+        : lift.ci95[0] > 0
+          ? ('pass' as const)
+          : lift.delta > 0
+            ? ('warn' as const)
+            : ('fail' as const)
   axes.push({
     name: 'quality-lift',
     status: liftPass,
     detail: lift
-      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}`
+      ? `delta=${lift.delta.toFixed(3)}, CI95=[${lift.ci95[0].toFixed(3)}, ${lift.ci95[1].toFixed(3)}], n=${lift.n}${lift.decisionEligible ? '' : ` (descriptive only; ${lift.minimumRequired} required)`}`
       : 'no baseline/candidate pair available',
   })
   const contamPass =
@@ -1261,38 +1266,48 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   }
 
   if (ctx.lift) {
-    const pairedEffect =
-      ctx.lift.cohensD === null ? 'undefined (zero delta variance)' : ctx.lift.cohensD.toFixed(2)
-    const pairedP =
-      ctx.lift.pValue === null ? 'undefined (zero delta variance)' : ctx.lift.pValue.toFixed(4)
-    const requiredRuns =
-      ctx.lift.requiredN === null ? 'not estimable' : `~${ctx.lift.requiredN} paired runs`
-    const decisive = ctx.lift.ci95[0] > ctx.threshold
-    const inconclusive = ctx.lift.ci95[0] <= ctx.threshold && ctx.lift.ci95[1] > ctx.threshold
-    if (decisive) {
-      out.push({
-        priority: 'critical',
-        kind: 'ship',
-        title: `Ship — lift ${ctx.lift.delta.toFixed(3)} (95% CI ${ctx.lift.ci95[0].toFixed(3)}..${ctx.lift.ci95[1].toFixed(3)})`,
-        detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${pairedP}, paired d=${pairedEffect}).`,
-        evidencePath: 'lift',
-      })
-    } else if (inconclusive) {
+    if (!ctx.lift.decisionEligible) {
       out.push({
         priority: 'high',
         kind: 'expand-corpus',
-        title: `Inconclusive — required sample is ${requiredRuns} (have ${ctx.lift.n}) at current effect size`,
-        detail: `CI straddles threshold. Current MDE at 80% power is ${ctx.lift.mde.toFixed(3)}; observed delta is ${ctx.lift.delta.toFixed(3)}.`,
+        title: `Inconclusive — ${ctx.lift.n} paired runs; ${ctx.lift.minimumRequired} required`,
+        detail: `The bootstrap interval is descriptive below ${ctx.lift.minimumRequired} paired observations and cannot support a ship decision.`,
         evidencePath: 'lift',
       })
     } else {
-      out.push({
-        priority: 'critical',
-        kind: 'hold',
-        title: `Hold — lift CI lower bound ${ctx.lift.ci95[0].toFixed(3)} is at or below threshold ${ctx.threshold}`,
-        detail: `Bootstrap CI provides no statistical evidence the candidate is better. Consider tightening the mutation or expanding the holdout.`,
-        evidencePath: 'lift',
-      })
+      const pairedEffect =
+        ctx.lift.cohensD === null ? 'undefined (zero delta variance)' : ctx.lift.cohensD.toFixed(2)
+      const pairedP =
+        ctx.lift.pValue === null ? 'undefined (zero delta variance)' : ctx.lift.pValue.toFixed(4)
+      const requiredRuns =
+        ctx.lift.requiredN === null ? 'not estimable' : `~${ctx.lift.requiredN} paired runs`
+      const decisive = ctx.lift.ci95[0] > ctx.threshold
+      const inconclusive = ctx.lift.ci95[0] <= ctx.threshold && ctx.lift.ci95[1] > ctx.threshold
+      if (decisive) {
+        out.push({
+          priority: 'critical',
+          kind: 'ship',
+          title: `Ship — lift ${ctx.lift.delta.toFixed(3)} (95% CI ${ctx.lift.ci95[0].toFixed(3)}..${ctx.lift.ci95[1].toFixed(3)})`,
+          detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${pairedP}, paired d=${pairedEffect}).`,
+          evidencePath: 'lift',
+        })
+      } else if (inconclusive) {
+        out.push({
+          priority: 'high',
+          kind: 'expand-corpus',
+          title: `Inconclusive — required sample is ${requiredRuns} (have ${ctx.lift.n}) at current effect size`,
+          detail: `CI straddles threshold. Current MDE at 80% power is ${ctx.lift.mde.toFixed(3)}; observed delta is ${ctx.lift.delta.toFixed(3)}.`,
+          evidencePath: 'lift',
+        })
+      } else {
+        out.push({
+          priority: 'critical',
+          kind: 'hold',
+          title: `Hold — lift CI lower bound ${ctx.lift.ci95[0].toFixed(3)} is at or below threshold ${ctx.threshold}`,
+          detail: `Bootstrap CI provides no statistical evidence the candidate is better. Consider tightening the mutation or expanding the holdout.`,
+          evidencePath: 'lift',
+        })
+      }
     }
   }
 

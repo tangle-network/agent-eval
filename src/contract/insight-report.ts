@@ -289,6 +289,10 @@ export interface LiftInsight {
   pValue: number | null
   /** Number of paired observations. */
   n: number
+  /** Minimum paired observations required before the interval can drive a decision. */
+  minimumRequired: number
+  /** Whether the bootstrap interval has enough observations to drive a decision. */
+  decisionEligible: boolean
   /** Scored baseline observations without a candidate match. */
   unpairedBaseline: number
   /** Scored candidate observations without a baseline match. */
