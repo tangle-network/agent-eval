@@ -30,7 +30,9 @@ export interface MetricVerdict {
   baselineMean: number
   candidateMean: number
   delta: number
-  cohensD: number
+  /** Null when both samples are constant with unequal means — the
+   *  standardized effect is unbounded there, not zero. */
+  cohensD: number | null
   welchT: number
   welchDf: number
   welchP: number
@@ -92,10 +94,15 @@ export function compareToBaseline(
     const stable = baselineStable && candidateStable
     const reportedIqr = Math.max(baselineIqr, candidateIqr)
 
+    // Both sides are guaranteed ≥ 2 samples above, so a null d means zero
+    // pooled spread across a real mean gap: an unbounded standardized effect,
+    // which clears any finite threshold.
+    const effectClears = d === null || Math.abs(d) >= effectThreshold
+
     let verdict: MetricVerdict['verdict']
     if (!stable) {
       verdict = 'unstable'
-    } else if (p < alpha && Math.abs(d) >= effectThreshold) {
+    } else if (p < alpha && effectClears) {
       const candidateIsBetter = s.higherIsBetter ? delta > 0 : delta < 0
       verdict = candidateIsBetter ? 'improved' : 'regressed'
     } else {

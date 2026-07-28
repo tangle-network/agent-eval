@@ -39,18 +39,35 @@ describe('normalCdf', () => {
 })
 
 describe('public normal-approximation callers', () => {
-  it('computes the Mann-Whitney normal tail with the corrected CDF', () => {
+  it('computes the Mann-Whitney tail exactly at 5 v 5, not from the normal CDF', () => {
+    // Inside the enumeration threshold the CDF is not on the path at all: the
+    // p is the exact conditional one, matching scipy method='exact'.
     const result = mannWhitneyU([1, 2, 3, 4, 5], [10, 11, 12, 13, 14])
 
     expect(result.u).toBe(0)
-    expect(result.p).toBeCloseTo(0.00902343881808032, 6)
+    expect(result.method).toBe('exact')
+    expect(result.p).toBeCloseTo(0.007936507936507936, 12)
+    expect(result.pFloor).toBeCloseTo(0.007936507936507936, 12)
   })
 
-  it('computes the Wilcoxon normal tail with the corrected CDF', () => {
+  it('computes the Wilcoxon tail exactly at n = 10, not from the normal CDF', () => {
     const result = wilcoxonSignedRank(Array<number>(10).fill(0), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
     expect(result.w).toBe(55)
-    expect(result.p).toBeCloseTo(0.00506203212626799, 6)
+    expect(result.method).toBe('exact')
+    expect(result.p).toBeCloseTo(0.001953125, 12)
+  })
+
+  it('routes the corrected CDF into the rank-test asymptotic path above the threshold', () => {
+    // The only place a rank test still consults normalCdf: an explicitly
+    // requested asymptotic p outside the exact-feasible range.
+    const a = Array.from({ length: 14 }, (_, index) => index + 1)
+    const b = Array.from({ length: 14 }, (_, index) => index + 8)
+    const result = mannWhitneyU(a, b, { method: 'asymptotic' })
+
+    expect(result.method).toBe('asymptotic')
+    // scipy.stats.mannwhitneyu(method='asymptotic', use_continuity=True).
+    expect(Math.abs(result.p - 0.0007867974321958436)).toBeLessThanOrEqual(1.5e-7)
   })
 
   it('computes McNemar power with the corrected CDF', () => {

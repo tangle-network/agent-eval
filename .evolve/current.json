@@ -1,16 +1,18 @@
 {
   "mode": "research",
   "goal": "Belief-state decision corpus inside agent-eval",
-  "status": "ACTIVE: Phase 0 infrastructure plus research evidence packet implemented for local code-agent traces; empirical corpus gate still requires real measurement, split metadata, integrity checks, baseline rows, and >=200 labeled decision points before stable API promotion.",
-  "round": 0,
-  "generation": 6,
-  "activePursuit": ".evolve/pursuits/2026-06-04-belief-state-agent-eval.md",
-  "metricClaims": {
-    "phase_0_infrastructure": "implemented for local code-agent traces; synthetic tests cover Codex, Claude Code, OpenCode, Kimi Code, and Pi/PiGraph-shaped inputs.",
-    "research_packet": "BeliefDecisionResearchEvidencePacket separates selective claim support from counterfactual claim support; OPE is required only for counterfactual claims.",
-    "local_smoke": "33 local sessions joined to 33 RunRecords and emitted 13137 decision rows across Codex, Claude Code, Kimi Code, OpenCode, and PiGraph-shaped traces.",
-    "empirical_gate": "not yet cleared; still requires split metadata, integrity checks, retrospective labels, and baseline policy rows.",
-    "counterfactual_claims": "blocked when OPE support is missing; no behavior or target propensities are invented."
+  "status": "complete_removed",
+  "activePursuit": null,
+  "result": {
+    "decision": "The experimental belief-state package was removed because repository-wide analysis found no producers and no consumers.",
+    "pullRequest": 450,
+    "mergeCommit": "b9f8af674640707c268e2ffcf73704e727c0d644",
+    "releasedIn": "0.133.0",
+    "retained": [
+      "src/rl/off-policy.ts",
+      "src/meta-eval/calibration.ts"
+    ]
   },
-  "updatedAt": "2026-06-05"
+  "nextAction": "Add decision logging to the runtime scheduler before proposing a new policy-learning API.",
+  "updatedAt": "2026-07-27"
 }

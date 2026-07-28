@@ -304,6 +304,15 @@ export type {
   LiveProofResult,
 } from './live-proof'
 export { runLiveProof } from './live-proof'
+// ── Statistics ───────────────────────────────────────────────────────
+// `normalCdf` and `studentTCdf` are public because `baseline.ts` and
+// `contract/analyze-runs.ts` consume them instead of holding their own copies,
+// and because each owes callers a stated accuracy bound: `normalCdf` is
+// Abramowitz & Stegun 7.1.26, accurate to 7.5e-8 absolute; `studentTCdf` is
+// exact to the incomplete beta below df = 100 and the normal approximation
+// above it.
+export { normalCdf } from './math/normal'
+export { studentTCdf } from './math/student-t'
 export {
   estimateCost,
   estimateTokens,
@@ -430,18 +439,24 @@ export type {
   CorpusAgreementPerDimension,
   CorpusAgreementReport,
   CorpusScoreRecord,
+  MannWhitneyResult,
   McNemarResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
   PairedSignTestResult,
+  PairedTTestResult,
   ProportionInterval,
+  RankTestMethod,
+  RankTestMethodRequest,
+  RankTestOptions,
   RiskDifferenceResult,
   SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,
+  WilcoxonSignedRankResult,
 } from './statistics'
-// ── Statistics ───────────────────────────────────────────────────────
 export {
+  BOOTSTRAP_GATE_MIN_N,
   benjaminiHochberg,
   bonferroni,
   cliffsDelta,
@@ -449,9 +464,11 @@ export {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  DEFAULT_PERMUTATIONS,
   holm,
   interpretCliffs,
   interRaterReliability,
+  MANN_WHITNEY_EXACT_MAX_N,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
@@ -470,6 +487,7 @@ export {
   requiredPairedSampleSize,
   requiredSampleSize,
   spearmanR,
+  WILCOXON_EXACT_MAX_N,
   weightedComposite,
   weightedMean,
   wilcoxonSignedRank,

@@ -176,10 +176,12 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@biomejs/biome": "^2.5.5",
+    "@stdlib/stats-padjust": "^0.2.3",
     "@types/node": "^26.1.1",
     "esbuild": "^0.28.1",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",
+    "lib-r-math.js": "^3.0.2",
     "lint-staged": "^17.2.0",
     "openapi3-ts": "^4.6.0",
     "oxc-parser": "^0.141.0",

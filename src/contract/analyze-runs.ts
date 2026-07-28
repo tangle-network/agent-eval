@@ -1263,6 +1263,8 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
   if (ctx.lift) {
     const pairedEffect =
       ctx.lift.cohensD === null ? 'undefined (zero delta variance)' : ctx.lift.cohensD.toFixed(2)
+    const pairedP =
+      ctx.lift.pValue === null ? 'undefined (zero delta variance)' : ctx.lift.pValue.toFixed(4)
     const requiredRuns =
       ctx.lift.requiredN === null ? 'not estimable' : `~${ctx.lift.requiredN} paired runs`
     const decisive = ctx.lift.ci95[0] > ctx.threshold
@@ -1272,7 +1274,7 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
         priority: 'critical',
         kind: 'ship',
         title: `Ship — lift ${ctx.lift.delta.toFixed(3)} (95% CI ${ctx.lift.ci95[0].toFixed(3)}..${ctx.lift.ci95[1].toFixed(3)})`,
-        detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${ctx.lift.pValue.toFixed(4)}, paired d=${pairedEffect}).`,
+        detail: `Holdout lift exceeds threshold ${ctx.threshold} with 95% bootstrap confidence (n=${ctx.lift.n}, p=${pairedP}, paired d=${pairedEffect}).`,
         evidencePath: 'lift',
       })
     } else if (inconclusive) {
