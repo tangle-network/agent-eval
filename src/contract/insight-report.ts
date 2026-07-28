@@ -284,8 +284,9 @@ export interface LiftInsight {
   delta: number
   /** Lower / upper bound of bootstrap CI on the delta. */
   ci95: [number, number]
-  /** Paired-t-test p-value. */
-  pValue: number
+  /** Paired-t-test p-value; null when the delta is a non-zero constant, where
+   *  the t statistic is undefined. */
+  pValue: number | null
   /** Number of paired observations. */
   n: number
   /** Scored baseline observations without a candidate match. */

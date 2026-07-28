@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { compareToBaseline, welchsTTest } from '../src/baseline'
+import { normalCdf } from '../src/math/normal'
+import { studentTCdf } from '../src/math/student-t'
 import {
   benjaminiHochberg,
   bonferroni,
@@ -7,10 +10,13 @@ import {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
+  holm,
+  interRaterReliability,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
   mcnemarRequiredN,
+  mulberry32,
   normalizeScores,
   pairedBootstrap,
   pairedCohensDz,
@@ -120,6 +126,96 @@ describe('partialCredit', () => {
   })
 })
 
+describe('normalCdf — standard normal against published reference values', () => {
+  // Abramowitz & Stegun 7.1.26 bounds erf to |ε| ≤ 1.5e-7. Φ(x) = ½(1 + erf(z))
+  // halves that to 7.5e-8; a two-sided p = 2(1 − Φ) doubles it back to 1.5e-7.
+  const PHI_TOL = 7.5e-8
+  const P_TOL = 1.5e-7
+
+  const twoSidedP = (z: number): number => 2 * (1 - normalCdf(z))
+
+  // Quantiles carried to full double precision. Rounding z to 1.96 moves the
+  // true p by ~4e-6 — thirty times the tolerance being asserted — so a test
+  // written against rounded z cannot state a bound this tight.
+  const CRITICAL: Array<{ label: string; z: number; phi: number; p: number }> = [
+    { label: '80% two-sided', z: 1.2815515655446004, phi: 0.9, p: 0.2 },
+    { label: '90% two-sided', z: 1.6448536269514722, phi: 0.95, p: 0.1 },
+    { label: '95% two-sided', z: 1.959963984540054, phi: 0.975, p: 0.05 },
+    { label: '99% two-sided', z: 2.5758293035489004, phi: 0.995, p: 0.01 },
+    { label: '99.9% two-sided', z: 3.2905267314919255, phi: 0.9995, p: 0.001 },
+    { label: '99.99% two-sided', z: 3.890591886413094, phi: 0.99995, p: 0.0001 },
+  ]
+
+  for (const { label, z, phi, p } of CRITICAL) {
+    it(`reproduces the ${label} critical value at z=${z.toFixed(6)}`, () => {
+      expect(Math.abs(normalCdf(z) - phi)).toBeLessThanOrEqual(PHI_TOL)
+      expect(Math.abs(twoSidedP(z) - p)).toBeLessThanOrEqual(P_TOL)
+    })
+  }
+
+  it('matches the reference CDF at the rounded z-scores quoted in tables', () => {
+    // Reference values from the exact standard normal, not from this function.
+    const table: Array<[z: number, p: number]> = [
+      [1.645, 0.09996981147155819],
+      [1.96, 0.04999579029644087],
+      [2.576, 0.009995064584707569],
+      [3.059, 0.002220771493670643],
+    ]
+    for (const [z, p] of table) {
+      expect(Math.abs(twoSidedP(z) - p)).toBeLessThanOrEqual(P_TOL)
+    }
+  })
+
+  it('is symmetric: Φ(−x) = 1 − Φ(x)', () => {
+    for (let z = 0; z <= 6.0001; z += 0.25) {
+      expect(Math.abs(normalCdf(-z) - (1 - normalCdf(z)))).toBeLessThanOrEqual(P_TOL)
+    }
+  })
+
+  it('centres at Φ(0) = 0.5', () => {
+    expect(Math.abs(normalCdf(0) - 0.5)).toBeLessThanOrEqual(PHI_TOL)
+  })
+
+  it('stays inside [0,1] and strictly increases across the sampled range', () => {
+    let prev = -Infinity
+    for (let z = -6; z <= 6.0001; z += 0.05) {
+      const phi = normalCdf(z)
+      expect(phi).toBeGreaterThanOrEqual(0)
+      expect(phi).toBeLessThanOrEqual(1)
+      expect(phi).toBeGreaterThan(prev)
+      prev = phi
+    }
+  })
+
+  it('never lets a two-sided p exceed 1 for a non-negative z', () => {
+    for (let z = 0; z <= 4.0001; z += 0.01) {
+      expect(twoSidedP(z)).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('covers the tails and the infinities', () => {
+    expect(Math.abs(normalCdf(-8) - 6.106226635438361e-16)).toBeLessThanOrEqual(PHI_TOL)
+    expect(normalCdf(-40)).toBe(0)
+    expect(normalCdf(40)).toBe(1)
+    expect(normalCdf(-Infinity)).toBe(0)
+    expect(normalCdf(Infinity)).toBe(1)
+  })
+
+  it('agrees with the mid-range reference away from the critical points', () => {
+    const table: Array<[x: number, phi: number]> = [
+      [0.25, 0.5987063256829237],
+      [0.5, 0.6914624612740131],
+      [1, 0.8413447460685429],
+      [2, 0.9772498680518208],
+      [3, 0.9986501019683699],
+      [4, 0.9999683287581669],
+    ]
+    for (const [x, phi] of table) {
+      expect(Math.abs(normalCdf(x) - phi)).toBeLessThanOrEqual(PHI_TOL)
+    }
+  })
+})
+
 describe('mannWhitneyU', () => {
   it('returns significant p-value for clearly different distributions', () => {
     const a = [1, 2, 3, 4, 5]
@@ -136,7 +232,15 @@ describe('mannWhitneyU', () => {
   })
 
   it('handles empty input', () => {
-    expect(mannWhitneyU([], [1, 2])).toEqual({ u: 0, p: 1 })
+    // pFloor = 1 states what p = 1 alone cannot: no outcome at this design is
+    // evidence of anything.
+    expect(mannWhitneyU([], [1, 2])).toEqual({
+      u: 0,
+      uA: 0,
+      p: 1,
+      method: 'exact',
+      pFloor: 1,
+    })
   })
 })
 
@@ -181,9 +285,15 @@ describe('wilcoxonSignedRank', () => {
     expect(r.p).toBeLessThan(0.05)
   })
 
-  it('returns p=1 when too few non-zero differences', () => {
-    // All pairs equal → zero non-zero diffs → fast return
-    expect(wilcoxonSignedRank([1, 2, 3], [1, 2, 3])).toEqual({ w: 0, p: 1 })
+  it('returns p=1 with pFloor=1 when every pair is tied', () => {
+    // Zero non-zero differences: no ranks exist, so no outcome is attainable.
+    expect(wilcoxonSignedRank([1, 2, 3], [1, 2, 3])).toEqual({
+      w: 0,
+      p: 1,
+      method: 'exact',
+      pFloor: 1,
+      nNonZero: 0,
+    })
   })
 })
 
@@ -212,8 +322,8 @@ describe('cohensD', () => {
     expect(Math.abs(d)).toBeLessThan(1.2)
   })
 
-  it('returns 0 for under-sized groups', () => {
-    expect(cohensD([1], [2])).toBe(0)
+  it('returns null for under-sized groups rather than a measured zero', () => {
+    expect(cohensD([1], [2])).toBeNull()
   })
 })
 
@@ -829,6 +939,30 @@ describe('mcnemarRequiredN / mcnemarPower — paired-binary power', () => {
     expect(mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: n })).toBeGreaterThanOrEqual(0.8)
   })
 
+  it('required N is the MINIMAL n hitting the target, over a grid of configs', () => {
+    // The two functions are inverses through different routes — required N via
+    // the inverse normal, power via the forward normal CDF. Bounding the
+    // round-trip on both sides is what ties those two routes together: a
+    // one-sided ≥ target check is satisfied by any CDF that overstates power.
+    const configs = [
+      { p10: 0.25, p01: 0.05 },
+      { p10: 0.2, p01: 0.1 },
+      { p10: 0.3, p01: 0.1 },
+      { p10: 0.15, p01: 0.05 },
+    ]
+    for (const cfg of configs) {
+      for (const power of [0.7, 0.8, 0.9, 0.95]) {
+        const n = mcnemarRequiredN({ ...cfg, power })
+        const atN = mcnemarPower({ ...cfg, nPairs: n })
+        expect(atN).toBeGreaterThanOrEqual(power)
+        // One pair short must miss, so N cannot be inflated, and the overshoot
+        // at N is bounded by a single pair's worth of power.
+        expect(mcnemarPower({ ...cfg, nPairs: n - 1 })).toBeLessThan(power)
+        expect(atN - power).toBeLessThan(0.01)
+      }
+    }
+  })
+
   it('power rises monotonically with n and equals alpha at no effect', () => {
     const lo = mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: 20 })
     const hi = mcnemarPower({ p10: 0.25, p01: 0.05, nPairs: 80 })
@@ -915,5 +1049,530 @@ describe('spearmanR — rank correlation', () => {
   it('inherits the n<2 / length-mismatch NaN contract', () => {
     expect(spearmanR([1], [2])).toBeNaN()
     expect(spearmanR([1, 2, 3], [1, 2])).toBeNaN()
+  })
+})
+
+// ── Statistics integrity regressions ─────────────────────────────────
+//
+// Every assertion below fails on the shipped 0.1.0–0.133.0 implementation.
+// Reference values are `scipy 1.13.1` and, for the tie-conditioned exact
+// nulls that no library computes, an independent brute-force enumeration of
+// every split / sign pattern.
+
+describe('incompleteBeta symmetry branch — Student-t near t = 0', () => {
+  // The Lentz continued fraction converges only for x < (a+1)/(a+b+2).
+  // studentTCdf drives x → 1 as |t| → 0, so without the mirrored branch the
+  // near-null region is evaluated outside the convergence domain and a
+  // perfectly null paired result reports p < 0.05.
+  const CASES: Array<{ t: number; df: number; cdf: number }> = [
+    { t: 0.005, df: 100, cdf: 0.5019897225612608 },
+    { t: 0.001, df: 7, cdf: 0.5003849913775006 },
+    { t: 1e-6, df: 7, cdf: 0.5000003849914508 },
+    { t: 1e-6, df: 100, cdf: 0.5000003979461869 },
+    { t: 0.02, df: 3, cdf: 0.5073503985905194 },
+    { t: 0.058, df: 100, cdf: 0.5230678155462486 },
+    { t: 0.5, df: 2, cdf: 0.6666666666666667 },
+    { t: 2.0, df: 7, cdf: 0.9571903357185121 },
+    { t: -2.0, df: 7, cdf: 0.04280966428148798 },
+    { t: 3.5, df: 12, cdf: 0.9978090652841259 },
+    { t: 1.96, df: 60, cdf: 0.9726775351317354 },
+    { t: 10, df: 5, cdf: 0.9999145262121285 },
+  ]
+
+  for (const { t, df, cdf } of CASES) {
+    it(`matches scipy.stats.t.cdf at t=${t}, df=${df}`, () => {
+      // 9 decimals, not more: at t = 1e-6, df = 100 the parametrisation
+      // x = df/(df + t²) is 1 − 1e-14, so `1 − x` in the mirrored branch
+      // costs ~14 digits to float64 cancellation. That floor is the input
+      // encoding, not the approximation.
+      expect(studentTCdf(t, df)).toBeCloseTo(cdf, 9)
+    })
+  }
+
+  it('reports a near-null paired shift as near-null, not significant', () => {
+    // Deltas average 1e-6 of their own spread: p must be ≈ 1, not < 0.05.
+    const before = [0, 1, 2, 3, 4, 5, 6, 7]
+    const after = before.map((v, i) => v + (i % 2 === 0 ? 1e-6 : -1e-6) + 1e-12)
+    const r = pairedTTest(before, after)
+    expect(r.p).not.toBeNull()
+    expect(r.p!).toBeGreaterThan(0.9)
+  })
+
+  it('is monotone in |t| across the previously discontinuous band', () => {
+    const ts = [1e-7, 1e-5, 1e-3, 0.01, 0.05, 0.1, 0.5, 1, 2, 4]
+    let previous = Number.POSITIVE_INFINITY
+    for (const t of ts) {
+      const p = 2 * (1 - studentTCdf(t, 7))
+      expect(p).toBeLessThanOrEqual(previous + 1e-12)
+      previous = p
+    }
+  })
+})
+
+describe('rank tests refuse non-finite input instead of hanging', () => {
+  // The tie-grouping scan advances with `combined[j] === combined[i]`, and
+  // NaN === NaN is false, so a single NaN left the group boundary unable to
+  // move and spun the event loop forever.
+  it('mannWhitneyU throws on NaN rather than spinning', () => {
+    expect(() => mannWhitneyU([1, 2, 3, 4, 5, 6], [Number.NaN, 2, 3, 4, 5, 6])).toThrow(
+      /must be finite/,
+    )
+  })
+
+  it('mannWhitneyU throws on Infinity', () => {
+    expect(() => mannWhitneyU([1, Number.POSITIVE_INFINITY], [3, 4])).toThrow(/must be finite/)
+  })
+
+  it('wilcoxonSignedRank throws on NaN rather than spinning', () => {
+    expect(() => wilcoxonSignedRank([1, 2, 3, 4, 5, 6], [2, Number.NaN, 4, 5, 6, 7])).toThrow(
+      /must be finite/,
+    )
+  })
+
+  it('pairedTTest throws on NaN', () => {
+    expect(() => pairedTTest([1, 2, 3], [1, Number.NaN, 3])).toThrow(/must be finite/)
+  })
+})
+
+describe('mannWhitneyU — exact conditional null at 3–10 reps', () => {
+  it('reports the attainable 0.1000 at 3 v 3, not an unreachable 0.0495', () => {
+    const r = mannWhitneyU([1, 2, 3], [4, 5, 6])
+    expect(r.method).toBe('exact')
+    expect(r.p).toBeCloseTo(0.1, 12)
+    expect(r.pFloor).toBeCloseTo(0.1, 12)
+  })
+
+  it('separates zero-tie and maximal-tie designs by their true exact p', () => {
+    // Both are complete separations at 3 v 3, so both have exact p = 0.1.
+    // The asymptotic answers differ (0.0809 vs 0.0469) and both are wrong.
+    expect(mannWhitneyU([1, 2, 3], [4, 5, 6]).p).toBeCloseTo(0.1, 12)
+    expect(mannWhitneyU([0, 0, 0], [1, 1, 1]).p).toBeCloseTo(0.1, 12)
+  })
+
+  it('cannot return a p below the design floor', () => {
+    for (const [n1, n2] of [
+      [1, 1],
+      [2, 2],
+      [3, 3],
+      [3, 5],
+      [5, 5],
+      [8, 8],
+    ] as const) {
+      const a = Array.from({ length: n1 }, (_, i) => i)
+      const b = Array.from({ length: n2 }, (_, i) => 100 + i)
+      const r = mannWhitneyU(a, b)
+      expect(r.p).toBeGreaterThanOrEqual(r.pFloor - 1e-12)
+      expect(r.p).toBeCloseTo(r.pFloor, 12)
+    }
+  })
+
+  it('matches scipy exact p on untied designs', () => {
+    const CASES: Array<{ a: number[]; b: number[]; p: number }> = [
+      { a: [1, 2, 3], b: [4, 5, 6], p: 0.1 },
+      { a: [1, 2, 3, 4, 5], b: [10, 11, 12, 13, 14], p: 0.007936507936507936 },
+      {
+        a: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        b: Array.from({ length: 12 }, (_, i) => 13 + i),
+        p: 7.39602301050679e-7,
+      },
+    ]
+    for (const { a, b, p } of CASES) expect(mannWhitneyU(a, b).p).toBeCloseTo(p, 12)
+  })
+
+  it('conditions on the observed tie pattern, which no library does', () => {
+    // Brute-force enumeration of every C(N, n1) split with midranks.
+    const CASES: Array<{ a: number[]; b: number[]; p: number; pFloor: number }> = [
+      { a: [1, 2, 3, 4], b: [2, 3, 4, 5], p: 0.45714285714285713, pFloor: 0.05714285714285714 },
+      {
+        a: [1, 1, 2, 2, 3],
+        b: [2, 2, 3, 3, 4],
+        p: 0.19047619047619047,
+        pFloor: 0.031746031746031744,
+      },
+      {
+        a: [1, 2, 3, 4, 5, 6, 7, 8],
+        b: [2, 3, 4, 5, 6, 7, 8, 9],
+        p: 0.4811188811188811,
+        pFloor: 0.0003108003108003108,
+      },
+      { a: [5, 6, 7, 8, 9], b: [5, 6, 7, 8, 9], p: 1, pFloor: 0.015873015873015872 },
+    ]
+    for (const { a, b, p, pFloor } of CASES) {
+      const r = mannWhitneyU(a, b)
+      expect(r.p).toBeCloseTo(p, 12)
+      expect(r.pFloor).toBeCloseTo(pFloor, 12)
+    }
+  })
+
+  it('keeps the direction of the effect in uA, which min(u1,u2) discards', () => {
+    expect(mannWhitneyU([1, 2, 3], [4, 5, 6]).uA).toBe(0)
+    expect(mannWhitneyU([4, 5, 6], [1, 2, 3]).uA).toBe(9)
+    expect(mannWhitneyU([1, 2, 3], [4, 5, 6]).u).toBe(mannWhitneyU([4, 5, 6], [1, 2, 3]).u)
+  })
+
+  it('single observations per arm cannot reject at any alpha', () => {
+    const r = mannWhitneyU([1.0], [2.0])
+    expect(r.p).toBe(1)
+    expect(r.pFloor).toBe(1)
+  })
+})
+
+describe('wilcoxonSignedRank — exact conditional null, no n<6 dead zone', () => {
+  it('measures a clean 5-of-5 positive shift instead of returning p = 1', () => {
+    const r = wilcoxonSignedRank([0, 0, 0, 0, 0], [0.5, 0.5, 0.5, 0.5, 0.5])
+    expect(r.method).toBe('exact')
+    expect(r.p).toBeCloseTo(0.0625, 12)
+    expect(r.pFloor).toBeCloseTo(0.0625, 12)
+    expect(r.nNonZero).toBe(5)
+  })
+
+  it('measures a design that ties push under the old n<6 threshold', () => {
+    // Ten pairs, five exact ties: the old code dropped to n = 5 and returned
+    // p = 1 with nothing in the result to say so.
+    const before = [0, 0, 0, 0, 0, 1, 2, 3, 4, 5]
+    const after = [0.5, 0.5, 0.5, 0.5, 0.5, 1, 2, 3, 4, 5]
+    const r = wilcoxonSignedRank(before, after)
+    expect(r.nNonZero).toBe(5)
+    expect(r.p).toBeCloseTo(0.0625, 12)
+  })
+
+  it('matches scipy exact p on untied differences', () => {
+    const CASES: Array<{ before: number[]; after: number[]; p: number }> = [
+      {
+        before: [0.4, 0.5, 0.6, 0.7, 0.4, 0.5, 0.6, 0.7],
+        after: [0.7, 0.8, 0.9, 1.0, 0.7, 0.8, 0.9, 1.0],
+        p: 0.0078125,
+      },
+      { before: [0, 0, 0], after: [0.5, 0.5, 0.5], p: 0.25 },
+      { before: [1, 2, 3, 4, 5, 6], after: [2, 1, 4, 3, 6, 5], p: 1 },
+      {
+        before: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        after: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        p: 0.001953125,
+      },
+    ]
+    for (const { before, after, p } of CASES) {
+      expect(wilcoxonSignedRank(before, after).p).toBeCloseTo(p, 12)
+    }
+  })
+
+  it('conditions on tied absolute differences', () => {
+    // Brute-force enumeration of all 2^8 sign patterns over the midranks.
+    const r = wilcoxonSignedRank(
+      [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+      [0.15, 0.18, 0.35, 0.44, 0.52, 0.7, 0.72, 0.9],
+    )
+    expect(r.w).toBeCloseTo(34, 12)
+    expect(r.p).toBeCloseTo(0.03125, 12)
+    expect(r.pFloor).toBeCloseTo(0.0078125, 12)
+  })
+
+  it('exposes 2^(1-n) as the floor so a gate can see it is underpowered', () => {
+    for (let n = 1; n <= 6; n++) {
+      const before = Array.from({ length: n }, () => 0)
+      const after = Array.from({ length: n }, () => 1)
+      const r = wilcoxonSignedRank(before, after)
+      expect(r.pFloor).toBeCloseTo(2 ** (1 - n), 12)
+      expect(r.p).toBeGreaterThanOrEqual(r.pFloor - 1e-12)
+    }
+    // n = 5 cannot reach 0.05 at all; n = 6 can.
+    expect(wilcoxonSignedRank([0, 0, 0, 0, 0], [1, 1, 1, 1, 1]).pFloor).toBeGreaterThan(0.05)
+    expect(wilcoxonSignedRank([0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1]).pFloor).toBeLessThan(0.05)
+  })
+})
+
+describe('rank tests: exact-versus-asymptotic policy', () => {
+  it('refuses an asymptotic p where an exact one exists, naming the floor', () => {
+    expect(() => mannWhitneyU([1, 2, 3], [4, 5, 6], { method: 'asymptotic' })).toThrow(
+      /refused at n1=3, n2=3 .* starts at 0\.1000/s,
+    )
+    expect(() =>
+      wilcoxonSignedRank([0, 0, 0, 0, 0], [1, 1, 1, 1, 1], { method: 'asymptotic' }),
+    ).toThrow(/refused at n=5 non-zero differences .* starts at 0\.0625/s)
+  })
+
+  it('refuses an exact request outside the enumeration threshold', () => {
+    const a = Array.from({ length: 20 }, (_, i) => i)
+    const b = Array.from({ length: 20 }, (_, i) => i + 0.5)
+    expect(() => mannWhitneyU(a, b, { method: 'exact' })).toThrow(/out of range/)
+  })
+
+  it("'auto' takes the permutation path above the threshold, never asymptotic", () => {
+    const a = Array.from({ length: 14 }, (_, i) => i + 1)
+    const b = Array.from({ length: 14 }, (_, i) => i + 8)
+    const r = mannWhitneyU(a, b, { permutations: 20000, seed: 7 })
+    expect(r.method).toBe('permutation')
+    expect(r.pFloor).toBeCloseTo(1 / 20001, 12)
+    // scipy's exact answer for this design is 4.2127e-4.
+    expect(r.p).toBeGreaterThan(1e-4)
+    expect(r.p).toBeLessThan(3e-3)
+  })
+
+  it('applies the tie and continuity corrections on the asymptotic path', () => {
+    // scipy.stats.mannwhitneyu(method='asymptotic', use_continuity=True).
+    const a = Array.from({ length: 14 }, (_, i) => i + 1)
+    const b = Array.from({ length: 14 }, (_, i) => i + 8)
+    const r = mannWhitneyU(a, b, { method: 'asymptotic' })
+    expect(r.method).toBe('asymptotic')
+    // Bound is normalCdf's own: A&S 7.1.26 holds Φ to 7.5e-8, so a two-sided
+    // tail is good to 1.5e-7 and no tighter.
+    expect(Math.abs(r.p - 0.0007867974321958436)).toBeLessThanOrEqual(1.5e-7)
+  })
+
+  it('permutation results are reproducible without an explicit seed', () => {
+    const a = Array.from({ length: 15 }, (_, i) => i * 1.5)
+    const b = Array.from({ length: 15 }, (_, i) => i * 1.5 + 2)
+    const first = mannWhitneyU(a, b, { permutations: 5000 })
+    const second = mannWhitneyU(a, b, { permutations: 5000 })
+    expect(first.p).toBe(second.p)
+  })
+
+  it('rejects a non-integer permutation count', () => {
+    const a = Array.from({ length: 14 }, (_, i) => i)
+    const b = Array.from({ length: 14 }, (_, i) => i + 1)
+    expect(() => mannWhitneyU(a, b, { permutations: 0 })).toThrow(/positive integer/)
+  })
+})
+
+describe('degenerate branches answer once, the same way', () => {
+  it('pairedTTest returns null rather than absolute certainty from 3 pairs', () => {
+    const r = pairedTTest([0, 0, 0.5], [0.5, 0.5, 1])
+    expect(r.t).toBeNull()
+    expect(r.p).toBeNull()
+    expect(r.df).toBe(2)
+  })
+
+  it('pairedTTest still reports an all-zero delta as a measured null', () => {
+    expect(pairedTTest([1, 2, 3], [1, 2, 3])).toEqual({ t: 0, df: 2, p: 1 })
+  })
+
+  it('pairedTTest returns null below two pairs', () => {
+    expect(pairedTTest([1], [2])).toEqual({ t: null, df: 0, p: null })
+  })
+
+  it('cohensD returns null for a maximal zero-variance separation', () => {
+    expect(cohensD([1, 1, 1], [2, 2, 2])).toBeNull()
+  })
+
+  it('cohensD returns 0 only when equal means meet zero spread', () => {
+    expect(cohensD([1, 1, 1], [1, 1, 1])).toBe(0)
+  })
+
+  it('all three degenerate paths now agree with pairedCohensDz', () => {
+    expect(pairedCohensDz([1, 1, 1], [2, 2, 2])).toBeNull()
+    expect(cohensD([1, 1, 1], [2, 2, 2])).toBeNull()
+    expect(pairedTTest([1, 1, 1], [2, 2, 2]).p).toBeNull()
+  })
+})
+
+describe('multiple-comparison boundaries are inclusive', () => {
+  it('bonferroni and holm agree at their shared boundary', () => {
+    const ps = [0.0125, 0.0125, 0.0125, 0.0125]
+    expect(bonferroni(ps, 0.05).significant).toEqual([true, true, true, true])
+    expect(holm(ps, 0.05).significant).toEqual([true, true, true, true])
+  })
+
+  it('holm never rejects less than bonferroni on the same family', () => {
+    const families = [
+      [0.0125, 0.0125, 0.0125, 0.0125],
+      [0.01, 0.02, 0.03, 0.04],
+      [0.05, 0.05],
+      [0.001, 0.5, 0.5, 0.5],
+      [0.0166666, 0.03, 0.9],
+    ]
+    for (const ps of families) {
+      const b = bonferroni(ps, 0.05).significant
+      const h = holm(ps, 0.05).significant
+      for (let i = 0; i < ps.length; i++) {
+        expect(h[i]! || !b[i]!).toBe(true)
+      }
+    }
+  })
+
+  it('benjaminiHochberg rejects at q exactly equal to the FDR', () => {
+    expect(benjaminiHochberg([0.05, 0.05], 0.05).significant).toEqual([true, true])
+  })
+
+  it('bonferroni rejects a negative p-value instead of declaring it significant', () => {
+    expect(() => bonferroni([-0.1, 0.2], 0.05)).toThrow(/must be in \[0,1\]/)
+    expect(() => benjaminiHochberg([-0.1, 0.2])).toThrow(/must be in \[0,1\]/)
+    expect(() => bonferroni([0.1, 1.2], 0.05)).toThrow(/must be in \[0,1\]/)
+  })
+
+  it('bonferroni validates alpha the way holm does', () => {
+    expect(() => bonferroni([0.1], 0)).toThrow(/must be in \(0,1\)/)
+    expect(() => bonferroni([0.1], 1)).toThrow(/must be in \(0,1\)/)
+    expect(() => benjaminiHochberg([0.1], 1.5)).toThrow(/must be in \(0,1\)/)
+  })
+})
+
+describe('seeding is deterministic, including seed 0', () => {
+  it('mulberry32(0) is its own stream, not the golden-ratio constant', () => {
+    const zero = mulberry32(0)
+    const golden = mulberry32(0x9e3779b9 | 0)
+    const zeroDraws = [zero(), zero(), zero()]
+    const goldenDraws = [golden(), golden(), golden()]
+    expect(zeroDraws).not.toEqual(goldenDraws)
+  })
+
+  it('mulberry32(0) is reproducible across constructions', () => {
+    const a = mulberry32(0)
+    const b = mulberry32(0)
+    expect([a(), a(), a()]).toEqual([b(), b(), b()])
+  })
+
+  it('mulberry32 rejects a non-finite seed', () => {
+    expect(() => mulberry32(Number.NaN)).toThrow(/finite/)
+  })
+
+  it('an unseeded bootstrap is reproducible on identical input', () => {
+    const scores = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7]
+    const first = confidenceInterval(scores)
+    const second = confidenceInterval(scores)
+    expect(first).toEqual(second)
+  })
+
+  it('an unseeded paired bootstrap is reproducible on identical input', () => {
+    const before = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    const after = [0.2, 0.25, 0.45, 0.5, 0.62, 0.68]
+    expect(pairedBootstrap(before, after)).toEqual(pairedBootstrap(before, after))
+  })
+
+  it('different data still gets a different stream', () => {
+    const a = pairedBootstrap([0, 0, 0, 0, 0, 0], [1, 2, 3, 4, 5, 6])
+    const b = pairedBootstrap([0, 0, 0, 0, 0, 0], [1, 2, 3, 4, 5, 7])
+    expect(a.high).not.toBe(b.high)
+  })
+})
+
+describe('bootstrap intervals declare where they are not a gate', () => {
+  it('marks fewer than 20 pairs as descriptive spread', () => {
+    const before = Array.from({ length: 10 }, (_, i) => i / 10)
+    const after = before.map((v) => v + 0.05)
+    expect(pairedBootstrap(before, after, { seed: 1 }).gateEligible).toBe(false)
+  })
+
+  it('marks 20 or more pairs as gate-eligible', () => {
+    const before = Array.from({ length: 20 }, (_, i) => i / 20)
+    const after = before.map((v) => v + 0.05)
+    expect(pairedBootstrap(before, after, { seed: 1 }).gateEligible).toBe(true)
+  })
+
+  it('reports gateEligible on the degenerate short paths too', () => {
+    expect(pairedBootstrap([], []).gateEligible).toBe(false)
+    expect(pairedBootstrap([1], [2]).gateEligible).toBe(false)
+  })
+})
+
+describe('interRaterReliability measures BETWEEN-judge agreement', () => {
+  const judge = (name: string, dimension: string, scores: number[]): JudgeScore[] =>
+    scores.map((score) => ({ judgeName: name, dimension, score, reasoning: '' }))
+
+  it('is +1 for two identical judges', () => {
+    expect(
+      interRaterReliability([judge('a', 'd', [0, 100]), judge('b', 'd', [0, 100])]),
+    ).toBeCloseTo(1, 12)
+  })
+
+  it('is negative for two maximally disagreeing judges', () => {
+    expect(
+      interRaterReliability([judge('a', 'd', [0, 0]), judge('b', 'd', [100, 100])]),
+    ).toBeCloseTo(-0.5, 12)
+  })
+
+  it('is +1 for perfect agreement whatever the item count', () => {
+    for (const items of [
+      [1, 5, 9],
+      [1, 5, 9, 3],
+      [2, 4, 6, 8, 10],
+    ]) {
+      expect(interRaterReliability([judge('a', 'd', items), judge('b', 'd', items)])).toBeCloseTo(
+        1,
+        12,
+      )
+    }
+  })
+
+  it('separates the dimensions rather than pooling them into one bucket', () => {
+    const a = [...judge('a', 'clarity', [1, 2, 3]), ...judge('a', 'depth', [9, 8, 7])]
+    const b = [...judge('b', 'clarity', [1, 2, 3]), ...judge('b', 'depth', [9, 8, 7])]
+    expect(interRaterReliability([a, b])).toBeCloseTo(1, 12)
+  })
+
+  it('refuses ragged input rather than comparing mismatched items', () => {
+    expect(() =>
+      interRaterReliability([judge('a', 'd', [1, 2, 3]), judge('b', 'd', [1, 2])]),
+    ).toThrow(/cannot be aligned/)
+  })
+})
+
+describe('welchsTTest / compareToBaseline — the unguarded promotion path', () => {
+  it('matches scipy.stats.ttest_ind(equal_var=False)', () => {
+    const CASES: Array<{ a: number[]; b: number[]; t: number; df: number; p: number }> = [
+      {
+        a: [0.4, 0.5, 0.6, 0.55, 0.45, 0.5],
+        b: [0.7, 0.8, 0.75, 0.72, 0.78, 0.74],
+        t: 7.617523199624095,
+        df: 7.559315598935626,
+        p: 8.368400396856913e-5,
+      },
+      { a: [1, 2, 3, 4, 5], b: [2, 3, 4, 5, 6], t: 1.0, df: 8.0, p: 0.34659350708733416 },
+      { a: [10, 12, 14, 16], b: [11, 11, 15, 15], t: 0.0, df: 5.926829268292685, p: 1.0 },
+    ]
+    for (const { a, b, t, df, p } of CASES) {
+      const r = welchsTTest(a, b)
+      expect(r.t).toBeCloseTo(t, 12)
+      expect(r.df).toBeCloseTo(df, 12)
+      // df ≤ 100 here, so this is the exact Student-t tail, not the normal one.
+      expect(r.p).toBeCloseTo(p, 12)
+    }
+  })
+
+  it('drives improved / regressed / stable verdicts off those numbers', () => {
+    const report = compareToBaseline([
+      {
+        metric: 'overallScore',
+        higherIsBetter: true,
+        baseline: [0.4, 0.5, 0.6, 0.55, 0.45, 0.5],
+        candidate: [0.7, 0.8, 0.75, 0.72, 0.78, 0.74],
+      },
+      {
+        metric: 'latencyMs',
+        higherIsBetter: false,
+        baseline: [100, 101, 102, 103, 100, 101],
+        candidate: [100, 102, 101, 103, 101, 100],
+      },
+    ])
+    expect(report.metrics[0]!.verdict).toBe('improved')
+    expect(report.metrics[0]!.welchP).toBeCloseTo(8.368400396856913e-5, 12)
+    expect(report.metrics[0]!.cohensD).toBeCloseTo(4.397979069861191, 12)
+    expect(report.metrics[1]!.verdict).toBe('stable')
+    expect(report.hasRegression).toBe(false)
+  })
+
+  it('reports a regression in the "worse" direction for a lower-is-better metric', () => {
+    const report = compareToBaseline([
+      {
+        metric: 'latencyMs',
+        higherIsBetter: false,
+        baseline: [100, 101, 102, 103, 100, 101],
+        candidate: [140, 141, 142, 143, 140, 141],
+      },
+    ])
+    expect(report.metrics[0]!.verdict).toBe('regressed')
+    expect(report.hasRegression).toBe(true)
+  })
+
+  it('surfaces an unbounded effect as null rather than a finite Cohen d', () => {
+    const report = compareToBaseline([
+      {
+        metric: 'passRate',
+        higherIsBetter: true,
+        baseline: [0, 0, 0],
+        candidate: [1, 1, 1],
+      },
+    ])
+    expect(report.metrics[0]!.cohensD).toBeNull()
+    expect(report.metrics[0]!.verdict).toBe('improved')
   })
 })
