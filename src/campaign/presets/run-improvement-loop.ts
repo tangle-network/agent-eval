@@ -155,6 +155,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const baselineOnHoldout = holdoutDeferred
     ? await runCampaign<TScenario, TArtifact>({
         ...opts,
+        labeledStore: 'off',
         costLedger,
         costPhase: 'holdout.deferred',
         dispatchTimeoutMs,
@@ -166,6 +167,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       })
     : await runCampaign<TScenario, TArtifact>({
         ...opts,
+        labeledStore: 'off',
         costLedger,
         costPhase: 'holdout.baseline',
         dispatchTimeoutMs,
@@ -183,6 +185,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       ? baselineOnHoldout
       : await runCampaign<TScenario, TArtifact>({
           ...opts,
+          labeledStore: 'off',
           costLedger,
           costPhase: 'holdout.winner',
           dispatchTimeoutMs,
@@ -258,6 +261,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
     neutralizedSurface = surface
     neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
+      labeledStore: 'off',
       costLedger,
       costPhase: 'holdout.neutralized',
       dispatchTimeoutMs,
