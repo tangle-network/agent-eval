@@ -142,6 +142,24 @@ describe('HeldOutGate — rejection paths', () => {
     expect(d.evidence.pairedCI!.high).toBeLessThanOrEqual(0)
   })
 
+  it('rejects a tie-pinned regression at a negative threshold', () => {
+    const pairs = joinPairs(
+      ...Array.from({ length: 5 }, (_, seed) => makePair('cand', seed, 1, 1, 0, 0)),
+      ...Array.from({ length: 15 }, (_, index) => makePair('cand', 5 + index, 0, 0, 1, 1)),
+      ...Array.from({ length: 56 }, (_, index) => makePair('cand', 20 + index, 1, 1, 1, 1)),
+    )
+    const decision = new HeldOutGate({
+      baselineKey: 'baseline',
+      pairedDeltaThreshold: -0.05,
+      seed: 1337,
+    }).evaluate(pairs.candidate, pairs.baseline)
+
+    expect(decision.evidence.medianPairedDelta).toBe(0)
+    expect(decision.evidence.pairedCI).toEqual({ low: 0, high: 0 })
+    expect(decision.promote).toBe(false)
+    expect(decision.rejectionCode).toBe('indeterminate_delta')
+  })
+
   it('rejects on excessive overfit gap', () => {
     // Candidate clears holdout delta, but search-vs-holdout gap is
     // far worse than baseline's gap.

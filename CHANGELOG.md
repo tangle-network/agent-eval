@@ -4,15 +4,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-<<<<<<< HEAD
-## [0.133.1] - 2026-07-27 - correct asymptotic statistics
-
-### Fixed
-
-- Corrected the standard normal CDF used by the normal-approximation paths for Mann-Whitney, Wilcoxon, McNemar power, paired t, and Welch t calculations.
-  A z-score of 1.96 now yields a two-sided p-value of approximately 0.05 instead of 0.038.
-- Removed duplicate normal and Student-t implementations so every caller uses the same internal functions.
-=======
 ## [Unreleased] - statistics integrity
 
 ### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0
@@ -67,7 +58,8 @@ Full evidence, per-statistic verdicts, and the dependency argument:
 - `regularizedIncompleteBeta` takes the mandatory symmetry branch `I_x(a,b) = 1 − I_{1−x}(b,a)`.
   `studentTCdf(0.005, 100)` returned `0.89152130` against a true `0.50198972`; a
   perfectly null paired result reported `p < 0.05`. This survived 0.133.1, which
-  corrected the normal CDF but not the beta continued fraction beneath it.
+  corrected the normal CDF but not the beta continued fraction beneath it, and
+  0.133.2, which changed no statistics math.
 - `mannWhitneyU` and `wilcoxonSignedRank` compute an EXACT conditional p by default
   inside the enumeration thresholds, conditioning on the observed tie pattern.
 - Deleted `wilcoxonSignedRank`'s `n < 6` hard return of `{w: 0, p: 1}`.
@@ -126,7 +118,23 @@ Full evidence, per-statistic verdicts, and the dependency argument:
   improved / regressed / stable verdicts with nothing asserting their numbers.
 - Exported `normalCdf`, `studentTCdf`, `BOOTSTRAP_GATE_MIN_N`,
   `MANN_WHITNEY_EXACT_MAX_N`, `WILCOXON_EXACT_MAX_N`, `DEFAULT_PERMUTATIONS`.
->>>>>>> 54ab8af (fix(statistics): repair every defective statistic and make rank tests exact)
+
+## [0.133.2] - 2026-07-27 - protect final evaluation data
+
+### Fixed
+
+- Disabled labeled-store capture for deferred, baseline, winner, and neutralized final-evaluation campaigns.
+  Search baseline and candidate campaigns continue to populate optimization data, while final cases remain unavailable to later proposal rounds.
+- Deferred OpenCode's SQLite dependency loading until a reader opens the database, so importing rollout readers remains safe in runtimes without Node's native module loader.
+- Rejected non-finite and zero-width paired intervals before threshold comparison, preventing tie-pinned regressions from clearing negative promotion thresholds.
+
+## [0.133.1] - 2026-07-27 - correct asymptotic statistics
+
+### Fixed
+
+- Corrected the standard normal CDF used by the normal-approximation paths for Mann-Whitney, Wilcoxon, McNemar power, paired t, and Welch t calculations.
+  A z-score of 1.96 now yields a two-sided p-value of approximately 0.05 instead of 0.038.
+- Removed duplicate normal and Student-t implementations so every caller uses the same internal functions.
 
 ## [0.133.0] - 2026-07-27 - remove unused belief-state API
 
