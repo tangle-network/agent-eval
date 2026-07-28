@@ -65,5 +65,6 @@ They are not adoption reference:
 
 - [`building-doctrine.md`](./building-doctrine.md): conventions our agents follow when consuming this package (reachable model defaults, probe-before-debug, experiment integrity checklist)
 - [`design/loop-taxonomy.md`](./design/loop-taxonomy.md): the internal vocabulary for execution drivers, workers, measurements, and proposers
+- [`design/statistics-decisions.md`](./design/statistics-decisions.md): per-statistic trust status, the no-runtime-dependency verdict, and the exact-versus-asymptotic policy at 3–10 repetitions
 - [`research-report-methodology.md`](./research-report-methodology.md): the evidence standard our own research reports are held to
 - [`.claude/skills/agent-eval/SKILL.md`](../.claude/skills/agent-eval/SKILL.md): directives for LLM agents writing integration code, encoding bug classes we have already shipped and fixed once

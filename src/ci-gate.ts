@@ -90,7 +90,7 @@ export async function evaluateContract(
       const magnitude = Math.abs(metric.delta)
       if (decl.maxRegression === undefined || magnitude > decl.maxRegression) {
         breaches.push(
-          `metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${metric.cohensD.toFixed(2)}, p=${metric.welchP.toExponential(2)})`,
+          `metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${formatEffectSize(metric.cohensD)}, p=${metric.welchP.toExponential(2)})`,
         )
       }
     }
@@ -122,7 +122,7 @@ export function renderMarkdownReport(reports: ContractReport[]): string {
       lines.push('|---|---|---|---|---|---|---|')
       for (const m of r.baselineReport.metrics) {
         lines.push(
-          `| ${m.metric} | ${m.baselineMean.toFixed(4)} | ${m.candidateMean.toFixed(4)} | ${m.delta.toFixed(4)} | ${m.cohensD.toFixed(2)} | ${m.welchP.toExponential(2)} | ${m.verdict} |`,
+          `| ${m.metric} | ${m.baselineMean.toFixed(4)} | ${m.candidateMean.toFixed(4)} | ${m.delta.toFixed(4)} | ${formatEffectSize(m.cohensD)} | ${m.welchP.toExponential(2)} | ${m.verdict} |`,
         )
       }
     }
@@ -168,6 +168,12 @@ async function aggregateRunMetrics(
 function average(xs: number[]): number {
   if (xs.length === 0) return 0
   return xs.reduce((a, b) => a + b, 0) / xs.length
+}
+
+/** Cohen's d is null when both samples are constant with unequal means — an
+ *  unbounded effect, which must not be rendered as a number. */
+function formatEffectSize(d: number | null): string {
+  return d === null ? 'unbounded (zero pooled spread)' : d.toFixed(2)
 }
 
 async function extractAll(

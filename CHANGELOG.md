@@ -4,6 +4,121 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased] - statistics integrity
+
+### Consumer notice — reported p-values were too small in every release from 0.1.0 to 0.133.0
+
+0.133.1 corrected the standard-normal CDF. This release carries the rest, and
+restates the notice because the re-check bands and the affected version range are
+what a consumer actually needs.
+
+A standard-normal CDF mixed the arguments of the Abramowitz–Stegun error-function
+approximation, giving up to `3.7189e-2` absolute CDF error where a correct
+implementation is bounded by `7.5e-8`. Every p-value routed through it was too
+small by 26–36 % relative, so the module's real type-I error rate was **6.53 % at
+a nominal 5 %** and **1.34 % at a nominal 1 %**. The defect entered at the initial
+commit (`7d5032b`, 2026-04-20) and shipped in every release through 0.133.0.
+
+**Affected:** `mannWhitneyU`, `wilcoxonSignedRank`, `pairedTTest`, `welchsTTest`,
+`compareToBaseline`, `mcnemarPower`.
+
+**Unaffected** (verified numerically identical before and after, because they route
+through the inverse normal rather than the forward CDF): `requiredSampleSize`,
+`requiredPairedSampleSize`, `pairedMde`, `mcnemarRequiredN`, `mcnemar`,
+`pairedSignTest`, `wilson`, `passAtK`, `corpusInterRaterAgreement`, `eProcess`,
+`holm`, `ranks`, `pearsonR`, `spearmanR`, `cliffsDelta`, `pairedCohensDz`.
+
+**How to re-check a decision you already made.** The error is monotone in `|z|`, so
+the affected band is exact and narrow:
+
+- Any recorded p in `[0.038053, 0.050000)` crossed a 5 % gate it should not have.
+- At `α = 0.01` the band is `[0.007443, 0.010000)`; at `α = 0.10`, `[0.077398, 0.100000)`.
+- A recorded p below `0.038053` was significant either way; at or above `0.05`, not
+  significant either way. Neither needs re-checking.
+
+Three further cautions, independent of the CDF:
+
+- A `wilcoxonSignedRank` leg that reported `p = 1` on fewer than six non-zero
+  differences measured nothing — the function hard-returned `p = 1` there with no
+  flag. A clean 5-of-5 shift reported `1.0` where the exact answer is `0.0625`.
+  Exact ties are dropped before ranking, so ten pairs with five tied deltas also
+  fell into that branch. Re-run those on this release.
+- A promotion that turned on a `pairedBootstrap` `low > 0` check below 20 pairs was
+  never valid at the stated confidence: measured false-positive rate is 13.53 % at
+  `n = 3` against a nominal 2.5 %. `gateEligible` now reports this.
+- A bootstrap interval recorded through `analyze-runs.ts` at or before 0.133.0 is
+  not reproducible — that call site passed no seed and `makeRng` fell back to
+  `Math.random`.
+
+Full evidence, per-statistic verdicts, and the dependency argument:
+[`docs/design/statistics-decisions.md`](./docs/design/statistics-decisions.md).
+
+### Fixed
+
+- `regularizedIncompleteBeta` takes the mandatory symmetry branch `I_x(a,b) = 1 − I_{1−x}(b,a)`.
+  `studentTCdf(0.005, 100)` returned `0.89152130` against a true `0.50198972`; a
+  perfectly null paired result reported `p < 0.05`. This survived 0.133.1, which
+  corrected the normal CDF but not the beta continued fraction beneath it, and
+  0.133.2, which changed no statistics math.
+- `mannWhitneyU` and `wilcoxonSignedRank` compute an EXACT conditional p by default
+  inside the enumeration thresholds, conditioning on the observed tie pattern.
+- Deleted `wilcoxonSignedRank`'s `n < 6` hard return of `{w: 0, p: 1}`.
+- The asymptotic rank-test path applies the tie correction and the continuity
+  correction; both were missing.
+- `mannWhitneyU` and `wilcoxonSignedRank` reject non-finite input. A single `NaN`
+  previously spun forever: the tie-grouping loop advanced on `===`, and
+  `NaN === NaN` is false.
+- `bonferroni` and `benjaminiHochberg` reject at the inclusive boundary (`p ≤ α`,
+  `q ≤ fdr`), matching `holm`, and validate `alpha`/`fdr` and the p-value range.
+  `bonferroni([0.0125]×4, 0.05)` returned all-false where `holm` returned all-true.
+  BH q-values use R's `(n/rank)·p` form; `(p·n)/rank` lands one ULP above the
+  boundary at `p = 0.05, n = 3`.
+- `interRaterReliability` groups by (dimension, item) across judges. It was
+  bucketing consecutive scores from the SAME judge, so it measured within-judge
+  spread: two identical judges returned `−0.5` where the true α is `+1.0`.
+- `mulberry32(0)` is its own stream. `seed | 0 || 0x9e3779b9` collapsed seed 0 onto
+  the golden-ratio constant, so two runs a caller believed were independent
+  replicates were the same run. Non-finite seeds now throw.
+- Unseeded bootstraps derive their seed from the data instead of `Math.random`, so
+  an interval is reproducible whether or not the caller passes a seed.
+
+### Changed — BREAKING
+
+- `mannWhitneyU(a, b, opts?)` returns `{ u, uA, p, method, pFloor }`. `p` is now the
+  exact conditional p inside the threshold: `mannWhitneyU([1,2,3],[4,5,6]).p` moves
+  from `0.03769147` to `0.10000000`, which is the smallest p attainable at 3 v 3.
+  `uA` carries the direction that `u = min(u₁,u₂)` discards.
+- `wilcoxonSignedRank(before, after, opts?)` returns
+  `{ w, p, method, pFloor, nNonZero }`.
+- Both take `method: 'auto' | 'exact' | 'asymptotic'`, default `'auto'`. `'auto'`
+  never selects `'asymptotic'`. Requesting `'asymptotic'` where an exact answer
+  exists THROWS a `ValidationError` naming the attainable floor, and requesting
+  `'exact'` above the threshold throws rather than enumerating an unbounded
+  distribution.
+- `pairedTTest` returns `{ t: number | null, df, p: number | null }`. A non-zero
+  constant delta returned `{t: Infinity, p: 0}` — absolute certainty from three
+  observations — and now returns null, matching `pairedCohensDz`. An all-zero delta
+  is still `{t: 0, p: 1}`.
+- `cohensD` returns `number | null`. It returned a silent `0` for a maximal
+  zero-variance separation and for under-sized groups.
+- `MetricVerdict.cohensD` and `LiftInsight.pValue` are nullable accordingly.
+- `PairedBootstrapResult` carries `gateEligible`, false below
+  `BOOTSTRAP_GATE_MIN_N = 20`.
+
+### Added
+
+- `scripts/generate-statistics-oracle.py` + `tests/fixtures/statistics-oracle.json`:
+  153 scipy/statsmodels-generated golden values across 22 statistics, asserted by
+  `tests/statistics-oracle.test.ts`. scipy is a CI oracle and is never a runtime
+  dependency.
+- `tests/statistics-library-crosscheck.test.ts` cross-checks the three correction
+  functions against `@stdlib/stats-padjust` and the untied exact nulls against
+  `lib-r-math.js`, both devDependencies only.
+- First test coverage for `welchsTTest` / `compareToBaseline`, which gated
+  improved / regressed / stable verdicts with nothing asserting their numbers.
+- Exported `normalCdf`, `studentTCdf`, `BOOTSTRAP_GATE_MIN_N`,
+  `MANN_WHITNEY_EXACT_MAX_N`, `WILCOXON_EXACT_MAX_N`, `DEFAULT_PERMUTATIONS`.
+
 ## [0.133.2] - 2026-07-27 - protect final evaluation data
 
 ### Fixed

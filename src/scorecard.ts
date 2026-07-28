@@ -314,7 +314,11 @@ export function diffScorecard(
       d = cohensD(baseline.scores, current.scores)
       const t = welchsTTest(baseline.scores, current.scores)
       p = Number.isFinite(t.p) ? t.p : null
-      const significant = Math.abs(d) >= minEffect && p !== null && p <= maxP
+      // `canStat` guarantees ≥ 2 samples per side, so a null d means zero
+      // pooled spread across a real mean gap — an unbounded standardized
+      // effect, which clears any finite threshold.
+      const effectClears = d === null || Math.abs(d) >= minEffect
+      const significant = effectClears && p !== null && p <= maxP
       verdict = significant ? (delta > 0 ? 'improved' : 'regressed') : 'flat'
     } else {
       // Too few samples for a real test — fall back to a raw-delta threshold.

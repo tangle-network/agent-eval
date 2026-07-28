@@ -247,7 +247,7 @@ Populated when baseline + candidate candidates are present (auto-detected from t
     "candidateMean": 0.65,
     "delta": 0.07,
     "ci95": [0.04, 0.10],          // bootstrap CI on the delta
-    "pValue": 0.0008,              // paired t-test
+    "pValue": 0.0008,              // paired t-test; null when the delta is a non-zero constant
     "n": 40,                       // paired observations
     "unpairedBaselineRuns": 2,
     "unpairedCandidateRuns": 1,

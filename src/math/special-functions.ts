@@ -16,14 +16,31 @@ export function lnGamma(z: number): number {
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
 }
 
-/** Regularized incomplete beta function via a Lentz continued fraction. */
+/**
+ * Regularized incomplete beta function I_x(a, b).
+ *
+ * The Lentz continued fraction converges only for `x < (a+1)/(a+b+2)`; outside
+ * that domain it must be reached through the symmetry `I_x(a,b) = 1 −
+ * I_{1−x}(b,a)`. `studentTCdf` drives `x → 1` as `|t| → 0`, so the mirrored
+ * branch is the one every near-null t-statistic takes.
+ */
 export function regularizedIncompleteBeta(x: number, a: number, b: number): number {
   if (x <= 0) return 0
   if (x >= 1) return 1
   const logBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b)
-  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - logBeta) / a
-  const maxIterations = 200
-  const epsilon = 3e-7
+  // x^a·(1−x)^b / B(a,b) — symmetric under (x,a,b) → (1−x,b,a), so the
+  // mirrored branch reuses it unchanged.
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - logBeta)
+  if (x < (a + 1) / (a + b + 2)) {
+    return (front * betaContinuedFraction(x, a, b)) / a
+  }
+  return 1 - (front * betaContinuedFraction(1 - x, b, a)) / b
+}
+
+/** Modified Lentz evaluation of the beta continued fraction at `x`. */
+function betaContinuedFraction(x: number, a: number, b: number): number {
+  const maxIterations = 300
+  const epsilon = 3e-15
   let c = 1
   let d = 1 - ((a + b) * x) / (a + 1)
   if (Math.abs(d) < 1e-30) d = 1e-30
@@ -48,5 +65,5 @@ export function regularizedIncompleteBeta(x: number, a: number, b: number): numb
     fraction *= delta
     if (Math.abs(delta - 1) < epsilon) break
   }
-  return front * fraction
+  return fraction
 }

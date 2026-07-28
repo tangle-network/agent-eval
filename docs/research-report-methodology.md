@@ -62,9 +62,10 @@ In order: first match wins:
 |---|---|---|
 | Marginal CI on score mean | `confidenceInterval` | `statistics.ts` |
 | Paired Cohen's dz vs comparator | `pairedCohensDz` | `statistics.ts` |
-| Wilcoxon signed-rank (paired) | `wilcoxonSignedRank` | `statistics.ts` |
+| Wilcoxon signed-rank (paired), exact at n ≤ 20 | `wilcoxonSignedRank` | `statistics.ts` |
 | BH-FDR q-values | `benjaminiHochberg` | `statistics.ts` |
 | Paired bootstrap CI on median delta | `pairedBootstrap` | `statistics.ts` |
+| Smallest p a rank-test design can produce | `pFloor` on the result | `statistics.ts` |
 | Bayesian-bootstrap Pr(Δ>0), Pr(Δ∈ROPE) | `bayesianBootstrapMeanSamples` | `summary-report.ts` (private) |
 | Minimum detectable paired effect | `pairedMde` | `statistics.ts` |
 | Run fingerprint | `hashJson(canonicalize(...))` | `pre-registration.ts` |
@@ -73,6 +74,8 @@ The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use Rubin's Bayesian bootstrap.
 Each posterior draw assigns the observed paired deltas Dirichlet(1, ..., 1) weights, implemented as normalized independent Exponential(1) draws.
 The posterior summaries apply to the **mean** delta.
 The separate frequentist bootstrap CI applies to the **median** delta because the median is more robust to heavy-tailed agent scores.
+It is descriptive spread below `BOOTSTRAP_GATE_MIN_N = 20` pairs, which the result reports as `gateEligible: false`; the exact signed-rank or sign test carries the decision there.
+See [`design/statistics-decisions.md`](./design/statistics-decisions.md) for the measured false-positive rates and the exact-versus-asymptotic policy.
 
 ## MDE
 
