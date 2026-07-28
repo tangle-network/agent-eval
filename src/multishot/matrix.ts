@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CostProvenance } from '../cost-ledger'
 import type { MatrixResult } from '../matrix'
 import { runAgentMatrix } from '../matrix'
 import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
@@ -117,6 +118,11 @@ interface CellOutput {
   artifactCount: number
 }
 
+interface ArtifactJudgeRun {
+  score: JudgeScore & { turn: number; type: string }
+  cost: CostProvenance
+}
+
 /** Mean composite over non-failed scores. `0` when the list is empty (a
  *  configured judge with nothing to score contributes 0, matching the cell
  *  composite's long-standing semantics); `null` when scores exist but every
@@ -218,7 +224,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       const codeArtifacts = sim.artifacts.filter((a) => codeTypes.has(a.type))
       const contentArtifacts = sim.artifacts.filter((a) => contentTypes.has(a.type))
 
-      const [conversation, codeReviews, contentReviews] = await Promise.all([
+      const [conversationRun, codeReviewRuns, contentReviewRuns] = await Promise.all([
         runJudge(withJudgeMaxTokens(opts.judges.conversation, opts.judgeMaxTokens), {
           transcript: sim.transcript,
           persona,
@@ -229,29 +235,38 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
                 runJudge(withJudgeMaxTokens(opts.judges.codeReview!, opts.judgeMaxTokens), {
                   artifact,
                   persona,
-                }).then((s) => ({
-                  ...s,
-                  turn: artifact.turn,
-                  type: artifact.type,
+                }).then((result) => ({
+                  score: {
+                    ...result.score,
+                    turn: artifact.turn,
+                    type: artifact.type,
+                  },
+                  cost: result.cost,
                 })),
               ),
             )
-          : Promise.resolve([] as Array<JudgeScore & { turn: number; type: string }>),
+          : Promise.resolve([] as ArtifactJudgeRun[]),
         opts.judges.contentQuality
           ? Promise.all(
               contentArtifacts.map((artifact) =>
                 runJudge(withJudgeMaxTokens(opts.judges.contentQuality!, opts.judgeMaxTokens), {
                   artifact,
                   persona,
-                }).then((s) => ({
-                  ...s,
-                  turn: artifact.turn,
-                  type: artifact.type,
+                }).then((result) => ({
+                  score: {
+                    ...result.score,
+                    turn: artifact.turn,
+                    type: artifact.type,
+                  },
+                  cost: result.cost,
                 })),
               ),
             )
-          : Promise.resolve([] as Array<JudgeScore & { turn: number; type: string }>),
+          : Promise.resolve([] as ArtifactJudgeRun[]),
       ])
+      const conversation = conversationRun.score
+      const codeReviews = codeReviewRuns.map((run) => run.score)
+      const contentReviews = contentReviewRuns.map((run) => run.score)
 
       const { composite, codeComposite, contentComposite, allJudgesFailed } = computeCellComposite({
         conversation,
@@ -275,6 +290,11 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       if (opts.judges.codeReview) notes.push(`code=${codeComposite.toFixed(1)}`)
       if (opts.judges.contentQuality) notes.push(`content=${contentComposite.toFixed(1)}`)
       if (allJudgesFailed) notes.push('all-judges-failed')
+      const judgeRuns = [conversationRun, ...codeReviewRuns, ...contentReviewRuns]
+      const judgeCostUsd = judgeRuns.reduce((sum, run) => sum + (run.cost.usd ?? 0), 0)
+      if (judgeRuns.some((run) => run.cost.kind === 'uncaptured')) {
+        notes.push('judge-cost-incomplete')
+      }
 
       return {
         output: {
@@ -283,7 +303,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
           artifactCount: sim.artifacts.length,
         },
         verdict: { valid: composite >= 5, score: composite, notes: notes.join(' ') },
-        costUsd: sim.costUsd,
+        costUsd: sim.costUsd + judgeCostUsd,
         durationMs: sim.durationMs,
       }
     },

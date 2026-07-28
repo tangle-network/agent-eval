@@ -4,9 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FsLabeledScenarioStore } from '../labeled-store/fs-adapter'
 import { inMemoryCampaignStorage } from '../storage'
-import type { Gate, JudgeConfig, Scenario, SurfaceProposer } from '../types'
+import type { Gate, JudgeConfig, Scenario } from '../types'
 import { runImprovementLoop } from './run-improvement-loop'
-import { runOptimization } from './run-optimization'
 
 interface TestScenario extends Scenario {
   kind: 'test'
@@ -31,7 +30,7 @@ const quality: JudgeConfig<TestArtifact, TestScenario> = {
 }
 
 describe('runImprovementLoop labeled-store isolation', () => {
-  it('keeps every final arm out of later optimization input', async () => {
+  it('keeps every final arm out of the capture store', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agent-eval-final-capture-'))
     const labeledStore = new FsLabeledScenarioStore({ root: join(root, 'labeled') })
     const searchScenario: TestScenario = { id: 'search-1', kind: 'test' }
@@ -89,44 +88,7 @@ describe('runImprovementLoop labeled-store isolation', () => {
         searchScenario.id,
         searchScenario.id,
       ])
-
-      let laterOptimizationInput: string[] = []
-      const samplingProposer: SurfaceProposer = {
-        kind: 'sample-labeled-store',
-        async propose(ctx) {
-          const records = await ctx.dataset?.sample({
-            count: 100,
-            split: 'train',
-            capturedBefore: '9999-12-31T23:59:59.999Z',
-          })
-          laterOptimizationInput = (records ?? []).map((record) => record.scenario.id)
-          return []
-        },
-      }
-
-      await runOptimization({
-        scenarios: [{ id: 'search-2', kind: 'test' }],
-        baselineSurface: 'SECOND-BASELINE',
-        dispatchWithSurface: async (surface) => ({ surface: String(surface) }),
-        judges: [quality],
-        proposer: samplingProposer,
-        populationSize: 1,
-        maxGenerations: 1,
-        runDir: join(root, 'second-run'),
-        storage: inMemoryCampaignStorage(),
-        resumable: false,
-        expectUsage: 'off',
-        labeledStore,
-        captureSource: 'eval-run',
-        captureSourceVersionHash: 'capture-integrity-test',
-      })
-
-      expect(laterOptimizationInput.sort()).toEqual([
-        searchScenario.id,
-        searchScenario.id,
-        'search-2',
-      ])
-      expect(laterOptimizationInput).not.toContain(finalScenario.id)
+      expect(recordsAfterFinal.map((record) => record.scenario.id)).not.toContain(finalScenario.id)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

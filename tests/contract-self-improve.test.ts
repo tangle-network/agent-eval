@@ -21,6 +21,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { makeProposalFinding } from '../src/analyst/types'
 import {
   type LoopProvenanceRecord,
   provenanceRecordPath,
@@ -262,13 +263,25 @@ describe('selfImprove — forwarded loop knobs', () => {
     await selfImprove<S, A>({
       ...base,
       // Single generation — the common case. The producer analyzes the
-      // baseline traces first (gen -1) so gen 0 proposes with that report;
+      // baseline traces first (gen -1) so gen 0 proposes with those findings;
       // the between-generation call is skipped (gen 0 is the last).
       budget: { generations: 1, populationSize: 1 },
       expectUsage: 'off',
       analyzeGeneration: async ({ generation }) => {
         analyzed.push(generation)
-        return [{ claim: 'baseline finding' }]
+        return [
+          makeProposalFinding({
+            analyst_id: 'baseline-analysis',
+            severity: 'info',
+            area: 'optimization',
+            claim: 'baseline finding',
+            confidence: 1,
+            evidence_refs: [],
+            derived_from_judge: false,
+            proposal_origin: 'search',
+            produced_at: '2026-07-28T00:00:00.000Z',
+          }),
+        ]
       },
     })
     expect(analyzed).toEqual([-1])

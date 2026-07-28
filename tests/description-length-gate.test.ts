@@ -55,6 +55,12 @@ describe('description-length primitives', () => {
     expect(bits).toBeCloseTo(10, 6) // −log2(2^-10)
     expect(Number.isFinite(bits)).toBe(true)
   })
+
+  it('rejects a residual request containing a task with no score', () => {
+    expect(() => dataDescriptionBits(new Map([['a', 1]]), ['a', 'b'], 2 ** -10)).toThrow(
+      /no score for task 'b'/,
+    )
+  })
 })
 
 describe('DescriptionLengthGate', () => {
@@ -137,6 +143,52 @@ describe('DescriptionLengthGate', () => {
     expect(decision.rejectionCode).toBe('few_tasks')
   })
 
+  describe('missing task scores', () => {
+    const taskIds = Array.from({ length: 26 }, (_, index) => `t${String(index).padStart(2, '0')}`)
+    const scores = (ids: string[], score: number): Record<string, number> =>
+      Object.fromEntries(ids.map((id) => [id, score]))
+
+    it('refuses to decide on the 6 tasks a candidate answered out of 26 dealt', () => {
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        candidate('cand', small, scores(taskIds.slice(0, 6), 1)),
+        candidate('baseline', small, scores(taskIds, 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.evidence.tasks).toBe(6)
+      expect(decision.reason).toMatch(/candidate answered 6\/26, 20 missing/)
+    })
+
+    it('refuses symmetrically when the baseline omitted task scores', () => {
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        candidate('cand', small, scores(taskIds, 1)),
+        candidate('baseline', small, scores(taskIds.slice(0, 6), 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.reason).toMatch(/baseline answered 6\/26, 20 missing/)
+    })
+
+    it('counts unscored run records as dealt tasks', () => {
+      const answered = taskIds.slice(0, 6).map((task) => record('cand', task, 1))
+      const unscored = taskIds.slice(6).map((task) => {
+        const run = record('cand', task, 0)
+        run.outcome = { raw: { note: 'no score produced' } }
+        return run
+      })
+      const decision = new DescriptionLengthGate({ baselineKey: 'baseline' }).evaluate(
+        { content: small, runs: [...answered, ...unscored] },
+        candidate('baseline', small, scores(taskIds, 0.5)),
+      )
+
+      expect(decision.promote).toBe(false)
+      expect(decision.rejectionCode).toBe('missing_task_scores')
+      expect(decision.reason).toMatch(/candidate answered 6\/26, 20 missing/)
+    })
+  })
+
   it('does not count raw score-like metrics as task evidence', () => {
     const rawOnly = (id: string, task: string): RunRecord => {
       const run = record(id, task, 0)
@@ -150,132 +202,7 @@ describe('DescriptionLengthGate', () => {
     )
 
     expect(decision.promote).toBe(false)
-    // The run WAS dealt — a raw score-like metric is not task evidence, so the
-    // task is unanswered rather than absent, and coverage is what names it.
-    expect(decision.rejectionCode).toBe('incomplete_coverage')
+    expect(decision.rejectionCode).toBe('few_tasks')
     expect(decision.evidence.tasks).toBe(0)
-    expect(decision.evidence.coverage).toEqual({
-      dealt: 1,
-      answered: 0,
-      unscoredPairs: 1,
-      candidateOnly: 0,
-      baselineOnly: 0,
-      coverage: 0,
-    })
-  })
-
-  // A task the candidate never answered is MISSING DATA, not an absent task.
-  // Deciding over "the tasks that happen to be scored on both sides" shrinks the
-  // denominator to whatever the candidate managed to answer, so silence reads as
-  // agreement: an unanswered task costs 0 residual bits, the cheapest possible
-  // residual, so it beats a perfect score.
-  describe('coverage — missing task scores', () => {
-    const evidenceSet = Array.from({ length: 26 }, (_, i) => `t${String(i).padStart(2, '0')}`)
-    const scores = (keys: string[], score: number) =>
-      Object.fromEntries(keys.map((k) => [k, score]))
-    // Byte-identical model text on both arms: L_model cancels to exactly 0 bits,
-    // so the verdict turns purely on the residual over the evidence set.
-    const fullBaseline = () => candidate('baseline', small, scores(evidenceSet, 0.5))
-
-    it('refuses a candidate that answered 6 of 26 tasks instead of deciding on the 6', () => {
-      const gate = new DescriptionLengthGate({ baselineKey: 'baseline' })
-      const answered = evidenceSet.slice(0, 6).map((t) => record('cand', t, 1))
-      const dark = evidenceSet.slice(6).map((t) => {
-        const run = record('cand', t, 0)
-        run.outcome = { raw: { note: 'agent produced nothing' } }
-        return run
-      })
-      const decision = gate.evaluate(
-        { content: small, runs: [...answered, ...dark] },
-        fullBaseline(),
-      )
-      // The model term is exactly 0, so this is purely the residual talking.
-      expect(decision.evidence.modelBitsDelta).toBe(0)
-      expect(decision.evidence.deltaBits).toBe(-6)
-      expect(decision.promote).toBe(false)
-      expect(decision.rejectionCode).toBe('incomplete_coverage')
-      expect(decision.evidence.coverage).toEqual({
-        dealt: 26,
-        answered: 6,
-        unscoredPairs: 20,
-        candidateOnly: 0,
-        baselineOnly: 0,
-        coverage: 6 / 26,
-      })
-      expect(decision.reason).toContain('6 of 26')
-    })
-
-    it('refuses symmetrically when the BASELINE is the arm with the gaps', () => {
-      const gate = new DescriptionLengthGate({ baselineKey: 'baseline' })
-      const decision = gate.evaluate(
-        candidate('cand', small, scores(evidenceSet, 1)),
-        candidate('baseline', small, scores(evidenceSet.slice(0, 6), 0.5)),
-      )
-      expect(decision.promote).toBe(false)
-      expect(decision.rejectionCode).toBe('incomplete_coverage')
-      expect(decision.evidence.coverage.dealt).toBe(26)
-      expect(decision.evidence.coverage.answered).toBe(6)
-      expect(decision.evidence.coverage.baselineOnly).toBe(0)
-      expect(decision.evidence.coverage.candidateOnly).toBe(20)
-    })
-
-    it('the control — the same failures scored as the 0 they earned — refuses on the bits', () => {
-      const gate = new DescriptionLengthGate({ baselineKey: 'baseline' })
-      const decision = gate.evaluate(
-        candidate('cand', small, {
-          ...scores(evidenceSet.slice(0, 6), 1),
-          ...scores(evidenceSet.slice(6), 0),
-        }),
-        fullBaseline(),
-      )
-      expect(decision.promote).toBe(false)
-      expect(decision.rejectionCode).toBe('no_total_gain')
-      expect(decision.evidence.deltaBits).toBe(174)
-      expect(decision.evidence.tasks).toBe(26)
-      expect(decision.evidence.coverage.coverage).toBe(1)
-    })
-
-    it('still promotes — and reports full coverage — when both arms answered everything', () => {
-      const gate = new DescriptionLengthGate({ baselineKey: 'baseline' })
-      const decision = gate.evaluate(
-        candidate('cand', small, scores(evidenceSet, 0.9)),
-        fullBaseline(),
-      )
-      expect(decision.promote).toBe(true)
-      expect(decision.rejectionCode).toBeNull()
-      expect(decision.evidence.tasks).toBe(26)
-      expect(decision.evidence.coverage).toEqual({
-        dealt: 26,
-        answered: 26,
-        unscoredPairs: 0,
-        candidateOnly: 0,
-        baselineOnly: 0,
-        coverage: 1,
-      })
-    })
-
-    it('a declared minCoverage below 1 still ships the shrunken denominator', () => {
-      const gate = new DescriptionLengthGate({ baselineKey: 'baseline', minCoverage: 0.2 })
-      const decision = gate.evaluate(
-        candidate('cand', small, scores(evidenceSet.slice(0, 6), 1)),
-        fullBaseline(),
-      )
-      expect(decision.rejectionCode).not.toBe('incomplete_coverage')
-      expect(decision.evidence.coverage.answered).toBe(6)
-      expect(decision.evidence.coverage.dealt).toBe(26)
-    })
-
-    it('rejects a minCoverage outside [0,1] rather than clamping it', () => {
-      expect(() => new DescriptionLengthGate({ baselineKey: 'b', minCoverage: 1.5 })).toThrow(
-        /minCoverage/,
-      )
-      expect(
-        () => new DescriptionLengthGate({ baselineKey: 'b', minCoverage: Number.NaN }),
-      ).toThrow(/minCoverage/)
-    })
-
-    it('the residual refuses to sum a key it has no score for', () => {
-      expect(() => dataDescriptionBits(new Map([['a', 1]]), ['a', 'b'], 2 ** -10)).toThrow(/'b'/)
-    })
   })
 })

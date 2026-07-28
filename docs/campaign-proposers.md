@@ -407,6 +407,11 @@ Concurrent processes cannot write the same compatible run at the same time.
 
 Use `SurfaceProposer` when your code or runtime owns candidate creation.
 The proposer receives the current surface, prior campaign history, findings, generation number, requested population size, and cancellation signal.
+Every proposal finding must declare `proposal_origin: 'search' | 'production'`.
+`runOptimization()` rejects unclassified findings before it calls the proposer.
+Opaque reports and capture stores are not proposal input.
+Convert analysis into explicit findings or close over a caller-owned knowledge source in your proposer.
+Any caller-owned source must exclude final evaluation cases and results.
 
 ```ts
 import type { SurfaceProposer } from '@tangle-network/agent-eval/campaign'

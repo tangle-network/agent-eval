@@ -16,6 +16,7 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
+import type { ProposalFinding } from '../analyst/types'
 import type {
   CostChannel,
   CostLedgerHandle,
@@ -293,56 +294,38 @@ export interface ScoredSurfaceOutcome {
   }
 }
 
-/** Everything a proposer may read to plan the next
- *  batch of candidates. The first six fields are always present; the rest are
- *  optional context the loop supplies when available, so simple proposers can
- *  ignore them while a code-tier agentic generator consumes the report and
- *  dataset.
- *  See `docs/campaign-proposers.md`. */
-export interface ProposeContext<TFindings = unknown> {
-  currentSurface: MutableSurface
-  history: GenerationRecord[]
-  findings: TFindings[]
+/** Search state supplied to one candidate-generation call.
+ *  Final evaluation data is not represented in this contract. */
+export interface ProposeContext<TFindings = ProposalFinding> {
+  readonly currentSurface: MutableSurface
+  readonly history: ReadonlyArray<GenerationRecord>
+  readonly findings: ReadonlyArray<TFindings>
   /** BREADTH: how many candidate surfaces to return this generation. */
-  populationSize: number
-  generation: number
-  signal: AbortSignal
+  readonly populationSize: number
+  readonly generation: number
+  readonly signal: AbortSignal
   /** Present when a multi-track lineage requests this proposal. */
-  track?: ProposalTrackContext
+  readonly track?: ProposalTrackContext
   /** Measured baseline for this optimization run. `runOptimization` always
    *  supplies it; optional for standalone proposer callers. */
-  baselineOutcome?: ScoredSurfaceOutcome
+  readonly baselineOutcome?: ScoredSurfaceOutcome
   /** Measured result for `currentSurface`, the complete global incumbent every
    *  new candidate mutates. `runOptimization` always supplies it. */
-  incumbentOutcome?: ScoredSurfaceOutcome
-  /** Optional analysis report produced before proposal. Opaque to the substrate:
-   *  the proposer that consumes it owns the shape. */
-  report?: unknown
-  /** Handle to all captured data — the proposer samples traces / artifacts /
-   *  rewards here to ground its proposals. */
-  dataset?: LabeledScenarioStore
+  readonly incumbentOutcome?: ScoredSurfaceOutcome
   /** DEPTH: max iterations the agentic generator may take per candidate.
    *  1 = single-shot; >1 = it may iterate on its own change before handing it
    *  back to be measured. */
-  maxImprovementShots?: number
+  readonly maxImprovementShots?: number
   /** GEPA Pareto frontier across ALL generations so far — the non-dominated
    *  surfaces by per-scenario objective vector. Empty/absent on generation 0
    *  (only the baseline is scored). A reflective proposer combines the
    *  complementary lessons of these parents (each excels on different
    *  scenarios) into a merged candidate. Proposers doing pure single-parent
    *  reflection may ignore it. See {@link ParetoParent}. */
-  paretoParents?: ParetoParent[]
+  readonly paretoParents?: ReadonlyArray<ParetoParent>
   /** Shared run spend account and receipt attribution phase. */
-  costLedger?: CostLedgerHandle
-  costPhase?: string
-  /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
-   *  score the chosen output and gate promotion, and are NEVER an input to
-   *  proposal/steering (else the optimizer games the acceptance axis = an
-   *  oracle). This `never`-typed field makes that a compile-time tripwire: a
-   *  proposer that tries to thread judge verdicts into the proposal will not type.
-   *  Steering may consume TRACE-OBSERVABLE signals (what the agent did) via
-   *  `findings`/`report`; it may NOT consume the judge's held-out verdict. */
-  judgeScores?: never
+  readonly costLedger?: CostLedgerHandle
+  readonly costPhase?: string
 }
 
 /** A surface-improvement strategy. Given the current best
@@ -357,7 +340,7 @@ export interface ProposeContext<TFindings = unknown> {
  *  behavior-fuzzing `MutationProposer` (`fuzz/types`), a scenario generator for
  *  a different loop.
  */
-export interface SurfaceProposer<TFindings = unknown> {
+export interface SurfaceProposer<TFindings = ProposalFinding> {
   kind: string
   /** Plan: propose N candidate surfaces for the next generation. A proposer
    *  may return bare `MutableSurface`s or `ProposedCandidate`s that carry the
@@ -366,7 +349,7 @@ export interface SurfaceProposer<TFindings = unknown> {
   propose(ctx: ProposeContext<TFindings>): Promise<Array<MutableSurface | ProposedCandidate>>
   /** Decide: stop early when the proposer judges the search converged or
    *  exhausted. Default (omitted) runs all `maxGenerations`. */
-  decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
+  decide?(args: { history: ReadonlyArray<GenerationRecord> }): { stop: boolean; reason?: string }
 }
 
 export interface OptimizerConfigBase {

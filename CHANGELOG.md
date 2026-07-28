@@ -4,96 +4,150 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.134.0] - 2026-07-28 - every verdict states its denominator
+## Unreleased
 
-### Consumer notice — gates that used to pass will now fail, and that is the fix
+### Fixed
 
-If a gate or contract starts failing on this release without your code changing, it
-was passing on a shrunken denominator.
-Three exported decision functions computed a promote/pass verdict over the items
-that happened to produce a score, and dropped the rest without a word.
-An item an arm crashed on, timed out on, or never emitted a metric for simply left
-the comparison, and the verdict was read off whatever survived.
-Each now refuses instead, and reports the accounting on every path — promoting or
-not.
+- `runRLCampaign()` no longer computes the anytime-valid interim verdict over the paired cells that happened to survive.
+  `collectPairedDeltaSeries` silently dropped an unscored comparator run, an unscored candidate run, and a cell only one arm ran, then fed the survivors into `evaluateInterimReleaseConfidence`, whose `recommendation.decision` can be `promote_now` — so a candidate that scored 6 of 26 cells could be recommended for promotion off a series of length 6, with nothing in the result naming the 20 that went dark.
+  The same defect the promotion gates carried, one call frame up.
+- Cells that failed integrity or crashed never reach `campaign.runs`, so the denominator is now measured from `campaign.failedRuns` as well; counting only surviving records made the very failure this check exists to catch invisible.
 
-Read the new `coverage` field before you lower a threshold.
-`answered` well below `dealt` means the run itself is broken, not the gate.
+### Changed — fail-closed default, read this before upgrading
 
-**`DescriptionLengthGate.evaluate`** — the residual is a sum over the evidence set,
-so a task an arm never scored contributes nothing: an unanswered task is the
-cheapest possible residual, and silence beat a perfect score.
-Measured on a deterministic fixture, no model calls: 26 tasks, byte-identical model
-text on both arms (so the model term is exactly 0 bits), a candidate that produced
-no score at all on 20 of them.
-Published 0.133.3 PROMOTES it — `promote: true`, `total Δ=-6.0 bits ... over 6
-tasks`, `evidence.tasks: 6`, where the −6 bits IS the 20 residuals it never paid.
-The control, the same 20 failures scored as the 0 they earned, is correctly refused
-at Δ=+174 bits.
+- New `sequential.minDeltaCoverage` on `RunRLCampaignOptions` defaults to **1**: every paired cell the comparison was dealt must carry a score on BOTH arms before `interimConfidence` is computed at all.
+  Any campaign with an unscored or unmatched cell now gets `interimConfidence: null` where it previously got a verdict.
+  This is the intended correction, but it is a behaviour change — a caller who accepts a known flake rate should DECLARE it (`sequential: { minDeltaCoverage: 0.9 }`) rather than inherit it.
+  Values outside `[0, 1]` throw instead of clamping.
+- New `RLCampaignResult.deltaCoverage: PairedDeltaCoverage[]` reports `answered / dealt` per candidate on EVERY path, including the ones where the verdict was refused, and `summary` names the shortfall (`paired-delta coverage: cand 2/8 (sequential verdict withheld)`).
+  `dealt` partitions exactly into `answered + unscoredCandidate + unscoredComparator + unmatched`, so no cell can leave the delta series without appearing in exactly one bucket.
 
-**`evaluateContract`** (ci-gate) — worse, because it could pass on nothing at all.
-`extractAll` dropped every run that reported no value for a declared metric, then
-`if (baseline.length < 2 || candidate.length < 2) continue` dropped the whole
-metric, and `pass` was `breaches.length === 0`.
-Measured: a candidate reporting `score` on 3 of 10 runs returns `pass: true`,
-`breaches: []`, verdict `"improved"`, `candidateMean` 0.9899 read off 3 runs.
-The same candidate reporting it on **0 of 10 also returns `pass: true`** — a silent
-pass on zero evidence, with `hasUnstable: true` computed and never consulted.
+## [0.135.1] - 2026-07-28 - stable estimated-cost receipts
 
-**`decideReferenceReplayPromotion`** — each side's F1 is computed over its OWN
-scenario set, and the two sets were never compared even though
-`ReferenceReplayScore.scenarios[].scenarioId` was right there.
-Replaying a subset raises the candidate's F1 by dropping every scenario it would
-have missed, with no outcome changing.
-Measured: a candidate scored on 6 of 26 scenarios returns `promote: true`, "Required
-splits improved by 33.4% with no regressions" — its `{matched: 6, total: 6, f1: 1}`
-against the baseline's `{matched: 13, total: 26, f1: 0.667}`.
+### Fixed
 
-**`runRLCampaign`** — the same defect one call frame up.
-`collectPairedDeltaSeries` dropped an unscored comparator run, an unscored candidate
-run, and an unmatched cell, all three silently, and the survivors flowed into
-`evaluateInterimReleaseConfidence`, whose `recommendation.decision` can be
-`promote_now`.
-Cells that failed integrity never reached `campaign.runs` at all, so the failure the
-check exists to catch was invisible; the denominator now includes
-`campaign.failedRuns`.
+- Token-priced receipts now tolerate the machine-precision difference introduced when per-million rates are persisted and replayed as per-thousand rates.
+- Material disagreement between a receipt's estimated cost, token usage, and pricing snapshot still fails validation.
+
+## [0.135.0] - 2026-07-28 - mint refuses what nobody measured
+
+### Why a MINOR and not a patch
+
+Two fields that MINTED on 0.134.2 now THROW: `terminalOutcome` and `outcome.raw`.
+A caller on pre-0.126 records who upgrades will see `mintRolloutRows` stop producing
+lines it produced yesterday, and that is the intended correction — but it is a
+behaviour change, not a bug fix, so the number says so.
+It is also **batch-fatal**: `mintRolloutRows` loops over `records` with no per-record
+`try`/`catch` (`src/rollout/mint.ts:413-437`), so ONE legacy record throws out of the
+whole call and no rows come back at all.
+Partition the store first with `unmintableReasons(record)` — see the API note below —
+rather than discovering this one record at a time.
+
+### Consumer notice — minting a pre-0.126 RunRecord now names the field instead of crashing
+
+`mintRolloutRows` reads `record.costProvenance.kind`.
+That field was OPTIONAL through 0.125 — documented verbatim as "Optional only so
+existing serialized RunRecords remain valid" — and became REQUIRED in 0.126, with
+no on-disk migration and with the optional chain dropped in the same commit.
+Every RunRecord a 0.125-era producer persisted therefore kills mint with
+`TypeError: Cannot read properties of undefined (reading "kind")`, naming neither
+the field nor the run.
+It typechecks clean on the caller's side because the TYPE says required; the
+RECORDS are simply older than the type.
+Measured in one consumer repo: 65 of 65 ledgers, 2742 of 2742 records, 100 %
+failure.
+
+The same record is now refused by name, and the refusal spells the backfill —
+verbatim, from the built package:
+
+```
+ValidationError: Cannot mint rollout for run run-0125-era: costProvenance is missing.
+Records written before agent-eval 0.126 predate this field and carry `costUsd: 0` as
+the documented uncaptured sentinel, which is NOT an observed zero. Backfill it as
+costProvenance: { kind: 'uncaptured', usd: null } WITH costUsd: null — an uncaptured
+cost whose costUsd is non-null is rejected by validateRunRecord, so provenance alone
+leaves the record invalid.
+  terminalOutcome is missing. It became required in agent-eval 0.126. Backfill it from
+root-run or process evidence, or as 'unknown' when the producer has none — mint will
+not decide the line's is_completed and is_truncated for you.
+```
+
+**Audit the rollout rows you already published.**
+Restoring the 0.125 optional chain would have made mint run again AND restored a
+false dollar figure, so it was not the fix.
+Under `record.costProvenance?.kind === 'uncaptured'` an absent provenance evaluates
+to `undefined === 'uncaptured'` → false, and the next line is
+`cost: { usd: uncaptured ? null : record.costUsd }` — so every 0.125-era record
+carrying the documented `costUsd: 0` uncaptured sentinel minted a line asserting
+`cost.usd: 0`.
+A rollout row whose `cost.usd` is `0` and whose source record was uncaptured **was
+never a measured zero**: it is a cost nobody captured, published into a dataset as a
+measurement.
+Re-mint those rows from backfilled records, or drop the column — do not average over
+them.
+
+Four more fields on the same record fail the same way in the same forty lines, and
+three of them fail silently:
+
+- `outcome` and `tokenUsage` are dereferenced unguarded — the same `TypeError`, with the same missing field name.
+- `terminalOutcome` (also newly required in 0.126) is safe on 0.134.2 only BY ACCIDENT: it is compared with `===` rather than dereferenced, so an absent value MINTS, as `is_completed: false, is_truncated: false, error: null` — three claims about how a run ended, made from no evidence.
+- `outcome.raw` MINTS as `metrics: {}`, because `{ ...undefined }` spreads without complaint. "This run reported no metrics" is a different claim from "this record predates the field".
+- `scenarioId` (also newly required in 0.126) reached `assertMinted` and threw a bare `Error` naming the LINE's empty `task.instance_id` — when the thing the caller has to fix is the RECORD.
+
+**The mint door throws; it does not normalise.**
+Normalising an absent `costProvenance` to `{kind: 'uncaptured', usd: null}` would be
+kinder to historical data and it is still wrong, for two reasons that are visible in
+the code.
+It cannot cover the record, only part of it: `terminalOutcome` feeds `is_completed`
+and `is_truncated`, which the rollout schema requires to be **boolean**, so there is
+no null to fall back to and every possible default is a claim about how the run
+ended.
+And normalising the cost requires knowing what `costUsd: 0` meant — a genuinely free
+run and an uncaptured one are the same bytes in a pre-0.126 record, and only the
+producer can tell them apart.
+That is the same guess the dropped optional chain was already making silently.
+The backfill belongs at your store, in one pass, where `costUsd` can be corrected
+alongside `costProvenance`; the refusal names the run, names **every** missing field
+at once, and spells the value to write.
 
 ### Changed — behavior
 
-- Each gate takes a `minCoverage` (contract: `minCoverage`; RL: `sequential.minDeltaCoverage`), default **1**: every dealt item must carry a score on both arms.
-  Lowering it is a legitimate choice for a caller who accepts a known flake rate, but it must be **declared, not inherited** — the shrunken denominator still ships in the result either way.
-  A value outside `[0, 1]` throws rather than clamping.
-- `DescriptionLengthRejectionCode` gains `incomplete_coverage`; it is reported **ahead of** `few_tasks`, because "6 of 26 tasks produced no score" is the finding and "6 shared tasks" is only its shadow.
-- `evaluateContract` breaches name the ratio.
-  Partial coverage, a metric with too few comparable samples, and a contract declaring neither a metric nor an SLO are now all breaches — none of them can leave `breaches` empty.
-  A metric whose verdict is `unstable` is deliberately **not** a breach: that is a measurement that happened and came back noisy, not one that is missing.
-- `decideReferenceReplayPromotion` refuses on mismatched scenario identities, checked before any F1 is read.
-  A one-sided holdout now reports `incomplete_coverage` (naming the scenario) rather than `missing_holdout`; when NEITHER side replayed holdout, `missing_holdout` still fires.
-- `runRLCampaign` withholds `interimConfidence` (leaves it `null`) below `minDeltaCoverage`; `deltaCoverage` and the `summary` line say by how much.
-- `dataDescriptionBits` now **throws** on a key it has no score for instead of skipping it, so the residual cannot be summed over a shrunken denominator by a direct caller either.
+- `mintRolloutRows` refuses a record missing any field the rollout line is built from, with a `ValidationError` naming the run and each missing field: `costProvenance`, `tokenUsage` (+ `.input`, `.output`), `outcome` (+ `.raw`), `terminalOutcome`, `scenarioId`.
+  The check runs on the only constructor of a minted line, so the traced path and the untraced gap-line path are both covered.
+  It runs **before** the existing task-score guard, which reads `record.outcome.searchScore` on its way to an answer and would otherwise `TypeError` from inside the guard that exists to produce a clean refusal.
+- This is deliberately not `validateRunRecord`.
+  That validator answers "is this a valid RunRecord", a wider question than "can a rollout line be built from this one" — it also enforces model-snapshot discipline and the `costUsd === costProvenance.usd` agreement, and routing the mint door through it would refuse records mint can mint honestly today.
 
 ### Changed — API (additive; no field changed meaning, none removed)
 
-- `DescriptionLengthEvidence.coverage` (new required field) — `TaskCoverage`, exported.
-- `ContractReport.coverage` (new required field) — `ContractMetricCoverage[]`, exported.
-- `ReferenceReplayPromotionDecision.coverage` + `.rejectionCode` (new required fields) — `ReferenceReplayCoverage`, `ReferenceReplayRejectionCode`, exported.
-- `RLCampaignResult.deltaCoverage` (new required field) — `PairedDeltaCoverage`, exported.
-- Every coverage type is a mutually exclusive **partition** that sums to `dealt`, so nothing can leave a comparison without appearing in exactly one bucket — the same shape `HeldOutGate.SplitCoverage` reports.
-- `renderMarkdownReport` renders the measured/dealt ratio next to the verdict.
+- `unmintableReasons(record): string[]` (new export) — why a record cannot be minted, one entry per missing field, empty when it can.
+  Exported so a caller can partition a whole ledger without catching an exception per record, and without re-deriving the field list on their side: it is the same list the door refuses on, so the two cannot drift.
 
-The denominator is measured, never declared: an item counts as dealt because a
-record for it exists on at least one arm.
-There is no list of expected scenarios to keep in sync.
-Missing scores are **not** imputed — the gate does not know the failure value of
-your metric, and guessing one is the silent assumption these gates exist to remove.
-A caller who does know it writes it onto the record, where an auditor can see it.
+## [0.134.2] - 2026-07-28 - complete multishot cost accounting
 
-**Also first shipping here:** the `HeldOutGate` consumer notice filed under
-`[0.133.3]` below landed on `main` after the 0.133.3 release commit, so published
-0.133.3 does not contain it.
-It reaches consumers in this release.
+### Fixed
 
----
+- Multishot matrices now include conversation, code, and content judge calls in cell and run cost totals.
+- Judge usage and cost survive malformed judge output, and unknown spend is marked explicitly.
+- Matrix cost limits now stop new work based on combined simulation and judge spend.
+
+## [0.134.1] - 2026-07-28 - complete comparison evidence
+
+### Fixed
+
+- `DescriptionLengthGate` now returns `missing_task_scores` instead of evaluating only the tasks both arms happened to score.
+- `evaluateContract()` now fails when declared metrics are partially measured, under-sampled, or absent.
+- `decideReferenceReplayPromotion()` now refuses comparisons built from different scenario identities or duplicate counts.
+
+## [0.134.0] - 2026-07-28 - isolated proposal inputs
+
+### Changed
+
+- `runOptimization()` now accepts only findings labeled from search runs or observed production behavior.
+- `ProposalFinding` carries the required `proposal_origin`.
+- Removed opaque `report` and capture-store access from `ProposeContext`; final evaluation data has no internal path into candidate generation.
+- Removed `assertNoJudgeVerdict`, `isJudgeVerdict`, and `isTraceObservable`; use validated `ProposalFinding` inputs instead.
+- `runOptimization()` snapshots its baseline and candidate outputs before measurement.
 
 ## [0.133.3] - 2026-07-27 - trustworthy statistical decisions
 

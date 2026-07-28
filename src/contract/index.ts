@@ -13,6 +13,12 @@
 
 // ── Types: scenarios, dispatch, judges, gates, surfaces ──────────────
 
+export {
+  makeProposalFinding,
+  type ProposalFinding,
+  type ProposalFindingOrigin,
+} from '../analyst/types'
+
 // App-facing alias. `DispatchFn` remains the internal campaign type name;
 // `/contract` exports it as `Dispatch`.
 export type {

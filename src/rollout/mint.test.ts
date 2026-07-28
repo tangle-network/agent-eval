@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { ValidationError } from '../errors'
 import type { RunRecord } from '../run-record'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { toRewardRows, toSftRows } from './exporters'
-import { mintRolloutRows } from './mint'
+import { mintRolloutRows, unmintableReasons } from './mint'
 import { validateRolloutLine } from './schema'
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
@@ -198,6 +199,169 @@ describe('mintRolloutRows', () => {
     }
     const { rows } = await mintRolloutRows([record()], store, { maxSteps: 4 })
     expect(rows[0]!.steps!.map((s) => s.name)).toEqual(['t0', 't1', 't8', 't9'])
+  })
+})
+
+/**
+ * Records serialized before agent-eval 0.126, replayed through the mint door.
+ *
+ * `costProvenance`, `terminalOutcome` and `scenarioId` were OPTIONAL up to
+ * 0.125 and became REQUIRED in 0.126 without a single byte on disk changing.
+ * A caller who persisted a ledger under 0.125 therefore holds records the
+ * TYPE claims are complete and the BYTES are not — which is why every case
+ * below builds its record by deleting a key from a well-formed one and
+ * casting. That cast is not a test convenience; it is the exact shape of what
+ * `mintRolloutRows` is handed in production, and it typechecks on the caller's
+ * side for the same reason.
+ */
+describe('the mint door on records older than the type', () => {
+  /** Drop `paths` (dot-notated) from a copy of `rec`, keeping the RunRecord type. */
+  const without = (rec: RunRecord, ...paths: string[]): RunRecord => {
+    const copy = structuredClone(rec) as unknown as Record<string, unknown>
+    for (const path of paths) {
+      const keys = path.split('.')
+      let target = copy
+      for (const key of keys.slice(0, -1)) target = target[key] as Record<string, unknown>
+      delete target[keys[keys.length - 1]!]
+    }
+    return copy as unknown as RunRecord
+  }
+
+  const mintError = async (rec: RunRecord): Promise<unknown> =>
+    mintRolloutRows([rec], await seededStore()).then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+
+  it('refuses a record with no costProvenance by name, not with a TypeError', async () => {
+    // `costUsd: 0` verbatim: the documented 0.125 sentinel for "no bill captured".
+    const err = await mintError(without(record({ costUsd: 0 }), 'costProvenance'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect(err).not.toBeInstanceOf(TypeError)
+    expect((err as Error).message).toContain('run-1')
+    expect((err as Error).message).toMatch(/costProvenance is missing/)
+  })
+
+  it('names the release the field arrived in and the exact backfill, costUsd included', async () => {
+    const err = await mintError(without(record({ costUsd: 0 }), 'costProvenance'))
+    const message = (err as Error).message
+    expect(message).toMatch(/0\.126/)
+    expect(message).toMatch(/\{ kind: 'uncaptured', usd: null \}/)
+    // Backfilling provenance alone leaves a record `validateRunRecord` rejects:
+    // an uncaptured cost requires `costUsd: null`, not the legacy 0.
+    expect(message).toMatch(/costUsd: null/)
+  })
+
+  it('never mints cost.usd 0 out of a bill nobody captured', async () => {
+    // Restoring `record.costProvenance?.kind` — the 0.125 spelling — would let
+    // this record mint with `cost.usd: 0`, publishing the sentinel as a
+    // measured dollar amount into a training dataset. Refusing is the fix;
+    // running again with a false number is not.
+    const stale = without(record({ costUsd: 0 }), 'costProvenance')
+    await expect(mintRolloutRows([stale], await seededStore())).rejects.toBeInstanceOf(
+      ValidationError,
+    )
+
+    // Backfilled the way the refusal instructs, the same run mints an honest gap.
+    const { rows } = await mintRolloutRows(
+      [record({ costUsd: null, costProvenance: { kind: 'uncaptured', usd: null } })],
+      await seededStore(),
+    )
+    expect(rows[0]!.cost.usd).toBeNull()
+    expect(rows[0]!.cost.usd).not.toBe(0)
+  })
+
+  it('refuses a record with no terminalOutcome instead of asserting is_completed', async () => {
+    // Published 0.133.3 mints this record: `terminalOutcome` is compared with
+    // `===` rather than dereferenced, so an absent value silently yields
+    // `is_completed: false, is_truncated: false, error: null` — three claims
+    // about how a run ended, made from no evidence. Safe by accident is not safe.
+    const err = await mintError(without(record(), 'terminalOutcome'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect((err as Error).message).toMatch(/terminalOutcome is missing/)
+    // 'unknown' is a real terminal value; a producer with no root-run evidence
+    // writes it deliberately. The refusal has to say so, or the caller guesses.
+    expect((err as Error).message).toMatch(/unknown/)
+  })
+
+  it('refuses a record with no tokenUsage rather than counting 0 tokens', async () => {
+    const err = await mintError(without(record(), 'tokenUsage'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect((err as Error).message).toMatch(/tokenUsage is missing/)
+  })
+
+  it('refuses a record with no outcome, ahead of the task-score guard', async () => {
+    // `requireTaskScore` reads `record.outcome.searchScore` on its way to the
+    // answer, so an absent `outcome` is a TypeError inside the guard that
+    // exists to produce a clean refusal. Field presence is checked first.
+    const err = await mintError(without(record(), 'outcome'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect((err as Error).message).toMatch(/outcome is missing/)
+  })
+
+  it('refuses a record with no outcome.raw instead of minting an empty metrics bag', async () => {
+    // `{ ...record.outcome.raw }` spreads `undefined` without complaint, so this
+    // one mints today with `metrics: {}` — "the run reported no metrics", which
+    // is a different claim from "this record predates the field".
+    const err = await mintError(without(record(), 'outcome.raw'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect((err as Error).message).toMatch(/outcome\.raw is missing/)
+  })
+
+  it('refuses a record with no scenarioId, naming the record and not the line', async () => {
+    const err = await mintError(without(record(), 'scenarioId'))
+    expect(err).toBeInstanceOf(ValidationError)
+    expect((err as Error).message).toMatch(/scenarioId is missing/)
+    // The schema already rejects the built line's empty `task.instance_id`, but
+    // it names the LINE. The caller has to fix the RECORD.
+    expect((err as Error).message).toMatch(/instance_id/)
+  })
+
+  it('names every missing field in one refusal, so a stale store is fixed in one pass', async () => {
+    const err = await mintError(
+      without(record({ costUsd: 0 }), 'costProvenance', 'terminalOutcome', 'tokenUsage'),
+    )
+    const message = (err as Error).message
+    expect(message).toMatch(/costProvenance is missing/)
+    expect(message).toMatch(/terminalOutcome is missing/)
+    expect(message).toMatch(/tokenUsage is missing/)
+  })
+
+  it('refuses on the untraced path too — the guard sits on the only door', async () => {
+    // `mintRolloutRows` builds gap lines through a second call to `mintLine`.
+    // A guard on one branch is a guard a caller can route around.
+    const untraced = without(record({ runId: 'run-untraced', costUsd: 0 }), 'costProvenance')
+    await expect(mintRolloutRows([untraced], await seededStore())).rejects.toThrow(
+      /costProvenance is missing/,
+    )
+  })
+
+  it('still mints a well-formed record — the guard refuses gaps, not records', async () => {
+    const { rows } = await mintRolloutRows([record()], await seededStore())
+    expect(rows).toHaveLength(1)
+    expect(validateRolloutLine(rows[0]!)).toEqual([])
+  })
+
+  it('unmintableReasons partitions a ledger without an exception per record', async () => {
+    // What a caller holding 65 ledgers actually needs: which records predate
+    // 0.126, from the SAME list the door refuses on, so the two cannot drift.
+    const ledger = [
+      record(),
+      without(record({ runId: 'stale-1', costUsd: 0 }), 'costProvenance'),
+      without(record({ runId: 'stale-2' }), 'terminalOutcome', 'scenarioId'),
+    ]
+    expect(ledger.map((r) => unmintableReasons(r).length)).toEqual([0, 1, 2])
+
+    const mintable = ledger.filter((r) => unmintableReasons(r).length === 0)
+    const { rows } = await mintRolloutRows(mintable, await seededStore())
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.run_id).toBe('run-1')
+
+    // Every reason the inspector reports is a reason the door throws.
+    const stale = ledger[1]!
+    await expect(mintRolloutRows([stale], await seededStore())).rejects.toThrow(
+      unmintableReasons(stale)[0]!.split('.')[0],
+    )
   })
 })
 
