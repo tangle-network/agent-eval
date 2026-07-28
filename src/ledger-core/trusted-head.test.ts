@@ -412,13 +412,94 @@ describe('a pin left behind by a deleted journal', () => {
     await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
   })
 
-  it('clears a pin file that no longer parses, which nothing else can get past', async () => {
+  it('clears a pin file that no longer parses, and says why it could not name it', async () => {
     const path = journalPath()
     await seed(path, 2, { pinHead: true })
     writeFileSync(`${path}.head`, 'not json\n')
     await expect(open(path).replay()).rejects.toThrow(/is not valid JSON/)
 
-    await expect(open(path).clearTrustedHead()).resolves.toEqual({ removed: true, head: null })
+    await expect(open(path).clearTrustedHead()).resolves.toEqual({
+      removed: true,
+      head: null,
+      unreadable: expect.stringMatching(/is not valid JSON/),
+    })
     await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('clears a pin path occupied by something that is not a pin at all', async () => {
+    const path = journalPath()
+    await seed(path, 2, { pinHead: true })
+    rmSync(`${path}.head`)
+    mkdirSync(`${path}.head`)
+    await expect(open(path).replay()).rejects.toThrow(/could not be read/)
+
+    await expect(open(path).clearTrustedHead()).resolves.toEqual({
+      removed: true,
+      head: null,
+      unreadable: expect.stringMatching(/could not be read/),
+    })
+    await expect(open(path).replay()).resolves.toMatchObject({ entries: expect.any(Array) })
+  })
+
+  it('removes the atomic writer temporary sibling along with the pin', async () => {
+    const path = journalPath()
+    await seed(path, 2, { pinHead: true })
+    writeFileSync(`${path}.head.tmp`, 'stale\n')
+
+    await expect(open(path).clearTrustedHead()).resolves.toMatchObject({ removed: true })
+    expect(existsSync(`${path}.head.tmp`)).toBe(false)
+  })
+})
+
+describe('an unpinned journal is not given a misleading pin', () => {
+  it('refuses to pin a middle entry when there is no pin to repair', async () => {
+    const path = journalPath()
+    await seed(path, 20)
+    const journal = open(path)
+
+    // The pin file was deleted, or the journal predates pinning. Pinning the
+    // retried entry here would read as protection while 19 entries stayed
+    // truncatable.
+    const retry = await journal.append({ eventId: 'evt-0', value: 0 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toBeNull()
+
+    await expect(journal.pinTrustedHead()).resolves.toMatchObject({ sequence: 19 })
+  })
+
+  it('still repairs the head entry of an unpinned journal', async () => {
+    const path = journalPath()
+    await seed(path, 3)
+    const journal = open(path)
+
+    const retry = await journal.append({ eventId: 'evt-2', value: 2 }, { pinHead: true })
+    expect(retry.appended).toBe(false)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 2,
+      entryHash: retry.entry.entryHash,
+    })
+  })
+
+  it('keeps the pin monotone when concurrent retries of the same event race', async () => {
+    const path = journalPath()
+    await seed(path, 3, { pinHead: true })
+    const journal = open(path)
+    const unblock = blockPinWrite(path)
+    await expect(journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true })).rejects.toThrow(
+      TickIntegrityError,
+    )
+    unblock()
+
+    const retries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        journal.append({ eventId: 'evt-3', value: 3 }, { pinHead: true }),
+      ),
+    )
+    expect(retries.every((result) => result.appended === false)).toBe(true)
+    await expect(journal.trustedHead()).resolves.toEqual({
+      sequence: 3,
+      entryHash: retries[0]!.entry.entryHash,
+    })
+    expect(rows(path)).toHaveLength(4)
   })
 })

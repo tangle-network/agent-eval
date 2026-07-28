@@ -7,7 +7,7 @@ import {
   mkdirSync,
   openSync,
   renameSync,
-  unlinkSync,
+  rmSync,
   writeSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
@@ -60,11 +60,13 @@ export function writeLedgerFileAtomically(
   fsyncDirectory(directory)
 }
 
-/** Remove a sidecar file and fsync its directory, so the removal is as durable
- * as the write that created it. False when there was no file to remove. */
+/** Remove whatever occupies a sidecar path and fsync its directory, so the
+ * removal is as durable as the write that created it. False when the path was
+ * already empty. Recursive because a sidecar path holding a directory is one of
+ * the states this has to be able to clear, not one it can refuse. */
 export function removeLedgerFile(path: string, context: LedgerFileContext): boolean {
   try {
-    unlinkSync(path)
+    rmSync(path, { recursive: true })
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw context.integrityError(`${context.subject} ${path} could not be removed`, {

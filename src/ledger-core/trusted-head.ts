@@ -43,10 +43,12 @@
  * A pin outlives the journal it attests: deleting or rebuilding the journal
  * leaves a pin naming history the file no longer carries, and every read is
  * refused because that is precisely the deletion the pin exists to catch. The
- * refusal names the pin file, and `clearTrustedHeadFile` is the explicit,
- * auditable way to discard it — the same downgrade a writer with filesystem
- * access could already perform with `rm`, made reachable through the API so it
- * is a decision in the code rather than an undocumented manual step.
+ * refusal names the pin file, and `clearTrustedHeadFile` is the explicit way to
+ * discard it — the same downgrade a writer with filesystem access could already
+ * perform with `rm`, made reachable through the API so it is a decision in the
+ * code rather than an undocumented manual step. It returns the guarantee it
+ * gave up and writes no record of its own; a caller that needs the discard on
+ * the record has to write one.
  */
 
 import { readFileSync } from 'node:fs'
@@ -84,17 +86,19 @@ export function readTrustedHeadFile(
     text = readFileSync(path, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw context.integrityError(`${context.subject} trusted head ${path} could not be read`, {
-      cause: error,
-    })
+    throw context.integrityError(
+      `${context.subject} trusted head ${path} could not be read. Restore the file, or discard the pin it held with clearTrustedHead().`,
+      { cause: error },
+    )
   }
   let raw: unknown
   try {
     raw = JSON.parse(text)
   } catch (error) {
-    throw context.integrityError(`${context.subject} trusted head ${path} is not valid JSON`, {
-      cause: error,
-    })
+    throw context.integrityError(
+      `${context.subject} trusted head ${path} is not valid JSON. Restore the file, or discard the pin it held with clearTrustedHead().`,
+      { cause: error },
+    )
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw context.integrityError(`${context.subject} trusted head ${path} is not an object`)
@@ -122,7 +126,13 @@ export function readTrustedHeadFile(
 
 /** Publish a pin by write-then-rename, so a crash leaves either the previous
  * pin or the new one and never a torn file that would lock a journal out of
- * its own trust record. */
+ * its own trust record.
+ *
+ * Module-internal on purpose. It takes no lock, checks no chain, and enforces
+ * no monotonicity, so an exported form would be the one call in this package
+ * able to move a pin BACKWARD onto a journal it never read — which is the
+ * truncation the pin exists to refuse. `FileLedgerJournal.pinTrustedHead` is
+ * the public writer: locked, chain-verified, forward-only. */
 export function writeTrustedHeadFile(
   path: string,
   head: LedgerTrustedHead,
@@ -137,32 +147,40 @@ export function writeTrustedHeadFile(
   }
 }
 
-/** Outcome of discarding a pin. `head` is null when the file was present but
- * did not parse — the corruption case clearing exists to resolve. */
+/** Outcome of discarding a pin: the guarantee that was given up. `unreadable`
+ * carries why the discarded pin could not be named — corruption, a permission
+ * fault, a wrong file type — so a caller recording the decision never has to
+ * treat "no pin was there" and "the pin could not be read" as one state. */
 export type LedgerTrustedHeadRemoval =
-  | { removed: true; head: LedgerTrustedHead | null }
+  | { removed: true; head: LedgerTrustedHead }
+  | { removed: true; head: null; unreadable: string }
   | { removed: false }
 
 /** Discard a journal's pin, reporting what was discarded. The journal file is
  * untouched and reads as unpinned afterwards, so the next pinning append opens
- * a new pin at the entry it writes. This removes the deletion guarantee for
+ * a new pin at the entry it writes. This gives up the deletion guarantee for
  * every entry the pin covered; it is the recovery for a pin whose journal was
- * deliberately deleted or rebuilt, and the only way past a pin file that no
- * longer parses. */
+ * deliberately deleted or rebuilt, and the only way past a pin file that can no
+ * longer be read at all. */
 export function clearTrustedHeadFile(
   path: string,
   context: LedgerFileContext,
 ): LedgerTrustedHeadRemoval {
   let head: LedgerTrustedHead | null = null
+  let unreadable = ''
   try {
     head = readTrustedHeadFile(path, context)
-  } catch {
-    // A pin file that no longer parses is precisely what clearing has to be
-    // able to get past, so the read fault is reported as `head: null` on a
-    // removal that still happens rather than raised.
-    head = null
+  } catch (error) {
+    // A pin nobody can read is precisely what clearing has to get past, so the
+    // fault is reported on a removal that still happens rather than raised —
+    // but it is reported, never flattened into "there was no pin".
+    unreadable = error instanceof Error ? error.message : String(error)
   }
+  // The atomic writer's temporary sibling would otherwise outlive the pin it
+  // was staging, leaving the reset half-done.
+  removeLedgerFile(`${path}.tmp`, context)
   if (!removeLedgerFile(path, context)) return { removed: false }
+  if (head === null) return { removed: true, head: null, unreadable }
   return { removed: true, head }
 }
 
@@ -182,8 +200,17 @@ export function verifyEntriesAgainstTrustedHead(
   entries: readonly LedgerAnchoredEntry[],
   head: LedgerTrustedHead,
   context: LedgerFileContext,
-  { subject, trustedHeadPath }: LedgerTrustedHeadSubject,
+  naming: LedgerTrustedHeadSubject,
 ): void {
+  // A caller passing the bare subject string an untyped build would accept
+  // destructures into two undefineds, which would corrupt the text of a
+  // security refusal rather than fail. Refuse instead.
+  if (typeof naming !== 'object' || naming === null) {
+    throw new TypeError(
+      'verifyEntriesAgainstTrustedHead expects { subject, trustedHeadPath } as its fourth argument',
+    )
+  }
+  const { subject, trustedHeadPath } = naming
   const pinned = entries[head.sequence]
   if (pinned === undefined) {
     throw context.integrityError(

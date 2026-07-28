@@ -101,10 +101,10 @@ export interface LedgerAppendOptions {
    * can prove nothing was deleted from the end.
    *
    * On the idempotent path — the event is already durable — the pin moves up to
-   * that entry only when the entry is ahead of it. The entry is the caller's
-   * own byte-identical event, so the pin never jumps forward past entries this
-   * caller did not see, and a pin write that failed after its row was fsynced
-   * is repaired by the retry that idempotency already asks the caller for. */
+   * that entry only when the entry is ahead of it, along a chain this call has
+   * just verified. So a pin write that failed after its row was fsynced is
+   * repaired by the retry that idempotency already asks the caller for, and the
+   * pin still only ever moves forward over history it has checked. */
   pinHead?: boolean
 }
 
@@ -172,7 +172,7 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
               `eventId ${event.eventId} already exists with different content`,
             )
           }
-          if (options.pinHead === true) this.pinAcknowledged(existing)
+          if (options.pinHead === true) this.pinAcknowledged(existing, before.entries)
           return { entry: existing, appended: false, projection: before.projection }
         }
 
@@ -256,11 +256,26 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
 
   /** Move the pin up to an entry this caller just acknowledged on the
    * idempotent path, when a pin write that failed after its row was already
-   * fsynced left the pin behind. Every earlier entry is chain-bound to this
-   * one, so the move is monotone and proves exactly what the caller saw. */
-  private pinAcknowledged(entry: LedgerEntryOf<Header, Event>): void {
+   * fsynced left the pin behind. The move is safe because it is forward-only
+   * along a chain `replayLocked` has just verified: every entry up to this one
+   * is bound to it by hash, so the pin can only ever come to name more history
+   * than it did, never different history.
+   *
+   * With no pin at all this only pins the journal's current head. An entry in
+   * the middle would publish a pin that reads as protection while leaving every
+   * later entry silently truncatable, which is a worse state to hand an auditor
+   * than the honest absence of a pin; `pinTrustedHead()` is the way to pin an
+   * unpinned journal on purpose. */
+  private pinAcknowledged(
+    entry: LedgerEntryOf<Header, Event>,
+    entries: LedgerEntryOf<Header, Event>[],
+  ): void {
     const pinned = readTrustedHeadFile(this.trustedHeadPath, this.codec)
-    if (pinned !== null && pinned.sequence >= entry.sequence) return
+    if (pinned === null) {
+      if (entry.sequence !== entries.length - 1) return
+    } else if (pinned.sequence >= entry.sequence) {
+      return
+    }
     writeTrustedHeadFile(
       this.trustedHeadPath,
       { sequence: entry.sequence, entryHash: entry.entryHash },
@@ -283,7 +298,7 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
     if (pinned === null) {
       if (requirePin && entries.length > 0) {
         throw this.codec.integrityError(
-          `${this.codec.subject} ${this.path} has ${entries.length} entries but no trusted head at ${this.trustedHeadPath} — without its pin the journal cannot prove nothing was deleted`,
+          `${this.codec.subject} ${this.path} has ${entries.length} entries but no trusted head at ${this.trustedHeadPath} — without its pin the journal cannot prove nothing was deleted. Restore the pin file, or adopt the current head with pinTrustedHead().`,
         )
       }
       return

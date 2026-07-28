@@ -57,5 +57,4 @@ export {
   readTrustedHeadFile,
   trustedHeadPathFor,
   verifyEntriesAgainstTrustedHead,
-  writeTrustedHeadFile,
 } from './trusted-head'
