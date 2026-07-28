@@ -18,6 +18,7 @@ export {
   DEFAULT_JUDGE_MODEL,
   type JudgeConfig,
   type JudgeDimension,
+  type JudgeRunResult,
   type JudgeScore,
   renderDimensions,
   renderJsonFooter,

@@ -5,10 +5,19 @@
 //   - codeReview (scores each code artifact)
 //   - contentQuality (scores each non-code artifact)
 //
-// But the runJudge primitive is fully generic — any T → JudgeScore mapping.
+// But the runJudge primitive is fully generic: any input maps to a score plus
+// explicit observed, estimated, or uncaptured cost.
 
 import type { JudgeScore } from '../campaign/types'
-import { defaultRouterBaseUrl, requireRouterApiKey, routerCompletion } from './router'
+import type { CostProvenance } from '../cost-ledger'
+import type { LlmCallMetadata, LlmUsage } from '../llm-client'
+import { estimateCost, isModelPriced } from '../metrics'
+import {
+  defaultRouterBaseUrl,
+  type RouterCompletionResponse,
+  requireRouterApiKey,
+  routerCompletion,
+} from './router'
 
 // Canonical declaration lives in campaign/types.ts. Multishot emits the same
 // shape on its producer-defined 0-10 scale.
@@ -42,17 +51,27 @@ export interface JudgeConfig<TInput> {
   maxTokens?: number
 }
 
+export interface JudgeRunResult {
+  /** Semantic result; failed scores remain non-throwing so matrix aggregation can exclude them. */
+  score: JudgeScore
+  /** Cost of the completed call, separate from diagnostic provider metadata. */
+  cost: CostProvenance
+}
+
 export async function runJudge<TInput>(
   judge: JudgeConfig<TInput>,
   input: TInput,
-): Promise<JudgeScore> {
+): Promise<JudgeRunResult> {
   const apiKey = judge.apiKey ?? requireRouterApiKey()
   const baseUrl = judge.baseUrl ?? defaultRouterBaseUrl()
   const model = judge.model ?? process.env.JUDGE_MODEL ?? DEFAULT_JUDGE_MODEL
   const prompt = judge.buildPrompt(input)
   let raw = ''
+  let llmCall: LlmCallMetadata
+  let cost: CostProvenance
+  const startedAt = Date.now()
   try {
-    const { message } = await routerCompletion({
+    const response = await routerCompletion({
       apiKey,
       baseUrl,
       model,
@@ -63,15 +82,22 @@ export async function runJudge<TInput>(
         { role: 'user', content: prompt },
       ],
     })
-    raw = (message.content ?? '').trim()
+    const call = judgeCallMetadata(response)
+    llmCall = call.llmCall
+    cost = call.cost
+    raw = (response.message.content ?? '').trim()
   } catch (err) {
     // failed:true lets consumers reading `.composite` keep working while
     // aggregators exclude this score from means instead of averaging a zero.
     return {
-      dimensions: {},
-      composite: 0,
-      failed: true,
-      notes: `judge ${judge.name} call failed: ${err instanceof Error ? err.message : String(err)}`,
+      score: {
+        dimensions: {},
+        composite: 0,
+        failed: true,
+        notes: `judge ${judge.name} call failed: ${err instanceof Error ? err.message : String(err)}`,
+        llmCall: unknownJudgeCall(model, Date.now() - startedAt),
+      },
+      cost: { kind: 'uncaptured', usd: null },
     }
   }
 
@@ -84,10 +110,14 @@ export async function runJudge<TInput>(
     parsed = JSON.parse(cleaned) as Record<string, unknown>
   } catch {
     return {
-      dimensions: {},
-      composite: 0,
-      failed: true,
-      notes: `judge ${judge.name} returned non-JSON: ${raw.slice(0, 200)}`,
+      score: {
+        dimensions: {},
+        composite: 0,
+        failed: true,
+        notes: `judge ${judge.name} returned non-JSON: ${raw.slice(0, 200)}`,
+        llmCall,
+      },
+      cost,
     }
   }
 
@@ -100,10 +130,63 @@ export async function runJudge<TInput>(
     sum += clamped
   }
   return {
-    dimensions,
-    composite: judge.dimensions.length === 0 ? 0 : sum / judge.dimensions.length,
-    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    score: {
+      dimensions,
+      composite: judge.dimensions.length === 0 ? 0 : sum / judge.dimensions.length,
+      notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+      llmCall,
+    },
+    cost,
   }
+}
+
+function judgeCallMetadata(response: RouterCompletionResponse): {
+  llmCall: LlmCallMetadata
+  cost: CostProvenance
+} {
+  const usage = canonicalUsage(response.usage)
+  return {
+    llmCall: {
+      usage,
+      costUsd: response.costUsd ?? null,
+      model: response.model,
+      durationMs: response.durationMs,
+    },
+    cost:
+      response.costUsd !== undefined
+        ? { kind: 'observed', usd: response.costUsd }
+        : usage.captured === false || !isModelPriced(response.model)
+          ? { kind: 'uncaptured', usd: null }
+          : {
+              kind: 'estimated',
+              usd: estimateCost(usage.promptTokens, usage.completionTokens, response.model),
+            },
+  }
+}
+
+function canonicalUsage(usage: RouterCompletionResponse['usage']): LlmUsage {
+  const promptTokens = tokenCount(usage?.prompt_tokens)
+  const completionTokens = tokenCount(usage?.completion_tokens)
+  const captured = promptTokens !== undefined && completionTokens !== undefined
+  return {
+    promptTokens: promptTokens ?? 0,
+    completionTokens: completionTokens ?? 0,
+    totalTokens: (promptTokens ?? 0) + (completionTokens ?? 0),
+    captured,
+  }
+}
+
+function unknownJudgeCall(model: string, durationMs: number): LlmCallMetadata {
+  return {
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, captured: false },
+    costUsd: null,
+    model,
+    durationMs,
+  }
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
 /** Convenience: stringified dimension list for inclusion in a judge prompt.
