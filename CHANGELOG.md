@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.135.1] - 2026-07-28 - stable estimated-cost receipts
+
+### Fixed
+
+- Token-priced receipts now tolerate the machine-precision difference introduced when per-million rates are persisted and replayed as per-thousand rates.
+- Material disagreement between a receipt's estimated cost, token usage, and pricing snapshot still fails validation.
+
 ## [0.135.0] - 2026-07-28 - mint refuses what nobody measured
 
 ### Why a MINOR and not a patch
