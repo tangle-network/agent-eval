@@ -288,12 +288,22 @@
     {
       "fn": "studentTCdf",
       "args": [
+        1.98,
+        102
+      ],
+      "expect": 0.974801243001386,
+      "tolerance": 1e-09,
+      "note": "large-df Student-t tail, not a normal approximation"
+    },
+    {
+      "fn": "studentTCdf",
+      "args": [
         2.442903,
         298
       ],
-      "expect": 0.9927151736667716,
-      "tolerance": 7.5e-08,
-      "note": "df > 100 is the normal approximation by design"
+      "expect": 0.9924248971597961,
+      "tolerance": 1e-09,
+      "note": "large-df Student-t tail, not a normal approximation"
     },
     {
       "fn": "studentTCdf",
@@ -301,9 +311,9 @@
         1.5,
         500
       ],
-      "expect": 0.9331927987311419,
-      "tolerance": 7.5e-08,
-      "note": "df > 100 is the normal approximation by design"
+      "expect": 0.9328772254149731,
+      "tolerance": 1e-09,
+      "note": "large-df Student-t tail, not a normal approximation"
     },
     {
       "fn": "pairedTTest",

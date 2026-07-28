@@ -156,12 +156,12 @@ export function interRaterReliability(judgeScores: JudgeScore[][]): number {
 // the tie correction moves `[0,0,0]` versus `[1,1,1]` from 0.0495 to 0.0469,
 // further from its exact 0.1000, not closer.
 //
-// So both null distributions are enumerated exactly inside the thresholds
-// below, by convolution over the observed midranks (identical to enumerating
-// every split / sign pattern, and cheaper), which conditions on the realised
-// tie pattern for free. Above the thresholds the default is a seeded Monte
-// Carlo permutation. The asymptotic path is never chosen automatically, and
-// asking for it inside the exact-feasible range throws.
+// So both null distributions are enumerated exactly inside bounded state and
+// work budgets, by convolution over the observed midranks (identical to
+// enumerating every split / sign pattern, and cheaper), which conditions on the
+// realised tie pattern for free. Above those budgets the default is a seeded
+// Monte Carlo permutation. The asymptotic path is never chosen automatically,
+// and asking for it inside the exact-feasible range throws.
 //
 // Every result carries `method` and `pFloor` so a downstream gate can SEE the
 // discreteness rather than infer it: a gate handed data whose `pFloor` exceeds
@@ -187,8 +187,10 @@ export interface RankTestOptions {
   seed?: number
 }
 
-/** Total observations up to which the two-sample null is enumerated exactly. */
-export const MANN_WHITNEY_EXACT_MAX_N = 24
+/** Maximum dynamic-programming cells used by an exact two-sample rank test. */
+export const MANN_WHITNEY_EXACT_MAX_STATES = 8_192
+/** Maximum inner-loop transitions used by an exact two-sample rank test. */
+export const MANN_WHITNEY_EXACT_MAX_WORK = 250_000
 /** Non-zero differences up to which the signed-rank null is enumerated exactly. */
 export const WILCOXON_EXACT_MAX_N = 20
 /** Resamples used when a rank test falls back to Monte Carlo permutation. */
@@ -210,11 +212,14 @@ export interface MannWhitneyResult {
 /**
  * Mann-Whitney U — two independent samples, no distributional assumption.
  *
- * Exact conditional (permutation) p by default at `n₁ + n₂ ≤
- * {@link MANN_WHITNEY_EXACT_MAX_N}`, seeded Monte Carlo permutation above it.
- * Throws on non-finite input and on `method: 'asymptotic'` where an exact
- * answer is available. Empty input yields `p = 1, pFloor = 1` — no design, no
- * attainable evidence.
+ * Exact conditional (permutation) p by default when the dynamic program fits
+ * {@link MANN_WHITNEY_EXACT_MAX_STATES} cells and
+ * {@link MANN_WHITNEY_EXACT_MAX_WORK} transitions, seeded Monte Carlo
+ * permutation above those limits. This keeps imbalanced designs such as 1+24
+ * exact without admitting expensive balanced designs merely because they have
+ * the same total size. Throws on non-finite input and on `method:
+ * 'asymptotic'` where an exact answer is available. Empty input yields `p = 1,
+ * pFloor = 1` — no design, no attainable evidence.
  */
 export function mannWhitneyU(
   a: number[],
@@ -246,19 +251,24 @@ export function mannWhitneyU(
   // integral. U is centred on n₁n₂/2, hence a doubled centre of n₁n₂.
   const doubled = midranks.map((rank) => Math.round(rank * 2))
   const doubledDeviation = Math.abs(2 * uA - n1 * n2)
+  const selectedN = Math.min(n1, n2)
+  const otherN = total - selectedN
+  const exactCost = exactTwoSampleCost(doubled, selectedN)
 
-  const designFloor = Math.min(1, 2 / Math.exp(logChoose(total, n1)))
+  const designFloor = exactTwoSampleFloor(doubled, selectedN)
   const method = selectRankTestMethod(
     'mannWhitneyU',
     opts.method ?? 'auto',
     `n1=${n1}, n2=${n2}`,
-    total <= MANN_WHITNEY_EXACT_MAX_N,
+    exactCost.states <= MANN_WHITNEY_EXACT_MAX_STATES &&
+      exactCost.work <= MANN_WHITNEY_EXACT_MAX_WORK,
     designFloor,
-    `${MANN_WHITNEY_EXACT_MAX_N} total observations`,
+    `${MANN_WHITNEY_EXACT_MAX_STATES.toLocaleString('en-US')} states and ` +
+      `${MANN_WHITNEY_EXACT_MAX_WORK.toLocaleString('en-US')} transitions`,
   )
 
   if (method === 'exact') {
-    const { p, pFloor } = exactTwoSampleP(doubled, n1, n2, doubledDeviation)
+    const { p, pFloor } = exactTwoSampleP(doubled, selectedN, otherN, doubledDeviation)
     return { u, uA, p, method, pFloor }
   }
 
@@ -273,26 +283,39 @@ export function mannWhitneyU(
   }
 
   const permutations = resolvePermutations('mannWhitneyU', opts.permutations)
-  const rng = makeRng(opts.seed, a, b)
+  const rng =
+    opts.seed === undefined
+      ? makeRng(
+          undefined,
+          [...a].sort((left, right) => left - right),
+          [...b].sort((left, right) => left - right),
+        )
+      : makeRng(opts.seed)
   let atLeastAsExtreme = 0
   const pool = [...doubled]
   for (let iteration = 0; iteration < permutations; iteration++) {
     let doubledRankSum = 0
-    for (let k = 0; k < n1; k++) {
+    for (let k = 0; k < selectedN; k++) {
       const pick = k + Math.floor(rng() * (total - k))
       const swapped = pool[pick]!
       pool[pick] = pool[k]!
       pool[k] = swapped
       doubledRankSum += swapped
     }
-    if (Math.abs(doubledRankSum - n1 * (n1 + 1) - n1 * n2) >= doubledDeviation) atLeastAsExtreme++
+    if (
+      Math.abs(doubledRankSum - selectedN * (selectedN + 1) - selectedN * otherN) >=
+      doubledDeviation
+    ) {
+      atLeastAsExtreme++
+    }
   }
+  const pFloor = Math.max(1 / (permutations + 1), designFloor)
   return {
     u,
     uA,
-    p: (1 + atLeastAsExtreme) / (permutations + 1),
+    p: Math.max((1 + atLeastAsExtreme) / (permutations + 1), pFloor),
     method,
-    pFloor: Math.max(1 / (permutations + 1), designFloor),
+    pFloor,
   }
 }
 
@@ -1716,7 +1739,7 @@ function selectRankTestMethod(
   if (exactFeasible) {
     throw new ValidationError(
       `${fn}: method 'asymptotic' is refused at ${design} — the exact p-grid at this design ` +
-        `starts at ${designFloor.toFixed(4)}, so an asymptotic p below it describes no ` +
+        `starts at ${formatProbability(designFloor)}, so an asymptotic p below it describes no ` +
         `attainable outcome. Use method 'exact' (the default) or add repetitions past ` +
         `${threshold}.`,
     )
@@ -1749,6 +1772,79 @@ function twoSampleSigma(n1: number, n2: number, total: number, tieTerm: number):
 
 function logChoose(n: number, k: number): number {
   return lnGamma(n + 1) - lnGamma(k + 1) - lnGamma(n - k + 1)
+}
+
+function formatProbability(value: number): string {
+  return value >= 1e-4 || value === 0 ? value.toFixed(4) : value.toExponential(3)
+}
+
+/**
+ * Exact DP allocation and loop count for this observed rank vector.
+ *
+ * The smaller arm is sufficient because selecting its complement produces the
+ * same two-sided U deviation while using fewer rows in the state table.
+ */
+function exactTwoSampleCost(
+  doubledRanks: readonly number[],
+  selectedN: number,
+): { states: number; work: number } {
+  const maxSum = doubledRanks.reduce((sum, rank) => sum + rank, 0)
+  let work = 0
+  for (let placed = 0; placed < doubledRanks.length; placed++) {
+    work += Math.min(selectedN, placed + 1) * (maxSum - doubledRanks[placed]! + 1)
+  }
+  return {
+    states: (selectedN + 1) * (maxSum + 1),
+    work,
+  }
+}
+
+/**
+ * Smallest attainable two-sided p under the observed ties.
+ *
+ * Only subsets with the minimum or maximum rank sum can attain the largest
+ * deviation. Their multiplicity is the number of ways to choose within the
+ * tie group at each boundary, so this calculation is exact without allocating
+ * the full null distribution.
+ */
+function exactTwoSampleFloor(doubledRanks: readonly number[], selectedN: number): number {
+  const total = doubledRanks.length
+  const otherN = total - selectedN
+  const minimumSum = doubledRanks.slice(0, selectedN).reduce((sum, rank) => sum + rank, 0)
+  const maximumSum = doubledRanks.slice(total - selectedN).reduce((sum, rank) => sum + rank, 0)
+  if (minimumSum === maximumSum) return 1
+
+  const centre = selectedN * (selectedN + 1) + selectedN * otherN
+  const minimumDeviation = Math.abs(minimumSum - centre)
+  const maximumDeviation = Math.abs(maximumSum - centre)
+  const totalLogWays = logChoose(total, selectedN)
+  const minimumMass = Math.exp(
+    logExtremeSubsetWays(doubledRanks, selectedN, 'minimum') - totalLogWays,
+  )
+  const maximumMass = Math.exp(
+    logExtremeSubsetWays(doubledRanks, selectedN, 'maximum') - totalLogWays,
+  )
+
+  if (minimumDeviation > maximumDeviation) return minimumMass
+  if (maximumDeviation > minimumDeviation) return maximumMass
+  return Math.min(1, minimumMass + maximumMass)
+}
+
+function logExtremeSubsetWays(
+  sortedRanks: readonly number[],
+  selectedN: number,
+  side: 'minimum' | 'maximum',
+): number {
+  const boundaryIndex = side === 'minimum' ? selectedN - 1 : sortedRanks.length - selectedN
+  const boundary = sortedRanks[boundaryIndex]!
+  let first = boundaryIndex
+  let afterLast = boundaryIndex + 1
+  while (first > 0 && sortedRanks[first - 1] === boundary) first--
+  while (afterLast < sortedRanks.length && sortedRanks[afterLast] === boundary) afterLast++
+
+  const tieSize = afterLast - first
+  const fixed = side === 'minimum' ? first : sortedRanks.length - afterLast
+  return logChoose(tieSize, selectedN - fixed)
 }
 
 /**

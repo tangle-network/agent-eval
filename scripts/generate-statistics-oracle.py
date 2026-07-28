@@ -60,18 +60,17 @@ def normal_cdf_cases() -> list[dict]:
 
 
 def student_t_cases() -> list[dict]:
-    # df <= 100 exercises the incomplete beta including its symmetric branch;
-    # df > 100 is deliberately the normal approximation and is pinned against
-    # scipy.stats.norm rather than scipy.stats.t.
+    # Exercises the incomplete beta including its symmetric branch and keeps
+    # the large-df path pinned to Student-t rather than a normal shortcut.
     pairs = [(0.005, 100), (0.001, 7), (1e-6, 7), (0.02, 3), (0.058, 100),
              (0.5, 2), (1.0, 5), (1.96, 60), (2.0, 7), (-2.0, 7), (3.5, 12),
              (10.0, 5), (0.0, 5), (2.5, 100), (-1.3, 40)]
     out = [case("studentTCdf", [t, df], float(stats.t.cdf(t, df)), 1e-9,
                 "float64 cancellation in x = df/(df+t^2) floors this near t = 0")
            for t, df in pairs]
-    for t, df in [(2.442903, 298), (1.5, 500)]:
-        out.append(case("studentTCdf", [t, df], float(stats.norm.cdf(t)), PHI_TOL,
-                        "df > 100 is the normal approximation by design"))
+    for t, df in [(1.98, 102), (2.442903, 298), (1.5, 500)]:
+        out.append(case("studentTCdf", [t, df], float(stats.t.cdf(t, df)), 1e-9,
+                        "large-df Student-t tail, not a normal approximation"))
     return out
 
 

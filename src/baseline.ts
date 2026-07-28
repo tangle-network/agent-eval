@@ -13,7 +13,7 @@
  * Returns a structured verdict: improved | regressed | stable | unstable.
  */
 
-import { studentTCdf } from './math/student-t'
+import { studentTCdf, studentTQuantile } from './math/student-t'
 import { cohensD } from './statistics'
 
 export interface MetricSamples {
@@ -59,6 +59,29 @@ export interface BaselineOptions {
   unstableCvThreshold?: number
 }
 
+export type WelchTestStatus = 'ok' | 'insufficient-sample' | 'zero-variance'
+
+/**
+ * Full unequal-variance comparison for two independent samples.
+ *
+ * `meanB`, `delta`, `t`, and `cohensD` are oriented as `b - a`. Inferential
+ * fields are `NaN` and `ci95` is null when the sample count or observed
+ * variance cannot define a Student-t result. `status` makes that state
+ * explicit so callers cannot mistake it for evidence of no difference.
+ */
+export interface WelchTestResult {
+  status: WelchTestStatus
+  meanA: number
+  meanB: number
+  delta: number
+  standardError: number
+  t: number
+  df: number
+  p: number
+  ci95: [number, number] | null
+  cohensD: number | null
+}
+
 /**
  * Compare candidate samples against baseline per metric. Verdict logic:
  *   - unstable: IQR/|mean| > threshold on either set — not enough signal
@@ -75,14 +98,11 @@ export function compareToBaseline(
   const cvThreshold = options.unstableCvThreshold ?? 0.3
 
   const metrics: MetricVerdict[] = samples.map((s) => {
-    if (s.baseline.length < 2 || s.candidate.length < 2) {
+    const comparison = welchsTTest(s.baseline, s.candidate)
+    if (comparison.status === 'insufficient-sample') {
       throw new Error(`compareToBaseline: need ≥2 samples per side for "${s.metric}"`)
     }
-    const bMean = mean(s.baseline)
-    const cMean = mean(s.candidate)
-    const delta = cMean - bMean
-    const d = cohensD(s.baseline, s.candidate) // positive = candidate higher
-    const { t, df, p } = welchsTTest(s.baseline, s.candidate)
+    const { meanA: bMean, meanB: cMean, delta, cohensD: d, t, df, p } = comparison
     // Stability is per-side: a comparison is trustworthy only when BOTH
     // samples are internally consistent. Combining the sides would flag
     // large-but-real deltas as "unstable" which is exactly what we want
@@ -102,7 +122,7 @@ export function compareToBaseline(
     let verdict: MetricVerdict['verdict']
     if (!stable) {
       verdict = 'unstable'
-    } else if (p < alpha && effectClears) {
+    } else if (comparison.status === 'ok' && p < alpha && effectClears) {
       const candidateIsBetter = s.higherIsBetter ? delta > 0 : delta < 0
       verdict = candidateIsBetter ? 'improved' : 'regressed'
     } else {
@@ -149,26 +169,83 @@ export function iqr(xs: number[]): number {
 }
 
 /**
- * Welch's t-test — unequal-variance two-sample t. Uses the same Student-t
- * CDF as `pairedTTest` (via incomplete beta); falls back to normal tail
- * when df is large.
+ * Welch's t-test and 95% interval for two independent samples.
+ *
+ * Uses the Student-t distribution at every finite degree of freedom. Fewer
+ * than two observations per side and zero observed standard error cannot
+ * define a t reference distribution; those cases return an explicit status,
+ * `NaN` inferential fields, and no interval rather than fabricated certainty.
  */
-export function welchsTTest(a: number[], b: number[]): { t: number; df: number; p: number } {
-  if (a.length < 2 || b.length < 2) return { t: 0, df: 0, p: 1 }
+export function welchsTTest(a: number[], b: number[]): WelchTestResult {
+  assertFiniteSample('a', a)
+  assertFiniteSample('b', b)
   const mA = mean(a)
   const mB = mean(b)
+  const delta = mB - mA
+  if (a.length < 2 || b.length < 2) {
+    return {
+      status: 'insufficient-sample',
+      meanA: mA,
+      meanB: mB,
+      delta,
+      standardError: Number.NaN,
+      t: Number.NaN,
+      df: Number.NaN,
+      p: Number.NaN,
+      ci95: null,
+      cohensD: null,
+    }
+  }
+
   const vA = variance(a, mA)
   const vB = variance(b, mB)
   const seSquared = vA / a.length + vB / b.length
-  if (seSquared === 0) return { t: mA === mB ? 0 : Infinity, df: 0, p: mA === mB ? 1 : 0 }
-  const t = (mB - mA) / Math.sqrt(seSquared)
+  const d = cohensD(a, b)
+  if (seSquared === 0) {
+    return {
+      status: 'zero-variance',
+      meanA: mA,
+      meanB: mB,
+      delta,
+      standardError: 0,
+      t: delta === 0 ? 0 : Math.sign(delta) * Number.POSITIVE_INFINITY,
+      df: Number.NaN,
+      p: Number.NaN,
+      ci95: null,
+      cohensD: d,
+    }
+  }
+
+  const standardError = Math.sqrt(seSquared)
+  const t = delta / standardError
   const df =
     (seSquared * seSquared) /
     ((vA / a.length) ** 2 / (a.length - 1) + (vB / b.length) ** 2 / (b.length - 1))
   const p = 2 * (1 - studentTCdf(Math.abs(t), df))
-  return { t, df, p }
+  const halfWidth = studentTQuantile(0.975, df) * standardError
+  return {
+    status: 'ok',
+    meanA: mA,
+    meanB: mB,
+    delta,
+    standardError,
+    t,
+    df,
+    p,
+    ci95: [delta - halfWidth, delta + halfWidth],
+    cohensD: d,
+  }
 }
 
 function variance(xs: number[], m: number): number {
   return xs.reduce((acc, x) => acc + (x - m) ** 2, 0) / (xs.length - 1)
+}
+
+function assertFiniteSample(name: string, sample: readonly number[]): void {
+  const invalid = sample.find((value) => !Number.isFinite(value))
+  if (invalid !== undefined) {
+    throw new RangeError(
+      `welchsTTest: sample ${name} must contain only finite values, got ${invalid}`,
+    )
+  }
 }

@@ -308,9 +308,8 @@ export { runLiveProof } from './live-proof'
 // `normalCdf` and `studentTCdf` are public because `baseline.ts` and
 // `contract/analyze-runs.ts` consume them instead of holding their own copies,
 // and because each owes callers a stated accuracy bound: `normalCdf` is
-// Abramowitz & Stegun 7.1.26, accurate to 7.5e-8 absolute; `studentTCdf` is
-// exact to the incomplete beta below df = 100 and the normal approximation
-// above it.
+// Abramowitz & Stegun 7.1.26, accurate to 7.5e-8 absolute; `studentTCdf` uses
+// the regularized incomplete beta at every finite degree of freedom.
 export { normalCdf } from './math/normal'
 export { studentTCdf } from './math/student-t'
 export {
@@ -473,7 +472,8 @@ export {
   holm,
   interpretCliffs,
   interRaterReliability,
-  MANN_WHITNEY_EXACT_MAX_N,
+  MANN_WHITNEY_EXACT_MAX_STATES,
+  MANN_WHITNEY_EXACT_MAX_WORK,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
@@ -850,7 +850,14 @@ export {
   HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
-export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
+export type {
+  BaselineOptions,
+  BaselineReport,
+  MetricSamples,
+  MetricVerdict,
+  WelchTestResult,
+  WelchTestStatus,
+} from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
   ChannelRollup,
