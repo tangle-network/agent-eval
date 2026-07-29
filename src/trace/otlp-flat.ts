@@ -47,7 +47,7 @@ export function createOtlpFlatLine(input: CreateOtlpFlatLineInput): OtlpFlatLine
     end_time: input.endTime,
     status: {
       code: input.statusCode,
-      ...(input.statusMessage ? { message: input.statusMessage } : {}),
+      ...(input.statusMessage !== undefined ? { message: input.statusMessage } : {}),
     },
     resource: input.resource,
     attributes: input.attributes,

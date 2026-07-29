@@ -811,7 +811,7 @@ export function toolSpansToTraceAnalysisStore(
     const line = createOtlpFlatLine({
       traceId: span.runId,
       spanId: span.spanId,
-      parentSpanId: span.parentSpanId ?? '',
+      parentSpanId: span.parentSpanId ?? null,
       name: span.name,
       kind: 'SPAN_KIND_INTERNAL',
       startTime: toolSpanTimeIso(span.startedAt, span.spanId, 'startedAt'),
@@ -835,6 +835,11 @@ export function toolSpansToTraceAnalysisStore(
 }
 
 function assertToolSpanIdentity(span: ToolSpan, index: number): void {
+  if (span.kind !== 'tool') {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span at index ${index} has kind '${String(span.kind)}', not 'tool'`,
+    )
+  }
   if (!span.runId || !span.spanId || !span.name || !span.toolName) {
     throw new CaptureIntegrityError(
       `toolSpansToTraceAnalysisStore: span at index ${index} is missing runId, spanId, name, or toolName`,

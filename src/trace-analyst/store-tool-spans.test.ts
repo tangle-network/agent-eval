@@ -120,5 +120,28 @@ describe('toolSpansToTraceAnalysisStore', () => {
     expect(() =>
       toolSpansToTraceAnalysisStore([tool({ startedAt: 2_000, endedAt: 1_999 })]),
     ).toThrow(CaptureIntegrityError)
+    expect(() => toolSpansToTraceAnalysisStore([tool({ endedAt: Number.NaN })])).toThrow(
+      CaptureIntegrityError,
+    )
+    expect(() => toolSpansToTraceAnalysisStore([tool({ latencyMs: -1 })])).toThrow(
+      CaptureIntegrityError,
+    )
+  })
+
+  it('rejects values that defeat the ToolSpan compile-time contract', () => {
+    expect(() =>
+      toolSpansToTraceAnalysisStore([tool({ kind: 'llm' as ToolSpan['kind'] })]),
+    ).toThrow(CaptureIntegrityError)
+    expect(() => toolSpansToTraceAnalysisStore([tool({ runId: '' })])).toThrow(
+      CaptureIntegrityError,
+    )
+  })
+
+  it('rejects attributes that cannot be serialized instead of losing them', () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(() => toolSpansToTraceAnalysisStore([tool({ attributes: circular })])).toThrow(
+      CaptureIntegrityError,
+    )
   })
 })

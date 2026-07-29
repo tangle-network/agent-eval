@@ -58,10 +58,12 @@ import {
   analyzeTraces,
   toolSpansToTraceAnalysisStore,
   type ToolSpan,
+  ToolTraceMissingError,
 } from '@tangle-network/agent-eval/traces'
 
 declare const capturedToolSpans: ToolSpan[] | undefined
 
+if (!capturedToolSpans?.length) throw new ToolTraceMissingError()
 const source = toolSpansToTraceAnalysisStore(capturedToolSpans)
 const result = await analyzeTraces({ question: 'Why are tools failing?' }, { source, ai, model })
 ```

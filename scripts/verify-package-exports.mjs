@@ -395,6 +395,8 @@ try {
       })
       void [
         store,
+        packedToolStore,
+        packedMissingTraceCode,
         removedProviderSdk,
         removedBenchmarkRetry,
         removedExecutorRetry,
