@@ -117,5 +117,8 @@ describe('toolSpansToTraceAnalysisStore', () => {
     expect(() => toolSpansToTraceAnalysisStore([tool({ startedAt: Number.MAX_VALUE })])).toThrow(
       CaptureIntegrityError,
     )
+    expect(() =>
+      toolSpansToTraceAnalysisStore([tool({ startedAt: 2_000, endedAt: 1_999 })]),
+    ).toThrow(CaptureIntegrityError)
   })
 })

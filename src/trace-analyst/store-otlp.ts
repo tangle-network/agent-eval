@@ -28,6 +28,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { CaptureIntegrityError, NotFoundError } from '../errors'
 import { applyToolSpanOtlpAttributes, OPENINFERENCE_SPAN_KIND } from '../trace/otlp-attributes'
+import { createOtlpFlatLine, epochMillisToIso, spanStatusToOtlp } from '../trace/otlp-flat'
 import type { ToolSpan } from '../trace/schema'
 import {
   compareSpanTime,
@@ -807,24 +808,19 @@ export function toolSpansToTraceAnalysisStore(
     attributes[OPENINFERENCE_SPAN_KIND] = 'TOOL'
 
     const endedAt = span.endedAt ?? span.startedAt + (span.latencyMs ?? 0)
-    const status =
-      span.status === 'error' || span.error
-        ? 'STATUS_CODE_ERROR'
-        : span.status === 'ok'
-          ? 'STATUS_CODE_OK'
-          : 'STATUS_CODE_UNSET'
-    const line = {
-      trace_id: span.runId,
-      span_id: span.spanId,
-      parent_span_id: span.parentSpanId ?? '',
+    const line = createOtlpFlatLine({
+      traceId: span.runId,
+      spanId: span.spanId,
+      parentSpanId: span.parentSpanId ?? '',
       name: span.name,
       kind: 'SPAN_KIND_INTERNAL',
-      start_time: toolSpanTimeIso(span.startedAt, span.spanId, 'startedAt'),
-      end_time: toolSpanTimeIso(endedAt, span.spanId, 'endedAt'),
-      status: { code: status, message: span.error ?? '' },
+      startTime: toolSpanTimeIso(span.startedAt, span.spanId, 'startedAt'),
+      endTime: toolSpanTimeIso(endedAt, span.spanId, 'endedAt'),
+      statusCode: spanStatusToOtlp(span.status, span.error, 'STATUS_CODE_UNSET'),
+      statusMessage: span.error,
       resource: { attributes: {} },
       attributes,
-    }
+    })
     try {
       return JSON.stringify(line)
     } catch (cause) {
@@ -854,6 +850,11 @@ function assertToolSpanIdentity(span: ToolSpan, index: number): void {
       `toolSpansToTraceAnalysisStore: span '${span.spanId}' has invalid endedAt`,
     )
   }
+  if (span.endedAt !== undefined && span.endedAt < span.startedAt) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span '${span.spanId}' ends before it starts`,
+    )
+  }
   if (span.latencyMs !== undefined && (!Number.isFinite(span.latencyMs) || span.latencyMs < 0)) {
     throw new CaptureIntegrityError(
       `toolSpansToTraceAnalysisStore: span '${span.spanId}' has invalid latencyMs`,
@@ -862,14 +863,11 @@ function assertToolSpanIdentity(span: ToolSpan, index: number): void {
 }
 
 function toolSpanTimeIso(value: number, spanId: string, field: string): string {
-  try {
-    return new Date(value).toISOString()
-  } catch (cause) {
-    throw new CaptureIntegrityError(
-      `toolSpansToTraceAnalysisStore: span '${spanId}' has invalid ${field}`,
-      { cause },
-    )
-  }
+  const iso = epochMillisToIso(value)
+  if (iso) return iso
+  throw new CaptureIntegrityError(
+    `toolSpansToTraceAnalysisStore: span '${spanId}' has invalid ${field}`,
+  )
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────
