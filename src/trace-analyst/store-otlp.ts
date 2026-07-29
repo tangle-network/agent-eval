@@ -26,7 +26,9 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { NotFoundError } from '../errors'
+import { CaptureIntegrityError, NotFoundError } from '../errors'
+import { applyToolSpanOtlpAttributes, OPENINFERENCE_SPAN_KIND } from '../trace/otlp-attributes'
+import type { ToolSpan } from '../trace/schema'
 import {
   compareSpanTime,
   extractOtlpAttributes,
@@ -105,9 +107,7 @@ interface DatasetIndex {
   sortedTraceIds: string[]
 }
 
-export interface OtlpFileTraceStoreOptions {
-  /** Path to the OTLP-JSONL file. */
-  path: string
+export interface ToolSpansToTraceAnalysisStoreOptions {
   /** Override the discovery (`viewTrace`) per-attribute byte cap. */
   perAttributeViewBudget?: number
   /** Override the surgical (`viewSpans`) per-attribute byte cap. */
@@ -116,6 +116,13 @@ export interface OtlpFileTraceStoreOptions {
   perCallByteCeiling?: number
   /** Override the per-match text budget. */
   perMatchTextBudget?: number
+}
+
+type BufferedOtlpTraceStoreOptions = ToolSpansToTraceAnalysisStoreOptions
+
+export interface OtlpFileTraceStoreOptions extends BufferedOtlpTraceStoreOptions {
+  /** Path to the OTLP-JSONL file. */
+  path: string
   /**
    * Hard ceiling on the trace file size in bytes. The store reads the
    * whole file into one Buffer and indexes it in memory, so an
@@ -129,21 +136,17 @@ export interface OtlpFileTraceStoreOptions {
 /** Default ceiling for {@link OtlpFileTraceStoreOptions.maxFileBytes}. */
 export const DEFAULT_MAX_TRACE_FILE_BYTES = 256 * 1024 * 1024
 
-export class OtlpFileTraceStore implements TraceAnalysisStore {
-  private readonly path: string
+abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
   private readonly perAttributeViewBudget: number
   private readonly perAttributeSpanBudget: number
   private readonly perCallByteCeiling: number
   private readonly perMatchTextBudget: number
-  private readonly maxFileBytes: number
   private indexPromise?: Promise<DatasetIndex>
-  /** Cached UTF-8 buffer of the file. We pin it once because every
-   *  read needs slice access and re-reading on each call balloons the
-   *  syscall count. */
+  /** Cached UTF-8 buffer. Every read needs slice access, so each source is
+   *  materialised once. */
   private bufferPromise?: Promise<Buffer>
 
-  constructor(opts: OtlpFileTraceStoreOptions) {
-    this.path = opts.path
+  constructor(opts: BufferedOtlpTraceStoreOptions) {
     this.perAttributeViewBudget =
       opts.perAttributeViewBudget ?? DEFAULT_TRACE_ANALYST_BUDGETS.perAttributeViewBudget
     this.perAttributeSpanBudget =
@@ -152,7 +155,6 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       opts.perCallByteCeiling ?? DEFAULT_TRACE_ANALYST_BUDGETS.perCallByteCeiling
     this.perMatchTextBudget =
       opts.perMatchTextBudget ?? DEFAULT_TRACE_ANALYST_BUDGETS.perMatchTextBudget
-    this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_TRACE_FILE_BYTES
   }
 
   // ─── Public API ────────────────────────────────────────────────────
@@ -414,29 +416,12 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
 
   private async buffer(): Promise<Buffer> {
     if (!this.bufferPromise) {
-      this.bufferPromise = this.readGuarded()
+      this.bufferPromise = this.readBuffer()
     }
     return this.bufferPromise
   }
 
-  /** Stat-then-read so an oversized file fails loud BEFORE we allocate a
-   *  multi-hundred-MB Buffer and OOM the process. A missing file surfaces
-   *  as TraceFileMissingError; any other stat/read error propagates. */
-  private async readGuarded(): Promise<Buffer> {
-    let stats: Awaited<ReturnType<typeof stat>>
-    try {
-      stats = await stat(this.path)
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-        throw new TraceFileMissingError(this.path)
-      }
-      throw err
-    }
-    if (stats.size > this.maxFileBytes) {
-      throw new TraceFileTooLargeError(this.path, stats.size, this.maxFileBytes)
-    }
-    return readFile(this.path)
-  }
+  protected abstract readBuffer(): Promise<Buffer>
 
   private async index(): Promise<DatasetIndex> {
     if (!this.indexPromise) {
@@ -743,6 +728,147 @@ export class OtlpFileTraceStore implements TraceAnalysisStore {
       m = globalRe.exec(slice)
     }
     return { records, total, hasMore }
+  }
+}
+
+export class OtlpFileTraceStore extends BufferedOtlpTraceStore {
+  private readonly path: string
+  private readonly maxFileBytes: number
+
+  constructor(opts: OtlpFileTraceStoreOptions) {
+    super(opts)
+    this.path = opts.path
+    this.maxFileBytes = opts.maxFileBytes ?? DEFAULT_MAX_TRACE_FILE_BYTES
+  }
+
+  /** Stat-then-read so an oversized file fails loud before allocating the
+   *  source buffer. Missing files remain distinct from malformed traces. */
+  protected async readBuffer(): Promise<Buffer> {
+    let stats: Awaited<ReturnType<typeof stat>>
+    try {
+      stats = await stat(this.path)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        throw new TraceFileMissingError(this.path)
+      }
+      throw err
+    }
+    if (stats.size > this.maxFileBytes) {
+      throw new TraceFileTooLargeError(this.path, stats.size, this.maxFileBytes)
+    }
+    return readFile(this.path)
+  }
+}
+
+class OtlpBufferTraceStore extends BufferedOtlpTraceStore {
+  constructor(
+    private readonly source: Buffer,
+    opts: BufferedOtlpTraceStoreOptions,
+  ) {
+    super(opts)
+  }
+
+  protected async readBuffer(): Promise<Buffer> {
+    return this.source
+  }
+}
+
+/** Missing tool spans cannot distinguish a tool-free run from broken capture. */
+export class ToolTraceMissingError extends CaptureIntegrityError {
+  constructor() {
+    super('toolSpansToTraceAnalysisStore: no tool spans supplied; trace evidence is missing')
+  }
+}
+
+/**
+ * Snapshot canonical tool spans into the bounded read interface used by trace analysts.
+ * One `runId` becomes one trace; arguments, results, source attributes, errors, and timing
+ * remain queryable through the same OTLP projection as file-backed traces.
+ */
+export function toolSpansToTraceAnalysisStore(
+  spans: readonly ToolSpan[] | null | undefined,
+  opts: ToolSpansToTraceAnalysisStoreOptions = {},
+): TraceAnalysisStore {
+  if (!spans || spans.length === 0) throw new ToolTraceMissingError()
+
+  const seen = new Set<string>()
+  const lines = spans.map((span, index) => {
+    assertToolSpanIdentity(span, index)
+    const identity = `${span.runId}\u0000${span.spanId}`
+    if (seen.has(identity)) {
+      throw new CaptureIntegrityError(
+        `toolSpansToTraceAnalysisStore: duplicate span '${span.spanId}' in run '${span.runId}'`,
+      )
+    }
+    seen.add(identity)
+
+    const attributes = { ...(span.attributes ?? {}) }
+    applyToolSpanOtlpAttributes(attributes, span)
+    attributes[OPENINFERENCE_SPAN_KIND] = 'TOOL'
+
+    const endedAt = span.endedAt ?? span.startedAt + (span.latencyMs ?? 0)
+    const status =
+      span.status === 'error' || span.error
+        ? 'STATUS_CODE_ERROR'
+        : span.status === 'ok'
+          ? 'STATUS_CODE_OK'
+          : 'STATUS_CODE_UNSET'
+    const line = {
+      trace_id: span.runId,
+      span_id: span.spanId,
+      parent_span_id: span.parentSpanId ?? '',
+      name: span.name,
+      kind: 'SPAN_KIND_INTERNAL',
+      start_time: toolSpanTimeIso(span.startedAt, span.spanId, 'startedAt'),
+      end_time: toolSpanTimeIso(endedAt, span.spanId, 'endedAt'),
+      status: { code: status, message: span.error ?? '' },
+      resource: { attributes: {} },
+      attributes,
+    }
+    try {
+      return JSON.stringify(line)
+    } catch (cause) {
+      throw new CaptureIntegrityError(
+        `toolSpansToTraceAnalysisStore: span '${span.spanId}' in run '${span.runId}' is not JSON-serializable`,
+        { cause },
+      )
+    }
+  })
+
+  return new OtlpBufferTraceStore(Buffer.from(`${lines.join('\n')}\n`, 'utf8'), opts)
+}
+
+function assertToolSpanIdentity(span: ToolSpan, index: number): void {
+  if (!span.runId || !span.spanId || !span.name || !span.toolName) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span at index ${index} is missing runId, spanId, name, or toolName`,
+    )
+  }
+  if (!Number.isFinite(span.startedAt)) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span '${span.spanId}' has invalid startedAt`,
+    )
+  }
+  if (span.endedAt !== undefined && !Number.isFinite(span.endedAt)) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span '${span.spanId}' has invalid endedAt`,
+    )
+  }
+  if (span.latencyMs !== undefined && (!Number.isFinite(span.latencyMs) || span.latencyMs < 0)) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span '${span.spanId}' has invalid latencyMs`,
+    )
+  }
+}
+
+function toolSpanTimeIso(value: number, spanId: string, field: string): string {
+  try {
+    return new Date(value).toISOString()
+  } catch (cause) {
+    throw new CaptureIntegrityError(
+      `toolSpansToTraceAnalysisStore: span '${spanId}' has invalid ${field}`,
+      { cause },
+    )
   }
 }
 
