@@ -22,6 +22,7 @@ import {
   pairedCohensDz,
   pairedMde,
   pairedRiskDifference,
+  pairedRiskDifferenceExact,
   pairedSignTest,
   pairedTTest,
   partialCredit,
@@ -816,6 +817,79 @@ describe('pairedRiskDifference — paired-binary effect size + CI', () => {
 
   it('throws on unequal lengths', () => {
     expect(() => pairedRiskDifference([0, 1, 1], [0, 1])).toThrow(/unequal sample sizes/)
+  })
+})
+
+describe('pairedRiskDifferenceExact — the interval a gate may decide on', () => {
+  /** b treatment-wins, c control-wins, `ties` concordant pairs. */
+  const arms = (b: number, c: number, ties: number) => {
+    const control: number[] = []
+    const treatment: number[] = []
+    for (let i = 0; i < b; i++) {
+      control.push(0)
+      treatment.push(1)
+    }
+    for (let i = 0; i < c; i++) {
+      control.push(1)
+      treatment.push(0)
+    }
+    for (let i = 0; i < ties; i++) {
+      control.push(1)
+      treatment.push(1)
+    }
+    return { control, treatment }
+  }
+
+  it('matches the closed-form Clopper-Pearson bound (Beta(2,1) ⇒ √0.025)', () => {
+    // b=2 of m=2 discordant: the exact lower bound on π is qbeta(0.025, 2, 1),
+    // and Beta(2,1)'s CDF is x², so the bound is exactly √0.025 = 0.1581139.
+    // RD = (2π − 1)·m/n with m=2, n=3.
+    const { control, treatment } = arms(2, 0, 1)
+    const r = pairedRiskDifferenceExact(control, treatment, 0.95)
+    expect(r.riskDifference).toBeCloseTo(2 / 3, 12)
+    expect(r.lower).toBeCloseTo((2 * Math.sqrt(0.025) - 1) * (2 / 3), 5)
+    expect(r.upper).toBeCloseTo(2 / 3, 12)
+  })
+
+  it('DOES NOT exclude 0 where the Wald interval does — the small-n undercoverage', () => {
+    const { control, treatment } = arms(2, 0, 1)
+    expect(pairedRiskDifference(control, treatment, 0.95).lower).toBeGreaterThan(0)
+    expect(pairedRiskDifferenceExact(control, treatment, 0.95).lower).toBeLessThan(0)
+    expect(pairedRiskDifferenceExact(control, treatment, 0.95).pValue).toBeCloseTo(0.5, 12)
+  })
+
+  it("is DUAL to McNemar's exact test over every shape up to 25×25", () => {
+    // The property a promotion gate rests on: the interval excludes 0 exactly
+    // when the exact test rejects, so a gate keyed on `lower > 0` can never
+    // promote what the exact test refuses — at any confidence level.
+    let checked = 0
+    for (const confidence of [0.8, 0.9, 0.95, 0.99]) {
+      const alpha = 1 - confidence
+      for (let b = 0; b <= 25; b++) {
+        for (let c = 0; c <= 25; c++) {
+          for (const ties of [0, 3, 40]) {
+            const { control, treatment } = arms(b, c, ties)
+            if (control.length === 0) continue
+            const r = pairedRiskDifferenceExact(control, treatment, confidence)
+            const rejects = mcnemar(control, treatment).pValue < alpha
+            expect(r.pValue).toBe(mcnemar(control, treatment).pValue)
+            expect(r.lower > 0 || r.upper < 0).toBe(rejects)
+            checked++
+          }
+        }
+      }
+    }
+    expect(checked).toBe(8108)
+  })
+
+  it('no discordant pairs ⇒ a degenerate [0,0] the caller must read as "cannot decide"', () => {
+    const r = pairedRiskDifferenceExact([1, 1, 1, 1], [1, 1, 1, 1], 0.95)
+    expect(r).toMatchObject({ nDiscordant: 0, riskDifference: 0, lower: 0, upper: 0, pValue: 1 })
+  })
+
+  it('fails loud on mismatched input', () => {
+    expect(() => pairedRiskDifferenceExact([0, 1, 1], [0, 1])).toThrow(/unequal sample sizes/)
+    expect(() => pairedRiskDifferenceExact([0, 1], [0, 1], 1.5)).toThrow(/confidence/)
   })
 })
 

@@ -25,7 +25,11 @@
  */
 
 import { pairedDeltaTest } from '../../paired-delta-test'
-import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
+import {
+  DECISION_PAIRED_DELTA_STATISTIC,
+  type PairedBootstrapResult,
+  pairedBootstrap,
+} from '../../statistics'
 import type { JudgeScore } from '../types'
 
 /** Tie fraction at/above which a gate annotates its verdict with the tie share.
@@ -221,8 +225,14 @@ export function heldoutSignificance(
 export interface DimensionRegression {
   dimension: string
   bootstrap: PairedBootstrapResult
-  /** True iff the CI lower bound on (candidate − baseline) is below −tolerance:
-   *  the candidate may have regressed this dimension by more than tolerance. */
+  /** Which paired statistic `bootstrap.low` is the lower bound of, and therefore
+   *  what `regressed` was decided on. `'mean'` unless the caller asked for the
+   *  median. `bootstrap.median` still carries the median point estimate either
+   *  way. */
+  bootstrapStatistic: 'median' | 'mean'
+  /** True iff the candidate may have regressed this dimension by more than
+   *  tolerance: the CI lower bound on (candidate − baseline) is below
+   *  −tolerance, OR the exact small-sample test proves a drop past tolerance. */
   regressed: boolean
   tolerance: number
   n: number
@@ -240,36 +250,59 @@ export function detectScale(values: number[]): 1 | 100 {
  *  a dimension is "regressed" when the CI lower bound < −tolerance (conservative
  *  — blocks if the credible worst case exceeds tolerance, which is the right
  *  posture for safety dimensions like `hallucination_free`). When `tolerance`
- *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100. */
+ *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100.
+ *
+ *  The CI is on the MEAN paired delta by default
+ *  ({@link DECISION_PAIRED_DELTA_STATISTIC}). On the median this guard fails
+ *  OPEN: when most pairs tie — automatic for a pass/fail dimension, on {0,1}
+ *  and on the 0-100 encoding `detectScale` exists to support — the median CI
+ *  collapses to [0,0], never drops below −tolerance, and a real regression on a
+ *  safety dimension is reported as `regressed: false`. Pass
+ *  `statistic: 'median'` to restore the pre-0.134 behaviour. */
 export function dimensionRegressions(
   candidate: Map<string, Record<string, JudgeScore>>,
   baseline: Map<string, Record<string, JudgeScore>>,
   scenarioIds: Set<string>,
   criticalDimensions: string[],
-  opts: { tolerance?: number; confidence?: number; resamples?: number; seed?: number } = {},
+  opts: {
+    tolerance?: number
+    confidence?: number
+    resamples?: number
+    seed?: number
+    /** Paired statistic the CI is computed on. Default `'mean'` — see
+     *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
+    statistic?: 'mean' | 'median'
+  } = {},
 ): DimensionRegression[] {
   const out: DimensionRegression[] = []
   for (const dim of criticalDimensions) {
     const paired = pairHoldout(candidate, baseline, scenarioIds, (s) => s.dimensions[dim])
     if (paired.before.length === 0) continue // dimension not scored on this judge
     const tolerance = opts.tolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
+    const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
     const bootstrap = pairedBootstrap(paired.before, paired.after, {
       confidence: opts.confidence ?? 0.95,
       resamples: opts.resamples ?? 2000,
-      statistic: 'median',
+      statistic: bootstrapStatistic,
       seed: opts.seed ?? 1337,
     })
     const regression = pairedDeltaTest(paired.after, paired.before, {
       confidence: opts.confidence ?? 0.95,
       resamples: opts.resamples ?? 2000,
-      statistic: 'median',
+      statistic: bootstrapStatistic,
       seed: opts.seed ?? 1337,
       threshold: tolerance,
     })
     out.push({
       dimension: dim,
       bootstrap,
-      regressed: regression.significant,
+      bootstrapStatistic,
+      // Fires on EITHER burden of proof — see `floorBreached` in
+      // `promotion-policy.ts` for the same rule and the reasoning. The CI arm
+      // is the contract this interface and `default-production-gate`'s reason
+      // string both state ("CI.low < -tolerance"); the exact-test arm adds the
+      // small-sample path where the bootstrap interval is descriptive only.
+      regressed: bootstrap.low < -tolerance || regression.significant,
       tolerance,
       n: paired.before.length,
     })
