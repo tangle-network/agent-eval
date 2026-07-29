@@ -22,9 +22,11 @@ try {
   const packDir = join(tempRoot, 'pack')
   const unpackDir = join(tempRoot, 'unpack')
   const appDir = join(tempRoot, 'app')
+  const cohortAppDir = join(tempRoot, 'cohort-app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
   mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+  mkdirSync(cohortAppDir, { recursive: true })
 
   // Verify the same archive implementation used by the release workflow.
   run('npm', ['pack', '--pack-destination', packDir], repoRoot)
@@ -41,6 +43,17 @@ try {
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   if (packageJson.dependencies?.[removedSdkPackage]) {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
+  }
+  const expectedDependencyCohort = {
+    '@tangle-network/agent-core': '0.4.26',
+    '@tangle-network/agent-interface': '0.37.0',
+  }
+  for (const [name, version] of Object.entries(expectedDependencyCohort)) {
+    if (packageJson.dependencies?.[name] !== version) {
+      throw new Error(
+        `packed package dependency ${name} must be exactly ${version}, received ${packageJson.dependencies?.[name]}`,
+      )
+    }
   }
   const packedCodeFiles = run(
     'find',
@@ -102,6 +115,8 @@ try {
   if (existsSync(join(packageDir, 'dist', 'belief-state'))) {
     throw new Error('packed package retains removed belief-state files')
   }
+
+  verifyPackedDependencyCohort(tarballs[0], cohortAppDir, expectedDependencyCohort)
 
   const profileCellTarget = packageJson.exports['./profile-cell'].import
   const profileCellSource = readFileSync(join(packageDir, profileCellTarget), 'utf8')
@@ -664,6 +679,92 @@ try {
   )
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
+}
+
+function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
+  writeFileSync(
+    join(appDir, 'package.json'),
+    JSON.stringify({
+      private: true,
+      type: 'module',
+      dependencies: {
+        '@tangle-network/agent-eval': `file:${tarball}`,
+        '@tangle-network/agent-interface': expectedVersions['@tangle-network/agent-interface'],
+      },
+    }),
+  )
+  run(
+    'npm',
+    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
+    appDir,
+    { timeout: 180_000 },
+  )
+
+  for (const [name, expectedVersion] of Object.entries(expectedVersions)) {
+    const manifests = run(
+      'find',
+      [
+        join(appDir, 'node_modules'),
+        '-type',
+        'f',
+        '-path',
+        `*/${name}/package.json`,
+        '-print',
+      ],
+      repoRoot,
+    )
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+    if (manifests.length !== 1) {
+      throw new Error(
+        `packed consumer must install one ${name} copy, found ${manifests.length}: ${manifests.join(', ')}`,
+      )
+    }
+    const installedVersion = JSON.parse(readFileSync(manifests[0], 'utf8')).version
+    if (installedVersion !== expectedVersion) {
+      throw new Error(
+        `packed consumer installed ${name} ${installedVersion}, expected ${expectedVersion}`,
+      )
+    }
+  }
+
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const contract = await import('@tangle-network/agent-eval/contract')
+        const agentInterface = await import('@tangle-network/agent-interface')
+        if (typeof contract.sealAgentProfileImprovementExperiment !== 'function') {
+          throw new Error('packed contract is missing profile experiment sealing')
+        }
+        const sha = (digit) => 'sha256:' + digit.repeat(64)
+        const source = agentInterface.agentImprovementSourceSchema.parse({
+          kind: 'public-agent-resource',
+          sourceIdentity: 'github:example/research-agents/reviewer.md',
+          sourceDigest: sha('2'),
+          sourceRevision: '8d3b3f5',
+          license: { kind: 'spdx', expression: 'Apache-2.0' },
+          attribution: ['Copyright Example Research contributors'],
+          notices: ['Adapted for the packed-consumer probe.'],
+          transformations: [{
+            kind: 'normalization',
+            identity: 'line-ending-normalizer',
+            revision: 1,
+            procedureDigest: sha('3'),
+            inputDigest: sha('1'),
+            outputDigest: sha('2'),
+          }],
+        })
+        if (source.license?.kind !== 'spdx' || source.transformations?.length !== 1) {
+          throw new Error('packed Interface lost rich source evidence')
+        }
+      `,
+    ],
+    appDir,
+  )
 }
 
 function verifyVersionLock() {

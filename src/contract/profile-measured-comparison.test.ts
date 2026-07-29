@@ -94,6 +94,19 @@ function experiment(
       sourceIdentity: 'profile-support',
       sourceDigest: sha('5'),
       sourceRevision: 7,
+      license: { kind: 'spdx', expression: 'Apache-2.0' },
+      attribution: ['Copyright Example Research contributors'],
+      notices: ['Imported from the public profile catalog.'],
+      transformations: [
+        {
+          kind: 'normalization',
+          identity: 'profile-canonicalizer',
+          revision: '1.0.0',
+          procedureDigest: sha('a'),
+          inputDigest: sha('3'),
+          outputDigest: sha('5'),
+        },
+      ],
     },
     executionRef: {
       kind: 'agent-profile-improvement-execution-ref',
@@ -216,6 +229,23 @@ function comparisonAccounting(
 }
 
 describe('profile improvement measured comparison', () => {
+  it('retains licensed and transformed source evidence in the sealed experiment', () => {
+    const sealed = experiment()
+
+    expect(sealed.source).toMatchObject({
+      license: { kind: 'spdx', expression: 'Apache-2.0' },
+      attribution: ['Copyright Example Research contributors'],
+      notices: ['Imported from the public profile catalog.'],
+      transformations: [
+        {
+          kind: 'normalization',
+          identity: 'profile-canonicalizer',
+          outputDigest: sha('5'),
+        },
+      ],
+    })
+  })
+
   it('runs exact profile states through one paired measurement path', async () => {
     const frozen = experiment(6)
     const observed: Array<{
