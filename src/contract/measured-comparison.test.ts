@@ -74,14 +74,53 @@ const resolvedModel = {
   reasoningEffort: 'high' as const,
 }
 
-function bundle(prompt: string): AgentCandidateBundle {
+function bundle(prompt: string, includePublicSource = false): AgentCandidateBundle {
+  const skillContent = 'Review every factual claim before answering.'
+  const skillDigest = sha('d')
   return addressed({
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
       name: 'support-agent',
       prompt: { systemPrompt: prompt },
-      resources: { failOnError: true as const },
+      resources: includePublicSource
+        ? {
+            failOnError: true as const,
+            skills: [
+              {
+                kind: 'inline' as const,
+                name: 'claim-review',
+                content: skillContent,
+                sha256: skillDigest,
+                byteLength: new TextEncoder().encode(skillContent).byteLength,
+                source: {
+                  kind: 'public-agent-resource',
+                  sourceIdentity: 'github:example/research-agents/claim-review.md',
+                  sourceDigest: skillDigest,
+                  sourceRevision: '8d3b3f5',
+                  license: {
+                    kind: 'custom' as const,
+                    name: 'Example Research Terms',
+                    reference: 'LICENSE.md',
+                    termsDigest: sha('e'),
+                  },
+                  attribution: ['Copyright Example Research contributors'],
+                  notices: ['Adapted for the support-agent benchmark.'],
+                  transformations: [
+                    {
+                      kind: 'transformation' as const,
+                      identity: 'skill-section-extractor',
+                      revision: 2,
+                      procedureDigest: sha('b'),
+                      inputDigest: sha('c'),
+                      outputDigest: skillDigest,
+                    },
+                  ],
+                },
+              },
+            ],
+          }
+        : { failOnError: true as const },
     },
     code: {
       kind: 'disabled' as const,
@@ -149,14 +188,17 @@ function benchmarkTask(): AgentCandidateBenchmarkTask {
   })
 }
 
-function experiment(reps = 3): AgentCandidateExperiment {
+function experiment(reps = 3, candidateUsesPublicSource = false): AgentCandidateExperiment {
   const task = benchmarkTask()
   const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
   return sealCandidateExperiment({
     kind: 'agent-candidate-experiment',
     digestAlgorithm: 'rfc8785-sha256',
     baseline: bundle('Answer the support request.'),
-    candidate: bundle('Answer the support request and verify every claim.'),
+    candidate: bundle(
+      'Answer the support request and verify every claim.',
+      candidateUsesPublicSource,
+    ),
     candidateLineage: { source: 'human' },
     benchmark: sealCandidateBenchmarkSuite({ tasks: [task], reps, seeds }),
     policy: {
@@ -464,6 +506,22 @@ function comparisonAccounting(run: Awaited<ReturnType<typeof runCandidateExperim
 }
 
 describe('candidate experiment comparison', () => {
+  it('retains rich public-source evidence in the signed candidate identity', () => {
+    const plain = experiment()
+    const sourced = experiment(3, true)
+    const skill = sourced.candidate.profile.resources?.skills?.[0]
+
+    if (skill?.kind !== 'inline') throw new Error('fixture must include an inline skill')
+    expect(skill.source).toMatchObject({
+      license: { kind: 'custom', name: 'Example Research Terms' },
+      attribution: ['Copyright Example Research contributors'],
+      notices: ['Adapted for the support-agent benchmark.'],
+      transformations: [{ kind: 'transformation', outputDigest: skill.sha256 }],
+    })
+    expect(sourced.candidate.digest).not.toBe(plain.candidate.digest)
+    expect(sourced.digest).not.toBe(plain.digest)
+  })
+
   it('evaluates ordinary profile receipts through the same paired decision path', () => {
     const policy = experiment().policy
     const measurements = profileMeasurements()

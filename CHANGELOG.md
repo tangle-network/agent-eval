@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
+
+### Fixed
+
+- The npm package pins `@tangle-network/agent-core` 0.4.26 and `@tangle-network/agent-interface` 0.37.0 as one compatible cohort.
+  Candidate and profile-improvement contracts accept and retain licensed, attributed, noticed, and transformed public-source evidence without installing an older nested Interface schema.
+- Packed-package verification installs the release archive into a fresh npm consumer and refuses duplicate or incorrect Core and Interface versions.
+
 ## [0.135.3] - 2026-07-29 - preserve real tool evidence for trace learning
 
 ### Added
