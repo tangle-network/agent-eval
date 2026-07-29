@@ -94,6 +94,11 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
+export {
+  CONTROL_INTEGRITY_ANALYST,
+  ControlIntegrityAnalyst,
+  emitControlIntegrityFindings,
+} from './analyst/kinds/control-integrity'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
 export {
   type AnalystHooks,
@@ -537,6 +542,7 @@ export {
 // Full surface on the `@tangle-network/agent-eval/supervisor-run` subpath.
 export {
   analyzeSupervisorRun,
+  analyzeSupervisorRunIntegrity,
   analyzeSupervisorRunSources,
   claudeCodeSupervisorRunReader,
   isUnavailable,
@@ -546,13 +552,23 @@ export {
   renderSupervisorRunMarkdown,
   rollupSupervisorRuns,
   type SourceLimits,
+  SUPERVISOR_RUN_INTEGRITY_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
+  type SupervisorRunIntegrityEvidence,
+  type SupervisorRunIntegrityIssue,
+  type SupervisorRunIntegrityIssueCode,
+  type SupervisorRunIntegrityOptions,
+  type SupervisorRunIntegrityReport,
+  type SupervisorRunIntegritySeverity,
   type SupervisorRunNodeRole,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
+  type SupervisorRunSourceOnlyCheckCode,
   type SupervisorRunSources,
   type SupervisorRunTree,
+  type SupervisorRunTreeGap,
+  type SupervisorRunTreeGapCode,
   showMeasured,
   supervisorRunRolloutLines,
   type Unavailable,

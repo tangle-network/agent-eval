@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `CONTROL_INTEGRITY_ANALYST` deterministically checks the existing `SupervisorRunSources` and `SupervisorRunTree` for duplicate or detached identities, parent cycles, impossible event order, orphan terminal events, and steer request/acknowledgement mismatches.
+  Missing transcripts, profile ids, worker logs, and declared tree gaps remain explicitly unavailable and never become a zero or a clean result.
+  The analyst emits ordinary `AnalystFinding` records and adds no run schema or execution authority.
+
 ## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
 
 ### Fixed
@@ -16,12 +24,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Spawned invocations retain an explicit `supervisor` or `worker` role, and structured verdicts retain their numeric score in rollout rewards and per-worker report rows.
 - Accepted-patch counts are unavailable when the source did not retain worker deliverables, even when a worker event claimed patch bytes.
 - Manager and worker token totals have independent unavailable reasons, so an uncaptured channel is not reported as zero and a captured zero remains zero.
+- Supervisor-run integrity checks share one typed source parse, correlate worker control rows by stable invocation id, and distinguish captured-empty control artifacts from missing artifacts.
+- Claude Code child agents remain workers when they delegate, and steer counts use the original tool-use request id.
+- Malformed journal and worker-control rows make dependent checks unavailable instead of producing missing-parent claims or clean zero counts.
 
 ### Changed — BREAKING
 
 - Custom `SupervisorRunSources` readers must add `managerTokens` and `workerTokens` to `SourceLimits`.
   Set each field to `null` only when that role's aggregate token channel is complete; otherwise set the reason it is unavailable.
   Readers with no source limitations can continue to use `NO_SOURCE_LIMITS`.
+- `SupervisorRunTree.gaps` now contains typed `{ code, message, nodeId?, count? }` records instead of free-form strings.
+- `WorkerLogFacts.steersQueued` and `steersDelivered` are now nullable.
+  `null` means malformed, incomplete, or uncorrelated control rows prevent exact request-id accounting.
 
 ## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
 

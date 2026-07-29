@@ -180,7 +180,7 @@ export function fixtureWorker(label: string, opts: WorkerPlan = { startSec: 0 })
     ...(opts.workerId === undefined ? {} : { workerId: opts.workerId }),
     label,
     events: `${events.join('\n')}\n`,
-    inbox: inboxLines.length === 0 ? null : `${inboxLines.join('\n')}\n`,
+    inbox: inboxLines.length === 0 ? '' : `${inboxLines.join('\n')}\n`,
     patchBytes: opts.patchBytes ?? null,
   }
 }

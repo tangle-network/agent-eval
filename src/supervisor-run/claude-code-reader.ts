@@ -390,7 +390,10 @@ export async function readClaudeCodeSupervisorRun(
   }
 
   const spawns: SpawnFact[] = []
-  const steersByTarget = new Map<string, Array<{ at: string | null; delivered: boolean }>>()
+  const steersByTarget = new Map<
+    string,
+    Array<{ requestId: string; at: string | null; delivered: boolean }>
+  >()
   const cancels: Array<{ agentId: string; at: string | null }> = []
   const settles: TaskNotification[] = []
 
@@ -422,7 +425,7 @@ export async function readClaudeCodeSupervisorRun(
         // absent, the steer is counted queued but not delivered.
         const delivered = structured?.success === true || str(structured?.resumedAgentId) === target
         const rows = steersByTarget.get(target) ?? []
-        rows.push({ at: use.at, delivered })
+        rows.push({ requestId: use.id, at: use.at, delivered })
         steersByTarget.set(target, rows)
         continue
       }
@@ -451,7 +454,6 @@ export async function readClaudeCodeSupervisorRun(
       at: startedAt,
     }),
   ]
-  const supervisorIds = new Set(spawns.map((spawn) => spawn.parentId))
   for (const s of spawns) {
     journalLines.push(
       line({
@@ -459,7 +461,7 @@ export async function readClaudeCodeSupervisorRun(
         id: s.agentId,
         parent: s.parentId,
         label: s.label,
-        role: supervisorIds.has(s.agentId) ? 'supervisor' : 'worker',
+        role: 'worker',
         at: s.at,
       }),
     )
@@ -533,16 +535,14 @@ export async function readClaudeCodeSupervisorRun(
     const endAt = settleAtByAgent.get(agentId) ?? child?.lastAt ?? null
     if (startAt !== null) events.push(line({ kind: 'started', label, at: startAt, agentId }))
     for (const steer of steersByTarget.get(agentId) ?? []) {
-      inbox.push(
-        line({ id: `${agentId}:${steer.at}`, at: steer.at, worker: label, message: 'steer' }),
-      )
+      inbox.push(line({ id: steer.requestId, at: steer.at, worker: label, message: 'steer' }))
       events.push(
         line({
           kind: 'message',
           label,
           direction: 'down',
           at: steer.at,
-          requestId: `${agentId}:${steer.at}`,
+          requestId: steer.requestId,
           delivered: steer.delivered,
         }),
       )
@@ -566,8 +566,8 @@ export async function readClaudeCodeSupervisorRun(
     workers.push({
       workerId: agentId,
       label,
-      events: events.length === 0 ? null : `${events.join('\n')}\n`,
-      inbox: inbox.length === 0 ? null : `${inbox.join('\n')}\n`,
+      events: events.length === 0 ? '' : `${events.join('\n')}\n`,
+      inbox: inbox.length === 0 ? '' : `${inbox.join('\n')}\n`,
       patchBytes: null,
       transcriptRef: child?.path ?? null,
       patchPath: null,

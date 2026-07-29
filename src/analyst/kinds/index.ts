@@ -9,6 +9,11 @@
  * to pass each completed kind's findings to the kinds that follow it.
  */
 
+export {
+  CONTROL_INTEGRITY_ANALYST,
+  ControlIntegrityAnalyst,
+  emitControlIntegrityFindings,
+} from './control-integrity'
 export { FAILURE_MODE_KIND_SPEC } from './failure-mode'
 export { IMPROVEMENT_KIND_SPEC } from './improvement'
 export { KNOWLEDGE_GAP_KIND_SPEC } from './knowledge-gap'

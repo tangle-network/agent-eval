@@ -6,6 +6,15 @@
  */
 
 import {
+  asRecord,
+  parseJson,
+  parseJsonl,
+  parseSupervisorTree,
+  type SpawnRow,
+  type WorkerLogFacts,
+  workerSourceKey,
+} from './source-facts'
+import {
   type DecisionMetrics,
   type EconomicsMetrics,
   isUnavailable,
@@ -18,7 +27,6 @@ import {
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
-  type SupervisorRunNodeRole,
   type SupervisorRunReport,
   type SupervisorRunRollup,
   type SupervisorRunSources,
@@ -26,336 +34,20 @@ import {
   unavailable,
 } from './types'
 
-// ---------------------------------------------------------------------------
-// Journal shapes — structurally parsed. The journal is the contract, not the type.
-// ---------------------------------------------------------------------------
-
-interface JournalEvent {
-  kind?: unknown
-  id?: unknown
-  parent?: unknown
-  label?: unknown
-  role?: unknown
-  status?: unknown
-  verdict?: unknown
-  reason?: unknown
-  seq?: unknown
-  at?: unknown
-  spend?: unknown
-  spent?: unknown
-}
-
-interface Tokens {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  /** False when the event carried no cache counters at all — not "zero cached". */
-  hasCache: boolean
-}
-
-interface SpendLike {
-  tokens: Tokens
-  usd: number
-}
-
-export function asRecord(v: unknown): Record<string, unknown> {
-  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
-}
-
-function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
-}
-
-function readSpend(v: unknown): SpendLike {
-  const rec = asRecord(v)
-  const tok = asRecord(rec.tokens)
-  const cacheRead = tok.cacheRead ?? tok.cache_read
-  const cacheWrite = tok.cacheWrite ?? tok.cache_write
-  return {
-    tokens: {
-      input: num(tok.input),
-      output: num(tok.output),
-      cacheRead: num(cacheRead),
-      cacheWrite: num(cacheWrite),
-      hasCache: cacheRead !== undefined || cacheWrite !== undefined,
-    },
-    usd: num(rec.usd),
-  }
-}
+export {
+  asRecord,
+  type CloseRow,
+  parseJson,
+  parseJsonl,
+  parseSupervisorTree,
+  type SpawnRow,
+  type SteerAcknowledgementFact,
+  type SteerRequestFact,
+  type SupervisorTreeFacts,
+  type WorkerLogFacts,
+} from './source-facts'
 
 const NO_CACHE_COUNTERS = 'the journal carries no cache-token counters for this role'
-
-export function parseJsonl(text: string | null): Record<string, unknown>[] {
-  if (text === null) return []
-  const out: Record<string, unknown>[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const parsed: unknown = JSON.parse(trimmed)
-      if (typeof parsed === 'object' && parsed !== null) out.push(parsed as Record<string, unknown>)
-    } catch {
-      // A torn last line (writer killed mid-append) is skipped, never fatal.
-    }
-  }
-  return out
-}
-
-export function parseJson(text: string | null): Record<string, unknown> | null {
-  if (text === null) return null
-  try {
-    const parsed: unknown = JSON.parse(text)
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
-function ms(at: unknown): number | null {
-  if (typeof at !== 'string') return null
-  const t = Date.parse(at)
-  return Number.isFinite(t) ? t : null
-}
-
-// ---------------------------------------------------------------------------
-// The supervision tree, as parsed from the journal event stream.
-// ---------------------------------------------------------------------------
-
-export interface SpawnRow {
-  id: string
-  parent: string | null
-  label: string
-  role: SupervisorRunNodeRole
-  at: number | null
-}
-
-export interface CloseRow {
-  id: string
-  kind: 'settled' | 'cancelled'
-  status: string | null
-  /** String verdict from legacy journals, or valid/invalid for a structured verdict. */
-  verdict: string | null
-  /** Structured verdict validity, when recorded. */
-  valid: boolean | null
-  /** Structured verdict score, preserved without boolean coercion. */
-  score: number | null
-  /** The verdict exactly as the journal carried it. */
-  rawVerdict: unknown | null
-  at: number | null
-  spend: SpendLike
-  /** False when the close event carried no spend object — not "spent nothing". */
-  hasSpend: boolean
-}
-
-export interface WorkerLogFacts {
-  started: number | null
-  /** True once a `finished` event was seen — independent of whether its `at` parsed. */
-  finished: boolean
-  finishedAt: number | null
-  passed: boolean | null
-  /** Numeric score exactly as the finished event recorded it. */
-  score: number | null
-  /** `patchBytes` as reported by the finished event (not the patch file's size). */
-  finishedPatchBytes: number | null
-  evidenceBytes: number
-  steersQueued: number
-  steersDelivered: number
-  questions: number
-}
-
-/**
- * The tree + timeline the report is computed from, exposed because the rollout-row
- * minter needs exactly the same parse (one parser, two consumers).
- */
-export interface SupervisorTreeFacts {
-  readonly rootId: string | null
-  readonly spawns: readonly SpawnRow[]
-  readonly closes: readonly CloseRow[]
-  readonly workerSpawns: readonly SpawnRow[]
-  readonly workerCloses: readonly CloseRow[]
-  readonly brain: {
-    tokensIn: number
-    tokensOut: number
-    cacheRead: number
-    cacheWrite: number
-    /** False when no metered event carried cache counters — not "nothing cached". */
-    hasCache: boolean
-    usd: number
-    meteredCount: number
-  }
-  readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
-  readonly startedAt: number | null
-  readonly completedAt: number | null
-}
-
-interface VerdictFacts {
-  label: string | null
-  valid: boolean | null
-  score: number | null
-  raw: unknown | null
-}
-
-function readVerdict(v: unknown): VerdictFacts {
-  if (typeof v === 'string') return { label: v, valid: null, score: null, raw: v }
-  if (typeof v !== 'object' || v === null) {
-    return { label: null, valid: null, score: null, raw: null }
-  }
-  const rec = v as Record<string, unknown>
-  const valid = typeof rec.valid === 'boolean' ? rec.valid : null
-  return {
-    label: valid === null ? null : valid ? 'valid' : 'invalid',
-    valid,
-    score: typeof rec.score === 'number' && Number.isFinite(rec.score) ? rec.score : null,
-    raw: v,
-  }
-}
-
-function workerSourceKey(worker: NonNullable<SupervisorRunSources['workers']>[number]): string {
-  return worker.workerId ?? worker.label
-}
-
-export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
-  const events = parseJsonl(src.journal)
-  const state = parseJson(src.state)
-
-  const spawns: SpawnRow[] = []
-  const closes: CloseRow[] = []
-  let brainIn = 0
-  let brainOut = 0
-  let brainCacheRead = 0
-  let brainCacheWrite = 0
-  let brainHasCache = false
-  let brainUsd = 0
-  let meteredCount = 0
-  let rootId: string | null = null
-  for (const ev of events as JournalEvent[]) {
-    const kind = typeof ev.kind === 'string' ? ev.kind : ''
-    const id = typeof ev.id === 'string' ? ev.id : ''
-    if (kind === 'spawned') {
-      const parent = typeof ev.parent === 'string' ? ev.parent : null
-      const label = typeof ev.label === 'string' ? ev.label : ''
-      if (parent === null && rootId === null) rootId = id
-      const role: SupervisorRunNodeRole =
-        parent === null || ev.role === 'supervisor' ? 'supervisor' : 'worker'
-      spawns.push({ id, parent, label, role, at: ms(ev.at) })
-    } else if (kind === 'settled') {
-      const verdict = readVerdict(ev.verdict)
-      closes.push({
-        id,
-        kind: 'settled',
-        status: typeof ev.status === 'string' ? ev.status : null,
-        verdict: verdict.label,
-        valid: verdict.valid,
-        score: verdict.score,
-        rawVerdict: verdict.raw,
-        at: ms(ev.at),
-        spend: readSpend(ev.spent),
-        hasSpend: asRecord(ev.spent).tokens !== undefined,
-      })
-    } else if (kind === 'cancelled') {
-      closes.push({
-        id,
-        kind: 'cancelled',
-        status: 'cancelled',
-        verdict: typeof ev.reason === 'string' ? ev.reason : null,
-        valid: null,
-        score: null,
-        rawVerdict: typeof ev.reason === 'string' ? ev.reason : null,
-        at: ms(ev.at),
-        spend: {
-          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, hasCache: false },
-          usd: 0,
-        },
-        hasSpend: false,
-      })
-    } else if (kind === 'metered') {
-      const s = readSpend(ev.spend)
-      brainIn += s.tokens.input
-      brainOut += s.tokens.output
-      brainCacheRead += s.tokens.cacheRead
-      brainCacheWrite += s.tokens.cacheWrite
-      brainHasCache = brainHasCache || s.tokens.hasCache
-      brainUsd += s.usd
-      meteredCount += 1
-    }
-  }
-
-  const workerSpawns = spawns.filter((s) => s.id !== rootId)
-  const workerIds = new Set(workerSpawns.map((s) => s.id))
-  const workerCloses = closes.filter((c) => workerIds.has(c.id))
-
-  const workerLogs = new Map<string, WorkerLogFacts>()
-  for (const w of src.workers ?? []) {
-    const facts: WorkerLogFacts = {
-      started: null,
-      finished: false,
-      finishedAt: null,
-      passed: null,
-      score: null,
-      finishedPatchBytes: null,
-      evidenceBytes: 0,
-      steersQueued: 0,
-      steersDelivered: 0,
-      questions: 0,
-    }
-    for (const req of parseJsonl(w.inbox)) {
-      if (typeof req.message === 'string' && req.message.trim().length > 0) facts.steersQueued += 1
-    }
-    for (const ev of parseJsonl(w.events)) {
-      const kind = ev.kind
-      if (kind === 'message') {
-        if (ev.direction === 'up') {
-          facts.questions += 1
-          continue
-        }
-        // A down-leg message not backed by an inbox line (in-process steer) still counts.
-        if (typeof ev.requestId !== 'string') facts.steersQueued += 1
-        if (ev.delivered === true) facts.steersDelivered += 1
-      } else if (kind === 'started') {
-        facts.started = ms(ev.at)
-      } else if (kind === 'finished') {
-        facts.finished = true
-        facts.finishedAt = ms(ev.at)
-        facts.passed = typeof ev.passed === 'boolean' ? ev.passed : null
-        facts.score = typeof ev.score === 'number' && Number.isFinite(ev.score) ? ev.score : null
-        facts.finishedPatchBytes = typeof ev.patchBytes === 'number' ? ev.patchBytes : null
-        facts.evidenceBytes = typeof ev.evidence === 'string' ? ev.evidence.length : 0
-      }
-    }
-    workerLogs.set(workerSourceKey(w), facts)
-  }
-
-  const startedAt = ms(state?.startedAt) ?? spawns[0]?.at ?? null
-  const completedAt =
-    ms(state?.completedAt) ??
-    [...spawns.map((s) => s.at), ...closes.map((c) => c.at)].reduce<number | null>(
-      (acc, t) => (t === null ? acc : acc === null ? t : Math.max(acc, t)),
-      null,
-    )
-
-  return {
-    rootId,
-    spawns,
-    closes,
-    workerSpawns,
-    workerCloses,
-    brain: {
-      tokensIn: brainIn,
-      tokensOut: brainOut,
-      cacheRead: brainCacheRead,
-      cacheWrite: brainCacheWrite,
-      hasCache: brainHasCache,
-      usd: brainUsd,
-      meteredCount,
-    },
-    workerLogs,
-    startedAt,
-    completedAt,
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The analyzer.
@@ -380,10 +72,10 @@ export function analyzeSupervisorRunSources(
       ? 'no supervisor run dir under <ws>/.loops/supervisor'
       : 'journal.jsonl absent'
   const haveJournal = src.journal !== null
-  const state = parseJson(src.state)
+  const tree = parseSupervisorTree(src)
+  const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
-  const tree = parseSupervisorTree(src)
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
   const spawnById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn]))
   const spawnsByLabel = new Map<string, SpawnRow[]>()
@@ -421,21 +113,52 @@ export function analyzeSupervisorRunSources(
   if (src.workers !== null) {
     for (const w of src.workers) {
       const facts = tree.workerLogs.get(workerSourceKey(w))
-      const queued = facts?.steersQueued ?? 0
-      const delivered = facts?.steersDelivered ?? 0
+      const queued = facts?.steersQueued ?? null
+      const delivered = facts?.steersDelivered ?? null
       upLegMessages += facts?.questions ?? 0
-      steerRows.push({ workerId: w.workerId ?? null, worker: w.label, queued, delivered })
-      steerQueuedTotal += queued
-      steerDeliveredTotal += delivered
+      if (queued !== null && delivered !== null) {
+        steerRows.push({ workerId: w.workerId ?? null, worker: w.label, queued, delivered })
+      }
+      if (queued !== null) steerQueuedTotal += queued
+      if (delivered !== null) steerDeliveredTotal += delivered
     }
   }
   const workersGapReason = src.workersMissingReason ?? 'workers/ directory absent'
+  const unavailableReasons = (pick: (facts: WorkerLogFacts) => string | null): string | null => {
+    const reasons = tree.workerLogRows
+      .map((facts) => pick(facts))
+      .filter((reason): reason is string => reason !== null)
+    return reasons.length === 0
+      ? null
+      : `exact steer accounting unavailable for ${reasons.length} worker row(s): ${[...new Set(reasons)].join(' | ')}`
+  }
+  const queuedGapReason = unavailableReasons((facts) => facts.steersQueuedUnavailable)
+  const deliveredGapReason = unavailableReasons((facts) => facts.steersDeliveredUnavailable)
+  const workerEventsGapReason = unavailableReasons((facts) =>
+    !facts.eventsCaptured
+      ? 'events absent'
+      : facts.eventsInvalidRows > 0
+        ? 'events contain malformed rows'
+        : null,
+  )
   const steers: Measured<number> =
-    src.workers === null ? gap('steers', workersGapReason) : steerQueuedTotal
+    src.workers === null
+      ? gap('steers', workersGapReason)
+      : queuedGapReason === null
+        ? steerQueuedTotal
+        : gap('steers', queuedGapReason)
   const steersDelivered: Measured<number> =
-    src.workers === null ? unavailable(workersGapReason) : steerDeliveredTotal
+    src.workers === null
+      ? unavailable(workersGapReason)
+      : deliveredGapReason === null
+        ? steerDeliveredTotal
+        : unavailable(deliveredGapReason)
   const steersByWorker: Measured<readonly SteerBreakdown[]> =
-    src.workers === null ? unavailable(workersGapReason) : steerRows
+    src.workers === null
+      ? unavailable(workersGapReason)
+      : queuedGapReason === null && deliveredGapReason === null
+        ? steerRows
+        : unavailable(queuedGapReason ?? deliveredGapReason ?? workersGapReason)
 
   // The `[driver] registered tools: …supervisor_steer…` banner names the verb without
   // invoking it, so banner lines are subtracted from the raw mention count.
@@ -673,8 +396,17 @@ export function analyzeSupervisorRunSources(
     observeThenRespawn: haveJournal ? observeThenRespawn : unavailable(journalMissing),
     respawnWithoutEvidence: haveJournal ? respawnWithoutEvidence : unavailable(journalMissing),
     reviewActions:
-      src.workers === null ? unavailable(workersGapReason) : steerQueuedTotal + upLegMessages,
-    workerEvidenceBytes: src.workers === null ? unavailable(workersGapReason) : evidenceBytes,
+      src.workers === null
+        ? unavailable(workersGapReason)
+        : queuedGapReason === null
+          ? steerQueuedTotal + upLegMessages
+          : unavailable(queuedGapReason),
+    workerEvidenceBytes:
+      src.workers === null
+        ? unavailable(workersGapReason)
+        : workerEventsGapReason === null
+          ? evidenceBytes
+          : unavailable(workerEventsGapReason),
   }
 
   // ── economics ──────────────────────────────────────────────────────────

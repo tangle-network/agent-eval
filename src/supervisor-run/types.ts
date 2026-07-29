@@ -60,7 +60,10 @@ export function showMeasured(v: Measured<number | string | boolean | null>): str
 /** The two invocation roles a recursive supervision tree can contain. */
 export type SupervisorRunNodeRole = 'supervisor' | 'worker'
 
-/** One worker's logs, as read. `null` = the artifact did not exist. */
+/**
+ * One worker's logs, as read. `null` means the artifact did not exist; `''`
+ * means the artifact was captured and contained no rows.
+ */
 export interface WorkerLogSource {
   /**
    * Stable journal node id. Readers should set this whenever their source has
@@ -416,6 +419,22 @@ export interface SupervisorRunRollup {
 export interface SupervisorRunTree {
   readonly rootId: string | null
   readonly nodes: readonly RolloutLine[]
-  /** Why a node could not be recovered, in read order. */
-  readonly gaps: readonly string[]
+  /** Typed reasons a rollout field could not be recovered, in read order. */
+  readonly gaps: readonly SupervisorRunTreeGap[]
+}
+
+/** Stable machine-readable reasons emitted while minting a supervisor tree. */
+export type SupervisorRunTreeGapCode =
+  | 'journal-unavailable'
+  | 'source-row-malformed'
+  | 'root-spawn-unavailable'
+  | 'root-reward-unavailable'
+  | 'child-reward-unavailable'
+  | 'node-schema-invalid'
+
+export interface SupervisorRunTreeGap {
+  readonly code: SupervisorRunTreeGapCode
+  readonly message: string
+  readonly nodeId?: string
+  readonly count?: number
 }
