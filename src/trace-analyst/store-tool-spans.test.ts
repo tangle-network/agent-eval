@@ -7,7 +7,7 @@ import {
   TOOL_LATENCY_MS,
 } from '../trace/attribute-vocabulary'
 import type { ToolSpan } from '../trace/schema'
-import { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-otlp'
+import { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'
 
 function tool(overrides: Partial<ToolSpan> = {}): ToolSpan {
   return {

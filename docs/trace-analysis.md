@@ -45,8 +45,49 @@ const result = await analyzeTraces({
 console.log(result.findings)
 ```
 
-Products can pass any `TraceAnalysisStore`; they do not need to use the file store in production.
+Products can implement `TraceAnalysisStore`; they do not need to use the file store in production.
+Custom stores provide `hasTrace` and batched `hasSpans` alongside the seven reads, and accept a `TraceAnalysisStoreContext` so cancellation reaches storage and scans.
+The binding validates every custom-store result.
+Missing fields, undeclared fields, inconsistent counts, and false continuation flags throw `TraceAnalysisStoreContractError` with code `backend_integrity`.
 The analyst runs one Ax executor loop and accepts only an explicit structured `final(task, { report, findings })` result; max-turn fallback text fails loud.
+
+### Bind the same reads into another agent environment
+
+`buildTraceAnalysisToolDescriptors()` is the canonical definition of the analyst's seven bounded read operations and does not expose Ax types.
+Each descriptor carries the stable `traces` namespace, function name, description, JSON input schema in `parameters`, and a handler already bound to the supplied `TraceAnalysisStore`.
+`buildTraceAnalystTools()` adapts those descriptors into Ax functions; it does not define a second tool surface.
+The bound handlers wrap custom stores with `createBoundedTraceAnalysisStore()`, so page limits, byte ceilings, not-found errors, and cancellation do not depend on the transport or adapter.
+
+```ts
+import {
+  buildTraceAnalysisToolDescriptors,
+  type TraceAnalysisStore,
+} from '@tangle-network/agent-eval/traces'
+
+declare const store: TraceAnalysisStore
+declare function qualifyToolName(namespace: string, name: string): string
+
+const tools = buildTraceAnalysisToolDescriptors({ store }).map(
+  ({ namespace, name, description, parameters, handler }) => ({
+    name: qualifyToolName(namespace, name),
+    description,
+    inputSchema: parameters,
+    handler,
+  }),
+)
+```
+
+Map these fields into the host's existing tool transport.
+The host owns namespace encoding; use its existing convention instead of inventing one here.
+Do not copy the schemas or reimplement the handlers in an MCP, Runtime, or provider adapter.
+
+`queryTraces.limit`, `viewSpans.span_ids`, and search `max_matches` caps are present in the JSON Schemas and enforced before store calls.
+Invalid arguments throw `TraceAnalysisValidationError` with code `validation`; responses that cannot fit their byte ceiling throw `TraceAnalysisLimitError` with code `limit_exceeded`.
+Search patterns use RE2 syntax, which rejects backreferences and lookaround instead of allowing exponential-time expressions.
+Search results return `hits` and an exact `has_more` flag; they do not invent a total after a capped scan.
+`viewSpans` partitions every requested id across `spans`, `missing_span_ids`, and `omitted_span_ids`; `has_more` is true when omitted ids must be retried.
+Attribute and match text shortening includes a deterministic marker.
+Trace pages set `has_more`, and the overview returns every error cluster or fails explicitly when the configured response limit is too small.
 
 ### Analyze captured tool spans in memory
 

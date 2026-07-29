@@ -32,6 +32,9 @@ importers:
       hono:
         specifier: ^4.12.32
         version: 4.12.32
+      re2js:
+        specifier: 2.8.6
+        version: 2.8.6
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -1315,6 +1318,10 @@ packages:
   quansync@1.0.0:
     resolution: {integrity: sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA==}
 
+  re2js@2.8.6:
+    resolution: {integrity: sha512-xLgQil4kIUCrAzVk9fRSkxkFNwmygLFjVxXrLc65aE1F0+Zsb8rxumFBy4XKyvgMCTL6kilDq3EZ0piE2dP/Dg==}
+    engines: {node: '>=18.0.0'}
+
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
     engines: {node: '>=0.10.0'}
@@ -2470,6 +2477,8 @@ snapshots:
   pure-rand@8.4.2: {}
 
   quansync@1.0.0: {}
+
+  re2js@2.8.6: {}
 
   require-directory@2.1.1: {}
 
