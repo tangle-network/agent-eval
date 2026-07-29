@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { assertMinted, validateRolloutLine } from '../rollout/schema'
 import {
+  fixtureAt as at,
   fixtureJournal as journal,
   fixtureSources as sources,
   fixtureState as state,
   fixtureWorker as worker,
 } from './fixtures'
 import { supervisorRunRolloutLines } from './rollout-nodes'
+import { NO_SOURCE_LIMITS } from './types'
 
 const src = sources({
   journal: journal({
@@ -127,5 +129,109 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
     const empty = supervisorRunRolloutLines(sources({ supRunDir: null }))
     expect(empty.nodes).toEqual([])
     expect(empty.gaps[0]).toContain('no supervisor run dir')
+  })
+
+  it('retains nested supervisor roles and exact structured scores across duplicate labels', () => {
+    const recursiveJournal = [
+      { kind: 'spawned', id: 'root', label: 'root', role: 'supervisor', at: at(0) },
+      {
+        kind: 'spawned',
+        id: 'manager-a',
+        parent: 'root',
+        label: 'manager',
+        role: 'supervisor',
+        at: at(1),
+      },
+      {
+        kind: 'spawned',
+        id: 'manager-b',
+        parent: 'root',
+        label: 'manager',
+        role: 'supervisor',
+        at: at(2),
+      },
+      {
+        kind: 'spawned',
+        id: 'worker-a',
+        parent: 'manager-a',
+        label: 'same task',
+        role: 'worker',
+        at: at(3),
+      },
+      {
+        kind: 'spawned',
+        id: 'worker-b',
+        parent: 'manager-b',
+        label: 'same task',
+        role: 'worker',
+        at: at(4),
+      },
+      {
+        kind: 'settled',
+        id: 'worker-a',
+        status: 'done',
+        verdict: { valid: true, score: 0.37, notes: 'partial but useful' },
+        spent: { tokens: { input: 10, output: 1 }, usd: 0.01 },
+        at: at(8),
+      },
+      {
+        kind: 'settled',
+        id: 'worker-b',
+        status: 'done',
+        verdict: { valid: true, score: 0.82, notes: 'strong' },
+        spent: { tokens: { input: 20, output: 2 }, usd: 0.02 },
+        at: at(9),
+      },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join('\n')
+    const recursive = supervisorRunRolloutLines(
+      sources({
+        journal: recursiveJournal,
+        limits: {
+          ...NO_SOURCE_LIMITS,
+          workerTokens: 'one child token stream was not captured',
+        },
+        workers: [
+          {
+            workerId: 'worker-a',
+            label: 'same task',
+            events: null,
+            inbox: null,
+            patchBytes: 10,
+          },
+          {
+            workerId: 'worker-b',
+            label: 'same task',
+            events: null,
+            inbox: null,
+            patchBytes: 20,
+          },
+        ],
+      }),
+      { supervisorModel: 'manager-model', workerModel: 'worker-model' },
+    )
+
+    const manager = recursive.nodes.find((node) => node.rollout_id === 'manager-a')
+    const first = recursive.nodes.find((node) => node.rollout_id === 'worker-a')
+    const second = recursive.nodes.find((node) => node.rollout_id === 'worker-b')
+    expect(manager?.role).toBe('supervisor')
+    expect(manager?.policy.model).toBe('manager-model')
+    expect(first?.role).toBe('worker')
+    expect(first?.parent_rollout_id).toBe('manager-a')
+    expect(first?.outcome.reward).toBe(0.37)
+    expect(first?.outcome.verdict).toMatchObject({
+      verdict: { valid: true, score: 0.37, notes: 'partial but useful' },
+      valid: true,
+      score: 0.37,
+    })
+    expect(first?.cost.usd).toBe(0.01)
+    expect(first?.cost.tokens_in).toBe(10)
+    expect(first?.cost.tokens_out).toBe(1)
+    expect(second?.parent_rollout_id).toBe('manager-b')
+    expect(second?.outcome.reward).toBe(0.82)
+    expect(second?.cost.usd).toBe(0.02)
+    expect(second?.cost.tokens_in).toBe(20)
+    expect(second?.cost.tokens_out).toBe(2)
   })
 })

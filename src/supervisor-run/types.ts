@@ -57,8 +57,17 @@ export function showMeasured(v: Measured<number | string | boolean | null>): str
 // Source contract — deliberately source-agnostic.
 // ---------------------------------------------------------------------------
 
+/** The two invocation roles a recursive supervision tree can contain. */
+export type SupervisorRunNodeRole = 'supervisor' | 'worker'
+
 /** One worker's logs, as read. `null` = the artifact did not exist. */
 export interface WorkerLogSource {
+  /**
+   * Stable journal node id. Readers should set this whenever their source has
+   * one; `label` remains the compatibility join for older stores.
+   */
+  readonly workerId?: string
+  /** Human-readable task label. It is not required to be unique. */
   readonly label: string
   /** Worker event stream — started / progress / finished / message events (JSONL). */
   readonly events: string | null
@@ -89,6 +98,10 @@ export interface WorkerLogSource {
  * `null` on a field means the source DOES carry that fact.
  */
 export interface SourceLimits {
+  /** Reason manager input/output token totals are unavailable (null = recorded). */
+  readonly managerTokens: string | null
+  /** Reason worker input/output token totals are unavailable (null = recorded). */
+  readonly workerTokens: string | null
   /** Reason inference spend has no price in this store (null = the store prices it). */
   readonly spendUsd: string | null
   /** Reason workers carry no pass/fail verdict (null = verdicts are recorded). */
@@ -99,6 +112,8 @@ export interface SourceLimits {
 
 /** A source that carries every fact the analyzer can use. */
 export const NO_SOURCE_LIMITS: SourceLimits = {
+  managerTokens: null,
+  workerTokens: null,
   spendUsd: null,
   workerVerdicts: null,
   deliverables: null,
@@ -121,7 +136,11 @@ export interface SupervisorRunSources {
   readonly arm: string | null
   /** Identity of the supervision-tree store this was read from; null = none found. */
   readonly supRunDir: string | null
-  /** Supervision journal — spawned / settled / cancelled / metered events (JSONL). */
+  /**
+   * Supervision journal — spawned / settled / cancelled / metered events (JSONL).
+   * Recursive readers put `role: 'supervisor' | 'worker'` on spawned rows;
+   * settled `verdict` may be a legacy string or `{ valid, score, ... }`.
+   */
   readonly journal: string | null
   /** Per-brain-call tap (JSONL): finish_reason, completion tokens, requested max tokens. */
   readonly brainLog: string | null
@@ -195,6 +214,8 @@ export const SUPERVISOR_RUN_SCHEMA = 'tangle.supervisor-run@1'
 export const SUPERVISOR_RUN_ROLLUP_SCHEMA = 'tangle.supervisor-run-rollup@1'
 
 export interface SteerBreakdown {
+  /** Stable journal node id when the reader retained one. */
+  readonly workerId: string | null
   readonly worker: string
   /** Steer requests durably queued to this worker's inbox. */
   readonly queued: number
@@ -220,9 +241,9 @@ export interface OrchestrationMetrics {
   readonly waves: Measured<number>
   readonly waveSizes: Measured<readonly number[]>
   readonly maxConcurrency: Measured<number>
-  /** Worker spawns issued after the first settlement — the retry/respawn tail. */
+  /** Direct-child spawns issued after that parent's first direct-child settlement. */
   readonly respawns: Measured<number>
-  /** Labels spawned more than once (a literal retry of the same subtask). */
+  /** Labels spawned more than once by the same parent. */
   readonly repeatedLabels: Measured<readonly string[]>
   /** Longest parent chain below the root, in worker hops. */
   readonly delegationDepth: Measured<number>
@@ -244,9 +265,9 @@ export interface DecisionMetrics {
   readonly rejected: Measured<number>
   /** Worker verified green but delivered no patch bytes — output with nothing to accept. */
   readonly emptyPass: Measured<number>
-  /** Settlements the brain observed before issuing its next spawn (evidence→respawn). */
+  /** Direct-child settlements a parent observed before issuing its next direct-child spawn. */
   readonly observeThenRespawn: Measured<number>
-  /** Respawns with no settled evidence in front of them. */
+  /** Parent-local respawns with no direct-child settlement in front of them. */
   readonly respawnWithoutEvidence: Measured<number>
   /** Steer + question traffic on the live down/up legs — the only "review while running" signal. */
   readonly reviewActions: Measured<number>
@@ -268,7 +289,11 @@ export interface RoleSpend {
 }
 
 export interface PerWorkerRow {
+  /** Stable journal node id when the reader retained one. */
+  readonly workerId: string | null
   readonly worker: string
+  /** Explicit journal role after the worker source was joined to its spawn. */
+  readonly role: SupervisorRunNodeRole | null
   readonly wallMs: number | null
   /** `null` = this store does not attribute tokens per worker (NOT "zero tokens"). */
   readonly tokensIn: number | null
@@ -276,6 +301,8 @@ export interface PerWorkerRow {
   readonly usd: number | null
   readonly patchBytes: number | null
   readonly passed: boolean | null
+  /** Numeric verdict score exactly as recorded; null means no score was recorded. */
+  readonly score: number | null
 }
 
 export interface WallDistribution {
@@ -383,8 +410,8 @@ export interface SupervisorRunRollup {
 /**
  * A supervision tree expressed in the canonical rollout row type: one
  * `RolloutLine` per invocation, joined by `parent_rollout_id`. The root row
- * carries `role: 'supervisor'`; every spawned worker carries `role: 'worker'`
- * with the root as its parent.
+ * carries `role: 'supervisor'`; nested supervisors retain that role and leaf
+ * invocations carry `role: 'worker'`.
  */
 export interface SupervisorRunTree {
   readonly rootId: string | null
