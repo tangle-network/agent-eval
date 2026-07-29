@@ -4,10 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
 
 ### Fixed
 
+- The npm package pins `@tangle-network/agent-core` 0.4.28 and `@tangle-network/agent-interface` 0.39.0 as one compatible cohort.
+  Profile-improvement experiments validate every existing `AgentProfileDiff` axis with the same schema that constructs those diffs.
 - Recursive supervisor-run reports now join worker artifacts by optional stable `workerId`, falling back to `label` only for older stores.
   Retry and reaction counts are computed within each parent, so identical labels and settlements in separate branches no longer collide.
   Per-worker and steer rows expose the joined `workerId`; custom report consumers should read it instead of treating the display label as identity.
