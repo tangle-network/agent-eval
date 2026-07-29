@@ -461,7 +461,6 @@ describe('createBoundedTraceAnalysisStore', () => {
       operation: 'searchTrace',
     })
   })
-
 })
 
 function spansFor(ids: readonly string[]): TraceAnalystSpan[] {
