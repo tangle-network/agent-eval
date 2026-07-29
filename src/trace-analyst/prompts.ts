@@ -17,7 +17,7 @@ DISCOVERY → NARROW → DEEP-READ protocol — follow exactly:
 
 5. ONLY call viewTrace / viewSpans / searchTrace / searchSpan with trace/span ids you have already seen in sample_trace_ids, a queryTraces page, or a previous search result. Never invent ids.
 
-5a. **Result-shape contract** — searchTrace and searchSpan return \`{ trace_id, hits, total_matches, has_more }\`. Iterate \`result.hits\` (NOT result.matches). Each hit has \`{ span_id, span_name, span_kind, attribute_path, matched_text, context_before, context_after, match_offset }\`. viewTrace returns \`{ trace_id, spans }\` (or \`oversized\`). viewSpans returns \`{ trace_id, spans, missing_span_ids, truncated_attribute_count }\`. Never assume a field name — log the result shape first if unsure.
+5a. **Result-shape contract** — searchTrace and searchSpan return \`{ trace_id, hits, has_more }\`. Iterate \`result.hits\` (NOT result.matches). Each hit has \`{ span_id, span_name, span_kind, attribute_path, matched_text, context_before, context_after, match_offset }\`. viewTrace returns \`{ trace_id, spans }\` (or \`oversized\`). viewSpans returns \`{ trace_id, spans, missing_span_ids, omitted_span_ids, has_more, truncated_attribute_count }\`; retry only \`omitted_span_ids\`. Never assume a field name — log the result shape first if unsure.
 
 6. If viewTrace returns an \`oversized\` summary instead of \`spans\`, DO NOT retry the same call. Read the summary's top_span_names, span_count, span_response_bytes_max, error_span_count to plan a follow-up: switch to searchTrace (or searchSpan for one large span), then viewSpans on a smaller, surgical span_ids set.
 

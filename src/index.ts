@@ -214,6 +214,7 @@ export {
   CaptureIntegrityError,
   ConfigError,
   JudgeError,
+  LimitExceededError,
   NotFoundError,
   ReplayError,
   ValidationError,

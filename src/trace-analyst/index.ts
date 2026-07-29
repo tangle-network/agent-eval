@@ -23,6 +23,15 @@ export type {
   AnalyzeTracesTurnSnapshot,
 } from './analyst'
 export { analyzeTraces } from './analyst'
+export {
+  SpanNotFoundError,
+  TraceAnalysisLimitError,
+  TraceAnalysisStoreContractError,
+  TraceAnalysisValidationError,
+  TraceFileMissingError,
+  TraceFileTooLargeError,
+  TraceNotFoundError,
+} from './errors'
 export type { TraceAnalystHookOptions } from './hook'
 export { traceAnalystOnRunComplete } from './hook'
 export type {
@@ -75,18 +84,22 @@ export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
 } from './prompts'
-export type { TraceAnalysisStore } from './store'
+export type {
+  BoundedTraceAnalysisStoreOptions,
+  TraceAnalysisStore,
+  TraceAnalysisStoreContext,
+} from './store'
+export { createBoundedTraceAnalysisStore, TRACE_ANALYSIS_LIMITS } from './store'
 export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
-  SpanNotFoundError,
   type ToolSpansToTraceAnalysisStoreOptions,
-  ToolTraceMissingError,
-  TraceFileMissingError,
-  TraceNotFoundError,
-  toolSpansToTraceAnalysisStore,
 } from './store-otlp'
-export type { TraceAnalysisToolDescriptor } from './tools'
+export { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'
+export type {
+  BuildTraceAnalysisToolsOptions,
+  TraceAnalysisToolDescriptor,
+} from './tools'
 export {
   buildTraceAnalysisToolDescriptors,
   buildTraceAnalystTools,

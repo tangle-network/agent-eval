@@ -111,7 +111,7 @@ export async function analyzeTraces(
 
   // Pre-warm file stores so missing inputs fail before the RLM starts.
   if (store instanceof OtlpFileTraceStore) {
-    await store.ensureIndexed()
+    await store.ensureIndexed(options.signal ? { signal: options.signal } : undefined)
   }
 
   const tools: AxFunction[] = buildTraceAnalystTools({ store })

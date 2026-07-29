@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { TraceAnalysisValidationError } from './errors'
 import { OtlpFileTraceStore, TraceNotFoundError } from './store-otlp'
 import {
   buildTraceAnalysisToolDescriptors,
@@ -40,7 +41,7 @@ describe('buildTraceAnalystTools', () => {
     expect(group.selectionCriteria).toContain('OTLP')
   })
 
-  it('exposes transport-neutral metadata exactly matching every Ax function', () => {
+  it('adapts every canonical transport-neutral descriptor into matching Ax metadata', () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const axTools = buildTraceAnalystTools({ store })
     const descriptors = buildTraceAnalysisToolDescriptors({ store })
@@ -64,7 +65,7 @@ describe('buildTraceAnalystTools', () => {
     expect(descriptors.every((tool) => tool.namespace === TRACE_ANALYST_TOOL_NAMESPACE)).toBe(true)
   })
 
-  it('delegates every transport-neutral handler to the same bounded Ax operation', async () => {
+  it('delegates every Ax operation to the same canonical transport-neutral handler', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const axTools = buildTraceAnalystTools({ store })
     const descriptors = buildTraceAnalysisToolDescriptors({ store })
@@ -112,20 +113,12 @@ describe('buildTraceAnalystTools', () => {
   })
 
   it.each([
-    ['queryTraces', { limit: 0 }, 'limit must be an integer 1..200'],
-    ['queryTraces', { limit: 201 }, 'limit must be an integer 1..200'],
-    ['queryTraces', { limit: 1, offset: -1 }, 'offset must be a non-negative integer'],
-    [
-      'searchTrace',
-      { trace_id: 't000000000001', regex_pattern: '[', max_matches: 1 },
-      'Invalid regular expression',
-    ],
-    [
-      'searchTrace',
-      { trace_id: 't000000000001', regex_pattern: 'x', max_matches: 501 },
-      'max_matches must be an integer 1..500',
-    ],
-  ])('preserves %s validation error for transport-neutral callers', async (name, args, message) => {
+    ['queryTraces', { limit: 0 }],
+    ['queryTraces', { limit: 201 }],
+    ['queryTraces', { limit: 1, offset: -1 }],
+    ['searchTrace', { trace_id: 't000000000001', regex_pattern: '[', max_matches: 1 }],
+    ['searchTrace', { trace_id: 't000000000001', regex_pattern: 'x', max_matches: 501 }],
+  ])('preserves %s validation error across neutral and Ax callers', async (name, args) => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const axTool = buildTraceAnalystTools({ store }).find((tool) => tool.name === name)
     const descriptor = buildTraceAnalysisToolDescriptors({ store }).find(
@@ -133,8 +126,121 @@ describe('buildTraceAnalystTools', () => {
     )
     if (!axTool || !descriptor) throw new Error(`missing tool ${name}`)
 
-    await expect(Promise.resolve().then(() => axTool.func(args))).rejects.toThrow(message)
-    await expect(descriptor.handler(args)).rejects.toThrow(message)
+    await expect(Promise.resolve().then(() => axTool.func(args))).rejects.toBeInstanceOf(
+      TraceAnalysisValidationError,
+    )
+    await expect(descriptor.handler(args)).rejects.toMatchObject({ code: 'validation' })
+  })
+
+  it('publishes exact JSON Schemas with typed filters and public integer caps', () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const tools = buildTraceAnalysisToolDescriptors({ store })
+    const byName = new Map(tools.map((tool) => [tool.name, tool.parameters]))
+
+    expect(byName.get('queryTraces')).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 200 },
+        offset: { type: 'integer', minimum: 0 },
+      },
+      required: ['limit'],
+    })
+    expect(byName.get('viewSpans')).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        span_ids: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: { type: 'string', minLength: 1 },
+        },
+      },
+    })
+    expect(byName.get('searchTrace')).toMatchObject({
+      properties: {
+        max_matches: { type: 'integer', minimum: 1, maximum: 500 },
+      },
+    })
+
+    const overview = byName.get('getDatasetOverview') as {
+      properties: { filters: Record<string, unknown> }
+    }
+    expect(overview.properties.filters).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        has_errors: { type: 'boolean' },
+        service_names: { type: 'array', items: { type: 'string' } },
+        agent_names: { type: 'array', items: { type: 'string' } },
+        model_names: { type: 'array', items: { type: 'string' } },
+        tool_names: { type: 'array', items: { type: 'string' } },
+        start_time_after: { type: 'string', format: 'date-time' },
+        start_time_before: { type: 'string', format: 'date-time' },
+        regex_pattern: { type: 'string', minLength: 1 },
+      },
+    })
+  })
+
+  it.each([
+    ['getDatasetOverview', { unexpected: true }],
+    ['queryTraces', { limit: 1, unexpected: true }],
+    ['countTraces', { unexpected: true }],
+    ['viewTrace', { trace_id: 't000000000001', unexpected: true }],
+    ['viewSpans', { trace_id: 't000000000001', span_ids: ['s004'], unexpected: true }],
+    ['searchTrace', { trace_id: 't000000000001', regex_pattern: 'x', unexpected: true }],
+    [
+      'searchSpan',
+      {
+        trace_id: 't000000000001',
+        span_id: 's004',
+        regex_pattern: 'x',
+        unexpected: true,
+      },
+    ],
+  ])('rejects unknown %s fields identically through both public surfaces', async (name, args) => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const neutral = buildTraceAnalysisToolDescriptors({ store }).find((tool) => tool.name === name)
+    const ax = buildTraceAnalystTools({ store }).find((tool) => tool.name === name)
+    if (!neutral || !ax) throw new Error(`missing tool ${name}`)
+
+    await expect(neutral.handler(args)).rejects.toBeInstanceOf(TraceAnalysisValidationError)
+    await expect(Promise.resolve().then(() => ax.func(args))).rejects.toBeInstanceOf(
+      TraceAnalysisValidationError,
+    )
+  })
+
+  it.each([
+    { filters: { has_errors: 'true' } },
+    { filters: { service_names: 'runtime' } },
+    { filters: { start_time_after: 'yesterday' } },
+    { filters: { unknown_filter: true } },
+  ])('rejects an invalid filter instead of silently broadening the query', async (args) => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const tool = buildTraceAnalysisToolDescriptors({ store }).find(
+      (candidate) => candidate.name === 'getDatasetOverview',
+    )
+    if (!tool) throw new Error('missing getDatasetOverview descriptor')
+
+    await expect(tool.handler(args)).rejects.toMatchObject({ code: 'validation' })
+  })
+
+  it('forwards Ax abortSignal into the canonical descriptor before any store read', async () => {
+    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
+    const tool = buildTraceAnalystTools({ store }).find(
+      (candidate) => candidate.name === 'viewTrace',
+    )
+    if (!tool) throw new Error('missing viewTrace Ax tool')
+    const controller = new AbortController()
+    const reason = new Error('stop Ax trace read')
+    controller.abort(reason)
+
+    await expect(
+      Promise.resolve().then(() =>
+        tool.func({ trace_id: 't000000000001' }, { abortSignal: controller.signal }),
+      ),
+    ).rejects.toBe(reason)
   })
 
   it('preserves typed store errors instead of converting them to transport results', async () => {

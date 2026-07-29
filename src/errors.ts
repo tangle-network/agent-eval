@@ -15,6 +15,7 @@
 
 export type AgentEvalErrorCode =
   | 'validation'
+  | 'limit_exceeded'
   | 'not_found'
   | 'config'
   | 'capture_integrity'
@@ -43,6 +44,13 @@ export class AgentEvalError extends Error {
 export class ValidationError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('validation', message, options)
+  }
+}
+
+/** A bounded operation or resource exceeds its documented hard limit. */
+export class LimitExceededError extends AgentEvalError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('limit_exceeded', message, options)
   }
 }
 

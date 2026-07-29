@@ -199,9 +199,15 @@ try {
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
         buildTraceAnalysisToolDescriptors,
+        createBoundedTraceAnalysisStore,
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
+        TRACE_ANALYSIS_LIMITS,
+        TraceAnalysisLimitError,
+        TraceAnalysisStoreContractError,
+        TraceAnalysisValidationError,
+        TraceNotFoundError,
         type TraceAnalysisToolDescriptor,
         type ToolSpan,
         type ToolSpansToTraceAnalysisStoreOptions,
@@ -229,6 +235,19 @@ try {
       const traceToolDescriptors: TraceAnalysisToolDescriptor[] =
         buildTraceAnalysisToolDescriptors({ store })
       const traceToolNamespace: 'traces' = TRACE_ANALYST_TOOL_NAMESPACE
+      const boundedStore: TraceAnalysisStore = createBoundedTraceAnalysisStore(store)
+      const traceValidationCode: 'validation' = new TraceAnalysisValidationError('bad input').code
+      const traceLimitCode: 'limit_exceeded' = new TraceAnalysisLimitError(
+        'packed-read',
+        2,
+        1,
+      ).code
+      const traceStoreCode: 'backend_integrity' = new TraceAnalysisStoreContractError(
+        'packed-read',
+        'invalid result',
+      ).code
+      const traceNotFoundCode: 'not_found' = new TraceNotFoundError('missing-trace').code
+      const tracePageLimit: 200 = TRACE_ANALYSIS_LIMITS.queryTraces
       const packedToolSpan: ToolSpan = {
         runId: 'packed-run',
         spanId: 'packed-span',
@@ -418,6 +437,12 @@ try {
         store,
         traceToolDescriptors,
         traceToolNamespace,
+        boundedStore,
+        traceValidationCode,
+        traceLimitCode,
+        traceStoreCode,
+        traceNotFoundCode,
+        tracePageLimit,
         packedToolStore,
         packedMissingTraceCode,
         removedProviderSdk,
@@ -490,11 +515,64 @@ try {
         const root = await import('@tangle-network/agent-eval')
         const profileCell = await import('@tangle-network/agent-eval/profile-cell')
         const analyst = await import('@tangle-network/agent-eval/analyst')
+        const traces = await import('@tangle-network/agent-eval/traces')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
         if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
         if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
         if ('CanonicalRawAnalystFindingSchema' in analyst) {
           throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
+        }
+        for (const name of [
+          'buildTraceAnalysisToolDescriptors',
+          'buildTraceAnalystTools',
+          'createBoundedTraceAnalysisStore',
+          'TRACE_ANALYSIS_LIMITS',
+          'TraceAnalysisValidationError',
+          'TraceAnalysisLimitError',
+          'TraceAnalysisStoreContractError',
+          'TraceNotFoundError',
+          'TraceFileTooLargeError',
+        ]) {
+          if (!(name in traces)) throw new Error('missing traces export ' + name)
+        }
+        const descriptors = traces.buildTraceAnalysisToolDescriptors({ store: {} })
+        if (descriptors.length !== 7 || descriptors.some((tool) => tool.namespace !== 'traces')) {
+          throw new Error('packed trace descriptors lost their canonical shape')
+        }
+        const querySchema = descriptors.find((tool) => tool.name === 'queryTraces')?.parameters
+        if (
+          querySchema?.properties?.limit?.type !== 'integer' ||
+          querySchema.properties.limit.maximum !== 200 ||
+          querySchema.additionalProperties !== false
+        ) {
+          throw new Error('packed queryTraces schema lost its exact limit contract')
+        }
+        const overviewSchema = descriptors.find(
+          (tool) => tool.name === 'getDatasetOverview',
+        )?.parameters
+        if (
+          overviewSchema?.properties?.filters?.properties?.has_errors?.type !== 'boolean' ||
+          overviewSchema.properties.filters.additionalProperties !== false
+        ) {
+          throw new Error('packed trace filter schema is not exact')
+        }
+        const invalid = await descriptors
+          .find((tool) => tool.name === 'queryTraces')
+          .handler({ limit: 0 })
+          .catch((error) => error)
+        if (!(invalid instanceof traces.TraceAnalysisValidationError) || invalid.code !== 'validation') {
+          throw new Error('packed trace validation error lost its stable code')
+        }
+        const storeContractError = new traces.TraceAnalysisStoreContractError(
+          'packed-read',
+          'invalid result',
+        )
+        if (storeContractError.code !== 'backend_integrity') {
+          throw new Error('packed trace store error lost its stable code')
+        }
+        const traceNotFoundError = new traces.TraceNotFoundError('missing-trace')
+        if (traceNotFoundError.code !== 'not_found') {
+          throw new Error('packed trace not-found error lost its stable code')
         }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
