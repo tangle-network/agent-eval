@@ -420,7 +420,13 @@ function profileMeasurements(): Array<{
 }> {
   return [0, 1, 2, 3, 4, 5].map((index) => {
     const baseline = 0.2 + (index % 3) * 0.05
-    const candidate = baseline + 0.5
+    // The per-cell gain VARIES (0.52 / 0.50 / 0.48, mean exactly 0.50). A
+    // constant gain makes every bootstrap resample identical, and a zero-width
+    // interval carries no information about how far the estimate could be
+    // wrong — the paired decision refuses it rather than reading it as
+    // certainty, so a constant-gain fixture would prove nothing about the
+    // decision path it is here to exercise.
+    const candidate = baseline + 0.5 + (1 - (index % 3)) * 0.02
     const run = (score: number): PlatformProfileRun => ({
       score,
       dimensions: [{ name: 'reliability', score }],
@@ -661,7 +667,9 @@ describe('candidate experiment comparison', () => {
       async execute(input) {
         observedSeeds.push(input.seed)
         const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition % 3]!
-        const candidate = [0.7, 0.75, 0.8][input.benchmarkCell.repetition % 3]!
+        // Varying per-cell gain (0.52 / 0.50 / 0.48, mean 0.50) — see
+        // `profileMeasurements` for why a constant gain proves nothing.
+        const candidate = [0.72, 0.75, 0.78][input.benchmarkCell.repetition % 3]!
         return executionEvidence({
           experiment: input.experiment,
           arm: input.arm,

@@ -1,10 +1,14 @@
 /**
  * @module
- * Composable held-out promotion gate backed by paired bootstrap confidence.
+ * Composable held-out promotion gate.
  *
- * Pair by full `scenario:rep` cellId, bootstrap the paired candidate-minus-
- * baseline delta, and ship only when CI.low strictly clears the threshold with
- * at least `minProductiveRuns` paired observations.
+ * Pair by full `scenario:rep` cellId, then ship only when the lower bound of
+ * the interval the outcome's SHAPE admits strictly clears the threshold, with
+ * at least `minProductiveRuns` paired observations. The rule is
+ * `decidePairedPromotion` (`src/paired-promotion-decision.ts`) — the same one
+ * `HeldOutGate` decides on, not a second copy: a pass/fail holdout decides on
+ * Tango's score interval, McNemar's exact test vetoes at a non-negative
+ * threshold, and a zero-width interval is refused rather than promoted.
  *
  * Use when you want held-out significance as ONE of N composed gates instead
  * of the full `defaultProductionGate` stack (which adds critical-dimension
@@ -32,8 +36,10 @@ export interface HeldOutGateOptions<TScenario extends Scenario = Scenario> {
 }
 
 /**
- * Composable held-out gate: ships only when the PAIRED bootstrap CI lower bound
- * of the candidate-minus-baseline composite delta clears `deltaThreshold`.
+ * Composable held-out gate: ships only when the lower bound of the DECIDING
+ * paired interval on the candidate-minus-baseline composite delta clears
+ * `deltaThreshold` — Tango's score interval on a pass/fail holdout, the mean
+ * bootstrap otherwise. See {@link decidePairedPromotion}.
  */
 export function heldOutGate<TArtifact, TScenario extends Scenario>(
   options: HeldOutGateOptions<TScenario>,
@@ -62,38 +68,51 @@ export function heldOutGate<TArtifact, TScenario extends Scenario>(
           seed,
         },
       )
-      // Ship on the MEAN paired delta (tie-robust; matches heldoutSignificance's
-      // default and defaultProductionGate). The CI (`low`/`high`) is the mean's,
-      // so the reported point estimate must be the mean too — reporting the
-      // sample median here (as before) would pair a mean CI with a median value.
-      const delta = sig.bootstrap.mean
+      // Report the interval that DECIDED, not the diagnostic bootstrap: on a
+      // pass/fail holdout the verdict comes from Tango's score interval, and
+      // printing the bootstrap's bounds next to that verdict would put a
+      // number in the reason string that did not produce it.
+      const dec = sig.decision
+      const delta = dec.delta
       const passed = sig.significant
       const status = sig.fewRuns ? 'not_evaluated' : passed ? 'pass' : 'fail'
       const tieNote =
         sig.tieFraction >= TIE_WARN_FRACTION ? `, ${(sig.tieFraction * 100).toFixed(0)}% tied` : ''
-      const ci = `${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]`
+      const ci = `${(dec.confidence * 100).toFixed(0)}% CI [${dec.low.toFixed(3)}, ${dec.high.toFixed(3)}]`
+      const held = `held-out ${dec.label} Δ ${delta.toFixed(3)}`
+      const holdReason = sig.fewRuns
+        ? `held-out: only ${sig.n} paired runs; ${sig.minimumRequired} required — too few to claim significance`
+        : dec.indeterminate
+          ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear ${deltaThreshold} on evidence (n=${sig.n}${tieNote})`
+          : dec.exactTestVetoes
+            ? `${held}, McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${ci}, n=${sig.n}${tieNote})`
+            : `${held}, CI.low ${dec.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`
       return {
         decision: passed ? 'ship' : 'hold',
         reasons: passed
           ? [
-              `held-out mean Δ ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} > ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
+              `${held}, CI.low ${dec.low.toFixed(3)} > ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
             ]
-          : [
-              sig.fewRuns
-                ? `held-out: only ${sig.n} paired runs; ${sig.minimumRequired} required — too few to claim significance`
-                : `held-out mean Δ ${delta.toFixed(3)}, CI.low ${sig.bootstrap.low.toFixed(3)} ≤ ${deltaThreshold} (${ci}, n=${sig.n}${tieNote})`,
-            ],
+          : [holdReason],
         contributingGates: [
           {
             name: 'heldOutGate',
             status,
             detail: {
-              deltaMean: delta,
+              deltaMean: sig.bootstrap.mean,
+              decidingDelta: delta,
+              decisionStatistic: sig.decisionStatistic,
+              decisionMethod: sig.decisionMethod,
+              binaryScale: dec.binaryScale,
+              mcnemar: dec.mcnemar,
+              indeterminate: dec.indeterminate,
               deltaMedianDiagnostic: sig.medianBootstrap.median,
               tieFraction: sig.tieFraction,
-              ciLow: sig.bootstrap.low,
-              ciHigh: sig.bootstrap.high,
-              confidence: sig.bootstrap.confidence,
+              ciLow: dec.low,
+              ciHigh: dec.high,
+              bootstrapCiLow: sig.bootstrap.low,
+              bootstrapCiHigh: sig.bootstrap.high,
+              confidence: dec.confidence,
               n: sig.n,
               deltaThreshold,
               fewRuns: sig.fewRuns,

@@ -1009,14 +1009,23 @@ function classifyCandidate(
         'Search-split evidence is descriptive; release decisions require matched holdout runs.',
     }
   }
-  if (ctx.rope && ci.low >= ctx.rope.low && ci.high <= ctx.rope.high) {
+  // A ZERO-WIDTH interval cannot support any directional or equivalence claim:
+  // every resample was identical, so it says nothing about how far the estimate
+  // could be wrong. It is the shape that sits fully inside any ROPE containing
+  // it (a fake "practically equivalent") and clears any threshold below it (a
+  // fake "promote"). Both are an absence of evidence, so it is disqualified from
+  // each claim rather than short-circuiting the whole classifier — the
+  // sample-size and MDE diagnostics below are still the more useful answer when
+  // they apply.
+  const degenerate = !Number.isFinite(ci.low) || !Number.isFinite(ci.high) || ci.low === ci.high
+  if (!degenerate && ctx.rope && ci.low >= ctx.rope.low && ci.high <= ctx.rope.high) {
     return {
       decision: 'equivalent',
       reason: `Paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] is fully inside ROPE ${formatRope(ctx.rope)}; candidate is practically equivalent to comparator.`,
     }
   }
-  const gainPositive = ci.low > 0
-  const gainNegative = ci.high < 0
+  const gainPositive = !degenerate && ci.low > 0
+  const gainNegative = !degenerate && ci.high < 0
   if (gainNegative) {
     return {
       decision: 'reject',
@@ -1027,6 +1036,12 @@ function classifyCandidate(
     return {
       decision: 'needs_more_data',
       reason: `Only ${ctx.posterior.n} paired observations; minimum detectable effect at this N is ${fmt(ctx.posterior.mde)} score units (need ≥ ${ctx.minPairs} pairs to issue a directional verdict).`,
+    }
+  }
+  if (degenerate) {
+    return {
+      decision: 'needs_more_data',
+      reason: `Paired-delta CI [${fmt(ci.low)}, ${fmt(ci.high)}] has zero width — every resample was identical, so the interval carries no information about how far the estimate could be wrong and cannot support a promote or equivalence call.`,
     }
   }
   if (row.qValue !== null && row.qValue <= ctx.fdr && gainPositive) {

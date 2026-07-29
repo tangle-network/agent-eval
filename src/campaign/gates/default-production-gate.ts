@@ -156,9 +156,11 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
             statistic: heldoutStatistic,
           },
         )
-        // Point estimate of the chosen ship statistic (mean by default);
-        // `.low`/`.high` are its CI. The median remains diagnostic.
-        delta = heldoutStatistic === 'median' ? sig.bootstrap.median : sig.bootstrap.mean
+        // The DECIDING interval, not the diagnostic bootstrap: on a pass/fail
+        // holdout the verdict comes from Tango's score interval, so the numbers
+        // in the reason string have to be that interval's.
+        const dec = sig.decision
+        delta = dec.delta
         const heldoutPass = sig.significant
         contributing.push({
           name: 'heldout-significance',
@@ -166,13 +168,20 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           detail: {
             n: sig.n,
             delta,
+            decisionStatistic: sig.decisionStatistic,
+            decisionMethod: sig.decisionMethod,
+            binaryScale: dec.binaryScale,
+            mcnemar: dec.mcnemar,
+            indeterminate: dec.indeterminate,
             deltaMean: sig.bootstrap.mean,
             deltaMedianDiagnostic: sig.medianBootstrap.median,
             deltaMedian: sig.medianBootstrap.median,
             tieFraction: sig.tieFraction,
-            ciLow: sig.bootstrap.low,
-            ciHigh: sig.bootstrap.high,
-            confidence: sig.bootstrap.confidence,
+            ciLow: dec.low,
+            ciHigh: dec.high,
+            bootstrapCiLow: sig.bootstrap.low,
+            bootstrapCiHigh: sig.bootstrap.high,
+            confidence: dec.confidence,
             deltaThreshold,
             fewRuns: sig.fewRuns,
           },
@@ -185,10 +194,15 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
             sig.tieFraction >= TIE_WARN_FRACTION
               ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios`
               : ''
+          const ci = `${(dec.confidence * 100).toFixed(0)}% CI [${dec.low.toFixed(3)}, ${dec.high.toFixed(3)}]`
           reasons.push(
             sig.fewRuns
               ? `held-out: only ${sig.n} paired runs (< ${sig.minimumRequired}) — too few to claim significance`
-              : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${heldoutStatistic} Δ ${delta.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]${tieNote})`,
+              : dec.indeterminate
+                ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear threshold ${deltaThreshold} on evidence${tieNote}`
+                : dec.exactTestVetoes
+                  ? `held-out: McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`
+                  : `held-out CI.low ${dec.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`,
           )
         }
       }
@@ -247,7 +261,11 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
             missingDimensions,
             regressions: dimRegs.map((result) => ({
               dimension: result.dimension,
-              ciLow: result.bootstrap.low,
+              ciLow: result.ci.low,
+              ciHigh: result.ci.high,
+              decisionStatistic: result.decisionStatistic,
+              indeterminate: result.indeterminate,
+              bootstrapCiLow: result.bootstrap.low,
               median: result.bootstrap.median,
               tolerance: result.tolerance,
               n: result.n,
@@ -261,7 +279,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         }
         if (regressed.length > 0) {
           reasons.push(
-            `critical dimension(s) regressed: ${regressed.map((result) => `${result.dimension} CI.low ${result.bootstrap.low.toFixed(3)} < -${result.tolerance}`).join('; ')}`,
+            `critical dimension(s) regressed: ${regressed.map((result) => `${result.dimension} CI.low ${result.ci.low.toFixed(3)} < -${result.tolerance}`).join('; ')}`,
           )
         }
       }

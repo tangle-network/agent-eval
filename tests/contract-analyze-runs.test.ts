@@ -126,6 +126,51 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     expect(report.recommendations.some((r) => r.kind === 'hold')).toBe(true)
   })
 
+  it('never recommends ship on a ZERO-WIDTH interval, at any threshold sign', async () => {
+    // 20 pairs whose deltas are all exactly +0.30. Every bootstrap resample is
+    // identical, so the interval is the point [0.30, 0.30] — it carries no
+    // information about how far the estimate could be wrong, and reading
+    // `ci95[0] > threshold` off it is a ship bought with no spread at all.
+    const baseline = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `b-${i}`, candidate: 'baseline', composite: 0.5 }),
+    )
+    const candidate = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `c-${i}`, candidate: 'candidate', composite: 0.8 }),
+    )
+    for (let i = 0; i < 20; i++) {
+      baseline[i]!.seed = i
+      candidate[i]!.seed = i
+    }
+    const report = await analyzeRuns({ runs: [...baseline, ...candidate] })
+    expect(report.lift!.ci95[0]).toBe(report.lift!.ci95[1])
+    expect(report.recommendations.some((r) => r.kind === 'ship')).toBe(false)
+    expect(report.release.axes.find((a) => a.name === 'quality-lift')!.status).not.toBe('pass')
+
+    // The negative-threshold case: an all-tie [0, 0] clears any margin below 0.
+    const tiedBase = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `b-${i}`, candidate: 'baseline', composite: 0.5 }),
+    )
+    const tiedCand = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `c-${i}`, candidate: 'candidate', composite: 0.5 }),
+    )
+    for (let i = 0; i < 20; i++) {
+      tiedBase[i]!.seed = i
+      tiedCand[i]!.seed = i
+    }
+    const tied = await analyzeRuns({
+      runs: [...tiedBase, ...tiedCand],
+      decisionThreshold: -0.05,
+    })
+    expect(tied.lift!.ci95).toEqual([0, 0])
+    expect(tied.recommendations.some((r) => r.kind === 'ship')).toBe(false)
+  })
+
+  it('rejects a non-finite decisionThreshold instead of comparing against NaN', async () => {
+    await expect(analyzeRuns({ runs: [], decisionThreshold: Number.NaN })).rejects.toThrow(
+      /decisionThreshold must be finite/,
+    )
+  })
+
   it('emits an expand-corpus recommendation when CI straddles threshold', async () => {
     const baseline = Array.from({ length: 6 }, (_, i) =>
       makeRun({ id: `b-${i}`, candidate: 'baseline', composite: 0.5 }),

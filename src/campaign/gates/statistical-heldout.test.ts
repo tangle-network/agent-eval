@@ -25,14 +25,16 @@ const composite = (s: JudgeScore) => s.composite
 
 describe('pairHoldout + heldoutSignificance — promotion gate decision core', () => {
   it('a clear held-out gain is SIGNIFICANT (gate ships)', () => {
+    // Deltas must not be IDENTICAL: n identical deltas give a zero-width
+    // interval, which carries no information about how far the estimate could
+    // be wrong and is refused whatever the sign test says (pinned below).
     const paired = pairHoldout(
-      cells([0.8, 0.8, 0.8, 0.8, 0.8, 0.8]),
+      cells([0.82, 0.78, 0.85, 0.79, 0.83, 0.8]),
       cells([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
       scenarioIds(6),
       composite,
     )
     expect(paired.before).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-    expect(paired.after).toEqual([0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
     const sig = heldoutSignificance(paired)
     expect(sig.n).toBe(6)
     expect(sig.fewRuns).toBe(false)
@@ -40,6 +42,47 @@ describe('pairHoldout + heldoutSignificance — promotion gate decision core', (
     expect(sig.pValue).toBeCloseTo(1 / 64, 12)
     expect(sig.bootstrap.low).toBeGreaterThan(0)
     expect(sig.significant).toBe(true)
+  })
+
+  it('refuses a ZERO-WIDTH interval however large the uniform gain', () => {
+    // Six cells that all move +0.30 give [0.30, 0.30]. The point estimate is
+    // large and the interval says nothing about its error, and under a bounded
+    // asymmetric null whose true mean paired delta is exactly 0 this is the
+    // shape of every sample that misses the rare drop — worth 88.50% false
+    // promotion at n=6 before the guard.
+    const paired = pairHoldout(
+      cells([0.8, 0.8, 0.8, 0.8, 0.8, 0.8]),
+      cells([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
+      scenarioIds(6),
+      composite,
+    )
+    const sig = heldoutSignificance(paired)
+    expect(sig.bootstrap.low).toBe(sig.bootstrap.high)
+    expect(sig.decision.indeterminate).toBe(true)
+    expect(sig.significant).toBe(false)
+  })
+
+  it('decides a pass/fail holdout on the score interval, not the bootstrap', () => {
+    // The defect this file exists to pin: on a two-point outcome the paired
+    // delta vector is dominated by ties, so a percentile bootstrap of the mean
+    // is not a valid interval at a nonzero margin. A candidate that loses 3 of
+    // 76 pairs and wins none does not establish noninferiority at a -0.05
+    // margin, and the interval that decides must not claim it does.
+    const before = [
+      ...Array.from({ length: 3 }, () => 1),
+      ...Array.from({ length: 73 }, (_, i) => (i % 2 === 0 ? 1 : 0)),
+    ]
+    const after = [
+      ...Array.from({ length: 3 }, () => 0),
+      ...Array.from({ length: 73 }, (_, i) => (i % 2 === 0 ? 1 : 0)),
+    ]
+    const sig = heldoutSignificance(
+      { before, after, cellIds: before.map((_, i) => `sc${i}:0`) },
+      { deltaThreshold: -0.05 },
+    )
+    expect(sig.decisionStatistic).toBe('paired_risk_difference')
+    expect(sig.decision.low).toBeLessThan(-0.05)
+    expect(sig.significant).toBe(false)
   })
 
   it('pure noise is NOT significant (gate holds)', () => {
@@ -171,6 +214,27 @@ describe('dimensionRegressions — binary (0/1) safety dimensions', () => {
     expect(reg!.regressed).toBe(true)
     expect(reg!.n).toBe(77)
     expect(reg!.bootstrapStatistic).toBe('mean')
+  })
+
+  it('CATCHES a pass/fail safety regression the bootstrap arm cannot see', () => {
+    // The mirror-image defect. `tolerance` is POSITIVE, so the credible-worst-
+    // case arm (`bootstrap.low < -tolerance`) fails OPEN wherever the bootstrap
+    // interval is pinned — which is the normal state of a pass/fail dimension,
+    // not an edge case. Here the candidate loses the safety dimension on 12 of
+    // 40 held-out cells and wins none; the proven-drop arm now decides on
+    // Tango's score interval, which is valid at the nonzero tolerance.
+    const cand = new Map<string, Record<string, JudgeScore>>()
+    const base = new Map<string, Record<string, JudgeScore>>()
+    for (let i = 0; i < 40; i++) {
+      const safe = i < 12 ? { baseline: 1, candidate: 0 } : { baseline: 1, candidate: 1 }
+      base.set(`sc${i}:0`, { quality: score(0.5, { safety: safe.baseline }) })
+      cand.set(`sc${i}:0`, { quality: score(0.5, { safety: safe.candidate }) })
+    }
+    const [reg] = dimensionRegressions(cand, base, scenarioIds(40), ['safety'], {
+      tolerance: 0.05,
+    })
+    expect(reg!.decisionStatistic).toBe('paired_risk_difference')
+    expect(reg!.regressed).toBe(true)
   })
 
   it('decides continuous dimensions on the mean, and still offers the median', () => {

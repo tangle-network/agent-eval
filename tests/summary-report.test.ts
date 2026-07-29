@@ -167,9 +167,30 @@ describe('researchReport', () => {
   it('promotes the strongest coding-bench candidate when paired holdout evidence is decisive', async () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 24; i++) {
+      // Per-task gains VARY. Identical paired deltas give a zero-width interval,
+      // which says nothing about how far the estimate could be wrong and cannot
+      // support a promote or an equivalence call.
       runs.push(rec('baseline', i, 'holdout', 0.55 + i * 0.001, 0.08, `coding-task-${i}`))
-      runs.push(rec('tool_repair_v2', i, 'holdout', 0.72 + i * 0.001, 0.1, `coding-task-${i}`))
-      runs.push(rec('cheap_fast', i, 'holdout', 0.58 + i * 0.001, 0.02, `coding-task-${i}`))
+      runs.push(
+        rec(
+          'tool_repair_v2',
+          i,
+          'holdout',
+          0.72 + i * 0.001 + (i % 4) * 0.004,
+          0.1,
+          `coding-task-${i}`,
+        ),
+      )
+      runs.push(
+        rec(
+          'cheap_fast',
+          i,
+          'holdout',
+          0.58 + i * 0.001 + (i % 3) * 0.002,
+          0.02,
+          `coding-task-${i}`,
+        ),
+      )
     }
 
     const report = await researchReport(runs, {
@@ -348,7 +369,19 @@ describe('researchReport', () => {
     const runs: RunRecord[] = []
     for (let i = 0; i < 30; i++) {
       runs.push(rec('baseline', i, 'holdout', 0.6 + (i % 3) * 0.001, 0.05, `task-${i}`))
-      runs.push(rec('candidate', i, 'holdout', 0.6 + (i % 3) * 0.001 + 0.0005, 0.05, `task-${i}`))
+      // The paired deltas VARY inside the ROPE. A constant delta gives a
+      // zero-width interval, and "practically equivalent" is a claim ABOUT the
+      // uncertainty — an interval that measures none cannot make it.
+      runs.push(
+        rec(
+          'candidate',
+          i,
+          'holdout',
+          0.6 + (i % 3) * 0.001 + 0.0005 + (i % 5) * 0.0004 - 0.0008,
+          0.05,
+          `task-${i}`,
+        ),
+      )
     }
     const report = await researchReport(runs, {
       comparator: 'baseline',

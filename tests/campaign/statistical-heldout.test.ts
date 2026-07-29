@@ -97,7 +97,7 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
     expect(gateDetail(r, 'heldout-significance').ciLow).toBeLessThanOrEqual(0)
   })
 
-  it('SHIPS a uniform real lift — CI.low strictly above the threshold', async () => {
+  it('SHIPS a real lift — CI.low strictly above the threshold', async () => {
     const r = await decide({
       baseline: {
         'h1:0': { composite: 80 },
@@ -109,11 +109,11 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
       },
       candidate: {
         'h1:0': { composite: 86 },
-        'h2:0': { composite: 88 },
-        'h3:0': { composite: 84 },
-        'h4:0': { composite: 87 },
-        'h5:0': { composite: 85 },
-        'h6:0': { composite: 89 },
+        'h2:0': { composite: 89 },
+        'h3:0': { composite: 83 },
+        'h4:0': { composite: 88 },
+        'h5:0': { composite: 84 },
+        'h6:0': { composite: 90 },
       },
       scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     })
@@ -174,11 +174,11 @@ describe('defaultProductionGate — per-dimension regression guard (anti-Goodhar
       },
       candidate: {
         'h1:0': { composite: 86, dimensions: { hallucination_free: 100 } },
-        'h2:0': { composite: 88, dimensions: { hallucination_free: 100 } },
-        'h3:0': { composite: 84, dimensions: { hallucination_free: 99 } },
-        'h4:0': { composite: 87, dimensions: { hallucination_free: 100 } },
-        'h5:0': { composite: 85, dimensions: { hallucination_free: 100 } },
-        'h6:0': { composite: 89, dimensions: { hallucination_free: 100 } },
+        'h2:0': { composite: 89, dimensions: { hallucination_free: 100 } },
+        'h3:0': { composite: 83, dimensions: { hallucination_free: 99 } },
+        'h4:0': { composite: 88, dimensions: { hallucination_free: 100 } },
+        'h5:0': { composite: 84, dimensions: { hallucination_free: 100 } },
+        'h6:0': { composite: 90, dimensions: { hallucination_free: 100 } },
       },
       scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
       criticalDimensions: ['hallucination_free'],

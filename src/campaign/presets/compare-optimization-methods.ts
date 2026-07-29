@@ -427,7 +427,18 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       confidence: intervalConfidence,
       statistic: 'mean',
     })
-    const favored = boot.low > 0 ? best.name : boot.high < 0 ? other.name : 'tie'
+    // A zero-width interval names no winner. Identical per-scenario deltas make
+    // every resample identical, so `[g, g]` would declare `best` favored at any
+    // n on no spread at all; `[0, 0]` already fell through to 'tie'.
+    const degenerate =
+      !Number.isFinite(boot.low) || !Number.isFinite(boot.high) || boot.low === boot.high
+    const favored = degenerate
+      ? 'tie'
+      : boot.low > 0
+        ? best.name
+        : boot.high < 0
+          ? other.name
+          : 'tie'
     return {
       a: best.name,
       b: other.name,
