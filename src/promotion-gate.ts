@@ -106,7 +106,14 @@ export function bootstrapCi(
   const ciUpper = deltas[Math.min(iterations - 1, upperIdx)]!
 
   let verdict: Verdict
-  if (ciLower > 0) verdict = 'ADVANCE'
+  // A ZERO-WIDTH interval is an absence of evidence, not a certainty. Constant
+  // arms make every resample identical, so pass/fail data promotes on nothing:
+  // [0,0,0] vs [1,1,1] is six samples, clears the `minTotalSamples` floor, and
+  // yields [1, 1] — an "ADVANCE" carrying no information about how far the
+  // estimate could be wrong. Same rule as `pairedDeltaTest`, one estimator over.
+  if (!Number.isFinite(ciLower) || !Number.isFinite(ciUpper) || ciLower === ciUpper) {
+    verdict = 'INCONCLUSIVE'
+  } else if (ciLower > 0) verdict = 'ADVANCE'
   else if (ciUpper < 0) verdict = 'REVERT'
   else if (delta >= 0) verdict = 'KEEP'
   else verdict = 'INCONCLUSIVE'

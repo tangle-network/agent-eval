@@ -232,13 +232,13 @@ describe('heldOutGate', () => {
     const result = await gate.decide({
       candidateArtifacts: artifacts as never,
       baselineArtifacts: artifacts as never,
-      judgeScores: mk(9, 8, 7, 9, 8, 7),
+      judgeScores: mk(9, 8, 7, 9.5, 8.5, 7.5),
       baselineJudgeScores: mk(5, 4, 3, 5, 4, 3),
       scenarios: PROMOTION_HOLDOUT,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
     })
-    expect(result.delta).toBeCloseTo(4.0)
+    expect(result.delta).toBeCloseTo(4.25)
     expect(result.decision).toBe('ship')
   })
 
@@ -288,7 +288,13 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
         holdoutScenarios: PROMOTION_HOLDOUT,
-        deltaThreshold: 0.5,
+        // The holdout is PASS/FAIL (baseline 0 everywhere, winner 1 everywhere),
+        // so the verdict comes from the paired-binary score interval. On six
+        // pass/fail pairs a perfect 6/6 win gives [0.2193, 1.0000] at 95% — a
+        // ">0.5 success-rate gain" is not establishable at n=6, and the gate now
+        // says so instead of reading a zero-width bootstrap as certainty. 0 is
+        // the claim the evidence supports: a real lift.
+        deltaThreshold: 0,
       }),
       autoOnPromote: 'none',
       runDir,
@@ -443,7 +449,13 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
         holdoutScenarios: PROMOTION_HOLDOUT,
-        deltaThreshold: 0.5,
+        // The holdout is PASS/FAIL (baseline 0 everywhere, winner 1 everywhere),
+        // so the verdict comes from the paired-binary score interval. On six
+        // pass/fail pairs a perfect 6/6 win gives [0.2193, 1.0000] at 95% — a
+        // ">0.5 success-rate gain" is not establishable at n=6, and the gate now
+        // says so instead of reading a zero-width bootstrap as certainty. 0 is
+        // the claim the evidence supports: a real lift.
+        deltaThreshold: 0,
       }),
       autoOnPromote: 'none',
       runDir,
@@ -762,14 +774,16 @@ describe('defaultProductionGate', () => {
         string,
         Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
       >(entries.map(([c, v]) => [c, { judge: { composite: v, dimensions: {}, notes: '' } }]))
-    // A real, uniform +3 lift on six holdout cells clears the exact sign test.
+    // A real lift on six holdout cells clears the exact sign test. The deltas
+    // are deliberately NOT identical: n identical deltas give a zero-width
+    // interval, which is refused however large the gain.
     const judgeScores = mk([
       ['h1:0', 8],
-      ['h2:0', 9],
+      ['h2:0', 9.5],
       ['h3:0', 7],
-      ['h4:0', 8],
+      ['h4:0', 8.5],
       ['h5:0', 9],
-      ['h6:0', 7],
+      ['h6:0', 7.5],
     ])
     const baselineJudgeScores = mk([
       ['h1:0', 5],

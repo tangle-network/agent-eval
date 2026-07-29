@@ -75,7 +75,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // "unchanged" as "failed".
     const ctx = ctxFrom(
       cells(
-        () => ({ composite: 0.8, dimensions: { safety: 0.9 } }),
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
       ),
     )
@@ -178,7 +178,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // gain. quality is clearly up but the floor for safety has n=2.
     const ctx = ctxFrom(
       cells(
-        () => ({ composite: 0.8, dimensions: { safety: 0.9 } }),
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
         2,
       ),
@@ -226,7 +226,10 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
   // regressing) disagree on identical evidence.
   const ctx = ctxFrom(
     cells(
-      () => ({ composite: 0.8, dimensions: { speed: 0.5 } }), // quality up, speed flat
+      // quality up, speed flat. The quality deltas must not be IDENTICAL —
+      // n identical deltas give a zero-width interval, which carries no
+      // information about its own error and is refused however large the gain.
+      (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
       () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
     ),
   )
@@ -369,7 +372,7 @@ describe('buildEvidenceVector — binary (0/1) axes', () => {
   it('decides continuous axes on the mean, and still offers the median', () => {
     const continuous = ctxFrom(
       cells(
-        () => ({ composite: 0.8, dimensions: { speed: 0.5 } }),
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
         () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
       ),
     )

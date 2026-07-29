@@ -20,6 +20,12 @@ export interface PairedDeltaTestResult {
   /** Effective observation minimum after accounting for confidence. */
   minimumPairs: number
   sufficient: boolean
+  /**
+   * The bootstrap interval has zero width (or is non-finite), so it carries no
+   * information about how far the estimate could be wrong and cannot support a
+   * decision in either direction. See {@link pairedDeltaTest}.
+   */
+  indeterminate: boolean
   significant: boolean
 }
 
@@ -42,6 +48,32 @@ export function minimumPairsForPairedDeltaTest(confidence = 0.95): number {
  * switches to a pre-registered one-sided exact sign test. The exact path is
  * deliberately conservative: it requires both a point estimate above the
  * threshold and enough consistently positive paired differences.
+ *
+ * ## A zero-width interval is never significant
+ *
+ * When every paired delta is identical the resample distribution is a point
+ * mass and the interval collapses: `[0, 0]` when all pairs tie, `[g, g]` on n
+ * identical deltas of g. Neither says the effect is certain — both say the
+ * sample carries no information about how far the estimate could be wrong, and
+ * `low > threshold` then answers on the point estimate alone. It fails in both
+ * directions: `[0, 0]` clears every NEGATIVE threshold, which is how a
+ * tie-dominated pass/fail comparison laundered a regression into a
+ * noninferiority pass, and `[g, g]` clears every threshold below g with no
+ * spread behind it. Under a bounded asymmetric null whose true mean paired
+ * delta is exactly 0 — 2 % of pairs dropping by 1.0, the rest gaining 0.0204 —
+ * every sample that misses the drop is exactly that shape, and deciding on
+ * `low > 0` promoted 65.65 % of samples at n = 20 against a nominal 5 %.
+ *
+ * So `indeterminate` is reported and `significant` is false whenever the
+ * interval has zero width, on BOTH paths: at small n the exact sign test is a
+ * test of the MEDIAN and a zero-spread sample is precisely where it stops
+ * saying anything about the mean the caller is thresholding.
+ *
+ * `threshold` may be negative — that is a noninferiority margin, and it is the
+ * regime the zero-width hole is worst in. For a two-point (pass/fail) outcome
+ * the percentile bootstrap is not a valid interval at a nonzero margin at all;
+ * use {@link decidePairedPromotion}, which routes those to Tango's score
+ * interval, rather than thresholding this function's bootstrap directly.
  */
 export function pairedDeltaTest(
   before: number[],
@@ -61,6 +93,14 @@ export function pairedDeltaTest(
   const minimumPairs = Math.max(requestedMinimum, exactMinimum)
   const bootstrap = pairedBootstrap(before, after, options)
   const sufficient = bootstrap.n >= minimumPairs
+  // A point-mass resample distribution is an absence of evidence, not a
+  // certainty, and it is the shape that clears every negative threshold. Both
+  // paths refuse it: see the "zero-width" section of this function's docs.
+  const indeterminate =
+    bootstrap.n > 0 &&
+    (!Number.isFinite(bootstrap.low) ||
+      !Number.isFinite(bootstrap.high) ||
+      bootstrap.low === bootstrap.high)
 
   if (bootstrap.gateEligible) {
     return {
@@ -69,7 +109,8 @@ export function pairedDeltaTest(
       pValue: null,
       minimumPairs,
       sufficient,
-      significant: sufficient && bootstrap.low > threshold,
+      indeterminate,
+      significant: sufficient && !indeterminate && bootstrap.low > threshold,
     }
   }
 
@@ -82,7 +123,11 @@ export function pairedDeltaTest(
     pValue: exact.pValue,
     minimumPairs,
     sufficient,
+    indeterminate,
     significant:
-      sufficient && estimate > threshold && exact.pValue <= (1 - bootstrap.confidence) / 2,
+      sufficient &&
+      !indeterminate &&
+      estimate > threshold &&
+      exact.pValue <= (1 - bootstrap.confidence) / 2,
   }
 }

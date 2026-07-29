@@ -24,7 +24,13 @@
  *      so `-0.10` on [0,1] doesn't silently become a no-op on a 0-100 dimension.
  */
 
-import { pairedDeltaTest } from '../../paired-delta-test'
+import {
+  decidePairedPromotion,
+  type PairedDecisionMethod,
+  type PairedDecisionStatistic,
+  type PairedMcNemarEvidence,
+  type PairedPromotionDecision,
+} from '../../paired-promotion-decision'
 import {
   DECISION_PAIRED_DELTA_STATISTIC,
   type PairedBootstrapResult,
@@ -119,13 +125,33 @@ export function pairHoldout(
 
 export interface HeldoutSignificance {
   paired: PairedHoldout
-  /** The bootstrap the ship decision keys on — of the MEAN paired delta by
-   *  default (see the tie note on `heldoutSignificance`). */
+  /**
+   * The paired bootstrap on the requested statistic (MEAN by default — see the
+   * tie note on `heldoutSignificance`).
+   *
+   * DIAGNOSTIC, not necessarily the interval the verdict keyed on. On a
+   * two-point (pass/fail) outcome the decision routes to Tango's score interval
+   * instead, because a percentile bootstrap of the mean over a three-atom
+   * lattice is not a valid interval at a nonzero margin. Read
+   * `decision.low`/`decision.high` for the interval that actually decided, and
+   * `decisionStatistic` for which one it is.
+   */
   bootstrap: PairedBootstrapResult
   /** The MEDIAN paired-delta bootstrap, reported as a diagnostic. When many
    *  scenarios are tied (both sides solve them), the median is pinned near 0
    *  regardless of the mean lift — comparing the two exposes tie-domination. */
   medianBootstrap: PairedBootstrapResult
+  /**
+   * The full promotion decision: which estimator the outcome's shape admits,
+   * the interval it produced, McNemar's exact veto on the two-point path, and
+   * whether the interval was zero-width (no evidence in either direction). The
+   * single source of `significant`.
+   */
+  decision: PairedPromotionDecision
+  /** Which paired estimator the verdict was decided on. */
+  decisionStatistic: PairedDecisionStatistic
+  /** McNemar's exact evidence on the two-point path; null otherwise. */
+  mcnemar: PairedMcNemarEvidence | null
   /** Fraction of paired observations that are exact ties (|delta| < 1e-9). A
    *  high tie fraction is WHY a median-based gate would have missed a real lift;
    *  it is the observability the tie fix adds. */
@@ -135,10 +161,12 @@ export interface HeldoutSignificance {
   /** Effective minimum after applying the bootstrap's hard statistical floor. */
   minimumRequired: number
   /** Statistical method that carried the decision. */
-  decisionMethod: 'bootstrap-ci' | 'exact-sign'
+  decisionMethod: PairedDecisionMethod
   /** Exact one-sided p-value on the small-sample path; otherwise null. */
   pValue: number | null
-  /** True iff n >= minimumRequired AND the CI lower bound clears the threshold. */
+  /** True iff n >= minimumRequired, the DECIDING interval has nonzero width,
+   *  its lower bound clears the threshold, and McNemar's exact test does not
+   *  veto at a non-negative threshold. */
   significant: boolean
   /** Set when n < minimumRequired — too little evidence to claim significance. */
   fewRuns: boolean
@@ -154,11 +182,32 @@ export interface HeldoutSignificanceOptions {
   statistic?: 'mean' | 'median'
 }
 
-/** Significance of the held-out composite lift: ship only when the paired
- *  bootstrap CI lower bound on (candidate − baseline) exceeds `deltaThreshold`
- *  (default 0 ⇒ "confidently positive"). At small n, where the percentile
- *  bootstrap is descriptive only, a pre-registered exact sign test carries
- *  the decision. Interpret `deltaThreshold` in the judge's native scale. */
+/**
+ * Significance of the held-out composite lift: ship only when the lower bound
+ * of the interval the outcome's shape ADMITS exceeds `deltaThreshold` (default
+ * 0 ⇒ "confidently positive"). Interpret `deltaThreshold` in the judge's native
+ * scale.
+ *
+ * The decision is delegated whole to {@link decidePairedPromotion}, the one
+ * copy of the rule (`src/paired-promotion-decision.ts`), which `HeldOutGate`
+ * also calls. That module's header carries the measurements; the short version
+ * is three guards a bare `bootstrap.low > threshold` does not have:
+ *
+ *   - a two-point (pass/fail) outcome decides on Tango's SCORE interval, the
+ *     only paired-binary construction that stays valid at a nonzero margin;
+ *   - McNemar's exact test VETOES at any non-negative threshold;
+ *   - a ZERO-WIDTH interval is refused rather than promoted, in either
+ *     direction — [0,0] clears every negative threshold and [g,g] clears every
+ *     threshold below g, and both are an absence of evidence, not a result.
+ *
+ * Measured on this function before those guards landed, at a nominal 5 %:
+ * 14.60 % false promotion at n = 40 on a paired-binary noninferiority boundary,
+ * and 88.50 % at n = 6 under a bounded asymmetric null whose true mean paired
+ * delta is exactly 0.
+ *
+ * At small n, where the percentile bootstrap is descriptive only, a
+ * pre-registered exact sign test still carries the bootstrap path.
+ */
 export function heldoutSignificance(
   paired: PairedHoldout,
   opts: HeldoutSignificanceOptions = {},
@@ -180,7 +229,7 @@ export function heldoutSignificance(
   // median is kept as a reported diagnostic. Callers wanting outlier-robustness at
   // the cost of tie-blindness can still pass `statistic: 'median'`.
   const statistic = opts.statistic ?? 'mean'
-  const decision = pairedDeltaTest(paired.before, paired.after, {
+  const decision = decidePairedPromotion(paired.before, paired.after, {
     confidence,
     resamples,
     statistic,
@@ -188,7 +237,12 @@ export function heldoutSignificance(
     threshold: deltaThreshold,
     minPairs: opts.minProductiveRuns,
   })
-  const bootstrap = decision.bootstrap
+  // `decision.bootstrap` is null exactly when the score interval decided, so
+  // the requested-statistic bootstrap is computed here for the diagnostic
+  // field. Same two bootstraps as before on every path.
+  const bootstrap =
+    decision.bootstrap ??
+    pairedBootstrap(paired.before, paired.after, { confidence, resamples, statistic, seed })
   const medianBootstrap =
     statistic === 'median'
       ? bootstrap
@@ -206,33 +260,44 @@ export function heldoutSignificance(
     if (Math.abs(after - before) < 1e-9) ties += 1
   }
   const tieFraction = n === 0 ? 0 : ties / n
-  const fewRuns = !decision.sufficient
-  const significant = decision.significant
   return {
     paired,
     bootstrap,
     medianBootstrap,
+    decision,
+    decisionStatistic: decision.statistic,
+    mcnemar: decision.mcnemar,
     tieFraction,
     n,
     minimumRequired: decision.minimumPairs,
     decisionMethod: decision.method,
     pValue: decision.pValue,
-    significant,
-    fewRuns,
+    significant: decision.promote,
+    fewRuns: !decision.sufficient,
   }
 }
 
 export interface DimensionRegression {
   dimension: string
+  /** Paired bootstrap on (candidate − baseline). DIAGNOSTIC on a pass/fail
+   *  dimension, where `ci` carries the interval that decided instead. */
   bootstrap: PairedBootstrapResult
-  /** Which paired statistic `bootstrap.low` is the lower bound of, and therefore
-   *  what `regressed` was decided on. `'mean'` unless the caller asked for the
-   *  median. `bootstrap.median` still carries the median point estimate either
-   *  way. */
+  /** Which paired statistic `bootstrap.low` is the lower bound of. `'mean'`
+   *  unless the caller asked for the median. `bootstrap.median` still carries
+   *  the median point estimate either way. */
   bootstrapStatistic: 'median' | 'mean'
+  /** The interval `regressed` was decided on, in the dimension's native units. */
+  ci: { low: number; high: number }
+  /** Which estimator produced `ci`. */
+  decisionStatistic: PairedDecisionStatistic
+  /** McNemar's exact evidence on a pass/fail dimension; null otherwise. */
+  mcnemar: PairedMcNemarEvidence | null
+  /** `ci` has zero width — no evidence in either direction. */
+  indeterminate: boolean
   /** True iff the candidate may have regressed this dimension by more than
-   *  tolerance: the CI lower bound on (candidate − baseline) is below
-   *  −tolerance, OR the exact small-sample test proves a drop past tolerance. */
+   *  tolerance: the lower bound of the DECIDING interval on (candidate −
+   *  baseline) is below −tolerance, OR the exact small-sample test proves a drop
+   *  past tolerance. */
   regressed: boolean
   tolerance: number
   n: number
@@ -252,13 +317,17 @@ export function detectScale(values: number[]): 1 | 100 {
  *  posture for safety dimensions like `hallucination_free`). When `tolerance`
  *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100.
  *
- *  The CI is on the MEAN paired delta by default
- *  ({@link DECISION_PAIRED_DELTA_STATISTIC}). On the median this guard fails
- *  OPEN: when most pairs tie — automatic for a pass/fail dimension, on {0,1}
- *  and on the 0-100 encoding `detectScale` exists to support — the median CI
- *  collapses to [0,0], never drops below −tolerance, and a real regression on a
- *  safety dimension is reported as `regressed: false`. Pass
- *  `statistic: 'median'` to restore the pre-0.134 behaviour. */
+ *  The interval comes from {@link decidePairedPromotion}, so a pass/fail
+ *  dimension is judged on Tango's score interval rather than a percentile
+ *  bootstrap of the mean — `tolerance` is a NONZERO margin, and the bootstrap
+ *  is not a valid interval at one. That matters most here because this guard
+ *  fails OPEN by construction: `tolerance` is positive, so an interval pinned at
+ *  [0,0] never satisfies `low < −tolerance` and a real regression on a safety
+ *  dimension would be reported as `regressed: false`. On the median it fails the
+ *  same way for the same reason — when most pairs tie, which is automatic for a
+ *  pass/fail dimension on {0,1} and on the 0-100 encoding `detectScale` exists
+ *  to support, the median CI collapses to [0,0]. Pass `statistic: 'median'` to
+ *  restore the pre-0.134 behaviour. */
 export function dimensionRegressions(
   candidate: Map<string, Record<string, JudgeScore>>,
   baseline: Map<string, Record<string, JudgeScore>>,
@@ -280,29 +349,42 @@ export function dimensionRegressions(
     if (paired.before.length === 0) continue // dimension not scored on this judge
     const tolerance = opts.tolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
-    const bootstrap = pairedBootstrap(paired.before, paired.after, {
+    const shared = {
       confidence: opts.confidence ?? 0.95,
       resamples: opts.resamples ?? 2000,
       statistic: bootstrapStatistic,
       seed: opts.seed ?? 1337,
-    })
-    const regression = pairedDeltaTest(paired.after, paired.before, {
-      confidence: opts.confidence ?? 0.95,
-      resamples: opts.resamples ?? 2000,
-      statistic: bootstrapStatistic,
-      seed: opts.seed ?? 1337,
+    }
+    const guard = decidePairedPromotion(paired.before, paired.after, shared)
+    const regression = decidePairedPromotion(paired.after, paired.before, {
+      ...shared,
       threshold: tolerance,
     })
+    const bootstrap = guard.bootstrap ?? pairedBootstrap(paired.before, paired.after, shared)
     out.push({
       dimension: dim,
       bootstrap,
       bootstrapStatistic,
+      ci: { low: guard.low, high: guard.high },
+      decisionStatistic: guard.statistic,
+      mcnemar: guard.mcnemar,
+      indeterminate: guard.indeterminate,
       // Fires on EITHER burden of proof — see `floorBreached` in
       // `promotion-policy.ts` for the same rule and the reasoning. The CI arm
       // is the contract this interface and `default-production-gate`'s reason
-      // string both state ("CI.low < -tolerance"); the exact-test arm adds the
-      // small-sample path where the bootstrap interval is descriptive only.
-      regressed: bootstrap.low < -tolerance || regression.significant,
+      // string both state ("CI.low < -tolerance"), read off the DECIDING
+      // interval; the exact-test arm adds the small-sample path where the
+      // bootstrap interval is descriptive only.
+      // The credible-worst-case arm stays on the BOOTSTRAP — see the same
+      // decision in `floorBreached` (`promotion-policy.ts`). On a pass/fail
+      // dimension the score interval is ±z²/(n+z²) even when every pair is
+      // concordant, so reading the floor off it would flag an unchanged safety
+      // dimension as regressed at any realistic n. The PROVEN-drop arm does use
+      // the shared rule, which is what closes the fail-open hole that mattered:
+      // a genuine pass/fail regression is now judged on an interval valid at
+      // the nonzero `tolerance`, instead of a bootstrap that is pinned wherever
+      // ties dominate.
+      regressed: bootstrap.low < -tolerance || regression.promote,
       tolerance,
       n: paired.before.length,
     })

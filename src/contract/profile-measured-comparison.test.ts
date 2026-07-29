@@ -232,7 +232,14 @@ describe('profile improvement measured comparison', () => {
           stateDigest: input.stateDigest,
           cellDigest: input.runCell.digest,
         })
-        return receipt(input, input.arm === 'baseline' ? 0.2 : 0.8)
+        // The candidate's per-cell gain VARIES (0.62 / 0.60 / 0.58). A constant
+        // gain makes every bootstrap resample identical, and a zero-width
+        // interval carries no information about how far the estimate could be
+        // wrong — the paired decision refuses it rather than reading it as
+        // certainty, so a constant-gain fixture would prove nothing about the
+        // ship path this test exercises.
+        const gain = 0.6 + (1 - (input.runCell.repetition % 3)) * 0.02
+        return receipt(input, input.arm === 'baseline' ? 0.2 : 0.2 + gain)
       },
     })
 

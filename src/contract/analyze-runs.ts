@@ -135,10 +135,20 @@ export function summarizeExecution(opts: SummarizeExecutionOptions): ExecutionRe
   }
 }
 
+/** A bootstrap interval with no spread: every resample landed on the same
+ *  value, so the interval carries no information about how far the point
+ *  estimate could be wrong and cannot support a directional claim. */
+function zeroWidth(ci: readonly [number, number]): boolean {
+  return !Number.isFinite(ci[0]) || !Number.isFinite(ci[1]) || ci[0] === ci[1]
+}
+
 export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightReport> {
   const runs = opts.runs.map(validateRunRecord)
   const bins = opts.histogramBins ?? 12
   const threshold = opts.decisionThreshold ?? 0.02
+  if (!Number.isFinite(threshold)) {
+    throw new Error(`analyzeRuns: decisionThreshold must be finite, got ${threshold}`)
+  }
   const split = resolveSplit(runs, opts.split ?? 'auto')
 
   const compositeWithIds = runs
@@ -1072,7 +1082,7 @@ function buildReleaseScorecard(
       ? ('not_evaluated' as const)
       : !lift.decisionEligible
         ? ('not_evaluated' as const)
-        : lift.ci95[0] > 0
+        : lift.ci95[0] > 0 && !zeroWidth(lift.ci95)
           ? ('pass' as const)
           : lift.delta > 0
             ? ('warn' as const)
@@ -1279,7 +1289,12 @@ function buildRecommendations(ctx: RecommendationContext): Recommendation[] {
         ctx.lift.pValue === null ? 'undefined (zero delta variance)' : ctx.lift.pValue.toFixed(4)
       const requiredRuns =
         ctx.lift.requiredN === null ? 'not estimable' : `~${ctx.lift.requiredN} paired runs`
-      const decisive = ctx.lift.ci95[0] > ctx.threshold
+      // A ZERO-WIDTH interval never reads as "ship": n identical paired deltas
+      // make every resample identical, so `[g, g]` clears any threshold below g
+      // and `[0, 0]` clears any negative `decisionThreshold`, on no spread at
+      // all. It falls through to the inconclusive/hold arms, which is where a
+      // sample carrying no information about its own error belongs.
+      const decisive = !zeroWidth(ctx.lift.ci95) && ctx.lift.ci95[0] > ctx.threshold
       const inconclusive = ctx.lift.ci95[0] <= ctx.threshold && ctx.lift.ci95[1] > ctx.threshold
       if (decisive) {
         out.push({

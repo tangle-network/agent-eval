@@ -348,6 +348,23 @@ export {
   minimumPairsForPairedDeltaTest,
   pairedDeltaTest,
 } from './paired-delta-test'
+// ── The one paired promotion rule ────────────────────────────────────
+// `interval.low > threshold` is not a promotion rule on its own: a pass/fail
+// outcome needs an interval valid at a nonzero margin (Tango's score interval,
+// not a percentile bootstrap), McNemar's exact test must be able to veto, and a
+// zero-width interval must be refused rather than read as certainty. Every gate
+// in this package decides through this function so the rule cannot drift
+// between them — it did once, and the copy that was not fixed promoted at
+// 14.60 % against a nominal 5 %.
+export type {
+  PairedDecisionMethod,
+  PairedDecisionShape,
+  PairedDecisionStatistic,
+  PairedMcNemarEvidence,
+  PairedPromotionDecision,
+  PairedPromotionDecisionOptions,
+} from './paired-promotion-decision'
+export { decidePairedPromotion, pairedDecisionShape } from './paired-promotion-decision'
 export type {
   PrReviewAuditCase,
   PrReviewBenchmarkSummary,

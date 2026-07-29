@@ -159,6 +159,25 @@ describe('compareOptimizationMethods', () => {
     expect(result.pairwise[0]!.favored).toBe('tie')
   })
 
+  it('names no winner on a ZERO-WIDTH pairwise interval', async () => {
+    // Two methods that differ by the SAME amount on every test scenario give a
+    // pairwise interval of zero width. `low > 0` on it declares a winner with
+    // no spread behind it, at any n — the ranking still orders them by lift,
+    // but the pairwise call is 'tie' because the interval cannot support one.
+    const result = await compareOptimizationMethods<S, A>({
+      methods: [fixedMethod('a', 'SOLVE_h1 SOLVE_h2', 1), fixedMethod('b', 'SOLVE_h1', 1)],
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      seed: 7,
+      expectUsage: 'off',
+    })
+    const pair = result.pairwise[0]!
+    if (pair.low === pair.high) expect(pair.favored).toBe('tie')
+  })
+
   it('a cheaper method wins a lift tie when both costs are complete', async () => {
     const result = await compareOptimizationMethods<S, A>({
       methods: [

@@ -291,7 +291,16 @@ export interface LiftInsight {
   n: number
   /** Minimum paired observations required before the interval can drive a decision. */
   minimumRequired: number
-  /** Whether the bootstrap interval has enough observations to drive a decision. */
+  /**
+   * Whether the bootstrap interval has enough observations to drive a decision.
+   *
+   * Sample size only. A ZERO-WIDTH interval clears this and is still refused at
+   * the ship decision itself: n identical paired deltas make every resample
+   * identical, so `[g, g]` clears every threshold below g and `[0, 0]` clears
+   * every negative one on no spread at all. That is an absence of evidence, not
+   * a certainty, and it is a different finding from "too few runs" — so it is
+   * reported where the decision is made, not folded in here.
+   */
   decisionEligible: boolean
   /** Scored baseline observations without a candidate match. */
   unpairedBaseline: number

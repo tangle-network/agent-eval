@@ -26,6 +26,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { heldoutSignificance } from '../campaign/gates/statistical-heldout'
 import type { CostLedgerHandle, CostReceiptInput } from '../cost-ledger'
+import { decidePairedPromotion } from '../paired-promotion-decision'
 import { pairedBootstrap } from '../statistics'
 import { addFixedSpend } from './fixed-spend'
 import { runPaidPairedMeasurement } from './paid-paired-measurement'
@@ -368,12 +369,37 @@ export function evaluatePairedMeasurements<TRun>(
   const missingCriticalDimensions = criticalDimensions.filter(
     (dimension) => !dimensions.includes(dimension),
   )
+  // The dimension floor fires on EITHER burden of proof, because the interval
+  // arm alone fails OPEN on exactly the shape a safety dimension lands in.
+  // `regressionTolerance` is positive, so an interval pinned at [0, 0] — which
+  // is what a pass/fail dimension gives whenever its pairs are concordant, and
+  // what a percentile bootstrap of the mean gives whenever every delta is
+  // identical — never satisfies `lower < -tolerance`, and a real regression is
+  // reported as no regression. `decidePairedPromotion` on the reversed arms
+  // adds the proven-drop path: a two-point dimension is judged on Tango's score
+  // interval, which is valid at the nonzero margin the tolerance creates.
+  const regressionProven = new Set(
+    dimensions.filter((name) => {
+      if (!guardedDimensions.has(name)) return false
+      const baselineDim = measurements.map((m) => dimensionScore(m.baseline, name))
+      const candidateDim = measurements.map((m) => dimensionScore(m.candidate, name))
+      return decidePairedPromotion(candidateDim, baselineDim, {
+        confidence,
+        resamples,
+        statistic: 'mean',
+        seed: bootstrapSeed,
+        threshold: regressionTolerance,
+        minPairs: minProductiveRuns,
+      }).promote
+    }),
+  )
   const regressions = objectives.filter(
     (objective) =>
       objective.kind === 'dimension' &&
       guardedDimensions.has(objective.name) &&
       objective.availability === 'measured' &&
-      objective.confidenceInterval.lower < -regressionTolerance,
+      (objective.confidenceInterval.lower < -regressionTolerance ||
+        regressionProven.has(objective.name)),
   )
   const measurementCostUsd = measurements.reduce(
     (sum, measurement) => sum + measurement.baseline.costUsd + measurement.candidate.costUsd,
