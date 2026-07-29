@@ -60,7 +60,15 @@ describe('real Claude Code session — supervision tree', () => {
   it('keeps the facts the transcript DOES carry as real numbers', () => {
     expect(report.economics.brain.tokensOut).toBe(1224083)
     expect(report.economics.brain.cacheRead).toBe(623246558)
-    expect(report.economics.workers.tokensOut).toBe(960195)
+    expect(report.economics.workers.tokensOut).toEqual({
+      unavailable: expect.stringMatching(/33\/52 spawned agents/),
+    })
+    const perWorker = report.economics.perWorker
+    expect(isUnavailable(perWorker)).toBe(false)
+    if (!isUnavailable(perWorker)) {
+      expect(perWorker.filter((row) => row.tokensOut !== null)).toHaveLength(19)
+      expect(perWorker.reduce((sum, row) => sum + (row.tokensOut ?? 0), 0)).toBe(960195)
+    }
     expect(report.decision.workerEvidenceBytes).toBe(75398)
   })
 

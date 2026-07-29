@@ -211,8 +211,8 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(report.orchestration.steers).toBe(1)
     expect(report.orchestration.steersDelivered).toBe(1)
     expect(report.orchestration.steersByWorker).toEqual([
-      { worker: 'build A', queued: 1, delivered: 1 },
-      { worker: 'build B', queued: 0, delivered: 0 },
+      { workerId: 'ag-a', worker: 'build A', queued: 1, delivered: 1 },
+      { workerId: 'ag-b', worker: 'build B', queued: 0, delivered: 0 },
     ])
   })
 
@@ -249,11 +249,22 @@ describe('claudeCodeSupervisorRunReader', () => {
       expect(isUnavailable(v)).toBe(true)
       if (isUnavailable(v)) expect(v.unavailable).toMatch(/never a price/)
     }
-    // Tokens ARE in the store, so they stay real numbers.
+    // Manager tokens are complete, so they stay real numbers.
     expect(report.economics.brain.tokensIn).toBe(100)
     expect(report.economics.brain.cacheRead).toBe(9000)
-    expect(report.economics.workers.tokensOut).toBe(11)
-    expect(report.economics.workers.cacheRead).toBe(500)
+    // Only one of two child transcripts survived. Its per-node number remains
+    // usable, but the fleet total must not present the partial sum as complete.
+    expect(report.economics.workers.tokensOut).toEqual({
+      unavailable: expect.stringMatching(/1\/2 spawned agents/),
+    })
+    expect(report.economics.workers.cacheRead).toEqual({
+      unavailable: expect.stringMatching(/1\/2 spawned agents/),
+    })
+    const perWorker = report.economics.perWorker
+    expect(isUnavailable(perWorker)).toBe(false)
+    if (!isUnavailable(perWorker)) {
+      expect(perWorker.find((row) => row.workerId === 'ag-a')?.tokensOut).toBe(11)
+    }
   })
 
   it('never fabricates "0 accepted": no verify step means the verdict is unavailable', async () => {
@@ -354,8 +365,11 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(report.orchestration.delegationDepth).toBe(2)
 
     const tree = supervisorRunRolloutLines(src)
+    const nestedSupervisor = tree.nodes.find((n) => n.rollout_id === 'ag-a')
     const grandchild = tree.nodes.find((n) => n.rollout_id === 'ag-c')
+    expect(nestedSupervisor?.role).toBe('supervisor')
     expect(grandchild?.parent_rollout_id).toBe('ag-a')
+    expect(grandchild?.role).toBe('worker')
   })
 
   it('mints rollout rows joined by parent_rollout_id, with honest nulls for unpriced cost', async () => {

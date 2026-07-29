@@ -80,7 +80,7 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
     `| Wave sizes | ${isUnavailable(o.waveSizes) ? showMeasured(o.waveSizes) : `[${o.waveSizes.join(', ')}]`} |`,
   )
   out.push(`| Max concurrency | ${showMeasured(o.maxConcurrency)} |`)
-  out.push(`| Respawns (spawns after first settle) | ${showMeasured(o.respawns)} |`)
+  out.push(`| Respawns (after same parent's first settle) | ${showMeasured(o.respawns)} |`)
   out.push(
     `| Repeated labels | ${isUnavailable(o.repeatedLabels) ? showMeasured(o.repeatedLabels) : o.repeatedLabels.length === 0 ? 'none' : o.repeatedLabels.join(', ')} |`,
   )
@@ -96,9 +96,13 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   if (!isUnavailable(o.steersByWorker) && o.steersByWorker.length > 0) {
     out.push('### Steers per worker')
     out.push('')
-    out.push('| Worker | Queued | Delivered |')
-    out.push('|---|---:|---:|')
-    for (const s of o.steersByWorker) out.push(`| \`${s.worker}\` | ${s.queued} | ${s.delivered} |`)
+    out.push('| Worker id | Label | Queued | Delivered |')
+    out.push('|---|---|---:|---:|')
+    for (const s of o.steersByWorker) {
+      out.push(
+        `| ${s.workerId === null ? 'unavailable — legacy label join' : `\`${s.workerId}\``} | \`${s.worker}\` | ${s.queued} | ${s.delivered} |`,
+      )
+    }
     out.push('')
   } else if (isUnavailable(o.steersByWorker)) {
     out.push(`### Steers per worker\n\nunavailable — ${o.steersByWorker.unavailable}\n`)
@@ -115,7 +119,7 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   out.push(`| Empty pass (green, no patch) | ${showMeasured(d.emptyPass)} |`)
   out.push(`| Evidence → respawn sequences | ${showMeasured(d.observeThenRespawn)} |`)
   out.push(
-    `| Respawn with no settled evidence in front | ${showMeasured(d.respawnWithoutEvidence)} |`,
+    `| Respawn with no same-parent settled evidence in front | ${showMeasured(d.respawnWithoutEvidence)} |`,
   )
   out.push(`| Review actions (steers + worker questions) | ${showMeasured(d.reviewActions)} |`)
   out.push(
@@ -156,11 +160,13 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   }
   out.push('')
   if (!isUnavailable(e.perWorker) && e.perWorker.length > 0) {
-    out.push('| Worker | Wall | Tokens in | Tokens out | Patch bytes | Verify passed |')
-    out.push('|---|---:|---:|---:|---:|---|')
+    out.push(
+      '| Worker id | Label | Role | Wall | Tokens in | Tokens out | Patch bytes | Verify passed | Score |',
+    )
+    out.push('|---|---|---|---:|---:|---:|---:|---|---:|')
     for (const w of e.perWorker) {
       out.push(
-        `| \`${w.worker}\` | ${w.wallMs === null ? 'unavailable — no start/finish pair' : fmtMs(w.wallMs)} | ${w.tokensIn ?? 'unavailable — store does not attribute tokens per worker'} | ${w.tokensOut ?? 'unavailable — store does not attribute tokens per worker'} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no finished event' : String(w.passed)} |`,
+        `| ${w.workerId === null ? 'unavailable — legacy label join' : `\`${w.workerId}\``} | \`${w.worker}\` | ${w.role ?? 'unavailable — no journal join'} | ${w.wallMs === null ? 'unavailable — no start/finish pair' : fmtMs(w.wallMs)} | ${w.tokensIn ?? 'unavailable — store does not attribute tokens per worker'} | ${w.tokensOut ?? 'unavailable — store does not attribute tokens per worker'} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no verdict' : String(w.passed)} | ${w.score ?? 'unavailable — no numeric score'} |`,
       )
     }
     out.push('')
