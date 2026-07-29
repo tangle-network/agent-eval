@@ -4,23 +4,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [0.135.2] - 2026-07-29 - correct paired promotion decisions
 
 ### Fixed
 
-- `runRLCampaign()` no longer computes the anytime-valid interim verdict over the paired cells that happened to survive.
-  `collectPairedDeltaSeries` silently dropped an unscored comparator run, an unscored candidate run, and a cell only one arm ran, then fed the survivors into `evaluateInterimReleaseConfidence`, whose `recommendation.decision` can be `promote_now` — so a candidate that scored 6 of 26 cells could be recommended for promotion off a series of length 6, with nothing in the result naming the 20 that went dark.
-  The same defect the promotion gates carried, one call frame up.
-- Cells that failed integrity or crashed never reach `campaign.runs`, so the denominator is now measured from `campaign.failedRuns` as well; counting only surviving records made the very failure this check exists to catch invisible.
+- Paired promotion paths now share one decision function.
+  Binary outcomes use an interval that remains valid at the configured margin, plus an exact test.
+  Continuous outcomes reject zero-width samples.
+  This prevents real pass/fail gains and regressions from hiding at `[0, 0]`, and stops constant samples from being treated as certainty.
+- `runRLCampaign()` now computes interim confidence only when the declared fraction of paired cells has usable scores on both arms.
+  Failed runs count toward coverage, and `RLCampaignResult.deltaCoverage` reports every missing or unscored cell.
 
-### Changed — fail-closed default, read this before upgrading
+### Changed
 
-- New `sequential.minDeltaCoverage` on `RunRLCampaignOptions` defaults to **1**: every paired cell the comparison was dealt must carry a score on BOTH arms before `interimConfidence` is computed at all.
-  Any campaign with an unscored or unmatched cell now gets `interimConfidence: null` where it previously got a verdict.
-  This is the intended correction, but it is a behaviour change — a caller who accepts a known flake rate should DECLARE it (`sequential: { minDeltaCoverage: 0.9 }`) rather than inherit it.
-  Values outside `[0, 1]` throw instead of clamping.
-- New `RLCampaignResult.deltaCoverage: PairedDeltaCoverage[]` reports `answered / dealt` per candidate on EVERY path, including the ones where the verdict was refused, and `summary` names the shortfall (`paired-delta coverage: cand 2/8 (sequential verdict withheld)`).
-  `dealt` partitions exactly into `answered + unscoredCandidate + unscoredComparator + unmatched`, so no cell can leave the delta series without appearing in exactly one bucket.
+- `sequential.minDeltaCoverage` defaults to `1`.
+  Set a lower value explicitly when a campaign may accept incomplete paired results.
+  Values outside `[0, 1]` throw.
 
 ## [0.135.1] - 2026-07-28 - stable estimated-cost receipts
 
