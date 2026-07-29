@@ -86,8 +86,11 @@ export {
   TraceNotFoundError,
   toolSpansToTraceAnalysisStore,
 } from './store-otlp'
+export type { TraceAnalysisToolDescriptor } from './tools'
 export {
+  buildTraceAnalysisToolDescriptors,
   buildTraceAnalystTools,
+  TRACE_ANALYST_TOOL_NAMESPACE,
   traceAnalystFunctionGroup,
 } from './tools'
 

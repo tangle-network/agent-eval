@@ -1,6 +1,6 @@
 /**
  * `TraceAnalysisStore` — read-side interface the trace-analyst calls
- * through. Six operations, all bounded:
+ * through. Seven operations, all bounded:
  *
  *   - `getOverview(filters?)` — dataset rollup + sample trace ids.
  *   - `queryTraces(filters?, limit, offset)` — paginated summaries.

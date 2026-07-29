@@ -48,6 +48,35 @@ console.log(result.findings)
 Products can pass any `TraceAnalysisStore`; they do not need to use the file store in production.
 The analyst runs one Ax executor loop and accepts only an explicit structured `final(task, { report, findings })` result; max-turn fallback text fails loud.
 
+### Bind the same reads into another agent environment
+
+`buildTraceAnalysisToolDescriptors()` exposes the analyst's seven bounded read operations without Ax types.
+Each descriptor carries the stable `traces` namespace, function name, description, JSON input schema in `parameters`, and a handler already bound to the supplied `TraceAnalysisStore`.
+The descriptors and Ax functions share the same definitions and handlers, so page limits, byte ceilings, validation, and store errors do not drift between transports.
+
+```ts
+import {
+  buildTraceAnalysisToolDescriptors,
+  type TraceAnalysisStore,
+} from '@tangle-network/agent-eval/traces'
+
+declare const store: TraceAnalysisStore
+declare function qualifyToolName(namespace: string, name: string): string
+
+const tools = buildTraceAnalysisToolDescriptors({ store }).map(
+  ({ namespace, name, description, parameters, handler }) => ({
+    name: qualifyToolName(namespace, name),
+    description,
+    inputSchema: parameters,
+    handler,
+  }),
+)
+```
+
+Map these fields into the host's existing tool transport.
+The host owns namespace encoding; use its existing convention instead of inventing one here.
+Do not copy the schemas or reimplement the handlers in an MCP, Runtime, or provider adapter.
+
 ### Analyze captured tool spans in memory
 
 Use `toolSpansToTraceAnalysisStore()` when a live worker already returns canonical `ToolSpan[]` records.

@@ -198,12 +198,15 @@ try {
       } from '@tangle-network/agent-eval/hosted'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
+        buildTraceAnalysisToolDescriptors,
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
+        type TraceAnalysisToolDescriptor,
         type ToolSpan,
         type ToolSpansToTraceAnalysisStoreOptions,
         type TraceAnalysisStore,
+        TRACE_ANALYST_TOOL_NAMESPACE,
         ToolTraceMissingError,
         toolSpansToTraceAnalysisStore,
       } from '@tangle-network/agent-eval/traces'
@@ -223,6 +226,9 @@ try {
       } from '@tangle-network/agent-eval/rl'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const traceToolDescriptors: TraceAnalysisToolDescriptor[] =
+        buildTraceAnalysisToolDescriptors({ store })
+      const traceToolNamespace: 'traces' = TRACE_ANALYST_TOOL_NAMESPACE
       const packedToolSpan: ToolSpan = {
         runId: 'packed-run',
         spanId: 'packed-span',
@@ -410,6 +416,8 @@ try {
       })
       void [
         store,
+        traceToolDescriptors,
+        traceToolNamespace,
         packedToolStore,
         packedMissingTraceCode,
         removedProviderSdk,

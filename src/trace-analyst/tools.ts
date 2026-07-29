@@ -1,5 +1,5 @@
 /**
- * Trace-analyst tool surface — six namespaced AxFunctions the analyst
+ * Trace-analyst tool surface — seven namespaced AxFunctions the analyst
  * agent calls from generated JS code via `traces.<name>(...)`.
  *
  * Discovery → narrow → deep-read protocol. Tool names + ordering
@@ -21,10 +21,11 @@
 import type { AxFunction } from '@ax-llm/ax'
 import { f, fn } from '@ax-llm/ax'
 
+import type { EvalToolDef } from '../eval-tools'
 import type { TraceAnalysisStore } from './store'
 import type { TraceAnalystFilters } from './types'
 
-const NAMESPACE = 'traces'
+export const TRACE_ANALYST_TOOL_NAMESPACE = 'traces' as const
 
 interface BuildTraceAnalystToolsOpts {
   store: TraceAnalysisStore
@@ -49,7 +50,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         'models, tools, and sample_trace_ids (real ids passable to ' +
         'view/search). Always call this FIRST without a regex_pattern.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('filters', filtersField)
     .returns(f.json('DatasetOverview'))
     .handler(async ({ filters }) => store.getOverview(parseFilters(filters)))
@@ -61,7 +62,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         'use it to size traces BEFORE calling viewTrace. Narrow with indexed ' +
         'filters before adding regex_pattern.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('filters', filtersField)
     .arg('limit', f.number('Page size, 1..200'))
     .arg('offset', f.number('Page offset; default 0').optional())
@@ -80,7 +81,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
       'Count traces matching `filters`. Use as a cheap pre-flight ' +
         'before opting into a regex_pattern scan.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('filters', filtersField)
     .returns(f.number('count'))
     .handler(async ({ filters }) => store.countTraces(parseFilters(filters)))
@@ -93,7 +94,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         'carries `oversized` instead of `spans` — DO NOT retry with the same ' +
         'trace_id; switch to searchTrace / viewSpans.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('trace_id', f.string('Real trace id from a prior overview/query'))
     .returns(f.json('ViewTraceResult'))
     .handler(async ({ trace_id }) =>
@@ -107,7 +108,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         'attribute capped at ~16KB (4× the discovery cap). Use after ' +
         'searchTrace narrows to specific span_ids.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('trace_id', f.string('Real trace id'))
     .arg('span_ids', f.string('Span ids to fetch').array())
     .returns(f.json('ViewSpansResult'))
@@ -130,7 +131,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         '(1..500, default 50). If has_more=true, REFINE the regex rather ' +
         'than blindly raising max_matches.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('trace_id', f.string('Real trace id'))
     .arg('regex_pattern', f.string('JS-compatible regex, multiline'))
     .arg('max_matches', f.number('Max records returned, 1..500; default 50').optional())
@@ -152,7 +153,7 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
         'total_matches, has_more}` — iterate `result.hits`, NOT ' +
         '`result.matches`.',
     )
-    .namespace(NAMESPACE)
+    .namespace(TRACE_ANALYST_TOOL_NAMESPACE)
     .arg('trace_id', f.string('Real trace id'))
     .arg('span_id', f.string('Real span id within trace'))
     .arg('regex_pattern', f.string('JS-compatible regex, multiline'))
@@ -180,6 +181,47 @@ export function buildTraceAnalystTools(opts: BuildTraceAnalystToolsOpts): AxFunc
 }
 
 /**
+ * Framework-neutral view of one bounded trace read operation.
+ *
+ * `parameters` is the exact JSON input schema generated for the Ax function.
+ * The handler delegates to that same function, so validation, store calls,
+ * limits, and thrown errors cannot drift between transports.
+ */
+export interface TraceAnalysisToolDescriptor extends EvalToolDef {
+  namespace: typeof TRACE_ANALYST_TOOL_NAMESPACE
+}
+
+/**
+ * Bind the seven trace read operations to a store without exposing Ax types.
+ * Hosts can map these descriptors into their own tool transport without
+ * copying schemas or handlers.
+ */
+export function buildTraceAnalysisToolDescriptors(
+  opts: BuildTraceAnalystToolsOpts,
+): TraceAnalysisToolDescriptor[] {
+  return buildTraceAnalystTools(opts).map((tool) => {
+    if (tool.namespace !== TRACE_ANALYST_TOOL_NAMESPACE) {
+      throw new TypeError(
+        `trace analyst tool ${JSON.stringify(tool.name)} must use namespace ${JSON.stringify(TRACE_ANALYST_TOOL_NAMESPACE)}`,
+      )
+    }
+    if (!tool.parameters) {
+      throw new TypeError(
+        `trace analyst tool ${JSON.stringify(tool.name)} must declare a JSON input schema`,
+      )
+    }
+    return {
+      namespace: TRACE_ANALYST_TOOL_NAMESPACE,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      handler: async (args, ctx) =>
+        await tool.func(args, ctx?.signal ? { abortSignal: ctx.signal } : undefined),
+    }
+  })
+}
+
+/**
  * Convenience: same shape as `buildTraceAnalystTools` but returns the
  * grouped form expected when registering trace tools alongside other
  * agent function modules. */
@@ -191,7 +233,7 @@ export function traceAnalystFunctionGroup(opts: BuildTraceAnalystToolsOpts): {
   functions: AxFunction[]
 } {
   return {
-    namespace: NAMESPACE,
+    namespace: TRACE_ANALYST_TOOL_NAMESPACE,
     title: 'Trace Analysis',
     selectionCriteria: 'Use for any inspection of OTLP-shaped trace data.',
     description:
