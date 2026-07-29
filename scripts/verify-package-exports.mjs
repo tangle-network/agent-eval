@@ -153,6 +153,7 @@ try {
     `
       import {
         CostLedger,
+        CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
         InMemoryTraceStore,
         type BenchmarkRunnerConfig,
         type ChatClient,
@@ -169,7 +170,10 @@ try {
         runTaskScore,
       } from '@tangle-network/agent-eval'
       import {
+        CONTROL_INTEGRITY_ANALYST,
+        ControlIntegrityAnalyst,
         RawAnalystFindingSchema,
+        emitControlIntegrityFindings,
         type RawAnalystFinding,
         type TraceAnalystGolden,
       } from '@tangle-network/agent-eval/analyst'
@@ -221,6 +225,10 @@ try {
         toGrpoRows,
         toSftRows,
       } from '@tangle-network/agent-eval/rl'
+      import {
+        type SupervisorRunSources,
+        type SupervisorRunTree,
+      } from '@tangle-network/agent-eval/supervisor-run'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
       const packedToolSpan: ToolSpan = {
@@ -311,6 +319,8 @@ try {
       const removedDatasetRecordInput: Parameters<typeof buildRlDataset>[0] = removedRecordInputs
       const canonicalChat = null as unknown as ChatClient
       const canonicalJudge = null as unknown as JudgeFn
+      const controlIntegrityAnalyst: ControlIntegrityAnalyst = CONTROL_INTEGRITY_ANALYST
+      const controlIntegrityInput = undefined as SupervisorRunSources | SupervisorRunTree | undefined
       const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'current',
@@ -421,6 +431,10 @@ try {
         removedDatasetRecordInput,
         canonicalChat,
         canonicalJudge,
+        controlIntegrityAnalyst,
+        controlIntegrityInput,
+        emitControlIntegrityFindings,
+        ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
         golden,
         report,

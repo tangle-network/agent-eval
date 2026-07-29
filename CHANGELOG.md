@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `CONTROL_INTEGRITY_ANALYST` deterministically checks the existing `SupervisorRunSources` and `SupervisorRunTree` for duplicate or detached identities, parent cycles, recursive-role corruption, impossible event order, orphan terminal events, and unacknowledged steers.
+  Missing transcripts, profile ids, worker logs, and declared tree gaps remain explicitly unavailable and never become a zero or a clean result.
+  The analyst emits ordinary `AnalystFinding` records and adds no run schema or execution authority.
+
 ## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
 
 ### Fixed

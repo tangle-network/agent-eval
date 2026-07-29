@@ -78,6 +78,11 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './kinds'
+export {
+  CONTROL_INTEGRITY_ANALYST,
+  ControlIntegrityAnalyst,
+  emitControlIntegrityFindings,
+} from './kinds/control-integrity'
 export type {
   SkillUsageRecord,
   SkillUsageReport,

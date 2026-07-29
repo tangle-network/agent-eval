@@ -94,6 +94,11 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
+export {
+  CONTROL_INTEGRITY_ANALYST,
+  ControlIntegrityAnalyst,
+  emitControlIntegrityFindings,
+} from './analyst/kinds/control-integrity'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
 export {
   type AnalystHooks,
