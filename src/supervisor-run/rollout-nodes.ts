@@ -2,8 +2,8 @@
  * The supervision tree as `tangle.rollout.v1` rows.
  *
  * A supervisor run IS a tree of rollouts, so its nodes are not a new shape:
- * the root becomes one `RolloutLine` with `role: 'supervisor'`, every spawned
- * worker becomes a `RolloutLine` with `role: 'worker'` and
+ * the root becomes one `RolloutLine` with `role: 'supervisor'`, and every
+ * spawned invocation keeps its explicit supervisor/worker role with
  * `parent_rollout_id` pointing at its spawner. The rows append to the same
  * ledger as solo-agent rollouts and join to them with the same keys.
  *
@@ -181,10 +181,12 @@ export function supervisorRunRolloutLines(
             : typeof stateResult.spentUsd === 'number'
               ? stateResult.spentUsd
               : tree.brain.usd,
-        tokens_in: tree.brain.tokensIn,
-        tokens_out: tree.brain.tokensOut,
-        cache_read: tree.brain.hasCache ? tree.brain.cacheRead : null,
-        cache_write: tree.brain.hasCache ? tree.brain.cacheWrite : null,
+        tokens_in: src.limits.managerTokens === null ? tree.brain.tokensIn : null,
+        tokens_out: src.limits.managerTokens === null ? tree.brain.tokensOut : null,
+        cache_read:
+          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheRead : null,
+        cache_write:
+          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheWrite : null,
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       artifacts: {
@@ -209,43 +211,62 @@ export function supervisorRunRolloutLines(
 
   // ── workers: one node per spawn, keyed to its spawner ───────────────────
   const closeById = new Map(tree.closes.map((c) => [c.id, c]))
-  const sourceByLabel = new Map((src.workers ?? []).map((w) => [w.label, w]))
-  // Worker logs are keyed by label, the journal by id — the label is the only
-  // join available. A repeated label is a literal retry of the same subtask, so
-  // both attempts see the same log facts; the journal ids keep them distinct
-  // rows and `outcome.metrics.spawned_at` separates the attempts.
+  const sourceById = new Map(
+    (src.workers ?? [])
+      .filter((worker) => worker.workerId !== undefined)
+      .map((worker) => [worker.workerId as string, worker]),
+  )
+  const fallbackSourceByLabel = new Map(
+    (src.workers ?? [])
+      .filter((worker) => worker.workerId === undefined)
+      .map((worker) => [worker.label, worker]),
+  )
+  // Stable ids are authoritative. Labels are a compatibility join for stores
+  // that predate workerId and are only safe when the store keeps them unique.
   for (const spawn of tree.workerSpawns) {
     const close = closeById.get(spawn.id) ?? null
-    const facts = tree.workerLogs.get(spawn.label) ?? null
-    const workerSource = sourceByLabel.get(spawn.label) ?? null
+    const workerSource = sourceById.get(spawn.id) ?? fallbackSourceByLabel.get(spawn.label) ?? null
+    const facts =
+      tree.workerLogs.get(workerSource?.workerId ?? workerSource?.label ?? spawn.label) ?? null
     const wallMs =
       facts?.started != null && facts.finishedAt != null ? facts.finishedAt - facts.started : null
-    const reward = facts?.passed === null || facts === null ? null : facts.passed ? 1 : 0
+    const score = close?.score ?? facts?.score ?? null
+    const passed = close?.valid ?? facts?.passed ?? null
+    const reward = score ?? (passed === null ? null : passed ? 1 : 0)
     if (reward === null) {
-      gaps.push(`worker ${spawn.label}: no verify verdict (worker logs absent or unfinished)`)
+      gaps.push(`child ${spawn.label}: no verify verdict (child logs absent or unfinished)`)
     }
+    const isSupervisor = spawn.role === 'supervisor'
+    const tokenLimit = isSupervisor ? src.limits.managerTokens : src.limits.workerTokens
     nodes.push({
       ...base,
       rollout_id: spawn.id,
       parent_rollout_id: spawn.parent,
-      role: 'worker',
+      role: spawn.role,
       policy: {
-        harness: opts.workerHarness ?? null,
+        harness: isSupervisor ? (opts.supervisorHarness ?? null) : (opts.workerHarness ?? null),
         harness_version: null,
-        model: opts.workerModel ?? null,
+        model: isSupervisor ? (opts.supervisorModel ?? null) : (opts.workerModel ?? null),
         provider: null,
         profile_commit: null,
         sampling: null,
       },
       outcome: {
-        // Same producer, same claim: a worker reward is a self-verify verdict
+        // Same producer, same claim: a child reward is a self-verify verdict
         // from the journal that no realness gate has seen.
         ...unscreenedRewardFields(reward),
-        reward_source: reward === null ? null : 'worker-self-verify',
+        reward_source:
+          reward === null ? null : score === null ? 'worker-self-verify' : 'worker-verdict-score',
         verdict:
           close === null
             ? null
-            : { kind: close.kind, status: close.status, verdict: close.verdict },
+            : {
+                kind: close.kind,
+                status: close.status,
+                verdict: close.rawVerdict,
+                valid: close.valid,
+                score: close.score,
+              },
         metrics: {
           label: spawn.label,
           spawned_at: spawn.at,
@@ -253,7 +274,7 @@ export function supervisorRunRolloutLines(
           started_at: facts?.started ?? null,
           finished_at: facts?.finishedAt ?? null,
           wall_ms: wallMs,
-          patch_bytes: facts?.finishedPatchBytes ?? null,
+          patch_bytes: workerSource?.patchBytes ?? facts?.finishedPatchBytes ?? null,
           evidence_bytes: facts?.evidenceBytes ?? null,
           steers_queued: facts?.steersQueued ?? null,
           steers_delivered: facts?.steersDelivered ?? null,
@@ -269,18 +290,26 @@ export function supervisorRunRolloutLines(
       cost: {
         ...EMPTY_COST,
         usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
-        tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
-        tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
+        tokens_in:
+          workerSource?.tokensIn ??
+          (tokenLimit === null && close?.hasSpend ? close.spend.tokens.input : null),
+        tokens_out:
+          workerSource?.tokensOut ??
+          (tokenLimit === null && close?.hasSpend ? close.spend.tokens.output : null),
         // Mirror the tokens_in/out journal fallback so a loops-shaped store whose
         // `settled` spend carries cache counters is not reported as null cache
         // beside real tokens. Gate on `hasCache` — a spend object without cache
         // counters must stay null, not a fabricated 0.
         cache_read:
           workerSource?.cacheRead ??
-          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheRead : null),
+          (tokenLimit === null && close?.hasSpend && close.spend.tokens.hasCache
+            ? close.spend.tokens.cacheRead
+            : null),
         cache_write:
           workerSource?.cacheWrite ??
-          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
+          (tokenLimit === null && close?.hasSpend && close.spend.tokens.hasCache
+            ? close.spend.tokens.cacheWrite
+            : null),
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       // A reader that knows where its worker artifacts live says so; only the

@@ -94,13 +94,22 @@ export async function readLoopsSupervisorRun(
         const events = await readMaybe(join(workersDir, `${label}.ndjson`))
         const inbox = await readMaybe(join(workersDir, `${label}.inbox.ndjson`))
         const patch = await readMaybe(join(workersDir, `${label}.patch`))
+        const eventRows = parseJsonl(events)
+        const started = eventRows.find((event) => event.kind === 'started')
+        const workerId =
+          typeof started?.workerId === 'string'
+            ? started.workerId
+            : typeof started?.agentId === 'string'
+              ? started.agentId
+              : undefined
         workers.push({
+          ...(workerId === undefined ? {} : { workerId }),
           label,
           events,
           inbox,
           patchBytes: patch === null ? null : Buffer.byteLength(patch),
         })
-        for (const ev of parseJsonl(events)) {
+        for (const ev of eventRows) {
           if (ev.kind === 'started' && typeof ev.cwd === 'string') workerCwds.push(ev.cwd)
         }
       }
@@ -171,8 +180,14 @@ export async function readLoopsSupervisorRun(
     harnessWorkerTokens,
     harnessMissingReason,
     // loops prices its own inference, runs a verify per worker, and keeps each
-    // worker's patch — every fact the analyzer can use is expressible here.
-    limits: NO_SOURCE_LIMITS,
+    // worker's patch. A missing external-harness join is declared explicitly.
+    limits: {
+      ...NO_SOURCE_LIMITS,
+      workerTokens:
+        workerCwds.length > 0 && harnessWorkerTokens === null
+          ? (harnessMissingReason ?? 'worker harness token join unavailable')
+          : null,
+    },
     traceCommand: null,
   }
 }

@@ -65,6 +65,7 @@ export {
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
+  type SupervisorRunNodeRole,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
