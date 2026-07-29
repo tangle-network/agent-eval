@@ -30,7 +30,7 @@ import {
   type RolloutSplit,
 } from '../rollout/schema'
 import { asRecord, parseJson, parseSupervisorTree } from './analyze'
-import type { SupervisorRunSources, SupervisorRunTree } from './types'
+import type { SupervisorRunSources, SupervisorRunTree, WorkerLogSource } from './types'
 
 export interface SupervisorRolloutOptions {
   /** Benchmark/suite id for `task.suite`. Defaults to `'supervisor-run'`. */
@@ -68,6 +68,12 @@ const EMPTY_COST = {
   cache_write: null,
   wall_s: null,
 } as const
+
+function hasWorkerId(
+  worker: WorkerLogSource,
+): worker is WorkerLogSource & { readonly workerId: string } {
+  return worker.workerId !== undefined
+}
 
 /**
  * Mint the supervision tree as rollout rows. Returns the rows plus the gaps
@@ -212,9 +218,7 @@ export function supervisorRunRolloutLines(
   // ── workers: one node per spawn, keyed to its spawner ───────────────────
   const closeById = new Map(tree.closes.map((c) => [c.id, c]))
   const sourceById = new Map(
-    (src.workers ?? [])
-      .filter((worker) => worker.workerId !== undefined)
-      .map((worker) => [worker.workerId as string, worker]),
+    (src.workers ?? []).filter(hasWorkerId).map((worker) => [worker.workerId, worker]),
   )
   const fallbackSourceByLabel = new Map(
     (src.workers ?? [])
@@ -237,7 +241,6 @@ export function supervisorRunRolloutLines(
       gaps.push(`child ${spawn.label}: no verify verdict (child logs absent or unfinished)`)
     }
     const isSupervisor = spawn.role === 'supervisor'
-    const tokenLimit = isSupervisor ? src.limits.managerTokens : src.limits.workerTokens
     nodes.push({
       ...base,
       rollout_id: spawn.id,
@@ -290,26 +293,18 @@ export function supervisorRunRolloutLines(
       cost: {
         ...EMPTY_COST,
         usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
-        tokens_in:
-          workerSource?.tokensIn ??
-          (tokenLimit === null && close?.hasSpend ? close.spend.tokens.input : null),
-        tokens_out:
-          workerSource?.tokensOut ??
-          (tokenLimit === null && close?.hasSpend ? close.spend.tokens.output : null),
+        tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
+        tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
         // Mirror the tokens_in/out journal fallback so a loops-shaped store whose
         // `settled` spend carries cache counters is not reported as null cache
         // beside real tokens. Gate on `hasCache` — a spend object without cache
         // counters must stay null, not a fabricated 0.
         cache_read:
           workerSource?.cacheRead ??
-          (tokenLimit === null && close?.hasSpend && close.spend.tokens.hasCache
-            ? close.spend.tokens.cacheRead
-            : null),
+          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheRead : null),
         cache_write:
           workerSource?.cacheWrite ??
-          (tokenLimit === null && close?.hasSpend && close.spend.tokens.hasCache
-            ? close.spend.tokens.cacheWrite
-            : null),
+          (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       // A reader that knows where its worker artifacts live says so; only the

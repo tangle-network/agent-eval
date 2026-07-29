@@ -8,6 +8,7 @@ import {
   fixtureWorker as worker,
 } from './fixtures'
 import { supervisorRunRolloutLines } from './rollout-nodes'
+import { NO_SOURCE_LIMITS } from './types'
 
 const src = sources({
   journal: journal({
@@ -187,6 +188,10 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
     const recursive = supervisorRunRolloutLines(
       sources({
         journal: recursiveJournal,
+        limits: {
+          ...NO_SOURCE_LIMITS,
+          workerTokens: 'one child token stream was not captured',
+        },
         workers: [
           {
             workerId: 'worker-a',
@@ -221,8 +226,12 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
       score: 0.37,
     })
     expect(first?.cost.usd).toBe(0.01)
+    expect(first?.cost.tokens_in).toBe(10)
+    expect(first?.cost.tokens_out).toBe(1)
     expect(second?.parent_rollout_id).toBe('manager-b')
     expect(second?.outcome.reward).toBe(0.82)
     expect(second?.cost.usd).toBe(0.02)
+    expect(second?.cost.tokens_in).toBe(20)
+    expect(second?.cost.tokens_out).toBe(2)
   })
 })

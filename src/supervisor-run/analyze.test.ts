@@ -478,6 +478,111 @@ describe('analyzeSupervisorRun — recursive parent-local accounting', () => {
     ])
   })
 
+  it('keeps aggregate USD attribution for an ID-less source shared by duplicate labels', () => {
+    const recursiveJournal = [
+      { kind: 'spawned', id: 'root', label: 'root', role: 'supervisor', at: at(0) },
+      {
+        kind: 'spawned',
+        id: 'manager-a',
+        parent: 'root',
+        label: 'branch-a',
+        role: 'supervisor',
+        at: at(1),
+      },
+      {
+        kind: 'spawned',
+        id: 'manager-b',
+        parent: 'root',
+        label: 'branch-b',
+        role: 'supervisor',
+        at: at(2),
+      },
+      {
+        kind: 'spawned',
+        id: 'worker-a',
+        parent: 'manager-a',
+        label: 'same task',
+        role: 'worker',
+        at: at(10),
+      },
+      {
+        kind: 'spawned',
+        id: 'worker-b',
+        parent: 'manager-b',
+        label: 'same task',
+        role: 'worker',
+        at: at(11),
+      },
+      {
+        kind: 'settled',
+        id: 'worker-a',
+        status: 'done',
+        verdict: { valid: true },
+        spent: { tokens: { input: 10, output: 1 }, usd: 0.01 },
+        at: at(20),
+      },
+      {
+        kind: 'settled',
+        id: 'worker-b',
+        status: 'done',
+        verdict: { valid: true },
+        spent: { tokens: { input: 20, output: 2 }, usd: 0.02 },
+        at: at(21),
+      },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join('\n')
+    const report = analyze(
+      sources({
+        journal: recursiveJournal,
+        state: state({ startSec: 0, endSec: 30 }),
+        workers: [
+          worker('same task', {
+            startSec: 10,
+            finishSec: 21,
+            passed: true,
+            patchBytes: 100,
+          }),
+        ],
+      }),
+    )
+
+    const rows = report.economics.perWorker
+    expect(isUnavailable(rows)).toBe(false)
+    if (isUnavailable(rows)) return
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.workerId).toBeNull()
+    expect(rows[0]?.usd).toBeCloseTo(0.03, 6)
+  })
+
+  it('counts a structured journal rejection when worker logs are absent', () => {
+    const structuredJournal = [
+      { kind: 'spawned', id: 'root', label: 'root', role: 'supervisor', at: at(0) },
+      { kind: 'spawned', id: 'worker-a', parent: 'root', label: 'task', at: at(1) },
+      {
+        kind: 'settled',
+        id: 'worker-a',
+        status: 'done',
+        verdict: { valid: false, score: 0.2 },
+        spent: { tokens: { input: 10, output: 1 }, usd: 0.01 },
+        at: at(2),
+      },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join('\n')
+    const report = analyze(
+      sources({
+        journal: structuredJournal,
+        workers: null,
+        workersMissingReason: 'worker logs were not retained',
+      }),
+    )
+
+    expect(report.decision.settledVerdicts).toEqual({ invalid: 1 })
+    expect(report.decision.rejected).toBe(1)
+    expect(isUnavailable(report.decision.accepted)).toBe(true)
+  })
+
   it('attributes retries and reactions only to the supervisor that owns the children', () => {
     const recursiveJournal = [
       { kind: 'spawned', id: 'root', label: 'root', role: 'supervisor', at: at(0) },
@@ -581,6 +686,8 @@ describe('analyzeSupervisorRun — explicit unknown channels', () => {
     expect(report.decision.emptyPass).toEqual({
       unavailable: 'the source retains no worker deliverables',
     })
+    expect(report.gaps).toContain('accepted: the source retains no worker deliverables')
+    expect(report.gaps).toContain('emptyPass: the source retains no worker deliverables')
     expect(isUnavailable(report.economics.costPerAcceptedPatchUsd)).toBe(true)
   })
 })

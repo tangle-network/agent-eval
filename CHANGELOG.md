@@ -15,7 +15,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Accepted-patch counts are unavailable when the source did not retain worker deliverables, even when a worker event claimed patch bytes.
 - Manager and worker token totals have independent unavailable reasons, so an uncaptured channel is not reported as zero and a captured zero remains zero.
 
-### Changed
+### Changed — BREAKING
 
 - Custom `SupervisorRunSources` readers must add `managerTokens` and `workerTokens` to `SourceLimits`.
   Set each field to `null` only when that role's aggregate token channel is complete; otherwise set the reason it is unavailable.

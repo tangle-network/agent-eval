@@ -386,16 +386,25 @@ export function analyzeSupervisorRunSources(
   const tree = parseSupervisorTree(src)
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
   const spawnById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn]))
-  const firstSpawnByLabel = new Map<string, SpawnRow>()
+  const spawnsByLabel = new Map<string, SpawnRow[]>()
   for (const spawn of workerSpawns) {
-    if (!firstSpawnByLabel.has(spawn.label)) firstSpawnByLabel.set(spawn.label, spawn)
+    const matches = spawnsByLabel.get(spawn.label) ?? []
+    matches.push(spawn)
+    spawnsByLabel.set(spawn.label, matches)
+  }
+  const spawnsForSource = (
+    worker: NonNullable<SupervisorRunSources['workers']>[number],
+  ): readonly SpawnRow[] => {
+    if (worker.workerId === undefined) return spawnsByLabel.get(worker.label) ?? []
+    const spawn = spawnById.get(worker.workerId)
+    return spawn === undefined ? [] : [spawn]
   }
   const spawnForSource = (
     worker: NonNullable<SupervisorRunSources['workers']>[number],
-  ): SpawnRow | null =>
-    worker.workerId === undefined
-      ? (firstSpawnByLabel.get(worker.label) ?? null)
-      : (spawnById.get(worker.workerId) ?? null)
+  ): SpawnRow | null => {
+    const matches = spawnsForSource(worker)
+    return matches.length === 1 ? (matches[0] ?? null) : null
+  }
 
   const supervisorWallMs: Measured<number> =
     startedAt !== null && completedAt !== null && completedAt >= startedAt
@@ -599,21 +608,46 @@ export function analyzeSupervisorRunSources(
   // A store with no verify step never says pass or fail. Counting its silent
   // workers as `rejected: 0 / accepted: 0` would read as "nothing was accepted".
   const verdictLimit = src.limits.workerVerdicts
+  const acceptedLimit = verdictLimit ?? src.limits.deliverables
   let accepted = 0
-  let rejected = 0
   let emptyPass = 0
   let evidenceBytes = 0
+  const sourceVerdicts: boolean[] = []
   for (const w of src.workers ?? []) {
     const f = tree.workerLogs.get(workerSourceKey(w))
     if (f?.finished) evidenceBytes += f.evidenceBytes
     const spawn = spawnForSource(w)
     const close = spawn === null ? null : (closeById.get(spawn.id) ?? null)
     const passed = close?.valid ?? f?.passed ?? null
+    if (passed !== null) sourceVerdicts.push(passed)
     if (passed === true) {
       if ((w.patchBytes ?? f?.finishedPatchBytes ?? 0) > 0) accepted += 1
       else emptyPass += 1
-    } else if (passed === false) rejected += 1
+    }
   }
+  const settledCloses = workerCloses.filter((close) => close.kind === 'settled')
+  const structuredVerdicts = settledCloses
+    .map((close) => close.valid)
+    .filter((valid): valid is boolean => valid !== null)
+  const journalVerdictsComplete =
+    settledCloses.length > 0 && structuredVerdicts.length === settledCloses.length
+  const sourceVerdictsComplete =
+    sourceVerdicts.length > 0 && sourceVerdicts.length >= settledCloses.length
+  const rejected = journalVerdictsComplete
+    ? structuredVerdicts.filter((valid) => !valid).length
+    : sourceVerdictsComplete
+      ? sourceVerdicts.filter((valid) => !valid).length
+      : 0
+  const rejectedLimit =
+    journalVerdictsComplete || sourceVerdictsComplete
+      ? null
+      : settledCloses.length > 0
+        ? (verdictLimit ?? 'a settled journal verdict has no validity and no matched worker log')
+        : verdictLimit !== null
+          ? verdictLimit
+          : !haveJournal && src.workers === null
+            ? workersGapReason
+            : null
 
   const decision: DecisionMetrics = {
     settledByStatus: haveJournal ? settledByStatus : gap('settledByStatus', journalMissing),
@@ -624,20 +658,15 @@ export function analyzeSupervisorRunSources(
           ? settledVerdicts
           : unavailable(journalMissing),
     accepted:
-      verdictLimit !== null || src.limits.deliverables !== null
-        ? gap('accepted', verdictLimit ?? (src.limits.deliverables as string))
+      acceptedLimit !== null
+        ? gap('accepted', acceptedLimit)
         : src.workers === null
           ? unavailable(workersGapReason)
           : accepted,
-    rejected:
-      verdictLimit !== null
-        ? unavailable(verdictLimit)
-        : src.workers === null
-          ? unavailable(workersGapReason)
-          : rejected,
+    rejected: rejectedLimit === null ? rejected : unavailable(rejectedLimit),
     emptyPass:
-      verdictLimit !== null || src.limits.deliverables !== null
-        ? unavailable(verdictLimit ?? (src.limits.deliverables as string))
+      acceptedLimit !== null
+        ? gap('emptyPass', acceptedLimit)
         : src.workers === null
           ? unavailable(workersGapReason)
           : emptyPass,
@@ -655,6 +684,13 @@ export function analyzeSupervisorRunSources(
   const workerUsdById = new Map<string, number>()
   for (const c of workerCloses) {
     workerUsdById.set(c.id, (workerUsdById.get(c.id) ?? 0) + c.spend.usd)
+  }
+  const labelById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn.label]))
+  const workerUsdByLabel = new Map<string, number>()
+  for (const close of workerCloses) {
+    const label = labelById.get(close.id)
+    if (label === undefined) continue
+    workerUsdByLabel.set(label, (workerUsdByLabel.get(label) ?? 0) + close.spend.usd)
   }
   const sq = src.harnessWorkerTokens
   const harnessGapReason =
@@ -693,17 +729,24 @@ export function analyzeSupervisorRunSources(
 
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
     const f = tree.workerLogs.get(workerSourceKey(w))
+    const matchingSpawns = spawnsForSource(w)
     const spawn = spawnForSource(w)
     const close = spawn === null ? null : (closeById.get(spawn.id) ?? null)
     const passed = close?.valid ?? f?.passed ?? null
+    const matchingRoles = new Set(matchingSpawns.map((candidate) => candidate.role))
     return {
       workerId: w.workerId ?? null,
       worker: w.label,
-      role: spawn?.role ?? null,
+      role: matchingRoles.size === 1 ? (matchingSpawns[0]?.role ?? null) : null,
       wallMs: f?.started != null && f.finishedAt != null ? f.finishedAt - f.started : null,
       tokensIn: w.tokensIn ?? null,
       tokensOut: w.tokensOut ?? null,
-      usd: usdLimit !== null || spawn === null ? null : (workerUsdById.get(spawn.id) ?? null),
+      usd:
+        usdLimit !== null
+          ? null
+          : w.workerId === undefined
+            ? (workerUsdByLabel.get(w.label) ?? null)
+            : (workerUsdById.get(w.workerId) ?? null),
       patchBytes: w.patchBytes ?? f?.finishedPatchBytes ?? null,
       passed,
       score: close?.score ?? f?.score ?? null,

@@ -327,14 +327,22 @@
       "unavailable": "brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out"
     },
     "workers": {
-      "tokensIn": 22970,
-      "tokensOut": 960195,
-      "cacheRead": 462902249,
-      "cacheWrite": 11100686,
+      "tokensIn": {
+        "unavailable": "33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)"
+      },
+      "tokensOut": {
+        "unavailable": "33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)"
+      },
+      "cacheRead": {
+        "unavailable": "33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)"
+      },
+      "cacheWrite": {
+        "unavailable": "33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)"
+      },
       "usd": {
         "unavailable": "Claude Code transcripts record token usage but never a price — usd is not in the store"
       },
-      "source": "journal settled spend + claude-code subagent transcripts sessions (n=19)"
+      "source": "33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)"
     },
     "totalUsd": {
       "unavailable": "Claude Code transcripts record token usage but never a price — usd is not in the store"
@@ -856,6 +864,7 @@
   "gaps": [
     "driverSteerCalls: driver.log absent",
     "accepted: Claude Code runs no per-worker verify step — a subagent reports prose, not pass/fail",
+    "workers.tokensIn: 33/52 spawned agents have no retained transcript under /home/drew/.claude/projects/-home-drew-code-supervisor-lab/fa9c4333-d5e7-411e-863e-ac08ab49dc00/subagents (Claude Code prunes them; their tokens are unrecoverable)",
     "totalUsd: Claude Code transcripts record token usage but never a price — usd is not in the store",
     "brain.brainTruncations: brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out",
     "patch: Claude Code retains no per-worker patch — subagents commit to git, they do not hand back a diff",
