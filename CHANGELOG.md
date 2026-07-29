@@ -4,6 +4,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
+
+### Fixed
+
+- The npm package pins `@tangle-network/agent-core` 0.4.28 and `@tangle-network/agent-interface` 0.39.0 as one compatible cohort.
+  Profile-improvement experiments validate every existing `AgentProfileDiff` axis with the same schema that constructs those diffs.
+- Recursive supervisor-run reports now join worker artifacts by optional stable `workerId`, falling back to `label` only for older stores.
+  Retry and reaction counts are computed within each parent, so identical labels and settlements in separate branches no longer collide.
+  Per-worker and steer rows expose the joined `workerId`; custom report consumers should read it instead of treating the display label as identity.
+- Spawned invocations retain an explicit `supervisor` or `worker` role, and structured verdicts retain their numeric score in rollout rewards and per-worker report rows.
+- Accepted-patch counts are unavailable when the source did not retain worker deliverables, even when a worker event claimed patch bytes.
+- Manager and worker token totals have independent unavailable reasons, so an uncaptured channel is not reported as zero and a captured zero remains zero.
+
+### Changed — BREAKING
+
+- Custom `SupervisorRunSources` readers must add `managerTokens` and `workerTokens` to `SourceLimits`.
+  Set each field to `null` only when that role's aggregate token channel is complete; otherwise set the reason it is unavailable.
+  Readers with no source limitations can continue to use `NO_SOURCE_LIMITS`.
+
 ## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
 
 ### Fixed

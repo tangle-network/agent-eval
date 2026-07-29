@@ -546,6 +546,7 @@ export {
   rollupSupervisorRuns,
   type SourceLimits,
   SUPERVISOR_RUN_SCHEMA,
+  type SupervisorRunNodeRole,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
