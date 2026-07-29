@@ -120,6 +120,110 @@ function baseOpts() {
 }
 
 describe('runProfileMatrix', () => {
+  it('retains every result and profile identity in a 100-candidate full-profile population', async () => {
+    const profiles = Array.from(
+      { length: 100 },
+      (_, index): AgentProfile => ({
+        name: `candidate-${index}`,
+        description: `Population candidate ${index}`,
+        version: `v${index}`,
+        tags: ['population', `candidate-${index}`],
+        model: {
+          default: 'test-model@2025-01-01',
+          reasoningEffort: index % 2 === 0 ? 'medium' : 'high',
+          metadata: { route: index % 2 === 0 ? 'fast' : 'deep' },
+        },
+        harness: index % 2 === 0 ? 'codex' : 'claude-code',
+        prompt: { systemPrompt: `Candidate ${index}` },
+        permissions: { read: 'allow' },
+        tools: { Read: true },
+        mcp: { evidence: { command: 'evidence-server', args: [`candidate-${index}`] } },
+        connections: [{ connectionId: `evidence-${index}`, capabilities: ['read'] }],
+        subagents: {
+          reviewer: {
+            prompt: `Review candidate ${index}`,
+            metadata: { candidateIndex: index },
+          },
+        },
+        resources: {
+          failOnError: true,
+          skills: [
+            {
+              kind: 'inline',
+              name: `candidate-${index}.SKILL.md`,
+              content: `Review candidate ${index}`,
+            },
+          ],
+        },
+        hooks: { Stop: [{ command: `check-candidate ${index}` }] },
+        modes: {
+          audit: {
+            prompt: `Audit candidate ${index}`,
+            metadata: { candidateIndex: index },
+          },
+        },
+        confidential: { tee: 'tdx', sealed: index % 2 === 0 },
+        metadata: { candidateIndex: index },
+        extensions: { discovery: { lineage: `candidate-${index}` } },
+      }),
+    )
+    const populationJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'population-quality',
+      dimensions: [{ key: 'quality', description: 'candidate index normalized to [0, 1]' }],
+      score: ({ artifact }) => {
+        const index = Number.parseInt(artifact.text.split(':')[0]!.slice('candidate-'.length), 10)
+        const quality = index / 99
+        return { dimensions: { quality }, composite: quality, notes: '' }
+      },
+    }
+    const observedProfileIds: string[] = []
+    const populationDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      observedProfileIds.push(agentProfileId(profile))
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'test-model@2025-01-01',
+          inputTokens: 1,
+          outputTokens: 1,
+          actualCostUsd: 0.000001,
+        },
+      )
+    }
+
+    const result = await runProfileMatrix({
+      profiles,
+      scenarios: [{ id: 'population-selection', kind: 'task', persona: 'selection' }],
+      dispatch: populationDispatch,
+      judges: [populationJudge],
+      runDir: '/virtual/profile-population',
+      commitSha: 'deadbeef',
+      reps: 1,
+      storage: inMemoryCampaignStorage(),
+    })
+
+    const profileIds = profiles.map(agentProfileId)
+    expect(result.records).toHaveLength(100)
+    expect(Object.keys(result.byProfile)).toHaveLength(100)
+    expect(Object.keys(result.campaigns)).toHaveLength(100)
+    expect(new Set(result.records.map((record) => record.candidateId))).toEqual(new Set(profileIds))
+    expect(new Set(observedProfileIds)).toEqual(new Set(profileIds))
+    for (const record of result.records) {
+      const profile = profiles[profileIds.indexOf(record.candidateId)]
+      if (!profile) throw new Error(`missing input profile ${record.candidateId}`)
+      expect(record.agentProfile?.sourceProfile).toEqual({
+        kind: 'agent-interface-profile',
+        hash: agentProfileHash(profile),
+      })
+    }
+    expect(result.byProfile[agentProfileId(profiles[99]!)]?.meanComposite).toBe(1)
+    expect(result.integrity.realRecords).toBe(100)
+  })
+
   it('produces one valid RunRecord per (profile × scenario × rep) with real token usage', async () => {
     const result = await runProfileMatrix({ ...baseOpts(), dispatch: realDispatch })
 
