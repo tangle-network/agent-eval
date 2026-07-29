@@ -71,15 +71,17 @@
  *
  * 1. **Two-point (pass/fail) outcomes on ANY encoding** — every value on both
  *    arms is either 0 or one common positive level, so {0,1} and {0,100} and
- *    {0,5} all qualify (see `pairedBinaryScale`). Decided on the EXACT paired
- *    risk difference: the change in success rate, rescaled into the caller's
- *    native units, with a Clopper-Pearson conditional interval that is dual to
- *    McNemar's exact test by construction. `lower > 0` holds exactly when the
- *    exact test rejects, so the gate can never promote what the exact test
- *    refuses — the Wald normal-approximation interval (`pairedRiskDifference`)
- *    does NOT have that property and undercovers badly on a handful of
- *    discordant pairs (n = 3, b = 2, c = 0: Wald [0.133, 1.000], exact
- *    [−0.456, 0.667], McNemar p = 0.50). McNemar's b/c/p ship as evidence.
+ *    {0,5} all qualify (see `pairedBinaryScale`). The estimand is the change in
+ *    success rate, rescaled into the caller's native units. Two statistics
+ *    answer about it and BOTH must agree before anything is promoted:
+ *    `pairedRiskDifferenceScore` (Tango's score interval) supplies the
+ *    interval, and McNemar's exact test — carried on
+ *    `pairedRiskDifferenceExact` — holds a veto at any non-negative threshold.
+ *    The score interval is the one that decides because it is valid at a
+ *    NONZERO margin, which is the only thing a noninferiority threshold asks
+ *    about; the exact test's own Clopper-Pearson interval is conditional on the
+ *    discordant count and is therefore a valid interval only at margin 0.
+ *    McNemar's b/c/p ship as evidence.
  * 2. **Everything else** — the bootstrap CI of the MEAN paired delta. The mean
  *    is the estimator that answers the gate's own question ("by how much did
  *    the score move") in the caller's units, and it is well defined on every
@@ -99,12 +101,12 @@
  *
  * ## Fail closed
  *
- * A CI of exactly [0, 0] carries no directional information at all: it cannot
- * tell a gain from a regression, and it clears every negative threshold. That
- * is not a promotion, it is an absence of evidence, so the gate refuses with
- * `indeterminate_delta` rather than answering "promote". It arises when every
- * pair is concordant (no discordant pairs on the binary path) or every paired
- * delta is an exact tie.
+ * A ZERO-WIDTH CI carries no information about how far the estimate could be
+ * wrong, wherever it sits. At [0, 0] it cannot tell a gain from a regression
+ * and it clears every negative threshold. Away from zero it fails the opposite
+ * way: n identical positive deltas give [g, g], which clears threshold 0 on no
+ * spread at all. Both are an absence of evidence, so the gate refuses with
+ * `indeterminate_delta` rather than answering "promote".
  *
  * The decision carries a machine-readable `rejectionCode` plus an
  * `evidence` block with every number the gate looked at, so the
@@ -113,7 +115,8 @@
  *
  * See also:
  *   - `src/statistics.ts` for `pairedBootstrap` + `wilcoxonSignedRank`, and
- *     `pairedRiskDifferenceExact` (+ `pairedBinaryScale`) for the binary path
+ *     `pairedRiskDifferenceScore` / `pairedRiskDifferenceExact` (+
+ *     `pairedBinaryScale`) for the binary path
  *   - `src/run-record.ts` for the input row schema
  *   - `src/reference-replay.ts` for the older, reference-replay-
  *     specific promotion path (still useful for replay-style evals).
@@ -128,6 +131,7 @@ import {
   pairedBinaryScale,
   pairedDeltaTieFraction,
   pairedRiskDifferenceExact,
+  pairedRiskDifferenceScore,
   wilcoxonSignedRank,
 } from './statistics'
 
@@ -584,14 +588,28 @@ export class HeldOutGate {
       // native units — `pairedDeltaThreshold` is documented as being read in
       // the units of the holdout scores, so a 0-100 dimension must be gated in
       // points, not in a rate.
-      const exact = pairedRiskDifferenceExact(
-        beforeHoldout.map((v) => v / scale),
-        afterHoldout.map((v) => v / scale),
-        this.confidence,
-      )
-      decidingDelta = exact.riskDifference * scale
-      low = exact.lower * scale
-      high = exact.upper * scale
+      const unitControl = beforeHoldout.map((v) => v / scale)
+      const unitTreatment = afterHoldout.map((v) => v / scale)
+      // TWO estimators, with different jobs, because no single one does both.
+      //
+      // `exact` supplies McNemar's exact test — the authority on RD = 0, and
+      // the veto below. Its Clopper-Pearson interval is NOT used to decide:
+      // conditioning on the discordant count m throws away the sampling
+      // variability of m/n, so at a NONZERO margin it is not a confidence
+      // interval for the risk difference at all. Deciding `lower > margin` on
+      // it clears a nominal-95 % check 24.75 % of the time at n = 40 and
+      // 43.95 % at n = 76 when the true risk difference sits exactly on the
+      // production caller's -0.05 margin.
+      //
+      // `score` is Tango's score interval, which re-estimates the nuisance loss
+      // rate under each hypothesised margin instead of fixing it at the
+      // observed value. It stays valid as the margin moves off zero, which is
+      // the only regime a noninferiority threshold ever asks about.
+      const exact = pairedRiskDifferenceExact(unitControl, unitTreatment, this.confidence)
+      const score = pairedRiskDifferenceScore(unitControl, unitTreatment, this.confidence)
+      decidingDelta = score.riskDifference * scale
+      low = score.lower * scale
+      high = score.upper * scale
       mcnemarEvidence = {
         b: exact.b,
         c: exact.c,
@@ -599,10 +617,6 @@ export class HeldOutGate {
         pValue: exact.pValue,
       }
       deltaLabel = 'success-rate'
-      // No small-sample switch is needed on this path: the Clopper-Pearson
-      // interval is exact at every n, and it is self-limiting at tiny samples —
-      // a single discordant pair yields an interval that straddles 0, so the
-      // gate cannot promote on it.
       clearsThreshold = low > this.pairedDeltaThreshold
     } else {
       const bootstrapStatistic = shape.statistic === 'mean_bootstrap' ? 'mean' : 'median'
@@ -639,18 +653,23 @@ export class HeldOutGate {
       tieFraction: shape.tieFraction,
     }
 
-    // FAIL CLOSED. A degenerate interval decides nothing: [0, 0] cannot tell a
-    // gain from a regression, and it clears every negative threshold, which is
-    // exactly how a tie-pinned median laundered a −13.2pp regression into a
-    // promotion. Absence of evidence is not evidence of improvement — refuse
-    // and say which way the data was empty.
-    if (!Number.isFinite(low) || !Number.isFinite(high) || (low === 0 && high === 0)) {
+    // FAIL CLOSED on a ZERO-WIDTH interval, wherever it sits. [0, 0] cannot
+    // tell a gain from a regression and clears every negative threshold, which
+    // is exactly how a tie-pinned median laundered a −13.2pp regression into a
+    // promotion. But the same emptiness away from zero is just as false a
+    // certainty and it fails the other way: n identical positive deltas give
+    // [g, g], which clears threshold 0 with no spread to support it. Under a
+    // bounded asymmetric null whose true mean paired delta is exactly 0 — 2 %
+    // of pairs dropping by 1.0, the rest gaining 0.0204 — every sample that
+    // misses the drop is exactly that shape, and a `low === 0 && high === 0`
+    // test promotes 65.65 % of them at n = 20 against a nominal 5 %.
+    if (!Number.isFinite(low) || !Number.isFinite(high) || low === high) {
       const cause =
-        mcnemarEvidence !== null && mcnemarEvidence.nDiscordant === 0
-          ? 'every pair is concordant (0 discordant pairs)'
-          : shape.tieFraction === 1
-            ? 'every paired delta is an exact tie'
-            : `the ${deltaLabel} CI collapsed to a point at 0`
+        shape.tieFraction === 1
+          ? 'every paired delta is an exact tie'
+          : mcnemarEvidence !== null && mcnemarEvidence.nDiscordant === 0
+            ? 'every pair is concordant (0 discordant pairs)'
+            : `the ${deltaLabel} CI collapsed to a point at ${fmt(low)}`
       return {
         promote: false,
         candidateId,

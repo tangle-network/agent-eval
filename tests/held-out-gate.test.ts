@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { HeldOutGate } from '../src/held-out-gate'
 import type { RunRecord } from '../src/run-record'
-import { pairedRiskDifference, pairedRiskDifferenceExact } from '../src/statistics'
+import {
+  pairedRiskDifference,
+  pairedRiskDifferenceExact,
+  pairedRiskDifferenceScore,
+} from '../src/statistics'
 
 function record(overrides: Partial<RunRecord>): RunRecord {
   const base: RunRecord = {
@@ -184,14 +188,15 @@ describe('HeldOutGate — rejection paths', () => {
       pairedDeltaThreshold: 0,
       seed: 1,
     })
+    // search≈0.95, holdout≈0.55 (gap≈0.40); baseline search=0.55, holdout=0.50
+    // (gap=0.05). The holdout scores carry a little spread on purpose: six
+    // pairs improving by an identical amount give a zero-width CI, which the
+    // gate refuses as `indeterminate_delta` before it ever reaches the overfit
+    // check, and this test is about the overfit check.
     const pairs = joinPairs(
-      // search=0.95, holdout=0.55 (gap=0.40); baseline search=0.55, holdout=0.50 (gap=0.05).
-      makePair('cand', 0, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 1, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 2, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 3, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 4, 0.95, 0.55, 0.55, 0.5),
-      makePair('cand', 5, 0.95, 0.55, 0.55, 0.5),
+      ...[0.54, 0.55, 0.56, 0.55, 0.54, 0.56].map((holdout, i) =>
+        makePair('cand', i, 0.95, holdout, 0.55, 0.5),
+      ),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
@@ -244,13 +249,13 @@ describe('HeldOutGate — rejection paths', () => {
       overfitGapThreshold: 0.05,
       seed: 1,
     })
+    // Spread on the candidate holdout for the same reason as the test above:
+    // identical paired deltas are refused for zero CI width, which would mask
+    // the overfit rejection this test is asserting.
     const pairs = joinPairs(
-      makePair('cand', 0, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 1, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 2, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 3, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 4, 0.9, 0.6, 0.5, 0.5),
-      makePair('cand', 5, 0.9, 0.6, 0.5, 0.5),
+      ...[0.59, 0.6, 0.61, 0.6, 0.59, 0.61].map((holdout, i) =>
+        makePair('cand', i, 0.9, holdout, 0.5, 0.5),
+      ),
     )
     const matchedOnly = g.evaluate(pairs.candidate, pairs.baseline)
     const unmatchedCandidateRows = Array.from({ length: 10 }, (_, index) =>
@@ -644,7 +649,12 @@ function partialCoverage(opts: {
     const answered = i < opts.answered
     for (const split of ['search', 'holdout'] as const) {
       const live = answered || split !== darkSplit
-      const score = split === 'search' ? 0.96 : candidateHoldout
+      // Holdout scores vary by scenario. A fixture where every pair improves by
+      // an identical amount produces a zero-width bootstrap interval, which the
+      // gate refuses as a certainty claim with no variance behind it — so a
+      // constant fixture would test that refusal instead of the coverage rule
+      // these cases are about.
+      const score = split === 'search' ? 0.96 : candidateHoldout + ((i % 5) - 2) / 100
       if (live) {
         candidate.push(
           record({
@@ -1403,17 +1413,28 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     expect(d.evidence.mcnemar).toMatchObject({ b: 5, c: 0, nDiscordant: 5 })
     expect(d.evidence.mcnemar!.pValue).toBeCloseTo(0.0625, 12)
 
-    // The two intervals on the SAME discordant counts, so the divergence is
-    // shown rather than asserted from a comment: Wald excludes 0 and would
-    // promote; the exact conditional interval straddles it and does not.
+    // Three intervals on the SAME discordant counts, so the divergence is
+    // shown rather than asserted from a comment. TWO of them clear 0 at this
+    // sample size and would promote on their own — the Wald normal
+    // approximation, and the asymptotic score interval the gate decides on.
+    // Only the exact conditional interval straddles 0.
+    //
+    // This is exactly why McNemar's exact test is kept as a VETO at every
+    // non-negative threshold rather than as decoration: 5 improvements out of 6
+    // cannot reach α = 0.05 by any exact argument (the two-sided floor at 5
+    // discordant pairs is 2/2^5 = 0.0625), and the veto is what enforces that
+    // when the interval is willing to be talked into it.
     const wald = pairedRiskDifference([0, 0, 0, 0, 0, 1], [1, 1, 1, 1, 1, 1])
     const exact = pairedRiskDifferenceExact([0, 0, 0, 0, 0, 1], [1, 1, 1, 1, 1, 1])
+    const score = pairedRiskDifferenceScore([0, 0, 0, 0, 0, 1], [1, 1, 1, 1, 1, 1])
     expect(wald.lower).toBeGreaterThan(0)
+    expect(score.lower).toBeGreaterThan(0)
     expect(exact.lower).toBeLessThan(0)
-    expect(d.evidence.pairedCI!.low).toBeCloseTo(exact.lower, 12)
+    expect(d.evidence.pairedCI!.low).toBeCloseTo(score.lower, 12)
 
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.reason).toMatch(/McNemar exact p=/)
   })
 
   it('never promotes what McNemar refuses — over every (wins, losses) shape up to 8', () => {
@@ -1573,32 +1594,68 @@ describe('HeldOutGate — shapes a {0,1}-only detector missed', () => {
     expect(median.rejectionCode).toBe('negative_delta')
   })
 
-  it('FAILS CLOSED when every pair ties — a [0,0] CI decides nothing', () => {
-    // 40 identical pairs. The CI is [0,0], which clears any negative threshold
-    // by arithmetic while containing no evidence of anything. Absence of
-    // evidence must not be laundered into a promotion.
+  it('REFUSES an all-concordant sample too small to bound the margin it is judged at', () => {
+    // 40 identical pairs, judged at a −5pp noninferiority margin. Zero
+    // discordant pairs out of 40 only bounds the drop at ~8.8pp, which is
+    // wider than the margin, so the sample cannot answer the question asked.
     const pairs = twoPointPairs(0, 0, 40)
     const d = new HeldOutGate({
       baselineKey: 'baseline',
       seed: 1337,
       pairedDeltaThreshold: -0.05,
     }).evaluate(pairs.candidate, pairs.baseline)
-    expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
     expect(d.evidence.mcnemar).toMatchObject({ b: 0, c: 0, nDiscordant: 0 })
+    expect(d.evidence.pairedCI!.low).toBeCloseTo(-0.0876216, 6)
+    expect(d.evidence.pairedCI!.low).toBeLessThan(-0.05)
     expect(d.promote).toBe(false)
-    expect(d.rejectionCode).toBe('indeterminate_delta')
-    expect(d.reason).toMatch(/concordant/)
+    expect(d.rejectionCode).toBe('negative_delta')
+  })
+
+  it('REFUSES an all-concordant sample at threshold 0 — no ties can prove a gain', () => {
+    for (const n of [40, 76, 200, 500]) {
+      const pairs = twoPointPairs(0, 0, n)
+      const d = new HeldOutGate({ baselineKey: 'baseline', seed: 1337 }).evaluate(
+        pairs.candidate,
+        pairs.baseline,
+      )
+      expect(d.promote).toBe(false)
+      expect(d.evidence.pairedCI!.low).toBeLessThan(0)
+    }
+  })
+
+  it('a large all-concordant sample DOES clear a noninferiority margin it can bound', () => {
+    // The deliberate consequence of deciding on an interval that is valid at a
+    // nonzero margin: 76 pairs with not one difference bounds the drop at
+    // 4.81pp, which does clear a −5pp margin. That is the answer a
+    // noninferiority question has, and it is what the exact conditional
+    // interval could never say because [0,0] carried no width at all.
+    const pairs = twoPointPairs(0, 0, 76)
+    const d = new HeldOutGate({
+      baselineKey: 'baseline',
+      seed: 1337,
+      pairedDeltaThreshold: -0.05,
+    }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.pairedCI!.low).toBeCloseTo(-0.0481136, 6)
+    expect(d.promote).toBe(true)
   })
 
   it('FAILS CLOSED on an all-tie CONTINUOUS holdout too', () => {
+    // Genuinely continuous — the scores differ across scenarios, so this does
+    // not collapse into the two-point path — but every PAIR ties, so the mean
+    // paired delta and its whole bootstrap interval are exactly [0, 0].
     const pairs = joinPairs(
-      ...Array.from({ length: 12 }, (_, i) => makePair('cand', i, 0.42, 0.42, 0.42, 0.42)),
+      ...Array.from({ length: 12 }, (_, i) => {
+        const score = 0.3 + i / 50
+        return makePair('cand', i, score, score, score, score)
+      }),
     )
     const d = new HeldOutGate({
       baselineKey: 'baseline',
       seed: 1337,
       pairedDeltaThreshold: -0.05,
     }).evaluate(pairs.candidate, pairs.baseline)
+    expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
+    expect(d.evidence.pairedCI).toEqual({ low: 0, high: 0 })
     expect(d.promote).toBe(false)
     expect(d.rejectionCode).toBe('indeterminate_delta')
     expect(d.evidence.tieFraction).toBe(1)

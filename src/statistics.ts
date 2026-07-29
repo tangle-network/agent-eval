@@ -1650,6 +1650,148 @@ function betaQuantile(p: number, a: number, b: number): number {
   return (lo + hi) / 2
 }
 
+/** A paired binary effect size with an interval that is valid at a NONZERO
+ *  margin — the estimator a noninferiority decision may be made on. */
+export interface ScoreRiskDifferenceResult {
+  /** Total paired observations. */
+  n: number
+  /** Discordant pairs: treatment-win count. */
+  b: number
+  /** Discordant pairs: control-win count. */
+  c: number
+  /** Discordant pairs (b + c). */
+  nDiscordant: number
+  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
+  riskDifference: number
+  /** Score-interval lower bound on the population risk difference. */
+  lower: number
+  /** Score-interval upper bound on the population risk difference. */
+  upper: number
+  /** Confidence level used. */
+  confidence: number
+}
+
+/**
+ * Constrained MLE of q = P(treatment loses) under the hypothesis RD = `delta`.
+ *
+ * Profiling the two concordant cells out of the multinomial leaves
+ * `L(q) = b·log(q+delta) + c·log(q) + e·log(1 − 2q − delta)` with `e = n − b − c`,
+ * whose stationary point is the positive root of
+ * `2n·q² − [(b + c) − delta·(b + 3c + 2e)]·q − c·delta·(1 − delta) = 0`.
+ * At `delta = 0` this returns `(b + c) / 2n`, the familiar null.
+ */
+function constrainedLossRate(b: number, c: number, n: number, delta: number): number {
+  const e = n - b - c
+  const quadratic = 2 * n
+  const linear = -(b + c - delta * (b + 3 * c + 2 * e))
+  const constant = -c * delta * (1 - delta)
+  const discriminant = linear * linear - 4 * quadratic * constant
+  const root = discriminant > 0 ? Math.sqrt(discriminant) : 0
+  const q = (-linear + root) / (2 * quadratic)
+  // Clamp into the region where all four cell probabilities stay non-negative.
+  return Math.min(Math.max(q, Math.max(0, -delta)), Math.max(0, (1 - delta) / 2))
+}
+
+/** Tango's score statistic for H0: RD = `delta`. `Var(b − c) = n·(2q + delta −
+ *  delta²)` under that hypothesis, evaluated at the constrained MLE of q. */
+function tangoScore(b: number, c: number, n: number, delta: number): number {
+  const numerator = b - c - n * delta
+  const q = constrainedLossRate(b, c, n, delta)
+  const variance = n * (2 * q + delta * (1 - delta))
+  if (!(variance > 0)) {
+    if (numerator === 0) return 0
+    return numerator > 0 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
+  }
+  return numerator / Math.sqrt(variance)
+}
+
+/**
+ * Paired risk difference with TANGO'S (1998) SCORE INTERVAL — the estimator a
+ * promotion gate may decide on **at a nonzero margin**.
+ *
+ * {@link pairedRiskDifferenceExact} conditions on the observed discordant count
+ * `m = b + c`, builds a Clopper-Pearson interval for the win share among those
+ * `m` pairs, and multiplies by the observed `m/n`. That is exact for testing
+ * RD = 0 — it is dual to McNemar — but it is NOT a confidence interval for the
+ * population risk difference at a nonzero margin, because the sampling
+ * variability of `m/n` itself is discarded. The gap is not academic: with the
+ * production caller's `pairedDeltaThreshold: -0.05`, a process whose true risk
+ * difference sits exactly on that margin clears a nominal-95 % `lower > margin`
+ * check 24.75 % of the time at n = 40 and 43.95 % at n = 76 (2000 replicates
+ * each) when the conditional interval decides.
+ *
+ * Tango's interval inverts the score test of RD = delta, which estimates the
+ * nuisance loss rate under each hypothesised delta instead of fixing it at the
+ * observed value, so `m` contributes its own uncertainty. It is the method
+ * `ratesci::scorepairci` uses for paired risk-difference noninferiority, and it
+ * is not conditional, so it stays valid as the margin moves away from zero.
+ *
+ * The bounds are found by bisecting `tangoScore(delta) = ±z` — the score is
+ * monotone decreasing in delta, so each crossing is unique. Inputs are paired
+ * 0/1 (or boolean) arrays, control first. Throws on unequal lengths.
+ */
+export function pairedRiskDifferenceScore(
+  control: ArrayLike<number | boolean>,
+  treatment: ArrayLike<number | boolean>,
+  confidence = 0.95,
+): ScoreRiskDifferenceResult {
+  if (control.length !== treatment.length) {
+    throw new Error(
+      `pairedRiskDifferenceScore: unequal sample sizes (${control.length} vs ${treatment.length})`,
+    )
+  }
+  if (confidence <= 0 || confidence >= 1) {
+    throw new Error(`pairedRiskDifferenceScore: confidence must be in (0,1), got ${confidence}`)
+  }
+  const n = control.length
+  if (n === 0) {
+    return { n: 0, b: 0, c: 0, nDiscordant: 0, riskDifference: 0, lower: -1, upper: 1, confidence }
+  }
+  let b = 0
+  let c = 0
+  for (let i = 0; i < n; i++) {
+    const ctrl = control[i] ? 1 : 0
+    const treat = treatment[i] ? 1 : 0
+    if (treat === 1 && ctrl === 0) b++
+    else if (treat === 0 && ctrl === 1) c++
+  }
+  const riskDifference = (b - c) / n
+  const z = zQuantile(1 - (1 - confidence) / 2)
+
+  // Lower bound: the smallest delta still inside the interval, i.e. the root of
+  // score(delta) = +z on [-1, riskDifference]. score(riskDifference) = 0 < z, so
+  // the right endpoint is always inside and the bisection is well posed.
+  let lo = -1
+  let hi = riskDifference
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2
+    if (tangoScore(b, c, n, mid) > z) lo = mid
+    else hi = mid
+  }
+  const lower = (lo + hi) / 2
+
+  // Upper bound: root of score(delta) = -z on [riskDifference, 1].
+  let ulo = riskDifference
+  let uhi = 1
+  for (let i = 0; i < 200; i++) {
+    const mid = (ulo + uhi) / 2
+    if (tangoScore(b, c, n, mid) > -z) ulo = mid
+    else uhi = mid
+  }
+  const upper = (ulo + uhi) / 2
+
+  return {
+    n,
+    b,
+    c,
+    nDiscordant: b + c,
+    riskDifference,
+    lower: Math.max(-1, lower),
+    upper: Math.min(1, upper),
+    confidence,
+  }
+}
+
 /**
  * The common positive level `s` such that EVERY value across both paired arms is
  * exactly 0 or `s` — i.e. the outcome is pass/fail, whatever encoding it arrived
