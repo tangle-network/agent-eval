@@ -8,6 +8,9 @@ import { analyzeTraces } from './analyst'
 import type { TraceAnalysisStore } from './store'
 import type { DatasetOverview } from './types'
 
+const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.jsonl', import.meta.url)
+  .pathname
+
 const axMock = vi.hoisted(() => ({
   agentCalls: [] as Array<{ signature: string; options: Record<string, unknown> }>,
   forwardCalls: [] as Array<{ ai: unknown; values: unknown; options: unknown }>,
@@ -158,6 +161,12 @@ describe('analyzeTraces', () => {
       time_range: null,
     }
     const store: TraceAnalysisStore = {
+      async hasTrace(traceId) {
+        return traceId === 't000000000001'
+      },
+      async hasSpans({ trace_id, span_ids }) {
+        return trace_id === 't000000000001' ? span_ids.filter((spanId) => spanId === 's004') : []
+      },
       async getOverview() {
         return overview
       },
@@ -179,6 +188,8 @@ describe('analyzeTraces', () => {
           trace_id: 't000000000001',
           spans: [],
           missing_span_ids: [],
+          omitted_span_ids: [],
+          has_more: false,
           truncated_attribute_count: 0,
         }
       },
@@ -186,7 +197,6 @@ describe('analyzeTraces', () => {
         return {
           trace_id: 't000000000001',
           hits: [],
-          total_matches: 0,
           has_more: false,
         }
       },
@@ -195,7 +205,6 @@ describe('analyzeTraces', () => {
           trace_id: 't000000000001',
           span_id: 's004',
           hits: [],
-          total_matches: 0,
           has_more: false,
         }
       },
@@ -237,6 +246,24 @@ describe('analyzeTraces', () => {
     expect(result.actorPromptVersion).toMatch(/^trace-analyst-actor-v\d+-/)
     expect(result.usage.actor[0]).toEqual({ tokens: { totalTokens: 10 } })
     expect(result.chatLog.actor[0]).toEqual({ role: 'assistant' })
+  })
+
+  it('honors cancellation while pre-indexing a file source', async () => {
+    const controller = new AbortController()
+    const reason = new Error('cancel before indexing')
+    controller.abort(reason)
+
+    await expect(
+      analyzeTraces(
+        { question: 'What failed?' },
+        {
+          source: TINY_FIXTURE,
+          ai: { provider: 'test' } as unknown as AxAIService,
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toBe(reason)
+    expect(axMock.agentCalls).toHaveLength(0)
   })
 
   it('persists progress turns even when the analyst crashes', async () => {
@@ -307,6 +334,12 @@ function minimalStore(): TraceAnalysisStore {
     time_range: null,
   }
   return {
+    async hasTrace(traceId) {
+      return traceId === 't000000000001'
+    },
+    async hasSpans({ trace_id, span_ids }) {
+      return trace_id === 't000000000001' ? span_ids.filter((spanId) => spanId === 's004') : []
+    },
     async getOverview() {
       return overview
     },
@@ -324,6 +357,8 @@ function minimalStore(): TraceAnalysisStore {
         trace_id: 't000000000001',
         spans: [],
         missing_span_ids: [],
+        omitted_span_ids: [],
+        has_more: false,
         truncated_attribute_count: 0,
       }
     },
@@ -331,7 +366,6 @@ function minimalStore(): TraceAnalysisStore {
       return {
         trace_id: 't000000000001',
         hits: [],
-        total_matches: 0,
         has_more: false,
       }
     },
@@ -340,7 +374,6 @@ function minimalStore(): TraceAnalysisStore {
         trace_id: 't000000000001',
         span_id: 's004',
         hits: [],
-        total_matches: 0,
         has_more: false,
       }
     },
