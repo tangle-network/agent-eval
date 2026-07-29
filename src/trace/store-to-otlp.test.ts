@@ -76,6 +76,23 @@ describe('convertTraceStoresToOtlp', () => {
     expect(result).toEqual({ spanCount: 1, runCount: 1, cellCount: 1, cellErrorCount: 0 })
     const lines = read()
     expect(lines).toHaveLength(2)
+    expect(lines.every((line) => typeof line.status.message === 'string')).toBe(true)
+  })
+
+  it('projects a captured error as ERROR even when the legacy status says ok', () => {
+    writeCell(root, 'p1')
+    const dir = join(root, 'p1')
+    writeFileSync(
+      join(dir, 'spans.ndjson'),
+      `${JSON.stringify({ ...LLM_SPAN, status: 'ok', error: 'provider returned an error' })}\n`,
+    )
+
+    convertTraceStoresToOtlp(root, out)
+    const [, span] = read()
+    expect(span!.status).toEqual({
+      code: 'STATUS_CODE_ERROR',
+      message: 'provider returned an error',
+    })
   })
 
   it('injects domain attributes via the opts mappers; always emits generic fields', () => {

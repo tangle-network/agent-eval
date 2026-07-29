@@ -80,8 +80,11 @@ export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
   SpanNotFoundError,
+  type ToolSpansToTraceAnalysisStoreOptions,
+  ToolTraceMissingError,
   TraceFileMissingError,
   TraceNotFoundError,
+  toolSpansToTraceAnalysisStore,
 } from './store-otlp'
 export {
   buildTraceAnalystTools,

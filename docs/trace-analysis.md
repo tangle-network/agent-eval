@@ -48,6 +48,30 @@ console.log(result.findings)
 Products can pass any `TraceAnalysisStore`; they do not need to use the file store in production.
 The analyst runs one Ax executor loop and accepts only an explicit structured `final(task, { report, findings })` result; max-turn fallback text fails loud.
 
+### Analyze captured tool spans in memory
+
+Use `toolSpansToTraceAnalysisStore()` when a live worker already returns canonical `ToolSpan[]` records.
+The function snapshots the records immediately, groups them by `runId`, and exposes the same bounded reads and searches as the file-backed store.
+
+```ts
+import {
+  analyzeTraces,
+  toolSpansToTraceAnalysisStore,
+  type ToolSpan,
+  ToolTraceMissingError,
+} from '@tangle-network/agent-eval/traces'
+
+declare const capturedToolSpans: ToolSpan[] | undefined
+
+if (!capturedToolSpans?.length) throw new ToolTraceMissingError()
+const source = toolSpansToTraceAnalysisStore(capturedToolSpans)
+const result = await analyzeTraces({ question: 'Why are tools failing?' }, { source, ai, model })
+```
+
+`undefined`, `null`, and an empty array throw `ToolTraceMissingError` with code `capture_integrity`.
+An empty tool list cannot distinguish a real tool-free run from broken capture, so the adapter never reports it as a clean trace set.
+Use a complete OTLP trace source when proving that a run executed successfully without tools.
+
 ## Deterministic failure coverage (no LLM)
 
 Before (or alongside) the LLM analyst, `OtlpFileTraceStore.getOverview()` returns a

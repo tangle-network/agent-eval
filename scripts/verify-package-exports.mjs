@@ -186,7 +186,11 @@ try {
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
+        type ToolSpan,
+        type ToolSpansToTraceAnalysisStoreOptions,
         type TraceAnalysisStore,
+        ToolTraceMissingError,
+        toolSpansToTraceAnalysisStore,
       } from '@tangle-network/agent-eval/traces'
       import {
         applyLlmSpanOtlpAttributes,
@@ -204,6 +208,23 @@ try {
       } from '@tangle-network/agent-eval/rl'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const packedToolSpan: ToolSpan = {
+        runId: 'packed-run',
+        spanId: 'packed-span',
+        kind: 'tool',
+        name: 'tool.read',
+        startedAt: 1,
+        toolName: 'read',
+        args: { path: 'README.md' },
+      }
+      const packedToolStoreOptions: ToolSpansToTraceAnalysisStoreOptions = {
+        perCallByteCeiling: 10_000,
+      }
+      const packedToolStore: TraceAnalysisStore = toolSpansToTraceAnalysisStore(
+        [packedToolSpan],
+        packedToolStoreOptions,
+      )
+      const packedMissingTraceCode: string = new ToolTraceMissingError().code
       // @ts-expect-error provider SDK types are not part of the public API
       type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
       const removedProviderSdk: RemovedProviderSdk = {}
@@ -374,6 +395,8 @@ try {
       })
       void [
         store,
+        packedToolStore,
+        packedMissingTraceCode,
         removedProviderSdk,
         removedBenchmarkRetry,
         removedExecutorRetry,
