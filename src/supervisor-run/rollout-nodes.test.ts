@@ -73,7 +73,11 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
     expect(unfinished?.outcome.reward).toBeNull()
     expect(unfinished?.outcome.reward_source).toBeNull()
     expect(unfinished?.outcome.is_truncated).toBe(true)
-    expect(tree.gaps.some((g) => g.includes('fix-b'))).toBe(true)
+    expect(
+      tree.gaps.some(
+        (gap) => gap.code === 'child-reward-unavailable' && gap.nodeId?.endsWith(':s1'),
+      ),
+    ).toBe(true)
   })
 
   it('carries per-node cost and the timeline the report is computed from', () => {
@@ -128,7 +132,10 @@ describe('supervisorRunRolloutLines — the tree IS rollout rows', () => {
   it('returns no nodes and says why when the journal is absent', () => {
     const empty = supervisorRunRolloutLines(sources({ supRunDir: null }))
     expect(empty.nodes).toEqual([])
-    expect(empty.gaps[0]).toContain('no supervisor run dir')
+    expect(empty.gaps[0]).toEqual({
+      code: 'journal-unavailable',
+      message: 'no supervisor run dir; no nodes recoverable',
+    })
   })
 
   it('retains nested supervisor roles and exact structured scores across duplicate labels', () => {

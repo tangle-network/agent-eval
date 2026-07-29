@@ -104,27 +104,28 @@ import {
 } from '@tangle-network/agent-eval/analyst'
 import {
   readLoopsSupervisorRun,
-  supervisorRunRolloutLines,
 } from '@tangle-network/agent-eval/supervisor-run'
 
 const sources = await readLoopsSupervisorRun(runDir)
-const tree = supervisorRunRolloutLines(sources)
 const registry = new AnalystRegistry()
 registry.register(CONTROL_INTEGRITY_ANALYST)
 
 const result = await registry.run('run-123', {
-  custom: { 'control-integrity': tree },
+  custom: { 'control-integrity': sources },
 })
 ```
+
+Pass `SupervisorRunSources` when it is available.
+A `SupervisorRunTree` does not retain raw journal multiplicity or worker request and acknowledgement rows, so tree input explicitly reports those checks as unavailable.
 
 The deterministic pass can prove only facts represented by these two existing surfaces.
 
 | Question | Current evidence | What the analyst can say |
 |---|---|---|
 | Is every invocation attached to one unambiguous tree? | `rootId`, `rollout_id`, `parent_rollout_id`, `run_id` | Duplicate ids, missing parents, extra parentless roots, cross-run edges, and ancestry cycles are violations with exact field references. |
-| Did a recursive manager retain its role? | `RolloutLine.role` plus child edges | A node not labeled `supervisor` that owns a child is a recorded role inconsistency. |
+| Did invocation roles survive capture? | Explicit journal and `RolloutLine.role` values | The root must remain `supervisor`; non-root roles are consumed as recorded, and workers may spawn workers. |
 | Is the causal order possible? | `outcome.metrics.spawned_at`, `started_at`, `settled_at`, `completed_at`, `finished_at` when present | A child before its parent, a child after its parent closed, or a close before a start is a violation; absent timestamps produce no timing claim. |
-| Did a queued steer reach the worker? | `SupervisorRunSources.workers[].inbox` and `.events` | A completed run with queued requests and no delivered acknowledgement is a violation only when both artifacts are retained; a missing artifact is reported as unavailable, never zero. |
+| Did a queued steer reach the worker? | `SupervisorRunSources.workers[].inbox` and `.events` | Requests and acknowledgements are joined by request id, not compared as totals. Missing, malformed, duplicate, or uncorrelated rows make the affected count unavailable. |
 | Can behavior be attributed to an exact profile? | `policy.agent_profile_cell_id` | An absent id is reported as unavailable. |
 | Can action authorship or reasoning be inspected? | `messages[]` | Empty gap rows are reported as unavailable. |
 
@@ -132,6 +133,9 @@ An empty finding list means only that no implemented rule fired on the captured 
 It does not certify that an agent chose the action, that the action was authorized, that a budget or depth limit was enforced, or that a finding caused a later decision.
 Those claims require upstream action-decision events carrying `action_id`, `actor_rollout_id`, `target_rollout_id`, `action_kind`, `authority_snapshot_id`, requested and granted resource/depth values, the authorization result, and any `finding_id` or evidence references that caused the action.
 Resume integrity additionally requires an explicit prior-session id and resumed-session id rather than a prose summary.
+
+Malformed source rows are excluded from structural claims.
+Their count is retained in `SupervisorRunTree.gaps`, so analyzing a projected tree later cannot turn an unreadable parent row into a missing-parent violation.
 
 ## Required Trace Shape
 

@@ -202,18 +202,20 @@ describe('claudeCodeSupervisorRunReader', () => {
 
   it('reports steers as a REAL count — Claude Code can message a live subagent', async () => {
     const s = await writeSession()
-    const report = analyzeSupervisorRunSources(
-      await readClaudeCodeSupervisorRun({
-        transcriptPath: s.transcriptPath,
-        subagentsDir: s.subagentsDir,
-      }),
-    )
+    const source = await readClaudeCodeSupervisorRun({
+      transcriptPath: s.transcriptPath,
+      subagentsDir: s.subagentsDir,
+    })
+    const report = analyzeSupervisorRunSources(source)
     expect(report.orchestration.steers).toBe(1)
     expect(report.orchestration.steersDelivered).toBe(1)
     expect(report.orchestration.steersByWorker).toEqual([
       { workerId: 'ag-a', worker: 'build A', queued: 1, delivered: 1 },
       { workerId: 'ag-b', worker: 'build B', queued: 0, delivered: 0 },
     ])
+    expect(source.workers?.find((worker) => worker.workerId === 'ag-a')?.inbox).toContain(
+      '"id":"tu-s"',
+    )
   })
 
   it('reports a run with no SendMessage as steers=0, NOT unavailable', async () => {
@@ -365,9 +367,9 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(report.orchestration.delegationDepth).toBe(2)
 
     const tree = supervisorRunRolloutLines(src)
-    const nestedSupervisor = tree.nodes.find((n) => n.rollout_id === 'ag-a')
+    const nestedWorker = tree.nodes.find((n) => n.rollout_id === 'ag-a')
     const grandchild = tree.nodes.find((n) => n.rollout_id === 'ag-c')
-    expect(nestedSupervisor?.role).toBe('supervisor')
+    expect(nestedWorker?.role).toBe('worker')
     expect(grandchild?.parent_rollout_id).toBe('ag-a')
     expect(grandchild?.role).toBe('worker')
   })
@@ -378,6 +380,7 @@ describe('claudeCodeSupervisorRunReader', () => {
       transcriptPath: s.transcriptPath,
       subagentsDir: s.subagentsDir,
     })
+    expect(src.workers?.find((worker) => worker.workerId === 'ag-b')?.inbox).toBe('')
     const tree = supervisorRunRolloutLines(src, {
       supervisorHarness: 'claude-code',
       workerHarness: 'claude-code',

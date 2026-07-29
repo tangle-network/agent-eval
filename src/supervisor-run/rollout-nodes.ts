@@ -29,8 +29,13 @@ import {
   type RolloutLine,
   type RolloutSplit,
 } from '../rollout/schema'
-import { asRecord, parseJson, parseSupervisorTree } from './analyze'
-import type { SupervisorRunSources, SupervisorRunTree, WorkerLogSource } from './types'
+import { asRecord, parseJson, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
+import type {
+  SupervisorRunSources,
+  SupervisorRunTree,
+  SupervisorRunTreeGap,
+  WorkerLogSource,
+} from './types'
 
 export interface SupervisorRolloutOptions {
   /** Benchmark/suite id for `task.suite`. Defaults to `'supervisor-run'`. */
@@ -84,16 +89,34 @@ export function supervisorRunRolloutLines(
   src: SupervisorRunSources,
   opts: SupervisorRolloutOptions = {},
 ): SupervisorRunTree {
-  const gaps: string[] = []
-  const tree = parseSupervisorTree(src)
+  return supervisorRunRolloutLinesFromFacts(src, parseSupervisorTree(src), opts)
+}
+
+/** Mint rollout rows from an already parsed source without reading its JSONL again. */
+export function supervisorRunRolloutLinesFromFacts(
+  src: SupervisorRunSources,
+  tree: SupervisorTreeFacts,
+  opts: SupervisorRolloutOptions = {},
+): SupervisorRunTree {
+  const gaps: SupervisorRunTreeGap[] = []
   if (src.journal === null) {
-    gaps.push(
-      `tree: ${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'} — no nodes recoverable`,
-    )
+    gaps.push({
+      code: 'journal-unavailable',
+      message: `${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'}; no nodes recoverable`,
+    })
     return { rootId: null, nodes: [], gaps }
   }
+  const malformedSourceRows =
+    tree.journalInvalidRows + tree.spawns.filter((spawn) => !spawn.valid).length
+  if (malformedSourceRows > 0) {
+    gaps.push({
+      code: 'source-row-malformed',
+      message: `${malformedSourceRows} malformed journal row(s) were excluded from the tree`,
+      count: malformedSourceRows,
+    })
+  }
 
-  const state = parseJson(src.state)
+  const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
   const stateResult = asRecord(state?.result)
@@ -127,10 +150,17 @@ export function supervisorRunRolloutLines(
 
   // ── root: the supervisor invocation ────────────────────────────────────
   if (rootId !== null) {
+    const rootSpawn = tree.spawns.find((spawn) => spawn.valid && spawn.id === rootId)
     const judgeResolved = typeof judge?.resolved === 'boolean' ? judge.resolved : null
     const judgeScore = typeof judge?.score === 'number' ? judge.score : null
     const reward = judgeScore ?? (judgeResolved === null ? null : judgeResolved ? 1 : 0)
-    if (reward === null) gaps.push('root.outcome.reward: no judge verdict for this run')
+    if (reward === null) {
+      gaps.push({
+        code: 'root-reward-unavailable',
+        message: 'no judge verdict for this run',
+        nodeId: rootId,
+      })
+    }
     const wallMs =
       tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
         ? tree.completedAt - tree.startedAt
@@ -139,7 +169,7 @@ export function supervisorRunRolloutLines(
       ...base,
       rollout_id: rootId,
       parent_rollout_id: null,
-      role: 'supervisor',
+      role: rootSpawn?.role ?? 'supervisor',
       policy: {
         harness: opts.supervisorHarness ?? null,
         harness_version: null,
@@ -212,7 +242,10 @@ export function supervisorRunRolloutLines(
       },
     })
   } else {
-    gaps.push('tree.root: no parentless `spawned` event in the journal')
+    gaps.push({
+      code: 'root-spawn-unavailable',
+      message: 'no parentless spawned event in the journal',
+    })
   }
 
   // ── workers: one node per spawn, keyed to its spawner ───────────────────
@@ -238,7 +271,11 @@ export function supervisorRunRolloutLines(
     const passed = close?.valid ?? facts?.passed ?? null
     const reward = score ?? (passed === null ? null : passed ? 1 : 0)
     if (reward === null) {
-      gaps.push(`child ${spawn.label}: no verify verdict (child logs absent or unfinished)`)
+      gaps.push({
+        code: 'child-reward-unavailable',
+        message: `child ${JSON.stringify(spawn.label)} has no verify verdict`,
+        nodeId: spawn.id,
+      })
     }
     const isSupervisor = spawn.role === 'supervisor'
     nodes.push({
@@ -338,7 +375,11 @@ export function supervisorRunRolloutLines(
 
   const invalid = nodes.filter((n) => !isRolloutLine(n))
   if (invalid.length > 0) {
-    gaps.push(`${invalid.length} node(s) failed tangle.rollout.v1 validation`)
+    gaps.push({
+      code: 'node-schema-invalid',
+      message: `${invalid.length} node(s) failed tangle.rollout.v1 validation`,
+      count: invalid.length,
+    })
   }
   return { rootId, nodes, gaps }
 }

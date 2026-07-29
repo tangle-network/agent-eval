@@ -154,6 +154,7 @@ try {
       import {
         CostLedger,
         CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
+        analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         InMemoryTraceStore,
         type BenchmarkRunnerConfig,
         type ChatClient,
@@ -226,8 +227,11 @@ try {
         toSftRows,
       } from '@tangle-network/agent-eval/rl'
       import {
+        analyzeSupervisorRunIntegrity,
+        type SupervisorRunIntegrityReport,
         type SupervisorRunSources,
         type SupervisorRunTree,
+        type SupervisorRunTreeGap,
       } from '@tangle-network/agent-eval/supervisor-run'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
@@ -321,6 +325,11 @@ try {
       const canonicalJudge = null as unknown as JudgeFn
       const controlIntegrityAnalyst: ControlIntegrityAnalyst = CONTROL_INTEGRITY_ANALYST
       const controlIntegrityInput = undefined as SupervisorRunSources | SupervisorRunTree | undefined
+      const controlIntegrityReport = undefined as SupervisorRunIntegrityReport | undefined
+      const controlTreeGap: SupervisorRunTreeGap = {
+        code: 'journal-unavailable',
+        message: 'not captured',
+      }
       const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'current',
@@ -433,6 +442,10 @@ try {
         canonicalJudge,
         controlIntegrityAnalyst,
         controlIntegrityInput,
+        controlIntegrityReport,
+        controlTreeGap,
+        analyzeSupervisorRunIntegrity,
+        ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         emitControlIntegrityFindings,
         ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
@@ -501,6 +514,22 @@ try {
         if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
         if ('CanonicalRawAnalystFindingSchema' in analyst) {
           throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
+        }
+        const integrityInput = { rootId: null, nodes: [], gaps: [] }
+        const integrityReport = root.analyzeSupervisorRunIntegrity(integrityInput)
+        const integrityFindings = analyst.emitControlIntegrityFindings(
+          integrityInput,
+          '2026-07-29T00:00:00.000Z',
+        )
+        const integrityCodes = new Set(
+          integrityFindings.map((finding) => finding.metadata?.integrity_code),
+        )
+        if (
+          integrityReport.input !== 'tree' ||
+          !integrityCodes.has('root-unavailable') ||
+          !integrityCodes.has('source-checks-unavailable')
+        ) {
+          throw new Error('packed control-integrity runtime exports returned an invalid result')
         }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')
