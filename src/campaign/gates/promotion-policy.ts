@@ -25,7 +25,7 @@
 
 import { pairedDeltaTest } from '../../paired-delta-test'
 import type { Direction } from '../../pareto'
-import type { PairedBootstrapResult } from '../../statistics'
+import { DECISION_PAIRED_DELTA_STATISTIC, type PairedBootstrapResult } from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
 
@@ -45,8 +45,9 @@ export interface PromotionObjective {
    *  scale. Default 0 (⇒ "confidently better"). */
   gainThreshold?: number
   /** A floor breach (regression) is declared when the good-direction CI lower
-   *  bound is below −floorTolerance. When omitted it auto-scales off observed
-   *  magnitudes (0.05 on [0,1], 5 on 0-100), matching `dimensionRegressions`. */
+   *  bound is below −floorTolerance, or when the exact small-sample test proves
+   *  a drop past it. When omitted it auto-scales off observed magnitudes
+   *  (0.05 on [0,1], 5 on 0-100), matching `dimensionRegressions`. */
   floorTolerance?: number
 }
 
@@ -60,6 +61,12 @@ export interface AxisEvidence {
   /** Paired bootstrap on the GOOD-DIRECTION delta (oriented by `direction`):
    *  a positive value means the candidate is better on this axis. */
   bootstrap: PairedBootstrapResult
+  /** Which paired statistic `bootstrap.low`/`.high` bracket, and therefore what
+   *  the axis verdict was decided on. `'mean'` unless the caller asked for the
+   *  median — on a pass/fail axis the median and its whole CI are pinned at 0
+   *  by tie domination and can see neither a gain nor a regression.
+   *  `bootstrap.median` still carries the median point estimate either way. */
+  bootstrapStatistic: 'median' | 'mean'
   /** Paired observations contributing to this axis. */
   n: number
   minimumRequired: number
@@ -96,6 +103,9 @@ export interface BuildEvidenceVectorOptions {
   resamples?: number
   /** Fixed bootstrap seed for a deterministic, reproducible verdict. Default 1337. */
   seed?: number
+  /** Paired statistic every axis CI is computed on. Default `'mean'` — see
+   *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
+  statistic?: 'mean' | 'median'
 }
 
 /**
@@ -137,10 +147,21 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     const floorTolerance =
       obj.floorTolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const gainThreshold = obj.gainThreshold ?? 0
+    // Axes are decided on the MEAN paired delta — which for a pass/fail axis is
+    // exactly the change in success rate. The median is structurally blind on
+    // the shapes eval data lands in: with most pairs tied its bootstrap CI
+    // collapses to [0,0] and the axis reads 'flat', hiding real gains AND real
+    // regressions — pass/fail axes on ANY encoding ({0,1} and the 0-100 one
+    // `detectScale` exists for), and low-cardinality axes even below half ties.
+    // Orthogonal to `pairedDeltaTest`'s own small-sample switch: that picks the
+    // TEST (bootstrap CI at n ≥ 20, exact sign test below), this picks the
+    // ESTIMATOR the test is applied to. Both are needed — an exact sign test on
+    // a tie-pinned median is still blind.
+    const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
     const improvement = pairedDeltaTest(before, after, {
       confidence,
       resamples,
-      statistic: 'median',
+      statistic: bootstrapStatistic,
       seed,
       threshold: gainThreshold,
       minPairs: opts.minProductiveRuns,
@@ -148,12 +169,23 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     const regression = pairedDeltaTest(after, before, {
       confidence,
       resamples,
-      statistic: 'median',
+      statistic: bootstrapStatistic,
       seed,
       threshold: floorTolerance,
       minPairs: opts.minProductiveRuns,
     })
     const bootstrap = improvement.bootstrap
+    // A floor breach fires on EITHER burden of proof, because they cover
+    // different failures and the floor is the anti-Goodhart guard:
+    //   - `bootstrap.low < -floorTolerance` — the CREDIBLE WORST CASE exceeds
+    //     the tolerance. This is the contract `AxisEvidence.floorTolerance` and
+    //     `paretoPolicy`'s own reason string state, and it is the conservative
+    //     posture a safety axis needs: block unless the data can rule the
+    //     breach out, rather than waiting for the breach to be proven.
+    //   - `regression.significant` — a PROVEN drop past the tolerance. Adds the
+    //     small-sample path, where `pairedDeltaTest` decides on an exact sign
+    //     test because the bootstrap interval is descriptive only.
+    const floorBreached = bootstrap.low < -floorTolerance || regression.significant
     // Floor check precedes the gain check: a credible regression must never be
     // masked as "improved". With the defaults (gainThreshold 0, positive floor)
     // the regions are disjoint and order is moot, but a consumer who sets a
@@ -161,7 +193,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // floor breach classified as a gain — anti-Goodhart wins the tie.
     const verdict: AxisVerdict = !improvement.sufficient
       ? 'few_runs'
-      : regression.significant
+      : floorBreached
         ? 'regressed'
         : improvement.significant
           ? 'improved'
@@ -171,6 +203,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
       source: obj.source,
       direction: obj.direction,
       bootstrap,
+      bootstrapStatistic,
       n,
       minimumRequired: improvement.minimumPairs,
       decisionMethod: improvement.method,
