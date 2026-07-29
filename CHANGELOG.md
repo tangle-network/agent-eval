@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.135.3] - 2026-07-29 - preserve real tool evidence for trace learning
+
+### Added
+
+- `toolSpansToTraceAnalysisStore()` converts captured runtime `ToolSpan` records into the canonical trace-analysis store without a Discovery-specific adapter.
+- The adapter preserves run, trace, span, parent, tool, timing, input, output, error, and attribute evidence in one deterministic projection.
+
+### Fixed
+
+- Trace-analysis intake now refuses missing or structurally empty tool evidence explicitly instead of allowing an empty projection to masquerade as an observed trace.
+
 ## [0.135.2] - 2026-07-29 - correct paired promotion decisions
 
 ### Fixed
