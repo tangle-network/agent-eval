@@ -3,10 +3,14 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readAnalystBenchmarkArtifact } from './benchmark-command-result'
-import {
-  ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
-  ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-} from './benchmark-implementation'
+
+// Digests of the implementation that produced the published run. These are
+// historical facts about the artifact, not the live ANALYST_BENCHMARK_*
+// constants: they change only together with a fresh certified benchmark run.
+const PUBLISHED_RUN_IMPLEMENTATION_SHA256 =
+  '4dba263b6256a30d56c7fdb2d992d3a953c0035d731f359b704db806f68f75ac'
+const PUBLISHED_RUN_DEPENDENCY_LOCK_SHA256 =
+  '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
 
 const REFERENCE_RESULT = fileURLToPath(
   new URL(
@@ -86,8 +90,8 @@ describe('CodeTraceBench GLM-5.2 reference result', () => {
       labelsSha256: '5d8b4024c3e2114965cbf2f2fa0124bbf59b3fb134824fa06dd6a38ee07e8412',
       selectedCases: 32,
       protocolSha256: '166e399c9a93c9806b007273bf0b54078709389c52c6a33e3cbce0f554dab302',
-      implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-      dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+      implementationSha256: PUBLISHED_RUN_IMPLEMENTATION_SHA256,
+      dependencyLockSha256: PUBLISHED_RUN_DEPENDENCY_LOCK_SHA256,
       observations: 128,
       verificationAvailability: {
         cases: 32,
@@ -247,8 +251,8 @@ describe('CodeTraceBench GLM-5.2 reference result', () => {
         missingCases: 0,
       },
       implementation: {
-        sourceSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-        dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+        sourceSha256: PUBLISHED_RUN_IMPLEMENTATION_SHA256,
+        dependencyLockSha256: PUBLISHED_RUN_DEPENDENCY_LOCK_SHA256,
       },
       failureProof: {
         parallelStart: {
