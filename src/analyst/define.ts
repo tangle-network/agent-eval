@@ -1,36 +1,26 @@
-import type { TraceAnalysisStore } from '../trace-analyst/store'
-import type { Analyst, AnalystCost, AnalystFinding } from './types'
+import type { TraceAnalystDefinition } from './kind-factory'
 
-export interface DefineTraceAnalystOptions {
-  id: string
-  description: string
-  version?: string
-  cost: AnalystCost
-  analyze: Analyst<TraceAnalysisStore>['analyze']
-}
-
-/** Define a custom trace analyst without repeating fixed registry fields. */
-export function defineTraceAnalyst(
-  options: DefineTraceAnalystOptions,
-): Analyst<TraceAnalysisStore> {
-  if (!options.id.trim()) throw new TypeError('defineTraceAnalyst: id must not be empty')
-  if (!options.description.trim()) {
-    throw new TypeError('defineTraceAnalyst: description must not be empty')
-  }
-  if (options.cost === undefined) {
-    throw new TypeError('defineTraceAnalyst: cost must be declared')
+/**
+ * Define a reusable trace-research question.
+ *
+ * The returned value contains no model, credentials, or execution state. Bind
+ * it to any TraceAnalysisEngine with `runTraceAnalyst` or
+ * `createTraceAnalyst`.
+ */
+export function defineTraceAnalyst(definition: TraceAnalystDefinition): TraceAnalystDefinition {
+  for (const [name, value] of [
+    ['id', definition.id],
+    ['description', definition.description],
+    ['area', definition.area],
+    ['version', definition.version],
+    ['instructions', definition.instructions],
+  ] as const) {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new TypeError(`defineTraceAnalyst: ${name} must be a non-empty string`)
+    }
   }
   return {
-    id: options.id,
-    description: options.description,
-    version: options.version ?? '1.0.0',
-    inputKind: 'trace-store',
-    cost: options.cost,
-    analyze: options.analyze,
+    ...definition,
+    limits: definition.limits ? { ...definition.limits } : undefined,
   }
 }
-
-export type TraceAnalystAnalyze = (
-  store: TraceAnalysisStore,
-  context: Parameters<Analyst<TraceAnalysisStore>['analyze']>[1],
-) => Promise<AnalystFinding[]>

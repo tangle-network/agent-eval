@@ -23,8 +23,8 @@ describe('analyst benchmark persistence and resume', () => {
     const first = await agentRxFixture()
     const second = await agentRxFixture()
     const dependencies = {
-      createModelRunner: () => ({
-        id: 'model',
+      createAnalystRunner: () => ({
+        id: 'dspy-rlm',
         analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
       }),
     }
@@ -60,7 +60,7 @@ describe('analyst benchmark persistence and resume', () => {
     const fixture = await agentRxFixture()
     const analyze = vi.fn(() => ({ findings: [], usage: UNKNOWN_USAGE }))
     const dependencies = {
-      createModelRunner: () => ({ id: 'model', analyze }),
+      createAnalystRunner: () => ({ id: 'dspy-rlm', analyze }),
     }
 
     const attempts = await Promise.allSettled([
@@ -94,7 +94,7 @@ describe('analyst benchmark persistence and resume', () => {
         args,
         { TEST_ANALYST_KEY: 'unused' },
         {
-          createModelRunner: () => {
+          createAnalystRunner: () => {
             throw new Error('stop after initialization')
           },
         },
@@ -113,8 +113,8 @@ describe('analyst benchmark persistence and resume', () => {
       [...args, '--resume'],
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => ({
-          id: 'model',
+        createAnalystRunner: () => ({
+          id: 'dspy-rlm',
           async analyze() {
             markAnalysisStarted()
             await analysisReleased
@@ -131,8 +131,8 @@ describe('analyst benchmark persistence and resume', () => {
           [...args, '--resume'],
           { TEST_ANALYST_KEY: 'unused' },
           {
-            createModelRunner: () => ({
-              id: 'model',
+            createAnalystRunner: () => ({
+              id: 'dspy-rlm',
               analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
             }),
           },
@@ -153,7 +153,7 @@ describe('analyst benchmark persistence and resume', () => {
         args,
         { TEST_ANALYST_KEY: 'unused' },
         {
-          createModelRunner: () => {
+          createAnalystRunner: () => {
             throw new Error('stop after initialization')
           },
         },
@@ -170,7 +170,7 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner: () => ({ id: 'model', analyze }) },
+        { createAnalystRunner: () => ({ id: 'dspy-rlm', analyze }) },
       ),
     ).resolves.toBe(0)
 
@@ -196,7 +196,7 @@ describe('analyst benchmark persistence and resume', () => {
         args,
         { TEST_ANALYST_KEY: 'unused' },
         {
-          createModelRunner: () => {
+          createAnalystRunner: () => {
             throw new Error('stop after initialization')
           },
         },
@@ -208,16 +208,16 @@ describe('analyst benchmark persistence and resume', () => {
     const localReceipt = JSON.parse(await readFile(localReceiptPath, 'utf8'))
     localReceipt.command = 'conflicting command'
     await writeFile(localReceiptPath, `${JSON.stringify(localReceipt, null, 2)}\n`)
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/local run receipt does not exactly match interrupted initialization/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
     await expect(access(markerPath)).rejects.toThrow()
   })
 
@@ -226,16 +226,16 @@ describe('analyst benchmark persistence and resume', () => {
     await mkdir(fixture.outDir)
     await writeFile(join(fixture.outDir, 'report.md'), 'unrelated report\n')
     await unlink(fixture.labelsPath)
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         agentRxCommandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/existing benchmark output directory/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('rejects symbolic-link output directories and observation logs', async () => {
@@ -243,26 +243,26 @@ describe('analyst benchmark persistence and resume', () => {
     const targetDirectory = join(outputFixture.root, 'target-output')
     await mkdir(targetDirectory)
     await symlink(targetDirectory, outputFixture.outDir, 'dir')
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         [...agentRxCommandArgs(outputFixture), '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/output must be a real directory/)
 
     const logFixture = await agentRxFixture()
     const args = agentRxCommandArgs(logFixture)
     const runner = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
     }
     await runAnalystBenchmarkCommand(
       args,
       { TEST_ANALYST_KEY: 'unused' },
-      { createModelRunner: () => runner },
+      { createAnalystRunner: () => runner },
     )
     await unlink(join(logFixture.outDir, 'result.json'))
     await unlink(join(logFixture.outDir, 'report.md'))
@@ -276,16 +276,16 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/observation log must be a real file/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('persists completed observation rows when finalization is interrupted', async () => {
     const fixture = await agentRxFixture()
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       async analyze() {
         await writeFile(join(fixture.outDir, 'result.json'), 'interrupted finalization\n')
         return { findings: [], usage: UNKNOWN_USAGE }
@@ -296,14 +296,14 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         agentRxCommandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner: () => modelRunner },
+        { createAnalystRunner: () => modelRunner },
       ),
     ).rejects.toThrow(/refusing to replace existing benchmark artifact/)
 
     const rows = await progressRows(fixture.outDir)
     expect(rows).toHaveLength(2)
     expect(rows.map((row) => row.sequence)).toEqual([0, 1])
-    expect(rows.map((row) => row.observation.runnerId).sort()).toEqual(['empty', 'model'])
+    expect(rows.map((row) => row.observation.runnerId).sort()).toEqual(['dspy-rlm', 'empty'])
     await expect(readFile(join(fixture.outDir, 'report.md'), 'utf8')).rejects.toThrow()
   })
 
@@ -312,7 +312,7 @@ describe('analyst benchmark persistence and resume', () => {
     const args = [...agentRxCommandArgs(fixture), '--repetitions', '3', '--concurrency', '1']
     const firstCalls: string[] = []
     const firstRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze(_input, context) {
         firstCalls.push(`${context.caseId}/${context.repetition}`)
         return { findings: [], usage: UNKNOWN_USAGE }
@@ -321,15 +321,15 @@ describe('analyst benchmark persistence and resume', () => {
     await runAnalystBenchmarkCommand(
       args,
       { TEST_ANALYST_KEY: 'first-secret' },
-      { createModelRunner: () => firstRunner },
+      { createAnalystRunner: () => firstRunner },
     )
     expect(firstCalls).toHaveLength(3)
 
     const allRows = await progressRows(fixture.outDir)
-    const firstModelRow = allRows.findIndex((row) => row.observation.runnerId === 'model')
+    const firstModelRow = allRows.findIndex((row) => row.observation.runnerId === 'dspy-rlm')
     expect(firstModelRow).toBeGreaterThanOrEqual(0)
     const retainedRows = allRows.slice(0, firstModelRow + 1)
-    expect(retainedRows.filter((row) => row.observation.runnerId === 'model')).toHaveLength(1)
+    expect(retainedRows.filter((row) => row.observation.runnerId === 'dspy-rlm')).toHaveLength(1)
     await writeFile(
       join(fixture.outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE),
       `${retainedRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
@@ -339,12 +339,12 @@ describe('analyst benchmark persistence and resume', () => {
 
     const retainedModelKeys = new Set(
       retainedRows
-        .filter((row) => row.observation.runnerId === 'model')
+        .filter((row) => row.observation.runnerId === 'dspy-rlm')
         .map((row) => `${row.observation.caseId}/${row.observation.repetition}`),
     )
     const resumedCalls: string[] = []
     const resumedRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze(_input, context) {
         resumedCalls.push(`${context.caseId}/${context.repetition}`)
         return { findings: [], usage: UNKNOWN_USAGE }
@@ -353,7 +353,7 @@ describe('analyst benchmark persistence and resume', () => {
     await runAnalystBenchmarkCommand(
       [...args, '--resume'],
       { TEST_ANALYST_KEY: 'second-secret' },
-      { createModelRunner: () => resumedRunner },
+      { createAnalystRunner: () => resumedRunner },
     )
 
     expect(resumedCalls).toHaveLength(2)
@@ -382,17 +382,17 @@ describe('analyst benchmark persistence and resume', () => {
     const fixture = await agentRxFixture()
     const args = agentRxCommandArgs(fixture)
     const analyze = vi.fn(() => ({ findings: [], usage: UNKNOWN_USAGE }))
-    const createModelRunner = vi.fn(() => ({ id: 'model', analyze }))
-    await runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner })
+    const createAnalystRunner = vi.fn(() => ({ id: 'dspy-rlm', analyze }))
+    await runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner })
 
     await expect(
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).resolves.toBe(0)
-    expect(createModelRunner).toHaveBeenCalledOnce()
+    expect(createAnalystRunner).toHaveBeenCalledOnce()
     expect(analyze).toHaveBeenCalledOnce()
   })
 
@@ -403,8 +403,8 @@ describe('analyst benchmark persistence and resume', () => {
       args,
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => ({
-          id: 'model',
+        createAnalystRunner: () => ({
+          id: 'dspy-rlm',
           analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
         }),
       },
@@ -413,16 +413,16 @@ describe('analyst benchmark persistence and resume', () => {
     await unlink(join(fixture.outDir, 'report.md'))
     const changedArgs = [...args]
     changedArgs[changedArgs.indexOf('--model') + 1] = 'another/model'
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         [...changedArgs, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/resume configuration or inputs do not match/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
 
     const changedEndpointArgs = [...args]
     changedEndpointArgs[changedEndpointArgs.indexOf('--base-url') + 1] = 'http://127.0.0.1:4455/v1'
@@ -430,10 +430,10 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...changedEndpointArgs, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/resume configuration or inputs do not match/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
 
     const alternateLabelsPath = join(fixture.root, 'same-labels-another-path.json')
     await writeFile(alternateLabelsPath, await readFile(fixture.labelsPath, 'utf8'))
@@ -443,39 +443,39 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...changedPathArgs, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/resume configuration or inputs do not match/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('rejects malformed and duplicate observation log rows before model calls', async () => {
     const fixture = await agentRxFixture()
     const args = agentRxCommandArgs(fixture)
     const runner = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
     }
     await runAnalystBenchmarkCommand(
       args,
       { TEST_ANALYST_KEY: 'unused' },
-      { createModelRunner: () => runner },
+      { createAnalystRunner: () => runner },
     )
     await unlink(join(fixture.outDir, 'result.json'))
     await unlink(join(fixture.outDir, 'report.md'))
     const observationPath = join(fixture.outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE)
     const valid = await readFile(observationPath, 'utf8')
-    const createModelRunner = vi.fn(() => runner)
+    const createAnalystRunner = vi.fn(() => runner)
 
     await writeFile(observationPath, '{not json}\n')
     await expect(
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/invalid JSON/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
 
     const tamperedRows = valid
       .trim()
@@ -490,10 +490,10 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/digest does not match its contents/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
 
     const [firstLine] = valid.trim().split('\n')
     await writeFile(observationPath, `${valid}${firstLine}\n`)
@@ -501,20 +501,20 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/duplicate benchmark observation/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('rejects completed results whose derived metrics were changed', async () => {
     const fixture = await agentRxFixture()
     const args = agentRxCommandArgs(fixture)
-    const createModelRunner = vi.fn(() => ({
-      id: 'model',
+    const createAnalystRunner = vi.fn(() => ({
+      id: 'dspy-rlm',
       analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
     }))
-    await runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner })
+    await runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner })
     const resultPath = join(fixture.outDir, 'result.json')
     const artifact = JSON.parse(await readFile(resultPath, 'utf8'))
     artifact.result.summaries[1].failedRuns = 1
@@ -524,9 +524,9 @@ describe('analyst benchmark persistence and resume', () => {
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/summaries do not match durable observations/)
-    expect(createModelRunner).toHaveBeenCalledOnce()
+    expect(createAnalystRunner).toHaveBeenCalledOnce()
   })
 })

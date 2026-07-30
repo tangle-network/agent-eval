@@ -3,14 +3,18 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM = 'sha256-canonic
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-canonical-file-manifest'
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
+  'clients/python/pyproject.toml',
+  'clients/python/uv.lock',
   'package.json',
   'pnpm-lock.yaml',
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
+  'b00ffeede06a5034d2d18aa33988379e5575e5e61d8f7d8fda6693969e04cac4'
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
+  'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
+  'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
   'src/analyst/benchmark-agentrx-calibration.ts',
   'src/analyst/benchmark-command-artifact.ts',
   'src/analyst/benchmark-command-persistence.ts',
@@ -28,6 +32,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
   'src/analyst/benchmark-public-model.ts',
+  'src/analyst/benchmark-public-rlm.ts',
   'src/analyst/benchmark-public-types.ts',
   'src/analyst/benchmark-real-model.ts',
   'src/analyst/benchmark-report.ts',
@@ -37,8 +42,21 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-verification-artifacts.ts',
   'src/analyst/benchmark-verification-outcome.ts',
   'src/analyst/benchmark.ts',
+  'src/analyst/dspy-rlm-engine.ts',
+  'src/analyst/engine.ts',
+  'src/analyst/finding-signature.ts',
+  'src/analyst/finding-subject.ts',
+  'src/analyst/kind-factory.ts',
+  'src/analyst/parse-tolerant.ts',
+  'src/analyst/tool-groups.ts',
+  'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
+  'src/campaign/external-optimizer-contracts.ts',
+  'src/campaign/external-optimizer-http.ts',
+  'src/campaign/external-optimizer-model-proxy.ts',
+  'src/campaign/external-optimizer-resources.ts',
+  'src/campaign/external-optimizer-subprocess.ts',
   'src/campaign/search-ledger-errors.ts',
   'src/campaign/search-ledger-file.ts',
   'src/campaign/single-run-lock.ts',
@@ -68,6 +86,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/trace-analyst/store-otlp.ts',
   'src/trace-analyst/store-schemas.ts',
   'src/trace-analyst/store.ts',
+  'src/trace-analyst/tools.ts',
   'src/trace-analyst/types.ts',
   'src/trace/attribute-vocabulary.ts',
   'src/trace/otlp-attributes.ts',
@@ -75,7 +94,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '4dba263b6256a30d56c7fdb2d992d3a953c0035d731f359b704db806f68f75ac'
+  '610fb8555731e8a4eceaedfa98c47ea37b040341aa684791c3f55ded9dc50357'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

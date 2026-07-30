@@ -336,8 +336,8 @@ try {
       type RemovedCanonicalFindingSchema = typeof import('@tangle-network/agent-eval/analyst').CanonicalRawAnalystFindingSchema
       // @ts-expect-error analyst cost is reported through the usage receipt
       type RemovedAnalystCostAlias = import('@tangle-network/agent-eval').AnalystRunSummary['cost_usd']
-      // @ts-expect-error recovery has one plural-evidence processRow callback
-      type RemovedCanonicalProcessRow = import('@tangle-network/agent-eval/analyst').StructureFindingsOptions['processCanonicalRow']
+      // @ts-expect-error one-shot finding structuring was removed; use a recursive analysis engine
+      type RemovedStructureFindingsOptions = import('@tangle-network/agent-eval/analyst').StructureFindingsOptions
       // @ts-expect-error comparison partitions use explicit train, selection, and test fields
       type RemovedComparisonHoldout = CompareOptimizationMethodsOptions<Scenario, unknown>['holdoutScenarios']
       // @ts-expect-error SurfaceProposer is the only candidate-proposal contract

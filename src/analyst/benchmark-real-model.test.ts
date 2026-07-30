@@ -6,12 +6,12 @@ import { CostCallConflictError, CostLedger, type CostLedgerPersistence } from '.
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import {
-  createPublicBenchmarkModelRunner,
+  createPublicBenchmarkDirectRunner,
   publicBenchmarkProtocolSha256,
 } from './benchmark-real-model'
 import { buildTraceToolsForGroup } from './tool-groups'
 
-describe('createPublicBenchmarkModelRunner', () => {
+describe('createPublicBenchmarkDirectRunner', () => {
   it('makes one bounded structured call and validates the exact cited action', async () => {
     const traceId = 'trace-1'
     const action = 'writeFile("broken configuration")'
@@ -44,7 +44,7 @@ describe('createPublicBenchmarkModelRunner', () => {
         ],
       })
     }) as typeof fetch
-    const runner = createPublicBenchmarkModelRunner('codetracebench', {
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
       baseUrl: 'https://provider.invalid/v1',
       apiKey: 'test',
       model: 'glm-5.2',
@@ -68,7 +68,7 @@ describe('createPublicBenchmarkModelRunner', () => {
     expect(output.error).toBeUndefined()
     expect(output.findings).toHaveLength(1)
     expect(output.findings[0]).toMatchObject({
-      analyst_id: 'model',
+      analyst_id: 'direct',
       subject: 'incorrect-step-2',
       evidence_refs: [
         {
@@ -82,7 +82,7 @@ describe('createPublicBenchmarkModelRunner', () => {
       tokens: { input: 100, output: 50 },
     })
     expect(output.metadata).toMatchObject({
-      analysisMode: 'single-pass',
+      analysisMode: 'direct-baseline',
       providerModel: 'glm-5.2',
       outputAdapter: 'codetracebench-incorrect-step',
     })
@@ -105,7 +105,7 @@ describe('createPublicBenchmarkModelRunner', () => {
         ],
       }),
     ) as typeof fetch
-    const runner = createPublicBenchmarkModelRunner('agentrx', {
+    const runner = createPublicBenchmarkDirectRunner('agentrx', {
       baseUrl: 'https://provider.invalid/v1',
       apiKey: 'test',
       model: 'glm-5.2',
@@ -188,17 +188,17 @@ describe('createPublicBenchmarkModelRunner', () => {
     const context = { caseId: `codetrace:${traceId}`, repetition: 0 }
 
     await expect(
-      createPublicBenchmarkModelRunner('codetracebench', config).analyze(input, context),
+      createPublicBenchmarkDirectRunner('codetracebench', config).analyze(input, context),
     ).rejects.toBeInstanceOf(CostCallConflictError)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(ledger.listPending?.()).toHaveLength(1)
 
     state.rejectSettlement = false
-    const resumed = await createPublicBenchmarkModelRunner('codetracebench', config).analyze(
+    const resumed = await createPublicBenchmarkDirectRunner('codetracebench', config).analyze(
       input,
       context,
     )
-    const replayed = await createPublicBenchmarkModelRunner('codetracebench', config).analyze(
+    const replayed = await createPublicBenchmarkDirectRunner('codetracebench', config).analyze(
       input,
       context,
     )
@@ -255,7 +255,7 @@ describe('createPublicBenchmarkModelRunner', () => {
       markStarted()
       return new Promise<Response>(() => {})
     }) as typeof fetch
-    const firstRunner = createPublicBenchmarkModelRunner('codetracebench', {
+    const firstRunner = createPublicBenchmarkDirectRunner('codetracebench', {
       baseUrl: 'https://provider.invalid/v1',
       apiKey: 'test',
       model: 'glm-5.2',
@@ -278,7 +278,7 @@ describe('createPublicBenchmarkModelRunner', () => {
       })
     }) as typeof fetch
     await expect(
-      createPublicBenchmarkModelRunner('codetracebench', {
+      createPublicBenchmarkDirectRunner('codetracebench', {
         baseUrl: 'https://provider.invalid/v1',
         apiKey: 'test',
         model: 'glm-5.2',
@@ -297,7 +297,7 @@ describe('createPublicBenchmarkModelRunner', () => {
 
   it.each([401, 429])('persists HTTP %i without the provider body or bearer', async (status) => {
     const secret = 'AUDIT_SECRET_456'
-    const runner = createPublicBenchmarkModelRunner('codetracebench', {
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
       baseUrl: 'https://provider.invalid/v1',
       apiKey: secret,
       model: 'glm-5.2',
@@ -331,7 +331,7 @@ describe('createPublicBenchmarkModelRunner', () => {
       response: () => Promise<Response>,
       spans = [span('trace-1', 'step-1', 'A')],
     ) =>
-      createPublicBenchmarkModelRunner('codetracebench', {
+      createPublicBenchmarkDirectRunner('codetracebench', {
         baseUrl: 'https://provider.invalid/v1',
         apiKey: 'test',
         model: 'glm-5.2',

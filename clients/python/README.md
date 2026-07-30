@@ -217,8 +217,7 @@ Missing provider usage fails the run instead of assuming zero cost.
 
 ### DSPy
 
-DSPy programs should use DSPy's official optimizers directly.
-Install DSPy 3.2.1 and the Agent Eval metric adapter with:
+Install DSPy 3.2.1 and the Agent Eval adapters with:
 
 ```sh
 python -m pip install "agent-eval-rpc[dspy]"
@@ -248,6 +247,34 @@ Use the metric object directly for MIPROv2, SIMBA, bootstrap, and evaluation API
 Identical calls share one judge result, including concurrent calls.
 `DspyJudgeMetric` rejects DSPy's default unrestricted disk-cache pickle handling.
 Configure the official restricted cache as shown above, or call `dspy.configure_cache(enable_disk_cache=False)` before creating the metric.
+
+DSPy programs should use DSPy's official optimizers directly.
+Agent Eval also runs the official `dspy.RLM` for recursive trace analysis.
+The TypeScript API starts the Python bridge, provides authenticated trace tools, keeps provider credentials in Node, enforces model and trace-read limits, and validates cited findings.
+The Python bridge owns no trace storage or model credentials.
+
+```ts
+import { createDspyRlmTraceEngine } from '@tangle-network/agent-eval/analyst'
+import { analyzeTraces } from '@tangle-network/agent-eval/traces'
+
+const engine = createDspyRlmTraceEngine({
+  baseUrl: process.env.LLM_BASE_URL!,
+  apiKey: process.env.LLM_API_KEY!,
+  model: process.env.LLM_MODEL!,
+  pricing: {
+    inputUsdPerMillion: 3,
+    outputUsdPerMillion: 15,
+  },
+  runner: { command: '.venv/bin/python' },
+})
+
+const result = await analyzeTraces(
+  { question: 'What first caused this run to fail?' },
+  { source: 'run.otlp.jsonl', engine, toolGroup: 'singleTrace' },
+)
+```
+
+See [Trace Analysis](../../docs/trace-analysis.md) for custom definitions, limits, result fields, and the public quality benchmark.
 
 DSPy 3.2.1 pins GEPA 0.0.27.
 The general Optimize Anything bridge uses GEPA 0.1.4, so repository checks install them in separate environments:

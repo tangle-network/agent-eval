@@ -2,48 +2,39 @@ import { describe, expect, it } from 'vitest'
 import { defineTraceAnalyst } from './define'
 
 describe('defineTraceAnalyst', () => {
-  it('fills the fixed trace-store fields and preserves the declared cost', () => {
-    const analyst = defineTraceAnalyst({
+  it('defines an engine-independent research question', () => {
+    const definition = defineTraceAnalyst({
       id: 'failed-tools',
       description: 'Find failed tool calls.',
-      cost: { kind: 'deterministic' },
-      async analyze() {
-        return []
-      },
-    })
-    expect(analyst).toMatchObject({
-      id: 'failed-tools',
-      inputKind: 'trace-store',
+      area: 'tool-use',
       version: '1.0.0',
-      cost: { kind: 'deterministic' },
+      question: 'Why are tools failing?',
+      instructions: 'Inspect failures and cite exact spans.',
+      toolGroup: 'discoveryAndSearch',
+      limits: { maxIterations: 6 },
     })
+
+    expect(definition).toMatchObject({
+      id: 'failed-tools',
+      area: 'tool-use',
+      question: 'Why are tools failing?',
+      toolGroup: 'discoveryAndSearch',
+      limits: { maxIterations: 6 },
+    })
+    expect(definition).not.toHaveProperty('engine')
+    expect(definition).not.toHaveProperty('cost')
   })
 
-  it('rejects empty identity fields before registration', () => {
+  it('rejects empty identity fields', () => {
     expect(() =>
       defineTraceAnalyst({
         id: '',
         description: 'x',
-        cost: { kind: 'deterministic' },
-        async analyze() {
-          return []
-        },
+        area: 'x',
+        version: '1.0.0',
+        instructions: 'x',
+        toolGroup: 'all',
       }),
-    ).toThrow(/id must not be empty/)
-  })
-
-  it('rejects a missing cost declaration from JavaScript callers', () => {
-    const missingCost = {
-      id: 'model-backed',
-      description: 'Calls a model.',
-      async analyze() {
-        return []
-      },
-    }
-
-    expect(() => {
-      // @ts-expect-error JavaScript callers can omit a TypeScript-required property.
-      defineTraceAnalyst(missingCost)
-    }).toThrow(/cost must be declared/)
+    ).toThrow(/id must be a non-empty string/)
   })
 })

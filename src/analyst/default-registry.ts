@@ -1,46 +1,31 @@
-/**
- * `buildDefaultAnalystRegistry` — the canonical analyst suite, so consumers
- * stop hand-wiring `new AnalystRegistry()` + per-kind `createTraceAnalystKind`.
- *
- * The deterministic `behavioralAnalyst` is ALWAYS registered (it needs no
- * model and is model-agnostic by construction). The agentic RLM kinds are
- * registered only when an `ai` service is supplied — so a caller with no LLM
- * still gets the full behavioral/efficiency diagnosis, and the substrate's
- * "any model (including no model)" guarantee holds at the suite level.
- */
-
-import type { AxAIService } from '@ax-llm/ax'
 import { type BehavioralAnalystOptions, behavioralAnalyst } from './behavioral-analyst'
-import { createTraceAnalystKind, type TraceAnalystKindSpec } from './kind-factory'
+import type { TraceAnalysisEngine } from './engine'
+import { createTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from './kinds'
 import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
 
 export interface DefaultAnalystRegistryOptions {
-  /** Ax service for the agentic RLM kinds. Omit → only the deterministic analyst. */
-  ai?: AxAIService
-  /** Required unless `ai` was created by `createAnalystAi`. */
-  model?: string
-  /** Which agentic kinds to register when `ai` is present. Default = the shipped suite. */
-  kinds?: readonly TraceAnalystKindSpec[]
-  /** Set false to omit the deterministic behavioral analyst (default: include). */
+  /**
+   * Recursive engine for model-backed trace analysts. When omitted, the
+   * registry contains only deterministic analysts.
+   */
+  engine?: TraceAnalysisEngine
+  definitions?: readonly TraceAnalystDefinition[]
   includeBehavioral?: boolean
-  /** Bound deterministic trace scanning without changing the store. */
   behavioral?: BehavioralAnalystOptions
-  /** Forwarded to the AnalystRegistry constructor (signal, tags, priorFindings). */
   registry?: AnalystRegistryOptions
 }
 
 export function buildDefaultAnalystRegistry(
-  opts: DefaultAnalystRegistryOptions = {},
+  options: DefaultAnalystRegistryOptions = {},
 ): AnalystRegistry {
-  const registry = new AnalystRegistry(opts.registry)
-  if (opts.includeBehavioral !== false) {
-    registry.register(behavioralAnalyst(opts.behavioral))
+  const registry = new AnalystRegistry(options.registry)
+  if (options.includeBehavioral !== false) {
+    registry.register(behavioralAnalyst(options.behavioral))
   }
-  if (opts.ai) {
-    const kinds = opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS
-    for (const spec of kinds) {
-      registry.register(createTraceAnalystKind(spec, { ai: opts.ai, model: opts.model }))
+  if (options.engine) {
+    for (const definition of options.definitions ?? DEFAULT_TRACE_ANALYST_KINDS) {
+      registry.register(createTraceAnalyst(definition, { engine: options.engine }))
     }
   }
   return registry

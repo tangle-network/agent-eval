@@ -46,8 +46,8 @@ import {
   renderCodeTraceCalibrationMarkdown,
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
+import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 import {
-  createPublicBenchmarkModelRunner,
   emptyPublicBenchmarkRunner,
   type PublicAnalystBenchmarkDataset,
   type PublicAnalystBenchmarkModelConfig,
@@ -77,7 +77,7 @@ export {
 export { readAnalystBenchmarkArtifact } from './benchmark-command-result'
 
 export interface AnalystBenchmarkCommandDependencies {
-  createModelRunner?: (
+  createAnalystRunner?: (
     dataset: PublicAnalystBenchmarkDataset,
     config: PublicAnalystBenchmarkModelConfig,
   ) => AnalystBenchmarkRunner<AnalystRunInputs>
@@ -180,13 +180,13 @@ async function executeAnalystBenchmarkCommand(
     )
   }
 
-  const createModelRunner =
-    dependencies.createModelRunner ??
+  const createAnalystRunner =
+    dependencies.createAnalystRunner ??
     ((dataset: PublicAnalystBenchmarkDataset, model: PublicAnalystBenchmarkModelConfig) =>
-      createPublicBenchmarkModelRunner(dataset, model))
+      createPublicBenchmarkRlmRunner(dataset, model))
   const runners = [
     emptyPublicBenchmarkRunner(),
-    createModelRunner(config.dataset, {
+    createAnalystRunner(config.dataset, {
       ...config.model,
       costLedger,
       durability: {
@@ -269,7 +269,7 @@ async function executeAnalystBenchmarkCommand(
   const comparisons = [
     compareAnalystRunners(result, {
       baselineRunnerId: 'empty',
-      candidateRunnerId: 'model',
+      candidateRunnerId: 'dspy-rlm',
       seed: config.seed,
     }),
   ]
@@ -341,7 +341,7 @@ function assertObservationAccountingComplete(
       `Analyst benchmark stopped before scoring: ${observation.error.message}`,
     )
   }
-  if (observation.runnerId !== 'model') return
+  if (observation.runnerId !== 'dspy-rlm') return
   const summary = costLedger.summary({
     channel: 'analyst',
     tags: {
@@ -350,7 +350,7 @@ function assertObservationAccountingComplete(
     },
   })
   if (!summary.accountingComplete || summary.pendingCalls > 0 || summary.unresolvedCalls > 0) {
-    throw accountingError(costLedger, 'the model observation has incomplete cost accounting', {
+    throw accountingError(costLedger, 'the recursive analyst has incomplete cost accounting', {
       channel: 'analyst',
       tags: {
         benchmarkCaseId: observation.caseId,
@@ -381,7 +381,7 @@ function accountingError(
 
 export const ANALYST_BENCHMARK_HELP = `agent-eval analyst-benchmark
 
-Run a real-model trace analyst against public AgentRx or CodeTraceBench labels.
+Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench labels.
 
 Required:
   --dataset agentrx|codetracebench
@@ -402,6 +402,7 @@ Controls:
   --concurrency <positive integer> Parallel benchmark jobs. Default: 1
   --repetitions <positive integer> Runs per case and runner. Default: 1
   --max-output-tokens <positive>   Model output limit per call. Default: 4096
+  --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
   --max-cost-usd <positive>        Run-wide spend limit. Default: 5
   --max-artifact-bytes <positive>  Final evidence bytes per case. Default: ${DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES}
@@ -437,6 +438,8 @@ function parseCommandConfig(
     throw new Error(`--api-key-env points to an empty or missing variable: ${apiKeyEnv}`)
   }
 
+  const maxCostUsd = positiveFiniteFlag(flags, 'max-cost-usd', 5)
+  const python = flags.get('python')?.trim()
   return {
     dataset,
     labelsPath: requiredFlag(flags, 'labels'),
@@ -451,12 +454,14 @@ function parseCommandConfig(
       model: requiredFlag(flags, 'model'),
       maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 4_096),
       timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
+      maxCostUsdPerAnalysis: maxCostUsd,
+      ...(python ? { dspyRlm: { runner: { command: python } } } : {}),
     },
     limit: positiveFlag(flags, 'limit'),
     seed: integerFlag(flags, 'seed', 0),
     concurrency: positiveFlag(flags, 'concurrency', 1),
     repetitions: positiveFlag(flags, 'repetitions', 1),
-    maxCostUsd: positiveFiniteFlag(flags, 'max-cost-usd', 5),
+    maxCostUsd,
     maxArtifactBytes: positiveFlag(
       flags,
       'max-artifact-bytes',
@@ -510,6 +515,7 @@ const KNOWN_FLAGS = new Set([
   'concurrency',
   'repetitions',
   'max-output-tokens',
+  'python',
   'timeout-ms',
   'max-cost-usd',
   'max-artifact-bytes',
@@ -678,7 +684,7 @@ function renderArtifactMarkdown(artifact: AnalystBenchmarkArtifact): string {
 }
 
 function benchmarkExitCode(result: AnalystBenchmarkResult): number {
-  return result.summaries.find((summary) => summary.runnerId === 'model')?.failedRuns ? 2 : 0
+  return result.summaries.find((summary) => summary.runnerId === 'dspy-rlm')?.failedRuns ? 2 : 0
 }
 
 function printSuccessSummary(

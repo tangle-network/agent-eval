@@ -1,4 +1,5 @@
-import type { CostLedgerHandle } from '../cost-ledger'
+import type { ExternalOptimizerRunnerCommand } from '../campaign/external-optimizer-contracts'
+import type { CostLedgerHandle, CustomTokenPricing } from '../cost-ledger'
 import type { AnalystBenchmarkCase } from './benchmark'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
 import type { AnalystRunInputs } from './types'
@@ -11,6 +12,17 @@ export interface PublicAnalystBenchmarkModelConfig {
   model: string
   maxOutputTokens: number
   timeoutMs: number
+  /** Required when the model is absent from agent-eval's pricing table. */
+  pricing?: CustomTokenPricing
+  /** Independent per-case recursive-engine spend limit. Default: 1 USD. */
+  maxCostUsdPerAnalysis?: number
+  dspyRlm?: {
+    runner?: ExternalOptimizerRunnerCommand
+    maxIterations?: number
+    maxLlmCalls?: number
+    maxToolCalls?: number
+    maxOutputChars?: number
+  }
   costLedger?: CostLedgerHandle
   durability?: {
     runIdentitySha256: string

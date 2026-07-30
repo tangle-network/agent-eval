@@ -339,7 +339,7 @@ describe('KIND_EXPECTED_SUBJECTS', () => {
     ['knowledge-poisoning', KNOWLEDGE_POISONING_KIND_SPEC],
   ])('%s actor prompt embeds its complete allowed grammar', (kindId, spec) => {
     const grammar = findingSubjectGrammarPromptFor(kindId)
-    expect(spec.actorDescription).toContain(grammar)
+    expect(spec.instructions).toContain(grammar)
     for (const subjectKind of KIND_EXPECTED_SUBJECTS[kindId] ?? []) {
       expect(grammar).toContain(FINDING_SUBJECT_SYNTAX[subjectKind])
     }

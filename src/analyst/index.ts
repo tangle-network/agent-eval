@@ -19,7 +19,6 @@ export {
   createVerifierAdapter,
   liftSeverity,
 } from './adapters'
-export { type CreateAnalystAiConfig, createAnalystAi } from './ax-service'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
 export type {
@@ -139,7 +138,8 @@ export type {
 export {
   adaptPublicBenchmarkFindings,
   CODE_TRACE_BENCH_ANALYST_PROMPT,
-  createPublicBenchmarkModelRunner,
+  createPublicBenchmarkDirectRunner,
+  createPublicBenchmarkRlmRunner,
   emptyPublicBenchmarkRunner,
   loadPublicBenchmarkRows,
   preparePublicAnalystBenchmark,
@@ -186,8 +186,19 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export type { DefineTraceAnalystOptions, TraceAnalystAnalyze } from './define'
 export { defineTraceAnalyst } from './define'
+export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
+export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
+export type {
+  TraceAnalysisEngine,
+  TraceAnalysisEngineRequest,
+  TraceAnalysisEngineResult,
+  TraceAnalystLimits,
+} from './engine'
+export {
+  DEFAULT_TRACE_ANALYST_LIMITS,
+  resolveTraceAnalystLimits,
+} from './engine'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -214,10 +225,15 @@ export {
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './findings-store'
 export { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
 export type {
-  CreateTraceAnalystKindOpts,
-  TraceAnalystKindSpec,
+  CreateTraceAnalystOptions,
+  TraceAnalystDefinition,
 } from './kind-factory'
-export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'
+export {
+  createTraceAnalyst,
+  renderPriorFindings,
+  renderUpstreamFindings,
+  runTraceAnalyst,
+} from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -250,11 +266,6 @@ export type {
   RegistryRunOpts,
 } from './registry'
 export { AnalystRegistry } from './registry'
-export {
-  type StructureFindingsOptions,
-  type StructureFindingsResult,
-  structureFindings,
-} from './structure-findings'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {

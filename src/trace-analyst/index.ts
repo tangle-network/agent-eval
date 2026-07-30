@@ -1,4 +1,4 @@
-/** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
+/** Recursive trace analysis over bounded OTLP JSONL stores. */
 
 export { asNumber, firstNumberAttr } from '../trace/attribute-vocabulary'
 export type { LlmSpanOtlpInput } from '../trace/otlp-attributes'
@@ -20,7 +20,6 @@ export type {
   AnalyzeTracesInput,
   AnalyzeTracesOptions,
   AnalyzeTracesResult,
-  AnalyzeTracesTurnSnapshot,
 } from './analyst'
 export { analyzeTraces } from './analyst'
 export {
@@ -104,7 +103,6 @@ export type {
 } from './tools'
 export {
   buildTraceAnalysisToolDescriptors,
-  buildTraceAnalystTools,
   TRACE_ANALYST_TOOL_NAMESPACE,
   traceAnalystFunctionGroup,
 } from './tools'

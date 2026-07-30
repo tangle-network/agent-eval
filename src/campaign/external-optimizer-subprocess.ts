@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { lstat, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { type ExternalOptimizerRunnerCommand, isRecord } from './external-optimizer-contracts'
 import { runWithCleanup } from './external-optimizer-resources'
 
@@ -62,7 +62,7 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
         )
       }
       await writeFile(inputPath, inputJson)
-      const command = args.runner?.command ?? 'python'
+      const command = resolveRunnerCommand(args.runner?.command ?? 'python')
       const commandArgs = [
         ...(args.runner?.args ?? ['-m', args.module]),
         '--input',
@@ -89,6 +89,11 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
     },
     cleanup: () => rm(dir, { recursive: true, force: true }),
   })
+}
+
+function resolveRunnerCommand(command: string): string {
+  if (isAbsolute(command) || (!command.includes('/') && !command.includes('\\'))) return command
+  return resolve(command)
 }
 
 async function readBoundedTextFile(path: string, maxBytes: number, label: string): Promise<string> {

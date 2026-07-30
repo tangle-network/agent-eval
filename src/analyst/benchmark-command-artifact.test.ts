@@ -17,8 +17,8 @@ describe('analyst benchmark artifact reader', () => {
       agentRxCommandArgs(fixture),
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => ({
-          id: 'model',
+        createAnalystRunner: () => ({
+          id: 'dspy-rlm',
           analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
         }),
       },
@@ -78,7 +78,7 @@ describe('analyst benchmark artifact reader', () => {
           {
             schema_version: '1.0.0',
             finding_id: 'finding-1',
-            analyst_id: 'model',
+            analyst_id: 'dspy-rlm',
             produced_at: '2026-07-30T00:00:00.000Z',
             severity: 'high',
             area: 'tool-use',
@@ -163,8 +163,8 @@ describe('analyst benchmark artifact reader', () => {
       agentRxCommandArgs(fixture),
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => ({
-          id: 'model',
+        createAnalystRunner: () => ({
+          id: 'dspy-rlm',
           analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
         }),
       },
@@ -189,8 +189,8 @@ async function completedResultPath(dataset: 'agentrx' | 'codetracebench'): Promi
     args,
     { TEST_ANALYST_KEY: 'unused' },
     {
-      createModelRunner: () => ({
-        id: 'model',
+      createAnalystRunner: () => ({
+        id: 'dspy-rlm',
         analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
       }),
     },

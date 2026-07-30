@@ -156,7 +156,7 @@ export function createRunIdentity(
       analystProtocolSha256: publicBenchmarkProtocolSha256(config.dataset),
       implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
       dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
-      runnerIds: ['empty', 'model'],
+      runnerIds: ['empty', 'dspy-rlm'],
     },
     inputs: {
       labelsSha256: prepared.labelsSha256,
@@ -535,7 +535,7 @@ export async function readProgress(
     }
     if (
       !allowedCases.has(observation.caseId) ||
-      (observation.runnerId !== 'empty' && observation.runnerId !== 'model') ||
+      (observation.runnerId !== 'empty' && observation.runnerId !== 'dspy-rlm') ||
       observation.repetition >= repetitions ||
       observation.executionIndex >= plannedObservationCount
     ) {

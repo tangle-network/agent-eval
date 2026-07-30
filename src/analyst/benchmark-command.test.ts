@@ -26,7 +26,7 @@ describe('runAnalystBenchmarkCommand', () => {
   it('writes complete paired results and preserves unknown model cost', async () => {
     const fixture = await codeTraceFixture()
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       async analyze(input, context) {
         const manifest = JSON.parse(
           await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
@@ -53,7 +53,7 @@ describe('runAnalystBenchmarkCommand', () => {
         return {
           findings: [
             makeFinding({
-              analyst_id: 'model',
+              analyst_id: 'dspy-rlm',
               area: 'incorrect',
               claim: 'Step 2 changes the wrong file.',
               severity: 'high',
@@ -72,7 +72,7 @@ describe('runAnalystBenchmarkCommand', () => {
       commandArgs(fixture),
       { TEST_ANALYST_KEY: 'do-not-persist-this-key' },
       {
-        createModelRunner: (_dataset, config) => {
+        createAnalystRunner: (_dataset, config) => {
           expect(config.durability).toEqual({
             runIdentitySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
             responseCacheDir: join(fixture.outDir, 'model-responses'),
@@ -95,7 +95,7 @@ describe('runAnalystBenchmarkCommand', () => {
     )) as unknown as Record<string, any>
     expect(artifact.result.provenance).toMatchObject({
       caseCount: 1,
-      runnerIds: ['empty', 'model'],
+      runnerIds: ['empty', 'dspy-rlm'],
       runnerOrderSeed: 7,
       metadata: {
         protocolSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -107,7 +107,7 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(artifact.result.summaries).toEqual([
       expect.objectContaining({ runnerId: 'empty', issueRecall: 0, knownCostUsd: 0 }),
       expect.objectContaining({
-        runnerId: 'model',
+        runnerId: 'dspy-rlm',
         issueRecall: 1,
         costUnknownRuns: 1,
         knownCostUsd: 0,
@@ -181,7 +181,7 @@ describe('runAnalystBenchmarkCommand', () => {
     })
     expect(artifact.comparisons[0]).toMatchObject({
       baselineRunnerId: 'empty',
-      candidateRunnerId: 'model',
+      candidateRunnerId: 'dspy-rlm',
     })
     expect(
       artifact.comparisons[0].metrics.every((metric: { inferenceLimitations: string[] }) =>
@@ -193,7 +193,7 @@ describe('runAnalystBenchmarkCommand', () => {
       runners: [
         expect.objectContaining({ runnerId: 'empty', positiveRuns: 1 }),
         expect.objectContaining({
-          runnerId: 'model',
+          runnerId: 'dspy-rlm',
           positiveRuns: 1,
           matchedIncorrectSteps: 1,
           precision: 1,
@@ -245,14 +245,14 @@ describe('runAnalystBenchmarkCommand', () => {
     const fixture = await agentRxFixture()
     const args = agentRxCommandArgs(fixture)
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
     }
     await runAnalystBenchmarkCommand(
       args,
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => modelRunner,
+        createAnalystRunner: () => modelRunner,
       },
     )
     await appendFile(
@@ -271,36 +271,36 @@ describe('runAnalystBenchmarkCommand', () => {
         },
       })}\n`,
     )
-    const createModelRunner = vi.fn(() => modelRunner)
+    const createAnalystRunner = vi.fn(() => modelRunner)
 
     await expect(
       runAnalystBenchmarkCommand(
         [...args, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/pending or incomplete cost entries/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('rejects missing labeled spans before constructing or calling a model runner', async () => {
     const fixture = await codeTraceFixture({ labeledStep: 3 })
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         commandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/missing labeled span step-3/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('runs trajectory-only cases with an explicit unavailable outcome', async () => {
     const fixture = await codeTraceFixture({ withVerificationArtifacts: false })
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       async analyze(input) {
         const trace = await input.traceStore?.viewTrace({ trace_id: 'trace-1' })
         expect(trace?.spans).toEqual(
@@ -314,16 +314,16 @@ describe('runAnalystBenchmarkCommand', () => {
         return { findings: [], usage: UNKNOWN_USAGE }
       },
     }
-    const createModelRunner = vi.fn(() => modelRunner)
+    const createAnalystRunner = vi.fn(() => modelRunner)
 
     await expect(
       runAnalystBenchmarkCommand(
         commandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).resolves.toBe(0)
-    expect(createModelRunner).toHaveBeenCalledOnce()
+    expect(createAnalystRunner).toHaveBeenCalledOnce()
     const artifact = JSON.parse(await readFile(join(fixture.outDir, 'result.json'), 'utf8'))
     expect(artifact.inputs.verificationArtifacts[0]).toMatchObject({
       status: 'missing',
@@ -347,66 +347,66 @@ describe('runAnalystBenchmarkCommand', () => {
         incorrect_step_ids: [2],
       }),
     )
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
       runAnalystBenchmarkCommand(
         commandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner },
+        { createAnalystRunner },
       ),
     ).rejects.toThrow(/label key 'incorrect_step_ids'/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('refuses credential-bearing base URLs before constructing the model runner', async () => {
     const fixture = await codeTraceFixture()
     const args = commandArgs(fixture)
     args[args.indexOf('--base-url') + 1] = 'http://secret@127.0.0.1:3355/v1'
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
-      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
+      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner }),
     ).rejects.toThrow(/without credentials/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('refuses remote plain HTTP before constructing the model runner', async () => {
     const fixture = await codeTraceFixture()
     const args = commandArgs(fixture)
     args[args.indexOf('--base-url') + 1] = 'http://provider.example/v1'
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     await expect(
-      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
+      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner }),
     ).rejects.toThrow(/must use HTTPS unless/)
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('rejects branch names and short revision hashes before constructing a runner', async () => {
     const fixture = await codeTraceFixture()
-    const createModelRunner = vi.fn()
+    const createAnalystRunner = vi.fn()
 
     for (const revision of ['main', 'abc123']) {
       const args = commandArgs(fixture)
       args[args.indexOf('--revision') + 1] = revision
       await expect(
-        runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
+        runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner }),
       ).rejects.toThrow(/full 40- or 64-character hexadecimal digest/)
     }
 
-    expect(createModelRunner).not.toHaveBeenCalled()
+    expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
   it('runs AgentRx without imposing CodeTraceBench artifact requirements', async () => {
     const fixture = await agentRxFixture()
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze() {
         return {
           findings: [
             makeFinding({
-              analyst_id: 'model',
+              analyst_id: 'dspy-rlm',
               area: 'system-failure',
               claim: 'The worker lost its provider at the root step.',
               severity: 'high',
@@ -424,7 +424,7 @@ describe('runAnalystBenchmarkCommand', () => {
       runAnalystBenchmarkCommand(
         agentRxCommandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner: () => modelRunner },
+        { createAnalystRunner: () => modelRunner },
       ),
     ).resolves.toBe(0)
 
@@ -441,7 +441,7 @@ describe('runAnalystBenchmarkCommand', () => {
     })
     expect(
       artifact.result.summaries.map((summary: { runnerId: string }) => summary.runnerId),
-    ).toEqual(['empty', 'model'])
+    ).toEqual(['empty', 'dspy-rlm'])
     expect(artifact.agentRxCalibration).toMatchObject({
       protocol: 'official-agentrx-root-cause',
       upstreamRevision: AGENT_RX_UPSTREAM_REVISION,
@@ -452,7 +452,7 @@ describe('runAnalystBenchmarkCommand', () => {
           exactStepAccuracy: 0,
         }),
         expect.objectContaining({
-          runnerId: 'model',
+          runnerId: 'dspy-rlm',
           predictedRuns: 1,
           exactStepAccuracy: 1,
           rootCauseCategoryAccuracy: 1,
@@ -473,8 +473,8 @@ describe('runAnalystBenchmarkCommand', () => {
       args,
       { TEST_ANALYST_KEY: 'unused' },
       {
-        createModelRunner: () => ({
-          id: 'model',
+        createAnalystRunner: () => ({
+          id: 'dspy-rlm',
           analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
         }),
       },
@@ -501,7 +501,7 @@ describe('runAnalystBenchmarkCommand', () => {
   it('returns a failing exit code without discarding failed model usage', async () => {
     const fixture = await agentRxFixture()
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
-      id: 'model',
+      id: 'dspy-rlm',
       analyze() {
         return {
           findings: [],
@@ -523,7 +523,7 @@ describe('runAnalystBenchmarkCommand', () => {
       runAnalystBenchmarkCommand(
         agentRxCommandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
-        { createModelRunner: () => modelRunner },
+        { createAnalystRunner: () => modelRunner },
       ),
     ).resolves.toBe(2)
 
@@ -531,7 +531,7 @@ describe('runAnalystBenchmarkCommand', () => {
       await readFile(join(fixture.outDir, 'result.json'), 'utf8'),
     ) as Record<string, any>
     expect(artifact.result.summaries[1]).toMatchObject({
-      runnerId: 'model',
+      runnerId: 'dspy-rlm',
       completedRuns: 0,
       failedRuns: 1,
       calls: 8,
@@ -556,8 +556,8 @@ describe('runAnalystBenchmarkCommand', () => {
         [...agentRxCommandArgs(fixture), '--max-cost-usd', '0.25'],
         { TEST_ANALYST_KEY: 'unused' },
         {
-          createModelRunner: (_dataset, config) => ({
-            id: 'model',
+          createAnalystRunner: (_dataset, config) => ({
+            id: 'dspy-rlm',
             async analyze() {
               const denied = await config.costLedger!.runPaidCall({
                 channel: 'analyst',
@@ -605,8 +605,8 @@ describe('runAnalystBenchmarkCommand', () => {
         agentRxCommandArgs(fixture),
         { TEST_ANALYST_KEY: 'unused' },
         {
-          createModelRunner: (_dataset, config) => ({
-            id: 'model',
+          createAnalystRunner: (_dataset, config) => ({
+            id: 'dspy-rlm',
             async analyze(_input, context) {
               const paid = await config.costLedger!.runPaidCall({
                 channel: 'analyst',
@@ -656,16 +656,16 @@ describe('runAnalystBenchmarkCommand', () => {
     'rejects invalid run-wide spend limit %s before model construction',
     async (value) => {
       const fixture = await agentRxFixture()
-      const createModelRunner = vi.fn()
+      const createAnalystRunner = vi.fn()
 
       await expect(
         runAnalystBenchmarkCommand(
           [...agentRxCommandArgs(fixture), '--max-cost-usd', value],
           { TEST_ANALYST_KEY: 'unused' },
-          { createModelRunner },
+          { createAnalystRunner },
         ),
       ).rejects.toThrow(/max-cost-usd must be a positive finite number/)
-      expect(createModelRunner).not.toHaveBeenCalled()
+      expect(createAnalystRunner).not.toHaveBeenCalled()
     },
   )
 })

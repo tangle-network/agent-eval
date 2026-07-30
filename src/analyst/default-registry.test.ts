@@ -3,6 +3,7 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import { behavioralAnalyst } from './behavioral-analyst'
 import { buildDefaultAnalystRegistry } from './default-registry'
+import type { TraceAnalysisEngine } from './engine'
 
 function span(over: Partial<TraceAnalystSpan> & { span_id: string }): TraceAnalystSpan {
   return {
@@ -65,8 +66,15 @@ function traceStore(
 
 const fakeStore = traceStore(['t1'], async () => ({ trace_id: 't1', spans: SPANS }))
 
-function stubAi() {
-  return {} as never
+function stubEngine(): TraceAnalysisEngine {
+  return {
+    id: 'test-engine',
+    description: 'test',
+    model: 'test-model',
+    analyze: async () => {
+      throw new Error('not called')
+    },
+  }
 }
 
 describe('buildDefaultAnalystRegistry', () => {
@@ -77,8 +85,8 @@ describe('buildDefaultAnalystRegistry', () => {
     expect(ids).toContain('efficiency-behavioral')
   })
 
-  it('registers the agentic RLM kinds when an ai service is supplied', () => {
-    const ids = buildDefaultAnalystRegistry({ ai: stubAi(), model: 'test-model' })
+  it('registers recursive analysts when an engine is supplied', () => {
+    const ids = buildDefaultAnalystRegistry({ engine: stubEngine() })
       .list()
       .map((a) => a.id)
     expect(ids).toContain('efficiency-behavioral')

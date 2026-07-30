@@ -48,7 +48,8 @@ import { usageReceiptFromCostLedger } from './usage-receipt'
 
 const TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS = [4_096, 2_048, 1_024, 512, 256, 128, 64] as const
 
-export function createPublicBenchmarkModelRunner(
+/** One-shot JSON baseline. This is not a recursive trace analyst. */
+export function createPublicBenchmarkDirectRunner(
   dataset: PublicAnalystBenchmarkDataset,
   config: PublicAnalystBenchmarkModelConfig,
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
@@ -85,7 +86,7 @@ export function createPublicBenchmarkModelRunner(
   }
 
   return {
-    id: 'model',
+    id: 'direct',
     async analyze(input, context) {
       const trajectoryId = trajectoryIdFromCaseId(dataset, context.caseId)
       const costTags = {
@@ -98,7 +99,7 @@ export function createPublicBenchmarkModelRunner(
       let providerModel = model
       let producedAt: string | undefined
       let modelMetadata: Record<string, unknown> = {
-        analysisMode: 'single-pass',
+        analysisMode: 'direct-baseline',
         outputAdapter,
         protocolSha256: publicBenchmarkProtocolSha256(dataset),
       }
@@ -244,7 +245,7 @@ export function createPublicBenchmarkModelRunner(
           trajectoryId,
           predictions: rawPredictions,
           store: input.traceStore,
-          analystId: 'model',
+          analystId: 'direct',
           providerModel,
           producedAt: requiredString(producedAt ?? '', 'finding producedAt'),
           ...(context.signal ? { signal: context.signal } : {}),
@@ -523,7 +524,7 @@ async function publicBenchmarkPredictionsToFindings(options: {
         evidence_refs: [evidenceByStep.get(step)!],
         recommended_action: prediction.recommended_action,
         metadata: {
-          analysis_mode: 'single-pass',
+          analysis_mode: 'direct-baseline',
           model: options.providerModel,
         },
         produced_at: options.producedAt,

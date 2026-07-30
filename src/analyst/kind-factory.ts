@@ -1,389 +1,338 @@
-/**
- * Analyst-kind factory — the typed way to define trace analysts.
- *
- * A "kind" is a specialized analyst whose actor prompt, tool subset,
- * and bounded Ax subqueries target one failure-mode lens (failure-mode
- * classification, knowledge gap discovery, knowledge poisoning,
- * self-improvement, ...). Kinds emit findings in the typed
- * `RawAnalystFinding` shape via a JSON-array Ax output; the factory
- * validates each row with Zod and lifts it into `AnalystFinding[]`.
- *
- * Composition rules:
- *   - Each kind owns its actor description. No generic "answer this
- *     question" prompt — the prompt names the failure lens.
- *   - Each kind picks a narrow tool subset from `ANALYST_TOOL_GROUPS`.
- *     A kind that never needs full-trace dumps can drop `viewTrace` /
- *     `viewSpans` and stay cheap.
- *   - Each kind declares its subquery + parallelism budget. Discovery-heavy
- *     kinds can fan out more bounded semantic questions than narrow lenses.
- *
- * Evaluate prompt changes through `runAnalystBenchmark`, where labels include
- * exact evidence locations and clean cases instead of output-string overlap.
- */
-
-import type { AxAIService, AxFunction } from '@ax-llm/ax'
 import { CostLedger } from '../cost-ledger'
-import { runTraceAnalysisLoop } from '../trace-analyst/loop'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { meterAxChatService } from './ax-cost-service'
-import { resolveAnalystModel } from './ax-service'
+import type { TraceAnalysisEngine, TraceAnalysisEngineResult, TraceAnalystLimits } from './engine'
+import { resolveTraceAnalystLimits } from './engine'
 import {
   evidenceRefsFromRawFinding,
   parseRawFinding,
+  parseTraceSpanEvidenceUri,
   RAW_FINDING_SCHEMA_PROMPT,
   type RawAnalystFinding,
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
-import { structureFindings } from './structure-findings'
-import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
+import { buildTraceToolsForGroup, type TraceToolGroupName } from './tool-groups'
+import type { Analyst, AnalystContext, AnalystFinding } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
-/**
- * Per-kind specification. The factory turns this into a regular
- * `Analyst<TraceAnalysisStore>` ready for `AnalystRegistry.register()`.
- */
-export interface TraceAnalystKindSpec {
-  /** Stable id. Appears in finding_id, telemetry, and registry exclusions. */
+/** A named research question independent of the recursive engine that runs it. */
+export interface TraceAnalystDefinition {
   id: string
-  /** One-sentence description shown in `registry.list()`. */
   description: string
-  /** Coarse classification stamped on every emitted finding (`failure-mode`, `knowledge-gap`, ...). */
   area: string
-  /** Bump on any breaking change to the actor prompt or output schema. */
   version: string
-  /** Actor system prompt. Must instruct the LLM to emit `findings` per the schema. */
-  actorDescription: string
-  /** Tool functions the actor may call. Pick narrow subsets via `ANALYST_TOOL_GROUPS`. */
-  buildTools: (store: TraceAnalysisStore) => AxFunction[]
-  /**
-   * Deterministically prepare one bounded context value before model work.
-   * Returning a string uses Ax's long-context path without tools. Returning
-   * undefined keeps the normal tool-driven path.
-   */
+  /** User-facing question. A function may derive it from run context. */
+  question?: string | ((context: AnalystContext) => string)
+  /** Research policy, evidence rules, and domain-specific instructions. */
+  instructions: string
+  /** Smallest trace-tool set that can answer the question. */
+  toolGroup: TraceToolGroupName
+  /** Optional bounded context assembled deterministically before the investigation. */
   prepareContext?: (
     store: TraceAnalysisStore,
-    ctx: AnalystContext,
+    context: AnalystContext,
   ) => string | undefined | Promise<string | undefined>
-  /** Bounded semantic subqueries. `maxCalls: 0` disables model fan-out. */
-  subqueries?: { maxCalls: number; maxParallel?: number }
-  /** Actor turn cap. Default 12. */
-  maxTurns?: number
-  /** Runtime char cap. Default 6000. */
-  maxRuntimeChars?: number
-  /** Maximum output tokens for every actor and subquery model call. Default 4096. */
-  maxOutputTokens?: number
-  /** Cost classification surfaced in `registry.list()` and budget enforcement. */
-  cost: AnalystCost
-  /** Per-finding-row hook — kinds may reject / rewrite before lifting. */
-  postProcess?: (row: RawAnalystFinding, ctx: AnalystContext) => RawAnalystFinding | null
-  /** Minimum citations per finding. Default 1; rows below it are rejected. */
+  limits?: Partial<TraceAnalystLimits>
+  postProcess?: (row: RawAnalystFinding, context: AnalystContext) => RawAnalystFinding | null
   minimumEvidenceCitations?: number
-  /** Reject a substantive report when no structured finding survives validation. */
   requireStructuredFindings?: boolean
 }
 
-export interface CreateTraceAnalystKindOpts {
-  /** AxAIService bound at registration time. */
-  ai: AxAIService
-  /** Required unless `ai` was created by {@link createAnalystAi}. */
-  model?: string
-  /** Override the spec's `version` (e.g. when an optimizer has fitted a new prompt). */
+export interface CreateTraceAnalystOptions {
+  engine: TraceAnalysisEngine
   versionSuffix?: string
-  /**
-   * Optional two-phase recovery: when the agentic harvest is empty but the
-   * actor produced a substantive free-form `report`, extract findings from that
-   * prose via a tolerant chat-completions pass (`structureFindings`) — no
-   * strict-emission contract, so it works on weak models. Omit to leave the
-   * actor's harvest as-is (the report is still surfaced fail-loud either way).
-   */
-  recovery?: { baseUrl: string; apiKey?: string; model?: string; fetchImpl?: typeof fetch }
-  /** Maximum post-cancellation wait for a provider receipt. Default 5 seconds. */
   settlementTimeoutMs?: number
 }
 
-/**
- * Build an `Analyst<TraceAnalysisStore>` from a kind spec.
- *
- * Lifts the Ax pipeline once at registration time so the registry
- * gets a stateless analyst. The Ax agent is freshly constructed per
- * `analyze()` call (the agent carries chat-log + usage state we don't
- * want shared across analyst runs).
- */
-export function createTraceAnalystKind(
-  spec: TraceAnalystKindSpec,
-  opts: CreateTraceAnalystKindOpts,
-): Analyst<TraceAnalysisStore> {
-  rejectRemovedKindOptions(spec)
-  const version = opts.versionSuffix ? `${spec.version}+${opts.versionSuffix}` : spec.version
-  const model = resolveAnalystModel(opts.ai, opts.model)
-  const minimumEvidenceCitations = spec.minimumEvidenceCitations ?? 1
-  if (!Number.isInteger(minimumEvidenceCitations) || minimumEvidenceCitations < 1) {
-    throw new TypeError('minimumEvidenceCitations must be a positive integer')
+/** Run one definition and retain its answer, findings, and full investigation record. */
+export async function runTraceAnalyst(args: {
+  definition: TraceAnalystDefinition
+  engine: TraceAnalysisEngine
+  store: TraceAnalysisStore
+  context: AnalystContext
+  settlementTimeoutMs?: number
+}): Promise<TraceAnalysisEngineResult> {
+  const { definition, context } = args
+  validateDefinition(definition)
+  const minimumEvidenceCitations = definition.minimumEvidenceCitations ?? 1
+  const settlementTimeoutMs = validateUsageSettlementTimeout(args.settlementTimeoutMs)
+  const costLedger = context.costLedger ?? new CostLedger(context.budgetUsd)
+  const costTags = {
+    ...(context.tags ?? {}),
+    analystId: definition.id,
+    ...(context.correlationId ? { analystRunId: context.correlationId } : {}),
   }
-  const settlementTimeoutMs = validateUsageSettlementTimeout(opts.settlementTimeoutMs)
-  return {
-    id: spec.id,
-    description: spec.description,
-    inputKind: 'trace-store',
-    cost: { ...spec.cost, settlement_timeout_ms: settlementTimeoutMs },
-    version,
-    async analyze(store, ctx) {
-      const maxOutputTokens = spec.maxOutputTokens ?? 4096
-      const costLedger = ctx.costLedger ?? new CostLedger(ctx.budgetUsd)
-      const costTags = {
-        ...(ctx.tags ?? {}),
-        analystId: spec.id,
-        ...(ctx.correlationId ? { analystRunId: ctx.correlationId } : {}),
-      }
-      const meteredAi = meterAxChatService(opts.ai, {
-        ledger: costLedger,
-        actor: spec.id,
-        maxOutputTokens,
-        defaultModel: model,
-        phase: ctx.costPhase,
-        signal: ctx.signal,
-        tags: costTags,
+
+  try {
+    const preparedContext = await definition.prepareContext?.(args.store, context)
+    if (preparedContext !== undefined && typeof preparedContext !== 'string') {
+      throw new TypeError(`trace analyst '${definition.id}' prepareContext must return a string`)
+    }
+    const instructions = [
+      definition.instructions.trim(),
+      renderPriorFindings(context.priorFindings),
+      renderUpstreamFindings(context.upstreamFindings),
+      RAW_FINDING_SCHEMA_PROMPT,
+      minimumEvidenceCitations > 1
+        ? `Every finding requires at least ${minimumEvidenceCitations} distinct evidence citations.`
+        : '',
+      preparedContext ? `PREPARED CONTEXT:\n${preparedContext}` : '',
+      'Return a direct prose answer and a strict findings array. Use trace tools to investigate. Do not infer trace facts from the question alone.',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+
+    const completed = await args.engine.analyze({
+      analystId: definition.id,
+      question: deriveQuestion(context, definition),
+      instructions,
+      tools: buildTraceToolsForGroup(definition.toolGroup, args.store),
+      limits: resolveTraceAnalystLimits(definition.limits),
+      costLedger,
+      costPhase: context.costPhase ?? 'trace-analysis',
+      costTags,
+      ...(context.signal ? { signal: context.signal } : {}),
+      ...(context.log ? { log: context.log } : {}),
+    })
+    const findings = await acceptFindings(
+      definition,
+      completed.findings,
+      args.store,
+      context,
+      minimumEvidenceCitations,
+    )
+    if (definition.requireStructuredFindings && findings.length === 0) {
+      throw new Error(
+        `trace analyst '${definition.id}' returned no valid structured findings: ${truncateForContext(completed.answer, 600)}`,
+      )
+    }
+    context.log?.(`trace analyst ${definition.id} completed`, {
+      engine: args.engine.id,
+      model_calls: completed.modelCalls,
+      tool_calls: completed.toolCalls,
+      submitted_findings: completed.findings.length,
+      accepted_findings: findings.length,
+    })
+    return { ...completed, findings }
+  } finally {
+    const usage = await settleUsageReceiptFromCostLedger(costLedger, {
+      channel: 'analyst',
+      tags: costTags,
+      timeoutMs: settlementTimeoutMs,
+    })
+    if (!usage.settled) {
+      context.log?.(`trace analyst ${definition.id} provider settlement timed out`, {
+        pending_calls: usage.pendingCalls,
+        timeout_ms: settlementTimeoutMs,
       })
-      try {
-        const preparedContext = await spec.prepareContext?.(store, ctx)
-        if (preparedContext !== undefined && typeof preparedContext !== 'string') {
-          throw new TypeError(`Trace analyst '${spec.id}' prepareContext must return a string`)
-        }
-        const tools = preparedContext === undefined ? spec.buildTools(store) : []
-        const analysisMode = preparedContext === undefined ? 'tool-loop' : 'prepared-context'
-        const maxSubqueries = spec.subqueries?.maxCalls ?? 0
-        const maxParallel = spec.subqueries?.maxParallel ?? 2
-        const priorContext = renderPriorFindings(ctx.priorFindings)
-        const upstreamContext = renderUpstreamFindings(ctx.upstreamFindings)
-        const actorDescription =
-          spec.actorDescription.trim() +
-          priorContext +
-          upstreamContext +
-          '\n\n' +
-          RAW_FINDING_SCHEMA_PROMPT +
-          (minimumEvidenceCitations > 1
-            ? `\n\nThis kind requires at least ${minimumEvidenceCitations} evidence citations per finding; rows with fewer are rejected.`
-            : '') +
-          '\n\nFirst write `report`: a concise free-form prose diagnosis of what ' +
-          'the traces show — what succeeded, what was suboptimal or failed — with ' +
-          'concrete trace ids and numbers. THEN return the structured `findings` ' +
-          'array (it MAY be empty when there is nothing to report).'
+    }
+    context.recordUsage?.(usage.receipt)
+  }
+}
 
-        ctx.log?.(`analyst.kind ${spec.id} forward`, {
-          max_subqueries: maxSubqueries,
-          tool_count: tools.length,
-          analysis_mode: analysisMode,
-          prepared_context_chars: preparedContext?.length ?? 0,
-          tags: ctx.tags,
-        })
-
-        const completed = await runTraceAnalysisLoop({
-          id: spec.id,
-          description: spec.description,
-          prompt: actorDescription,
-          question: deriveQuestion(ctx, spec),
-          ai: meteredAi,
-          model,
-          tools,
-          findingType: 'object',
-          maxSubqueries,
-          maxParallelSubqueries: maxParallel,
-          maxTurns: spec.maxTurns ?? 12,
-          maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
-          ...(preparedContext !== undefined ? { context: preparedContext } : {}),
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
-        })
-        const { report, findings: submittedFindings } = completed
-
-        const expectedSubjects = KIND_EXPECTED_SUBJECTS[spec.id]
-        const out: AnalystFinding[] = []
-        const rawRows = submittedFindings
-        let rejectedWrongKind = 0
-        let rejectedInsufficientEvidence = 0
-        const processRow = (parsed: RawAnalystFinding): RawAnalystFinding | null => {
-          const callbackResult = spec.postProcess ? spec.postProcess(parsed, ctx) : parsed
-          if (!callbackResult) return null
-          const postProcessed = parseRawFinding(callbackResult, ctx.log)
-          if (!postProcessed) return null
-          if (expectedSubjects && postProcessed.subject !== undefined) {
-            const parsedSubject = parseFindingSubject(postProcessed.subject)
-            if (parsedSubject === null) {
-              ctx.log?.('finding rejected: subject failed to parse', {
-                kind: spec.id,
-                subject: postProcessed.subject,
-              })
-              rejectedWrongKind += 1
-              return null
-            }
-            if (!expectedSubjects.includes(parsedSubject.kind)) {
-              ctx.log?.('finding rejected: subject variant not allowed for this kind', {
-                kind: spec.id,
-                subject_kind: parsedSubject.kind,
-                subject: postProcessed.subject,
-                allowed: expectedSubjects,
-              })
-              rejectedWrongKind += 1
-              return null
-            }
-          }
-          const distinctEvidenceCitations = new Set(
-            postProcessed.evidence.map((citation) => citation.uri.trim()),
-          ).size
-          if (distinctEvidenceCitations < minimumEvidenceCitations) {
-            ctx.log?.('finding rejected: insufficient evidence citations', {
-              kind: spec.id,
-              required: minimumEvidenceCitations,
-              received: postProcessed.evidence.length,
-              distinct: distinctEvidenceCitations,
-            })
-            rejectedInsufficientEvidence += 1
-            return null
-          }
-          return postProcessed
-        }
-        for (const row of rawRows) {
-          const parsed = parseRawFinding(row, ctx.log)
-          if (!parsed) continue
-          const postProcessed = processRow(parsed)
-          if (!postProcessed) continue
-          out.push(
-            toAnalystFinding(spec, version, postProcessed, {
-              analysis_mode: analysisMode,
-              analysis_turn_count: completed.turnCount,
-            }),
-          )
-        }
-
-        ctx.log?.(`analyst.kind ${spec.id} done`, {
-          emitted: rawRows.length,
-          accepted: out.length,
-          rejected_wrong_subject: rejectedWrongKind,
-          rejected_insufficient_evidence: rejectedInsufficientEvidence,
-        })
-
-        // Two-phase recovery / fail-loud. The actor reasons free-form (the
-        // `report`); a weak model often produces a sound diagnosis but fails the
-        // strict findings emission (or the rows get rejected). If the harvest is
-        // empty but the report is substantive, recover findings from the prose
-        // via the tolerant structuring pass (opt-in), and — either way — surface
-        // the report as a visible info finding so an empty harvest is never a
-        // silent zero. A genuinely empty diagnosis (short/no report) stays empty.
-        if (out.length === 0 && report.trim().length >= 200) {
-          if (opts.recovery) {
-            const wrongKindBefore = rejectedWrongKind
-            const insufficientEvidenceBefore = rejectedInsufficientEvidence
-            const recovered = await structureFindings({
-              report,
-              analystId: spec.id,
-              area: spec.area,
-              model: opts.recovery.model ?? model,
-              baseUrl: opts.recovery.baseUrl,
-              apiKey: opts.recovery.apiKey,
-              fetchImpl: opts.recovery.fetchImpl,
-              costLedger,
-              costPhase: ctx.costPhase,
-              costTags,
-              signal: ctx.signal,
-              maxTokens: Math.min(maxOutputTokens, 2_000),
-              processRow,
-              findingMetadata: { kind_version: version },
-            })
-            out.push(...recovered.findings)
-            ctx.log?.(`analyst.kind ${spec.id} recovery`, {
-              outcome: recovered.outcome,
-              recovered: recovered.findings.length,
-              rejected_wrong_subject: rejectedWrongKind - wrongKindBefore,
-              rejected_insufficient_evidence:
-                rejectedInsufficientEvidence - insufficientEvidenceBefore,
-            })
-          }
-          if (out.length === 0) {
-            if (spec.requireStructuredFindings) {
-              throw new Error(
-                `Trace analyst '${spec.id}' produced no valid structured findings after ${completed.turnCount} turns: ${truncateForContext(report, 600)}`,
-              )
-            }
-            const fallback = processRow({
-              claim: 'Analyst produced a diagnosis but no structured findings — see report.',
-              rationale: report.slice(0, 1500),
-              severity: 'info',
-              confidence: 0.3,
-              evidence: [{ uri: 'report://summary', excerpt: report.slice(0, 2000) }],
-            })
-            if (fallback) {
-              out.push(
-                toAnalystFinding(spec, version, fallback, {
-                  analysis_mode: analysisMode,
-                  analysis_turn_count: completed.turnCount,
-                  outcome: 'extraction_failed',
-                }),
-              )
-            } else {
-              throw new Error(
-                `Trace analyst '${spec.id}' produced a substantive report, but no finding satisfied its acceptance rules`,
-              )
-            }
-          }
-        }
-        return out
-      } finally {
-        const usage = await settleUsageReceiptFromCostLedger(costLedger, {
-          tags: {
-            analystId: spec.id,
-            ...(ctx.correlationId ? { analystRunId: ctx.correlationId } : {}),
-          },
-          timeoutMs: settlementTimeoutMs,
-        })
-        if (!usage.settled) {
-          ctx.log?.(`analyst.kind ${spec.id} provider settlement timed out`, {
-            pending_calls: usage.pendingCalls,
-            timeout_ms: settlementTimeoutMs,
-          })
-        }
-        ctx.recordUsage?.(usage.receipt)
-      }
+/** Adapt a research definition to the common Analyst registry contract. */
+export function createTraceAnalyst(
+  definition: TraceAnalystDefinition,
+  options: CreateTraceAnalystOptions,
+): Analyst<TraceAnalysisStore> {
+  validateDefinition(definition)
+  const version = options.versionSuffix
+    ? `${definition.version}+${options.versionSuffix}`
+    : definition.version
+  return {
+    id: definition.id,
+    description: definition.description,
+    inputKind: 'trace-store',
+    cost: {
+      kind: 'llm',
+      ...(options.engine.model ? { models: [options.engine.model] } : {}),
+      settlement_timeout_ms: validateUsageSettlementTimeout(options.settlementTimeoutMs),
+    },
+    version,
+    async analyze(store, context) {
+      const completed = await runTraceAnalyst({
+        definition,
+        engine: options.engine,
+        store,
+        context,
+        settlementTimeoutMs: options.settlementTimeoutMs,
+      })
+      return completed.findings.map((finding) =>
+        toAnalystFinding(definition, version, finding, {
+          analysis_engine: options.engine.id,
+          analysis_model: options.engine.model,
+          analysis_model_calls: completed.modelCalls,
+          analysis_tool_calls: completed.toolCalls,
+          analysis_runtime: completed.runtime,
+        }),
+      )
     },
   }
 }
 
-function rejectRemovedKindOptions(spec: TraceAnalystKindSpec): void {
-  const supplied = spec as unknown as Record<string, unknown>
-  const migrations = [
-    ['recursion', 'subqueries'],
-    ['responderDescription', 'actorDescription'],
-    ['maxDepth', 'subqueries'],
-    ['maxParallelSubagents', 'subqueries.maxParallel'],
-    ['subagentDescription', 'actorDescription'],
-  ] as const
-  for (const [removed, replacement] of migrations) {
-    if (removed in supplied) {
-      throw new TypeError(
-        `createTraceAnalystKind: '${removed}' is unsupported; use '${replacement}'`,
-      )
+async function acceptFindings(
+  definition: TraceAnalystDefinition,
+  submitted: readonly unknown[],
+  store: TraceAnalysisStore,
+  context: AnalystContext,
+  minimumEvidenceCitations: number,
+): Promise<RawAnalystFinding[]> {
+  const expectedSubjects = KIND_EXPECTED_SUBJECTS[definition.id]
+  const accepted: RawAnalystFinding[] = []
+  for (const row of submitted) {
+    const parsed = parseRawFinding(row, context.log)
+    if (!parsed) continue
+    const processed = definition.postProcess ? definition.postProcess(parsed, context) : parsed
+    if (!processed) continue
+    const validated = parseRawFinding(processed, context.log)
+    if (!validated) continue
+    if (expectedSubjects && validated.subject !== undefined) {
+      const subject = parseFindingSubject(validated.subject)
+      if (subject === null || !expectedSubjects.includes(subject.kind)) {
+        context.log?.('finding rejected: subject is not valid for analyst', {
+          analyst_id: definition.id,
+          subject: validated.subject,
+          allowed: expectedSubjects,
+        })
+        continue
+      }
     }
+    const distinctEvidence = new Set(validated.evidence.map((citation) => citation.uri.trim())).size
+    if (distinctEvidence < minimumEvidenceCitations) {
+      context.log?.('finding rejected: insufficient evidence citations', {
+        analyst_id: definition.id,
+        required: minimumEvidenceCitations,
+        distinct: distinctEvidence,
+      })
+      continue
+    }
+    if (!(await evidenceIsResolvable(validated, store, context))) continue
+    accepted.push(validated)
+  }
+  return accepted
+}
+
+async function evidenceIsResolvable(
+  finding: RawAnalystFinding,
+  store: TraceAnalysisStore,
+  context: AnalystContext,
+): Promise<boolean> {
+  const knownFindings = new Map(
+    [...(context.priorFindings ?? []), ...(context.upstreamFindings ?? [])].map((entry) => [
+      entry.finding_id,
+      entry,
+    ]),
+  )
+  for (const citation of finding.evidence) {
+    const traceLocation = parseTraceSpanEvidenceUri(citation.uri)
+    if (traceLocation) {
+      const storeContext = context.signal ? { signal: context.signal } : undefined
+      const existing = await store.hasSpans(
+        {
+          trace_id: traceLocation.traceId,
+          span_ids: [traceLocation.spanId],
+        },
+        storeContext,
+      )
+      if (!existing.includes(traceLocation.spanId)) {
+        rejectEvidence(context, citation.uri, 'trace span does not exist')
+        return false
+      }
+      if (citation.excerpt !== undefined) {
+        const viewed = await store.viewSpans(
+          {
+            trace_id: traceLocation.traceId,
+            span_ids: [traceLocation.spanId],
+          },
+          storeContext,
+        )
+        const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
+        if (!span || !containsExactText(span, citation.excerpt)) {
+          rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span')
+          return false
+        }
+      }
+      continue
+    }
+
+    const findingId = parseFindingEvidenceUri(citation.uri)
+    const referenced = findingId ? knownFindings.get(findingId) : undefined
+    if (!referenced) {
+      rejectEvidence(context, citation.uri, 'citation is not a supplied finding or trace span')
+      return false
+    }
+    if (citation.excerpt !== undefined && !containsExactText(referenced, citation.excerpt)) {
+      rejectEvidence(context, citation.uri, 'excerpt is not present in the cited finding')
+      return false
+    }
+  }
+  return true
+}
+
+function parseFindingEvidenceUri(uri: string): string | null {
+  const match = /^finding:\/\/([^/?#]+)$/.exec(uri)
+  if (!match) return null
+  try {
+    return decodeURIComponent(match[1]!) || null
+  } catch {
+    return null
   }
 }
 
-function deriveQuestion(ctx: AnalystContext, spec: TraceAnalystKindSpec): string {
-  // The actor's user message must orient it at the task, not echo the kind id.
-  // A bare id like "failure-mode" gives the actor nothing to act on, so it
-  // spends turns inspecting the input instead of reading traces. Operators can
-  // still steer with `tags.focus = "leaf-X"`, appended to the task directive.
-  const focus = ctx.tags?.focus?.trim()
-  const task = `Analyze this trace dataset with the available tools and report ${spec.area} findings. ${spec.description}`
-  return focus ? `${task} Focus: ${focus}.` : task
+function containsExactText(value: unknown, expected: string, depth = 0): boolean {
+  if (!expected || depth > 20) return false
+  if (typeof value === 'string') return value.includes(expected)
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsExactText(entry, expected, depth + 1))
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).some((entry) => containsExactText(entry, expected, depth + 1))
+  }
+  return false
+}
+
+function rejectEvidence(context: AnalystContext, uri: string, reason: string): void {
+  context.log?.('finding rejected: unresolved evidence', { uri, reason })
+}
+
+function validateDefinition(definition: TraceAnalystDefinition): void {
+  for (const [name, value] of [
+    ['id', definition.id],
+    ['description', definition.description],
+    ['area', definition.area],
+    ['version', definition.version],
+    ['instructions', definition.instructions],
+  ] as const) {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new TypeError(`trace analyst ${name} must be a non-empty string`)
+    }
+  }
+  const minimumEvidenceCitations = definition.minimumEvidenceCitations ?? 1
+  if (!Number.isSafeInteger(minimumEvidenceCitations) || minimumEvidenceCitations < 1) {
+    throw new TypeError('minimumEvidenceCitations must be a positive safe integer')
+  }
+  resolveTraceAnalystLimits(definition.limits)
+}
+
+function deriveQuestion(context: AnalystContext, definition: TraceAnalystDefinition): string {
+  const supplied =
+    typeof definition.question === 'function' ? definition.question(context) : definition.question
+  const base =
+    supplied?.trim() ||
+    `Analyze this trace dataset and report ${definition.area} findings. ${definition.description}`
+  const focus = context.tags?.focus?.trim()
+  return focus ? `${base}\nFocus: ${focus}` : base
 }
 
 function toAnalystFinding(
-  spec: TraceAnalystKindSpec,
+  definition: TraceAnalystDefinition,
   version: string,
   raw: RawAnalystFinding,
-  metadata: Record<string, unknown> = {},
+  metadata: Record<string, unknown>,
 ): AnalystFinding {
   return makeFinding({
-    analyst_id: spec.id,
-    area: spec.area,
+    analyst_id: definition.id,
+    area: definition.area,
     subject: raw.subject,
     claim: raw.claim,
     rationale: raw.rationale,
@@ -391,79 +340,46 @@ function toAnalystFinding(
     confidence: raw.confidence,
     evidence_refs: evidenceRefsFromRawFinding(raw),
     recommended_action: raw.recommended_action,
-    metadata: { kind_version: version, ...metadata },
+    metadata: { definition_version: version, ...metadata },
   })
 }
 
-/**
- * Render a compact prior-findings block the actor reads alongside its
- * brief. Each row is one line so the actor can scan dozens cheaply.
- * The kind's prompt instructs the actor to (a) check whether a new
- * cluster matches a prior `finding_id` (carry the id forward via
- * `id_basis` to keep diffs stable) and (b) raise severity / confidence
- * when a prior finding has reappeared without remediation.
- *
- * Returns the empty string when there are no prior findings — most
- * runs are "first-of-its-kind" and the prompt stays unchanged.
- *
- * Exported for tests + for consumers that build their own actor
- * prompts (e.g. specialized analysts living outside the default kinds).
- */
 export function renderPriorFindings(prior: AnalystContext['priorFindings']): string {
   if (!prior || prior.length === 0) return ''
-  const MAX_ROWS = 40 // keep the block under ~2KB; older history is summarized externally
-  const rows = prior.slice(0, MAX_ROWS).map((f) => {
-    const subject = f.subject ? ` [${f.subject}]` : ''
-    return `  - id=${f.finding_id} ${f.severity}${subject} ${truncateForContext(f.claim, 160)}`
+  const maxRows = 40
+  const rows = prior.slice(0, maxRows).map((finding) => {
+    const subject = finding.subject ? ` [${finding.subject}]` : ''
+    return `- id=${finding.finding_id} ${finding.severity}${subject} ${truncateForContext(finding.claim, 160)}`
   })
-  const overflow =
-    prior.length > MAX_ROWS
-      ? `\n  ... +${prior.length - MAX_ROWS} more prior findings (older history truncated)`
-      : ''
+  if (prior.length > maxRows) rows.push(`- ${prior.length - maxRows} older findings omitted`)
   return [
-    '',
-    '',
-    'PRIOR FINDINGS (from a previous run on related data):',
-    'When the work you do now matches a row below, REUSE the `finding_id` (pass it as `id_basis`) so the cross-run diff stays stable.',
-    'A finding that reappears with no remediation evidence SHOULD raise its `confidence` and may justify a higher `severity`.',
+    'PRIOR FINDINGS:',
+    'Reuse a matching finding id through id_basis and raise confidence only when current evidence confirms recurrence.',
     ...rows,
-    overflow,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  ].join('\n')
 }
 
-/** Render findings produced earlier in this same registry run. */
 export function renderUpstreamFindings(upstream: AnalystContext['upstreamFindings']): string {
   if (!upstream || upstream.length === 0) return ''
-  const MAX_ROWS = 40
-  const rows = upstream.slice(0, MAX_ROWS).map((finding) => {
+  const maxRows = 40
+  const rows = upstream.slice(0, maxRows).map((finding) => {
     const subject = finding.subject ? ` [${finding.subject}]` : ''
-    const action = finding.recommended_action
-      ? ` action=${truncateForContext(finding.recommended_action, 120)}`
-      : ''
-    const evidence = finding.evidence_refs[0]
+    const evidence = finding.evidence_refs[0]?.uri
       ? ` evidence=${truncateForContext(finding.evidence_refs[0].uri, 120)}`
       : ''
-    return `  - id=${finding.finding_id} source=${finding.analyst_id} ${finding.severity}${subject} claim=${truncateForContext(finding.claim, 160)}${action}${evidence}`
+    return `- id=${finding.finding_id} source=${finding.analyst_id} ${finding.severity}${subject} claim=${truncateForContext(finding.claim, 160)}${evidence}`
   })
-  const overflow =
-    upstream.length > MAX_ROWS
-      ? `\n  ... +${upstream.length - MAX_ROWS} more upstream findings (truncated)`
-      : ''
+  if (upstream.length > maxRows) {
+    rows.push(`- ${upstream.length - maxRows} additional upstream findings omitted`)
+  }
   return [
-    '',
-    '',
-    'UPSTREAM FINDINGS (produced earlier in this same registry run):',
-    'Use these as intermediate evidence. Build on them instead of repeating the same diagnosis, and cite a dependency with `finding://<id>`.',
+    'UPSTREAM FINDINGS:',
+    'Build on these findings instead of repeating them. Cite dependencies as finding://<id>.',
     ...rows,
-    overflow,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  ].join('\n')
 }
 
-function truncateForContext(s: string, max: number): string {
-  if (s.length <= max) return s
-  return `${s.slice(0, max - 1).trimEnd()}…`
+function truncateForContext(value: string, max: number): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max - 3).trimEnd()}...`
 }

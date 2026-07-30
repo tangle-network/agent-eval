@@ -6,13 +6,15 @@
  * the whole bundle keeps every kind's actor-context budget tight and
  * makes "what can this analyst see?" obvious at registration time.
  *
- * Each function in the group keeps its full `name`/`description` from
- * `buildTraceAnalystTools` — we filter, we don't re-implement.
+ * Each function in the group keeps its full `name`, schema, handler, and
+ * description from `buildTraceAnalysisToolDescriptors`.
  */
 
-import type { AxFunction } from '@ax-llm/ax'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { buildTraceAnalystTools } from '../trace-analyst/tools'
+import {
+  buildTraceAnalysisToolDescriptors,
+  type TraceAnalysisToolDescriptor,
+} from '../trace-analyst/tools'
 
 /** Named tool sets. Kinds pass `tools: TRACE_TOOL_GROUPS.failureForensics` etc. */
 export type TraceToolGroupName =
@@ -59,17 +61,17 @@ const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
 /**
  * Build the tool set for a named group bound to a specific trace store.
  *
- * `all` returns every tool. Other groups filter `buildTraceAnalystTools`
+ * `all` returns every tool. Other groups filter the canonical descriptors
  * by name to the documented subset. An unrecognised group name throws —
  * silently returning all tools would defeat the cost-control point.
  */
 export function buildTraceToolsForGroup(
   group: TraceToolGroupName,
   store: TraceAnalysisStore,
-): AxFunction[] {
-  const all = buildTraceAnalystTools({ store })
+): TraceAnalysisToolDescriptor[] {
+  const all = buildTraceAnalysisToolDescriptors({ store })
   if (group === 'all') return all
   const allow = TOOL_NAMES_BY_GROUP[group]
   if (!allow) throw new Error(`unknown trace tool group: ${group}`)
-  return all.filter((tool) => allow.has((tool as { name: string }).name))
+  return all.filter((tool) => allow.has(tool.name))
 }

@@ -327,7 +327,7 @@ export interface AnalystRunResult {
  * over the same stream, so the two surfaces share their invariants.
  *
  * Per-finding events are intentionally omitted — analyzers are batch
- * operations (an Ax actor returns the full `findings:json[]` at the
+ * operations (a recursive engine returns the full `findings:json[]` at the
  * end of the responder), so streaming inside one analyst would only
  * emit partial JSON consumers can't render. The kind-completion event
  * is the right granularity; subscribers wanting per-finding rendering

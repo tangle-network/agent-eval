@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import type { TraceAnalysisEngine } from '../src/analyst/engine'
 import { TraceEmitter } from '../src/trace/emitter'
 import { InMemoryTraceStore } from '../src/trace/store'
 import { tracedAnalyzeTraces } from '../src/traced-analyst'
+
+const engine: TraceAnalysisEngine = {
+  id: 'test-engine',
+  description: 'Unused because the source path is intentionally absent.',
+  async analyze() {
+    throw new Error('test engine should not run')
+  },
+}
 
 function makeEmitter() {
   const store = new InMemoryTraceStore()
@@ -19,21 +28,11 @@ describe('analyst tracing', () => {
     const { store, emitter } = makeEmitter()
     await emitter.startRun({ scenarioId: 'test', layer: 'meta', projectId: 'test' })
 
-    // Mock the analyzeTraces function by providing a mock AI that returns
-    // immediately. Since analyzeTraces requires a real AxAIService, we test
-    // the span creation by verifying span structure after a controlled error.
-    // A full integration test would need a real or mocked AI backend.
-
-    // We test the span wrapping by verifying the parent span is created
-    // and an error span is properly emitted when analyzeTraces throws.
     const fakeOptions = {
       source: '/nonexistent/path.jsonl',
-      ai: {} as any,
-      model: 'test-model',
+      engine,
     }
 
-    // The analyzeTraces call will fail (no real AI + file doesn't exist),
-    // but the span wrapping should still fire.
     try {
       await tracedAnalyzeTraces({ question: 'what failed?' }, fakeOptions, { emitter })
     } catch {
@@ -62,7 +61,7 @@ describe('analyst tracing', () => {
     try {
       await tracedAnalyzeTraces(
         { question: longQuestion },
-        { source: '/nonexistent.jsonl', ai: {} as any },
+        { source: '/nonexistent.jsonl', engine },
         { emitter },
       )
     } catch {
@@ -73,38 +72,6 @@ describe('analyst tracing', () => {
     const parentSpan = spans.find((s) => s.name === 'analyst:analyze-traces')
     expect(parentSpan!.attributes).toMatchObject({
       'analyst.question_length': longQuestion.length,
-    })
-  })
-
-  it('wraps onTurn callbacks with child spans', async () => {
-    const { store, emitter } = makeEmitter()
-    await emitter.startRun({ scenarioId: 'test', layer: 'meta', projectId: 'test' })
-
-    const turnsSeen: number[] = []
-    try {
-      await tracedAnalyzeTraces(
-        { question: 'test question' },
-        {
-          source: '/nonexistent.jsonl',
-          ai: {} as any,
-          onTurn: (turn) => {
-            turnsSeen.push(turn.turn)
-          },
-        },
-        { emitter },
-      )
-    } catch {
-      // Expected
-    }
-
-    // The parent span should exist regardless of error
-    const spans = await store.spans({ runId: 'analyst-run' })
-    const parentSpan = spans.find((s) => s.name === 'analyst:analyze-traces')
-    expect(parentSpan).toBeDefined()
-    // Turn spans only appear if analyzeTraces ran far enough to invoke onTurn.
-    // With no real AI, we just verify the parent span attributes are correct.
-    expect(parentSpan!.attributes).toMatchObject({
-      'eval.phase': 'analyst',
     })
   })
 })

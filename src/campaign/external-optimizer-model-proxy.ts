@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import type { CostLedgerHandle, CostReceiptInput, CustomTokenPricing } from '../cost-ledger'
+import type {
+  CostChannel,
+  CostLedgerHandle,
+  CostReceiptInput,
+  CustomTokenPricing,
+} from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
 import {
   assertExternalOptimizerModelBudget,
@@ -18,6 +23,7 @@ interface ProviderProxyResponse {
   body: Uint8Array
   receipt: CostReceiptInput
   usageComplete: boolean
+  usageError?: string
 }
 
 /**
@@ -36,6 +42,8 @@ export async function startExternalOptimizerModelProxy(args: {
   costLedger: CostLedgerHandle
   phase: string
   actor: string
+  /** Cost-ledger channel. Defaults to `optimizer`. */
+  channel?: CostChannel
   tags?: Record<string, string>
   initialUsage?: {
     requests: number
@@ -158,6 +166,7 @@ async function handleModelProxyRequest(args: {
     costLedger: CostLedgerHandle
     phase: string
     actor: string
+    channel?: CostChannel
     tags?: Record<string, string>
   }
   fetchImpl: typeof fetch
@@ -203,7 +212,7 @@ async function handleModelProxyRequest(args: {
     let chargedForBudget = maximumCostUsd
     try {
       const paid = await args.args.costLedger.runPaidCall<ProviderProxyResponse>({
-        channel: 'optimizer',
+        channel: args.args.channel ?? 'optimizer',
         phase: args.args.phase,
         actor: args.args.actor,
         ...(args.args.tags ? { tags: args.args.tags } : {}),
@@ -221,6 +230,7 @@ async function handleModelProxyRequest(args: {
             body,
             model: args.args.model,
             pricing: args.args.budget.pricing,
+            maxOutputTokens: parsed.maxOutputTokens,
             maxResponseBytes: args.args.budget.maxResponseBytes,
             signal: controller.signal,
           }),
@@ -253,8 +263,12 @@ async function handleModelProxyRequest(args: {
       chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
       if (!paid.value.usageComplete) {
         sendJsonIfOpen(response, 502, {
-          error: 'optimizer model response omitted complete token usage',
+          error: paid.value.usageError ?? 'optimizer model response omitted complete token usage',
         })
+        return
+      }
+      if (paid.value.usageError) {
+        sendJsonIfOpen(response, 502, { error: paid.value.usageError })
         return
       }
       if (paid.value.status >= 200 && paid.value.status < 300) {
@@ -300,6 +314,7 @@ async function forwardModelProxyRequest(args: {
   body: Uint8Array
   model: string
   pricing: CustomTokenPricing
+  maxOutputTokens: number
   maxResponseBytes: number
   signal: AbortSignal
 }): Promise<ProviderProxyResponse> {
@@ -319,24 +334,40 @@ async function forwardModelProxyRequest(args: {
   })
   const body = await readProviderResponseBody(response, args.maxResponseBytes)
   const usage = parseProviderUsage(body)
+  const successful = response.status >= 200 && response.status < 300
+  const zeroUsage =
+    successful &&
+    usage !== undefined &&
+    usage.inputTokens +
+      usage.outputTokens +
+      (usage.cachedTokens ?? 0) +
+      (usage.cacheWriteTokens ?? 0) ===
+      0
+  const usageError = zeroUsage
+    ? 'optimizer model provider reported zero token usage for a successful response'
+    : successful && usage !== undefined && usage.outputTokens > args.maxOutputTokens
+      ? `optimizer model provider reported ${usage.outputTokens} output tokens, exceeding requested limit ${args.maxOutputTokens}`
+      : undefined
   return {
     status: response.status,
     contentType: response.headers.get('content-type') ?? 'application/json',
     body,
-    receipt: usage
-      ? {
-          model: args.model,
-          ...usage,
-          ...(usage.actualCostUsd === undefined ? { customTokenPricing: args.pricing } : {}),
-        }
-      : {
-          model: args.model,
-          inputTokens: 0,
-          outputTokens: 0,
-          costUnknown: true,
-          usageUnknown: true,
-        },
-    usageComplete: usage !== undefined,
+    receipt:
+      usage && !zeroUsage
+        ? {
+            model: args.model,
+            ...usage,
+            ...(usage.actualCostUsd === undefined ? { customTokenPricing: args.pricing } : {}),
+          }
+        : {
+            model: args.model,
+            inputTokens: 0,
+            outputTokens: 0,
+            costUnknown: true,
+            usageUnknown: true,
+          },
+    usageComplete: usage !== undefined && !zeroUsage,
+    ...(usageError ? { usageError } : {}),
   }
 }
 

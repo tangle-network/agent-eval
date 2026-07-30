@@ -18,9 +18,6 @@ importers:
       '@asteasolutions/zod-to-openapi':
         specifier: ^9.1.0
         version: 9.1.0(zod@4.4.3)
-      '@ax-llm/ax':
-        specifier: ^23.0.5
-        version: 23.0.5(zod@4.4.3)
       '@hono/node-server':
         specifier: ^2.0.12
         version: 2.0.12(hono@4.12.32)
@@ -143,15 +140,6 @@ packages:
     resolution: {integrity: sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw==}
     peerDependencies:
       zod: ^4.0.0
-
-  '@ax-llm/ax@23.0.5':
-    resolution: {integrity: sha512-Kgs+P4hPHMyppOnlEQTSFUJTuuLVWfvvV4QakHwLv3VRlw2T98okZkiwicdN0AKGH/uTf0ktF0Kbq1s9c7AxcA==}
-    hasBin: true
-    peerDependencies:
-      zod: ^3.24.0 || ^4.0.0
-    peerDependenciesMeta:
-      zod:
-        optional: true
 
   '@biomejs/biome@2.5.5':
     resolution: {integrity: sha512-r1S8nFsAG1MY+vJFZALzIvwXAJv6ejDQ0mxP21Tgr9YK3ZFtjrvbBwDdNhx1rUqvccEIeNg20cYCNzl6Cr69pQ==}
@@ -1902,12 +1890,6 @@ snapshots:
   '@asteasolutions/zod-to-openapi@9.1.0(zod@4.4.3)':
     dependencies:
       openapi3-ts: 4.6.0
-      zod: 4.4.3
-
-  '@ax-llm/ax@23.0.5(zod@4.4.3)':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-    optionalDependencies:
       zod: 4.4.3
 
   '@biomejs/biome@2.5.5':
