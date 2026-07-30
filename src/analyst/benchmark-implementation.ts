@@ -10,7 +10,22 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  'b00ffeede06a5034d2d18aa33988379e5575e5e61d8f7d8fda6693969e04cac4'
+  '779ff0146f56c14a059aac9276f4b673ee70515afe95959a62a9f2d376c688dc'
+
+/** The published benchmark evidence was produced at this package version, by
+ * the retired one-shot direct runner, before trace analysts moved to the
+ * recursive DSPy RLM engine. Both evidence digests below are historical facts
+ * about that artifact: the current implementation and dependency manifest have
+ * since changed, so they cannot describe the current engine. A fresh certified
+ * run must replace the published evidence before any accuracy number is
+ * attributed to the engine that ships today. */
+export const ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION = '0.137.0'
+
+export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
+  '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
+
+export const ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256 =
+  '4dba263b6256a30d56c7fdb2d992d3a953c0035d731f359b704db806f68f75ac'
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
