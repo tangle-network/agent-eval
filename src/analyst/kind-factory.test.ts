@@ -315,6 +315,8 @@ function fakeEngine(analyze: TraceAnalysisEngine['analyze']): TraceAnalysisEngin
     id: 'test-engine',
     description: 'test',
     model: 'test-model',
+    version: '1.0.0',
+    executionConfig: { base_url: 'https://engine.test' },
     analyze,
   }
 }

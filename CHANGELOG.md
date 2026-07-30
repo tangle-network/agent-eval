@@ -8,6 +8,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `AnalystRegistry.runExact()` requires ordered analyst ids and an explicit value for every run-policy field.
+  It never inherits registry insertion order or the constructor's default budget.
+  Disabled budgets, timeouts, cancellation, cost attribution, tags, and prior findings use explicit `null` values.
+  Exact runs bind analyst, ledger, hook, chat, and policy identities with non-secret configuration digests.
+  They use the registry's shared serial execution path and persist canonical equal or weighted allocations instead of adding a second scheduler or allocator.
+  Exact receipts explicitly distinguish complete execution from a failed ordered prefix.
+  `ExactAnalystRunExecutionError.result` is always a canonical immutable failed receipt with valid completed work and accounting.
+- `defineTraceAnalyst()` accepts canonical `executionConfig` and returns an exact-capable custom analyst when it is supplied, while preserving its existing minimal form.
 - **Breaking:** `AnalystBenchmarkCase` now requires `clusterId` and `labelState`.
   A case must identify its independent source unit and state whether labels prove an issue, prove no issue, or leave the outcome unknown.
   The benchmark no longer guesses either field from an empty issue list.

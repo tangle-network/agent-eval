@@ -186,7 +186,11 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export { defineTraceAnalyst } from './define'
+export type {
+  DefineCustomAnalystOptions,
+  DefineExactCustomAnalystOptions,
+} from './define'
+export { defineCustomAnalyst, defineTraceAnalyst } from './define'
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
@@ -199,6 +203,19 @@ export {
   DEFAULT_TRACE_ANALYST_LIMITS,
   resolveTraceAnalystLimits,
 } from './engine'
+export type {
+  ExactAnalystBudgetSnapshot,
+  ExactAnalystExecutionPlanSnapshot,
+  ExactAnalystRunCompletion,
+  ExactAnalystRunEvent,
+  ExactAnalystRunPolicySnapshot,
+  ExactAnalystRunResult,
+  ExactAnalystRunSummary,
+  ExactAnalystSnapshot,
+  ExactCapableAnalyst,
+  ExactExecutionComponentIdentity,
+  ExactExecutionComponentSnapshot,
+} from './exact-types'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -263,9 +280,15 @@ export type {
   AnalystHooks,
   AnalystRegistryOptions,
   BudgetPolicy,
+  ExactAnalystBudgetPolicy,
+  ExactRegistryRunOpts,
   RegistryRunOpts,
 } from './registry'
-export { AnalystRegistry } from './registry'
+export {
+  AnalystRegistry,
+  assertExactRegistryRunOpts,
+  ExactAnalystRunExecutionError,
+} from './registry'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {

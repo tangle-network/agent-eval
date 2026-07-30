@@ -154,6 +154,7 @@ try {
       import {
         CostLedger,
         CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
+        AnalystRegistry as RootAnalystRegistry,
         analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         analystFindingDigest,
         analystRunDigest,
@@ -167,6 +168,8 @@ try {
         type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
         type ExecutorConfig,
+        type ExactExecutionComponentIdentity as RootExactExecutionComponentIdentity,
+        type ExactRegistryRunOpts as RootExactRegistryRunOpts,
         type JudgeFn,
         type LlmJudgeOptions as RootLlmJudgeOptions,
         type LlmClientOptions,
@@ -180,6 +183,7 @@ try {
       import {
         CONTROL_INTEGRITY_ANALYST,
         ControlIntegrityAnalyst,
+        AnalystRegistry as AnalystSubpathRegistry,
         RawAnalystFindingSchema,
         agentRxBenchmarkCase,
         agentRxPredictionsToFindings,
@@ -188,6 +192,8 @@ try {
         emitControlIntegrityFindings,
         traceStoreEvidenceResolver,
         type AnalystBenchmarkCase,
+        type ExactExecutionComponentIdentity as AnalystExactExecutionComponentIdentity,
+        type ExactRegistryRunOpts as AnalystExactRegistryRunOpts,
         type RawAnalystFinding,
       } from '@tangle-network/agent-eval/analyst'
       import {
@@ -380,6 +386,31 @@ try {
       const removedDatasetRecordInput: Parameters<typeof buildRlDataset>[0] = removedRecordInputs
       const canonicalChat = null as unknown as ChatClient
       const canonicalJudge = null as unknown as JudgeFn
+      const exactComponentIdentity: RootExactExecutionComponentIdentity = {
+        id: 'package-check',
+        version: '1.0.0',
+        config: { mode: 'compile-check' },
+      }
+      const analystExactComponentIdentity: AnalystExactExecutionComponentIdentity =
+        exactComponentIdentity
+      const exactRunOptions: RootExactRegistryRunOpts = {
+        analystIds: ['package-check'],
+        budget: null,
+        totalTimeoutMs: null,
+        signal: null,
+        costLedger: null,
+        costLedgerIdentity: null,
+        costPhase: null,
+        tags: null,
+        priorFindings: null,
+        chainFindings: false,
+        missingInputMode: 'abort',
+        applyRegistryHooks: false,
+        useRegistryChat: false,
+      }
+      const analystExactRunOptions: AnalystExactRegistryRunOpts = exactRunOptions
+      const rootExactRegistry = new RootAnalystRegistry()
+      const analystExactRegistry = new AnalystSubpathRegistry()
       const controlIntegrityAnalyst: ControlIntegrityAnalyst = CONTROL_INTEGRITY_ANALYST
       const controlIntegrityInput = undefined as SupervisorRunSources | SupervisorRunTree | undefined
       const controlIntegrityReport = undefined as SupervisorRunIntegrityReport | undefined
@@ -568,6 +599,12 @@ try {
         removedDatasetRecordInput,
         canonicalChat,
         canonicalJudge,
+        exactComponentIdentity,
+        analystExactComponentIdentity,
+        exactRunOptions,
+        analystExactRunOptions,
+        rootExactRegistry,
+        analystExactRegistry,
         controlIntegrityAnalyst,
         controlIntegrityInput,
         controlIntegrityReport,

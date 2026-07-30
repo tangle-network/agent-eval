@@ -18,6 +18,8 @@ const DEFAULT_MAX_COST_USD = 1
 const MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
 const MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
 const BRIDGE_MODULE = 'agent_eval_rpc.dspy_rlm_bridge'
+/** Bumped whenever this engine's execution behavior changes. */
+const DSPY_RLM_ENGINE_VERSION = '1.0.0'
 
 export interface DspyRlmTraceEngineOptions {
   baseUrl: string
@@ -52,10 +54,26 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
   }
   const pricing = options.pricing ?? pricingForModel(options.model)
 
+  const runner = sanitizedRunner(options.runner)
   return {
     id: 'dspy-rlm',
     description: 'Official DSPy RLM with bounded trace tools and metered model calls.',
     model: options.model,
+    version: DSPY_RLM_ENGINE_VERSION,
+    executionConfig: {
+      bridge_module: BRIDGE_MODULE,
+      base_url: options.baseUrl,
+      model: options.model,
+      api_key_provided: true,
+      pricing: { ...pricing },
+      max_cost_usd: maxCostUsd,
+      max_output_tokens: maxOutputTokens,
+      timeout_ms: timeoutMs,
+      max_request_bytes: MAX_MODEL_REQUEST_BYTES,
+      max_response_bytes: MAX_MODEL_RESPONSE_BYTES,
+      runner: runner ? 'caller-supplied' : 'default',
+      runner_command: runner?.command ?? null,
+    },
     async analyze(request) {
       const callback = await startTraceToolCallback({
         tools: request.tools,
@@ -92,7 +110,6 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
             tools: request.tools.map((tool) => tool.name),
             limits: request.limits,
           })
-          const runner = sanitizedRunner(options.runner)
           const raw = await runExternalOptimizerProcess<unknown>({
             label: 'DSPy RLM trace analysis',
             tempPrefix: 'agent-eval-dspy-rlm-',

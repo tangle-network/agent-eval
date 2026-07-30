@@ -44,6 +44,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark.ts',
   'src/analyst/dspy-rlm-engine.ts',
   'src/analyst/engine.ts',
+  'src/analyst/exact-types.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',
   'src/analyst/kind-factory.ts',
@@ -67,6 +68,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/judge-calibration.ts',
   'src/ledger-core/atomic-file-lock.ts',
   'src/ledger-core/canonical.ts',
+  'src/ledger-core/deep-freeze.ts',
   'src/ledger-core/index.ts',
   'src/ledger-core/journal-file.ts',
   'src/ledger-core/journal.ts',
@@ -94,7 +96,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '0c4928e0f3c9b521d6e54d90d52e194eed6019d8746dcc7cc8987af298fd3b7f'
+  '8fc6d925934c4563a2851d2b3986211aa0ee145f3fdda0e1bcb447774d84b519'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

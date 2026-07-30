@@ -1,7 +1,9 @@
 import { CostLedger } from '../cost-ledger'
+import { hashCanonical } from '../ledger-core/canonical'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalysisEngine, TraceAnalysisEngineResult, TraceAnalystLimits } from './engine'
 import { resolveTraceAnalystLimits } from './engine'
+import { type ExactCapableAnalyst, snapshotExactExecutionComponentIdentity } from './exact-types'
 import {
   evidenceRefsFromRawFinding,
   parseRawFinding,
@@ -11,7 +13,7 @@ import {
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { buildTraceToolsForGroup, type TraceToolGroupName } from './tool-groups'
-import type { Analyst, AnalystContext, AnalystFinding } from './types'
+import type { AnalystContext, AnalystFinding } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
@@ -40,6 +42,7 @@ export interface TraceAnalystDefinition {
 
 export interface CreateTraceAnalystOptions {
   engine: TraceAnalysisEngine
+  /** Override the definition's `version` (e.g. when an optimizer has fitted new instructions). */
   versionSuffix?: string
   settlementTimeoutMs?: number
 }
@@ -134,11 +137,22 @@ export async function runTraceAnalyst(args: {
 export function createTraceAnalyst(
   definition: TraceAnalystDefinition,
   options: CreateTraceAnalystOptions,
-): Analyst<TraceAnalysisStore> {
+): ExactCapableAnalyst<TraceAnalysisStore> {
   validateDefinition(definition)
   const version = options.versionSuffix
     ? `${definition.version}+${options.versionSuffix}`
     : definition.version
+  const settlementTimeoutMs = validateUsageSettlementTimeout(options.settlementTimeoutMs)
+  // Resolve once: the sealed digest and the executed request must not drift.
+  const limits = resolveTraceAnalystLimits(definition.limits)
+  const engineIdentity = snapshotExactExecutionComponentIdentity(
+    {
+      id: options.engine.id,
+      version: options.engine.version,
+      config: options.engine.executionConfig,
+    },
+    'createTraceAnalyst engine',
+  )
   return {
     id: definition.id,
     description: definition.description,
@@ -146,9 +160,33 @@ export function createTraceAnalyst(
     cost: {
       kind: 'llm',
       ...(options.engine.model ? { models: [options.engine.model] } : {}),
-      settlement_timeout_ms: validateUsageSettlementTimeout(options.settlementTimeoutMs),
+      settlement_timeout_ms: settlementTimeoutMs,
     },
     version,
+    executionConfig: {
+      kind: 'trace-analyst',
+      model: options.engine.model ?? null,
+      engine: options.engine.id,
+      engine_identity: engineIdentity,
+      instructions_digest: hashCanonical(definition.instructions.trim()),
+      question:
+        typeof definition.question === 'string'
+          ? hashCanonical(definition.question.trim())
+          : definition.question === undefined
+            ? 'context-derived'
+            : 'version-bound',
+      tool_group: definition.toolGroup,
+      max_iterations: limits.maxIterations,
+      max_llm_calls: limits.maxLlmCalls,
+      max_tool_calls: limits.maxToolCalls,
+      max_output_chars: limits.maxOutputChars,
+      minimum_evidence_citations: definition.minimumEvidenceCitations ?? 1,
+      require_structured_findings: definition.requireStructuredFindings ?? false,
+      prepare_context: definition.prepareContext === undefined ? 'disabled' : 'version-bound',
+      post_process: definition.postProcess === undefined ? 'disabled' : 'version-bound',
+      evidence_verification: EVIDENCE_VERIFICATION_VERSION,
+      settlement_timeout_ms: settlementTimeoutMs,
+    },
     async analyze(store, context) {
       const completed = await runTraceAnalyst({
         definition,
@@ -298,6 +336,10 @@ function parseFindingEvidenceUri(uri: string): string | null {
 /** Excerpts must quote enough content to be checkable evidence, not an
  *  incidental substring of an id, status, or timestamp. */
 const MINIMUM_EXCERPT_LENGTH = 8
+
+/** Bumped whenever the evidence-acceptance rules change, so two differently
+ *  strict builds cannot seal identical execution plans. */
+const EVIDENCE_VERIFICATION_VERSION = 'resolvable-excerpt-v1'
 
 /** Matches only within the passed content-bearing values — callers must not
  *  hand this whole spans or findings, or identifier fields become quotable. */

@@ -79,6 +79,19 @@ export {
   type TraceAnalystLimits,
 } from './analyst/engine'
 export type {
+  ExactAnalystBudgetSnapshot,
+  ExactAnalystExecutionPlanSnapshot,
+  ExactAnalystRunCompletion,
+  ExactAnalystRunEvent,
+  ExactAnalystRunPolicySnapshot,
+  ExactAnalystRunResult,
+  ExactAnalystRunSummary,
+  ExactAnalystSnapshot,
+  ExactCapableAnalyst,
+  ExactExecutionComponentIdentity,
+  ExactExecutionComponentSnapshot,
+} from './analyst/exact-types'
+export type {
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './analyst/finding-signature'
@@ -116,7 +129,11 @@ export {
   type AnalystHooks,
   AnalystRegistry,
   type AnalystRegistryOptions,
+  assertExactRegistryRunOpts,
   type BudgetPolicy,
+  type ExactAnalystBudgetPolicy,
+  ExactAnalystRunExecutionError,
+  type ExactRegistryRunOpts,
   type RegistryRunOpts,
 } from './analyst/registry'
 export {

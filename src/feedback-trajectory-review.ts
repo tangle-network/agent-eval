@@ -1,6 +1,14 @@
-import type { AnalystFinding, AnalystRunResult, EvidenceRef } from './analyst/types'
+import { type ExactAnalystRunResult, snapshotExactExecutionPlan } from './analyst/exact-types'
+import type {
+  AnalystFinding,
+  AnalystRunResult,
+  AnalystUsageReceipt,
+  EvidenceRef,
+} from './analyst/types'
+import { assertValidAnalystUsageReceipt } from './analyst/usage-receipt'
 import type { FeedbackLabelSource, FeedbackTrajectory } from './feedback-trajectory'
 import { canonicalString, hashCanonical } from './ledger-core/canonical'
+import { deepFreezeCanonicalJson } from './ledger-core/deep-freeze'
 
 export type AnalystReviewSource = Exclude<FeedbackLabelSource, 'system'>
 export type AnalystFindingDigest = `sha256:${string}`
@@ -69,6 +77,25 @@ export function analystRunDigest(run: AnalystRunResult): AnalystRunDigest {
 }
 
 export function snapshotAnalystRun(value: unknown, context = 'analyst run'): AnalystRunResult {
+  const snapshot = snapshotAnalystRunRecord(value, context)
+  if (snapshot.execution_plan !== undefined) {
+    return sealExactAnalystRunReceipt(snapshot, context)
+  }
+  if (snapshot.completion !== undefined) {
+    throw new TypeError(`${context} completion is valid only for an exact run`)
+  }
+  return snapshot as unknown as AnalystRunResult
+}
+
+/** Canonicalize, validate, and deeply freeze one complete or failed exact-run receipt. */
+export function snapshotExactAnalystRunReceipt(
+  value: unknown,
+  context = 'exact analyst run receipt',
+): ExactAnalystRunResult {
+  return sealExactAnalystRunReceipt(snapshotAnalystRunRecord(value, context), context)
+}
+
+function snapshotAnalystRunRecord(value: unknown, context: string): Record<string, unknown> {
   let snapshot: unknown
   try {
     snapshot = JSON.parse(canonicalString(value)) as unknown
@@ -87,6 +114,8 @@ export function snapshotAnalystRun(value: unknown, context = 'analyst run'): Ana
       'per_analyst',
       'total_cost_usd',
       'total_cost_provenance',
+      'execution_plan',
+      'completion',
     ],
     context,
   )
@@ -99,8 +128,7 @@ export function snapshotAnalystRun(value: unknown, context = 'analyst run'): Ana
     throw new TypeError(`${context} per_analyst must be an array`)
   }
   for (const [index, summary] of snapshot.per_analyst.entries()) {
-    if (!isRecord(summary)) throw new TypeError(`${context} per_analyst ${index} must be an object`)
-    requiredString(summary.analyst_id, `${context} per_analyst ${index} analyst_id`)
+    assertAnalystRunSummary(summary, `${context} per_analyst ${index}`)
   }
   if (
     typeof snapshot.total_cost_usd !== 'number' ||
@@ -109,10 +137,216 @@ export function snapshotAnalystRun(value: unknown, context = 'analyst run'): Ana
   ) {
     throw new TypeError(`${context} total_cost_usd must be a finite non-negative number`)
   }
-  if (snapshot.total_cost_provenance !== undefined && !isRecord(snapshot.total_cost_provenance)) {
-    throw new TypeError(`${context} total_cost_provenance must be an object`)
+  if (snapshot.total_cost_provenance !== undefined) {
+    assertCostProvenance(snapshot.total_cost_provenance, `${context} total_cost_provenance`)
   }
-  return snapshot as unknown as AnalystRunResult
+  return snapshot
+}
+
+function assertAnalystRunSummary(value: unknown, context: string): void {
+  if (!isRecord(value)) throw new TypeError(`${context} must be an object`)
+  assertOnlyKeys(
+    value,
+    [
+      'analyst_id',
+      'status',
+      'reason',
+      'findings_count',
+      'latency_ms',
+      'usage',
+      'allocated_budget_usd',
+      'error',
+    ],
+    context,
+  )
+  requiredString(value.analyst_id, `${context} analyst_id`)
+  if (value.status !== 'ok' && value.status !== 'skipped' && value.status !== 'failed') {
+    throw new TypeError(`${context} status is invalid`)
+  }
+  if (value.reason !== undefined) requiredString(value.reason, `${context} reason`)
+  if (value.status === 'skipped' && value.reason === undefined) {
+    throw new TypeError(`${context} skipped summary requires reason`)
+  }
+  nonnegativeSafeInteger(value.findings_count, `${context} findings_count`)
+  finiteNonnegative(value.latency_ms, `${context} latency_ms`)
+  assertAnalystUsageReceipt(value.usage, `${context} usage`)
+  if (value.allocated_budget_usd !== undefined && value.allocated_budget_usd !== null) {
+    finiteNonnegative(value.allocated_budget_usd, `${context} allocated_budget_usd`)
+  }
+  if (value.error !== undefined) {
+    if (value.status !== 'failed' || !isRecord(value.error)) {
+      throw new TypeError(`${context} error is valid only for failed summaries`)
+    }
+    assertOnlyKeys(value.error, ['class', 'message'], `${context} error`)
+    requiredString(value.error.class, `${context} error class`)
+    requiredString(value.error.message, `${context} error message`)
+  } else if (value.status === 'failed') {
+    throw new TypeError(`${context} failed summary requires error`)
+  }
+}
+
+function assertAnalystUsageReceipt(value: unknown, context: string): void {
+  if (!isRecord(value)) throw new TypeError(`${context} must be an object`)
+  assertOnlyKeys(value, ['calls', 'tokens', 'cost', 'knownCostUsd'], context)
+  for (const field of ['calls', 'tokens', 'cost'] as const) {
+    if (!Object.hasOwn(value, field)) {
+      throw new TypeError(`${context} ${field} is required`)
+    }
+  }
+  if (value.tokens !== null) {
+    if (!isRecord(value.tokens)) throw new TypeError(`${context} tokens must be an object or null`)
+    assertOnlyKeys(
+      value.tokens,
+      ['input', 'output', 'reasoning', 'cached', 'cacheWrite'],
+      `${context} tokens`,
+    )
+  }
+  assertCostProvenance(value.cost, `${context} cost`)
+  assertValidAnalystUsageReceipt(value as unknown as AnalystUsageReceipt, context)
+}
+
+function assertCostProvenance(value: unknown, context: string): void {
+  if (!isRecord(value)) throw new TypeError(`${context} must be an object`)
+  assertOnlyKeys(value, ['kind', 'usd'], context)
+  if (value.kind === 'uncaptured') {
+    if (value.usd !== null) throw new TypeError(`${context} uncaptured usd must be null`)
+    return
+  }
+  if (value.kind !== 'observed' && value.kind !== 'estimated') {
+    throw new TypeError(`${context} kind is invalid`)
+  }
+  finiteNonnegative(value.usd, `${context} usd`)
+}
+
+function sealExactAnalystRunReceipt(
+  run: Record<string, unknown>,
+  context: string,
+): ExactAnalystRunResult {
+  if (run.execution_plan === undefined) {
+    throw new TypeError(`${context} exact run requires execution_plan`)
+  }
+  const plan = snapshotExactExecutionPlan(run.execution_plan, `${context} execution_plan`)
+  const completion = snapshotExactRunCompletion(run.completion, `${context} completion`)
+  run.execution_plan = plan
+  run.completion = completion
+  const summaries = run.per_analyst as Array<{
+    analyst_id: string
+    status: 'ok' | 'skipped' | 'failed'
+    findings_count: number
+    usage: { cost: { kind: string; usd: number | null }; knownCostUsd?: number }
+    allocated_budget_usd?: number | null
+  }>
+  const findings = run.findings as AnalystFinding[]
+  const planned = plan.analysts.map((analyst) => analyst.id)
+  const completed = summaries.map((summary) => summary.analyst_id)
+  const ordered = completed.every((analystId, index) => analystId === planned[index])
+  if (!ordered || (completion.status === 'complete' && completed.length !== planned.length)) {
+    throw new TypeError(
+      completion.status === 'complete'
+        ? `${context} complete receipt must contain every execution_plan analyst in exact order`
+        : `${context} failed receipt per_analyst must be an execution_plan prefix`,
+    )
+  }
+  const completedIds = new Set(completed)
+  for (const finding of findings) {
+    if (!completedIds.has(finding.analyst_id)) {
+      throw new TypeError(`${context} finding names an analyst absent from per_analyst`)
+    }
+  }
+  for (const summary of summaries) {
+    const actual = findings.filter((finding) => finding.analyst_id === summary.analyst_id).length
+    if (summary.findings_count !== actual) {
+      throw new TypeError(
+        `${context} findings_count does not match findings for "${summary.analyst_id}"`,
+      )
+    }
+    const hasAllocation = Object.hasOwn(summary, 'allocated_budget_usd')
+    if (summary.status === 'skipped') {
+      if (hasAllocation) {
+        throw new TypeError(
+          `${context} skipped summary "${summary.analyst_id}" cannot report an allocated budget`,
+        )
+      }
+      continue
+    }
+    const allocation = summary.allocated_budget_usd
+    const validAllocation =
+      hasAllocation &&
+      (plan.policy.budget.kind === 'none'
+        ? allocation === null
+        : typeof allocation === 'number' &&
+          plan.policy.budget.allocations_usd[summary.analyst_id] !== null &&
+          plan.policy.budget.allocations_usd[summary.analyst_id] !== undefined &&
+          allocation <= plan.policy.budget.allocations_usd[summary.analyst_id]!)
+    if (!validAllocation) {
+      throw new TypeError(
+        `${context} summary "${summary.analyst_id}" allocation does not match its execution plan`,
+      )
+    }
+  }
+  let knownCost = 0
+  for (const summary of summaries) {
+    const amount =
+      summary.usage.cost.kind === 'uncaptured'
+        ? (summary.usage.knownCostUsd ?? 0)
+        : (summary.usage.cost.usd ?? 0)
+    knownCost = finiteNonnegative(knownCost + amount, `${context} aggregate known cost`)
+  }
+  if (run.total_cost_usd !== knownCost) {
+    throw new TypeError(`${context} total_cost_usd does not match per_analyst usage`)
+  }
+  if (run.total_cost_provenance === undefined) {
+    throw new TypeError(`${context} exact run requires total_cost_provenance`)
+  }
+  const costs = summaries.map((summary) => summary.usage.cost)
+  const expectedProvenance = costs.some((cost) => cost.kind === 'uncaptured')
+    ? { kind: 'uncaptured', usd: null }
+    : {
+        kind: costs.some((cost) => cost.kind === 'estimated') ? 'estimated' : 'observed',
+        usd: costs.reduce(
+          (sum, cost) =>
+            finiteNonnegative(sum + (cost.usd ?? 0), `${context} aggregate captured cost`),
+          0,
+        ),
+      }
+  if (hashCanonical(run.total_cost_provenance) !== hashCanonical(expectedProvenance)) {
+    throw new TypeError(`${context} total_cost_provenance does not match per_analyst usage`)
+  }
+  return deepFreezeCanonicalJson(run as unknown as ExactAnalystRunResult)
+}
+
+function snapshotExactRunCompletion(
+  value: unknown,
+  context: string,
+): ExactAnalystRunResult['completion'] {
+  if (!isRecord(value)) throw new TypeError(`${context} must be an object`)
+  if (value.status === 'complete') {
+    assertOnlyKeys(value, ['status'], context)
+    return value as ExactAnalystRunResult['completion']
+  }
+  if (value.status !== 'failed') {
+    throw new TypeError(`${context} status must be complete or failed`)
+  }
+  assertOnlyKeys(value, ['status', 'error'], context)
+  if (!isRecord(value.error)) throw new TypeError(`${context} failed receipt requires error`)
+  assertOnlyKeys(value.error, ['class', 'message'], `${context} error`)
+  requiredString(value.error.class, `${context} error class`)
+  requiredString(value.error.message, `${context} error message`)
+  return value as unknown as ExactAnalystRunResult['completion']
+}
+
+function finiteNonnegative(value: unknown, context: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${context} must be a non-negative finite number`)
+  }
+  return value
+}
+
+function nonnegativeSafeInteger(value: unknown, context: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${context} must be a non-negative safe integer`)
+  }
+  return value as number
 }
 
 export function snapshotAnalystFindings(
@@ -210,6 +444,12 @@ export function readAnalystReview(trajectory: FeedbackTrajectory): StoredAnalyst
       ...(analysis.costProvenance === undefined
         ? {}
         : { total_cost_provenance: analysis.costProvenance }),
+      ...(artifact.executionPlan === undefined
+        ? {}
+        : {
+            execution_plan: artifact.executionPlan,
+            completion: artifact.completion,
+          }),
     },
     `analyst trajectory "${trajectory.id}" archived run`,
   )

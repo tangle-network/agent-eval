@@ -21,7 +21,8 @@
 
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Analyst, AnalystContext, AnalystFinding, AnalystSeverity } from '../types'
+import type { ExactCapableAnalyst } from '../exact-types'
+import type { AnalystContext, AnalystFinding, AnalystSeverity } from '../types'
 import { computeFindingId } from '../types'
 
 // ── Input model ──────────────────────────────────────────────────────
@@ -384,13 +385,18 @@ export function emitSkillUsageFindings(
 
 // ── The Analyst ──────────────────────────────────────────────────────
 
-export class SkillUsageAnalyst implements Analyst<SkillUsageReport> {
+export class SkillUsageAnalyst implements ExactCapableAnalyst<SkillUsageReport> {
   readonly id = ANALYST_ID
   readonly description =
     'Deterministic multi-signal skill-usage analysis: flags dead skills, measurement-invisible (orchestrated) usage, discovery gaps, public-repo leaks, bloat, missing evals, and missing run-logging.'
   readonly inputKind = 'custom' as const
   readonly cost = { kind: 'deterministic' as const, est_usd_per_run: 0 }
   readonly version = '1.0.0'
+  readonly executionConfig = {
+    kind: 'skill-usage',
+    bloat_line_threshold: BLOAT_LINE_THRESHOLD,
+    produced_at_source: 'tags.producedAt-or-system-clock',
+  } as const
 
   async analyze(input: SkillUsageReport, ctx: AnalystContext): Promise<AnalystFinding[]> {
     const producedAt = ctx.tags?.producedAt ?? new Date().toISOString()

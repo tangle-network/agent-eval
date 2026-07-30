@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { defineTraceAnalyst } from './define'
+import type { TraceAnalysisStore } from '../trace-analyst/store'
+import { defineCustomAnalyst, defineTraceAnalyst } from './define'
+import type { ExactCapableAnalyst } from './exact-types'
 
 describe('defineTraceAnalyst', () => {
   it('defines an engine-independent research question', () => {
@@ -36,5 +38,43 @@ describe('defineTraceAnalyst', () => {
         toolGroup: 'all',
       }),
     ).toThrow(/id must be a non-empty string/)
+  })
+})
+
+describe('defineCustomAnalyst', () => {
+  it('creates an exact-capable analyst when execution configuration is declared', () => {
+    const analyst: ExactCapableAnalyst<TraceAnalysisStore> = defineCustomAnalyst({
+      id: 'tool-fidelity',
+      description: 'Compare native and normalized tool calls.',
+      version: '2.0.0',
+      cost: { kind: 'deterministic' },
+      executionConfig: {
+        kind: 'tool-fidelity',
+        schemaVersion: '1',
+      },
+      async analyze() {
+        return []
+      },
+    })
+
+    expect(analyst.executionConfig).toEqual({
+      kind: 'tool-fidelity',
+      schemaVersion: '1',
+    })
+  })
+
+  it('rejects a non-object exact execution configuration', () => {
+    expect(() =>
+      defineCustomAnalyst({
+        id: 'tool-fidelity',
+        description: 'Compare native and normalized tool calls.',
+        cost: { kind: 'deterministic' },
+        // @ts-expect-error JavaScript callers can supply a non-object value.
+        executionConfig: [],
+        async analyze() {
+          return []
+        },
+      }),
+    ).toThrow(/executionConfig must be an object/)
   })
 })

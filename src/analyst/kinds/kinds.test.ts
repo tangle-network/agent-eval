@@ -203,6 +203,49 @@ describe('tool-groups filter the analyst tool surface narrowly', () => {
 })
 
 describe('createTraceAnalyst wires a definition into the Analyst contract', () => {
+  const identityDefinition: TraceAnalystDefinition = {
+    id: 'identity-kind',
+    description: 'identity',
+    area: 'identity',
+    version: '1',
+    instructions: 'inspect identity',
+    toolGroup: 'all',
+  }
+
+  it('binds versioned engine identity into exact execution configuration', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(identityDefinition, {
+      engine: stubEngine({ version: '2.0.0' }),
+    })
+
+    expect(first.executionConfig.engine_identity).not.toEqual(
+      second.executionConfig.engine_identity,
+    )
+  })
+
+  it('separates engines that differ only by endpoint', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(identityDefinition, {
+      engine: stubEngine({ executionConfig: { base_url: 'https://two.test' } }),
+    })
+
+    expect(first.executionConfig.engine_identity).not.toEqual(
+      second.executionConfig.engine_identity,
+    )
+  })
+
+  it('separates definitions that differ only by instructions', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(
+      { ...identityDefinition, instructions: 'inspect identity differently' },
+      { engine: stubEngine() },
+    )
+
+    expect(first.executionConfig.instructions_digest).not.toEqual(
+      second.executionConfig.instructions_digest,
+    )
+  })
+
   it('returns a registry-ready Analyst that delegates to the kind id + version', () => {
     const spec: TraceAnalystDefinition = {
       id: 'test-kind',
@@ -217,6 +260,17 @@ describe('createTraceAnalyst wires a definition into the Analyst contract', () =
     expect(analyst.version).toBe('0.0.1')
     expect(analyst.inputKind).toBe('trace-store')
     expect(analyst.cost.kind).toBe('llm')
+    expect(analyst.executionConfig).toMatchObject({
+      kind: 'trace-analyst',
+      model: 'test-model',
+      engine: 'test-engine',
+      tool_group: 'all',
+      max_iterations: 12,
+      max_llm_calls: 8,
+      max_tool_calls: 48,
+      max_output_chars: 10_000,
+      evidence_verification: 'resolvable-excerpt-v1',
+    })
   })
 
   it('versionSuffix appends to the kind version (used by optimizer pipelines)', () => {
@@ -315,13 +369,16 @@ function stubStore() {
   return {} as never
 }
 
-function stubEngine(): TraceAnalysisEngine {
+function stubEngine(overrides: Partial<TraceAnalysisEngine> = {}): TraceAnalysisEngine {
   return {
     id: 'test-engine',
     description: 'test',
     model: 'test-model',
+    version: '1.0.0',
+    executionConfig: { base_url: 'https://one.test' },
     analyze: async () => {
       throw new Error('not called')
     },
+    ...overrides,
   }
 }

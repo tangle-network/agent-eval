@@ -71,6 +71,8 @@ function stubEngine(): TraceAnalysisEngine {
     id: 'test-engine',
     description: 'test',
     model: 'test-model',
+    version: '1.0.0',
+    executionConfig: { base_url: 'https://engine.test' },
     analyze: async () => {
       throw new Error('not called')
     },
@@ -363,5 +365,41 @@ describe('buildDefaultAnalystRegistry', () => {
     expect(() => behavioralAnalyst({ maxEvidenceRefsPerFinding: 1.5 })).toThrow(
       /maxEvidenceRefsPerFinding/,
     )
+  })
+
+  it('binds effective deterministic limits for exact-run provenance', () => {
+    expect(
+      behavioralAnalyst({ maxTraces: 25, maxEvidenceRefsPerFinding: 3 }).executionConfig,
+    ).toEqual({
+      kind: 'behavioral-efficiency',
+      max_traces: 25,
+      max_evidence_refs_per_finding: 3,
+    })
+  })
+
+  it('registers engine-backed analysts that an exact run can plan', async () => {
+    const registry = buildDefaultAnalystRegistry({ engine: stubEngine() })
+    const result = await registry.runExact(
+      'exact-default-registry',
+      { traceStore: fakeStore },
+      {
+        analystIds: ['failure-mode'],
+        budget: null,
+        totalTimeoutMs: null,
+        signal: null,
+        costLedger: null,
+        costLedgerIdentity: null,
+        costPhase: null,
+        tags: null,
+        priorFindings: null,
+        chainFindings: false,
+        missingInputMode: 'skip',
+        applyRegistryHooks: false,
+        useRegistryChat: false,
+      },
+    )
+
+    const planned = result.execution_plan.analysts.find((analyst) => analyst.id === 'failure-mode')
+    expect(planned?.execution_config_digest).toMatch(/^sha256:/)
   })
 })

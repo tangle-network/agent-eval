@@ -61,6 +61,16 @@ export interface TraceAnalysisEngine {
   readonly id: string
   readonly description: string
   readonly model?: string
+  /** Implementation version. Changes whenever execution behavior changes. */
+  readonly version: string
+  /**
+   * Canonical JSON for every effective engine knob not already bound by
+   * `version` — endpoint, budgets, timeouts, whether a credential was supplied.
+   * Sealed into the exact-run execution plan, so two engines pointed at
+   * different providers must not produce the same value. Never carries a
+   * secret: a credential is recorded as a boolean.
+   */
+  readonly executionConfig: Readonly<Record<string, unknown>>
   analyze(request: TraceAnalysisEngineRequest): Promise<TraceAnalysisEngineResult>
 }
 

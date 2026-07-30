@@ -7,10 +7,12 @@ import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
 export interface DefaultAnalystRegistryOptions {
   /**
    * Recursive engine for model-backed trace analysts. When omitted, the
-   * registry contains only deterministic analysts.
+   * registry contains only deterministic analysts. The engine's id, version,
+   * and model become the exact-run identity of every analyst it executes.
    */
   engine?: TraceAnalysisEngine
   definitions?: readonly TraceAnalystDefinition[]
+  /** Set false to omit the deterministic behavioral analyst (default: include). */
   includeBehavioral?: boolean
   behavioral?: BehavioralAnalystOptions
   registry?: AnalystRegistryOptions
@@ -19,6 +21,11 @@ export interface DefaultAnalystRegistryOptions {
 export function buildDefaultAnalystRegistry(
   options: DefaultAnalystRegistryOptions = {},
 ): AnalystRegistry {
+  if (options.definitions && !options.engine) {
+    throw new TypeError(
+      'buildDefaultAnalystRegistry: definitions require an engine — a definition cannot run without one',
+    )
+  }
   const registry = new AnalystRegistry(options.registry)
   if (options.includeBehavioral !== false) {
     registry.register(behavioralAnalyst(options.behavioral))
