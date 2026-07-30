@@ -20,7 +20,63 @@ export {
   liftSeverity,
 } from './adapters'
 export { type CreateAnalystAiConfig, createAnalystAi } from './ax-service'
+export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
+export type {
+  AnalystBenchmarkCase,
+  AnalystBenchmarkDatasetRef,
+  AnalystBenchmarkDescriptor,
+  AnalystBenchmarkObservation,
+  AnalystBenchmarkOutput,
+  AnalystBenchmarkProvenance,
+  AnalystBenchmarkResult,
+  AnalystBenchmarkRunner,
+  AnalystBenchmarkSummary,
+  AnalystEvidenceExpectation,
+  AnalystEvidenceResolution,
+  AnalystEvidenceResolutionError,
+  AnalystEvidenceResolver,
+  AnalystFindingScore,
+  AnalystIssueExpectation,
+  AnalystLatencyDistribution,
+  RunAnalystBenchmarkOptions,
+} from './benchmark'
+export {
+  registryBenchmarkRunner,
+  runAnalystBenchmark,
+  scoreAnalystFindings,
+  traceStoreEvidenceResolver,
+} from './benchmark'
+export type {
+  AnalystComparisonMetric,
+  AnalystMetricComparison,
+  AnalystRunnerComparison,
+} from './benchmark-comparison'
+export { compareAnalystRunners } from './benchmark-comparison'
+export type {
+  AgentRxBenchmarkCaseOptions,
+  AgentRxFailure,
+  AgentRxPrediction,
+  AgentRxPredictionReport,
+  AgentRxRow,
+  CodeTraceBenchCaseOptions,
+  CodeTraceBenchLabelOptions,
+  CodeTraceBenchLabelSet,
+  CodeTraceBenchRow,
+  CodeTracerPredictionAdapterOptions,
+  CodeTraceStageAnnotation,
+  StepLabelAdapterOptions,
+  UpstreamPredictionAdapterOptions,
+} from './benchmark-datasets'
+export {
+  agentRxBenchmarkCase,
+  agentRxPredictionsToFindings,
+  codeTraceBenchCase,
+  codeTracerPredictionsToFindings,
+  normalizeAgentRxCategory,
+  normalizeBenchmarkLabel,
+} from './benchmark-datasets'
+export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
 export type {
   ChatCallOpts,
   ChatClient,
@@ -40,6 +96,8 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
+export type { DefineTraceAnalystOptions, TraceAnalystAnalyze } from './define'
+export { defineTraceAnalyst } from './define'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -67,7 +125,6 @@ export type { DiffPolicy, FindingsDiff, PersistedFinding } from './findings-stor
 export { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
 export type {
   CreateTraceAnalystKindOpts,
-  TraceAnalystGolden,
   TraceAnalystKindSpec,
 } from './kind-factory'
 export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'

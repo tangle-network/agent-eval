@@ -17,10 +17,8 @@
  *   - Each kind declares its subquery + parallelism budget. Discovery-heavy
  *     kinds can fan out more bounded semantic questions than narrow lenses.
  *
- * Optimizer hook: kinds may declare `goldens` — labeled examples used
- * by `AxBootstrapFewShot` / `AxGEPA` to fit the actor
- * description programmatically. Stored on the kind, not the registry,
- * because the right metric is kind-specific.
+ * Evaluate prompt changes through `runAnalystBenchmark`, where labels include
+ * exact evidence locations and clean cases instead of output-string overlap.
  */
 
 import type { AxAIService, AxFunction } from '@ax-llm/ax'
@@ -72,19 +70,6 @@ export interface TraceAnalystKindSpec {
   postProcess?: (row: RawAnalystFinding, ctx: AnalystContext) => RawAnalystFinding | null
   /** Minimum citations per finding. Default 1; rows below it are rejected. */
   minimumEvidenceCitations?: number
-  /** Optional optimizer hook — populated when a kind wants to fit its prompt against labeled examples. */
-  goldens?: TraceAnalystGolden[]
-}
-
-/**
- * One labeled example consumed by Ax optimizers (MIPRO / GEPA / Bootstrap).
- * Each input is the same `{question}` an analyst would receive; `expected`
- * is the ground-truth finding set a fitted prompt should produce on this
- * input. Metric: kind-specific (default: F1 on `finding_id` overlap).
- */
-export interface TraceAnalystGolden {
-  question: string
-  expected: ReadonlyArray<Omit<RawAnalystFinding, 'confidence'>>
 }
 
 export interface CreateTraceAnalystKindOpts {

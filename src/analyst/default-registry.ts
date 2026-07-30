@@ -10,7 +10,7 @@
  */
 
 import type { AxAIService } from '@ax-llm/ax'
-import { behavioralAnalyst } from './behavioral-analyst'
+import { type BehavioralAnalystOptions, behavioralAnalyst } from './behavioral-analyst'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from './kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from './kinds'
 import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
@@ -24,6 +24,8 @@ export interface DefaultAnalystRegistryOptions {
   kinds?: readonly TraceAnalystKindSpec[]
   /** Set false to omit the deterministic behavioral analyst (default: include). */
   includeBehavioral?: boolean
+  /** Bound deterministic trace scanning without changing the store. */
+  behavioral?: BehavioralAnalystOptions
   /** Forwarded to the AnalystRegistry constructor (signal, tags, priorFindings). */
   registry?: AnalystRegistryOptions
 }
@@ -33,7 +35,7 @@ export function buildDefaultAnalystRegistry(
 ): AnalystRegistry {
   const registry = new AnalystRegistry(opts.registry)
   if (opts.includeBehavioral !== false) {
-    registry.register(behavioralAnalyst())
+    registry.register(behavioralAnalyst(opts.behavioral))
   }
   if (opts.ai) {
     const kinds = opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS

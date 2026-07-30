@@ -1,5 +1,25 @@
+import type { AnalystFinding, AnalystRunResult } from './analyst/types'
 import type { ControlEvalResult, ControlRunResult, ControlStep } from './control-runtime'
 import type { DatasetScenario, DatasetSplit } from './dataset'
+import {
+  type AnalystReviewDecision,
+  analystFindingDigest,
+  assertUniqueFindingIds,
+  completedAnalystReviewQuality,
+  readAnalystReview,
+  snapshotAnalystFindings,
+  validateAnalystReviewDecisions,
+} from './feedback-trajectory-review'
+
+export type {
+  AnalystFindingDigest,
+  AnalystMissedIssue,
+  AnalystReviewCounts,
+  AnalystReviewDecision,
+  AnalystReviewQuality,
+  AnalystReviewSource,
+} from './feedback-trajectory-review'
+export { analystFindingDigest } from './feedback-trajectory-review'
 
 export type FeedbackArtifactType =
   | 'text'
@@ -145,6 +165,41 @@ export interface FeedbackReplayAdapter {
   ):
     | Promise<Omit<FeedbackReplayResult, 'trajectoryId'>>
     | Omit<FeedbackReplayResult, 'trajectoryId'>
+}
+
+export interface AnalystFeedbackTrajectoryOptions {
+  task: FeedbackTask
+  labels?: readonly FeedbackLabel[]
+  reviewRequests?: readonly AnalystReviewRequest[]
+  reviewDecisions?: readonly AnalystReviewDecision[]
+  outcome?: FeedbackOutcome
+  id?: string
+  projectId?: string
+  scenarioId?: string
+  split?: DatasetSplit
+  tags?: Record<string, string>
+  createdAt?: string
+  trace?: {
+    source?: string
+    traceIds?: readonly string[]
+    artifactUri?: string
+  }
+  metadata?: Record<string, unknown>
+}
+
+export interface AnalystReviewRequest {
+  id: string
+  findingId: string
+  findingDigest: `sha256:${string}`
+  analystId: string
+  area: string
+  claim: string
+  evidence: AnalystFinding['evidence_refs']
+  recommendedAction?: string
+  validationPlan?: string
+  severity: FeedbackSeverity
+  confidence: number
+  createdAt: string
 }
 
 const DEFAULT_SPLIT_POLICY: Required<FeedbackSplitPolicy> = {
@@ -327,6 +382,104 @@ export function createFeedbackTrajectory(input: {
   }
 }
 
+/** Preserve a trace-analysis run for review, whether or not review is complete. */
+export function analystRunToFeedbackTrajectory(
+  run: AnalystRunResult,
+  options: AnalystFeedbackTrajectoryOptions,
+): FeedbackTrajectory {
+  const findings = snapshotAnalystFindings(run.findings, `analyst run "${run.run_id}"`)
+  const findingIds = findings.map((finding) => finding.finding_id)
+  assertUniqueFindingIds(findingIds)
+  const analystIds = [
+    ...new Set([
+      ...findings.map((finding) => finding.analyst_id),
+      ...run.per_analyst.map((summary) => summary.analyst_id),
+    ]),
+  ]
+  const reviewDecisions = validateAnalystReviewDecisions({
+    runId: run.run_id,
+    findings,
+    analystIds,
+    decisions: options.reviewDecisions ?? [],
+  })
+  const createdAt = options.createdAt ?? run.started_at
+  const knownCostUsd = run.total_cost_usd
+  const capturedCost =
+    run.total_cost_provenance?.kind === 'uncaptured' ? undefined : run.total_cost_usd
+  return createFeedbackTrajectory({
+    id: options.id,
+    projectId: options.projectId,
+    scenarioId: options.scenarioId,
+    task: options.task,
+    attempts: [
+      {
+        id: `analysis:${run.run_id}`,
+        stepIndex: 0,
+        artifactType: 'research',
+        artifact: {
+          type: 'analyst-run',
+          analystRunId: run.run_id,
+          correlationId: run.correlation_id,
+          analystIds,
+          findings,
+        },
+        createdAt,
+        metadata: {
+          perAnalyst: run.per_analyst,
+          trace: options.trace,
+          reviewRequests: options.reviewRequests,
+        },
+      },
+    ],
+    labels: [...(options.labels ?? [])],
+    outcome: options.outcome
+      ? {
+          ...options.outcome,
+          costUsd: options.outcome.costUsd ?? capturedCost,
+        }
+      : capturedCost === undefined
+        ? undefined
+        : { costUsd: capturedCost, observedAt: run.ended_at },
+    split: options.split,
+    tags: options.tags,
+    createdAt,
+    metadata: {
+      ...options.metadata,
+      analysis: {
+        kind: 'analyst-run',
+        runId: run.run_id,
+        startedAt: run.started_at,
+        endedAt: run.ended_at,
+        reviewDecisions,
+        costProvenance: run.total_cost_provenance,
+        knownCostUsd,
+      },
+    },
+  })
+}
+
+/** Convert generated findings into revision requests for an independent reviewer. */
+export function analystFindingsToReviewRequests(
+  findings: readonly AnalystFinding[],
+  options: { createdAt?: string } = {},
+): AnalystReviewRequest[] {
+  const createdAt = options.createdAt ?? new Date().toISOString()
+  return snapshotAnalystFindings(findings, 'analyst review request').map((finding) => ({
+    id: `analyst:${finding.finding_id}`,
+    findingId: finding.finding_id,
+    findingDigest: analystFindingDigest(finding),
+    analystId: finding.analyst_id,
+    area: finding.area,
+    claim: finding.claim,
+    evidence: finding.evidence_refs,
+    recommendedAction: finding.recommended_action,
+    validationPlan: finding.validation_plan,
+    severity: feedbackSeverityFromFinding(finding),
+    confidence: finding.confidence,
+    createdAt,
+  }))
+}
+
 export function assignFeedbackSplit(
   trajectory: Pick<FeedbackTrajectory, 'id' | 'projectId' | 'scenarioId' | 'task'>,
   policy: FeedbackSplitPolicy = {},
@@ -380,11 +533,22 @@ export function feedbackTrajectoryToOptimizerRow(
   trajectory: FeedbackTrajectory,
 ): FeedbackOptimizerRow {
   const labels = allLabels(trajectory)
+  const analystReview = readAnalystReview(trajectory)
+  const analystQuality = analystReview ? completedAnalystReviewQuality(analystReview) : undefined
+  const reviewLabelKinds = analystReview
+    ? analystReview.reviewDecisions.map((decision): FeedbackLabelKind => {
+        if (decision.verdict === 'rejected') return 'reject'
+        if (decision.verdict === 'completeness_assessed' && decision.missedIssues.length > 0) {
+          return 'revision_request'
+        }
+        return 'approve'
+      })
+    : []
   return {
     scenarioId: trajectory.scenarioId ?? trajectory.id,
     trajectoryId: trajectory.id,
-    labelKinds: [...new Set(labels.map((label) => label.kind))],
-    score: trajectory.outcome?.score ?? scoreFromLabels(labels),
+    labelKinds: [...new Set([...labels.map((label) => label.kind), ...reviewLabelKinds])],
+    score: analystQuality?.f1 ?? trajectory.outcome?.score ?? scoreFromLabels(labels),
     metadata: {
       projectId: trajectory.projectId,
       split: trajectory.split,
@@ -392,6 +556,22 @@ export function feedbackTrajectoryToOptimizerRow(
       attempts: trajectory.attempts.length,
       outcome: trajectory.outcome,
       labels,
+      ...(analystReview
+        ? {
+            analystReview: {
+              findingIds: analystReview.findingIds,
+              findingDigests: analystReview.findings.map((finding) => ({
+                findingId: finding.finding_id,
+                findingDigest: analystFindingDigest(finding),
+              })),
+              decisions: analystReview.reviewDecisions,
+              precision: analystQuality?.precision,
+              recall: analystQuality?.recall,
+              f1: analystQuality?.f1,
+              counts: analystQuality?.counts,
+            },
+          }
+        : {}),
     },
   }
 }
@@ -580,6 +760,19 @@ function allLabels(trajectory: FeedbackTrajectory): FeedbackLabel[] {
     seen.add(key)
     return true
   })
+}
+
+function feedbackSeverityFromFinding(finding: AnalystFinding): FeedbackSeverity {
+  switch (finding.severity) {
+    case 'critical':
+      return 'critical'
+    case 'high':
+      return 'error'
+    case 'medium':
+      return 'warning'
+    default:
+      return 'info'
+  }
 }
 
 function scoreFromLabels(labels: FeedbackLabel[]): number | undefined {

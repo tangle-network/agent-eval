@@ -155,7 +155,10 @@ try {
         CostLedger,
         CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
         analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
+        analystFindingDigest,
         InMemoryTraceStore,
+        makeFinding,
+        type AnalystReviewDecision,
         type BenchmarkRunnerConfig,
         type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
@@ -174,9 +177,14 @@ try {
         CONTROL_INTEGRITY_ANALYST,
         ControlIntegrityAnalyst,
         RawAnalystFindingSchema,
+        agentRxBenchmarkCase,
+        agentRxPredictionsToFindings,
+        codeTraceBenchCase,
+        codeTracerPredictionsToFindings,
         emitControlIntegrityFindings,
+        traceStoreEvidenceResolver,
+        type AnalystBenchmarkCase,
         type RawAnalystFinding,
-        type TraceAnalystGolden,
       } from '@tangle-network/agent-eval/analyst'
       import {
         type CostLedgerHandle as ContractCostLedgerHandle,
@@ -361,17 +369,65 @@ try {
         evidence: [{ uri: 'artifact://current' }],
         confidence: 1,
       })
-      const golden: TraceAnalystGolden = {
-        question: 'find corroborated failures',
-        expected: [{
-          severity: 'high',
-          claim: 'failure',
-          evidence: [
-            { uri: 'span://primary' },
-            { uri: 'span://corroborating' },
-          ],
-        }],
+      const reviewedFinding = makeFinding({
+        analyst_id: 'package-check',
+        area: 'package',
+        claim: 'The digest API is exported.',
+        severity: 'info',
+        confidence: 1,
+        evidence_refs: [{ kind: 'artifact', uri: 'artifact://package-check' }],
+      })
+      const reviewedFindingDigest: \`sha256:\${string}\` =
+        analystFindingDigest(reviewedFinding)
+      const completenessDecision: AnalystReviewDecision = {
+        verdict: 'completeness_assessed',
+        missedIssues: [],
+        source: 'environment',
+        reviewerId: 'package-check-reviewer',
+        reviewId: 'package-check-review',
+        reason: 'The package export was checked independently.',
+        decidedAt: '2026-07-29T00:00:00.000Z',
       }
+      const analystCase: AnalystBenchmarkCase<string> = {
+        id: 'corroborated-failure',
+        input: 'trace://failure',
+        expectedIssues: [{
+          id: 'failure',
+          evidence: [{ uri: 'span://primary' }, { uri: 'span://corroborating' }],
+          evidenceMode: 'all',
+          criticalEvidence: [{ uri: 'span://primary' }],
+        }],
+        labeledEvidence: [{ uri: 'span://primary' }, { uri: 'span://corroborating' }],
+      }
+      const agentRxCase = agentRxBenchmarkCase({
+        trajectory_id: 'agent-rx',
+        failures: [{
+          failure_id: 'failure-1',
+          step_number: 1,
+          step_reason: 'failed',
+          failure_category: 'System Failure',
+        }],
+        root_cause_failure_id: 'failure-1',
+      }, 'trajectory')
+      const codeTraceCase = codeTraceBenchCase({
+        traj_id: 'code-trace',
+        agent: 'agent',
+        model: 'model',
+        task_name: 'task',
+        step_count: 1,
+        incorrect_stages: [{ stage_id: 1, incorrect_step_ids: [1] }],
+      }, 'trajectory')
+      const agentRxFindings = agentRxPredictionsToFindings('agent-rx', {
+        failure_case: 9,
+        step_number: 1,
+      })
+      const codeTraceFindings = codeTracerPredictionsToFindings('code-trace', [{
+        stage_id: 1,
+        incorrect_step_ids: [1],
+      }])
+      const evidenceResolver = traceStoreEvidenceResolver<{ traceStore: TraceAnalysisStore }>(
+        (input) => input.traceStore,
+      )
       const runs: RunRecord[] = otlpToRunRecords('{}', {
         experimentId: 'consumer',
         candidateId: 'candidate',
@@ -482,7 +538,14 @@ try {
         emitControlIntegrityFindings,
         ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
-        golden,
+        reviewedFindingDigest,
+        completenessDecision,
+        analystCase,
+        agentRxCase,
+        agentRxFindings,
+        codeTraceCase,
+        codeTraceFindings,
+        evidenceResolver,
         report,
         terminalOutcome,
         taskScore,

@@ -21,12 +21,11 @@ export type {
 export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
-  type AnalystArtifact,
-  type AnalystScenario,
-  type BuildAnalystSurfaceDispatchOptions,
-  buildAnalystSurfaceDispatch,
-  type FailureModeRecallJudgeOptions,
-  failureModeRecallJudge,
+  type BuildTraceAnalystSurfaceDispatchOptions,
+  buildTraceAnalystSurfaceDispatch,
+  type TraceAnalystArtifact,
+  type TraceAnalystScenario,
+  traceAnalystQualityJudge,
 } from './analyst-surface'
 // ── Auto-PR ──────────────────────────────────────────────────────────
 export {
@@ -397,6 +396,13 @@ export type {
   TraceSpan,
 } from './types'
 export { isProposedCandidate, labelTrustRank } from './types'
+export type {
+  AutoevalsScoreLike,
+  AutoevalsScorerLike,
+  PhoenixEvaluationResultLike,
+  PhoenixEvaluatorLike,
+} from './upstream-evaluators'
+export { autoevalsScorerJudge, phoenixEvaluatorJudge } from './upstream-evaluators'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type CodeSurfaceVerification,

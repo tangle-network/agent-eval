@@ -8,9 +8,24 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
-- `CONTROL_INTEGRITY_ANALYST` deterministically checks the existing `SupervisorRunSources` and `SupervisorRunTree` for duplicate or detached identities, parent cycles, impossible event order, orphan terminal events, and steer request/acknowledgement mismatches.
-  Missing transcripts, profile ids, worker logs, and declared tree gaps remain explicitly unavailable and never become a zero or a clean result.
-  The analyst emits ordinary `AnalystFinding` records and adds no run schema or execution authority.
+- `CONTROL_INTEGRITY_ANALYST` checks existing `SupervisorRunSources` and `SupervisorRunTree` values for duplicate or detached identities, parent cycles, impossible event order, orphan terminal events, and steer request or acknowledgement mismatches.
+  Missing transcripts, profile ids, worker logs, and declared tree gaps remain unavailable instead of becoming clean results.
+- Trace analyst benchmarks now retain dataset revision, case and runner metadata, labeled issue recall, finding precision, critical-step accuracy, citation coverage, label-location agreement, actual location resolution, clean-case failures and false positives, repeat agreement, execution order, failures, latency, every reported token counter, and cost.
+- Paired analyst comparisons average repetitions within independent cases before computing intervals and report both case and observation counts.
+- Phoenix Evaluators and Braintrust Autoevals can run as campaign judges through structural adapters, without copying either scorer implementation.
+- `defineTraceAnalyst()` provides the minimal custom analyst entry point and requires an explicit cost declaration.
+- Reviewed analyst runs can become feedback trajectories while preserving findings, evidence, per-analyst status, trace references, and cost.
+- AgentRx and CodeTraceBench label adapters load public step-localization and root-cause cases without imposing a trajectory format, and output translators score the maintained upstream engines directly.
+
+### Changed
+
+- Generated analyst findings become digest-bound review requests and cannot enter optimizer data until every finding has one explicit external decision.
+- Every analyst run requires one independent completeness assessment before optimizer export.
+  Optimizer quality is F1 over confirmed findings and independently identified misses, with precision, recall, F1, and counts retained in metadata.
+- Trace analyst prompt optimization scores typed issue identity and exact evidence locations instead of matching phrases in generated prose.
+- Analyst benchmarks use the upstream `linear-sum-assignment` implementation to maximize one-to-one label coverage and then critical-step localization, so duplicate predictions reduce precision and ambiguous findings are scored consistently.
+- AgentRx evaluation targets its published root-cause task by default, accepts its maintained `failures` report shape, and treats `failure_case: 0` as a no-error prediction.
+- CodeTraceBench uses its published incorrect-step labels by default; the combined incorrect-and-unuseful task must be selected explicitly.
 
 ## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
 
@@ -28,7 +43,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Claude Code child agents remain workers when they delegate, and steer counts use the original tool-use request id.
 - Malformed journal and worker-control rows make dependent checks unavailable instead of producing missing-parent claims or clean zero counts.
 
-### Changed — BREAKING
+### Breaking changes
 
 - Custom `SupervisorRunSources` readers must add `managerTokens` and `workerTokens` to `SourceLimits`.
   Set each field to `null` only when that role's aggregate token channel is complete; otherwise set the reason it is unavailable.

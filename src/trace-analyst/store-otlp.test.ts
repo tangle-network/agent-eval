@@ -5,7 +5,7 @@
  * filler. Real fixtures, real file IO, no mocks.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -15,6 +15,8 @@ import { TraceAnalysisValidationError } from './errors'
 import { compileSearchRegex } from './store'
 import {
   OtlpFileTraceStore,
+  otlpTextToTraceAnalysisStore,
+  TraceFileMalformedError,
   TraceFileMissingError,
   TraceFileTooLargeError,
   TraceNotFoundError,
@@ -24,6 +26,13 @@ const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.json
   .pathname
 
 describe('OtlpFileTraceStore', () => {
+  it('indexes OpenInference JSONL text without a temporary file', async () => {
+    const store = otlpTextToTraceAnalysisStore(await readFile(TINY_FIXTURE, 'utf8'))
+
+    expect((await store.getOverview()).total_traces).toBe(2)
+    expect(() => otlpTextToTraceAnalysisStore('')).toThrow(/must not be empty/)
+  })
+
   it('throws TraceFileMissingError synchronously for a missing path so callers fail fast', async () => {
     const store = new OtlpFileTraceStore({ path: '/nonexistent/path/does-not-exist.jsonl' })
     await expect(store.ensureIndexed()).rejects.toBeInstanceOf(TraceFileMissingError)
@@ -294,7 +303,7 @@ describe('OtlpFileTraceStore', () => {
     ).rejects.toBeInstanceOf(TraceNotFoundError)
   })
 
-  it('skips malformed JSONL lines silently — bug class: one bad line nukes the whole dataset', async () => {
+  it('rejects malformed JSONL with its exact line and byte position', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'trace-analyst-'))
     const path = join(tmp, 'trace.jsonl')
     try {
@@ -311,8 +320,14 @@ describe('OtlpFileTraceStore', () => {
       })
       await writeFile(path, `${goodLine}\nthis is not json\n${goodLine}\n`, 'utf8')
       const store = new OtlpFileTraceStore({ path })
-      const overview = await store.getOverview()
-      expect(overview.total_traces).toBe(1)
+      const failure = await store.getOverview().catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(TraceFileMalformedError)
+      expect(failure).toMatchObject({
+        path,
+        line_number: 2,
+        byte_offset: Buffer.byteLength(`${goodLine}\n`, 'utf8'),
+        code: 'capture_integrity',
+      })
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }

@@ -171,13 +171,16 @@
     "@tangle-network/agent-core": "0.4.28",
     "@tangle-network/agent-interface": "0.39.0",
     "hono": "^4.12.32",
+    "linear-sum-assignment": "1.0.9",
     "re2js": "2.8.6",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
+    "@arizeai/phoenix-evals": "^2.1.0",
     "@biomejs/biome": "^2.5.5",
     "@types/node": "^26.1.1",
+    "autoevals": "^0.3.0",
     "esbuild": "^0.28.1",
     "fast-check": "^4.9.0",
     "husky": "^9.1.7",

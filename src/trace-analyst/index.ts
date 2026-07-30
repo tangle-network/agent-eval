@@ -28,6 +28,7 @@ export {
   TraceAnalysisLimitError,
   TraceAnalysisStoreContractError,
   TraceAnalysisValidationError,
+  TraceFileMalformedError,
   TraceFileMissingError,
   TraceFileTooLargeError,
   TraceNotFoundError,
@@ -93,6 +94,7 @@ export { createBoundedTraceAnalysisStore, TRACE_ANALYSIS_LIMITS } from './store'
 export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
+  otlpTextToTraceAnalysisStore,
   type ToolSpansToTraceAnalysisStoreOptions,
 } from './store-otlp'
 export { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'

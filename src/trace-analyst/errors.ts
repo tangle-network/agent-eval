@@ -1,4 +1,10 @@
-import { AgentEvalError, LimitExceededError, NotFoundError, ValidationError } from '../errors'
+import {
+  AgentEvalError,
+  CaptureIntegrityError,
+  LimitExceededError,
+  NotFoundError,
+  ValidationError,
+} from '../errors'
 
 /** Invalid trace-tool arguments, including malformed filters and regexes. */
 export class TraceAnalysisValidationError extends ValidationError {
@@ -57,6 +63,19 @@ export class TraceFileTooLargeError extends TraceAnalysisLimitError {
     this.path = path
     this.size_bytes = size_bytes
     this.max_bytes = max_bytes
+  }
+}
+
+export class TraceFileMalformedError extends CaptureIntegrityError {
+  readonly path: string
+  readonly line_number: number
+  readonly byte_offset: number
+
+  constructor(path: string, line_number: number, byte_offset: number, cause?: unknown) {
+    super(`malformed trace row in ${path} at line ${line_number}, byte ${byte_offset}`, { cause })
+    this.path = path
+    this.line_number = line_number
+    this.byte_offset = byte_offset
   }
 }
 
