@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CostLedger } from '../cost-ledger'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import { createDspyRlmTraceEngine } from './dspy-rlm-engine'
@@ -36,7 +36,7 @@ async function main() {
   const toolResult = await tool.json()
   fs.writeFileSync(outputPath, JSON.stringify({
     answer: 'The run failed after one inspected trace.',
-    findings: [],
+    findings: __FINDINGS__,
     trajectory: [{ tool: 'getDatasetOverview', result: toolResult.result }],
     modelCalls: 1,
     runtime: { engine: 'test-bridge' },
@@ -47,6 +47,10 @@ main().catch((error) => {
   process.exit(1)
 })
 `
+
+function childScript(findingsJson: string): string {
+  return CHILD_SCRIPT.replace('__FINDINGS__', findingsJson)
+}
 
 describe('createDspyRlmTraceEngine', () => {
   it('runs a child through authenticated model and trace callbacks', async () => {
@@ -95,7 +99,7 @@ describe('createDspyRlmTraceEngine', () => {
       maxOutputTokens: 64,
       runner: {
         command: process.execPath,
-        args: ['-e', CHILD_SCRIPT, '--'],
+        args: ['-e', childScript('[]'), '--'],
       },
       timeoutMs: 5_000,
     })
@@ -141,6 +145,87 @@ describe('createDspyRlmTraceEngine', () => {
           usageUnknown: false,
         }),
       ])
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        provider.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  it('drops invalid finding rows, keeps valid ones, and counts the rejections', async () => {
+    const provider = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'investigate' } }],
+          usage: { prompt_tokens: 3, completion_tokens: 2 },
+        }),
+      )
+    })
+    await new Promise<void>((resolve, reject) => {
+      provider.once('error', reject)
+      provider.listen(0, '127.0.0.1', () => {
+        provider.off('error', reject)
+        resolve()
+      })
+    })
+    const address = provider.address()
+    if (!address || typeof address === 'string') throw new Error('provider did not bind')
+
+    const tool: TraceAnalysisToolDescriptor = {
+      namespace: 'traces',
+      name: 'getDatasetOverview',
+      description: 'Return a summary.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      handler: async () => ({ total_traces: 1 }),
+    }
+    const validFinding = {
+      severity: 'high',
+      claim: 'Step 2 failed before recovery.',
+      subject: 'incorrect-step-2',
+      confidence: 0.9,
+      evidence: [{ uri: 'trace://run-1/span/step-2' }],
+    }
+    const invalidFinding = { ...validFinding, subject: 'step:2' }
+    const engine = createDspyRlmTraceEngine({
+      baseUrl: `http://127.0.0.1:${address.port}/v1`,
+      apiKey: 'provider-secret',
+      model: 'model-a',
+      pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+      maxCostUsd: 0.1,
+      maxOutputTokens: 64,
+      runner: {
+        command: process.execPath,
+        args: ['-e', childScript(JSON.stringify([validFinding, invalidFinding])), '--'],
+      },
+      timeoutMs: 5_000,
+    })
+
+    const log = vi.fn()
+    try {
+      const result = await engine.analyze({
+        analystId: 'failure-mode',
+        question: 'What failed?',
+        instructions: 'Inspect the trace.',
+        tools: [tool],
+        limits: {
+          maxIterations: 2,
+          maxLlmCalls: 1,
+          maxToolCalls: 1,
+          maxOutputChars: 1_000,
+        },
+        costLedger: new CostLedger(),
+        costPhase: 'analyst.test',
+        log,
+      })
+
+      expect(result.findings).toEqual([expect.objectContaining({ claim: validFinding.claim })])
+      expect(result.runtime.rejectedFindings).toBe(1)
+      expect(log).toHaveBeenCalledWith('finding rejected: bridge row failed schema validation', {
+        engine: 'dspy-rlm',
+        index: 1,
+        reason: expect.stringContaining('finding-subject grammar'),
+      })
     } finally {
       await new Promise<void>((resolve, reject) => {
         provider.close((error) => (error ? reject(error) : resolve()))

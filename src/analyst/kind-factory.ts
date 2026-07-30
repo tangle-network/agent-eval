@@ -224,6 +224,10 @@ async function evidenceIsResolvable(
     ]),
   )
   for (const citation of finding.evidence) {
+    if (citation.excerpt !== undefined && citation.excerpt.trim().length < MINIMUM_EXCERPT_LENGTH) {
+      rejectEvidence(context, citation.uri, 'excerpt is too short to verify')
+      return false
+    }
     const traceLocation = parseTraceSpanEvidenceUri(citation.uri)
     if (traceLocation) {
       const storeContext = context.signal ? { signal: context.signal } : undefined
@@ -247,8 +251,11 @@ async function evidenceIsResolvable(
           storeContext,
         )
         const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
-        if (!span || !containsExactText(span, citation.excerpt)) {
-          rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span')
+        if (
+          !span ||
+          !containsExactText([span.attributes, span.status_message], citation.excerpt)
+        ) {
+          rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span content')
           return false
         }
       }
@@ -261,8 +268,20 @@ async function evidenceIsResolvable(
       rejectEvidence(context, citation.uri, 'citation is not a supplied finding or trace span')
       return false
     }
-    if (citation.excerpt !== undefined && !containsExactText(referenced, citation.excerpt)) {
-      rejectEvidence(context, citation.uri, 'excerpt is not present in the cited finding')
+    if (
+      citation.excerpt !== undefined &&
+      !containsExactText(
+        [
+          referenced.claim,
+          referenced.rationale,
+          referenced.recommended_action,
+          referenced.validation_plan,
+          referenced.evidence_refs?.map((evidence) => evidence.excerpt),
+        ],
+        citation.excerpt,
+      )
+    ) {
+      rejectEvidence(context, citation.uri, 'excerpt is not present in the cited finding content')
       return false
     }
   }
@@ -279,6 +298,12 @@ function parseFindingEvidenceUri(uri: string): string | null {
   }
 }
 
+/** Excerpts must quote enough content to be checkable evidence, not an
+ *  incidental substring of an id, status, or timestamp. */
+const MINIMUM_EXCERPT_LENGTH = 8
+
+/** Matches only within the passed content-bearing values — callers must not
+ *  hand this whole spans or findings, or identifier fields become quotable. */
 function containsExactText(value: unknown, expected: string, depth = 0): boolean {
   if (!expected || depth > 20) return false
   if (typeof value === 'string') return value.includes(expected)

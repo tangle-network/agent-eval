@@ -12,6 +12,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -308,7 +309,14 @@ def _build_dspy_tools(dspy: Any, tool_specs: list[dict[str, Any]]) -> list[Any]:
 
 @contextmanager
 def _probed_interpreter(dspy: Any) -> Any:
-    deno_command = _build_deno_command(dspy)
+    with tempfile.TemporaryDirectory(prefix="agent-eval-dspy-rlm-") as import_map_dir:
+        import_map_path = Path(import_map_dir) / "import-map.json"
+        import_map_path.write_text(json.dumps(_PYODIDE_IMPORT_MAP), encoding="utf-8")
+        deno_command = _build_deno_command(dspy, import_map_path)
+        yield from _run_probed_interpreter(dspy, deno_command)
+
+
+def _run_probed_interpreter(dspy: Any, deno_command: list[str]) -> Any:
     interpreter = dspy.PythonInterpreter(deno_command=deno_command)
     try:
         try:
@@ -327,7 +335,17 @@ def _probed_interpreter(dspy: Any) -> Any:
         interpreter.shutdown()
 
 
-def _build_deno_command(dspy: Any) -> list[str]:
+# DSPy's runner.js imports npm:pyodide without a version, and --no-config means
+# no lockfile: a cold cache would execute whatever npm dist-tags.latest points
+# at. The import map pins the interpreter the sandbox runs; transitive npm
+# ranges below this root are the residual unpinned surface.
+_PYODIDE_VERSION = "314.0.3"
+_PYODIDE_IMPORT_MAP = {
+    "imports": {"npm:pyodide/pyodide.js": f"npm:pyodide@{_PYODIDE_VERSION}/pyodide.js"}
+}
+
+
+def _build_deno_command(dspy: Any, import_map_path: Path) -> list[str]:
     deno_executable = _find_deno_executable()
     runner_path = _dspy_runner_path(dspy)
     deno_cache_dir = _deno_cache_dir(deno_executable)
@@ -338,6 +356,7 @@ def _build_deno_command(dspy: Any) -> list[str]:
         str(deno_executable),
         "run",
         "--no-config",
+        f"--import-map={import_map_path}",
         "--node-modules-dir=none",
         f"--allow-read={runner_path},{deno_cache_dir}",
         str(runner_path),
@@ -584,12 +603,17 @@ def _validate_finding(value: Any, index: int) -> dict[str, Any]:
 
 
 def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
+    # The sandbox record is derived from the command that actually ran, so a
+    # permission or config regression shows up in every run record instead of
+    # being masked by a constant. Scoped paths are machine-specific and are
+    # recorded as counts, never as raw paths, to keep run records shareable.
     return {
         "engine": "dspy-rlm",
         "packages": {
             "agent-eval-rpc": _package_version("agent-eval-rpc"),
             "dspy": _package_version("dspy"),
             "deno": _package_version("deno"),
+            "pyodide": _PYODIDE_VERSION,
         },
         "python": {
             "implementation": sys_implementation_name(),
@@ -599,11 +623,37 @@ def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
             "sourceSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         },
         "sandbox": {
+            # The startup probe already raised unless it returned exactly "2".
             "probeOutput": "2",
             "runtime": "deno-pyodide",
-            "config": "none",
-            "nodeModulesDir": "none",
+            **_sandbox_attestation(deno_command),
         },
+    }
+
+
+def _sandbox_attestation(deno_command: list[str]) -> dict[str, Any]:
+    options = [part for part in deno_command[1:] if part.startswith("-")]
+    permissions: dict[str, Any] = {}
+    for part in options:
+        if part in ("-A", "--allow-all"):
+            permissions["allow-all"] = {"scoped": False}
+            continue
+        if part.startswith("--allow-"):
+            name, _, value = part.partition("=")
+            scope_entries = [entry for entry in value.split(",") if entry] if value else []
+            permissions[name.removeprefix("--")] = (
+                {"scoped": True, "paths": len(scope_entries)}
+                if scope_entries
+                else {"scoped": False}
+            )
+    node_modules_dir = next(
+        (part.partition("=")[2] for part in options if part.startswith("--node-modules-dir")),
+        "default",
+    )
+    return {
+        "config": "none" if "--no-config" in options else "discovered",
+        "nodeModulesDir": node_modules_dir or "default",
+        "permissions": permissions,
     }
 
 
@@ -647,6 +697,10 @@ def _prediction_field(prediction: Any, name: str) -> Any:
 
 def _prediction_string(prediction: Any, name: str) -> str:
     value = _prediction_field(prediction, name)
+    # Model output: surrounding whitespace is presentation, not a data-integrity
+    # defect, and this runs after every model call is already paid for.
+    if isinstance(value, str):
+        value = value.strip()
     return _require_non_empty_string(value, f"DSPy RLM prediction {name}")
 
 

@@ -126,7 +126,13 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
             timeoutMs,
             ...(request.signal ? { signal: request.signal } : {}),
           })
-          const parsed = parseBridgeOutput(raw)
+          const parsed = parseBridgeOutput(raw, (index, reason) => {
+            request.log?.('finding rejected: bridge row failed schema validation', {
+              engine: 'dspy-rlm',
+              index,
+              reason,
+            })
+          })
           const successfulCompletions = modelProxy.successfulCompletions()
           const requestAttempts = modelProxy.requestAttempts()
           if (parsed.modelCalls !== successfulCompletions) {
@@ -169,7 +175,10 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
   }
 }
 
-function parseBridgeOutput(value: unknown): Omit<TraceAnalysisEngineResult, 'toolCalls'> {
+function parseBridgeOutput(
+  value: unknown,
+  onRejectedFinding: (index: number, reason: string) => void,
+): Omit<TraceAnalysisEngineResult, 'toolCalls'> {
   if (!isRecord(value)) throw new Error('DSPy RLM bridge output must be an object')
   if (typeof value.answer !== 'string' || !value.answer.trim()) {
     throw new Error('DSPy RLM bridge returned no answer')
@@ -177,16 +186,24 @@ function parseBridgeOutput(value: unknown): Omit<TraceAnalysisEngineResult, 'too
   if (!Array.isArray(value.findings)) {
     throw new Error('DSPy RLM bridge findings must be an array')
   }
-  const findings: RawAnalystFinding[] = value.findings.map((finding, index) => {
+  // Findings are model output: one malformed row is model noise, not a bridge
+  // fault, and the rest of the paid investigation must survive it. Rejected
+  // rows are logged per row and counted in runtime.rejectedFindings.
+  let rejectedFindings = 0
+  const findings: RawAnalystFinding[] = []
+  value.findings.forEach((finding, index) => {
     const parsed = RawAnalystFindingSchema.safeParse(finding)
     if (!parsed.success) {
-      throw new Error(
-        `DSPy RLM bridge finding ${index} is invalid: ${parsed.error.issues
+      rejectedFindings += 1
+      onRejectedFinding(
+        index,
+        parsed.error.issues
           .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; ')}`,
+          .join('; '),
       )
+      return
     }
-    return parsed.data
+    findings.push(parsed.data)
   })
   if (!Array.isArray(value.trajectory)) {
     throw new Error('DSPy RLM bridge trajectory must be an array')
@@ -202,7 +219,7 @@ function parseBridgeOutput(value: unknown): Omit<TraceAnalysisEngineResult, 'too
     findings,
     trajectory: value.trajectory,
     modelCalls: value.modelCalls as number,
-    runtime: value.runtime,
+    runtime: { ...value.runtime, rejectedFindings },
   }
 }
 

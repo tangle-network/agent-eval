@@ -53,7 +53,7 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
     monkeypatch.setattr(
         dspy_rlm_bridge,
         "_build_deno_command",
-        lambda _dspy: DENO_COMMAND,
+        lambda _dspy, _import_map: DENO_COMMAND,
     )
     monkeypatch.setattr(
         dspy_rlm_bridge,
@@ -84,6 +84,7 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
                 "agent-eval-rpc": "0.137.0",
                 "dspy": "3.2.1",
                 "deno": "2.7.14",
+                "pyodide": dspy_rlm_bridge._PYODIDE_VERSION,
             },
             "python": {"implementation": "cpython", "version": "3.13.0"},
             "bridge": {
@@ -96,6 +97,7 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
                 "runtime": "deno-pyodide",
                 "config": "none",
                 "nodeModulesDir": "none",
+                "permissions": {"allow-read": {"scoped": True, "paths": 2}},
             },
         }
     }
@@ -105,6 +107,25 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
     observed_umask = os.umask(previous_umask)
     os.umask(observed_umask)
     assert observed_umask == previous_umask
+
+
+def test_sandbox_attestation_derives_from_the_real_command() -> None:
+    widened = dspy_rlm_bridge._sandbox_attestation(
+        ["/bin/deno", "run", "--allow-net", "-A", "--node-modules-dir=auto", "/r.js"]
+    )
+    assert widened == {
+        "config": "discovered",
+        "nodeModulesDir": "auto",
+        "permissions": {
+            "allow-all": {"scoped": False},
+            "allow-net": {"scoped": False},
+        },
+    }
+    assert dspy_rlm_bridge._sandbox_attestation(DENO_COMMAND) == {
+        "config": "none",
+        "nodeModulesDir": "none",
+        "permissions": {"allow-read": {"scoped": True, "paths": 2}},
+    }
 
 
 def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
@@ -117,7 +138,7 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
     monkeypatch.setattr(
         dspy_rlm_bridge,
         "_build_deno_command",
-        lambda _dspy: DENO_COMMAND,
+        lambda _dspy, _import_map: DENO_COMMAND,
     )
     monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-read")
@@ -178,7 +199,7 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
             {
                 "severity": "high",
                 "claim": "Step 2 failed before recovery.",
-                "subject": "step:2",
+                "subject": "incorrect-step-2",
                 "confidence": 0.95,
                 "rationale": "The span has the first error.",
                 "recommended_action": "Fix step 2.",
@@ -253,17 +274,43 @@ def test_deno_command_ignores_repo_configuration_and_node_modules(
     monkeypatch.setattr(dspy_rlm_bridge, "_dspy_runner_path", lambda _dspy: runner)
     monkeypatch.setattr(dspy_rlm_bridge, "_deno_cache_dir", lambda _deno: cache)
 
-    command = dspy_rlm_bridge._build_deno_command(SimpleNamespace())
+    import_map = tmp_path / "import-map.json"
+    command = dspy_rlm_bridge._build_deno_command(SimpleNamespace(), import_map)
 
     assert command == [
         str(deno.resolve()),
         "run",
         "--no-config",
+        f"--import-map={import_map}",
         "--node-modules-dir=none",
         f"--allow-read={runner},{cache}",
         str(runner),
     ]
     assert "--node-modules-dir=auto" not in command
+
+
+def test_probed_interpreter_pins_pyodide_through_the_import_map(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, Any] = {}
+
+    def capture_command(_dspy: Any, import_map_path: Path) -> list[str]:
+        observed["import_map"] = json.loads(import_map_path.read_text())
+        return DENO_COMMAND
+
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(dspy_rlm_bridge, "_build_deno_command", capture_command)
+    with dspy_rlm_bridge._probed_interpreter(_fake_dspy(calls)):
+        pass
+
+    assert observed["import_map"] == {
+        "imports": {
+            "npm:pyodide/pyodide.js": (
+                f"npm:pyodide@{dspy_rlm_bridge._PYODIDE_VERSION}/pyodide.js"
+            )
+        }
+    }
+    assert calls["interpreter_shutdown"] is True
 
 
 def test_broken_sandbox_fails_before_lm_construction(
@@ -276,7 +323,7 @@ def test_broken_sandbox_fails_before_lm_construction(
     monkeypatch.setattr(
         dspy_rlm_bridge,
         "_build_deno_command",
-        lambda _dspy: DENO_COMMAND,
+        lambda _dspy, _import_map: DENO_COMMAND,
     )
     input_path, output_path = _write_analyze_input(tmp_path)
     monkeypatch.setattr(
@@ -381,7 +428,7 @@ def test_analyze_rejects_malformed_findings(
     monkeypatch.setattr(
         dspy_rlm_bridge,
         "_build_deno_command",
-        lambda _dspy: DENO_COMMAND,
+        lambda _dspy, _import_map: DENO_COMMAND,
     )
     monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
     input_path, output_path = _write_analyze_input(tmp_path)
@@ -395,6 +442,38 @@ def test_analyze_rejects_malformed_findings(
         dspy_rlm_bridge.main()
 
     assert not output_path.exists()
+
+
+def test_analyze_strips_model_output_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    fake_dspy = _fake_dspy(
+        calls,
+        answer="The first failing operation is step 2.\n",
+        findings_json="[]\n",
+        invoke_tool=False,
+    )
+    monkeypatch.setattr(dspy_rlm_bridge, "_load_dspy", lambda: fake_dspy)
+    monkeypatch.setattr(
+        dspy_rlm_bridge,
+        "_build_deno_command",
+        lambda _dspy, _import_map: DENO_COMMAND,
+    )
+    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
+    input_path, output_path = _write_analyze_input(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dspy-rlm-bridge", "--input", str(input_path), "--output", str(output_path)],
+    )
+
+    dspy_rlm_bridge.main()
+
+    output = json.loads(output_path.read_text())
+    assert output["answer"] == "The first failing operation is step 2."
+    assert output["findings"] == []
 
 
 def _write_analyze_input(tmp_path: Path) -> tuple[Path, Path]:
@@ -443,6 +522,7 @@ def _fake_dspy(
     calls: dict[str, Any],
     *,
     findings_json: str | None = None,
+    answer: str = "The first failing operation is step 2.",
     invoke_tool: bool = True,
     probe_output: str = "2\n",
 ) -> Any:
@@ -451,7 +531,7 @@ def _fake_dspy(
             {
                 "severity": "high",
                 "claim": "Step 2 failed before recovery.",
-                "subject": "step:2",
+                "subject": "incorrect-step-2",
                 "confidence": 0.95,
                 "rationale": "The span has the first error.",
                 "recommended_action": "Fix step 2.",
@@ -515,7 +595,7 @@ def _fake_dspy(
                     "spans": [],
                 }
             return SimpleNamespace(
-                answer="The first failing operation is step 2.",
+                answer=answer,
                 findings_json=findings_json if findings_json is not None else valid_findings,
                 trajectory=[{"iteration": 1, "tool": "viewTrace"}],
             )

@@ -183,9 +183,48 @@ describe('runTraceAnalyst', () => {
     expect(result.findings).toEqual([])
     expect(log).toHaveBeenCalledWith('finding rejected: unresolved evidence', {
       uri: 'trace://run-1/span/step-2',
-      reason: 'excerpt is not present in the cited span',
+      reason: 'excerpt is not present in the cited span content',
     })
   })
+
+  it.each([
+    ['message.assistant', 'span name'],
+    ['test-agent', 'agent name'],
+    ['2026-07-30T00:00:00.000Z', 'timestamp'],
+  ])('rejects the fabricated excerpt %s quoting a %s instead of content', async (excerpt) => {
+    const log = vi.fn()
+    const result = await runTraceAnalyst({
+      definition,
+      engine: findingEngine({ uri: 'trace://run-1/span/step-2', excerpt }),
+      store,
+      context: { ...context(), log },
+    })
+
+    expect(result.findings).toEqual([])
+    expect(log).toHaveBeenCalledWith('finding rejected: unresolved evidence', {
+      uri: 'trace://run-1/span/step-2',
+      reason: 'excerpt is not present in the cited span content',
+    })
+  })
+
+  it.each([['step-2'], ['OK'], ['0']])(
+    'rejects the excerpt %s as too short to verify',
+    async (excerpt) => {
+      const log = vi.fn()
+      const result = await runTraceAnalyst({
+        definition,
+        engine: findingEngine({ uri: 'trace://run-1/span/step-2', excerpt }),
+        store,
+        context: { ...context(), log },
+      })
+
+      expect(result.findings).toEqual([])
+      expect(log).toHaveBeenCalledWith('finding rejected: unresolved evidence', {
+        uri: 'trace://run-1/span/step-2',
+        reason: 'excerpt is too short to verify',
+      })
+    },
+  )
 
   it('accepts a supplied finding citation and checks its excerpt', async () => {
     const prior = makeFinding({
