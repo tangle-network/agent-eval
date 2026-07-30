@@ -8,13 +8,36 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- **Breaking:** `AnalystBenchmarkCase` now requires `clusterId` and `labelState`.
+  A case must identify its independent source unit and state whether labels prove an issue, prove no issue, or leave the outcome unknown.
+  The benchmark no longer guesses either field from an empty issue list.
 - `agent-eval analyst-benchmark` compares an empty baseline with a real-model AgentRx or CodeTraceBench analyst through any OpenAI-compatible endpoint.
   It requires an explicit case limit and immutable dataset revision, validates labeled spans before paid work, uses benchmark-specific output adapters, and writes complete JSON plus Markdown results.
-  CodeTraceBench cases also require hashed final verification artifacts, and limited hash samples report source-versus-selected class, agent, model, difficulty, and solved distributions without claiming representativeness.
+  CodeTraceBench cases also retain hashed final verification artifacts, parse known upstream result formats, and mark missing outcomes unavailable.
+  Limited hash samples report source-versus-selected class, agent, model, difficulty, and solved distributions without claiming representativeness.
+  The published all-row score is retained, while a calibrated view measures solved label-empty trajectories as trusted negatives and keeps failed or unknown label-empty trajectories unlabeled.
+  Interrupted runs persist hash-chained observations and resume only when public inputs, model settings, local paths, and endpoint still match.
+  Reports include pooled and per-case step-localization metrics, exact source-quote coverage, final-result availability, and imported runtime duration.
+  External runner failures retain reported token, cost, duration, and metadata instead of becoming telemetry gaps.
+  Public model runs use one structured model call over a bounded trace projection.
+  A durable run-wide cost ledger enforces `--max-cost-usd` across concurrency and resume.
+  Paid responses are cached under deterministic call ids before settlement, so resume neither loses a completed response nor creates a second reservation after interruption.
+  Completed results retain a digest of every behavior-defining source file and are read through one strict recursive schema.
+  The repository includes one pinned 32-case CodeTraceBench input, two complete 64-call GLM-5.2 Agent Eval runs, and a failure-inclusive run of pinned CodeTracer on the same trajectories.
+  Exact source, input, result, resume, usage, cost, and secret-scan checks are committed with the results.
 
 ### Fixed
 
 - Canonical `trace://<trace>/span/<span>` evidence is classified as span evidence instead of artifact evidence.
+- Public model output selects positive integer assistant step ids.
+  The runner builds canonical trace URIs and exact action excerpts from those spans, and rejects missing, non-assistant, or empty steps.
+- Capped concurrent paid calls wait for active reservations to settle when their final spend may still fit.
+  They fail immediately only when committed spend plus the next enforced maximum exceeds the run limit.
+- Releasing a single-run lock now removes its process exit listener instead of leaking one callback per completed campaign.
+- Phoenix evaluator tests use OpenTelemetry Core 2.10 instead of the vulnerable 1.x transitive dependency.
+- CodeTracer prediction adapters accept the published schema and both flat and grouped step-label outputs emitted by CodeTracer 0.2.
+- The CodeTraceBench model prompt now matches the public incorrect-step task by scoring wrong actions that are later recovered, instead of treating final task success as proof that earlier steps were correct.
+- JSON-text finding rows reach the existing per-row schema repair instead of failing the entire trace analyst response.
 
 ## [0.137.0] - 2026-07-29 - trace analyst measurement and review integrity
 

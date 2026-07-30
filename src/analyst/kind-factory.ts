@@ -56,6 +56,15 @@ export interface TraceAnalystKindSpec {
   actorDescription: string
   /** Tool functions the actor may call. Pick narrow subsets via `ANALYST_TOOL_GROUPS`. */
   buildTools: (store: TraceAnalysisStore) => AxFunction[]
+  /**
+   * Deterministically prepare one bounded context value before model work.
+   * Returning a string uses Ax's long-context path without tools. Returning
+   * undefined keeps the normal tool-driven path.
+   */
+  prepareContext?: (
+    store: TraceAnalysisStore,
+    ctx: AnalystContext,
+  ) => string | undefined | Promise<string | undefined>
   /** Bounded semantic subqueries. `maxCalls: 0` disables model fan-out. */
   subqueries?: { maxCalls: number; maxParallel?: number }
   /** Actor turn cap. Default 12. */
@@ -70,6 +79,8 @@ export interface TraceAnalystKindSpec {
   postProcess?: (row: RawAnalystFinding, ctx: AnalystContext) => RawAnalystFinding | null
   /** Minimum citations per finding. Default 1; rows below it are rejected. */
   minimumEvidenceCitations?: number
+  /** Reject a substantive report when no structured finding survives validation. */
+  requireStructuredFindings?: boolean
 }
 
 export interface CreateTraceAnalystKindOpts {
@@ -135,7 +146,12 @@ export function createTraceAnalystKind(
         tags: costTags,
       })
       try {
-        const tools = spec.buildTools(store)
+        const preparedContext = await spec.prepareContext?.(store, ctx)
+        if (preparedContext !== undefined && typeof preparedContext !== 'string') {
+          throw new TypeError(`Trace analyst '${spec.id}' prepareContext must return a string`)
+        }
+        const tools = preparedContext === undefined ? spec.buildTools(store) : []
+        const analysisMode = preparedContext === undefined ? 'tool-loop' : 'prepared-context'
         const maxSubqueries = spec.subqueries?.maxCalls ?? 0
         const maxParallel = spec.subqueries?.maxParallel ?? 2
         const priorContext = renderPriorFindings(ctx.priorFindings)
@@ -157,6 +173,8 @@ export function createTraceAnalystKind(
         ctx.log?.(`analyst.kind ${spec.id} forward`, {
           max_subqueries: maxSubqueries,
           tool_count: tools.length,
+          analysis_mode: analysisMode,
+          prepared_context_chars: preparedContext?.length ?? 0,
           tags: ctx.tags,
         })
 
@@ -173,6 +191,7 @@ export function createTraceAnalystKind(
           maxParallelSubqueries: maxParallel,
           maxTurns: spec.maxTurns ?? 12,
           maxRuntimeChars: spec.maxRuntimeChars ?? 6000,
+          ...(preparedContext !== undefined ? { context: preparedContext } : {}),
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         })
         const { report, findings: submittedFindings } = completed
@@ -228,7 +247,12 @@ export function createTraceAnalystKind(
           if (!parsed) continue
           const postProcessed = processRow(parsed)
           if (!postProcessed) continue
-          out.push(toAnalystFinding(spec, version, postProcessed))
+          out.push(
+            toAnalystFinding(spec, version, postProcessed, {
+              analysis_mode: analysisMode,
+              analysis_turn_count: completed.turnCount,
+            }),
+          )
         }
 
         ctx.log?.(`analyst.kind ${spec.id} done`, {
@@ -275,6 +299,11 @@ export function createTraceAnalystKind(
             })
           }
           if (out.length === 0) {
+            if (spec.requireStructuredFindings) {
+              throw new Error(
+                `Trace analyst '${spec.id}' produced no valid structured findings after ${completed.turnCount} turns: ${truncateForContext(report, 600)}`,
+              )
+            }
             const fallback = processRow({
               claim: 'Analyst produced a diagnosis but no structured findings — see report.',
               rationale: report.slice(0, 1500),
@@ -283,7 +312,13 @@ export function createTraceAnalystKind(
               evidence: [{ uri: 'report://summary', excerpt: report.slice(0, 2000) }],
             })
             if (fallback) {
-              out.push(toAnalystFinding(spec, version, fallback, { outcome: 'extraction_failed' }))
+              out.push(
+                toAnalystFinding(spec, version, fallback, {
+                  analysis_mode: analysisMode,
+                  analysis_turn_count: completed.turnCount,
+                  outcome: 'extraction_failed',
+                }),
+              )
             } else {
               throw new Error(
                 `Trace analyst '${spec.id}' produced a substantive report, but no finding satisfied its acceptance rules`,

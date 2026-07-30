@@ -3,40 +3,66 @@ import type { AnalystBenchmarkResult } from './benchmark'
 import { compareAnalystRunners } from './benchmark-comparison'
 import { renderAnalystBenchmarkMarkdown } from './benchmark-report'
 import { compareAnalystRunners as compareAnalystRunnersPublic } from './index'
+import { makeFinding } from './types'
 
 function result(): AnalystBenchmarkResult {
   const observations = ['baseline', 'candidate'].flatMap((runnerId) =>
-    ['bad', 'clean'].map((caseId, repetition) => ({
-      runnerId,
-      caseId,
-      repetition,
-      executionIndex: repetition,
-      latencyMs: runnerId === 'baseline' ? 20 : 10,
-      findings: [],
-      caseTags: [caseId],
-      caseMetadata: { source: 'fixture' },
-      runnerMetadata: { runner: runnerId },
-      score: {
-        expectedIssueCount: caseId === 'bad' ? 1 : 0,
-        matchedIssueIds: runnerId === 'candidate' && caseId === 'bad' ? ['issue'] : [],
-        missedIssueIds: runnerId === 'candidate' || caseId === 'clean' ? [] : ['issue'],
-        supportedFindingIndexes: runnerId === 'candidate' && caseId === 'bad' ? [0] : [],
-        unsupportedFindingIndexes: [],
-        unlabeledEvidence: [],
-        issueRecall: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
-        findingPrecision: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
-        f1: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
-        criticalStepAccuracy: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
-        citationCoverage: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
-        citationLabelAgreement: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
-        cleanFalsePositive: false,
-      },
-      usage: {
-        calls: 1,
-        tokens: { input: 10, output: 2, reasoning: 1, cached: 3, cacheWrite: 4 },
-        cost: { kind: 'observed' as const, usd: 0.001 },
-      },
-    })),
+    ['bad', 'clean'].map((caseId, repetition) => {
+      const isSupportedCandidate = runnerId === 'candidate' && caseId === 'bad'
+      return {
+        runnerId,
+        caseId,
+        clusterId: caseId,
+        labelState: caseId === 'bad' ? ('positive' as const) : ('trusted-negative' as const),
+        repetition,
+        executionIndex: repetition,
+        latencyMs: runnerId === 'baseline' ? 20 : 10,
+        latencySource: 'benchmark-clock' as const,
+        findings: isSupportedCandidate
+          ? [
+              makeFinding({
+                analyst_id: 'fixture',
+                area: 'failure-mode',
+                subject: 'failure-mode:tool-failure',
+                claim: 'The tool failed',
+                severity: 'high',
+                confidence: 1,
+                evidence_refs: [
+                  {
+                    kind: 'span',
+                    uri: 'trace://bad/span/step-1',
+                    excerpt: 'failed',
+                  },
+                ],
+              }),
+            ]
+          : [],
+        caseTags: [caseId],
+        caseMetadata: { source: 'fixture' },
+        runnerMetadata: { runner: runnerId },
+        score: {
+          expectedIssueCount: caseId === 'bad' ? 1 : 0,
+          matchedIssueIds: isSupportedCandidate ? ['issue'] : [],
+          missedIssueIds: runnerId === 'candidate' || caseId === 'clean' ? [] : ['issue'],
+          supportedFindingIndexes: isSupportedCandidate ? [0] : [],
+          unsupportedFindingIndexes: [],
+          unlabeledEvidence: [],
+          issueRecall: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
+          findingPrecision: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
+          f1: runnerId === 'candidate' || caseId === 'clean' ? 1 : 0,
+          criticalStepAccuracy: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
+          citationCoverage: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
+          citationExcerptCoverage: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
+          citationLabelAgreement: caseId === 'bad' ? (runnerId === 'candidate' ? 1 : 0) : null,
+          predictionOnLabelEmptyCase: false,
+        },
+        usage: {
+          calls: 1,
+          tokens: { input: 10, output: 2, reasoning: 1, cached: 3, cacheWrite: 4 },
+          cost: { kind: 'observed' as const, usd: 0.001 },
+        },
+      }
+    }),
   )
   return {
     provenance: {
@@ -49,6 +75,7 @@ function result(): AnalystBenchmarkResult {
       repetitions: 1,
       maxConcurrency: 1,
       runnerOrderSeed: 0,
+      metadata: { populationRepresentativenessProven: true },
     },
     observations,
     summaries: ['baseline', 'candidate'].map((runnerId) => ({
@@ -56,20 +83,35 @@ function result(): AnalystBenchmarkResult {
       plannedRuns: 2,
       completedRuns: 2,
       failedRuns: 0,
+      issueBearingRuns: 1,
+      trustedNegativeRuns: 1,
+      unlabeledRuns: 0,
       issueRecall: runnerId === 'candidate' ? 1 : 0,
       findingPrecision: runnerId === 'candidate' ? 1 : 0,
       f1: runnerId === 'candidate' ? 1 : 0,
+      macroIssueRecall: runnerId === 'candidate' ? 1 : 0,
+      macroFindingPrecision: runnerId === 'candidate' ? 1 : 0,
+      macroF1: runnerId === 'candidate' ? 1 : 0,
       criticalStepAccuracy: runnerId === 'candidate' ? 1 : 0,
       citationCoverage: runnerId === 'candidate' ? 1 : 0,
+      citationExcerptCoverage: runnerId === 'candidate' ? 1 : 0,
       citationLabelAgreement: runnerId === 'candidate' ? 1 : 0,
       citationResolution: null,
       citationResolutionUnknownRuns: 0,
       unresolvedCitations: 0,
       citationResolutionErrors: 0,
-      cleanCaseFalsePositiveRate: 0,
-      cleanCaseFailureRate: 0,
-      runAgreement: null,
+      trustedNegativeFalsePositiveRate: 0,
+      trustedNegativeFailureRate: 0,
+      unlabeledPredictionRate: null,
+      unlabeledFailureRate: null,
+      predictionAgreement: null,
+      predictionAgreementCases: 0,
+      matchedLabelAgreement: null,
+      matchedLabelAgreementCases: 0,
       latencyMs: { min: 10, mean: 10, p50: 10, p95: 10, max: 10 },
+      benchmarkClockLatencyRuns: 2,
+      runnerReportedLatencyRuns: 0,
+      latencyUnknownRuns: 0,
       calls: 2,
       callsUnknownRuns: 0,
       inputTokens: 20,
@@ -101,7 +143,7 @@ describe('compareAnalystRunners', () => {
       baselineMean: 0,
       candidateMean: 1,
       meanDelta: 1,
-      enoughCasesForInference: false,
+      minimumSampleMet: false,
     })
     expect(comparison.metrics.find((metric) => metric.metric === 'latencyMs')).toMatchObject({
       pairedCases: 2,
@@ -110,6 +152,14 @@ describe('compareAnalystRunners', () => {
       candidateMean: 10,
       meanDelta: -10,
       direction: 'lower',
+    })
+    expect(
+      comparison.metrics.find((metric) => metric.metric === 'citationExcerptCoverage'),
+    ).toMatchObject({
+      pairedCases: 1,
+      baselineMean: 0,
+      candidateMean: 1,
+      meanDelta: 1,
     })
   })
 
@@ -182,7 +232,7 @@ describe('compareAnalystRunners', () => {
     expect(comparison.metrics.find((metric) => metric.metric === 'f1')).toMatchObject({
       pairedCases: 1,
       pairedObservations: 20,
-      enoughCasesForInference: false,
+      minimumSampleMet: false,
     })
   })
 
@@ -235,6 +285,137 @@ describe('compareAnalystRunners', () => {
     ).toThrow('compareAnalystRunners: latencyMs produced non-finite comparison output')
   })
 
+  it('does not compare uncaptured latency as local import time', () => {
+    const benchmark = result()
+    benchmark.observations.find(
+      (observation) => observation.runnerId === 'candidate' && observation.caseId === 'bad',
+    )!.latencyMs = null
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+
+    expect(comparison.metrics.find((metric) => metric.metric === 'latencyMs')).toMatchObject({
+      pairedCases: 1,
+      pairedClusters: 1,
+      pairedObservations: 1,
+      eligibleObservations: 2,
+      baselineMissingObservations: 0,
+      candidateMissingObservations: 1,
+      asymmetricMissingObservations: 1,
+      survivorOnly: true,
+    })
+  })
+
+  it('counts cross-missing observations per paired repetition instead of netting them out', () => {
+    const benchmark = result()
+    benchmark.observations.find(
+      (observation) => observation.runnerId === 'baseline' && observation.caseId === 'bad',
+    )!.latencyMs = null
+    benchmark.observations.find(
+      (observation) => observation.runnerId === 'candidate' && observation.caseId === 'clean',
+    )!.latencyMs = null
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+
+    expect(comparison.metrics.find((metric) => metric.metric === 'latencyMs')).toMatchObject({
+      eligibleObservations: 2,
+      pairedObservations: 0,
+      baselineMissingObservations: 1,
+      candidateMissingObservations: 1,
+      asymmetricMissingObservations: 2,
+      survivorOnly: true,
+    })
+  })
+
+  it('resamples shared source tasks as one independent cluster', () => {
+    const benchmark = result()
+    for (const observation of benchmark.observations) {
+      observation.clusterId = 'shared-task'
+    }
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+
+    expect(comparison.metrics.find((metric) => metric.metric === 'completion')).toMatchObject({
+      pairedCases: 2,
+      pairedClusters: 1,
+      pairedObservations: 2,
+      minimumSampleMet: false,
+    })
+  })
+
+  it('does not make population claims for a nonrepresentative selection', () => {
+    const benchmark = result()
+    benchmark.provenance.metadata = { populationRepresentativenessProven: false }
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+    const f1 = comparison.metrics.find((metric) => metric.metric === 'f1')
+
+    expect(f1).toMatchObject({
+      populationInferenceEligible: false,
+      inferenceLimitations: expect.arrayContaining(['population-representativeness-not-proven']),
+    })
+  })
+
+  it('reports metrics with no usable pairs instead of dropping the dimension', () => {
+    const benchmark = result()
+    for (const observation of benchmark.observations) observation.usage = undefined
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+    const cost = comparison.metrics.find((metric) => metric.metric === 'costUsd')
+
+    expect(cost).toMatchObject({
+      eligibleObservations: 2,
+      pairedObservations: 0,
+      pairedCases: 0,
+      pairedClusters: 0,
+      baselineMissingObservations: 2,
+      candidateMissingObservations: 2,
+      baselineMean: null,
+      candidateMean: null,
+      meanDelta: null,
+      survivorOnly: true,
+    })
+  })
+
+  it('counts an entirely missing runner row instead of dropping the case', () => {
+    const benchmark = result()
+    benchmark.observations = benchmark.observations.filter(
+      (observation) => !(observation.runnerId === 'candidate' && observation.caseId === 'clean'),
+    )
+
+    const comparison = compareAnalystRunnersPublic(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+
+    expect(comparison.metrics.find((metric) => metric.metric === 'completion')).toMatchObject({
+      eligibleObservations: 2,
+      pairedObservations: 1,
+      candidateMissingObservations: 1,
+      survivorOnly: true,
+    })
+  })
+
   it('renders every summary and run field without hiding unknown values', () => {
     const benchmark = result()
     const report = renderAnalystBenchmarkMarkdown(benchmark, [
@@ -245,7 +426,9 @@ describe('compareAnalystRunners', () => {
       }),
     ])
     expect(report).toContain('Citation coverage')
-    expect(report).toContain('At least 20 independent cases')
+    expect(report).toContain('Quote coverage')
+    expect(report).toContain('Independent clusters')
+    expect(report).toContain('Population inference')
     expect(report).toContain('| candidate | bad |')
     expect(report).toContain('| Dataset revision | abc123 |')
     expect(report).toContain('| Reasoning tokens |')

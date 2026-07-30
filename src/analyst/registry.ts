@@ -31,7 +31,7 @@ import type {
   AnalystRunSummary,
   AnalystUsageReceipt,
 } from './types'
-import { validateUsageSettlementTimeout } from './usage-receipt'
+import { assertValidAnalystUsageReceipt, validateUsageSettlementTimeout } from './usage-receipt'
 
 // ── Hook + policy surfaces ─────────────────────────────────────────
 
@@ -292,7 +292,7 @@ export class AnalystRegistry {
         upstreamFindings:
           runOpts.chainFindings && allFindings.length > 0 ? [...allFindings] : undefined,
         recordUsage: (receipt) => {
-          assertValidUsageReceipt(receipt)
+          assertValidAnalystUsageReceipt(receipt)
           usageReceipts.push(receipt)
         },
       }
@@ -724,44 +724,6 @@ function aggregateCostProvenance(costs: ReadonlyArray<RunCostProvenance>): RunCo
   return costs.some((cost) => cost.kind === 'estimated')
     ? { kind: 'estimated', usd }
     : { kind: 'observed', usd }
-}
-
-function assertValidUsageReceipt(receipt: AnalystUsageReceipt): void {
-  if (receipt.calls !== null && (!Number.isInteger(receipt.calls) || receipt.calls < 0)) {
-    throw new Error('AnalystContext.recordUsage: calls must be a non-negative integer or null')
-  }
-  if (receipt.tokens) {
-    assertNonNegativeFinite(receipt.tokens.input, 'tokens.input')
-    assertNonNegativeFinite(receipt.tokens.output, 'tokens.output')
-    if (receipt.tokens.reasoning !== undefined) {
-      assertNonNegativeFinite(receipt.tokens.reasoning, 'tokens.reasoning')
-      if (receipt.tokens.reasoning > receipt.tokens.output) {
-        throw new Error(
-          'AnalystContext.recordUsage: tokens.reasoning must not exceed tokens.output',
-        )
-      }
-    }
-    if (receipt.tokens.cached !== undefined) {
-      assertNonNegativeFinite(receipt.tokens.cached, 'tokens.cached')
-    }
-    if (receipt.tokens.cacheWrite !== undefined) {
-      assertNonNegativeFinite(receipt.tokens.cacheWrite, 'tokens.cacheWrite')
-    }
-  }
-  if (receipt.cost.kind !== 'uncaptured') {
-    assertNonNegativeFinite(receipt.cost.usd, 'cost.usd')
-  } else if (receipt.cost.usd !== null) {
-    throw new Error('AnalystContext.recordUsage: uncaptured cost.usd must be null')
-  }
-  if (receipt.knownCostUsd !== undefined) {
-    assertNonNegativeFinite(receipt.knownCostUsd, 'knownCostUsd')
-  }
-}
-
-function assertNonNegativeFinite(value: number, field: string): void {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`AnalystContext.recordUsage: ${field} must be a non-negative finite number`)
-  }
 }
 
 /**

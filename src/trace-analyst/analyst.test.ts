@@ -95,47 +95,45 @@ vi.mock('@ax-llm/ax', () => {
         throw new TypeError('functions must be iterable')
       }
       axMock.agentCalls.push({ signature, options })
-      const executor = {
-        async run(ai: unknown, values: unknown, runOptions: unknown) {
-          axMock.forwardCalls.push({ ai, values, options: runOptions })
-          const onTurn = options.actorTurnCallback
-          if (typeof onTurn === 'function') {
-            await onTurn({
-              stage: 'executor',
-              turn: 1,
-              actionLogEntryCount: 1,
-              guidanceLogEntryCount: 0,
-              executorResult: {},
-              code: 'const overview = await traces.getDatasetOverview({})',
-              result: {},
-              output: 'overview loaded',
-              isError: false,
-              thought: 'inspect first',
-            })
-          }
-          if (axMock.forwardError) throw axMock.forwardError
-          return {
-            executorResult: {
-              type: 'final',
-              args: [
-                'Submit the completed trace analysis.',
-                {
-                  report: 'publish_finding hits MaxTurnsExceeded in t000000000001/s004',
-                  findings: ['t000000000001/s004: publish_finding hit MaxTurnsExceeded'],
-                },
-              ],
-            },
-          }
-        },
+      const forward = async (ai: unknown, values: unknown, runOptions: unknown) => {
+        axMock.forwardCalls.push({ ai, values, options: runOptions })
+        const onTurn = options.actorTurnCallback
+        if (typeof onTurn === 'function') {
+          await onTurn({
+            stage: 'executor',
+            turn: 1,
+            actionLogEntryCount: 1,
+            guidanceLogEntryCount: 0,
+            executorResult: {},
+            code: 'const overview = await traces.getDatasetOverview({})',
+            result: {},
+            output: 'overview loaded',
+            isError: false,
+            thought: 'inspect first',
+          })
+        }
+        if (axMock.forwardError) throw axMock.forwardError
+        return {
+          report: 'publish_finding hits MaxTurnsExceeded in t000000000001/s004',
+          findings: ['t000000000001/s004: publish_finding hit MaxTurnsExceeded'],
+        }
+      }
+      return {
+        forward,
         getUsage() {
-          return [{ tokens: { totalTokens: 10 } }]
+          return {
+            actor: [{ tokens: { totalTokens: 10 } }],
+            responder: [{ tokens: { totalTokens: 2 } }],
+          }
         },
         getChatLog() {
-          return [{ role: 'assistant' }]
+          return [
+            { role: 'assistant', name: 'executor' },
+            { role: 'assistant', name: 'responder' },
+          ]
         },
         resetUsage() {},
       }
-      return { executor }
     },
   }
 })
@@ -245,7 +243,9 @@ describe('analyzeTraces', () => {
     })
     expect(result.actorPromptVersion).toMatch(/^trace-analyst-actor-v\d+-/)
     expect(result.usage.actor[0]).toEqual({ tokens: { totalTokens: 10 } })
-    expect(result.chatLog.actor[0]).toEqual({ role: 'assistant' })
+    expect(result.usage.responder[0]).toEqual({ tokens: { totalTokens: 2 } })
+    expect(result.chatLog.actor[0]).toEqual({ role: 'assistant', name: 'executor' })
+    expect(result.chatLog.responder[0]).toEqual({ role: 'assistant', name: 'responder' })
   })
 
   it('honors cancellation while pre-indexing a file source', async () => {

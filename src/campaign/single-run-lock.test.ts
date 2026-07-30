@@ -113,6 +113,18 @@ describe('acquireSingleRunLock', () => {
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false }).release()).not.toThrow()
   })
 
+  it('removes its process exit listener when released', () => {
+    const lockPath = join(dir(), 'gym.lock')
+    const before = process.listenerCount('exit')
+    const lock = acquireSingleRunLock({ lockPath })
+
+    expect(process.listenerCount('exit')).toBe(before + 1)
+    lock.release()
+    expect(process.listenerCount('exit')).toBe(before)
+    lock.release()
+    expect(process.listenerCount('exit')).toBe(before)
+  })
+
   it('throws naming a live holder', () => {
     const lockPath = join(dir(), 'gym.lock')
     writeFileSync(
@@ -213,7 +225,10 @@ describe('acquireSingleRunLock', () => {
 
   it('fails closed on an interrupted recovery marker', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(`${lockPath}.reclaim`, '999999999')
+    writeFileSync(
+      `${lockPath}.reclaim`,
+      JSON.stringify({ host: hostname(), nonce: 'active-reclaimer', pid: process.pid }),
+    )
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
       /recovery is already in progress/,
     )

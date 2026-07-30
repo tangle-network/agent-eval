@@ -1,322 +1,132 @@
 import { describe, expect, it } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import {
-  type AnalystBenchmarkCase,
   type AnalystBenchmarkRunner,
+  registryBenchmarkRunner,
   runAnalystBenchmark,
-  scoreAnalystFindings,
   traceStoreEvidenceResolver,
 } from './benchmark'
-import { makeFinding } from './types'
-
-const root = 'trace://run/span/root'
-const failed = 'trace://run/span/failed-tool'
-const corrected = 'trace://run/span/corrected-output'
-
-function finding(input: { subject: string; evidence: string[]; idBasis?: string }) {
-  return makeFinding({
-    analyst_id: 'test',
-    area: 'failure-mode',
-    subject: input.subject,
-    claim: `Finding for ${input.subject}`,
-    id_basis: input.idBasis,
-    severity: 'high',
-    confidence: 1,
-    evidence_refs: input.evidence.map((uri) => ({ kind: 'span' as const, uri })),
-  })
-}
-
-const badCase: AnalystBenchmarkCase<string> = {
-  id: 'known-bad',
-  input: 'bad',
-  expectedIssues: [
-    {
-      id: 'tool-failure',
-      subjects: ['failure-mode:tool-failure'],
-      evidence: [{ kind: 'span', uri: failed }],
-      criticalEvidence: [{ kind: 'span', uri: failed }],
-    },
-    {
-      id: 'unsupported-claim',
-      subjects: ['failure-mode:unsupported-claim'],
-      evidence: [{ kind: 'span', uri: corrected }],
-    },
-  ],
-  labeledEvidence: [
-    { kind: 'span', uri: root },
-    { kind: 'span', uri: failed },
-    { kind: 'span', uri: corrected },
-  ],
-  tags: ['failed', 'tool-use'],
-  metadata: { source: 'fixture' },
-}
-
-const cleanCase: AnalystBenchmarkCase<string> = {
-  id: 'known-good',
-  input: 'good',
-  expectedIssues: [],
-  labeledEvidence: [{ kind: 'span', uri: root }],
-}
-
-describe('scoreAnalystFindings', () => {
-  it('scores issue recall, finding precision, first-bad-step location, and citations separately', () => {
-    const result = scoreAnalystFindings(badCase, [
-      finding({ subject: 'failure-mode:tool-failure', evidence: [failed] }),
-      finding({ subject: 'failure-mode:unsupported-claim', evidence: [corrected] }),
-      finding({ subject: 'failure-mode:invented', evidence: ['trace://run/span/missing'] }),
-    ])
-    expect(result.matchedIssueIds).toEqual(['tool-failure', 'unsupported-claim'])
-    expect(result.issueRecall).toBe(1)
-    expect(result.findingPrecision).toBeCloseTo(2 / 3)
-    expect(result.f1).toBeCloseTo(0.8)
-    expect(result.criticalStepAccuracy).toBe(1)
-    expect(result.citationCoverage).toBe(1)
-    expect(result.citationLabelAgreement).toBeCloseTo(2 / 3)
-    expect(result.unlabeledEvidence).toHaveLength(1)
-  })
-
-  it('does not match negated or coincidental claim text', () => {
-    const result = scoreAnalystFindings(badCase, [
-      finding({ subject: 'failure-mode:not-a-timeout', evidence: [root] }),
-    ])
-    expect(result.matchedIssueIds).toEqual([])
-    expect(result.issueRecall).toBe(0)
-    expect(result.findingPrecision).toBe(0)
-  })
-
-  it('separates missing citations from invalid citations', () => {
-    const uncited = makeFinding({
-      analyst_id: 'test',
-      area: 'failure-mode',
-      subject: 'failure-mode:tool-failure',
-      claim: 'The tool failed',
-      severity: 'high',
-      confidence: 1,
-      evidence_refs: [],
-    })
-    const result = scoreAnalystFindings(badCase, [uncited])
-    expect(result.citationCoverage).toBe(0)
-    expect(result.citationLabelAgreement).toBe(0)
-    expect(result.issueRecall).toBe(0)
-  })
-
-  it('matches findings and expected issues one-to-one', () => {
-    const duplicate = finding({
-      subject: 'failure-mode:tool-failure',
-      evidence: [failed],
-      idBasis: 'duplicate',
-    })
-    const result = scoreAnalystFindings(
-      {
-        id: 'one-to-one',
-        expectedIssues: [
-          { id: 'first', evidence: [{ kind: 'span', uri: failed }] },
-          { id: 'second', evidence: [{ kind: 'span', uri: failed }] },
-        ],
-      },
-      [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] }), duplicate],
-    )
-
-    expect(result.matchedIssueIds).toEqual(['first', 'second'])
-    expect(result.supportedFindingIndexes).toHaveLength(2)
-
-    const oneFinding = scoreAnalystFindings(
-      {
-        id: 'one-prediction',
-        expectedIssues: [
-          { id: 'first', evidence: [{ kind: 'span', uri: failed }] },
-          { id: 'second', evidence: [{ kind: 'span', uri: failed }] },
-        ],
-      },
-      [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] })],
-    )
-    expect(oneFinding.issueRecall).toBe(0.5)
-    expect(oneFinding.supportedFindingIndexes).toEqual([0])
-  })
-
-  it('counts duplicate predictions as unsupported', () => {
-    const result = scoreAnalystFindings(badCase, [
-      finding({ subject: 'failure-mode:tool-failure', evidence: [failed] }),
-      finding({
-        subject: 'failure-mode:tool-failure',
-        evidence: [failed],
-        idBasis: 'duplicate',
-      }),
-    ])
-
-    expect(result.issueRecall).toBe(0.5)
-    expect(result.findingPrecision).toBe(0.5)
-    expect(result.unsupportedFindingIndexes).toHaveLength(1)
-  })
-
-  it('uses the maximum-cardinality assignment that best localizes critical steps', () => {
-    const wrongStep = finding({
-      subject: 'failure-mode:tool-failure',
-      evidence: [root],
-      idBasis: 'wrong-step',
-    })
-    const criticalStep = finding({
-      subject: 'failure-mode:tool-failure',
-      evidence: [failed],
-      idBasis: 'critical-step',
-    })
-    const result = scoreAnalystFindings(
-      {
-        id: 'critical-assignment',
-        expectedIssues: [
-          {
-            id: 'tool-failure',
-            subjects: ['failure-mode:tool-failure'],
-            criticalEvidence: [{ kind: 'span', uri: failed }],
-          },
-        ],
-        labeledEvidence: [
-          { kind: 'span', uri: root },
-          { kind: 'span', uri: failed },
-        ],
-      },
-      [wrongStep, criticalStep],
-    )
-
-    expect(result.issueRecall).toBe(1)
-    expect(result.criticalStepAccuracy).toBe(1)
-    expect(result.supportedFindingIndexes).toEqual([1])
-    expect(result.unsupportedFindingIndexes).toEqual([0])
-  })
-
-  it('scores critical-step location independently from issue identity', () => {
-    const result = scoreAnalystFindings(
-      {
-        id: 'independent-critical-step',
-        expectedIssues: [
-          {
-            id: 'wrong-category',
-            areas: ['performance'],
-            criticalEvidence: [{ kind: 'span', uri: failed }],
-          },
-        ],
-      },
-      [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] })],
-    )
-
-    expect(result.issueRecall).toBe(0)
-    expect(result.findingPrecision).toBe(0)
-    expect(result.f1).toBe(0)
-    expect(result.criticalStepAccuracy).toBe(1)
-  })
-
-  it('allows category-only labels and rejects labels with no matching field', () => {
-    expect(
-      scoreAnalystFindings(
-        { id: 'category-label', expectedIssues: [{ id: 'failure', areas: ['failure-mode'] }] },
-        [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] })],
-      ).issueRecall,
-    ).toBe(1)
-    expect(() =>
-      scoreAnalystFindings({ id: 'bad-label', expectedIssues: [{ id: 'vague' }] }, []),
-    ).toThrow(/must identify a finding/)
-  })
-})
+import { badCase, cleanCase } from './benchmark-test-fixtures'
+import { AnalystRegistry } from './registry'
+import type { AnalystRunInputs, AnalystUsageReceipt } from './types'
 
 describe('runAnalystBenchmark', () => {
-  it('compares runners across bad and clean cases with stability, usage, failures, and latency', async () => {
-    let unstableCall = 0
-    const strong: AnalystBenchmarkRunner<string> = {
-      id: 'strong',
-      async analyze(input) {
-        return {
-          findings:
-            input === 'good'
-              ? []
-              : [
-                  finding({ subject: 'failure-mode:tool-failure', evidence: [failed] }),
-                  finding({ subject: 'failure-mode:unsupported-claim', evidence: [corrected] }),
-                ],
-          usage: {
-            calls: 1,
-            tokens: { input: 10, output: 5 },
-            cost: { kind: 'observed', usd: 0.01 },
-          },
-        }
-      },
-    }
-    const unstable: AnalystBenchmarkRunner<string> = {
-      id: 'unstable',
-      async analyze(input) {
-        unstableCall += 1
-        if (input === 'good') {
-          return {
-            findings: [finding({ subject: 'failure-mode:invented', evidence: [root] })],
-          }
-        }
-        return {
-          findings:
-            unstableCall % 2 === 0
-              ? []
-              : [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] })],
-        }
-      },
-    }
+  it('retains externally measured latency instead of timing prediction-file reads', async () => {
     const result = await runAnalystBenchmark({
-      cases: [badCase, cleanCase],
-      runners: [strong, unstable],
-      repetitions: 2,
-      maxConcurrency: 1,
-      benchmark: {
-        id: 'analyst-fixture',
-        dataset: { id: 'fixture', revision: 'abc123', split: 'test' },
+      cases: [cleanCase],
+      runners: [
+        {
+          id: 'imported',
+          analyze: () => ({ findings: [], observedLatencyMs: 12_345 }),
+        },
+      ],
+    })
+
+    expect(result.observations[0]).toMatchObject({
+      latencyMs: 12_345,
+      latencySource: 'runner-reported',
+    })
+    expect(result.summaries[0]).toMatchObject({
+      benchmarkClockLatencyRuns: 0,
+      runnerReportedLatencyRuns: 1,
+      latencyUnknownRuns: 0,
+      latencyMs: {
+        min: 12_345,
+        mean: 12_345,
+        p50: 12_345,
+        p95: 12_345,
+        max: 12_345,
       },
     })
-    const strongSummary = result.summaries[0]!
-    expect(strongSummary).toMatchObject({
-      runnerId: 'strong',
-      plannedRuns: 4,
-      completedRuns: 4,
-      failedRuns: 0,
-      issueRecall: 1,
-      findingPrecision: 1,
-      f1: 1,
-      criticalStepAccuracy: 1,
-      citationCoverage: 1,
-      citationLabelAgreement: 1,
-      citationResolution: null,
-      citationResolutionUnknownRuns: 2,
-      unresolvedCitations: 0,
-      citationResolutionErrors: 0,
-      cleanCaseFalsePositiveRate: 0,
-      cleanCaseFailureRate: 0,
-      runAgreement: 1,
-      calls: 4,
-      inputTokens: 40,
-      outputTokens: 20,
-      reasoningTokens: 0,
-      cachedTokens: 0,
-      cacheWriteTokens: 0,
-      reasoningTokenUsageUnknownRuns: 4,
-      cachedTokenUsageUnknownRuns: 4,
-      cacheWriteTokenUsageUnknownRuns: 4,
-      knownCostUsd: 0.04,
+  })
+
+  it('fails an imported run with an invalid observed duration', async () => {
+    const result = await runAnalystBenchmark({
+      cases: [cleanCase],
+      runners: [
+        {
+          id: 'invalid-import',
+          analyze: () => ({ findings: [], observedLatencyMs: Number.NaN }),
+        },
+      ],
     })
-    const unstableSummary = result.summaries[1]!
-    expect(unstableSummary.issueRecall).toBeLessThan(1)
-    expect(unstableSummary.cleanCaseFalsePositiveRate).toBe(1)
-    expect(unstableSummary.runAgreement).toBeLessThan(1)
-    expect(unstableSummary.callsUnknownRuns).toBe(4)
-    expect(result.observations).toHaveLength(8)
+
     expect(result.observations[0]).toMatchObject({
-      caseId: 'known-bad',
-      caseTags: ['failed', 'tool-use'],
-      caseMetadata: { source: 'fixture' },
+      latencySource: 'benchmark-clock',
+      error: {
+        class: 'RangeError',
+        message: 'analyst benchmark observedLatencyMs must be finite and non-negative',
+      },
     })
-    expect(strongSummary.latencyMs.min).toBeGreaterThanOrEqual(0)
-    expect(result.provenance).toMatchObject({
-      id: 'analyst-fixture',
-      dataset: { id: 'fixture', revision: 'abc123', split: 'test' },
-      caseCount: 2,
-      runnerIds: ['strong', 'unstable'],
-      repetitions: 2,
-      maxConcurrency: 1,
-      runnerOrderSeed: 0,
+  })
+
+  it('fails imported runs with invalid usage instead of publishing corrupt totals', async () => {
+    const invalidReceipts: Array<{ field: string; usage: AnalystUsageReceipt }> = [
+      {
+        field: 'calls',
+        usage: {
+          calls: -1,
+          tokens: { input: 1, output: 1 },
+          cost: { kind: 'observed', usd: 0 },
+        },
+      },
+      {
+        field: 'tokens.input',
+        usage: {
+          calls: 1,
+          tokens: { input: Number.NaN, output: 1 },
+          cost: { kind: 'observed', usd: 0 },
+        },
+      },
+      {
+        field: 'tokens.output',
+        usage: {
+          calls: 1,
+          tokens: { input: 1, output: 1.5 },
+          cost: { kind: 'observed', usd: 0 },
+        },
+      },
+      {
+        field: 'cost.usd',
+        usage: {
+          calls: 1,
+          tokens: { input: 1, output: 1 },
+          cost: { kind: 'estimated', usd: -0.01 },
+        },
+      },
+    ]
+
+    for (const { field, usage } of invalidReceipts) {
+      const result = await runAnalystBenchmark({
+        cases: [cleanCase],
+        runners: [{ id: field, analyze: () => ({ findings: [], usage }) }],
+      })
+      expect(result.summaries[0]).toMatchObject({ completedRuns: 0, failedRuns: 1 })
+      expect(result.observations[0]?.error?.message).toContain(field)
+      expect(result.observations[0]?.usage).toBeUndefined()
+    }
+  })
+
+  it('keeps explicitly uncaptured imported duration out of latency statistics', async () => {
+    const result = await runAnalystBenchmark({
+      cases: [cleanCase],
+      runners: [
+        {
+          id: 'imported-without-duration',
+          analyze: () => ({ findings: [], observedLatencyMs: null }),
+        },
+      ],
+    })
+
+    expect(result.observations[0]).toMatchObject({
+      latencyMs: null,
+      latencySource: 'uncaptured',
+    })
+    expect(result.summaries[0]).toMatchObject({
+      latencyMs: null,
+      benchmarkClockLatencyRuns: 0,
+      runnerReportedLatencyRuns: 0,
+      latencyUnknownRuns: 1,
     })
   })
 
@@ -334,108 +144,219 @@ describe('runAnalystBenchmark', () => {
     })
     expect(result.summaries[0]).toMatchObject({ completedRuns: 0, failedRuns: 1 })
     expect(result.observations[0]?.error).toEqual({ class: 'Error', message: 'provider down' })
-    expect(result.summaries[0]?.runAgreement).toBeNull()
+    expect(result.summaries[0]?.predictionAgreement).toBeNull()
+    expect(result.summaries[0]?.matchedLabelAgreement).toBeNull()
   })
 
-  it('does not report perfect quality when every clean-case run fails', async () => {
-    const result = await runAnalystBenchmark({
-      cases: [cleanCase],
-      runners: [
-        {
-          id: 'dead',
-          async analyze() {
-            throw new Error('unavailable')
+  it('does not report success when cancellation happens during the final job', async () => {
+    const controller = new AbortController()
+
+    await expect(
+      runAnalystBenchmark({
+        cases: [cleanCase],
+        runners: [
+          {
+            id: 'canceling',
+            analyze() {
+              controller.abort(new Error('benchmark canceled'))
+              return { findings: [] }
+            },
           },
-        },
+        ],
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow('benchmark canceled')
+  })
+
+  it('retains registry usage and diagnostics when an analyst fails', async () => {
+    const registry = new AnalystRegistry()
+    registry.register({
+      id: 'broken',
+      description: 'Fails after recording provider usage.',
+      inputKind: 'custom',
+      cost: { kind: 'llm' },
+      version: '1.0.0',
+      async analyze(_input, context) {
+        context.recordUsage?.({
+          calls: 1,
+          tokens: { input: 10, output: 2 },
+          cost: { kind: 'observed', usd: 0.01 },
+        })
+        throw new Error('invalid provider response')
+      },
+    })
+    const input: AnalystRunInputs = { custom: { broken: {} } }
+
+    const result = await runAnalystBenchmark({
+      cases: [{ ...badCase, input }],
+      runners: [
+        registryBenchmarkRunner({
+          id: 'registry',
+          registry,
+          failOnAnalystFailure: true,
+        }),
       ],
     })
 
+    expect(result.observations[0]).toMatchObject({
+      error: {
+        class: 'AnalystRunFailure',
+        message: 'broken: Error: invalid provider response',
+      },
+      usage: {
+        calls: 1,
+        tokens: { input: 10, output: 2 },
+        cost: { kind: 'observed', usd: 0.01 },
+      },
+    })
     expect(result.summaries[0]).toMatchObject({
       completedRuns: 0,
       failedRuns: 1,
-      issueRecall: null,
-      findingPrecision: null,
-      f1: null,
-      cleanCaseFalsePositiveRate: null,
-      cleanCaseFailureRate: 1,
+      calls: 1,
+      inputTokens: 10,
+      outputTokens: 2,
+      knownCostUsd: 0.01,
     })
   })
 
-  it('checks citation resolution separately from agreement with labeled locations', async () => {
-    const missing = 'trace://run/span/missing'
-    const testCase: AnalystBenchmarkCase<string> = {
-      ...badCase,
-      expectedIssues: [badCase.expectedIssues[0]!],
-      labeledEvidence: [...(badCase.labeledEvidence ?? []), { kind: 'span', uri: missing }],
-    }
-    const result = await runAnalystBenchmark({
-      cases: [testCase],
-      runners: [
-        {
-          id: 'citing',
-          async analyze() {
-            return {
-              findings: [
-                finding({
-                  subject: 'failure-mode:tool-failure',
-                  evidence: [failed, missing],
-                }),
-              ],
-            }
-          },
-        },
-      ],
-      resolveEvidence: ({ evidence }) => evidence.uri !== missing,
-    })
-
-    expect(result.observations[0]?.score.citationLabelAgreement).toBe(1)
-    expect(result.observations[0]?.evidenceResolution).toMatchObject({
-      checked: 2,
-      resolved: 1,
-      validity: 0.5,
-      unresolvedEvidence: [{ kind: 'span', uri: missing }],
-      errors: [],
-    })
-    expect(result.summaries[0]).toMatchObject({
-      citationResolution: 0.5,
-      unresolvedCitations: 1,
-      citationResolutionErrors: 0,
-    })
-  })
-
-  it('records citation resolver failures without turning them into analyst failures', async () => {
+  it('retains imported telemetry when an external runner reports failure', async () => {
     const result = await runAnalystBenchmark({
       cases: [badCase],
       runners: [
         {
-          id: 'citing',
-          async analyze() {
+          id: 'external',
+          analyze() {
             return {
-              findings: [
-                finding({
-                  subject: 'failure-mode:tool-failure',
-                  evidence: [failed],
-                }),
-              ],
+              findings: [],
+              observedLatencyMs: 23_900,
+              usage: {
+                calls: 2,
+                tokens: { input: 3_765, output: 1_231 },
+                cost: { kind: 'observed', usd: 0.0496 },
+              },
+              metadata: { outputStatus: 'missing' },
+              error: {
+                class: 'MissingUpstreamPrediction',
+                message: 'upstream reported success without a prediction file',
+              },
             }
           },
         },
       ],
-      resolveEvidence() {
-        throw new Error('trace store unavailable')
-      },
     })
 
-    expect(result.observations[0]?.error).toBeUndefined()
-    expect(result.observations[0]?.evidenceResolution).toMatchObject({
-      validity: null,
-      errors: [{ class: 'Error', message: 'trace store unavailable' }],
+    expect(result.observations[0]).toMatchObject({
+      latencyMs: 23_900,
+      latencySource: 'runner-reported',
+      usage: {
+        calls: 2,
+        tokens: { input: 3_765, output: 1_231 },
+        cost: { kind: 'observed', usd: 0.0496 },
+      },
+      runnerMetadata: { outputStatus: 'missing' },
+      error: {
+        class: 'MissingUpstreamPrediction',
+        message: 'upstream reported success without a prediction file',
+      },
     })
     expect(result.summaries[0]).toMatchObject({
-      citationResolution: null,
-      citationResolutionUnknownRuns: 1,
-      citationResolutionErrors: 1,
+      completedRuns: 0,
+      failedRuns: 1,
+      benchmarkClockLatencyRuns: 0,
+      runnerReportedLatencyRuns: 1,
+      latencyUnknownRuns: 0,
+      calls: 2,
+      inputTokens: 3_765,
+      outputTokens: 1_231,
+      knownCostUsd: 0.0496,
+      callsUnknownRuns: 0,
+      tokenUsageUnknownRuns: 0,
+      costUnknownRuns: 0,
     })
+  })
+
+  it('resumes exact planned jobs without rerunning persisted observations', async () => {
+    let calls = 0
+    const runner: AnalystBenchmarkRunner<string> = {
+      id: 'resumable',
+      analyze() {
+        calls += 1
+        return { findings: [] }
+      },
+    }
+    const first = await runAnalystBenchmark({ cases: [cleanCase], runners: [runner] })
+    expect(calls).toBe(1)
+
+    const resumed = await runAnalystBenchmark({
+      cases: [cleanCase],
+      runners: [runner],
+      initialObservations: first.observations,
+    })
+
+    expect(calls).toBe(1)
+    expect(resumed.observations).toEqual(first.observations)
+    expect(resumed.summaries).toEqual(first.summaries)
+  })
+
+  it('rejects persisted rows that do not match the current plan', async () => {
+    const runner: AnalystBenchmarkRunner<string> = {
+      id: 'resumable',
+      analyze: () => ({ findings: [] }),
+    }
+    const first = await runAnalystBenchmark({ cases: [cleanCase], runners: [runner] })
+
+    await expect(
+      runAnalystBenchmark({
+        cases: [cleanCase],
+        runners: [runner],
+        initialObservations: [
+          {
+            ...first.observations[0]!,
+            clusterId: 'different-task',
+          },
+        ],
+      }),
+    ).rejects.toThrow(/does not match the current case labels/)
+    await expect(
+      runAnalystBenchmark({
+        cases: [cleanCase],
+        runners: [runner],
+        initialObservations: [
+          {
+            ...first.observations[0]!,
+            score: {
+              ...first.observations[0]!.score,
+              f1: 0,
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/stale or invalid scores/)
+  })
+
+  it('requires explicit, internally consistent case labels', async () => {
+    const runner: AnalystBenchmarkRunner<string> = {
+      id: 'noop',
+      analyze: () => ({ findings: [] }),
+    }
+    await expect(
+      runAnalystBenchmark({
+        cases: [{ ...cleanCase, labelState: 'positive' }],
+        runners: [runner],
+      }),
+    ).rejects.toThrow(/positive case requires/)
+    await expect(
+      runAnalystBenchmark({
+        cases: [{ ...badCase, labelState: 'unlabeled' }],
+        runners: [runner],
+      }),
+    ).rejects.toThrow(/unlabeled case cannot contain/)
+    await expect(
+      runAnalystBenchmark({
+        cases: [{ ...cleanCase, clusterId: '' }],
+        runners: [runner],
+      }),
+    ).rejects.toThrow(/clusterId must not be empty/)
   })
 
   it('keeps runner pairs adjacent and rotates their order between case blocks', async () => {
@@ -466,9 +387,14 @@ describe('runAnalystBenchmark', () => {
 describe('traceStoreEvidenceResolver', () => {
   it('resolves encoded canonical span URIs and rejects unsupported locations', async () => {
     const requests: Array<{ trace_id: string; span_ids: readonly string[] }> = []
+    let receivedSignal: AbortSignal | undefined
     const traceStore = {
-      async viewSpans(input: { trace_id: string; span_ids: readonly string[] }) {
+      async viewSpans(
+        input: { trace_id: string; span_ids: readonly string[] },
+        options?: { signal?: AbortSignal },
+      ) {
         requests.push(input)
+        receivedSignal = options?.signal
         const found = input.trace_id === 'run/a' && input.span_ids[0] === 'span/b'
         return {
           trace_id: input.trace_id,
@@ -485,11 +411,13 @@ describe('traceStoreEvidenceResolver', () => {
       caseId: 'case',
       caseInput: { traceStore },
     }
+    const controller = new AbortController()
 
     await expect(
       resolve({
         ...context,
         evidence: { kind: 'span', uri: 'trace://run%2Fa/span/span%2Fb' },
+        signal: controller.signal,
       }),
     ).resolves.toBe(true)
     await expect(
@@ -505,5 +433,6 @@ describe('traceStoreEvidenceResolver', () => {
       }),
     ).resolves.toBe(false)
     expect(requests).toEqual([{ trace_id: 'run/a', span_ids: ['span/b'] }])
+    expect(receivedSignal).toBe(controller.signal)
   })
 })

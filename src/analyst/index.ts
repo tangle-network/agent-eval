@@ -26,6 +26,8 @@ export type {
   AnalystBenchmarkCase,
   AnalystBenchmarkDatasetRef,
   AnalystBenchmarkDescriptor,
+  AnalystBenchmarkError,
+  AnalystBenchmarkLabelState,
   AnalystBenchmarkObservation,
   AnalystBenchmarkOutput,
   AnalystBenchmarkProvenance,
@@ -48,6 +50,34 @@ export {
   traceStoreEvidenceResolver,
 } from './benchmark'
 export type {
+  AgentRxCalibrationRunnerSummary,
+  AgentRxCalibrationSummary,
+} from './benchmark-agentrx-calibration'
+export {
+  renderAgentRxCalibrationMarkdown,
+  summarizeAgentRxCalibration,
+} from './benchmark-agentrx-calibration'
+export type {
+  AnalystBenchmarkArtifact,
+  AnalystBenchmarkCommandConfig,
+  AnalystBenchmarkCommandDependencies,
+  AnalystBenchmarkLocalRunReceipt,
+  AnalystBenchmarkProgressRow,
+  AnalystBenchmarkRunIdentity,
+  AnalystBenchmarkRunManifest,
+  VerificationAvailabilitySummary,
+} from './benchmark-command'
+export {
+  AGENT_RX_UPSTREAM_REVISION,
+  ANALYST_BENCHMARK_COST_LEDGER_FILE,
+  ANALYST_BENCHMARK_HELP,
+  ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE,
+  ANALYST_BENCHMARK_MANIFEST_FILE,
+  ANALYST_BENCHMARK_OBSERVATIONS_FILE,
+  readAnalystBenchmarkArtifact,
+  runAnalystBenchmarkCommand,
+} from './benchmark-command'
+export type {
   AnalystComparisonMetric,
   AnalystMetricComparison,
   AnalystRunnerComparison,
@@ -63,7 +93,10 @@ export type {
   CodeTraceBenchLabelOptions,
   CodeTraceBenchLabelSet,
   CodeTraceBenchRow,
+  CodeTracerLabelGroup,
   CodeTracerPredictionAdapterOptions,
+  CodeTracerPredictions,
+  CodeTracerStepLabel,
   CodeTraceStageAnnotation,
   StepLabelAdapterOptions,
   UpstreamPredictionAdapterOptions,
@@ -75,7 +108,26 @@ export {
   codeTracerPredictionsToFindings,
   normalizeAgentRxCategory,
   normalizeBenchmarkLabel,
+  roundAgentRxStep,
 } from './benchmark-datasets'
+export {
+  ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM,
+  ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
+  ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+  ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM,
+  ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
+  ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
+  analystBenchmarkDependencyLockDigest,
+  analystBenchmarkImplementationDigest,
+} from './benchmark-implementation'
+export type {
+  CodeTraceCalibrationRunnerSummary,
+  CodeTraceCalibrationSummary,
+} from './benchmark-public-calibration'
+export {
+  renderCodeTraceCalibrationMarkdown,
+  summarizeCodeTraceCalibration,
+} from './benchmark-public-calibration'
 export type {
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
@@ -92,6 +144,7 @@ export {
   loadPublicBenchmarkRows,
   preparePublicAnalystBenchmark,
   publicBenchmarkDistributions,
+  publicBenchmarkProtocolSha256,
   publicBenchmarkSelectionReport,
   selectPublicBenchmarkRows,
 } from './benchmark-real-model'
@@ -107,6 +160,13 @@ export {
   DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
   loadCodeTraceVerificationArtifacts,
 } from './benchmark-verification-artifacts'
+export type {
+  VerificationOutcome,
+  VerificationOutcomeSource,
+  VerificationOutcomeStatus,
+  VerificationResultFile,
+} from './benchmark-verification-outcome'
+export { parseVerificationOutcome } from './benchmark-verification-outcome'
 export type {
   ChatCallOpts,
   ChatClient,

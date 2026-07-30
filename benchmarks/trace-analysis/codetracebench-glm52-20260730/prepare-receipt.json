@@ -1,0 +1,556 @@
+{
+  "archives": [
+    {
+      "bytes": 88428,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc.tar.zst",
+      "sha256": "ae41bdc45bc1abf429b0d5d60d1f55dd79726d4d49740fbdff55ab2c5372ba48",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc"
+    },
+    {
+      "bytes": 107312,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03.tar.zst",
+      "sha256": "22000ee076f6c9c01b1aff76d8d008addd6c751b1ff540bf7f83bf39e4ca9623",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03"
+    },
+    {
+      "bytes": 102947,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43.tar.zst",
+      "sha256": "d3ad080c760e7ea34656c37b89e750146da6bcf03b0dde29da720e85647cb34e",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43"
+    },
+    {
+      "bytes": 112194,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2.tar.zst",
+      "sha256": "d75488cd9e2e2edc9b8f37d543f7a266fc049e5f773db67b585ed4a073287df7",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2"
+    },
+    {
+      "bytes": 106961,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2.tar.zst",
+      "sha256": "47175f4f29f4e785ec8c8f7309a8c3f4a5af3ab252d1dad78f23a57c82ece01d",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2"
+    },
+    {
+      "bytes": 135231,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19.tar.zst",
+      "sha256": "e1d5e7f14306d1728c26fc3047e8c275994cc7bbf01e534493685f1fb9b4d968",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19"
+    },
+    {
+      "bytes": 132122,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93.tar.zst",
+      "sha256": "bb3c631ccbbb10fe411a62740aea544d0cd17b7f6df85ad8edcab0b6d7fc24eb",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93"
+    },
+    {
+      "bytes": 74667,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b.tar.zst",
+      "sha256": "aef503280c13d593cd6658d7b3b131c64ebe1f43c150c5666899f951460ad723",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b"
+    },
+    {
+      "bytes": 130558,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301.tar.zst",
+      "sha256": "62743ea54ed55447daa1f3bf2d45c4a8120648f9980d729a7d725f77661233d7",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301"
+    },
+    {
+      "bytes": 71069,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2.tar.zst",
+      "sha256": "a4a597983047e11330ce5f1832a54fb75c809008054f7c8c45c2f3c116e04dde",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2"
+    },
+    {
+      "bytes": 87322,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b.tar.zst",
+      "sha256": "0c27144b35d0dc9cd3c38c6abff866c9ee4593e8aa5351f767216464408fca02",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b"
+    },
+    {
+      "bytes": 91414,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860.tar.zst",
+      "sha256": "f591f9c3d3350483d9ef241148fe211f2c269608b47b3fc2a9325d40a8d24647",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860"
+    },
+    {
+      "bytes": 128095,
+      "path": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26.tar.zst",
+      "sha256": "9b65643276055a8ea0163e1d94a2d8b430cda0d89a1ec4e261eafa73b31691d8",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26"
+    },
+    {
+      "bytes": 92912,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee.tar.zst",
+      "sha256": "5e798aa547ea3d91a8bf93f93eb076c73d14460babc2352ff2d564ed286e3086",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee"
+    },
+    {
+      "bytes": 92912,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b.tar.zst",
+      "sha256": "5e798aa547ea3d91a8bf93f93eb076c73d14460babc2352ff2d564ed286e3086",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b"
+    },
+    {
+      "bytes": 88255,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181.tar.zst",
+      "sha256": "d5cac2e3b1a92f2eb36bd5490e5ce94f18b07deb1ceb946c18871dc096e97a51",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181"
+    },
+    {
+      "bytes": 70366,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5.tar.zst",
+      "sha256": "3e3886b68e8bdf9f0ae758b8cb16a98a91060d6124c0cc8579c5539f6c628dc2",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5"
+    },
+    {
+      "bytes": 462413,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e.tar.zst",
+      "sha256": "d29ea7bdfd8b4c59325ca6809dc4c25cb79b9359724f4d1ccc52671292cc3c89",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e"
+    },
+    {
+      "bytes": 123249,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc.tar.zst",
+      "sha256": "96054387f11c48e1d3b33910f97d284489a1ea76ff65c15368096d4c3d3aebb7",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc"
+    },
+    {
+      "bytes": 103138,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9.tar.zst",
+      "sha256": "3aa7e94f4984c10f39c4eca79b90761812978c933ff328cd937b1ada9cbaee9b",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9"
+    },
+    {
+      "bytes": 116764,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569.tar.zst",
+      "sha256": "3c5ddc3427a914776c1f22e8f5dd975e8675ab2d5f4104b83255f93370f2afb9",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569"
+    },
+    {
+      "bytes": 233858,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a.tar.zst",
+      "sha256": "2d2adb637888ce0b9f3df55f14e6db1b5bb83c4af9d6d6bf6570fc2e0e2ea7db",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a"
+    },
+    {
+      "bytes": 102426,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230.tar.zst",
+      "sha256": "ec53a6755e3389482fe60937afa340182b9f7d8ed89528ef3f15bd09483038c7",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230"
+    },
+    {
+      "bytes": 135980,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f.tar.zst",
+      "sha256": "2e9aa5662bcb5f44a11292c1616812957edd06eac425d3c1340ebd98d6691d68",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f"
+    },
+    {
+      "bytes": 90075,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772.tar.zst",
+      "sha256": "d78311d444fd11346f5d582032b37ab82666beb99241c9d419667d767ee883d8",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772"
+    },
+    {
+      "bytes": 84457,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064.tar.zst",
+      "sha256": "73fea189ec1fb4679016d68e678f8f80c73f98b38640eb4eae9a94ebaff93160",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064"
+    },
+    {
+      "bytes": 112990,
+      "path": "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591.tar.zst",
+      "sha256": "4aaceaa3a73e4f3a3aa817cb946fbfca0127d7ff17b79b3876618e512bc6d98a",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591"
+    },
+    {
+      "bytes": 29666,
+      "path": "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b.tar.zst",
+      "sha256": "d2b639b4f916506c3ce2b67affdf70bd6226adb6e08a60ac73eb70be8683de1c",
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b"
+    },
+    {
+      "bytes": 33763,
+      "path": "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd.tar.zst",
+      "sha256": "3608933a76473d469008a9bb9e220be26bedcc519b51211866b6bbae0ce9087f",
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd"
+    },
+    {
+      "bytes": 30199,
+      "path": "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5.tar.zst",
+      "sha256": "fb43cdb55b9b51fde235ca0b3cde569d0ef7e52fc92fde584b56ae471d92c461",
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5"
+    },
+    {
+      "bytes": 374213,
+      "path": "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319.tar.zst",
+      "sha256": "900ff8a4caa450fa4c356f26591eadffda3aece328fcda9096e13c24a34259a4",
+      "traceId": "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319"
+    },
+    {
+      "bytes": 29222,
+      "path": "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff.tar.zst",
+      "sha256": "205c04ee98c69b1d9a6a9ef9639ff9d5ce5ae7fa36675f2404e2c4660fba8528",
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff"
+    }
+  ],
+  "datasetRevision": "aa213b84ffb6690fc37ca15766d6ca174ec36d4d",
+  "extracted": [
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064"
+    },
+    {
+      "members": 14,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591"
+    },
+    {
+      "members": 4,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b"
+    },
+    {
+      "members": 4,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd"
+    },
+    {
+      "members": 4,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5"
+    },
+    {
+      "members": 4,
+      "traceId": "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319"
+    },
+    {
+      "members": 4,
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff"
+    }
+  ],
+  "kind": "agent-eval/codetracebench-preparation",
+  "labelsSha256": "5d8b4024c3e2114965cbf2f2fa0124bbf59b3fb134824fa06dd6a38ee07e8412",
+  "normalized": [
+    {
+      "normalizer": "miniswe",
+      "steps": 23,
+      "stepsSha256": "0038b4cac1056a6275e53177696e267655168bc81a7828329167b4213dca9942",
+      "taskSha256": "bd16dc5e4e0a2ae05c197c1518dff6943727a1b16f16cd56ac7def571abd18f6",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 36,
+      "stepsSha256": "c1324a27875e9453a56030ccf454634b9c4aee1a359dfa2c9e8361654d906100",
+      "taskSha256": "017d7da1d6a33b20ffa8a6ac6f762c125235b519e5b7fe5fc3cdece3dd8849f0",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 23,
+      "stepsSha256": "2c32218fa8787e7b33f6a31f696942e33d820ccc5aa6cd72fb217fecac642e4a",
+      "taskSha256": "6cd714074f32f9797c41aa6660b43b1d44dacfe82e5bd0ef5216a4f0fd47bf71",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 32,
+      "stepsSha256": "cd191225d0d2a98039b362f8d6f82ebd09cab71fa7df46b9e5f341ad5d844b10",
+      "taskSha256": "1e048bed54a527b2b474ab4551819416e7ecbe9de969e393e43ec727aab2801b",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 38,
+      "stepsSha256": "8f71e7c00b58e899f942c61e0b2ed082d144840e6f94661b4db978192af4c4c0",
+      "taskSha256": "6e1f9a77d80f86869715dc6f260896dfc31f3128dd60e368e5c52a4663679f30",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 26,
+      "stepsSha256": "06c70923eb6d4262478ff7f929eb1f2c060b138659d61d32801115244caf0078",
+      "taskSha256": "909d3073e68a10fc55f4997f1588a37f447ba82a1f3b78b92f507e2123e434e2",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 30,
+      "stepsSha256": "278cd2676b054ef3cdb9aa1f36b0498f7ddd950dd9e5e6e792920a14421f5e5d",
+      "taskSha256": "6525446d542ca9fb7fee875f6d23ef15cbfd83fcf873a641f988ef1af8f07e57",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 32,
+      "stepsSha256": "0ddf63ed7c2bf3ad378b8652bfe026c83e3bca60f62189aa3b3ae6c6edc02643",
+      "taskSha256": "5aa18915ddc1ba865b144843a7214b417eaae930974b353aeea476a3c2d35d2a",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 43,
+      "stepsSha256": "4fb9308fc3f19c1c9a342b2a5a3d085d49d945a483983b11065ae25ff0a80e7a",
+      "taskSha256": "7d33ba8adfad2e6874b14dcece1192c35e515a1bd4c6c22ac6f96ac09627ef82",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 25,
+      "stepsSha256": "40f655680afe38caac398670ac02b3b384dc56b82ae71fafeceb192c899f1789",
+      "taskSha256": "e3aa89de650c84da9c396dc8bc45991b3cbcdc2576c3e75569fe46c02624eded",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 22,
+      "stepsSha256": "c2e8462569663460762616341896737baf834023d8f78cfdff2b6b1fb5ac146f",
+      "taskSha256": "2534533453d90b8d5ea03310cf39d5ad3cbf048c0185465c6c5b1f53199e1907",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 28,
+      "stepsSha256": "994c2d2ee46ab7c8aa19c35aea4e0a414c6e95925297d0cc83b0ac6beb2dcae2",
+      "taskSha256": "c5155e61e84120be4bdc07e748f1c021f9135d6743939975e169eda8a24b17b2",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 28,
+      "stepsSha256": "1a6da300688af18c3cf94d9f18985388a5f8307064da6ac366f7ca76989481fe",
+      "taskSha256": "6095ccb911b54fc3b51122262c60481b74717fe3d78173f51869285e8600e2ff",
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 21,
+      "stepsSha256": "aa70df48fbbb1c162df26753feb34292a20436c88b4d68a5d96575aa6a671de9",
+      "taskSha256": "6558fe9cc0924858b9454d92c0dc12a8b7c2c55b027608046072a9024d491e0f",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 21,
+      "stepsSha256": "aa70df48fbbb1c162df26753feb34292a20436c88b4d68a5d96575aa6a671de9",
+      "taskSha256": "6558fe9cc0924858b9454d92c0dc12a8b7c2c55b027608046072a9024d491e0f",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 28,
+      "stepsSha256": "ec45881e1413748b225d6a9b75eab0a876ad6b1bed6a59b8ca3df750336fdabd",
+      "taskSha256": "017d7da1d6a33b20ffa8a6ac6f762c125235b519e5b7fe5fc3cdece3dd8849f0",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 35,
+      "stepsSha256": "486359be6ff16046afb848f43059d0d33de840e5aab328ce28c462b42f98942b",
+      "taskSha256": "17ae23f76bbd2c985c3797993e00265fc3bb4efa6fa6a910142278349356a009",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 24,
+      "stepsSha256": "aa371d90949fbf97cb456b4e2f3a903ca9cb156ffa21dbef7599d1eb22c34f6c",
+      "taskSha256": "1f8aebb08e0b217b11f346e19dd724205cd832716c7c0a4bfb74b1a3c0d985e8",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 28,
+      "stepsSha256": "a804249cdf0373a90120db3ca4058e868a282522d64d3e861da499c3915067c4",
+      "taskSha256": "82e9ac064e0c67114cb1564ba9a9cf769a21e4ded94105c1a2af0fb7522dd199",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 25,
+      "stepsSha256": "61a8273d7410148a4b0d7515963044ccc34001985b9ddac9b202a07c753d0d9f",
+      "taskSha256": "da50c08de33408d17ac6bf9764510c3628074c522f4654d056d217c2e01e291c",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 39,
+      "stepsSha256": "ac172ab2e82bf61b1fff16f5ba97d875170528190889fcd5d70a15458bd19183",
+      "taskSha256": "f1dd8c8fd9f01101d2ecb65665bdedc33adc868abd853b3adf556f6aa4982073",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 72,
+      "stepsSha256": "f6c56b44a34e262163532e3f9fdce29dae6e462cf656026ec22e8346edd76b61",
+      "taskSha256": "ace2f81e4be5431062c2910d4daf616c2f84ad16eefc2ce07903373c09c13173",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 25,
+      "stepsSha256": "ddcde6cc427c842371f953ab01801d3dd1749720fbf55d8d10a0eeea53c7f76d",
+      "taskSha256": "6cd714074f32f9797c41aa6660b43b1d44dacfe82e5bd0ef5216a4f0fd47bf71",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 25,
+      "stepsSha256": "b6e66850f0053635b12c6a5f609b018bce66c3eee6c5a58b9fb95a1d2c010e8f",
+      "taskSha256": "909d3073e68a10fc55f4997f1588a37f447ba82a1f3b78b92f507e2123e434e2",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 23,
+      "stepsSha256": "7aa47ed56c862511b461e228f99d4f65b2f956963e107362e9621fde3be7cdc0",
+      "taskSha256": "496962ac0c62108fe156856402318f44db56597fc8b553623f4bcc0ab5e986d2",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 21,
+      "stepsSha256": "4dc927f67778b6c17963b0d159f78160b3a36eaa32d5bb6f6d7092a3e9fb3736",
+      "taskSha256": "7a9c4bb4a0dc465131074c3924471408c263890e76cd6a9c244d036981bdd1b3",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 46,
+      "stepsSha256": "e62da222efb370c3b587172f5c1534f12c4f9aecf57c947c4893f1dccff48824",
+      "taskSha256": "434154fb1b3701cae1bf3596db85d4d223e8f00c1c3aab41d7e0f684ae485c7b",
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 25,
+      "stepsSha256": "6108e97eba044dd3277955c8b735882bbc5e995e03865023bf1683eb7849fbbd",
+      "taskSha256": null,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 22,
+      "stepsSha256": "24e59a5311e409813c8c6daa31498c49eef1f1b1e57198b7487c09246121639a",
+      "taskSha256": null,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 23,
+      "stepsSha256": "6f10f59523bee82cd7b970c43484660a42a026dfef37e401e8ca9648e1ce28f8",
+      "taskSha256": null,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 20,
+      "stepsSha256": "d1a725380675a91b435931360312e57a52645f287b49d1423b1fbecb036ff9cc",
+      "taskSha256": null,
+      "traceId": "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319"
+    },
+    {
+      "normalizer": "miniswe",
+      "steps": 26,
+      "stepsSha256": "0a730871185d4eebb7a42bb11a8b0f61178e5e0f5e8ad9aff8294e4d9b7203ef",
+      "taskSha256": null,
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff"
+    }
+  ],
+  "rows": 32
+}

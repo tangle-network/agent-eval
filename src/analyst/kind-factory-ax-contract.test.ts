@@ -11,8 +11,7 @@ import { type AnalystUsageReceipt, makeFinding } from './types'
 
 const axMock = vi.hoisted(() => ({
   agentCalls: [] as Array<{ signature: string; options: Record<string, unknown> }>,
-  forwardResult: { report: '', findings: [] as unknown[] },
-  executorResult: undefined as unknown,
+  forwardResult: { report: '', findings: [] as unknown[] } as unknown,
   events: [] as string[],
 }))
 
@@ -38,33 +37,19 @@ vi.mock('@ax-llm/ax', async (importOriginal) => {
       }
       axMock.agentCalls.push({ signature, options })
       return {
-        executor: {
-          async run(ai: { chat(request: unknown): Promise<unknown> }) {
-            axMock.events.push('run')
-            await ai.chat({
-              model: 'gpt-4o-mini',
-              chatPrompt: [{ role: 'user', content: 'actor' }],
-            })
-            return {
-              nonContextValues: {},
-              executorResult: axMock.executorResult ?? {
-                type: 'final',
-                args: ['Submit the completed trace analysis.', axMock.forwardResult],
-              },
-              actorFieldValues: {},
-              usedMemories: [],
-              usedSkills: [],
-              turnCount: 1,
-              guidanceLog: undefined,
-              actionLog: '',
-            }
-          },
-          getUsage() {
-            return []
-          },
-          getChatLog() {
-            return []
-          },
+        async forward(ai: { chat(request: unknown): Promise<unknown> }) {
+          axMock.events.push('run')
+          await ai.chat({
+            model: 'gpt-4o-mini',
+            chatPrompt: [{ role: 'user', content: 'actor' }],
+          })
+          return axMock.forwardResult
+        },
+        getUsage() {
+          return { actor: [], responder: [] }
+        },
+        getChatLog() {
+          return []
         },
       }
     },
@@ -72,7 +57,7 @@ vi.mock('@ax-llm/ax', async (importOriginal) => {
 })
 
 afterEach(() => {
-  axMock.executorResult = undefined
+  axMock.forwardResult = { report: '', findings: [] }
 })
 
 function testAi(
@@ -154,6 +139,33 @@ describe('createTraceAnalystKind Ax contract', () => {
     expect(functions[0]).toBe(tool)
   })
 
+  it('uses prepared context instead of exposing tools to the model', async () => {
+    axMock.agentCalls.length = 0
+    const buildTools = vi.fn(() => [{ namespace: 'traces', name: 'getDatasetOverview' } as never])
+    const analyst = createTraceAnalystKind(
+      {
+        ...testSpec(),
+        buildTools,
+        prepareContext: async () =>
+          JSON.stringify({ trace_id: 'trace-1', spans: [{ span_id: 'step-2' }] }),
+      },
+      { ai: testAi() },
+    )
+
+    await analyst.analyze({} as never, { tags: {} } as never)
+
+    expect(buildTools).not.toHaveBeenCalled()
+    expect(axMock.agentCalls).toHaveLength(1)
+    expect(axMock.agentCalls[0]).toMatchObject({
+      signature: 'context:string, question:string -> report:string, findings:json[]',
+      options: {
+        contextFields: ['context'],
+        directResponse: 'auto',
+        functions: [],
+      },
+    })
+  })
+
   it('writes provider calls to a shared ledger without counting unrelated calls', async () => {
     axMock.forwardResult = { report: '', findings: [] }
     const costLedger = new CostLedger()
@@ -197,10 +209,12 @@ describe('createTraceAnalystKind Ax contract', () => {
     for (const call of axMock.agentCalls) {
       expect(call.signature).toBe('question:string -> report:string, findings:json[]')
       const actor = call.options.executorOptions as { description: string }
+      const responder = call.options.responderOptions as { description: string }
       expect(actor.description.split(RAW_FINDING_SCHEMA_PROMPT)).toHaveLength(2)
-      expect(actor.description).toContain(
-        'final("Submit the completed trace analysis.", { report, findings })',
-      )
+      expect(actor.description).toContain('call final(task, evidence)')
+      expect(responder.description.split(RAW_FINDING_SCHEMA_PROMPT)).toHaveLength(2)
+      expect(responder.description).toContain('Use only evidence produced by the analysis stage')
+      expect(call.options.directResponse).toBe('off')
       expect(actor.description).not.toMatch(/`area`\s*=/)
       expect(actor.description).not.toContain('evidence_uri')
       expect(actor.description).not.toContain('submitAnalysis')
@@ -483,42 +497,41 @@ describe('createTraceAnalystKind Ax contract', () => {
     )
   })
 
-  it('fails when Ax substitutes max-turn fallback text for a structured result', async () => {
+  it('fails when the Ax pipeline returns a malformed response', async () => {
     axMock.agentCalls.length = 0
-    axMock.executorResult = {
-      type: 'final',
-      args: [
-        'Actor stopped without calling final(...). Evidence summary:\n' +
-          '- Action 1: [SUMMARY]: Error step. No durable result.',
-      ],
-    }
+    axMock.forwardResult = 'Actor stopped without a structured response.'
     const analyst = createTraceAnalystKind(testSpec(), { ai: testAi() })
 
     await expect(analyst.analyze({} as never, { tags: {} } as never)).rejects.toThrow(
-      "Trace analyst 'test-kind' stopped without a structured final result",
+      'Trace analyst response must contain report and findings',
     )
   })
 
-  it('uses the exact structured executor completion', async () => {
-    axMock.executorResult = {
-      type: 'final',
-      args: [
-        'Submit the completed trace analysis.',
+  it('rejects a report-only result when the kind requires structured findings', async () => {
+    axMock.forwardResult = { report: 'A'.repeat(220), findings: [] }
+    const analyst = createTraceAnalystKind(
+      { ...testSpec(), requireStructuredFindings: true },
+      { ai: testAi() },
+    )
+
+    await expect(analyst.analyze({} as never, { tags: {} } as never)).rejects.toThrow(
+      /produced no valid structured findings after 0 turns/,
+    )
+  })
+
+  it('uses the exact structured Ax pipeline response', async () => {
+    axMock.forwardResult = {
+      report: 'Captured evidence-backed report.',
+      findings: [
         {
-          report: 'Captured evidence-backed report.',
-          findings: [
-            {
-              severity: 'high',
-              confidence: 0.9,
-              claim: 'Captured finding',
-              evidence: [{ uri: 'trace://run-1/span-1' }],
-              recommended_action: 'Use the captured result.',
-            },
-          ],
+          severity: 'high',
+          confidence: 0.9,
+          claim: 'Captured finding',
+          evidence: [{ uri: 'trace://run-1/span-1' }],
+          recommended_action: 'Use the captured result.',
         },
       ],
     }
-    axMock.forwardResult = { report: 'Unrelated return value.', findings: [] }
     const analyst = createTraceAnalystKind(testSpec(), { ai: testAi() })
 
     const findings = await analyst.analyze({} as never, { tags: {} } as never)

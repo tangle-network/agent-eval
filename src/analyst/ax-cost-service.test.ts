@@ -59,6 +59,7 @@ describe('meterAxChatService', () => {
 
     expect(received?.modelConfig?.maxTokens).toBe(64)
     expect(received?.modelConfig?.n).toBe(1)
+    expect(received?.functionCall).toBe('none')
     expect(receivedOptions).toMatchObject({
       retry: { maxRetries: 0 },
       stream: false,
@@ -71,6 +72,41 @@ describe('meterAxChatService', () => {
       tokens: { input: 100, output: 20, cached: 8 },
       cost: { kind: 'estimated', usd: expect.any(Number) },
     })
+  })
+
+  it('preserves native function-call policy when the request declares functions', async () => {
+    const received: AxChatRequest[] = []
+    const metered = meterAxChatService(
+      fakeAi(async (input) => {
+        received.push(input as AxChatRequest)
+        return {
+          results: [{ index: 0, content: 'done' }],
+          modelUsage: {
+            ai: 'openai',
+            model: 'gpt-4o-mini',
+            tokens: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          },
+        }
+      }),
+      {
+        ledger: new CostLedger(),
+        actor: 'failure-mode',
+        maxOutputTokens: 64,
+      },
+    )
+    const functions = [
+      {
+        name: 'inspect',
+        description: 'Inspect one trace.',
+        parameters: { type: 'object' as const, properties: {} },
+      },
+    ]
+
+    await metered.chat({ ...request(), functions })
+    await metered.chat({ ...request(), functions, functionCall: 'required' })
+
+    expect(received[0]?.functionCall).toBeUndefined()
+    expect(received[1]?.functionCall).toBe('required')
   })
 
   it('bounds a caller-supplied output limit without increasing it', async () => {

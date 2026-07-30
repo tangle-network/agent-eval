@@ -150,7 +150,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown && pnpm openapi",
+    "build": "pnpm check:analyst-benchmark && tsdown && pnpm openapi",
     "dev": "tsdown --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
@@ -161,8 +161,9 @@
     "lint": "biome check src",
     "format": "biome format --write src",
     "check:skill": "node scripts/check-skill.mjs",
+    "check:analyst-benchmark": "node scripts/check-analyst-benchmark-implementation.mjs",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
-    "verify:package": "pnpm run check:skill && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs"
+    "verify:package": "pnpm check:analyst-benchmark && pnpm run check:skill && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
@@ -201,6 +202,7 @@
       "vite"
     ],
     "overrides": {
+      "@arizeai/openinference-core>@opentelemetry/core": "^2.10.0",
       "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
       "postcss@<8.5.18": "^8.5.18",
       "vite@>=7.0.0 <=7.3.4": "^7.3.5",

@@ -26,6 +26,8 @@ export type TraceToolGroupName =
   | 'discoveryAndSearch'
   /** Discovery + viewSpans + searchSpan. Targeted-span work after another kind narrows down. */
   | 'targeted'
+  /** One known-small trace: overview, bounded reads, and in-trace search. */
+  | 'singleTrace'
 
 const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
   all: new Set(),
@@ -45,6 +47,13 @@ const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
     'searchSpan',
   ]),
   targeted: new Set(['getDatasetOverview', 'queryTraces', 'viewSpans', 'searchSpan']),
+  singleTrace: new Set([
+    'getDatasetOverview',
+    'viewTrace',
+    'viewSpans',
+    'searchTrace',
+    'searchSpan',
+  ]),
 }
 
 /**

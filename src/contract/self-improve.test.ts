@@ -489,7 +489,7 @@ describe('selfImprove — run-wide spend account', () => {
     expect(wrapped.cause).toBe(frozen)
     expect(wrapped.cost.totalCostUsd).toBe(0.4)
     expect(wrapped.receipts).toEqual([
-      expect.objectContaining({ actor: 'worker', error: 'frozen provider failure' }),
+      expect.objectContaining({ actor: 'worker', error: 'paid-call-failed' }),
     ])
   })
 

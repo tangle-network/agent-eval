@@ -8,9 +8,10 @@ export type AnalystComparisonMetric =
   | 'f1'
   | 'criticalStepAccuracy'
   | 'citationCoverage'
+  | 'citationExcerptCoverage'
   | 'citationLabelAgreement'
   | 'citationResolution'
-  | 'cleanAccuracy'
+  | 'trustedNegativeAccuracy'
   | 'latencyMs'
   | 'calls'
   | 'inputTokens'
@@ -23,22 +24,39 @@ export type AnalystComparisonMetric =
 export interface AnalystMetricComparison {
   metric: AnalystComparisonMetric
   direction: 'higher' | 'lower'
+  /** Trajectories with at least one complete pair for this metric. */
   pairedCases: number
+  /** Independent task or incident groups resampled by the interval. */
+  pairedClusters: number
+  /** Same-run pairs where this metric applies before missing values are removed. */
+  eligibleObservations: number
   pairedObservations: number
-  baselineMean: number
-  candidateMean: number
-  meanDelta: number
-  intervalLow: number
-  intervalHigh: number
+  baselineMissingObservations: number
+  candidateMissingObservations: number
+  asymmetricMissingObservations: number
+  survivorOnly: boolean
+  baselineMean: number | null
+  candidateMean: number | null
+  meanDelta: number | null
+  intervalLow: number | null
+  intervalHigh: number | null
   confidence: number
   resamples: number
-  enoughCasesForInference: boolean
+  minimumSampleMet: boolean
+  populationInferenceEligible: boolean
+  inferenceLimitations: string[]
 }
 
 export interface AnalystRunnerComparison {
   baselineRunnerId: string
   candidateRunnerId: string
   metrics: AnalystMetricComparison[]
+}
+
+interface PairedCaseMetric {
+  clusterId: string
+  baseline: number
+  candidate: number
 }
 
 export function compareAnalystRunners(
@@ -68,62 +86,144 @@ export function compareAnalystRunners(
 
   const baseline = observationsByCase(result.observations, options.baselineRunnerId)
   const candidate = observationsByCase(result.observations, options.candidateRunnerId)
-  const metrics: AnalystMetricComparison[] = []
-  for (const metric of METRICS) {
-    const before: number[] = []
-    const after: number[] = []
-    let pairedObservations = 0
-    for (const [caseId, baselineObservations] of baseline) {
-      const candidateObservations = candidate.get(caseId)
-      if (!candidateObservations) continue
-      const candidateByRepetition = new Map(
-        candidateObservations.map((observation) => [observation.repetition, observation]),
-      )
-      const caseBefore: number[] = []
-      const caseAfter: number[] = []
-      for (const baselineObservation of baselineObservations) {
-        const candidateObservation = candidateByRepetition.get(baselineObservation.repetition)
-        if (!candidateObservation) continue
-        const baselineValue = metricValue(baselineObservation, metric)
-        const candidateValue = metricValue(candidateObservation, metric)
-        if (baselineValue === null || candidateValue === null) continue
-        caseBefore.push(baselineValue)
-        caseAfter.push(candidateValue)
-      }
-      if (caseBefore.length === 0) continue
-      before.push(mean(caseBefore))
-      after.push(mean(caseAfter))
-      pairedObservations += caseBefore.length
-    }
-    if (before.length === 0) continue
-    const interval = pairedBootstrap(before, after, {
+  const populationRepresentativenessProven =
+    result.provenance.metadata?.populationRepresentativenessProven === true
+  const metrics = METRICS.map((metric) =>
+    compareMetric({
+      metric,
+      baseline,
+      candidate,
       confidence,
       resamples,
-      statistic: 'mean',
       seed: options.seed,
-    })
-    const comparison: AnalystMetricComparison = {
-      metric,
-      direction: LOWER_IS_BETTER.has(metric) ? 'lower' : 'higher',
-      pairedCases: interval.n,
-      pairedObservations,
-      baselineMean: mean(before),
-      candidateMean: mean(after),
-      meanDelta: interval.mean,
-      intervalLow: interval.low,
-      intervalHigh: interval.high,
-      confidence: interval.confidence,
-      resamples: interval.resamples,
-      enoughCasesForInference: interval.gateEligible,
-    }
-    assertValidComparison(comparison)
-    metrics.push(comparison)
-  }
+      populationRepresentativenessProven,
+    }),
+  )
+
   return {
     baselineRunnerId: options.baselineRunnerId,
     candidateRunnerId: options.candidateRunnerId,
     metrics,
   }
+}
+
+function compareMetric(options: {
+  metric: AnalystComparisonMetric
+  baseline: Map<string, AnalystBenchmarkObservation[]>
+  candidate: Map<string, AnalystBenchmarkObservation[]>
+  confidence: number
+  resamples: number
+  seed?: number
+  populationRepresentativenessProven: boolean
+}): AnalystMetricComparison {
+  const pairedCases: PairedCaseMetric[] = []
+  let eligibleObservations = 0
+  let pairedObservations = 0
+  let baselineMissingObservations = 0
+  let candidateMissingObservations = 0
+  let asymmetricMissingObservations = 0
+
+  const caseIds = new Set([...options.baseline.keys(), ...options.candidate.keys()])
+  for (const caseId of caseIds) {
+    const baselineByRepetition = new Map(
+      (options.baseline.get(caseId) ?? []).map((observation) => [
+        observation.repetition,
+        observation,
+      ]),
+    )
+    const candidateByRepetition = new Map(
+      (options.candidate.get(caseId) ?? []).map((observation) => [
+        observation.repetition,
+        observation,
+      ]),
+    )
+    const caseBefore: number[] = []
+    const caseAfter: number[] = []
+    let clusterId: string | undefined
+    const repetitions = new Set([...baselineByRepetition.keys(), ...candidateByRepetition.keys()])
+    for (const repetition of repetitions) {
+      const baselineObservation = baselineByRepetition.get(repetition)
+      const candidateObservation = candidateByRepetition.get(repetition)
+      const identity = baselineObservation ?? candidateObservation
+      if (!identity || !metricApplies(identity, options.metric)) continue
+      if (baselineObservation && candidateObservation) {
+        assertSameCaseIdentity(baselineObservation, candidateObservation)
+      }
+      eligibleObservations += 1
+      clusterId = identity.clusterId
+      const baselineValue = baselineObservation
+        ? metricValue(baselineObservation, options.metric)
+        : null
+      const candidateValue = candidateObservation
+        ? metricValue(candidateObservation, options.metric)
+        : null
+      const baselineMissing = baselineValue === null
+      const candidateMissing = candidateValue === null
+      if (baselineMissing) baselineMissingObservations += 1
+      if (candidateMissing) candidateMissingObservations += 1
+      if (baselineMissing !== candidateMissing) asymmetricMissingObservations += 1
+      if (baselineMissing || candidateMissing) continue
+      caseBefore.push(baselineValue)
+      caseAfter.push(candidateValue)
+      pairedObservations += 1
+    }
+    if (caseBefore.length === 0 || !clusterId) continue
+    pairedCases.push({
+      clusterId,
+      baseline: mean(caseBefore),
+      candidate: mean(caseAfter),
+    })
+  }
+
+  const byCluster = new Map<string, PairedCaseMetric[]>()
+  for (const pairedCase of pairedCases) {
+    const rows = byCluster.get(pairedCase.clusterId) ?? []
+    rows.push(pairedCase)
+    byCluster.set(pairedCase.clusterId, rows)
+  }
+  const before = [...byCluster.values()].map((rows) => mean(rows.map((row) => row.baseline)))
+  const after = [...byCluster.values()].map((rows) => mean(rows.map((row) => row.candidate)))
+  const interval =
+    before.length === 0
+      ? null
+      : pairedBootstrap(before, after, {
+          confidence: options.confidence,
+          resamples: options.resamples,
+          statistic: 'mean',
+          seed: options.seed,
+        })
+  const survivorOnly = pairedObservations < eligibleObservations
+  const limitations: string[] = []
+  if (!interval?.gateEligible) limitations.push('fewer-than-20-independent-clusters')
+  if (!options.populationRepresentativenessProven) {
+    limitations.push('population-representativeness-not-proven')
+  }
+  if (survivorOnly) limitations.push('missing-observations')
+
+  const comparison: AnalystMetricComparison = {
+    metric: options.metric,
+    direction: LOWER_IS_BETTER.has(options.metric) ? 'lower' : 'higher',
+    pairedCases: pairedCases.length,
+    pairedClusters: before.length,
+    eligibleObservations,
+    pairedObservations,
+    baselineMissingObservations,
+    candidateMissingObservations,
+    asymmetricMissingObservations,
+    survivorOnly,
+    baselineMean: before.length === 0 ? null : mean(before),
+    candidateMean: after.length === 0 ? null : mean(after),
+    meanDelta: interval?.mean ?? null,
+    intervalLow: interval?.low ?? null,
+    intervalHigh: interval?.high ?? null,
+    confidence: options.confidence,
+    resamples: options.resamples,
+    minimumSampleMet: interval?.gateEligible ?? false,
+    populationInferenceEligible: limitations.length === 0,
+    inferenceLimitations: limitations,
+  }
+  assertValidComparison(comparison)
+  return comparison
 }
 
 const METRICS: readonly AnalystComparisonMetric[] = [
@@ -133,9 +233,10 @@ const METRICS: readonly AnalystComparisonMetric[] = [
   'f1',
   'criticalStepAccuracy',
   'citationCoverage',
+  'citationExcerptCoverage',
   'citationLabelAgreement',
   'citationResolution',
-  'cleanAccuracy',
+  'trustedNegativeAccuracy',
   'latencyMs',
   'calls',
   'inputTokens',
@@ -171,22 +272,42 @@ function observationsByCase(
   return byCase
 }
 
+function assertSameCaseIdentity(
+  baseline: AnalystBenchmarkObservation,
+  candidate: AnalystBenchmarkObservation,
+): void {
+  if (baseline.clusterId !== candidate.clusterId || baseline.labelState !== candidate.labelState) {
+    throw new Error(
+      `analyst comparison case identity differs for '${baseline.caseId}' repetition ${baseline.repetition}`,
+    )
+  }
+}
+
+function metricApplies(
+  observation: AnalystBenchmarkObservation,
+  metric: AnalystComparisonMetric,
+): boolean {
+  if (metric === 'trustedNegativeAccuracy') {
+    return observation.labelState === 'trusted-negative'
+  }
+  if (metric === 'issueRecall' || metric === 'findingPrecision' || metric === 'f1') {
+    return observation.labelState === 'positive'
+  }
+  if (metric === 'criticalStepAccuracy') {
+    return observation.labelState === 'positive' && observation.score.criticalStepAccuracy !== null
+  }
+  return true
+}
+
 function metricValue(
   observation: AnalystBenchmarkObservation,
   metric: AnalystComparisonMetric,
 ): number | null {
   if (metric === 'completion') return observation.error ? 0 : 1
   if (metric === 'latencyMs') return observation.latencyMs
-  if (metric === 'cleanAccuracy') {
-    if (observation.score.expectedIssueCount !== 0) return null
+  if (metric === 'trustedNegativeAccuracy') {
     if (observation.error) return 0
-    return observation.score.cleanFalsePositive ? 0 : 1
-  }
-  if (
-    (metric === 'issueRecall' || metric === 'findingPrecision' || metric === 'f1') &&
-    observation.score.expectedIssueCount === 0
-  ) {
-    return null
+    return observation.score.predictionOnLabelEmptyCase ? 0 : 1
   }
   if (
     observation.error &&
@@ -195,14 +316,12 @@ function metricValue(
       metric === 'f1' ||
       metric === 'criticalStepAccuracy')
   ) {
-    if (metric === 'criticalStepAccuracy' && observation.score.criticalStepAccuracy === null) {
-      return null
-    }
     return 0
   }
   if (
     observation.error &&
     (metric === 'citationCoverage' ||
+      metric === 'citationExcerptCoverage' ||
       metric === 'citationLabelAgreement' ||
       metric === 'citationResolution')
   ) {
@@ -213,6 +332,7 @@ function metricValue(
   if (metric === 'f1') return observation.score.f1
   if (metric === 'criticalStepAccuracy') return observation.score.criticalStepAccuracy
   if (metric === 'citationCoverage') return observation.score.citationCoverage
+  if (metric === 'citationExcerptCoverage') return observation.score.citationExcerptCoverage
   if (metric === 'citationLabelAgreement') return observation.score.citationLabelAgreement
   if (metric === 'citationResolution') return observation.evidenceResolution?.validity ?? null
   if (metric === 'calls') return observation.usage?.calls ?? null
@@ -245,21 +365,37 @@ function assertComparisonControls(confidence: number, resamples: number): void {
 function assertValidComparison(comparison: AnalystMetricComparison): void {
   const numericFields = [
     'pairedCases',
+    'pairedClusters',
+    'eligibleObservations',
     'pairedObservations',
+    'baselineMissingObservations',
+    'candidateMissingObservations',
+    'asymmetricMissingObservations',
+    'confidence',
+    'resamples',
+  ] as const
+  const nullableFields = [
     'baselineMean',
     'candidateMean',
     'meanDelta',
     'intervalLow',
     'intervalHigh',
-    'confidence',
-    'resamples',
   ] as const
-  if (numericFields.some((field) => !Number.isFinite(comparison[field]))) {
+  if (
+    numericFields.some((field) => !Number.isFinite(comparison[field])) ||
+    nullableFields.some(
+      (field) => comparison[field] !== null && !Number.isFinite(comparison[field]),
+    )
+  ) {
     throw new Error(
       `compareAnalystRunners: ${comparison.metric} produced non-finite comparison output`,
     )
   }
-  if (comparison.intervalLow > comparison.intervalHigh) {
+  if (
+    comparison.intervalLow !== null &&
+    comparison.intervalHigh !== null &&
+    comparison.intervalLow > comparison.intervalHigh
+  ) {
     throw new Error(
       `compareAnalystRunners: ${comparison.metric} produced an invalid confidence interval`,
     )
