@@ -263,6 +263,21 @@ describe('expandProfileAxes', () => {
     expect(harnessAxisOf(p as AgentProfile)).toEqual({ harness: 'opencode', model: 'm1' })
   })
 
+  it('writes the selected harness onto each canonical profile and overrides the base harness', () => {
+    const baseWithHarness: AgentProfile = { ...axisBase, harness: 'claude-code' }
+    const profiles = expandProfileAxes({
+      base: baseWithHarness,
+      harnesses: ['opencode', 'codex'],
+      models: ['m1'],
+    })
+
+    expect(profiles.map((profile) => profile.harness)).toEqual(['opencode', 'codex'])
+    for (const profile of profiles) {
+      expect(profile.harness).toBe(harnessAxisOf(profile)?.harness)
+    }
+    expect(baseWithHarness.harness).toBe('claude-code')
+  })
+
   it('fails loud on no harnesses / no models — but snaps (never throws) on all-incompatible', () => {
     expect(() => expandProfileAxes({ base: axisBase, harnesses: [] })).toThrow(/no harnesses/)
     expect(() => expandProfileAxes({ base: { name: 'x' } })).toThrow(/no models/)

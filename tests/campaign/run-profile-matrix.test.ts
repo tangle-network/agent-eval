@@ -460,11 +460,22 @@ describe('runProfileMatrix', () => {
       models: ['test-model@2025-01-01'],
     })
     expect(profiles).toHaveLength(2)
+    expect(profiles.map((profile) => profile.harness)).toEqual(['opencode', 'codex'])
 
-    const result = await runProfileMatrix({ ...baseOpts(), profiles, dispatch: realDispatch })
+    const dispatchedHarnesses = new Set<AgentProfile['harness']>()
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      dispatchedHarnesses.add(profile.harness)
+      return realDispatch(profile, scenario, ctx)
+    }
+    const result = await runProfileMatrix({ ...baseOpts(), profiles, dispatch })
 
     // Every record carries the canonical cell, and its harness is the one the
     // generator stamped — no metadata smuggling, no hand-recomputed key.
+    expect(dispatchedHarnesses).toEqual(new Set(['opencode', 'codex']))
     for (const rec of result.records) {
       expect(rec.agentProfile?.harness?.id).toMatch(/^(opencode|codex)$/)
     }
