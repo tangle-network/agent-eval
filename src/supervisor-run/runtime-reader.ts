@@ -118,20 +118,29 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
 
   if (begins.length === 0) throw formatError(path, 1, 'no begin record')
 
-  const spawnedById = new Map<string, EventRecord[]>()
+  const parentSpawnsById = new Map<string, EventRecord[]>()
+  const rootMarkersByTree = new Map<string, EventRecord[]>()
   for (const entry of events) {
     if (entry.event.kind !== 'spawned') continue
     const id = nonEmptyString(entry.event.id)
     if (id === null) continue
-    const matches = spawnedById.get(id) ?? []
-    matches.push(entry)
-    spawnedById.set(id, matches)
+    if (nonEmptyString(entry.event.parent) !== null) {
+      const matches = parentSpawnsById.get(id) ?? []
+      matches.push(entry)
+      parentSpawnsById.set(id, matches)
+    }
+    if (entry.root === id && entry.event.parent === undefined) {
+      const markers = rootMarkersByTree.get(entry.root) ?? []
+      markers.push(entry)
+      rootMarkersByTree.set(entry.root, markers)
+    }
   }
 
   const nestedRoots = new Set<string>()
+  const nestedParentSpawns = new Map<string, EventRecord>()
   for (const begin of begins) {
-    const parentSpawns = (spawnedById.get(begin.root) ?? []).filter(
-      (entry) => entry.root !== begin.root && nonEmptyString(entry.event.parent) !== null,
+    const parentSpawns = (parentSpawnsById.get(begin.root) ?? []).filter(
+      (entry) => entry.root !== begin.root,
     )
     if (parentSpawns.length > 1) {
       throw formatError(
@@ -140,7 +149,10 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
         `tree ${JSON.stringify(begin.root)} has ${parentSpawns.length} parent spawns`,
       )
     }
-    if (parentSpawns.length === 1) nestedRoots.add(begin.root)
+    if (parentSpawns.length === 1) {
+      nestedRoots.add(begin.root)
+      nestedParentSpawns.set(begin.root, parentSpawns[0] as EventRecord)
+    }
   }
 
   const topRoots = begins.filter((begin) => !nestedRoots.has(begin.root))
@@ -154,13 +166,7 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
   const top = topRoots[0] as BeginRecord
 
   for (const nestedRoot of nestedRoots) {
-    const marker = events.filter(
-      (entry) =>
-        entry.root === nestedRoot &&
-        entry.event.kind === 'spawned' &&
-        entry.event.id === nestedRoot &&
-        entry.event.parent === undefined,
-    )
+    const marker = rootMarkersByTree.get(nestedRoot) ?? []
     if (marker.length !== 1) {
       throw formatError(
         path,
@@ -168,9 +174,7 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
         `nested tree ${JSON.stringify(nestedRoot)} must contain one root marker`,
       )
     }
-    const parentSpawn = (spawnedById.get(nestedRoot) ?? []).find(
-      (entry) => entry.root !== nestedRoot && nonEmptyString(entry.event.parent) !== null,
-    )
+    const parentSpawn = nestedParentSpawns.get(nestedRoot)
     if (parentSpawn === undefined) {
       throw formatError(
         path,
@@ -204,9 +208,7 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
     )
     .map((entry) => entry.event)
 
-  const rootMarkers = normalized.filter(
-    (event) => event.kind === 'spawned' && event.id === top.root && event.parent === undefined,
-  )
+  const rootMarkers = rootMarkersByTree.get(top.root) ?? []
   if (rootMarkers.length !== 1) {
     throw formatError(
       path,

@@ -415,6 +415,69 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(await findSupervisorRunDirs(root)).toEqual([join(root, 'run-a'), join(root, 'run-b')])
   })
 
+  it('composes 4,000 nested Runtime trees without scanning the journal once per tree', {
+    timeout: 10_000,
+  }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(root, 'large-nested')
+    const rows: Record<string, unknown>[] = [
+      begin('node-0', 0),
+      event('node-0', {
+        kind: 'spawned',
+        id: 'node-0',
+        label: 'node-0',
+        profileDigest: ROOT_PROFILE,
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('node-0', {
+        kind: 'metered',
+        id: 'node-0',
+        spend: {
+          iterations: 1,
+          tokens: { input: 1, output: 1 },
+          usd: 0,
+          ms: 1,
+        },
+        seq: 0,
+        at: at(0),
+      }),
+    ]
+    for (let index = 1; index < 4_000; index += 1) {
+      const parent = `node-${index - 1}`
+      const id = `node-${index}`
+      rows.push(
+        event(parent, {
+          kind: 'spawned',
+          id,
+          parent,
+          label: id,
+          profileDigest: CHILD_PROFILE,
+          runtime: 'driver',
+          budget: {},
+          seq: 0,
+          at: at(index),
+        }),
+        begin(id, index),
+        event(id, {
+          kind: 'spawned',
+          id,
+          label: id,
+          profileDigest: CHILD_PROFILE,
+          budget: {},
+          seq: 0,
+          at: at(index),
+        }),
+      )
+    }
+    await writeJournal(runDir, rows)
+
+    const source = await readRuntimeSupervisorRun(runDir)
+    expect(source.workers).toHaveLength(3_999)
+    expect(source.journal?.split('\n').filter(Boolean)).toHaveLength(4_001)
+  })
+
   it('refuses a nested tree whose exact profile identity disagrees with its parent spawn', async () => {
     const root = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(root, 'mismatch')
