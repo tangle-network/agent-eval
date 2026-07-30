@@ -2,8 +2,8 @@
  * The supervision tree as `tangle.rollout.v1` rows.
  *
  * A supervisor run IS a tree of rollouts, so its nodes are not a new shape:
- * the root becomes one `RolloutLine` with `role: 'supervisor'`, every spawned
- * worker becomes a `RolloutLine` with `role: 'worker'` and
+ * the root becomes one `RolloutLine` with `role: 'supervisor'`, and every
+ * spawned invocation keeps its explicit supervisor/worker role with
  * `parent_rollout_id` pointing at its spawner. The rows append to the same
  * ledger as solo-agent rollouts and join to them with the same keys.
  *
@@ -29,8 +29,13 @@ import {
   type RolloutLine,
   type RolloutSplit,
 } from '../rollout/schema'
-import { asRecord, parseJson, parseSupervisorTree } from './analyze'
-import type { SupervisorRunSources, SupervisorRunTree } from './types'
+import { asRecord, parseJson, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
+import type {
+  SupervisorRunSources,
+  SupervisorRunTree,
+  SupervisorRunTreeGap,
+  WorkerLogSource,
+} from './types'
 
 export interface SupervisorRolloutOptions {
   /** Benchmark/suite id for `task.suite`. Defaults to `'supervisor-run'`. */
@@ -69,6 +74,12 @@ const EMPTY_COST = {
   wall_s: null,
 } as const
 
+function hasWorkerId(
+  worker: WorkerLogSource,
+): worker is WorkerLogSource & { readonly workerId: string } {
+  return worker.workerId !== undefined
+}
+
 /**
  * Mint the supervision tree as rollout rows. Returns the rows plus the gaps
  * that made any of them incomplete — same unavailable-vs-zero discipline as
@@ -78,16 +89,34 @@ export function supervisorRunRolloutLines(
   src: SupervisorRunSources,
   opts: SupervisorRolloutOptions = {},
 ): SupervisorRunTree {
-  const gaps: string[] = []
-  const tree = parseSupervisorTree(src)
+  return supervisorRunRolloutLinesFromFacts(src, parseSupervisorTree(src), opts)
+}
+
+/** Mint rollout rows from an already parsed source without reading its JSONL again. */
+export function supervisorRunRolloutLinesFromFacts(
+  src: SupervisorRunSources,
+  tree: SupervisorTreeFacts,
+  opts: SupervisorRolloutOptions = {},
+): SupervisorRunTree {
+  const gaps: SupervisorRunTreeGap[] = []
   if (src.journal === null) {
-    gaps.push(
-      `tree: ${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'} — no nodes recoverable`,
-    )
+    gaps.push({
+      code: 'journal-unavailable',
+      message: `${src.supRunDir === null ? 'no supervisor run dir' : 'journal absent'}; no nodes recoverable`,
+    })
     return { rootId: null, nodes: [], gaps }
   }
+  const malformedSourceRows =
+    tree.journalInvalidRows + tree.spawns.filter((spawn) => !spawn.valid).length
+  if (malformedSourceRows > 0) {
+    gaps.push({
+      code: 'source-row-malformed',
+      message: `${malformedSourceRows} malformed journal row(s) were excluded from the tree`,
+      count: malformedSourceRows,
+    })
+  }
 
-  const state = parseJson(src.state)
+  const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
   const stateResult = asRecord(state?.result)
@@ -121,10 +150,17 @@ export function supervisorRunRolloutLines(
 
   // ── root: the supervisor invocation ────────────────────────────────────
   if (rootId !== null) {
+    const rootSpawn = tree.spawns.find((spawn) => spawn.valid && spawn.id === rootId)
     const judgeResolved = typeof judge?.resolved === 'boolean' ? judge.resolved : null
     const judgeScore = typeof judge?.score === 'number' ? judge.score : null
     const reward = judgeScore ?? (judgeResolved === null ? null : judgeResolved ? 1 : 0)
-    if (reward === null) gaps.push('root.outcome.reward: no judge verdict for this run')
+    if (reward === null) {
+      gaps.push({
+        code: 'root-reward-unavailable',
+        message: 'no judge verdict for this run',
+        nodeId: rootId,
+      })
+    }
     const wallMs =
       tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
         ? tree.completedAt - tree.startedAt
@@ -133,7 +169,7 @@ export function supervisorRunRolloutLines(
       ...base,
       rollout_id: rootId,
       parent_rollout_id: null,
-      role: 'supervisor',
+      role: rootSpawn?.role ?? 'supervisor',
       policy: {
         harness: opts.supervisorHarness ?? null,
         harness_version: null,
@@ -181,10 +217,12 @@ export function supervisorRunRolloutLines(
             : typeof stateResult.spentUsd === 'number'
               ? stateResult.spentUsd
               : tree.brain.usd,
-        tokens_in: tree.brain.tokensIn,
-        tokens_out: tree.brain.tokensOut,
-        cache_read: tree.brain.hasCache ? tree.brain.cacheRead : null,
-        cache_write: tree.brain.hasCache ? tree.brain.cacheWrite : null,
+        tokens_in: src.limits.managerTokens === null ? tree.brain.tokensIn : null,
+        tokens_out: src.limits.managerTokens === null ? tree.brain.tokensOut : null,
+        cache_read:
+          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheRead : null,
+        cache_write:
+          src.limits.managerTokens === null && tree.brain.hasCache ? tree.brain.cacheWrite : null,
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       artifacts: {
@@ -204,48 +242,71 @@ export function supervisorRunRolloutLines(
       },
     })
   } else {
-    gaps.push('tree.root: no parentless `spawned` event in the journal')
+    gaps.push({
+      code: 'root-spawn-unavailable',
+      message: 'no parentless spawned event in the journal',
+    })
   }
 
   // ── workers: one node per spawn, keyed to its spawner ───────────────────
   const closeById = new Map(tree.closes.map((c) => [c.id, c]))
-  const sourceByLabel = new Map((src.workers ?? []).map((w) => [w.label, w]))
-  // Worker logs are keyed by label, the journal by id — the label is the only
-  // join available. A repeated label is a literal retry of the same subtask, so
-  // both attempts see the same log facts; the journal ids keep them distinct
-  // rows and `outcome.metrics.spawned_at` separates the attempts.
+  const sourceById = new Map(
+    (src.workers ?? []).filter(hasWorkerId).map((worker) => [worker.workerId, worker]),
+  )
+  const fallbackSourceByLabel = new Map(
+    (src.workers ?? [])
+      .filter((worker) => worker.workerId === undefined)
+      .map((worker) => [worker.label, worker]),
+  )
+  // Stable ids are authoritative. Labels are a compatibility join for stores
+  // that predate workerId and are only safe when the store keeps them unique.
   for (const spawn of tree.workerSpawns) {
     const close = closeById.get(spawn.id) ?? null
-    const facts = tree.workerLogs.get(spawn.label) ?? null
-    const workerSource = sourceByLabel.get(spawn.label) ?? null
+    const workerSource = sourceById.get(spawn.id) ?? fallbackSourceByLabel.get(spawn.label) ?? null
+    const facts =
+      tree.workerLogs.get(workerSource?.workerId ?? workerSource?.label ?? spawn.label) ?? null
     const wallMs =
       facts?.started != null && facts.finishedAt != null ? facts.finishedAt - facts.started : null
-    const reward = facts?.passed === null || facts === null ? null : facts.passed ? 1 : 0
+    const score = close?.score ?? facts?.score ?? null
+    const passed = close?.valid ?? facts?.passed ?? null
+    const reward = score ?? (passed === null ? null : passed ? 1 : 0)
     if (reward === null) {
-      gaps.push(`worker ${spawn.label}: no verify verdict (worker logs absent or unfinished)`)
+      gaps.push({
+        code: 'child-reward-unavailable',
+        message: `child ${JSON.stringify(spawn.label)} has no verify verdict`,
+        nodeId: spawn.id,
+      })
     }
+    const isSupervisor = spawn.role === 'supervisor'
     nodes.push({
       ...base,
       rollout_id: spawn.id,
       parent_rollout_id: spawn.parent,
-      role: 'worker',
+      role: spawn.role,
       policy: {
-        harness: opts.workerHarness ?? null,
+        harness: isSupervisor ? (opts.supervisorHarness ?? null) : (opts.workerHarness ?? null),
         harness_version: null,
-        model: opts.workerModel ?? null,
+        model: isSupervisor ? (opts.supervisorModel ?? null) : (opts.workerModel ?? null),
         provider: null,
         profile_commit: null,
         sampling: null,
       },
       outcome: {
-        // Same producer, same claim: a worker reward is a self-verify verdict
+        // Same producer, same claim: a child reward is a self-verify verdict
         // from the journal that no realness gate has seen.
         ...unscreenedRewardFields(reward),
-        reward_source: reward === null ? null : 'worker-self-verify',
+        reward_source:
+          reward === null ? null : score === null ? 'worker-self-verify' : 'worker-verdict-score',
         verdict:
           close === null
             ? null
-            : { kind: close.kind, status: close.status, verdict: close.verdict },
+            : {
+                kind: close.kind,
+                status: close.status,
+                verdict: close.rawVerdict,
+                valid: close.valid,
+                score: close.score,
+              },
         metrics: {
           label: spawn.label,
           spawned_at: spawn.at,
@@ -253,7 +314,7 @@ export function supervisorRunRolloutLines(
           started_at: facts?.started ?? null,
           finished_at: facts?.finishedAt ?? null,
           wall_ms: wallMs,
-          patch_bytes: facts?.finishedPatchBytes ?? null,
+          patch_bytes: workerSource?.patchBytes ?? facts?.finishedPatchBytes ?? null,
           evidence_bytes: facts?.evidenceBytes ?? null,
           steers_queued: facts?.steersQueued ?? null,
           steers_delivered: facts?.steersDelivered ?? null,
@@ -314,7 +375,11 @@ export function supervisorRunRolloutLines(
 
   const invalid = nodes.filter((n) => !isRolloutLine(n))
   if (invalid.length > 0) {
-    gaps.push(`${invalid.length} node(s) failed tangle.rollout.v1 validation`)
+    gaps.push({
+      code: 'node-schema-invalid',
+      message: `${invalid.length} node(s) failed tangle.rollout.v1 validation`,
+      count: invalid.length,
+    })
   }
   return { rootId, nodes, gaps }
 }

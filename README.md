@@ -371,6 +371,7 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 | `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
 | `@tangle-network/agent-eval/analyst` | Built-in and custom trace analysts, labeled comparison, costs, and reports. |
 | `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
+| `@tangle-network/agent-eval/supervisor-run` | Read and analyze recursive supervisor runs without collapsing missing measurements to zero. |
 | `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
 | `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |

@@ -48,7 +48,7 @@
  * | observeThenRespawn / respawnWithoutEvidence | full | full | ordering of spawn vs settle instants |
  * | workerEvidenceBytes | full | PARTIAL | the child's closing message; 0 for pruned transcripts |
  * | brain tokens in/out + cache | full | full | main-thread `message.usage` |
- * | worker tokens in/out + cache | via harness join | PARTIAL | only for retained subagent transcripts |
+ * | worker tokens in/out + cache | via harness join | full or unavailable | totals are refused if any spawned transcript was pruned; retained per-worker rows remain available |
  * | perWorker wall | full | full | spawn → settle instants |
  * | accepted / rejected / emptyPass / settledVerdicts | full | NONE | no per-worker verify step exists |
  * | brain/worker/total usd, costPerAcceptedPatch | full | NONE | transcripts carry no price |
@@ -330,7 +330,13 @@ export async function readClaudeCodeSupervisorRun(
   const raw = await readFile(opts.transcriptPath, 'utf8').catch(() => null)
   const sessionId = basename(opts.transcriptPath).replace(/\.jsonl$/, '')
   const runRef = opts.runRef ?? opts.transcriptPath
-  const limits = { spendUsd: SPEND_UNPRICED, workerVerdicts: NO_VERDICTS, deliverables: null }
+  const limits = {
+    managerTokens: null,
+    workerTokens: null,
+    spendUsd: SPEND_UNPRICED,
+    workerVerdicts: NO_VERDICTS,
+    deliverables: null,
+  }
   const traceCommand = `npx --yes @tangle-network/traces@latest analyze --harness claude-code --session ${sessionId}`
 
   if (raw === null) {
@@ -352,7 +358,12 @@ export async function readClaudeCodeSupervisorRun(
       driverLog: null,
       harnessWorkerTokens: null,
       harnessMissingReason: `session transcript unreadable at ${opts.transcriptPath}`,
-      limits: { ...limits, deliverables: NO_DELIVERABLES },
+      limits: {
+        ...limits,
+        managerTokens: `session transcript unreadable at ${opts.transcriptPath}`,
+        workerTokens: `session transcript unreadable at ${opts.transcriptPath}`,
+        deliverables: NO_DELIVERABLES,
+      },
       traceCommand,
     }
   }
@@ -379,7 +390,10 @@ export async function readClaudeCodeSupervisorRun(
   }
 
   const spawns: SpawnFact[] = []
-  const steersByTarget = new Map<string, Array<{ at: string | null; delivered: boolean }>>()
+  const steersByTarget = new Map<
+    string,
+    Array<{ requestId: string; at: string | null; delivered: boolean }>
+  >()
   const cancels: Array<{ agentId: string; at: string | null }> = []
   const settles: TaskNotification[] = []
 
@@ -411,7 +425,7 @@ export async function readClaudeCodeSupervisorRun(
         // absent, the steer is counted queued but not delivered.
         const delivered = structured?.success === true || str(structured?.resumedAgentId) === target
         const rows = steersByTarget.get(target) ?? []
-        rows.push({ at: use.at, delivered })
+        rows.push({ requestId: use.id, at: use.at, delivered })
         steersByTarget.set(target, rows)
         continue
       }
@@ -436,12 +450,20 @@ export async function readClaudeCodeSupervisorRun(
       id: sessionId,
       parent: null,
       label: `session:${sessionId}`,
+      role: 'supervisor',
       at: startedAt,
     }),
   ]
   for (const s of spawns) {
     journalLines.push(
-      line({ kind: 'spawned', id: s.agentId, parent: s.parentId, label: s.label, at: s.at }),
+      line({
+        kind: 'spawned',
+        id: s.agentId,
+        parent: s.parentId,
+        label: s.label,
+        role: 'worker',
+        at: s.at,
+      }),
     )
   }
 
@@ -503,79 +525,56 @@ export async function readClaudeCodeSupervisorRun(
   )
   const spawnAtByAgent = new Map(spawns.map((s) => [s.agentId, s.at] as const))
 
-  // Worker logs are keyed by LABEL (the analyzer's join), so agents that share a
-  // description merge — the same collision loops has for a retried subtask.
-  const byLabel = new Map<string, string[]>()
-  for (const s of spawns) {
-    const ids = byLabel.get(s.label) ?? []
-    ids.push(s.agentId)
-    byLabel.set(s.label, ids)
-  }
-
   const workers: WorkerLogSource[] = []
-  for (const [label, agentIds] of byLabel) {
+  for (const spawn of spawns) {
+    const { agentId, label } = spawn
     const events: string[] = []
     const inbox: string[] = []
-    let tokensIn: number | null = null
-    let tokensOut: number | null = null
-    let cacheRead: number | null = null
-    let cacheWrite: number | null = null
-    let transcriptRef: string | null = null
-    for (const agentId of agentIds) {
-      const child = childByAgentId.get(agentId) ?? null
-      const startAt = child?.firstAt ?? spawnAtByAgent.get(agentId) ?? null
-      const endAt = settleAtByAgent.get(agentId) ?? child?.lastAt ?? null
-      if (startAt !== null) events.push(line({ kind: 'started', label, at: startAt, agentId }))
-      for (const steer of steersByTarget.get(agentId) ?? []) {
-        inbox.push(
-          line({ id: `${agentId}:${steer.at}`, at: steer.at, worker: label, message: 'steer' }),
-        )
-        events.push(
-          line({
-            kind: 'message',
-            label,
-            direction: 'down',
-            at: steer.at,
-            requestId: `${agentId}:${steer.at}`,
-            delivered: steer.delivered,
-          }),
-        )
-      }
-      if (endAt !== null) {
-        events.push(
-          line({
-            kind: 'finished',
-            label,
-            at: endAt,
-            agentId,
-            // No `passed` / `patchBytes`: this harness has neither. Emitting
-            // `passed: false` here would invent a failed worker.
-            // `evidence` is the child's closing message — what it handed back.
-            ...(child?.finalReport === null || child?.finalReport === undefined
-              ? {}
-              : { evidence: child.finalReport }),
-          }),
-        )
-      }
-      if (child !== null) {
-        tokensIn = (tokensIn ?? 0) + child.tokensIn
-        tokensOut = (tokensOut ?? 0) + child.tokensOut
-        cacheRead = (cacheRead ?? 0) + child.cacheRead
-        cacheWrite = (cacheWrite ?? 0) + child.cacheWrite
-        transcriptRef = child.path
-      }
+    const child = childByAgentId.get(agentId) ?? null
+    const startAt = child?.firstAt ?? spawnAtByAgent.get(agentId) ?? null
+    const endAt = settleAtByAgent.get(agentId) ?? child?.lastAt ?? null
+    if (startAt !== null) events.push(line({ kind: 'started', label, at: startAt, agentId }))
+    for (const steer of steersByTarget.get(agentId) ?? []) {
+      inbox.push(line({ id: steer.requestId, at: steer.at, worker: label, message: 'steer' }))
+      events.push(
+        line({
+          kind: 'message',
+          label,
+          direction: 'down',
+          at: steer.at,
+          requestId: steer.requestId,
+          delivered: steer.delivered,
+        }),
+      )
+    }
+    if (endAt !== null) {
+      events.push(
+        line({
+          kind: 'finished',
+          label,
+          at: endAt,
+          agentId,
+          // No `passed` / `patchBytes`: this harness has neither. Emitting
+          // `passed: false` here would invent a failed worker.
+          // `evidence` is the child's closing message — what it handed back.
+          ...(child?.finalReport === null || child?.finalReport === undefined
+            ? {}
+            : { evidence: child.finalReport }),
+        }),
+      )
     }
     workers.push({
+      workerId: agentId,
       label,
-      events: events.length === 0 ? null : `${events.join('\n')}\n`,
-      inbox: inbox.length === 0 ? null : `${inbox.join('\n')}\n`,
+      events: events.length === 0 ? '' : `${events.join('\n')}\n`,
+      inbox: inbox.length === 0 ? '' : `${inbox.join('\n')}\n`,
       patchBytes: null,
-      transcriptRef,
+      transcriptRef: child?.path ?? null,
       patchPath: null,
-      tokensIn,
-      tokensOut,
-      cacheRead,
-      cacheWrite,
+      tokensIn: child?.tokensIn ?? null,
+      tokensOut: child?.tokensOut ?? null,
+      cacheRead: child?.cacheRead ?? null,
+      cacheWrite: child?.cacheWrite ?? null,
     })
   }
 
@@ -633,7 +632,11 @@ export async function readClaudeCodeSupervisorRun(
     driverLog: null,
     harnessWorkerTokens,
     harnessMissingReason,
-    limits: { ...limits, deliverables: NO_DELIVERABLES },
+    limits: {
+      ...limits,
+      workerTokens: spawns.length === 0 ? null : harnessMissingReason,
+      deliverables: NO_DELIVERABLES,
+    },
     rootTranscriptRef: opts.transcriptPath,
     traceCommand,
   }

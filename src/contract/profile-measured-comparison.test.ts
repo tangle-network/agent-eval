@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
+  AgentProfileDiff,
   AgentProfileImprovementExperiment,
   AgentProfileImprovementRunReceipt,
   Sha256Digest,
@@ -81,6 +82,21 @@ function profileTask(scenarioDigest = sha('1')) {
 function experiment(
   reps = 3,
   tasks: [ReturnType<typeof profileTask>, ...ReturnType<typeof profileTask>[]] = [profileTask()],
+  change: [AgentProfileDiff, ...AgentProfileDiff[]] = [
+    {
+      kind: 'agent-profile-diff',
+      id: 'add-source-and-uncertainty',
+      source: {
+        kind: 'optimizer',
+        artifacts: ['traces://run/intelligence-run-1'],
+      },
+      set: {
+        prompt: {
+          systemPrompt: 'Answer directly, cite the source, and state uncertainty.',
+        },
+      },
+    },
+  ],
 ): AgentProfileImprovementExperiment {
   const seeds = Array.from({ length: tasks.length * reps }, (_, index) => 11 + index) as [
     number,
@@ -115,21 +131,7 @@ function experiment(
     },
     baseline: { stateDigest: sha('5') },
     candidate: { stateDigest: sha('8') },
-    change: [
-      {
-        kind: 'agent-profile-diff',
-        id: 'add-source-and-uncertainty',
-        source: {
-          kind: 'optimizer',
-          artifacts: ['traces://run/intelligence-run-1'],
-        },
-        set: {
-          prompt: {
-            systemPrompt: 'Answer directly, cite the source, and state uncertainty.',
-          },
-        },
-      },
-    ],
+    change,
     candidateLineage: {
       source: 'optimizer',
       parentDigests: [sha('5')],
@@ -229,6 +231,33 @@ function comparisonAccounting(
 }
 
 describe('profile improvement measured comparison', () => {
+  it('accepts complete AgentProfile changes from the canonical Interface contract', () => {
+    const sealed = experiment(
+      3,
+      [profileTask()],
+      [
+        {
+          kind: 'agent-profile-diff',
+          id: 'replace-complete-profile-settings',
+          set: {
+            model: { default: 'openai/gpt-5.6', reasoningEffort: 'high' },
+            harness: 'codex',
+            tools: { shell: true },
+            mcp: { literature: { command: 'literature-server' } },
+            hooks: { stop: [{ command: 'node verify.mjs', blocking: true }] },
+            metadata: { lineage: 'direct-reflection' },
+          },
+        },
+      ],
+    )
+
+    expect(sealed.change[0]?.set).toMatchObject({
+      model: { default: 'openai/gpt-5.6' },
+      harness: 'codex',
+      tools: { shell: true },
+    })
+  })
+
   it('retains licensed and transformed source evidence in the sealed experiment', () => {
     const sealed = experiment()
 

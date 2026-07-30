@@ -70,10 +70,16 @@ export async function readLoopsSupervisorRun(
   const supRunDir = await findSupervisorRunDirIn(ws)
   const result = await readMaybe(join(runDir, 'result.json'))
   const resultObj = parseJson(result)
+  const journal = supRunDir === null ? null : await readMaybe(join(supRunDir, 'journal.jsonl'))
+  const journalWorkerSpawns = parseJsonl(journal).filter(
+    (event) =>
+      event.kind === 'spawned' && typeof event.parent === 'string' && event.role !== 'supervisor',
+  ).length
 
   let workers: WorkerLogSource[] | null = null
   let workersMissingReason: string | null = null
   const workerCwds: string[] = []
+  let workerStarts = 0
   if (supRunDir === null) {
     workersMissingReason = `no supervisor run dir under ${join(ws, '.loops', 'supervisor')}`
   } else {
@@ -94,13 +100,33 @@ export async function readLoopsSupervisorRun(
         const events = await readMaybe(join(workersDir, `${label}.ndjson`))
         const inbox = await readMaybe(join(workersDir, `${label}.inbox.ndjson`))
         const patch = await readMaybe(join(workersDir, `${label}.patch`))
+        const eventRows = parseJsonl(events)
+        const startedRows = eventRows.filter((event) => event.kind === 'started')
+        workerStarts += startedRows.length
+        const startedIds = startedRows
+          .map((event) =>
+            typeof event.workerId === 'string'
+              ? event.workerId
+              : typeof event.agentId === 'string'
+                ? event.agentId
+                : null,
+          )
+          .filter((id): id is string => id !== null)
+        const distinctStartedIds = new Set(startedIds)
+        const workerId =
+          startedRows.length > 0 &&
+          startedIds.length === startedRows.length &&
+          distinctStartedIds.size === 1
+            ? startedIds[0]
+            : undefined
         workers.push({
+          ...(workerId === undefined ? {} : { workerId }),
           label,
           events,
           inbox,
           patchBytes: patch === null ? null : Buffer.byteLength(patch),
         })
-        for (const ev of parseJsonl(events)) {
+        for (const ev of startedRows) {
           if (ev.kind === 'started' && typeof ev.cwd === 'string') workerCwds.push(ev.cwd)
         }
       }
@@ -109,6 +135,7 @@ export async function readLoopsSupervisorRun(
 
   let harnessWorkerTokens: SupervisorRunSources['harnessWorkerTokens'] = null
   let harnessMissingReason: string | null = null
+  let workerCwdsWithoutSessions = 0
   if (opts.opencodeDb === null) {
     harnessMissingReason = 'opencode join disabled'
   } else if (workerCwds.length === 0) {
@@ -123,8 +150,11 @@ export async function readLoopsSupervisorRun(
         let sessions = 0
         let input = 0
         let output = 0
-        for (const cwd of new Set(workerCwds)) {
-          for (const row of findOpencodeSessionsByDirectory(db, cwd)) {
+        const distinctWorkerCwds = new Set(workerCwds)
+        for (const cwd of distinctWorkerCwds) {
+          const rows = findOpencodeSessionsByDirectory(db, cwd)
+          if (rows.length === 0) workerCwdsWithoutSessions += 1
+          for (const row of rows) {
             if (seen.has(row.id)) continue
             seen.add(row.id)
             sessions += 1
@@ -133,11 +163,28 @@ export async function readLoopsSupervisorRun(
           }
         }
         harnessWorkerTokens = { store: 'opencode', sessions, input, output }
+        if (workerCwdsWithoutSessions > 0) {
+          harnessMissingReason = `${workerCwdsWithoutSessions}/${distinctWorkerCwds.size} worker clone cwds have no opencode session`
+        }
       } finally {
         db.close()
       }
     }
   }
+
+  const workerInvocations = Math.max(journalWorkerSpawns, workerStarts)
+  const workerTokenGaps: string[] = []
+  if (workerCwds.length < workerInvocations) {
+    workerTokenGaps.push(
+      `${workerInvocations - workerCwds.length}/${workerInvocations} worker invocations have no clone cwd for the opencode token join`,
+    )
+  }
+  if (workerInvocations > 0 && harnessWorkerTokens === null) {
+    workerTokenGaps.push(harnessMissingReason ?? 'worker harness token join unavailable')
+  } else if (workerCwdsWithoutSessions > 0 && harnessMissingReason !== null) {
+    workerTokenGaps.push(harnessMissingReason)
+  }
+  const workerTokenLimit = workerTokenGaps.length === 0 ? null : workerTokenGaps.join('; ')
 
   const patchPath =
     opts.patchPath ?? (typeof resultObj?.patchPath === 'string' ? resultObj.patchPath : null)
@@ -157,7 +204,7 @@ export async function readLoopsSupervisorRun(
     instanceId: typeof resultObj?.iid === 'string' ? resultObj.iid : instanceIdFromPath(runDir),
     arm: typeof resultObj?.arm === 'string' ? resultObj.arm : basename(runDir),
     supRunDir,
-    journal: supRunDir === null ? null : await readMaybe(join(supRunDir, 'journal.jsonl')),
+    journal,
     brainLog: supRunDir === null ? null : await readMaybe(join(supRunDir, 'brain.jsonl')),
     state: supRunDir === null ? null : await readMaybe(join(supRunDir, 'state.json')),
     progress: supRunDir === null ? null : await readMaybe(join(supRunDir, 'progress.ndjson')),
@@ -171,8 +218,11 @@ export async function readLoopsSupervisorRun(
     harnessWorkerTokens,
     harnessMissingReason,
     // loops prices its own inference, runs a verify per worker, and keeps each
-    // worker's patch — every fact the analyzer can use is expressible here.
-    limits: NO_SOURCE_LIMITS,
+    // worker's patch. A missing external-harness join is declared explicitly.
+    limits: {
+      ...NO_SOURCE_LIMITS,
+      workerTokens: workerTokenLimit,
+    },
     traceCommand: null,
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -97,6 +97,44 @@ describe('loops reader + writeSupervisorRunReport over a real run directory', ()
     expect(report.outcome.judgeResolved).toBe(false)
     expect(report.outcome.judgeScore).toBe(0.43)
     expect(report.outcome.judgeSource).toContain('ledger row')
+  })
+
+  it('marks worker token totals unavailable when worker artifacts cannot supply join keys', async () => {
+    const runDir = await makeRun()
+    const supervisorDir = join(runDir, 'ws', '.loops', 'supervisor', 'sup-1-abc')
+    await rm(join(supervisorDir, 'workers'), { recursive: true, force: true })
+
+    const src = await readLoopsSupervisorRun(runDir, { opencodeDb: null })
+    expect(src.limits.workerTokens).toMatch(/2\/2 worker invocations have no clone cwd/)
+    const report = analyzeSupervisorRunSources(src)
+    expect(isUnavailable(report.economics.workers.tokensIn)).toBe(true)
+  })
+
+  it('binds a label file to an id only when every started attempt names the same id', async () => {
+    const runDir = await makeRun()
+    const workerPath = join(
+      runDir,
+      'ws',
+      '.loops',
+      'supervisor',
+      'sup-1-abc',
+      'workers',
+      'w-0.ndjson',
+    )
+    await writeFile(
+      workerPath,
+      `${[
+        { kind: 'started', workerId: 'worker-a', cwd: '/tmp/worker-a' },
+        { kind: 'finished', passed: true },
+        { kind: 'started', workerId: 'worker-b', cwd: '/tmp/worker-b' },
+        { kind: 'finished', passed: false },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join('\n')}\n`,
+    )
+
+    const src = await readLoopsSupervisorRun(runDir, { opencodeDb: null })
+    expect(src.workers?.[0]?.workerId).toBeUndefined()
   })
 
   it('honours reportDir so a READ-ONLY run directory is never written to', async () => {

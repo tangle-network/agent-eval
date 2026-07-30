@@ -6,6 +6,15 @@
  */
 
 import {
+  asRecord,
+  parseJson,
+  parseJsonl,
+  parseSupervisorTree,
+  type SpawnRow,
+  type WorkerLogFacts,
+  workerSourceKey,
+} from './source-facts'
+import {
   type DecisionMetrics,
   type EconomicsMetrics,
   isUnavailable,
@@ -25,288 +34,20 @@ import {
   unavailable,
 } from './types'
 
-// ---------------------------------------------------------------------------
-// Journal shapes — structurally parsed. The journal is the contract, not the type.
-// ---------------------------------------------------------------------------
-
-interface JournalEvent {
-  kind?: unknown
-  id?: unknown
-  parent?: unknown
-  label?: unknown
-  status?: unknown
-  verdict?: unknown
-  reason?: unknown
-  seq?: unknown
-  at?: unknown
-  spend?: unknown
-  spent?: unknown
-}
-
-interface Tokens {
-  input: number
-  output: number
-  cacheRead: number
-  cacheWrite: number
-  /** False when the event carried no cache counters at all — not "zero cached". */
-  hasCache: boolean
-}
-
-interface SpendLike {
-  tokens: Tokens
-  usd: number
-}
-
-export function asRecord(v: unknown): Record<string, unknown> {
-  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
-}
-
-function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
-}
-
-function readSpend(v: unknown): SpendLike {
-  const rec = asRecord(v)
-  const tok = asRecord(rec.tokens)
-  const cacheRead = tok.cacheRead ?? tok.cache_read
-  const cacheWrite = tok.cacheWrite ?? tok.cache_write
-  return {
-    tokens: {
-      input: num(tok.input),
-      output: num(tok.output),
-      cacheRead: num(cacheRead),
-      cacheWrite: num(cacheWrite),
-      hasCache: cacheRead !== undefined || cacheWrite !== undefined,
-    },
-    usd: num(rec.usd),
-  }
-}
+export {
+  asRecord,
+  type CloseRow,
+  parseJson,
+  parseJsonl,
+  parseSupervisorTree,
+  type SpawnRow,
+  type SteerAcknowledgementFact,
+  type SteerRequestFact,
+  type SupervisorTreeFacts,
+  type WorkerLogFacts,
+} from './source-facts'
 
 const NO_CACHE_COUNTERS = 'the journal carries no cache-token counters for this role'
-
-export function parseJsonl(text: string | null): Record<string, unknown>[] {
-  if (text === null) return []
-  const out: Record<string, unknown>[] = []
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const parsed: unknown = JSON.parse(trimmed)
-      if (typeof parsed === 'object' && parsed !== null) out.push(parsed as Record<string, unknown>)
-    } catch {
-      // A torn last line (writer killed mid-append) is skipped, never fatal.
-    }
-  }
-  return out
-}
-
-export function parseJson(text: string | null): Record<string, unknown> | null {
-  if (text === null) return null
-  try {
-    const parsed: unknown = JSON.parse(text)
-    return typeof parsed === 'object' && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
-function ms(at: unknown): number | null {
-  if (typeof at !== 'string') return null
-  const t = Date.parse(at)
-  return Number.isFinite(t) ? t : null
-}
-
-// ---------------------------------------------------------------------------
-// The supervision tree, as parsed from the journal event stream.
-// ---------------------------------------------------------------------------
-
-export interface SpawnRow {
-  id: string
-  parent: string | null
-  label: string
-  at: number | null
-}
-
-export interface CloseRow {
-  id: string
-  kind: 'settled' | 'cancelled'
-  status: string | null
-  verdict: string | null
-  at: number | null
-  spend: SpendLike
-  /** False when the close event carried no spend object — not "spent nothing". */
-  hasSpend: boolean
-}
-
-export interface WorkerLogFacts {
-  started: number | null
-  /** True once a `finished` event was seen — independent of whether its `at` parsed. */
-  finished: boolean
-  finishedAt: number | null
-  passed: boolean | null
-  /** `patchBytes` as reported by the finished event (not the patch file's size). */
-  finishedPatchBytes: number | null
-  evidenceBytes: number
-  steersQueued: number
-  steersDelivered: number
-  questions: number
-}
-
-/**
- * The tree + timeline the report is computed from, exposed because the rollout-row
- * minter needs exactly the same parse (one parser, two consumers).
- */
-export interface SupervisorTreeFacts {
-  readonly rootId: string | null
-  readonly spawns: readonly SpawnRow[]
-  readonly closes: readonly CloseRow[]
-  readonly workerSpawns: readonly SpawnRow[]
-  readonly workerCloses: readonly CloseRow[]
-  readonly brain: {
-    tokensIn: number
-    tokensOut: number
-    cacheRead: number
-    cacheWrite: number
-    /** False when no metered event carried cache counters — not "nothing cached". */
-    hasCache: boolean
-    usd: number
-    meteredCount: number
-  }
-  readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
-  readonly startedAt: number | null
-  readonly completedAt: number | null
-}
-
-export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
-  const events = parseJsonl(src.journal)
-  const state = parseJson(src.state)
-
-  const spawns: SpawnRow[] = []
-  const closes: CloseRow[] = []
-  let brainIn = 0
-  let brainOut = 0
-  let brainCacheRead = 0
-  let brainCacheWrite = 0
-  let brainHasCache = false
-  let brainUsd = 0
-  let meteredCount = 0
-  let rootId: string | null = null
-  for (const ev of events as JournalEvent[]) {
-    const kind = typeof ev.kind === 'string' ? ev.kind : ''
-    const id = typeof ev.id === 'string' ? ev.id : ''
-    if (kind === 'spawned') {
-      const parent = typeof ev.parent === 'string' ? ev.parent : null
-      const label = typeof ev.label === 'string' ? ev.label : ''
-      if (parent === null && rootId === null) rootId = id
-      spawns.push({ id, parent, label, at: ms(ev.at) })
-    } else if (kind === 'settled') {
-      closes.push({
-        id,
-        kind: 'settled',
-        status: typeof ev.status === 'string' ? ev.status : null,
-        verdict: typeof ev.verdict === 'string' ? ev.verdict : null,
-        at: ms(ev.at),
-        spend: readSpend(ev.spent),
-        hasSpend: asRecord(ev.spent).tokens !== undefined,
-      })
-    } else if (kind === 'cancelled') {
-      closes.push({
-        id,
-        kind: 'cancelled',
-        status: 'cancelled',
-        verdict: typeof ev.reason === 'string' ? ev.reason : null,
-        at: ms(ev.at),
-        spend: {
-          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, hasCache: false },
-          usd: 0,
-        },
-        hasSpend: false,
-      })
-    } else if (kind === 'metered') {
-      const s = readSpend(ev.spend)
-      brainIn += s.tokens.input
-      brainOut += s.tokens.output
-      brainCacheRead += s.tokens.cacheRead
-      brainCacheWrite += s.tokens.cacheWrite
-      brainHasCache = brainHasCache || s.tokens.hasCache
-      brainUsd += s.usd
-      meteredCount += 1
-    }
-  }
-
-  const workerSpawns = spawns.filter((s) => s.id !== rootId)
-  const workerIds = new Set(workerSpawns.map((s) => s.id))
-  const workerCloses = closes.filter((c) => workerIds.has(c.id))
-
-  const workerLogs = new Map<string, WorkerLogFacts>()
-  for (const w of src.workers ?? []) {
-    const facts: WorkerLogFacts = {
-      started: null,
-      finished: false,
-      finishedAt: null,
-      passed: null,
-      finishedPatchBytes: null,
-      evidenceBytes: 0,
-      steersQueued: 0,
-      steersDelivered: 0,
-      questions: 0,
-    }
-    for (const req of parseJsonl(w.inbox)) {
-      if (typeof req.message === 'string' && req.message.trim().length > 0) facts.steersQueued += 1
-    }
-    for (const ev of parseJsonl(w.events)) {
-      const kind = ev.kind
-      if (kind === 'message') {
-        if (ev.direction === 'up') {
-          facts.questions += 1
-          continue
-        }
-        // A down-leg message not backed by an inbox line (in-process steer) still counts.
-        if (typeof ev.requestId !== 'string') facts.steersQueued += 1
-        if (ev.delivered === true) facts.steersDelivered += 1
-      } else if (kind === 'started') {
-        facts.started = ms(ev.at)
-      } else if (kind === 'finished') {
-        facts.finished = true
-        facts.finishedAt = ms(ev.at)
-        facts.passed = typeof ev.passed === 'boolean' ? ev.passed : null
-        facts.finishedPatchBytes = typeof ev.patchBytes === 'number' ? ev.patchBytes : null
-        facts.evidenceBytes = typeof ev.evidence === 'string' ? ev.evidence.length : 0
-      }
-    }
-    workerLogs.set(w.label, facts)
-  }
-
-  const startedAt = ms(state?.startedAt) ?? spawns[0]?.at ?? null
-  const completedAt =
-    ms(state?.completedAt) ??
-    [...spawns.map((s) => s.at), ...closes.map((c) => c.at)].reduce<number | null>(
-      (acc, t) => (t === null ? acc : acc === null ? t : Math.max(acc, t)),
-      null,
-    )
-
-  return {
-    rootId,
-    spawns,
-    closes,
-    workerSpawns,
-    workerCloses,
-    brain: {
-      tokensIn: brainIn,
-      tokensOut: brainOut,
-      cacheRead: brainCacheRead,
-      cacheWrite: brainCacheWrite,
-      hasCache: brainHasCache,
-      usd: brainUsd,
-      meteredCount,
-    },
-    workerLogs,
-    startedAt,
-    completedAt,
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The analyzer.
@@ -331,11 +72,31 @@ export function analyzeSupervisorRunSources(
       ? 'no supervisor run dir under <ws>/.loops/supervisor'
       : 'journal.jsonl absent'
   const haveJournal = src.journal !== null
-  const state = parseJson(src.state)
+  const tree = parseSupervisorTree(src)
+  const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
-  const tree = parseSupervisorTree(src)
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
+  const spawnById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn]))
+  const spawnsByLabel = new Map<string, SpawnRow[]>()
+  for (const spawn of workerSpawns) {
+    const matches = spawnsByLabel.get(spawn.label) ?? []
+    matches.push(spawn)
+    spawnsByLabel.set(spawn.label, matches)
+  }
+  const spawnsForSource = (
+    worker: NonNullable<SupervisorRunSources['workers']>[number],
+  ): readonly SpawnRow[] => {
+    if (worker.workerId === undefined) return spawnsByLabel.get(worker.label) ?? []
+    const spawn = spawnById.get(worker.workerId)
+    return spawn === undefined ? [] : [spawn]
+  }
+  const spawnForSource = (
+    worker: NonNullable<SupervisorRunSources['workers']>[number],
+  ): SpawnRow | null => {
+    const matches = spawnsForSource(worker)
+    return matches.length === 1 ? (matches[0] ?? null) : null
+  }
 
   const supervisorWallMs: Measured<number> =
     startedAt !== null && completedAt !== null && completedAt >= startedAt
@@ -351,22 +112,53 @@ export function analyzeSupervisorRunSources(
   let upLegMessages = 0
   if (src.workers !== null) {
     for (const w of src.workers) {
-      const facts = tree.workerLogs.get(w.label)
-      const queued = facts?.steersQueued ?? 0
-      const delivered = facts?.steersDelivered ?? 0
+      const facts = tree.workerLogs.get(workerSourceKey(w))
+      const queued = facts?.steersQueued ?? null
+      const delivered = facts?.steersDelivered ?? null
       upLegMessages += facts?.questions ?? 0
-      steerRows.push({ worker: w.label, queued, delivered })
-      steerQueuedTotal += queued
-      steerDeliveredTotal += delivered
+      if (queued !== null && delivered !== null) {
+        steerRows.push({ workerId: w.workerId ?? null, worker: w.label, queued, delivered })
+      }
+      if (queued !== null) steerQueuedTotal += queued
+      if (delivered !== null) steerDeliveredTotal += delivered
     }
   }
   const workersGapReason = src.workersMissingReason ?? 'workers/ directory absent'
+  const unavailableReasons = (pick: (facts: WorkerLogFacts) => string | null): string | null => {
+    const reasons = tree.workerLogRows
+      .map((facts) => pick(facts))
+      .filter((reason): reason is string => reason !== null)
+    return reasons.length === 0
+      ? null
+      : `exact steer accounting unavailable for ${reasons.length} worker row(s): ${[...new Set(reasons)].join(' | ')}`
+  }
+  const queuedGapReason = unavailableReasons((facts) => facts.steersQueuedUnavailable)
+  const deliveredGapReason = unavailableReasons((facts) => facts.steersDeliveredUnavailable)
+  const workerEventsGapReason = unavailableReasons((facts) =>
+    !facts.eventsCaptured
+      ? 'events absent'
+      : facts.eventsInvalidRows > 0
+        ? 'events contain malformed rows'
+        : null,
+  )
   const steers: Measured<number> =
-    src.workers === null ? gap('steers', workersGapReason) : steerQueuedTotal
+    src.workers === null
+      ? gap('steers', workersGapReason)
+      : queuedGapReason === null
+        ? steerQueuedTotal
+        : gap('steers', queuedGapReason)
   const steersDelivered: Measured<number> =
-    src.workers === null ? unavailable(workersGapReason) : steerDeliveredTotal
+    src.workers === null
+      ? unavailable(workersGapReason)
+      : deliveredGapReason === null
+        ? steerDeliveredTotal
+        : unavailable(deliveredGapReason)
   const steersByWorker: Measured<readonly SteerBreakdown[]> =
-    src.workers === null ? unavailable(workersGapReason) : steerRows
+    src.workers === null
+      ? unavailable(workersGapReason)
+      : queuedGapReason === null && deliveredGapReason === null
+        ? steerRows
+        : unavailable(queuedGapReason ?? deliveredGapReason ?? workersGapReason)
 
   // The `[driver] registered tools: …supervisor_steer…` banner names the verb without
   // invoking it, so banner lines are subtracted from the raw mention count.
@@ -426,18 +218,52 @@ export function analyzeSupervisorRunSources(
     (acc, s) => (s.at === null ? acc : acc === null ? s.at : Math.min(acc, s.at)),
     null,
   )
-  const firstSettleAt = workerCloses.reduce<number | null>(
-    (acc, c) => (c.at === null ? acc : acc === null ? c.at : Math.min(acc, c.at)),
-    null,
-  )
-  const respawns =
-    firstSettleAt === null
-      ? 0
-      : workerSpawns.filter((s) => s.at !== null && s.at > firstSettleAt).length
+  const closeById = new Map(workerCloses.map((close) => [close.id, close]))
+  const childSpawnsByParent = new Map<string, SpawnRow[]>()
+  for (const spawn of workerSpawns) {
+    if (spawn.parent === null) continue
+    const siblings = childSpawnsByParent.get(spawn.parent) ?? []
+    siblings.push(spawn)
+    childSpawnsByParent.set(spawn.parent, siblings)
+  }
 
-  const labelCounts = new Map<string, number>()
-  for (const s of workerSpawns) labelCounts.set(s.label, (labelCounts.get(s.label) ?? 0) + 1)
-  const repeatedLabels = [...labelCounts.entries()].filter(([, n]) => n > 1).map(([l]) => l)
+  let respawns = 0
+  let observeThenRespawn = 0
+  let respawnWithoutEvidence = 0
+  const repeatedLabelSet = new Set<string>()
+  for (const siblings of childSpawnsByParent.values()) {
+    const labelCounts = new Map<string, number>()
+    for (const spawn of siblings) {
+      labelCounts.set(spawn.label, (labelCounts.get(spawn.label) ?? 0) + 1)
+    }
+    for (const [label, count] of labelCounts) {
+      if (count > 1) repeatedLabelSet.add(label)
+    }
+
+    const orderedSpawns = siblings
+      .map((spawn, index) => ({ spawn, index }))
+      .filter(
+        (row): row is { spawn: SpawnRow & { at: number }; index: number } => row.spawn.at !== null,
+      )
+      .sort((a, b) => a.spawn.at - b.spawn.at || a.index - b.index)
+    const directCloseTimes = siblings
+      .map((spawn) => closeById.get(spawn.id)?.at ?? null)
+      .filter((at): at is number => at !== null)
+      .sort((a, b) => a - b)
+    const firstDirectClose = directCloseTimes[0] ?? null
+
+    for (let i = 1; i < orderedSpawns.length; i += 1) {
+      const previous = orderedSpawns[i - 1]?.spawn.at
+      const current = orderedSpawns[i]?.spawn.at
+      if (previous === undefined || current === undefined) continue
+      if (firstDirectClose === null || current <= firstDirectClose) continue
+      respawns += 1
+      const sawEvidence = hasNumberBetween(directCloseTimes, previous, current)
+      if (sawEvidence) observeThenRespawn += 1
+      else respawnWithoutEvidence += 1
+    }
+  }
+  const repeatedLabels = [...repeatedLabelSet]
 
   const parentOf = new Map(tree.spawns.map((s) => [s.id, s.parent]))
   let delegationDepth = 0
@@ -505,41 +331,46 @@ export function analyzeSupervisorRunSources(
   // A store with no verify step never says pass or fail. Counting its silent
   // workers as `rejected: 0 / accepted: 0` would read as "nothing was accepted".
   const verdictLimit = src.limits.workerVerdicts
+  const acceptedLimit = verdictLimit ?? src.limits.deliverables
   let accepted = 0
-  let rejected = 0
   let emptyPass = 0
   let evidenceBytes = 0
+  const sourceVerdicts: boolean[] = []
   for (const w of src.workers ?? []) {
-    const f = tree.workerLogs.get(w.label)
-    if (f === undefined || !f.finished) continue
-    evidenceBytes += f.evidenceBytes
-    if (f.passed === true) {
-      if ((f.finishedPatchBytes ?? 0) > 0) accepted += 1
+    const f = tree.workerLogs.get(workerSourceKey(w))
+    if (f?.finished) evidenceBytes += f.evidenceBytes
+    const spawn = spawnForSource(w)
+    const close = spawn === null ? null : (closeById.get(spawn.id) ?? null)
+    const passed = close?.valid ?? f?.passed ?? null
+    if (passed !== null) sourceVerdicts.push(passed)
+    if (passed === true) {
+      if ((w.patchBytes ?? f?.finishedPatchBytes ?? 0) > 0) accepted += 1
       else emptyPass += 1
-    } else if (f.passed === false) rejected += 1
-  }
-
-  // Evidence→respawn: for each worker spawn issued after some settlement, did a
-  // settlement land strictly between the previous spawn and this one?
-  let observeThenRespawn = 0
-  let respawnWithoutEvidence = 0
-  const spawnTimes = workerSpawns
-    .map((s) => s.at)
-    .filter((t): t is number => t !== null)
-    .sort((a, b) => a - b)
-  const closeTimes = workerCloses
-    .map((c) => c.at)
-    .filter((t): t is number => t !== null)
-    .sort((a, b) => a - b)
-  for (let i = 1; i < spawnTimes.length; i += 1) {
-    const prevSpawn = spawnTimes[i - 1] as number
-    const thisSpawn = spawnTimes[i] as number
-    const sawEvidence = closeTimes.some((t) => t >= prevSpawn && t <= thisSpawn)
-    if (firstSettleAt !== null && thisSpawn > firstSettleAt) {
-      if (sawEvidence) observeThenRespawn += 1
-      else respawnWithoutEvidence += 1
     }
   }
+  const settledCloses = workerCloses.filter((close) => close.kind === 'settled')
+  const structuredVerdicts = settledCloses
+    .map((close) => close.valid)
+    .filter((valid): valid is boolean => valid !== null)
+  const journalVerdictsComplete =
+    settledCloses.length > 0 && structuredVerdicts.length === settledCloses.length
+  const sourceVerdictsComplete =
+    sourceVerdicts.length > 0 && sourceVerdicts.length >= settledCloses.length
+  const rejected = journalVerdictsComplete
+    ? structuredVerdicts.filter((valid) => !valid).length
+    : sourceVerdictsComplete
+      ? sourceVerdicts.filter((valid) => !valid).length
+      : 0
+  const rejectedLimit =
+    journalVerdictsComplete || sourceVerdictsComplete
+      ? null
+      : settledCloses.length > 0
+        ? (verdictLimit ?? 'a settled journal verdict has no validity and no matched worker log')
+        : verdictLimit !== null
+          ? verdictLimit
+          : !haveJournal && src.workers === null
+            ? workersGapReason
+            : null
 
   const decision: DecisionMetrics = {
     settledByStatus: haveJournal ? settledByStatus : gap('settledByStatus', journalMissing),
@@ -550,56 +381,69 @@ export function analyzeSupervisorRunSources(
           ? settledVerdicts
           : unavailable(journalMissing),
     accepted:
-      verdictLimit !== null
-        ? gap('accepted', verdictLimit)
+      acceptedLimit !== null
+        ? gap('accepted', acceptedLimit)
         : src.workers === null
           ? unavailable(workersGapReason)
           : accepted,
-    rejected:
-      verdictLimit !== null
-        ? unavailable(verdictLimit)
-        : src.workers === null
-          ? unavailable(workersGapReason)
-          : rejected,
+    rejected: rejectedLimit === null ? rejected : unavailable(rejectedLimit),
     emptyPass:
-      verdictLimit !== null || src.limits.deliverables !== null
-        ? unavailable(verdictLimit ?? (src.limits.deliverables as string))
+      acceptedLimit !== null
+        ? gap('emptyPass', acceptedLimit)
         : src.workers === null
           ? unavailable(workersGapReason)
           : emptyPass,
     observeThenRespawn: haveJournal ? observeThenRespawn : unavailable(journalMissing),
     respawnWithoutEvidence: haveJournal ? respawnWithoutEvidence : unavailable(journalMissing),
     reviewActions:
-      src.workers === null ? unavailable(workersGapReason) : steerQueuedTotal + upLegMessages,
-    workerEvidenceBytes: src.workers === null ? unavailable(workersGapReason) : evidenceBytes,
+      src.workers === null
+        ? unavailable(workersGapReason)
+        : queuedGapReason === null
+          ? steerQueuedTotal + upLegMessages
+          : unavailable(queuedGapReason),
+    workerEvidenceBytes:
+      src.workers === null
+        ? unavailable(workersGapReason)
+        : workerEventsGapReason === null
+          ? evidenceBytes
+          : unavailable(workerEventsGapReason),
   }
 
   // ── economics ──────────────────────────────────────────────────────────
   const journalWorkerIn = workerCloses.reduce((a, c) => a + c.spend.tokens.input, 0)
   const journalWorkerOut = workerCloses.reduce((a, c) => a + c.spend.tokens.output, 0)
   const journalWorkerUsd = workerCloses.reduce((a, c) => a + c.spend.usd, 0)
-  const labelById = new Map(tree.workerSpawns.map((s) => [s.id, s.label]))
-  const workerUsdByLabel = new Map<string, number>()
+  const workerUsdById = new Map<string, number>()
   for (const c of workerCloses) {
-    const label = labelById.get(c.id)
+    workerUsdById.set(c.id, (workerUsdById.get(c.id) ?? 0) + c.spend.usd)
+  }
+  const labelById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn.label]))
+  const workerUsdByLabel = new Map<string, number>()
+  for (const close of workerCloses) {
+    const label = labelById.get(close.id)
     if (label === undefined) continue
-    workerUsdByLabel.set(label, (workerUsdByLabel.get(label) ?? 0) + c.spend.usd)
+    workerUsdByLabel.set(label, (workerUsdByLabel.get(label) ?? 0) + close.spend.usd)
   }
   const sq = src.harnessWorkerTokens
   const harnessGapReason =
     src.harnessMissingReason ?? 'harness session store unavailable and journal settled spend is 0'
+  const workerTokenLimit = src.limits.workerTokens
   const workerIn: Measured<number> =
-    sq !== null
-      ? journalWorkerIn + sq.input
-      : journalWorkerIn > 0
-        ? journalWorkerIn
-        : gap('workers.tokensIn', harnessGapReason)
+    workerTokenLimit !== null
+      ? gap('workers.tokensIn', workerTokenLimit)
+      : sq !== null
+        ? journalWorkerIn + sq.input
+        : haveJournal
+          ? journalWorkerIn
+          : gap('workers.tokensIn', harnessGapReason)
   const workerOut: Measured<number> =
-    sq !== null
-      ? journalWorkerOut + sq.output
-      : journalWorkerOut > 0
-        ? journalWorkerOut
-        : unavailable(harnessGapReason)
+    workerTokenLimit !== null
+      ? unavailable(workerTokenLimit)
+      : sq !== null
+        ? journalWorkerOut + sq.output
+        : haveJournal
+          ? journalWorkerOut
+          : unavailable(harnessGapReason)
 
   const stateResult = asRecord(state?.result)
   const stateUsd = typeof stateResult.spentUsd === 'number' ? stateResult.spentUsd : null
@@ -616,15 +460,28 @@ export function analyzeSupervisorRunSources(
           : gap('totalUsd', journalMissing)
 
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
-    const f = tree.workerLogs.get(w.label)
+    const f = tree.workerLogs.get(workerSourceKey(w))
+    const matchingSpawns = spawnsForSource(w)
+    const spawn = spawnForSource(w)
+    const close = spawn === null ? null : (closeById.get(spawn.id) ?? null)
+    const passed = close?.valid ?? f?.passed ?? null
+    const matchingRoles = new Set(matchingSpawns.map((candidate) => candidate.role))
     return {
+      workerId: w.workerId ?? null,
       worker: w.label,
+      role: matchingRoles.size === 1 ? (matchingSpawns[0]?.role ?? null) : null,
       wallMs: f?.started != null && f.finishedAt != null ? f.finishedAt - f.started : null,
       tokensIn: w.tokensIn ?? null,
       tokensOut: w.tokensOut ?? null,
-      usd: usdLimit !== null ? null : (workerUsdByLabel.get(w.label) ?? null),
+      usd:
+        usdLimit !== null
+          ? null
+          : w.workerId === undefined
+            ? (workerUsdByLabel.get(w.label) ?? null)
+            : (workerUsdById.get(w.workerId) ?? null),
       patchBytes: w.patchBytes ?? f?.finishedPatchBytes ?? null,
-      passed: f?.passed ?? null,
+      passed,
+      score: close?.score ?? f?.score ?? null,
     }
   })
   const walls = perWorker
@@ -633,29 +490,46 @@ export function analyzeSupervisorRunSources(
     .sort((a, b) => a - b)
 
   const brainCalls = parseJsonl(src.brainLog)
+  const managerTokenLimit = src.limits.managerTokens
   const economics: EconomicsMetrics = {
     brain: {
-      tokensIn: haveJournal ? tree.brain.tokensIn : gap('brain.tokensIn', journalMissing),
-      tokensOut: haveJournal ? tree.brain.tokensOut : unavailable(journalMissing),
+      tokensIn:
+        managerTokenLimit !== null
+          ? gap('brain.tokensIn', managerTokenLimit)
+          : haveJournal
+            ? tree.brain.tokensIn
+            : gap('brain.tokensIn', journalMissing),
+      tokensOut:
+        managerTokenLimit !== null
+          ? unavailable(managerTokenLimit)
+          : haveJournal
+            ? tree.brain.tokensOut
+            : unavailable(journalMissing),
       usd:
         usdLimit !== null
           ? unavailable(usdLimit)
           : haveJournal
             ? round(tree.brain.usd, 6)
             : unavailable(journalMissing),
-      cacheRead: !haveJournal
-        ? unavailable(journalMissing)
-        : tree.brain.hasCache
-          ? tree.brain.cacheRead
-          : unavailable(NO_CACHE_COUNTERS),
-      cacheWrite: !haveJournal
-        ? unavailable(journalMissing)
-        : tree.brain.hasCache
-          ? tree.brain.cacheWrite
-          : unavailable(NO_CACHE_COUNTERS),
-      source: haveJournal
-        ? `journal metered events (n=${tree.brain.meteredCount})`
-        : journalMissing,
+      cacheRead:
+        managerTokenLimit !== null
+          ? unavailable(managerTokenLimit)
+          : !haveJournal
+            ? unavailable(journalMissing)
+            : tree.brain.hasCache
+              ? tree.brain.cacheRead
+              : unavailable(NO_CACHE_COUNTERS),
+      cacheWrite:
+        managerTokenLimit !== null
+          ? unavailable(managerTokenLimit)
+          : !haveJournal
+            ? unavailable(journalMissing)
+            : tree.brain.hasCache
+              ? tree.brain.cacheWrite
+              : unavailable(NO_CACHE_COUNTERS),
+      source:
+        managerTokenLimit ??
+        (haveJournal ? `journal metered events (n=${tree.brain.meteredCount})` : journalMissing),
     },
     brainTruncations:
       src.brainLog === null
@@ -669,8 +543,18 @@ export function analyzeSupervisorRunSources(
     workers: {
       tokensIn: workerIn,
       tokensOut: workerOut,
-      cacheRead: sq?.cacheRead !== undefined ? sq.cacheRead : unavailable(NO_CACHE_COUNTERS),
-      cacheWrite: sq?.cacheWrite !== undefined ? sq.cacheWrite : unavailable(NO_CACHE_COUNTERS),
+      cacheRead:
+        workerTokenLimit !== null
+          ? unavailable(workerTokenLimit)
+          : sq?.cacheRead !== undefined
+            ? sq.cacheRead
+            : unavailable(NO_CACHE_COUNTERS),
+      cacheWrite:
+        workerTokenLimit !== null
+          ? unavailable(workerTokenLimit)
+          : sq?.cacheWrite !== undefined
+            ? sq.cacheWrite
+            : unavailable(NO_CACHE_COUNTERS),
       usd:
         usdLimit !== null
           ? unavailable(usdLimit)
@@ -678,9 +562,11 @@ export function analyzeSupervisorRunSources(
             ? round(journalWorkerUsd, 6)
             : unavailable(journalMissing),
       source:
-        sq !== null
-          ? `journal settled spend + ${sq.store} sessions (n=${sq.sessions})`
-          : `journal settled spend only — ${src.harnessMissingReason ?? 'harness session store unavailable'}`,
+        workerTokenLimit !== null
+          ? workerTokenLimit
+          : sq !== null
+            ? `journal settled spend + ${sq.store} sessions (n=${sq.sessions})`
+            : `journal settled spend only — ${src.harnessMissingReason ?? 'harness session store unavailable'}`,
     },
     totalUsd,
     totalUsdSource:
@@ -787,6 +673,18 @@ export function analyzeSupervisorRunSources(
       src.traceCommand ??
       'npx --yes @tangle-network/traces@latest analyze --harness opencode --cwd <worker-clone-cwd>',
   }
+}
+
+/** Whether sorted values contain one value in the inclusive interval. */
+function hasNumberBetween(sorted: readonly number[], low: number, high: number): boolean {
+  let left = 0
+  let right = sorted.length
+  while (left < right) {
+    const middle = left + Math.floor((right - left) / 2)
+    if ((sorted[middle] as number) < low) left = middle + 1
+    else right = middle
+  }
+  return left < sorted.length && (sorted[left] as number) <= high
 }
 
 /** `[driver] registered tools: …supervisor_steer…` is a banner, not an invocation. */

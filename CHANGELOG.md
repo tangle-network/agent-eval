@@ -4,10 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [Unreleased]
 
 ### Added
 
+- `CONTROL_INTEGRITY_ANALYST` checks existing `SupervisorRunSources` and `SupervisorRunTree` values for duplicate or detached identities, parent cycles, impossible event order, orphan terminal events, and steer request or acknowledgement mismatches.
+  Missing transcripts, profile ids, worker logs, and declared tree gaps remain unavailable instead of becoming clean results.
 - Trace analyst benchmarks now retain dataset revision, case and runner metadata, labeled issue recall, finding precision, critical-step accuracy, citation coverage, label-location agreement, actual location resolution, clean-case failures and false positives, repeat agreement, execution order, failures, latency, every reported token counter, and cost.
 - Paired analyst comparisons average repetitions within independent cases before computing intervals and report both case and observation counts.
 - Phoenix Evaluators and Braintrust Autoevals can run as campaign judges through structural adapters, without copying either scorer implementation.
@@ -23,6 +25,31 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Analyst benchmarks use the upstream `linear-sum-assignment` implementation to maximize one-to-one label coverage and then critical-step localization, so duplicate predictions reduce precision and ambiguous findings are scored consistently.
 - AgentRx evaluation targets its published root-cause task by default, accepts its maintained `failures` report shape, and treats `failure_case: 0` as a no-error prediction.
 - CodeTraceBench uses its published incorrect-step labels by default; the combined incorrect-and-unuseful task must be selected explicitly.
+
+## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
+
+### Fixed
+
+- The npm package pins `@tangle-network/agent-core` 0.4.28 and `@tangle-network/agent-interface` 0.39.0 as one compatible cohort.
+  Profile-improvement experiments validate every existing `AgentProfileDiff` axis with the same schema that constructs those diffs.
+- Recursive supervisor-run reports now join worker artifacts by optional stable `workerId`, falling back to `label` only for older stores.
+  Retry and reaction counts are computed within each parent, so identical labels and settlements in separate branches no longer collide.
+  Per-worker and steer rows expose the joined `workerId`; custom report consumers should read it instead of treating the display label as identity.
+- Spawned invocations retain an explicit `supervisor` or `worker` role, and structured verdicts retain their numeric score in rollout rewards and per-worker report rows.
+- Accepted-patch counts are unavailable when the source did not retain worker deliverables, even when a worker event claimed patch bytes.
+- Manager and worker token totals have independent unavailable reasons, so an uncaptured channel is not reported as zero and a captured zero remains zero.
+- Supervisor-run integrity checks share one typed source parse, correlate worker control rows by stable invocation id, and distinguish captured-empty control artifacts from missing artifacts.
+- Claude Code child agents remain workers when they delegate, and steer counts use the original tool-use request id.
+- Malformed journal and worker-control rows make dependent checks unavailable instead of producing missing-parent claims or clean zero counts.
+
+### Breaking changes
+
+- Custom `SupervisorRunSources` readers must add `managerTokens` and `workerTokens` to `SourceLimits`.
+  Set each field to `null` only when that role's aggregate token channel is complete; otherwise set the reason it is unavailable.
+  Readers with no source limitations can continue to use `NO_SOURCE_LIMITS`.
+- `SupervisorRunTree.gaps` now contains typed `{ code, message, nodeId?, count? }` records instead of free-form strings.
+- `WorkerLogFacts.steersQueued` and `steersDelivered` are now nullable.
+  `null` means malformed, incomplete, or uncorrelated control rows prevent exact request-id accounting.
 
 ## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
 

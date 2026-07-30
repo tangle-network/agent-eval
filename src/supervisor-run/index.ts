@@ -19,6 +19,8 @@ export {
   parseSupervisorTree,
   rollupSupervisorRuns,
   type SpawnRow,
+  type SteerAcknowledgementFact,
+  type SteerRequestFact,
   type SupervisorTreeFacts,
   type WorkerLogFacts,
 } from './analyze'
@@ -30,6 +32,17 @@ export {
   DEFAULT_STEER_TOOLS,
   readClaudeCodeSupervisorRun,
 } from './claude-code-reader'
+export {
+  analyzeSupervisorRunIntegrity,
+  SUPERVISOR_RUN_INTEGRITY_SCHEMA,
+  type SupervisorRunIntegrityEvidence,
+  type SupervisorRunIntegrityIssue,
+  type SupervisorRunIntegrityIssueCode,
+  type SupervisorRunIntegrityOptions,
+  type SupervisorRunIntegrityReport,
+  type SupervisorRunIntegritySeverity,
+  type SupervisorRunSourceOnlyCheckCode,
+} from './integrity'
 export {
   analyzeSupervisorRun,
   findSupervisorRunDirIn,
@@ -65,11 +78,14 @@ export {
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
+  type SupervisorRunNodeRole,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
   type SupervisorRunSources,
   type SupervisorRunTree,
+  type SupervisorRunTreeGap,
+  type SupervisorRunTreeGapCode,
   showMeasured,
   type Unavailable,
   unavailable,

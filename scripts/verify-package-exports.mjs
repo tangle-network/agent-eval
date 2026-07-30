@@ -45,8 +45,8 @@ try {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
   }
   const expectedDependencyCohort = {
-    '@tangle-network/agent-core': '0.4.26',
-    '@tangle-network/agent-interface': '0.37.0',
+    '@tangle-network/agent-core': '0.4.28',
+    '@tangle-network/agent-interface': '0.39.0',
   }
   for (const [name, version] of Object.entries(expectedDependencyCohort)) {
     if (packageJson.dependencies?.[name] !== version) {
@@ -153,6 +153,8 @@ try {
     `
       import {
         CostLedger,
+        CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
+        analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         InMemoryTraceStore,
         type BenchmarkRunnerConfig,
         type ChatClient,
@@ -169,11 +171,14 @@ try {
         runTaskScore,
       } from '@tangle-network/agent-eval'
       import {
+        CONTROL_INTEGRITY_ANALYST,
+        ControlIntegrityAnalyst,
         RawAnalystFindingSchema,
         agentRxBenchmarkCase,
         agentRxPredictionsToFindings,
         codeTraceBenchCase,
         codeTracerPredictionsToFindings,
+        emitControlIntegrityFindings,
         traceStoreEvidenceResolver,
         type AnalystBenchmarkCase,
         type RawAnalystFinding,
@@ -203,12 +208,21 @@ try {
       } from '@tangle-network/agent-eval/hosted'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
       import {
+        buildTraceAnalysisToolDescriptors,
+        createBoundedTraceAnalysisStore,
         LLM_REASONING_TOKENS,
         OtlpFileTraceStore,
         otlpToRunRecords,
+        TRACE_ANALYSIS_LIMITS,
+        TraceAnalysisLimitError,
+        TraceAnalysisStoreContractError,
+        TraceAnalysisValidationError,
+        TraceNotFoundError,
+        type TraceAnalysisToolDescriptor,
         type ToolSpan,
         type ToolSpansToTraceAnalysisStoreOptions,
         type TraceAnalysisStore,
+        TRACE_ANALYST_TOOL_NAMESPACE,
         ToolTraceMissingError,
         toolSpansToTraceAnalysisStore,
       } from '@tangle-network/agent-eval/traces'
@@ -226,8 +240,31 @@ try {
         toGrpoRows,
         toSftRows,
       } from '@tangle-network/agent-eval/rl'
+      import {
+        analyzeSupervisorRunIntegrity,
+        type SupervisorRunIntegrityReport,
+        type SupervisorRunSources,
+        type SupervisorRunTree,
+        type SupervisorRunTreeGap,
+      } from '@tangle-network/agent-eval/supervisor-run'
 
       const store: TraceAnalysisStore = new OtlpFileTraceStore({ path: 'spans.jsonl' })
+      const traceToolDescriptors: TraceAnalysisToolDescriptor[] =
+        buildTraceAnalysisToolDescriptors({ store })
+      const traceToolNamespace: 'traces' = TRACE_ANALYST_TOOL_NAMESPACE
+      const boundedStore: TraceAnalysisStore = createBoundedTraceAnalysisStore(store)
+      const traceValidationCode: 'validation' = new TraceAnalysisValidationError('bad input').code
+      const traceLimitCode: 'limit_exceeded' = new TraceAnalysisLimitError(
+        'packed-read',
+        2,
+        1,
+      ).code
+      const traceStoreCode: 'backend_integrity' = new TraceAnalysisStoreContractError(
+        'packed-read',
+        'invalid result',
+      ).code
+      const traceNotFoundCode: 'not_found' = new TraceNotFoundError('missing-trace').code
+      const tracePageLimit: 200 = TRACE_ANALYSIS_LIMITS.queryTraces
       const packedToolSpan: ToolSpan = {
         runId: 'packed-run',
         spanId: 'packed-span',
@@ -316,6 +353,13 @@ try {
       const removedDatasetRecordInput: Parameters<typeof buildRlDataset>[0] = removedRecordInputs
       const canonicalChat = null as unknown as ChatClient
       const canonicalJudge = null as unknown as JudgeFn
+      const controlIntegrityAnalyst: ControlIntegrityAnalyst = CONTROL_INTEGRITY_ANALYST
+      const controlIntegrityInput = undefined as SupervisorRunSources | SupervisorRunTree | undefined
+      const controlIntegrityReport = undefined as SupervisorRunIntegrityReport | undefined
+      const controlTreeGap: SupervisorRunTreeGap = {
+        code: 'journal-unavailable',
+        message: 'not captured',
+      }
       const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'current',
@@ -444,6 +488,14 @@ try {
       })
       void [
         store,
+        traceToolDescriptors,
+        traceToolNamespace,
+        boundedStore,
+        traceValidationCode,
+        traceLimitCode,
+        traceStoreCode,
+        traceNotFoundCode,
+        tracePageLimit,
         packedToolStore,
         packedMissingTraceCode,
         removedProviderSdk,
@@ -455,6 +507,14 @@ try {
         removedDatasetRecordInput,
         canonicalChat,
         canonicalJudge,
+        controlIntegrityAnalyst,
+        controlIntegrityInput,
+        controlIntegrityReport,
+        controlTreeGap,
+        analyzeSupervisorRunIntegrity,
+        ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
+        emitControlIntegrityFindings,
+        ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
         analystCase,
         agentRxCase,
@@ -521,11 +581,80 @@ try {
         const root = await import('@tangle-network/agent-eval')
         const profileCell = await import('@tangle-network/agent-eval/profile-cell')
         const analyst = await import('@tangle-network/agent-eval/analyst')
+        const traces = await import('@tangle-network/agent-eval/traces')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
         if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
         if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
         if ('CanonicalRawAnalystFindingSchema' in analyst) {
           throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
+        }
+        const integrityInput = { rootId: null, nodes: [], gaps: [] }
+        const integrityReport = root.analyzeSupervisorRunIntegrity(integrityInput)
+        const integrityFindings = analyst.emitControlIntegrityFindings(
+          integrityInput,
+          '2026-07-29T00:00:00.000Z',
+        )
+        const integrityCodes = new Set(
+          integrityFindings.map((finding) => finding.metadata?.integrity_code),
+        )
+        if (
+          integrityReport.input !== 'tree' ||
+          !integrityCodes.has('root-unavailable') ||
+          !integrityCodes.has('source-checks-unavailable')
+        ) {
+          throw new Error('packed control-integrity runtime exports returned an invalid result')
+        }
+        for (const name of [
+          'buildTraceAnalysisToolDescriptors',
+          'buildTraceAnalystTools',
+          'createBoundedTraceAnalysisStore',
+          'TRACE_ANALYSIS_LIMITS',
+          'TraceAnalysisValidationError',
+          'TraceAnalysisLimitError',
+          'TraceAnalysisStoreContractError',
+          'TraceNotFoundError',
+          'TraceFileTooLargeError',
+        ]) {
+          if (!(name in traces)) throw new Error('missing traces export ' + name)
+        }
+        const descriptors = traces.buildTraceAnalysisToolDescriptors({ store: {} })
+        if (descriptors.length !== 7 || descriptors.some((tool) => tool.namespace !== 'traces')) {
+          throw new Error('packed trace descriptors lost their canonical shape')
+        }
+        const querySchema = descriptors.find((tool) => tool.name === 'queryTraces')?.parameters
+        if (
+          querySchema?.properties?.limit?.type !== 'integer' ||
+          querySchema.properties.limit.maximum !== 200 ||
+          querySchema.additionalProperties !== false
+        ) {
+          throw new Error('packed queryTraces schema lost its exact limit contract')
+        }
+        const overviewSchema = descriptors.find(
+          (tool) => tool.name === 'getDatasetOverview',
+        )?.parameters
+        if (
+          overviewSchema?.properties?.filters?.properties?.has_errors?.type !== 'boolean' ||
+          overviewSchema.properties.filters.additionalProperties !== false
+        ) {
+          throw new Error('packed trace filter schema is not exact')
+        }
+        const invalid = await descriptors
+          .find((tool) => tool.name === 'queryTraces')
+          .handler({ limit: 0 })
+          .catch((error) => error)
+        if (!(invalid instanceof traces.TraceAnalysisValidationError) || invalid.code !== 'validation') {
+          throw new Error('packed trace validation error lost its stable code')
+        }
+        const storeContractError = new traces.TraceAnalysisStoreContractError(
+          'packed-read',
+          'invalid result',
+        )
+        if (storeContractError.code !== 'backend_integrity') {
+          throw new Error('packed trace store error lost its stable code')
+        }
+        const traceNotFoundError = new traces.TraceNotFoundError('missing-trace')
+        if (traceNotFoundError.code !== 'not_found') {
+          throw new Error('packed trace not-found error lost its stable code')
         }
         const signTest = root.pairedSignTest([1, 0.5], 'greater')
         if (signTest.pValue !== 0.25) throw new Error('invalid packed pairedSignTest result')

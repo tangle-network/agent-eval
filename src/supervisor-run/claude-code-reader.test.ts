@@ -202,18 +202,20 @@ describe('claudeCodeSupervisorRunReader', () => {
 
   it('reports steers as a REAL count — Claude Code can message a live subagent', async () => {
     const s = await writeSession()
-    const report = analyzeSupervisorRunSources(
-      await readClaudeCodeSupervisorRun({
-        transcriptPath: s.transcriptPath,
-        subagentsDir: s.subagentsDir,
-      }),
-    )
+    const source = await readClaudeCodeSupervisorRun({
+      transcriptPath: s.transcriptPath,
+      subagentsDir: s.subagentsDir,
+    })
+    const report = analyzeSupervisorRunSources(source)
     expect(report.orchestration.steers).toBe(1)
     expect(report.orchestration.steersDelivered).toBe(1)
     expect(report.orchestration.steersByWorker).toEqual([
-      { worker: 'build A', queued: 1, delivered: 1 },
-      { worker: 'build B', queued: 0, delivered: 0 },
+      { workerId: 'ag-a', worker: 'build A', queued: 1, delivered: 1 },
+      { workerId: 'ag-b', worker: 'build B', queued: 0, delivered: 0 },
     ])
+    expect(source.workers?.find((worker) => worker.workerId === 'ag-a')?.inbox).toContain(
+      '"id":"tu-s"',
+    )
   })
 
   it('reports a run with no SendMessage as steers=0, NOT unavailable', async () => {
@@ -249,11 +251,22 @@ describe('claudeCodeSupervisorRunReader', () => {
       expect(isUnavailable(v)).toBe(true)
       if (isUnavailable(v)) expect(v.unavailable).toMatch(/never a price/)
     }
-    // Tokens ARE in the store, so they stay real numbers.
+    // Manager tokens are complete, so they stay real numbers.
     expect(report.economics.brain.tokensIn).toBe(100)
     expect(report.economics.brain.cacheRead).toBe(9000)
-    expect(report.economics.workers.tokensOut).toBe(11)
-    expect(report.economics.workers.cacheRead).toBe(500)
+    // Only one of two child transcripts survived. Its per-node number remains
+    // usable, but the fleet total must not present the partial sum as complete.
+    expect(report.economics.workers.tokensOut).toEqual({
+      unavailable: expect.stringMatching(/1\/2 spawned agents/),
+    })
+    expect(report.economics.workers.cacheRead).toEqual({
+      unavailable: expect.stringMatching(/1\/2 spawned agents/),
+    })
+    const perWorker = report.economics.perWorker
+    expect(isUnavailable(perWorker)).toBe(false)
+    if (!isUnavailable(perWorker)) {
+      expect(perWorker.find((row) => row.workerId === 'ag-a')?.tokensOut).toBe(11)
+    }
   })
 
   it('never fabricates "0 accepted": no verify step means the verdict is unavailable', async () => {
@@ -354,8 +367,11 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(report.orchestration.delegationDepth).toBe(2)
 
     const tree = supervisorRunRolloutLines(src)
+    const nestedWorker = tree.nodes.find((n) => n.rollout_id === 'ag-a')
     const grandchild = tree.nodes.find((n) => n.rollout_id === 'ag-c')
+    expect(nestedWorker?.role).toBe('worker')
     expect(grandchild?.parent_rollout_id).toBe('ag-a')
+    expect(grandchild?.role).toBe('worker')
   })
 
   it('mints rollout rows joined by parent_rollout_id, with honest nulls for unpriced cost', async () => {
@@ -364,6 +380,7 @@ describe('claudeCodeSupervisorRunReader', () => {
       transcriptPath: s.transcriptPath,
       subagentsDir: s.subagentsDir,
     })
+    expect(src.workers?.find((worker) => worker.workerId === 'ag-b')?.inbox).toBe('')
     const tree = supervisorRunRolloutLines(src, {
       supervisorHarness: 'claude-code',
       workerHarness: 'claude-code',

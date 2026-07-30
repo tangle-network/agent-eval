@@ -105,9 +105,11 @@ export function fixtureState(plan: {
 }
 
 export interface WorkerPlan {
+  workerId?: string
   startSec: number
   finishSec?: number
   passed?: boolean
+  score?: number
   patchBytes?: number
   steers?: string[]
   questions?: number
@@ -166,6 +168,7 @@ export function fixtureWorker(label: string, opts: WorkerPlan = { startSec: 0 })
         label,
         kind: 'finished',
         passed: opts.passed ?? true,
+        ...(opts.score === undefined ? {} : { score: opts.score }),
         testPassed: opts.passed ?? true,
         typecheckPassed: true,
         patchBytes: opts.patchBytes ?? 100,
@@ -174,9 +177,10 @@ export function fixtureWorker(label: string, opts: WorkerPlan = { startSec: 0 })
     )
   }
   return {
+    ...(opts.workerId === undefined ? {} : { workerId: opts.workerId }),
     label,
     events: `${events.join('\n')}\n`,
-    inbox: inboxLines.length === 0 ? null : `${inboxLines.join('\n')}\n`,
+    inbox: inboxLines.length === 0 ? '' : `${inboxLines.join('\n')}\n`,
     patchBytes: opts.patchBytes ?? null,
   }
 }
