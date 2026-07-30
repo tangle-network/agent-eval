@@ -976,6 +976,26 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ).rejects.toThrow(/non-JSON/)
   })
 
+  it('does not include malformed provider content in the thrown message', async () => {
+    const secret = 'sk-provider-secret-that-must-not-persist'
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          choices: [{ message: { content: `not-json Bearer ${secret}` } }],
+          usage: {},
+        }),
+    ])
+
+    try {
+      await callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch })
+      throw new Error('expected malformed JSON to fail')
+    } catch (error) {
+      expect(error).toBeInstanceOf(LlmResponseError)
+      expect((error as Error).message).toBe('LLM returned non-JSON content (model=m)')
+      expect((error as Error).message).not.toContain(secret)
+    }
+  })
+
   it('rejects an incomplete top-level object instead of parsing its nested findings array', async () => {
     const fetch = mockFetch([
       async () =>

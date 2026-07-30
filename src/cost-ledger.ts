@@ -57,7 +57,7 @@ export interface CostReceipt extends CostCallBase, CostUsage {
   actualCostUsd?: number
   /** Known non-provider amount supplied by an external executor. */
   estimatedCostUsd?: number
-  error?: string
+  error?: 'paid-call-failed'
 }
 
 export type CostLedgerRecord = PendingCostCall | CostReceipt
@@ -174,13 +174,13 @@ export interface CostLedgerOptions {
 export class CostCeilingReachedError extends ValidationError {
   constructor(
     ceilingUsd: number,
-    committedAndReservedUsd: number,
+    committedUsd: number,
     requestedUsd: number,
     phase: string,
     actor: string,
   ) {
     super(
-      `CostLedger: reserving ${requestedUsd} for '${actor}' during '${phase}' would exceed ceiling ${ceilingUsd} with ${committedAndReservedUsd} already committed or reserved`,
+      `CostLedger: reserving ${requestedUsd} for '${actor}' during '${phase}' would exceed ceiling ${ceilingUsd} with ${committedUsd} already committed`,
     )
   }
 }
@@ -336,66 +336,88 @@ export class CostLedger {
       if (input.signal?.aborted) {
         return { succeeded: false, callId, error: abortError(input.signal) }
       }
-      if (this.records.has(callId)) {
-        return {
-          succeeded: false,
-          callId,
-          error: new CostCallConflictError(`CostLedger: callId '${callId}' already exists`),
-        }
-      }
       this.ensureCostLimitPersisted(callId)
 
-      const summary = this.summary()
-      if (summary.unresolvedCalls > 0) {
-        return {
-          succeeded: false,
-          callId,
-          error: new CostAccountingIncompleteError(
-            `CostLedger: ${summary.unresolvedCalls} unresolved call(s) must be reconciled before new paid work`,
-          ),
-        }
-      }
-
       const maximumCostUsd = this.resolveMaximum(input.maximumCharge)
-      if (this.costCeilingUsd !== undefined && this.hasIncompleteSettledCall()) {
+      const existing = this.records.get(callId)
+      if (existing) {
         return {
           succeeded: false,
           callId,
-          error: new CostAccountingIncompleteError(
-            `CostLedger: accounting is incomplete; refusing paid call '${input.actor}' during '${input.phase}'`,
+          error: new CostCallConflictError(
+            existing.status === 'pending'
+              ? `CostLedger: callId '${callId}' is unresolved and must be reconciled before retry`
+              : `CostLedger: callId '${callId}' already exists`,
+            { callId },
           ),
         }
       }
-      if (this.costCeilingUsd !== undefined) {
-        const committedAndReserved = summary.totalCostUsd + summary.reservedCostUsd
-        if (committedAndReserved + maximumCostUsd! > this.costCeilingUsd) {
-          return {
-            succeeded: false,
-            callId,
-            error: new CostCeilingReachedError(
-              this.costCeilingUsd,
-              committedAndReserved,
-              maximumCostUsd!,
-              input.phase,
-              input.actor,
-            ),
-          }
-        }
-      }
 
-      pending = {
-        status: 'pending',
-        callId,
-        channel: input.channel,
-        phase: input.phase,
-        actor: input.actor,
-        model: pendingModel(input),
-        ...(maximumCostUsd === undefined ? {} : { maximumCostUsd }),
-        ...(input.tags ? { tags: { ...input.tags } } : {}),
-        timestamp: Date.now(),
+      if (!pending) {
+        while (true) {
+          if (this.records.has(callId)) {
+            return {
+              succeeded: false,
+              callId,
+              error: new CostCallConflictError(`CostLedger: callId '${callId}' already exists`),
+            }
+          }
+          const summary = this.summary()
+          if (summary.unresolvedCalls > 0) {
+            return {
+              succeeded: false,
+              callId,
+              error: new CostAccountingIncompleteError(
+                `CostLedger: ${summary.unresolvedCalls} unresolved call(s) must be reconciled before new paid work`,
+              ),
+            }
+          }
+          if (this.costCeilingUsd === undefined) break
+          if (this.hasIncompleteSettledCall()) {
+            return {
+              succeeded: false,
+              callId,
+              error: new CostAccountingIncompleteError(
+                `CostLedger: accounting is incomplete; refusing paid call '${input.actor}' during '${input.phase}'`,
+              ),
+            }
+          }
+          if (summary.totalCostUsd + maximumCostUsd! > this.costCeilingUsd) {
+            return {
+              succeeded: false,
+              callId,
+              error: new CostCeilingReachedError(
+                this.costCeilingUsd,
+                summary.totalCostUsd,
+                maximumCostUsd!,
+                input.phase,
+                input.actor,
+              ),
+            }
+          }
+          if (
+            summary.totalCostUsd + summary.reservedCostUsd + maximumCostUsd! <=
+            this.costCeilingUsd
+          ) {
+            break
+          }
+          await this.waitForReservationRelease(input.signal)
+        }
+
+        pending = {
+          status: 'pending',
+          callId,
+          channel: input.channel,
+          phase: input.phase,
+          actor: input.actor,
+          model: pendingModel(input),
+          ...(maximumCostUsd === undefined ? {} : { maximumCostUsd }),
+          ...(input.tags ? { tags: { ...input.tags } } : {}),
+          timestamp: Date.now(),
+        }
+        this.appendRecord(pending)
+        this.activeCallIds.add(callId)
       }
-      this.appendRecord(pending)
-      this.activeCallIds.add(callId)
     } catch (error) {
       return { succeeded: false, ...(callId ? { callId } : {}), error: toError(error) }
     }
@@ -439,7 +461,7 @@ export class CostLedger {
   reconcile(
     callId: string,
     observed: CostReceiptInput,
-    options: { error?: string } = {},
+    options: { failed?: boolean } = {},
   ): CostReceipt {
     const pending = [...this.records.values()].find(
       (record): record is PendingCostCall =>
@@ -450,7 +472,7 @@ export class CostLedger {
       throw new CostCallConflictError(`CostLedger: call '${callId}' is still active`)
     }
     this.ensureCostLimitPersisted(callId)
-    return this.commitReceipt(pending, observed, options.error)
+    return this.commitReceipt(pending, observed, options.failed === true)
   }
 
   list(filter?: CostLedgerFilter): CostReceipt[] {
@@ -645,7 +667,7 @@ export class CostLedger {
           const error = toError(cause)
           try {
             const observed = input.receiptFromError?.(error)
-            this.commitReceipt(pending, observed ?? unknownReceipt(pending.model), error.message)
+            this.commitReceipt(pending, observed ?? unknownReceipt(pending.model), true)
           } catch (receiptError) {
             if (
               receiptError instanceof CostLedgerPersistenceError ||
@@ -668,13 +690,33 @@ export class CostLedger {
     for (const resolve of [...this.idleWaiters]) resolve()
   }
 
+  private async waitForReservationRelease(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw abortError(signal)
+    await new Promise<void>((resolve, reject) => {
+      let finished = false
+      const finish = (error?: Error): void => {
+        if (finished) return
+        finished = true
+        this.idleWaiters.delete(onRelease)
+        signal?.removeEventListener('abort', onAbort)
+        if (error) reject(error)
+        else resolve()
+      }
+      const onRelease = (): void => finish()
+      const onAbort = (): void => finish(abortError(signal!))
+      this.idleWaiters.add(onRelease)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      if (this.activeCallIds.size === 0) onRelease()
+    })
+  }
+
   private commitOutcome<T>(
     pending: PendingCostCall,
     error: Error,
     observed: CostReceiptInput,
   ): PaidCallResult<T> {
     try {
-      const receipt = this.commitReceipt(pending, observed, error.message)
+      const receipt = this.commitReceipt(pending, observed, true)
       return paidFailure(pending.callId, error, receipt)
     } catch (receiptError) {
       if (
@@ -693,11 +735,7 @@ export class CostLedger {
     receiptError: unknown,
   ): PaidCallResult<T> {
     try {
-      const receipt = this.commitReceipt(
-        pending,
-        unknownReceipt(pending.model),
-        toError(receiptError).message,
-      )
+      const receipt = this.commitReceipt(pending, unknownReceipt(pending.model), true)
       return paidFailure(
         pending.callId,
         new CostReceiptCaptureError(pending.callId, cause, receiptError, receipt),
@@ -712,9 +750,9 @@ export class CostLedger {
   private commitReceipt(
     pending: PendingCostCall,
     observed: CostReceiptInput,
-    error?: string,
+    failed = false,
   ): CostReceipt {
-    const receipt = buildReceipt(pending, observed, error)
+    const receipt = buildReceipt(pending, observed, failed)
     if (this.records.get(pending.callId)?.status !== 'pending') {
       throw new CostCallConflictError(`CostLedger: call '${pending.callId}' is not pending`)
     }
@@ -894,7 +932,7 @@ async function settle<T>(promise: Promise<T>, signal: AbortSignal): Promise<Sett
 function buildReceipt(
   pending: PendingCostCall,
   observed: CostReceiptInput,
-  error?: string,
+  failed = false,
 ): CostReceipt {
   assertUsage(observed)
   assertString(observed.model, 'receipt.model')
@@ -980,7 +1018,7 @@ function buildReceipt(
       ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
       ...(hasExternalEstimate ? { estimatedCostUsd: observed.estimatedCostUsd } : {}),
       ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
-      ...(error ? { error } : {}),
+      ...(failed ? { error: 'paid-call-failed' as const } : {}),
       ...(pending.tags ? { tags: { ...pending.tags } } : {}),
       timestamp: pending.timestamp,
     },
@@ -1024,7 +1062,7 @@ const CostReceiptBaseShape = {
   pricing: CostPricingSchema.optional(),
   actualCostUsd: NonNegative.optional(),
   estimatedCostUsd: NonNegative.optional(),
-  error: z.string().optional(),
+  error: z.literal('paid-call-failed').optional(),
 }
 const CostReceiptSchema = z
   .strictObject({
@@ -1137,7 +1175,7 @@ function parseEvents(serialized: string): {
   let costCeilingUsd: number | undefined
   let lineNumber = 0
   try {
-    for (const line of serialized.split('\n')) {
+    for (const line of completeJournalPrefix(serialized).split('\n')) {
       if (!line.trim()) continue
       lineNumber += 1
       const event = CostLedgerEventSchema.parse(JSON.parse(line)) as CostLedgerEvent
@@ -1170,6 +1208,20 @@ function parseEvents(serialized: string): {
   }
 }
 
+function completeJournalPrefix(serialized: string): string {
+  if (!serialized || serialized.endsWith('\n')) return serialized
+  const finalNewline = serialized.lastIndexOf('\n')
+  const tail = serialized.slice(finalNewline + 1)
+  try {
+    JSON.parse(tail)
+  } catch {
+    return finalNewline < 0 ? '' : serialized.slice(0, finalNewline + 1)
+  }
+  throw new ValidationError(
+    'CostLedger: complete final persisted event is missing its newline terminator',
+  )
+}
+
 function validateTransition(
   records: ReadonlyMap<string, CostLedgerRecord>,
   record: CostLedgerRecord,
@@ -1191,8 +1243,17 @@ function sameAttribution(before: CostCallBase, after: CostCallBase): boolean {
     before.actor === after.actor &&
     before.maximumCostUsd === after.maximumCostUsd &&
     before.timestamp === after.timestamp &&
-    JSON.stringify(before.tags ?? {}) === JSON.stringify(after.tags ?? {})
+    sameTags(before.tags, after.tags)
   )
+}
+
+function sameTags(
+  left: Readonly<Record<string, string>> | undefined,
+  right: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const leftEntries = Object.entries(left ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  const rightEntries = Object.entries(right ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries)
 }
 
 function parseReceipt(value: unknown, path: string): CostReceipt {

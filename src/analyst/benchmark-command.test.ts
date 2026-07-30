@@ -1,222 +1,26 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AnalystBenchmarkRunner } from './benchmark'
-import { runAnalystBenchmarkCommand } from './benchmark-command'
-import type { CodeTraceBenchRow } from './benchmark-datasets'
 import {
-  adaptPublicBenchmarkFindings,
-  CODE_TRACE_BENCH_ANALYST_PROMPT,
-  loadPublicBenchmarkRows,
-  publicBenchmarkSelectionReport,
-  selectPublicBenchmarkRows,
-} from './benchmark-real-model'
+  AGENT_RX_UPSTREAM_REVISION,
+  ANALYST_BENCHMARK_COST_LEDGER_FILE,
+  ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE,
+  ANALYST_BENCHMARK_MANIFEST_FILE,
+  ANALYST_BENCHMARK_OBSERVATIONS_FILE,
+  readAnalystBenchmarkArtifact,
+  runAnalystBenchmarkCommand,
+} from './benchmark-command'
 import {
-  appendVerificationArtifactsToOtlp,
-  loadCodeTraceVerificationArtifacts,
-} from './benchmark-verification-artifacts'
-import type { AnalystRunInputs, AnalystUsageReceipt } from './types'
+  AGENT_RX_TEST_REVISION,
+  agentRxCommandArgs,
+  agentRxFixture,
+  codeTraceFixture,
+  commandArgs,
+  UNKNOWN_USAGE,
+} from './benchmark-command.test-support'
+import type { AnalystRunInputs } from './types'
 import { makeFinding } from './types'
-
-const UNKNOWN_USAGE: AnalystUsageReceipt = {
-  calls: 1,
-  tokens: null,
-  cost: { kind: 'uncaptured', usd: null },
-}
-
-describe('public analyst benchmark input', () => {
-  it('loads public dataset arrays and JSONL without changing row fields', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'analyst-benchmark-input-'))
-    const arrayPath = join(dir, 'rows.json')
-    const jsonlPath = join(dir, 'rows.jsonl')
-    const rows = [{ traj_id: 'a', extra: { retained: true } }, { traj_id: 'b' }]
-    await writeFile(arrayPath, JSON.stringify(rows))
-    await writeFile(jsonlPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`)
-
-    await expect(loadPublicBenchmarkRows(arrayPath)).resolves.toEqual(rows)
-    await expect(loadPublicBenchmarkRows(jsonlPath)).resolves.toEqual(rows)
-  })
-
-  it('selects the same cases for the same seed independent of input order', () => {
-    const rows = Array.from({ length: 12 }, (_, index) => ({ traj_id: `trace-${index}` }))
-    const first = selectPublicBenchmarkRows('codetracebench', rows, { limit: 5, seed: 19 })
-    const repeated = selectPublicBenchmarkRows('codetracebench', [...rows].reverse(), {
-      limit: 5,
-      seed: 19,
-    })
-    const changed = selectPublicBenchmarkRows('codetracebench', rows, { limit: 5, seed: 20 })
-
-    expect(repeated.map((row) => row.traj_id)).toEqual(first.map((row) => row.traj_id))
-    expect(changed.map((row) => row.traj_id)).not.toEqual(first.map((row) => row.traj_id))
-  })
-
-  it('marks limited hash samples non-representative and reports every requested distribution', () => {
-    const rows = [
-      codeTraceRow('bad-a', {
-        agent: 'mini',
-        model: 'model-a',
-        difficulty: 'hard',
-        solved: false,
-        incorrect: [2],
-      }),
-      codeTraceRow('bad-b', {
-        agent: 'mini',
-        model: 'model-b',
-        difficulty: 'easy',
-        solved: false,
-        incorrect: [1],
-      }),
-      codeTraceRow('clean-a', {
-        agent: 'swe',
-        model: 'model-a',
-        difficulty: 'easy',
-        solved: true,
-        incorrect: [],
-      }),
-    ]
-
-    const report = publicBenchmarkSelectionReport('codetracebench', rows, [rows[0]!], 11)
-
-    expect(report).toEqual({
-      method: 'deterministic-hash',
-      seed: 11,
-      sourceCount: 3,
-      selectedCount: 1,
-      stratified: false,
-      representativeOfInput: false,
-      source: {
-        class: { total: 3, missing: 0, counts: { clean: 1, incorrect: 2 } },
-        agent: { total: 3, missing: 0, counts: { mini: 2, swe: 1 } },
-        model: { total: 3, missing: 0, counts: { 'model-a': 2, 'model-b': 1 } },
-        difficulty: { total: 3, missing: 0, counts: { easy: 2, hard: 1 } },
-        solved: { total: 3, missing: 0, counts: { false: 2, true: 1 } },
-      },
-      selected: {
-        class: { total: 1, missing: 0, counts: { incorrect: 1 } },
-        agent: { total: 1, missing: 0, counts: { mini: 1 } },
-        model: { total: 1, missing: 0, counts: { 'model-a': 1 } },
-        difficulty: { total: 1, missing: 0, counts: { hard: 1 } },
-        solved: { total: 1, missing: 0, counts: { false: 1 } },
-      },
-    })
-  })
-})
-
-describe('public analyst benchmark output adapters', () => {
-  it('splits CodeTraceBench citations into one incorrect-step finding per label', () => {
-    const findings = adaptPublicBenchmarkFindings(
-      'codetracebench',
-      'run/1',
-      [
-        makeFinding({
-          analyst_id: 'model-raw',
-          area: 'model-output',
-          claim: 'Two actions are incorrect.',
-          severity: 'high',
-          confidence: 0.8,
-          evidence_refs: [
-            { kind: 'span', uri: 'trace://run%2F1/span/step-2' },
-            { kind: 'span', uri: 'trace://run%2F1/span/step-4' },
-          ],
-        }),
-      ],
-      'model',
-    )
-
-    expect(findings.map((finding) => finding.area)).toEqual(['incorrect', 'incorrect'])
-    expect(findings.map((finding) => finding.evidence_refs[0]?.uri)).toEqual([
-      'trace://run%2F1/span/step-2',
-      'trace://run%2F1/span/step-4',
-    ])
-  })
-
-  it('maps the explicit CodeTraceBench clean sentinel to no findings', () => {
-    const findings = adaptPublicBenchmarkFindings(
-      'codetracebench',
-      'clean-run',
-      [
-        makeFinding({
-          analyst_id: 'model-raw',
-          area: 'model-output',
-          subject: 'clean',
-          claim: 'No incorrect steps were found.',
-          severity: 'info',
-          confidence: 0.8,
-          evidence_refs: [{ kind: 'span', uri: 'trace://clean-run/span/step-1' }],
-        }),
-      ],
-      'model',
-    )
-
-    expect(findings).toEqual([])
-  })
-
-  it('uses the maintained AgentRx prediction adapter for taxonomy and root step', () => {
-    const [finding] = adaptPublicBenchmarkFindings(
-      'agentrx',
-      'rx-1',
-      [
-        makeFinding({
-          analyst_id: 'model-raw',
-          area: 'model-output',
-          subject: 'system-failure',
-          claim: 'The provider became unavailable.',
-          rationale: 'The first unrecoverable error occurs at step 3.',
-          severity: 'high',
-          confidence: 0.9,
-          evidence_refs: [{ kind: 'span', uri: 'trace://rx-1/span/step-3' }],
-        }),
-      ],
-      'model',
-    )
-
-    expect(finding).toMatchObject({
-      analyst_id: 'model',
-      area: 'system-failure',
-      evidence_refs: [{ kind: 'span', uri: 'trace://rx-1/span/step-3' }],
-    })
-  })
-
-  it('defines incorrect steps by task causality rather than recovered local errors', () => {
-    expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'A command, tool, or inspection error is not an incorrect step when the agent recovers',
-    )
-    expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'Inspect every final-verification EVALUATOR span',
-    )
-  })
-})
-
-describe('public benchmark verification evidence', () => {
-  it('refuses empty or cross-case evidence attachment', async () => {
-    const presentFixture = await codeTraceFixture()
-    const [presentRow] = await loadPublicBenchmarkRows(presentFixture.labelsPath)
-    const present = await loadCodeTraceVerificationArtifacts({
-      artifactDir: presentFixture.artifactDir,
-      row: presentRow as unknown as CodeTraceBenchRow,
-    })
-    expect(() => appendVerificationArtifactsToOtlp('{}', 'another-trace', present)).toThrow(
-      /cannot be attached/,
-    )
-    await expect(
-      loadCodeTraceVerificationArtifacts({
-        artifactDir: join(presentFixture.artifactDir, 'trace-1'),
-        row: presentRow as unknown as CodeTraceBenchRow,
-      }),
-    ).resolves.toMatchObject({ manifest: { status: 'present' } })
-
-    const missingFixture = await codeTraceFixture({ withVerificationArtifacts: false })
-    const [missingRow] = await loadPublicBenchmarkRows(missingFixture.labelsPath)
-    const missing = await loadCodeTraceVerificationArtifacts({
-      artifactDir: missingFixture.artifactDir,
-      row: missingRow as unknown as CodeTraceBenchRow,
-    })
-    expect(() => appendVerificationArtifactsToOtlp('{}', 'trace-1', missing)).toThrow(
-      /no final verification artifacts/,
-    )
-  })
-})
 
 describe('runAnalystBenchmarkCommand', () => {
   it('writes complete paired results and preserves unknown model cost', async () => {
@@ -224,11 +28,19 @@ describe('runAnalystBenchmarkCommand', () => {
     const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
       id: 'model',
       async analyze(input, context) {
+        const manifest = JSON.parse(
+          await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
+        )
+        expect(manifest).toMatchObject({
+          kind: 'agent-eval/analyst-benchmark-run',
+          identitySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        })
+        expect(JSON.stringify(manifest)).not.toContain('do-not-persist-this-key')
         const trace = await input.traceStore?.viewTrace({ trace_id: 'trace-1' })
         const verificationSpans = trace?.spans?.filter((span) => span.kind === 'EVALUATOR') ?? []
         expect(verificationSpans.map((span) => span.name)).toEqual([
-          'final verification: panes/post-test.txt',
-          'final verification: task-1_result.json',
+          'final verification outcome: failed',
+          'final verification artifact: panes/post-test.txt',
         ])
         await expect(
           input.traceStore?.searchTrace({
@@ -236,7 +48,7 @@ describe('runAnalystBenchmarkCommand', () => {
             regex_pattern: 'hidden assertion failed',
           }),
         ).resolves.toMatchObject({
-          hits: [expect.objectContaining({ span_id: verificationSpans[0]?.span_id })],
+          hits: [expect.objectContaining({ span_id: verificationSpans[1]?.span_id })],
         })
         return {
           findings: [
@@ -255,20 +67,42 @@ describe('runAnalystBenchmarkCommand', () => {
       },
     }
 
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const code = await runAnalystBenchmarkCommand(
       commandArgs(fixture),
       { TEST_ANALYST_KEY: 'do-not-persist-this-key' },
-      { createModelRunner: () => modelRunner },
+      {
+        createModelRunner: (_dataset, config) => {
+          expect(config.durability).toEqual({
+            runIdentitySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+            responseCacheDir: join(fixture.outDir, 'model-responses'),
+          })
+          return modelRunner
+        },
+      },
     )
+    const successOutput = stdout.mock.calls.map(([value]) => String(value)).join('')
+    stdout.mockRestore()
 
     expect(code).toBe(0)
-    const artifact = JSON.parse(
-      await readFile(join(fixture.outDir, 'result.json'), 'utf8'),
-    ) as Record<string, any>
+    expect(successOutput).toContain(
+      'cases=1 failures=0 known_cost_usd=0.000000 unknown_cost_runs=1',
+    )
+    expect(successOutput).toContain(`result=${join(fixture.outDir, 'result.json')}`)
+    expect(successOutput).toContain(`report=${join(fixture.outDir, 'report.md')}`)
+    const artifact = (await readAnalystBenchmarkArtifact(
+      join(fixture.outDir, 'result.json'),
+    )) as unknown as Record<string, any>
     expect(artifact.result.provenance).toMatchObject({
       caseCount: 1,
       runnerIds: ['empty', 'model'],
       runnerOrderSeed: 7,
+      metadata: {
+        protocolSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        implementationSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        dependencyLockSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        populationRepresentativenessProven: false,
+      },
     })
     expect(artifact.result.summaries).toEqual([
       expect.objectContaining({ runnerId: 'empty', issueRecall: 0, knownCostUsd: 0 }),
@@ -280,13 +114,38 @@ describe('runAnalystBenchmarkCommand', () => {
       }),
     ])
     expect(artifact.result.observations[1].usage).toEqual(UNKNOWN_USAGE)
+    expect(artifact.inputs.verificationAvailability).toEqual({
+      cases: 1,
+      resultFilesPresent: 1,
+      resultFilesMissing: 0,
+      outcomes: { passed: 0, failed: 1, unavailable: 0 },
+    })
+    expect(artifact.inputs.execution.maxCostUsd).toBe(5)
+    expect(artifact.inputs.execution.analystProtocolSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(artifact.inputs.execution.analystProtocolSha256).toBe(
+      artifact.result.provenance.metadata.protocolSha256,
+    )
+    expect(artifact.inputs.execution.implementationSha256).toBe(
+      artifact.result.provenance.metadata.implementationSha256,
+    )
+    expect(artifact.inputs.execution.dependencyLockSha256).toBe(
+      artifact.result.provenance.metadata.dependencyLockSha256,
+    )
     expect(artifact.inputs.verificationArtifacts).toEqual([
       expect.objectContaining({
         traceId: 'trace-1',
         status: 'present',
-        caseDirectoriesSearched: expect.arrayContaining([
-          expect.stringContaining('/trace-1/cases/trace-1'),
-        ]),
+        outcome: expect.objectContaining({
+          status: 'failed',
+          sources: [
+            expect.objectContaining({
+              path: 'task-1_result.json',
+              format: 'swe-bench',
+            }),
+          ],
+        }),
+        outcomeSpanId: expect.stringMatching(/^benchmark-verification-outcome-/),
+        caseDirectoriesSearched: expect.arrayContaining(['trace-1/cases/trace-1']),
         totalBytes: expect.any(Number),
         missingRoles: ['final-metrics'],
         files: [
@@ -313,7 +172,7 @@ describe('runAnalystBenchmarkCommand', () => {
       method: 'census',
       representativeOfInput: true,
       source: {
-        class: { total: 1, missing: 0, counts: { incorrect: 1 } },
+        class: { total: 1, missing: 0, counts: { positive: 1 } },
         agent: { total: 1, missing: 0, counts: { 'mini-SWE-agent': 1 } },
         model: { total: 1, missing: 0, counts: { 'test-worker': 1 } },
         difficulty: { total: 1, missing: 1, counts: {} },
@@ -324,10 +183,104 @@ describe('runAnalystBenchmarkCommand', () => {
       baselineRunnerId: 'empty',
       candidateRunnerId: 'model',
     })
-    expect(JSON.stringify(artifact)).not.toContain('do-not-persist-this-key')
-    await expect(readFile(join(fixture.outDir, 'report.md'), 'utf8')).resolves.toContain(
-      'This is a census of the supplied input.',
+    expect(
+      artifact.comparisons[0].metrics.every((metric: { inferenceLimitations: string[] }) =>
+        metric.inferenceLimitations.includes('population-representativeness-not-proven'),
+      ),
+    ).toBe(true)
+    expect(artifact.codeTraceCalibration).toMatchObject({
+      protocol: 'labeled-positive-and-solved-negative',
+      runners: [
+        expect.objectContaining({ runnerId: 'empty', positiveRuns: 1 }),
+        expect.objectContaining({
+          runnerId: 'model',
+          positiveRuns: 1,
+          matchedIncorrectSteps: 1,
+          precision: 1,
+          recall: 1,
+          f1: 1,
+        }),
+      ],
+    })
+    const report = await readFile(join(fixture.outDir, 'report.md'), 'utf8')
+    expect(report).toContain('This is a census of the supplied input.')
+    expect(report).toContain('CodeTraceBench Calibrated View')
+    expect(report).toContain('| 1 | 1 | 0 | 0 | 1 | 0 |')
+    const shareable = `${JSON.stringify(artifact)}${report}`
+    expect(shareable).not.toContain('do-not-persist-this-key')
+    expect(shareable).not.toContain(fixture.labelsPath)
+    expect(shareable).not.toContain(fixture.traceDir)
+    expect(shareable).not.toContain(fixture.artifactDir)
+    expect(shareable).not.toContain('http://127.0.0.1:3355/v1')
+    const manifestText = await readFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE),
+      'utf8',
     )
+    expect(manifestText).not.toContain(fixture.labelsPath)
+    expect(manifestText).not.toContain(fixture.traceDir)
+    expect(manifestText).not.toContain(fixture.artifactDir)
+    expect(manifestText).not.toContain('http://127.0.0.1:3355/v1')
+    const localReceipt = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE), 'utf8'),
+    )
+    expect(localReceipt).toMatchObject({
+      kind: 'agent-eval/analyst-benchmark-local-run',
+      local: {
+        labelsPath: fixture.labelsPath,
+        traceDir: fixture.traceDir,
+        artifactDir: fixture.artifactDir,
+        outputDir: fixture.outDir,
+        baseUrl: 'http://127.0.0.1:3355/v1',
+        apiKeyEnvironment: 'TEST_ANALYST_KEY',
+      },
+      files: {
+        costLedger: join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
+        modelResponses: join(fixture.outDir, 'model-responses'),
+      },
+    })
+    expect(JSON.stringify(localReceipt)).not.toContain('do-not-persist-this-key')
+  })
+
+  it('refuses an existing result when its cost file contains an unresolved call', async () => {
+    const fixture = await agentRxFixture()
+    const args = agentRxCommandArgs(fixture)
+    const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
+      id: 'model',
+      analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
+    }
+    await runAnalystBenchmarkCommand(
+      args,
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createModelRunner: () => modelRunner,
+      },
+    )
+    await appendFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
+      `${JSON.stringify({
+        version: 1,
+        record: {
+          status: 'pending',
+          callId: 'unresolved-after-result',
+          channel: 'analyst',
+          phase: 'analyst.public-benchmark',
+          actor: 'agentrx-root-cause-localizer',
+          model: 'gpt-4o',
+          maximumCostUsd: 0.5,
+          timestamp: 1,
+        },
+      })}\n`,
+    )
+    const createModelRunner = vi.fn(() => modelRunner)
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...args, '--resume'],
+        { TEST_ANALYST_KEY: 'unused' },
+        { createModelRunner },
+      ),
+    ).rejects.toThrow(/pending or incomplete cost entries/)
+    expect(createModelRunner).not.toHaveBeenCalled()
   })
 
   it('rejects missing labeled spans before constructing or calling a model runner', async () => {
@@ -344,8 +297,56 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createModelRunner).not.toHaveBeenCalled()
   })
 
-  it('refuses a trajectory-only CodeTraceBench run before constructing the model runner', async () => {
+  it('runs trajectory-only cases with an explicit unavailable outcome', async () => {
     const fixture = await codeTraceFixture({ withVerificationArtifacts: false })
+    const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
+      id: 'model',
+      async analyze(input) {
+        const trace = await input.traceStore?.viewTrace({ trace_id: 'trace-1' })
+        expect(trace?.spans).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: 'final verification outcome: unavailable',
+              status: 'UNSET',
+            }),
+          ]),
+        )
+        return { findings: [], usage: UNKNOWN_USAGE }
+      },
+    }
+    const createModelRunner = vi.fn(() => modelRunner)
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        commandArgs(fixture),
+        { TEST_ANALYST_KEY: 'unused' },
+        { createModelRunner },
+      ),
+    ).resolves.toBe(0)
+    expect(createModelRunner).toHaveBeenCalledOnce()
+    const artifact = JSON.parse(await readFile(join(fixture.outDir, 'result.json'), 'utf8'))
+    expect(artifact.inputs.verificationArtifacts[0]).toMatchObject({
+      status: 'missing',
+      outcome: { status: 'unavailable', reason: 'missing-result' },
+    })
+    expect(artifact.inputs.verificationAvailability).toEqual({
+      cases: 1,
+      resultFilesPresent: 0,
+      resultFilesMissing: 1,
+      outcomes: { passed: 0, failed: 0, unavailable: 1 },
+    })
+  })
+
+  it('rejects answer annotations in final-result artifacts before constructing the model', async () => {
+    const fixture = await codeTraceFixture()
+    await writeFile(
+      join(fixture.artifactDir, 'trace-1', 'cases', 'trace-1', 'task-1_result.json'),
+      JSON.stringify({
+        resolved: false,
+        failed_tests: ['hidden assertion'],
+        incorrect_step_ids: [2],
+      }),
+    )
     const createModelRunner = vi.fn()
 
     await expect(
@@ -354,7 +355,7 @@ describe('runAnalystBenchmarkCommand', () => {
         { TEST_ANALYST_KEY: 'unused' },
         { createModelRunner },
       ),
-    ).rejects.toThrow(/no final verification artifact/)
+    ).rejects.toThrow(/label key 'incorrect_step_ids'/)
     expect(createModelRunner).not.toHaveBeenCalled()
   })
 
@@ -367,6 +368,33 @@ describe('runAnalystBenchmarkCommand', () => {
     await expect(
       runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
     ).rejects.toThrow(/without credentials/)
+    expect(createModelRunner).not.toHaveBeenCalled()
+  })
+
+  it('refuses remote plain HTTP before constructing the model runner', async () => {
+    const fixture = await codeTraceFixture()
+    const args = commandArgs(fixture)
+    args[args.indexOf('--base-url') + 1] = 'http://provider.example/v1'
+    const createModelRunner = vi.fn()
+
+    await expect(
+      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
+    ).rejects.toThrow(/must use HTTPS unless/)
+    expect(createModelRunner).not.toHaveBeenCalled()
+  })
+
+  it('rejects branch names and short revision hashes before constructing a runner', async () => {
+    const fixture = await codeTraceFixture()
+    const createModelRunner = vi.fn()
+
+    for (const revision of ['main', 'abc123']) {
+      const args = commandArgs(fixture)
+      args[args.indexOf('--revision') + 1] = revision
+      await expect(
+        runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createModelRunner }),
+      ).rejects.toThrow(/full 40- or 64-character hexadecimal digest/)
+    }
+
     expect(createModelRunner).not.toHaveBeenCalled()
   })
 
@@ -384,6 +412,7 @@ describe('runAnalystBenchmarkCommand', () => {
               severity: 'high',
               confidence: 0.9,
               evidence_refs: [{ kind: 'span', uri: 'trace://rx-1/span/step-1' }],
+              metadata: { step_mean: 1 },
             }),
           ],
           usage: UNKNOWN_USAGE,
@@ -402,6 +431,7 @@ describe('runAnalystBenchmarkCommand', () => {
     const artifact = JSON.parse(
       await readFile(join(fixture.outDir, 'result.json'), 'utf8'),
     ) as Record<string, any>
+    expect(artifact.inputs.datasetRevision).toBe(AGENT_RX_TEST_REVISION)
     expect(artifact.inputs.verificationArtifacts).toEqual([])
     expect(artifact.inputs.artifactDir).toBeUndefined()
     expect(artifact.inputs.selection.report.source).toMatchObject({
@@ -412,183 +442,230 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(
       artifact.result.summaries.map((summary: { runnerId: string }) => summary.runnerId),
     ).toEqual(['empty', 'model'])
-  })
-})
-
-async function codeTraceFixture(
-  options: { labeledStep?: number; withVerificationArtifacts?: boolean } = {},
-) {
-  const root = await mkdtemp(join(tmpdir(), 'analyst-benchmark-command-'))
-  const traceDir = join(root, 'traces')
-  const artifactDir = join(root, 'artifacts')
-  const caseArtifactDir = join(artifactDir, 'trace-1', 'cases', 'trace-1')
-  const outDir = join(root, 'out')
-  const labelsPath = join(root, 'labels.jsonl')
-  await mkdir(traceDir)
-  await mkdir(caseArtifactDir, { recursive: true })
-  const labeledStep = options.labeledStep ?? 2
-  await writeFile(
-    labelsPath,
-    `${JSON.stringify({
-      traj_id: 'trace-1',
-      agent: 'mini-SWE-agent',
-      model: 'test-worker',
-      task_name: 'task-1',
-      source_relpath: 'cases/trace-1',
-      step_count: Math.max(2, labeledStep),
-      incorrect_stages: [{ stage_id: 1, incorrect_step_ids: [labeledStep] }],
-    })}\n`,
-  )
-  await writeFile(
-    join(traceDir, 'trace.otlp.jsonl'),
-    `${[
-      otlpSpan('trace-1', 'step-1', 'Read the repository.'),
-      otlpSpan('trace-1', 'step-2', 'Changed the wrong file.'),
-    ].join('\n')}\n`,
-  )
-  if (options.withVerificationArtifacts !== false) {
-    await mkdir(join(caseArtifactDir, 'panes'))
-    await writeFile(
-      join(caseArtifactDir, 'panes', 'post-test.txt'),
-      'FAILED: hidden assertion failed after the agent finished\n',
-    )
-    await writeFile(
-      join(caseArtifactDir, 'task-1_result.json'),
-      `${JSON.stringify({ resolved: false, tests: { passed: 4, failed: 1 } })}\n`,
-    )
-  }
-  return { labelsPath, traceDir, artifactDir, outDir }
-}
-
-async function agentRxFixture() {
-  const root = await mkdtemp(join(tmpdir(), 'analyst-benchmark-agentrx-'))
-  const traceDir = join(root, 'traces')
-  const outDir = join(root, 'out')
-  const labelsPath = join(root, 'labels.json')
-  await mkdir(traceDir)
-  await writeFile(
-    labelsPath,
-    JSON.stringify({
-      trajectory_id: 'rx-1',
-      failures: [
-        {
-          failure_id: 'root',
-          step_number: 1,
-          step_reason: 'Provider unavailable.',
-          failure_category: 'System Failure',
-          failed_agent: 'worker',
-        },
+    expect(artifact.agentRxCalibration).toMatchObject({
+      protocol: 'official-agentrx-root-cause',
+      upstreamRevision: AGENT_RX_UPSTREAM_REVISION,
+      runners: [
+        expect.objectContaining({
+          runnerId: 'empty',
+          predictedRuns: 0,
+          exactStepAccuracy: 0,
+        }),
+        expect.objectContaining({
+          runnerId: 'model',
+          predictedRuns: 1,
+          exactStepAccuracy: 1,
+          rootCauseCategoryAccuracy: 1,
+        }),
       ],
-      root_cause_failure_id: 'root',
-      num_failures: 1,
-    }),
-  )
-  await writeFile(
-    join(traceDir, 'trace.otlp.jsonl'),
-    `${otlpSpan('rx-1', 'step-1', 'The provider request failed permanently.')}\n`,
-  )
-  return { labelsPath, traceDir, outDir }
-}
-
-function commandArgs(fixture: {
-  labelsPath: string
-  traceDir: string
-  artifactDir: string
-  outDir: string
-}): string[] {
-  return [
-    '--dataset',
-    'codetracebench',
-    '--labels',
-    fixture.labelsPath,
-    '--trace-dir',
-    fixture.traceDir,
-    '--artifact-dir',
-    fixture.artifactDir,
-    '--out',
-    fixture.outDir,
-    '--revision',
-    'ae5926b496f2f7f4c3f6337c0ad6150311d3650c5f3bd00660556b3e41739505',
-    '--split',
-    'verified',
-    '--base-url',
-    'http://127.0.0.1:3355/v1',
-    '--api-key-env',
-    'TEST_ANALYST_KEY',
-    '--model',
-    'opencode/zai-coding-plan/glm-5.2',
-    '--limit',
-    '1',
-    '--seed',
-    '7',
-    '--concurrency',
-    '2',
-  ]
-}
-
-function agentRxCommandArgs(fixture: {
-  labelsPath: string
-  traceDir: string
-  outDir: string
-}): string[] {
-  return [
-    '--dataset',
-    'agentrx',
-    '--labels',
-    fixture.labelsPath,
-    '--trace-dir',
-    fixture.traceDir,
-    '--out',
-    fixture.outDir,
-    '--revision',
-    'contact-gated-fixture',
-    '--split',
-    'test',
-    '--base-url',
-    'http://127.0.0.1:3355/v1',
-    '--api-key-env',
-    'TEST_ANALYST_KEY',
-    '--model',
-    'opencode/kimi-for-coding/k3',
-    '--limit',
-    '1',
-  ]
-}
-
-function otlpSpan(traceId: string, spanId: string, output: string): string {
-  return JSON.stringify({
-    trace_id: traceId,
-    span_id: spanId,
-    parent_span_id: null,
-    name: `assistant ${spanId}`,
-    kind: 'LLM',
-    start_time: '2026-07-30T00:00:00.000Z',
-    end_time: '2026-07-30T00:00:01.000Z',
-    status: 'OK',
-    attributes: {
-      'llm.output_messages': JSON.stringify([{ role: 'assistant', content: output }]),
-    },
+    })
+    expect(await readFile(join(fixture.outDir, 'report.md'), 'utf8')).toContain(
+      'AgentRx Published Metrics',
+    )
   })
-}
 
-function codeTraceRow(
-  id: string,
-  options: {
-    agent: string
-    model: string
-    difficulty: string
-    solved: boolean
-    incorrect: number[]
-  },
-): Record<string, unknown> {
-  return {
-    traj_id: id,
-    agent: options.agent,
-    model: options.model,
-    task_name: id,
-    difficulty: options.difficulty,
-    solved: options.solved,
-    step_count: 2,
-    incorrect_stages: [{ stage_id: 1, incorrect_step_ids: options.incorrect }],
-  }
-}
+  it('does not treat a supplied-input census as representative of the upstream population', async () => {
+    const fixture = await agentRxFixture({ caseCount: 20 })
+    const args = agentRxCommandArgs(fixture)
+    args[args.indexOf('--limit') + 1] = '20'
+
+    await runAnalystBenchmarkCommand(
+      args,
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createModelRunner: () => ({
+          id: 'model',
+          analyze: () => ({ findings: [], usage: UNKNOWN_USAGE }),
+        }),
+      },
+    )
+
+    const artifact = await readAnalystBenchmarkArtifact(join(fixture.outDir, 'result.json'))
+    expect(artifact.inputs.selection.report).toMatchObject({
+      method: 'census',
+      sourceCount: 20,
+      selectedCount: 20,
+      representativeOfInput: true,
+    })
+    expect(artifact.result.provenance.metadata?.populationRepresentativenessProven).toBe(false)
+    expect(
+      artifact.comparisons[0]?.metrics.find((metric) => metric.metric === 'completion'),
+    ).toMatchObject({
+      pairedClusters: 20,
+      minimumSampleMet: true,
+      populationInferenceEligible: false,
+      inferenceLimitations: ['population-representativeness-not-proven'],
+    })
+  })
+
+  it('returns a failing exit code without discarding failed model usage', async () => {
+    const fixture = await agentRxFixture()
+    const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
+      id: 'model',
+      analyze() {
+        return {
+          findings: [],
+          usage: {
+            calls: 8,
+            tokens: null,
+            cost: { kind: 'uncaptured', usd: null },
+            knownCostUsd: 0.09,
+          },
+          error: {
+            class: 'AnalystRunFailure',
+            message: 'root-cause-localizer: Error: invalid provider response',
+          },
+        }
+      },
+    }
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        agentRxCommandArgs(fixture),
+        { TEST_ANALYST_KEY: 'unused' },
+        { createModelRunner: () => modelRunner },
+      ),
+    ).resolves.toBe(2)
+
+    const artifact = JSON.parse(
+      await readFile(join(fixture.outDir, 'result.json'), 'utf8'),
+    ) as Record<string, any>
+    expect(artifact.result.summaries[1]).toMatchObject({
+      runnerId: 'model',
+      completedRuns: 0,
+      failedRuns: 1,
+      calls: 8,
+      knownCostUsd: 0.09,
+      costUnknownRuns: 1,
+    })
+    expect(artifact.result.observations[1]).toMatchObject({
+      usage: { calls: 8, knownCostUsd: 0.09 },
+      error: {
+        class: 'AnalystRunFailure',
+        message: 'root-cause-localizer: Error: invalid provider response',
+      },
+    })
+  })
+
+  it('binds model calls to the durable run-wide spend limit', async () => {
+    const fixture = await agentRxFixture()
+    const execute = vi.fn(async () => 'should not run')
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...agentRxCommandArgs(fixture), '--max-cost-usd', '0.25'],
+        { TEST_ANALYST_KEY: 'unused' },
+        {
+          createModelRunner: (_dataset, config) => ({
+            id: 'model',
+            async analyze() {
+              const denied = await config.costLedger!.runPaidCall({
+                channel: 'analyst',
+                phase: 'benchmark',
+                actor: 'test-model',
+                model: 'gpt-4o-mini',
+                maximumCharge: { externallyEnforcedMaximumUsd: 0.26 },
+                execute,
+                receipt: () => ({
+                  model: 'gpt-4o-mini',
+                  inputTokens: 1,
+                  outputTokens: 1,
+                }),
+              })
+              if (denied.succeeded) throw new Error('cost limit admitted the provider call')
+              throw denied.error
+            },
+          }),
+        },
+      ),
+    ).rejects.toThrow(/would exceed ceiling 0.25/)
+
+    expect(execute).not.toHaveBeenCalled()
+    const costEvents = await readFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
+      'utf8',
+    )
+    expect(costEvents).toContain('"costCeilingUsd":0.25')
+    const observations = await readFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE),
+      'utf8',
+    )
+    expect(observations).not.toContain('"runnerId":"model"')
+    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('does not score or finalize a provider failure with incomplete accounting', async () => {
+    const fixture = await agentRxFixture()
+    const secret = 'sk-provider-body-secret'
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        agentRxCommandArgs(fixture),
+        { TEST_ANALYST_KEY: 'unused' },
+        {
+          createModelRunner: (_dataset, config) => ({
+            id: 'model',
+            async analyze(_input, context) {
+              const paid = await config.costLedger!.runPaidCall({
+                channel: 'analyst',
+                phase: 'analyst.public-benchmark',
+                actor: 'agentrx-root-cause-localizer',
+                model: 'unknown-provider-model',
+                maximumCharge: { externallyEnforcedMaximumUsd: 0.1 },
+                tags: {
+                  analystId: 'agentrx-root-cause-localizer',
+                  benchmarkCaseId: context.caseId,
+                  benchmarkRepetition: String(context.repetition),
+                },
+                async execute() {
+                  throw new Error(`malformed response Bearer ${secret}`)
+                },
+                receipt: () => ({
+                  model: 'unknown-provider-model',
+                  inputTokens: 0,
+                  outputTokens: 0,
+                }),
+              })
+              if (paid.succeeded) throw new Error('provider failure unexpectedly succeeded')
+              throw paid.error
+            },
+          }),
+        },
+      ),
+    ).rejects.toThrow(/incomplete cost accounting/)
+
+    const observations = await readFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE),
+      'utf8',
+    )
+    expect(observations).not.toContain('"runnerId":"model"')
+    const costEvents = await readFile(
+      join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
+      'utf8',
+    )
+    expect(costEvents).not.toContain(secret)
+    expect(costEvents).toContain('"error":"paid-call-failed"')
+    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it.each(['0', '-1', 'NaN', 'Infinity'])(
+    'rejects invalid run-wide spend limit %s before model construction',
+    async (value) => {
+      const fixture = await agentRxFixture()
+      const createModelRunner = vi.fn()
+
+      await expect(
+        runAnalystBenchmarkCommand(
+          [...agentRxCommandArgs(fixture), '--max-cost-usd', value],
+          { TEST_ANALYST_KEY: 'unused' },
+          { createModelRunner },
+        ),
+      ).rejects.toThrow(/max-cost-usd must be a positive finite number/)
+      expect(createModelRunner).not.toHaveBeenCalled()
+    },
+  )
+})
