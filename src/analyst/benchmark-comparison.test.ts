@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AnalystBenchmarkResult } from './benchmark'
 import { compareAnalystRunners } from './benchmark-comparison'
 import { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+import { compareAnalystRunners as compareAnalystRunnersPublic } from './index'
 
 function result(): AnalystBenchmarkResult {
   const observations = ['baseline', 'candidate'].flatMap((runnerId) =>
@@ -183,6 +184,55 @@ describe('compareAnalystRunners', () => {
       pairedObservations: 20,
       enoughCasesForInference: false,
     })
+  })
+
+  it.each([
+    ['zero', 0],
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['unsafe', Number.MAX_SAFE_INTEGER + 1],
+  ])('rejects %s resample counts at the public comparison boundary', (_label, resamples) => {
+    expect(() =>
+      compareAnalystRunnersPublic(result(), {
+        baselineRunnerId: 'baseline',
+        candidateRunnerId: 'candidate',
+        resamples,
+      }),
+    ).toThrow(
+      'compareAnalystRunners: resamples must be a positive safe integer no greater than 1000000',
+    )
+  })
+
+  it.each([
+    ['zero', 0],
+    ['one', 1],
+    ['negative', -0.5],
+    ['above one', 1.5],
+    ['NaN', Number.NaN],
+    ['positive infinity', Number.POSITIVE_INFINITY],
+    ['negative infinity', Number.NEGATIVE_INFINITY],
+  ])('rejects %s confidence at the public comparison boundary', (_label, confidence) => {
+    expect(() =>
+      compareAnalystRunnersPublic(result(), {
+        baselineRunnerId: 'baseline',
+        candidateRunnerId: 'candidate',
+        confidence,
+        resamples: 100,
+      }),
+    ).toThrow('compareAnalystRunners: confidence must be a finite number in (0,1)')
+  })
+
+  it('never returns non-finite numeric comparison fields', () => {
+    const benchmark = result()
+    benchmark.observations[0]!.latencyMs = Number.NaN
+
+    expect(() =>
+      compareAnalystRunnersPublic(benchmark, {
+        baselineRunnerId: 'baseline',
+        candidateRunnerId: 'candidate',
+        resamples: 100,
+      }),
+    ).toThrow('compareAnalystRunners: latencyMs produced non-finite comparison output')
   })
 
   it('renders every summary and run field without hiding unknown values', () => {

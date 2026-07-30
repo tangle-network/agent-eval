@@ -51,6 +51,10 @@ export function compareAnalystRunners(
     seed?: number
   },
 ): AnalystRunnerComparison {
+  const confidence = options.confidence ?? 0.95
+  const resamples = options.resamples ?? 2000
+  assertComparisonControls(confidence, resamples)
+
   const runnerIds = new Set(result.summaries.map((summary) => summary.runnerId))
   if (!runnerIds.has(options.baselineRunnerId)) {
     throw new TypeError(`unknown baseline analyst runner '${options.baselineRunnerId}'`)
@@ -93,12 +97,12 @@ export function compareAnalystRunners(
     }
     if (before.length === 0) continue
     const interval = pairedBootstrap(before, after, {
-      confidence: options.confidence,
-      resamples: options.resamples,
+      confidence,
+      resamples,
       statistic: 'mean',
       seed: options.seed,
     })
-    metrics.push({
+    const comparison: AnalystMetricComparison = {
       metric,
       direction: LOWER_IS_BETTER.has(metric) ? 'lower' : 'higher',
       pairedCases: interval.n,
@@ -111,7 +115,9 @@ export function compareAnalystRunners(
       confidence: interval.confidence,
       resamples: interval.resamples,
       enoughCasesForInference: interval.gateEligible,
-    })
+    }
+    assertValidComparison(comparison)
+    metrics.push(comparison)
   }
   return {
     baselineRunnerId: options.baselineRunnerId,
@@ -221,4 +227,41 @@ function metricValue(
 
 function mean(values: readonly number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function assertComparisonControls(confidence: number, resamples: number): void {
+  if (!Number.isSafeInteger(resamples) || resamples <= 0 || resamples > 1_000_000) {
+    throw new Error(
+      `compareAnalystRunners: resamples must be a positive safe integer no greater than 1000000, got ${String(resamples)}`,
+    )
+  }
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+    throw new Error(
+      `compareAnalystRunners: confidence must be a finite number in (0,1), got ${String(confidence)}`,
+    )
+  }
+}
+
+function assertValidComparison(comparison: AnalystMetricComparison): void {
+  const numericFields = [
+    'pairedCases',
+    'pairedObservations',
+    'baselineMean',
+    'candidateMean',
+    'meanDelta',
+    'intervalLow',
+    'intervalHigh',
+    'confidence',
+    'resamples',
+  ] as const
+  if (numericFields.some((field) => !Number.isFinite(comparison[field]))) {
+    throw new Error(
+      `compareAnalystRunners: ${comparison.metric} produced non-finite comparison output`,
+    )
+  }
+  if (comparison.intervalLow > comparison.intervalHigh) {
+    throw new Error(
+      `compareAnalystRunners: ${comparison.metric} produced an invalid confidence interval`,
+    )
+  }
 }
