@@ -235,6 +235,7 @@ export type {
   AnalystReviewQuality,
   AnalystReviewRequest,
   AnalystReviewSource,
+  AnalystRunDigest,
   FeedbackArtifactType,
   FeedbackAttempt,
   FeedbackLabel,
@@ -255,7 +256,8 @@ export type {
 } from './feedback-trajectory'
 export {
   analystFindingDigest,
-  analystFindingsToReviewRequests,
+  analystRunDigest,
+  analystRunToReviewRequests,
   analystRunToFeedbackTrajectory,
   assignFeedbackSplit,
   controlRunToFeedbackTrajectory,

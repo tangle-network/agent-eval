@@ -77,12 +77,20 @@ Downstream repos own domain adapters:
 ## Trace Analyst Bridge
 
 Trace findings are hypotheses until another signal confirms them.
-Use `analystFindingsToReviewRequests()` to populate a review queue.
+Use `analystRunToReviewRequests()` to populate a review queue.
 Use `analystRunToFeedbackTrajectory()` immediately to archive the run, even when review has not started.
 The archived trajectory cannot become optimizer input until every finding has one independent decision and the run has one independent completeness assessment.
 
 ```ts
-const requests = analystFindingsToReviewRequests(analystRun.findings)
+import {
+  analystRunDigest,
+  analystRunToFeedbackTrajectory,
+  analystRunToReviewRequests,
+  feedbackTrajectoryToOptimizerRow,
+} from '@tangle-network/agent-eval'
+
+const runDigest = analystRunDigest(analystRun)
+const requests = analystRunToReviewRequests(analystRun)
 await reviewQueue.add(requests)
 
 const archived = analystRunToFeedbackTrajectory(analystRun, {
@@ -106,6 +114,7 @@ const reviewed = analystRunToFeedbackTrajectory(analystRun, {
   reviewRequests: requests,
   reviewDecisions: [
     ...analystRun.findings.map((finding) => ({
+      runDigest,
       findingId: finding.finding_id,
       findingDigest: requestsByFindingId.get(finding.finding_id)!.findingDigest,
       verdict: reviewedFindingIds.has(finding.finding_id) ? 'confirmed' as const : 'rejected' as const,
@@ -116,6 +125,7 @@ const reviewed = analystRunToFeedbackTrajectory(analystRun, {
       decidedAt: new Date().toISOString(),
     })),
     {
+      runDigest,
       verdict: 'completeness_assessed',
       missedIssues,
       source: 'user',
@@ -131,6 +141,8 @@ const optimizerRow = feedbackTrajectoryToOptimizerRow(reviewed)
 ```
 
 Review requests, generic labels, and run-level outcomes do not validate findings.
+Every request id includes the digest of the complete analyst run, so the same finding in two runs produces two request ids.
+Every decision must echo that run digest and cannot be replayed onto another run.
 Each finding decision must name a known finding and echo its full content digest.
 The reviewer identity must differ from every analyst that produced the run.
 The completeness assessment records unique missed issue ids, reasons, and optional evidence.
@@ -142,9 +154,11 @@ The run-level outcome remains context and does not replace that score.
 Every run needs one `completeness_assessed` decision from an independent reviewer or environment check:
 
 ```ts
+const cleanRunDigest = analystRunDigest(cleanRun)
 const reviewedCleanRun = analystRunToFeedbackTrajectory(cleanRun, {
   task: { intent: 'Check whether the run has a reportable failure.' },
   reviewDecisions: [{
+    runDigest: cleanRunDigest,
     verdict: 'completeness_assessed',
     missedIssues: [],
     source: 'environment',

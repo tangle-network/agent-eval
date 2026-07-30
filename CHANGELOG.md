@@ -27,6 +27,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - AgentRx evaluation targets its published root-cause task by default, accepts its maintained `failures` report shape, and treats `failure_case: 0` as a no-error prediction.
 - CodeTraceBench uses its published incorrect-step labels by default; the combined incorrect-and-unuseful task must be selected explicitly.
 
+### Fixed
+
+- Analyst review requests and decisions bind to the canonical digest of one complete run, so decisions cannot be replayed across runs and repeated findings cannot collide in review queues.
+- AgentRx category quality and root-step accuracy are scored independently; `traceAnalystQualityJudge` averages them when a root-step label exists.
+
 ## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
 
 ### Fixed

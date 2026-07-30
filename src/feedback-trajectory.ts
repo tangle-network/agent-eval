@@ -4,10 +4,11 @@ import type { DatasetScenario, DatasetSplit } from './dataset'
 import {
   type AnalystReviewDecision,
   analystFindingDigest,
+  analystRunDigest,
   assertUniqueFindingIds,
   completedAnalystReviewQuality,
   readAnalystReview,
-  snapshotAnalystFindings,
+  snapshotAnalystRun,
   validateAnalystReviewDecisions,
 } from './feedback-trajectory-review'
 
@@ -18,8 +19,9 @@ export type {
   AnalystReviewDecision,
   AnalystReviewQuality,
   AnalystReviewSource,
+  AnalystRunDigest,
 } from './feedback-trajectory-review'
-export { analystFindingDigest } from './feedback-trajectory-review'
+export { analystFindingDigest, analystRunDigest } from './feedback-trajectory-review'
 
 export type FeedbackArtifactType =
   | 'text'
@@ -189,6 +191,8 @@ export interface AnalystFeedbackTrajectoryOptions {
 
 export interface AnalystReviewRequest {
   id: string
+  runId: string
+  runDigest: `sha256:${string}`
   findingId: string
   findingDigest: `sha256:${string}`
   analystId: string
@@ -387,25 +391,34 @@ export function analystRunToFeedbackTrajectory(
   run: AnalystRunResult,
   options: AnalystFeedbackTrajectoryOptions,
 ): FeedbackTrajectory {
-  const findings = snapshotAnalystFindings(run.findings, `analyst run "${run.run_id}"`)
+  const archivedRun = snapshotAnalystRun(run, `analyst run "${run.run_id}"`)
+  const runDigest = analystRunDigest(archivedRun)
+  const findings = archivedRun.findings
   const findingIds = findings.map((finding) => finding.finding_id)
   assertUniqueFindingIds(findingIds)
   const analystIds = [
     ...new Set([
       ...findings.map((finding) => finding.analyst_id),
-      ...run.per_analyst.map((summary) => summary.analyst_id),
+      ...archivedRun.per_analyst.map((summary) => summary.analyst_id),
     ]),
   ]
   const reviewDecisions = validateAnalystReviewDecisions({
-    runId: run.run_id,
+    runId: archivedRun.run_id,
+    runDigest,
     findings,
     analystIds,
     decisions: options.reviewDecisions ?? [],
   })
-  const createdAt = options.createdAt ?? run.started_at
-  const knownCostUsd = run.total_cost_usd
+  const reviewRequests =
+    options.reviewRequests === undefined
+      ? undefined
+      : validateAnalystReviewRequests(archivedRun, options.reviewRequests)
+  const createdAt = options.createdAt ?? archivedRun.started_at
+  const knownCostUsd = archivedRun.total_cost_usd
   const capturedCost =
-    run.total_cost_provenance?.kind === 'uncaptured' ? undefined : run.total_cost_usd
+    archivedRun.total_cost_provenance?.kind === 'uncaptured'
+      ? undefined
+      : archivedRun.total_cost_usd
   return createFeedbackTrajectory({
     id: options.id,
     projectId: options.projectId,
@@ -413,21 +426,22 @@ export function analystRunToFeedbackTrajectory(
     task: options.task,
     attempts: [
       {
-        id: `analysis:${run.run_id}`,
+        id: `analysis:${archivedRun.run_id}`,
         stepIndex: 0,
         artifactType: 'research',
         artifact: {
           type: 'analyst-run',
-          analystRunId: run.run_id,
-          correlationId: run.correlation_id,
+          analystRunId: archivedRun.run_id,
+          runDigest,
+          correlationId: archivedRun.correlation_id,
           analystIds,
           findings,
         },
         createdAt,
         metadata: {
-          perAnalyst: run.per_analyst,
+          perAnalyst: archivedRun.per_analyst,
           trace: options.trace,
-          reviewRequests: options.reviewRequests,
+          reviewRequests,
         },
       },
     ],
@@ -439,7 +453,7 @@ export function analystRunToFeedbackTrajectory(
         }
       : capturedCost === undefined
         ? undefined
-        : { costUsd: capturedCost, observedAt: run.ended_at },
+        : { costUsd: capturedCost, observedAt: archivedRun.ended_at },
     split: options.split,
     tags: options.tags,
     createdAt,
@@ -447,25 +461,30 @@ export function analystRunToFeedbackTrajectory(
       ...options.metadata,
       analysis: {
         kind: 'analyst-run',
-        runId: run.run_id,
-        startedAt: run.started_at,
-        endedAt: run.ended_at,
+        runId: archivedRun.run_id,
+        runDigest,
+        startedAt: archivedRun.started_at,
+        endedAt: archivedRun.ended_at,
         reviewDecisions,
-        costProvenance: run.total_cost_provenance,
+        costProvenance: archivedRun.total_cost_provenance,
         knownCostUsd,
       },
     },
   })
 }
 
-/** Convert generated findings into revision requests for an independent reviewer. */
-export function analystFindingsToReviewRequests(
-  findings: readonly AnalystFinding[],
+/** Convert one immutable analyst run into revision requests for an independent reviewer. */
+export function analystRunToReviewRequests(
+  run: AnalystRunResult,
   options: { createdAt?: string } = {},
 ): AnalystReviewRequest[] {
+  const archivedRun = snapshotAnalystRun(run, `analyst run "${run.run_id}"`)
+  const runDigest = analystRunDigest(archivedRun)
   const createdAt = options.createdAt ?? new Date().toISOString()
-  return snapshotAnalystFindings(findings, 'analyst review request').map((finding) => ({
-    id: `analyst:${finding.finding_id}`,
+  return archivedRun.findings.map((finding) => ({
+    id: analystReviewRequestId(runDigest, finding.finding_id),
+    runId: archivedRun.run_id,
+    runDigest,
     findingId: finding.finding_id,
     findingDigest: analystFindingDigest(finding),
     analystId: finding.analyst_id,
@@ -478,6 +497,44 @@ export function analystFindingsToReviewRequests(
     confidence: finding.confidence,
     createdAt,
   }))
+}
+
+function validateAnalystReviewRequests(
+  run: AnalystRunResult,
+  requests: readonly AnalystReviewRequest[],
+): AnalystReviewRequest[] {
+  const runDigest = analystRunDigest(run)
+  const findingsById = new Map(run.findings.map((finding) => [finding.finding_id, finding]))
+  const seenFindingIds = new Set<string>()
+  return requests.map((request, index) => {
+    if (request.runId !== run.run_id) {
+      throw new TypeError(`analyst review request ${index} run id mismatch`)
+    }
+    if (request.runDigest !== runDigest) {
+      throw new TypeError(`analyst review request ${index} run digest mismatch`)
+    }
+    const finding = findingsById.get(request.findingId)
+    if (!finding) {
+      throw new TypeError(
+        `analyst review request ${index} references unknown finding id "${request.findingId}"`,
+      )
+    }
+    if (seenFindingIds.has(request.findingId)) {
+      throw new TypeError(`duplicate analyst review request for finding id "${request.findingId}"`)
+    }
+    seenFindingIds.add(request.findingId)
+    if (request.findingDigest !== analystFindingDigest(finding)) {
+      throw new TypeError(`analyst review request ${index} finding digest mismatch`)
+    }
+    if (request.id !== analystReviewRequestId(runDigest, request.findingId)) {
+      throw new TypeError(`analyst review request ${index} id mismatch`)
+    }
+    return request
+  })
+}
+
+function analystReviewRequestId(runDigest: `sha256:${string}`, findingId: string): string {
+  return `analyst:${runDigest}:${findingId}`
 }
 
 export function assignFeedbackSplit(

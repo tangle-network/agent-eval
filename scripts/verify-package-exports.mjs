@@ -156,9 +156,13 @@ try {
         CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
         analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         analystFindingDigest,
+        analystRunDigest,
+        analystRunToReviewRequests,
         InMemoryTraceStore,
         makeFinding,
         type AnalystReviewDecision,
+        type AnalystRunDigest,
+        type AnalystRunResult,
         type BenchmarkRunnerConfig,
         type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
@@ -379,7 +383,20 @@ try {
       })
       const reviewedFindingDigest: \`sha256:\${string}\` =
         analystFindingDigest(reviewedFinding)
+      const reviewedRun: AnalystRunResult = {
+        run_id: 'package-check-run',
+        correlation_id: 'package-check-correlation',
+        started_at: '2026-07-29T00:00:00.000Z',
+        ended_at: '2026-07-29T00:00:01.000Z',
+        findings: [reviewedFinding],
+        per_analyst: [],
+        total_cost_usd: 0,
+        total_cost_provenance: { kind: 'observed', usd: 0 },
+      }
+      const reviewedRunDigest: AnalystRunDigest = analystRunDigest(reviewedRun)
+      const reviewedRequests = analystRunToReviewRequests(reviewedRun)
       const completenessDecision: AnalystReviewDecision = {
+        runDigest: reviewedRunDigest,
         verdict: 'completeness_assessed',
         missedIssues: [],
         source: 'environment',
@@ -539,6 +556,8 @@ try {
         ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
         reviewedFindingDigest,
+        reviewedRunDigest,
+        reviewedRequests,
         completenessDecision,
         analystCase,
         agentRxCase,

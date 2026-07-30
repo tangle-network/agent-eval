@@ -1,9 +1,10 @@
-import type { AnalystFinding, EvidenceRef } from './analyst/types'
+import type { AnalystFinding, AnalystRunResult, EvidenceRef } from './analyst/types'
 import type { FeedbackLabelSource, FeedbackTrajectory } from './feedback-trajectory'
 import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 export type AnalystReviewSource = Exclude<FeedbackLabelSource, 'system'>
 export type AnalystFindingDigest = `sha256:${string}`
+export type AnalystRunDigest = `sha256:${string}`
 
 export interface AnalystMissedIssue {
   id: string
@@ -12,6 +13,7 @@ export interface AnalystMissedIssue {
 }
 
 interface AnalystReviewDecisionBase {
+  runDigest: AnalystRunDigest
   source: AnalystReviewSource
   reviewerId: string
   reviewId: string
@@ -49,6 +51,7 @@ export interface AnalystReviewQuality {
 
 export interface StoredAnalystReview {
   runId: string
+  runDigest: AnalystRunDigest
   findings: AnalystFinding[]
   findingIds: string[]
   analystIds: string[]
@@ -58,6 +61,58 @@ export interface StoredAnalystReview {
 /** Bind an analyst finding's complete canonical JSON content to a stable digest. */
 export function analystFindingDigest(finding: AnalystFinding): AnalystFindingDigest {
   return hashCanonical(snapshotAnalystFinding(finding, 'analyst finding'))
+}
+
+/** Bind the complete analyst result to one immutable review target. */
+export function analystRunDigest(run: AnalystRunResult): AnalystRunDigest {
+  return hashCanonical(snapshotAnalystRun(run, 'analyst run'))
+}
+
+export function snapshotAnalystRun(value: unknown, context = 'analyst run'): AnalystRunResult {
+  let snapshot: unknown
+  try {
+    snapshot = JSON.parse(canonicalString(value)) as unknown
+  } catch (cause) {
+    throw new TypeError(`${context} must have a canonical JSON representation`, { cause })
+  }
+  if (!isRecord(snapshot)) throw new TypeError(`${context} must be an object`)
+  assertOnlyKeys(
+    snapshot,
+    [
+      'run_id',
+      'correlation_id',
+      'started_at',
+      'ended_at',
+      'findings',
+      'per_analyst',
+      'total_cost_usd',
+      'total_cost_provenance',
+    ],
+    context,
+  )
+  requiredString(snapshot.run_id, `${context} run_id`)
+  requiredString(snapshot.correlation_id, `${context} correlation_id`)
+  canonicalTimestamp(snapshot.started_at, `${context} started_at`)
+  canonicalTimestamp(snapshot.ended_at, `${context} ended_at`)
+  snapshot.findings = snapshotAnalystFindings(snapshot.findings, `${context} findings`)
+  if (!Array.isArray(snapshot.per_analyst)) {
+    throw new TypeError(`${context} per_analyst must be an array`)
+  }
+  for (const [index, summary] of snapshot.per_analyst.entries()) {
+    if (!isRecord(summary)) throw new TypeError(`${context} per_analyst ${index} must be an object`)
+    requiredString(summary.analyst_id, `${context} per_analyst ${index} analyst_id`)
+  }
+  if (
+    typeof snapshot.total_cost_usd !== 'number' ||
+    !Number.isFinite(snapshot.total_cost_usd) ||
+    snapshot.total_cost_usd < 0
+  ) {
+    throw new TypeError(`${context} total_cost_usd must be a finite non-negative number`)
+  }
+  if (snapshot.total_cost_provenance !== undefined && !isRecord(snapshot.total_cost_provenance)) {
+    throw new TypeError(`${context} total_cost_provenance must be an object`)
+  }
+  return snapshot as unknown as AnalystRunResult
 }
 
 export function snapshotAnalystFindings(
@@ -115,6 +170,19 @@ export function readAnalystReview(trajectory: FeedbackTrajectory): StoredAnalyst
       `feedbackTrajectoryToOptimizerRow: analyst trajectory "${trajectory.id}" run identity does not match its review state`,
     )
   }
+  const artifactRunDigest = requiredDigest(
+    artifact.runDigest,
+    `analyst trajectory "${trajectory.id}" archived run digest`,
+  )
+  const storedRunDigest = requiredDigest(
+    analysis.runDigest,
+    `analyst trajectory "${trajectory.id}" review run digest`,
+  )
+  if (artifactRunDigest !== storedRunDigest) {
+    throw new TypeError(
+      `feedbackTrajectoryToOptimizerRow: analyst trajectory "${trajectory.id}" run digest does not match its review state`,
+    )
+  }
   const findings = snapshotAnalystFindings(
     artifact.findings,
     `analyst trajectory "${trajectory.id}"`,
@@ -124,6 +192,27 @@ export function readAnalystReview(trajectory: FeedbackTrajectory): StoredAnalyst
     artifact.analystIds,
     `analyst trajectory "${trajectory.id}" analyst ids`,
   )
+  const attemptMetadata = analystAttempts[0]!.metadata
+  if (!isRecord(attemptMetadata)) {
+    throw new TypeError(
+      `feedbackTrajectoryToOptimizerRow: analyst trajectory "${trajectory.id}" is missing archived run metadata`,
+    )
+  }
+  const archivedRun = snapshotAnalystRun(
+    {
+      run_id: runId,
+      correlation_id: artifact.correlationId,
+      started_at: analysis.startedAt,
+      ended_at: analysis.endedAt,
+      findings,
+      per_analyst: attemptMetadata.perAnalyst,
+      total_cost_usd: analysis.knownCostUsd,
+      ...(analysis.costProvenance === undefined
+        ? {}
+        : { total_cost_provenance: analysis.costProvenance }),
+    },
+    `analyst trajectory "${trajectory.id}" archived run`,
+  )
   const knownAnalystIds = new Set(analystIds)
   for (const [index, finding] of findings.entries()) {
     if (!knownAnalystIds.has(finding.analyst_id)) {
@@ -132,18 +221,27 @@ export function readAnalystReview(trajectory: FeedbackTrajectory): StoredAnalyst
       )
     }
   }
+  const reviewDecisions = validateAnalystReviewDecisions({
+    runId,
+    runDigest: storedRunDigest,
+    findings,
+    analystIds,
+    decisions: analysis.reviewDecisions,
+    requireComplete: true,
+  })
+  const expectedRunDigest = analystRunDigest(archivedRun)
+  if (storedRunDigest !== expectedRunDigest) {
+    throw new TypeError(
+      `feedbackTrajectoryToOptimizerRow: analyst trajectory "${trajectory.id}" archived run digest mismatch`,
+    )
+  }
   return {
     runId,
+    runDigest: expectedRunDigest,
     findings,
     findingIds,
     analystIds,
-    reviewDecisions: validateAnalystReviewDecisions({
-      runId,
-      findings,
-      analystIds,
-      decisions: analysis.reviewDecisions,
-      requireComplete: true,
-    }),
+    reviewDecisions,
   }
 }
 
@@ -180,6 +278,7 @@ export function completedAnalystReviewQuality(review: StoredAnalystReview): Anal
 
 export function validateAnalystReviewDecisions(input: {
   runId: string
+  runDigest: AnalystRunDigest
   findings: readonly AnalystFinding[]
   analystIds: readonly string[]
   decisions: unknown
@@ -189,6 +288,7 @@ export function validateAnalystReviewDecisions(input: {
     throw new TypeError('analyst review decisions must be an array')
   }
   const findings = snapshotAnalystFindings(input.findings)
+  const expectedRunDigest = requiredDigest(input.runDigest, 'analyst review run digest')
   const findingsById = new Map(findings.map((finding) => [finding.finding_id, finding]))
   const generatingAnalystIds = new Set(input.analystIds)
   const seenFindingIds = new Set<string>()
@@ -224,11 +324,24 @@ export function validateAnalystReviewDecisions(input: {
       value.decidedAt,
       `analyst review decision ${index} decidedAt`,
     )
+    const runDigest = requiredDigest(value.runDigest, `analyst review decision ${index} runDigest`)
+    if (runDigest !== expectedRunDigest) {
+      throw new TypeError(`analyst review decision ${index} run digest mismatch`)
+    }
 
     if (value.verdict === 'completeness_assessed') {
       assertOnlyKeys(
         value,
-        ['verdict', 'missedIssues', 'source', 'reviewerId', 'reviewId', 'reason', 'decidedAt'],
+        [
+          'runDigest',
+          'verdict',
+          'missedIssues',
+          'source',
+          'reviewerId',
+          'reviewId',
+          'reason',
+          'decidedAt',
+        ],
         `analyst review decision ${index}`,
       )
       completenessCount += 1
@@ -236,6 +349,7 @@ export function validateAnalystReviewDecisions(input: {
         throw new TypeError('duplicate completeness_assessed analyst review decision')
       }
       return {
+        runDigest,
         verdict: 'completeness_assessed',
         missedIssues: validateMissedIssues(
           value.missedIssues,
@@ -258,6 +372,7 @@ export function validateAnalystReviewDecisions(input: {
     assertOnlyKeys(
       value,
       [
+        'runDigest',
         'findingId',
         'findingDigest',
         'verdict',
@@ -289,6 +404,7 @@ export function validateAnalystReviewDecisions(input: {
       )
     }
     return {
+      runDigest,
       findingId,
       findingDigest: expectedDigest,
       verdict: value.verdict,
@@ -487,6 +603,14 @@ function requiredString(value: unknown, name: string): string {
     throw new TypeError(`${name} must be a non-empty string`)
   }
   return value
+}
+
+function requiredDigest(value: unknown, name: string): AnalystRunDigest {
+  const digest = requiredString(value, name)
+  if (!/^sha256:[a-f0-9]{64}$/.test(digest)) {
+    throw new TypeError(`${name} must be a sha256 digest`)
+  }
+  return digest as AnalystRunDigest
 }
 
 function optionalString(value: unknown, name: string): void {
