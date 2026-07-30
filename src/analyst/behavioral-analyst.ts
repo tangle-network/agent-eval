@@ -10,7 +10,8 @@ import {
   type SuboptimalCode,
 } from '../trace-analyst/behavioral-metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import { type Analyst, type AnalystFinding, makeFinding } from './types'
+import type { ExactCapableAnalyst } from './exact-types'
+import { type AnalystFinding, makeFinding } from './types'
 
 const RECOMMENDED_ACTION: Record<SuboptimalCode, string> = {
   'monotonic-input-growth':
@@ -134,7 +135,7 @@ export function deriveEfficiencyFindings(
 /** The deterministic behavioral/efficiency analyst (no LLM, any-model). */
 export function behavioralAnalyst(
   options: BehavioralAnalystOptions = {},
-): Analyst<TraceAnalysisStore> {
+): ExactCapableAnalyst<TraceAnalysisStore> {
   const maxTraces = positiveInteger(options.maxTraces ?? DEFAULT_MAX_TRACES, 'maxTraces')
   const maxEvidenceRefsPerFinding = positiveInteger(
     options.maxEvidenceRefsPerFinding ?? DEFAULT_MAX_EVIDENCE_REFS,
@@ -147,6 +148,11 @@ export function behavioralAnalyst(
     inputKind: 'trace-store',
     cost: { kind: 'deterministic' },
     version: '2.0.0',
+    executionConfig: {
+      kind: 'behavioral-efficiency',
+      max_traces: maxTraces,
+      max_evidence_refs_per_finding: maxEvidenceRefsPerFinding,
+    },
     async analyze(store, context) {
       const analyzedTraceIds = await listTraceIds(store, maxTraces, context.signal)
       const findingsById = new Map<

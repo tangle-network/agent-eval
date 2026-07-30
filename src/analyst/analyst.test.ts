@@ -362,6 +362,7 @@ describe('AnalystHooks', () => {
 
   it('does not reclassify a successful analyst when its after hook fails', async () => {
     let onErrorCalls = 0
+    let onCompleteCalls = 0
     const reg = new AnalystRegistry({
       hooks: {
         onAfterAnalyze: () => {
@@ -371,6 +372,9 @@ describe('AnalystHooks', () => {
           onErrorCalls += 1
           return []
         },
+        onComplete: () => {
+          onCompleteCalls += 1
+        },
       },
     })
     reg.register(ok('a'))
@@ -378,6 +382,7 @@ describe('AnalystHooks', () => {
 
     await expect(reg.run('run-1', { runRecord: record })).rejects.toThrow('telemetry failed')
     expect(onErrorCalls).toBe(0)
+    expect(onCompleteCalls).toBe(0)
   })
 
   it('onError can convert a thrown analyst into findings', async () => {
@@ -859,6 +864,97 @@ describe('AnalystRegistry.runStream', () => {
       'analyst-completed',
       'run-completed',
     ])
+  })
+
+  it('does not admit the next analyst after a stream consumer stops', async () => {
+    const started: string[] = []
+    const analyst = (id: string): Analyst => ({
+      id,
+      description: id,
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze() {
+        started.push(id)
+        return []
+      },
+    })
+    const registry = new AnalystRegistry()
+    registry.register(analyst('a'))
+    registry.register(analyst('b'))
+
+    for await (const event of registry.runStream('consumer-stop', {
+      custom: { a: 1, b: 1 },
+    })) {
+      if (event.type === 'analyst-completed') break
+    }
+
+    expect(started).toEqual(['a'])
+  })
+})
+
+describe('legacy lifecycle context', () => {
+  it('preserves a hook-selected signal and deadline for the analyst', async () => {
+    const selected = new AbortController()
+    let observedSignal: AbortSignal | undefined
+    let observedDeadline: number | undefined
+    const registry = new AnalystRegistry({
+      hooks: {
+        onBeforeAnalyze({ ctx }) {
+          ctx.signal = selected.signal
+          ctx.deadlineMs = 123
+        },
+      },
+    })
+    registry.register({
+      id: 'a',
+      description: 'a',
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, ctx) {
+        observedSignal = ctx.signal
+        observedDeadline = ctx.deadlineMs
+        return []
+      },
+    })
+
+    await registry.run('hook-context', { custom: { a: 1 } })
+
+    expect(observedSignal).toBe(selected.signal)
+    expect(observedDeadline).toBe(123)
+  })
+
+  it('keeps the run timeout authoritative when a hook selects another signal', async () => {
+    const selected = new AbortController()
+    let completed = false
+    let observedSignal: AbortSignal | undefined
+    const registry = new AnalystRegistry({
+      hooks: {
+        onBeforeAnalyze({ ctx }) {
+          ctx.signal = selected.signal
+        },
+      },
+    })
+    registry.register({
+      id: 'a',
+      description: 'a',
+      inputKind: 'custom',
+      cost: { kind: 'deterministic' },
+      version: '1',
+      async analyze(_input, ctx) {
+        observedSignal = ctx.signal
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        completed = true
+        return []
+      },
+    })
+
+    const result = await registry.run('hook-timeout', { custom: { a: 1 } }, { timeoutMs: 5 })
+
+    expect(observedSignal).toBe(selected.signal)
+    expect(result.per_analyst[0]?.status).toBe('failed')
+    expect(completed).toBe(false)
   })
 })
 

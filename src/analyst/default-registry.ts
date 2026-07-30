@@ -11,6 +11,7 @@
 
 import type { AxAIService } from '@ax-llm/ax'
 import { type BehavioralAnalystOptions, behavioralAnalyst } from './behavioral-analyst'
+import type { ExactExecutionComponentIdentity } from './exact-types'
 import { createTraceAnalystKind, type TraceAnalystKindSpec } from './kind-factory'
 import { DEFAULT_TRACE_ANALYST_KINDS } from './kinds'
 import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
@@ -18,6 +19,8 @@ import { AnalystRegistry, type AnalystRegistryOptions } from './registry'
 export interface DefaultAnalystRegistryOptions {
   /** Ax service for the agentic RLM kinds. Omit → only the deterministic analyst. */
   ai?: AxAIService
+  /** Required when agentic kinds will be selected by `runExact`. */
+  aiIdentity?: ExactExecutionComponentIdentity
   /** Required unless `ai` was created by `createAnalystAi`. */
   model?: string
   /** Which agentic kinds to register when `ai` is present. Default = the shipped suite. */
@@ -40,7 +43,13 @@ export function buildDefaultAnalystRegistry(
   if (opts.ai) {
     const kinds = opts.kinds ?? DEFAULT_TRACE_ANALYST_KINDS
     for (const spec of kinds) {
-      registry.register(createTraceAnalystKind(spec, { ai: opts.ai, model: opts.model }))
+      registry.register(
+        createTraceAnalystKind(spec, {
+          ai: opts.ai,
+          model: opts.model,
+          aiIdentity: opts.aiIdentity,
+        }),
+      )
     }
   }
   return registry

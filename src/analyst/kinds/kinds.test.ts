@@ -199,6 +199,30 @@ describe('tool-groups filter the analyst tool surface narrowly', () => {
 })
 
 describe('createTraceAnalystKind wires the spec into the Analyst contract', () => {
+  it('binds versioned AI service identity into exact execution configuration', () => {
+    const spec: TraceAnalystKindSpec = {
+      id: 'identity-kind',
+      description: 'identity',
+      area: 'identity',
+      version: '1',
+      actorDescription: 'inspect identity',
+      buildTools: () => [],
+      cost: { kind: 'llm' },
+    }
+    const first = createTraceAnalystKind(spec, {
+      ai: stubAi(),
+      model: 'test-model',
+      aiIdentity: { id: 'provider', version: '1', config: { baseUrl: 'https://one.test' } },
+    })
+    const second = createTraceAnalystKind(spec, {
+      ai: stubAi(),
+      model: 'test-model',
+      aiIdentity: { id: 'provider', version: '2', config: { baseUrl: 'https://two.test' } },
+    })
+
+    expect(first.executionConfig.ai_identity).not.toEqual(second.executionConfig.ai_identity)
+  })
+
   it('returns a registry-ready Analyst that delegates to the kind id + version', () => {
     const spec: TraceAnalystKindSpec = {
       id: 'test-kind',
@@ -214,6 +238,12 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
     expect(analyst.version).toBe('0.0.1')
     expect(analyst.inputKind).toBe('trace-store')
     expect(analyst.cost.kind).toBe('llm')
+    expect(analyst.executionConfig).toMatchObject({
+      kind: 'trace-analyst',
+      model: 'test-model',
+      max_turns: 12,
+      max_output_tokens: 4096,
+    })
   })
 
   it('versionSuffix appends to the kind version (used by optimizer pipelines)', () => {

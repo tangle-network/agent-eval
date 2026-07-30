@@ -359,6 +359,38 @@ Use `analyzeRuns()` for `RunRecord[]`.
 For traces, run a registry of built-in or custom analysts, measure it on labeled issues and exact span locations, then turn only reviewed findings into eval data.
 For a public quality check, convert CodeTraceBench with `traces import-codetracebench`, then run `agent-eval analyst-benchmark` against the pinned labels and a real model.
 
+Use `AnalystRegistry.runExact()` when the caller, rather than registry defaults, must own every execution choice.
+The ordered `analystIds` array is the execution order, and `null` explicitly disables optional budget, timeout, cancellation, cost, tag, or prior-finding channels.
+Exact runs are serial; callers that need recursive or concurrent scheduling compose them through their runtime rather than adding a second scheduler here.
+
+```ts
+const result = await registry.runExact('analysis-1', inputs, {
+  analystIds: ['failure-mode', 'improvement'],
+  budget: { kind: 'equal', totalUsd: 2 },
+  totalTimeoutMs: 30_000,
+  signal: null,
+  costLedger: null,
+  costLedgerIdentity: null,
+  costPhase: null,
+  tags: null,
+  priorFindings: null,
+  chainFindings: true,
+  missingInputMode: 'abort',
+  applyRegistryHooks: false,
+  useRegistryChat: false,
+})
+```
+
+Custom analysts passed to `runExact()` declare canonical `executionConfig`.
+The same `defineTraceAnalyst()` helper returns an exact-capable analyst when that field is present.
+Built-in analysts already declare it.
+Trace analysts selected by `runExact()` also require `aiIdentity`, using the same non-secret `id`, `version`, and canonical `config` shape as cost ledgers, registry hooks, and registry chat clients.
+Exact lifecycle hooks receive frozen snapshots for observation; they cannot rewrite the planned context.
+Persisted results store configuration digests, not raw configuration.
+The persisted plan records the exact equal or weighted allocation for every routed analyst, and archival validates summaries against that same plan.
+Every exact receipt says whether it is `complete` or `failed`; a complete receipt must cover the full plan, while a failed receipt may contain only the executed prefix.
+Any failure after an exact run starts rejects with `ExactAnalystRunExecutionError`; its immutable failed receipt preserves valid completed summaries, findings, usage, and cost.
+
 See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md), and [trace analysis](./docs/trace-analysis.md).
 
 ## Entry Points

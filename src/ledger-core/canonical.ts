@@ -46,6 +46,15 @@ export function hashCanonical(value: unknown): LedgerHash {
   }
 }
 
+/** Freeze a detached canonical-JSON graph. Canonicalization has already ruled out cycles. */
+export function deepFreezeCanonicalJson<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const nested of Object.values(value)) deepFreezeCanonicalJson(nested)
+  }
+  return value
+}
+
 /** Name the offending value and path so a refusal is actionable. The RFC 8785
  * encoder above is the sole authority on acceptance; this walk only explains a
  * rejection it already made. */

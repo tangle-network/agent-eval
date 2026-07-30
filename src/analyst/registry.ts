@@ -17,10 +17,25 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import { combineAbortSignals } from '../abort-signal'
 import type { CostLedgerHandle } from '../cost-ledger'
+import {
+  snapshotAnalystFindings,
+  snapshotExactAnalystRunReceipt,
+} from '../feedback-trajectory-review'
+import { canonicalString, deepFreezeCanonicalJson, hashCanonical } from '../ledger-core/canonical'
 import type { RunCostProvenance, RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
+import type {
+  ExactAnalystExecutionPlanSnapshot,
+  ExactAnalystRunEvent,
+  ExactAnalystRunResult,
+  ExactCapableAnalyst,
+  ExactExecutionComponentIdentity,
+  ExactExecutionComponentSnapshot,
+} from './exact-types'
+import { snapshotExactExecutionComponentIdentity, snapshotExactExecutionPlan } from './exact-types'
 import type {
   Analyst,
   AnalystContext,
@@ -36,7 +51,7 @@ import { assertValidAnalystUsageReceipt, validateUsageSettlementTimeout } from '
 // ── Hook + policy surfaces ─────────────────────────────────────────
 
 export interface AnalystHooks {
-  /** Before analyze() — last chance to mutate ctx (e.g. inject tags, override budget). */
+  /** Legacy runs may mutate ctx; exact runs provide a frozen observational context. */
   onBeforeAnalyze?(args: {
     analyst: Analyst
     ctx: AnalystContext
@@ -89,8 +104,12 @@ export interface AnalystRegistryOptions {
   log?: (msg: string, fields?: Record<string, unknown>) => void
   /** Hooks invoked around analyze() — observability + customization seam. */
   hooks?: AnalystHooks
+  /** Required identity/config when `runExact` applies `hooks`. */
+  hooksIdentity?: ExactExecutionComponentIdentity
   /** Default budget when run() doesn't override. */
   defaultBudget?: BudgetPolicy
+  /** Required identity/config when `runExact` provides `chat`. */
+  chatIdentity?: ExactExecutionComponentIdentity
 }
 
 export interface RegistryRunOpts {
@@ -127,6 +146,94 @@ export interface RegistryRunOpts {
   chainFindings?: boolean
 }
 
+/** A caller-selected allocation rule for an exact analyst run. */
+export type ExactAnalystBudgetPolicy =
+  | {
+      readonly kind: 'equal'
+      readonly totalUsd: number
+    }
+  | {
+      readonly kind: 'weighted'
+      readonly totalUsd: number
+      /** One explicit weight for every selected analyst id. */
+      readonly weights: Readonly<Record<string, number>>
+    }
+
+/**
+ * Complete per-run analyst policy.
+ *
+ * Every field is required. `null` explicitly disables an optional resource or context channel.
+ * `analystIds` is execution order; it is not filtered through registry insertion order.
+ * Missing-input behavior is explicit so callers cannot accidentally inherit it by omission.
+ * Exact runs are serial; more elaborate scheduling belongs in the caller's runtime.
+ */
+export interface ExactRegistryRunOpts {
+  readonly analystIds: readonly string[]
+  readonly budget: ExactAnalystBudgetPolicy | null
+  readonly totalTimeoutMs: number | null
+  readonly signal: AbortSignal | null
+  readonly costLedger: CostLedgerHandle | null
+  readonly costLedgerIdentity: ExactExecutionComponentIdentity | null
+  readonly costPhase: string | null
+  readonly tags: Readonly<Record<string, string>> | null
+  readonly priorFindings:
+    | ReadonlyArray<AnalystFinding>
+    | Readonly<Record<string, ReadonlyArray<AnalystFinding>>>
+    | null
+  readonly chainFindings: boolean
+  readonly missingInputMode: 'skip' | 'abort'
+  readonly applyRegistryHooks: boolean
+  readonly useRegistryChat: boolean
+}
+
+type NormalizedBudgetPlan =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'dynamic'; readonly policy: BudgetPolicy }
+
+interface PreparedAnalyst {
+  readonly analyst: Analyst
+  readonly input:
+    | { readonly kind: 'present'; readonly value: unknown }
+    | { readonly kind: 'missing' }
+}
+
+interface AnalystExecutionPlan {
+  readonly runId: string
+  readonly prepared: readonly PreparedAnalyst[]
+  readonly budget: NormalizedBudgetPlan
+  readonly totalTimeoutMs: number | null
+  readonly signal: AbortSignal | null
+  readonly costLedger: CostLedgerHandle | null
+  readonly costPhase: string | null
+  readonly tags: Readonly<Record<string, string>> | null
+  readonly priorFindings:
+    | ReadonlyArray<AnalystFinding>
+    | Readonly<Record<string, ReadonlyArray<AnalystFinding>>>
+    | null
+  readonly chainFindings: boolean
+  readonly hooks: AnalystHooks
+  readonly chat: ChatClient | undefined
+  readonly log: (msg: string, fields?: Record<string, unknown>) => void
+  readonly executionSnapshot: ExactAnalystExecutionPlanSnapshot | undefined
+}
+
+type InternalAnalystRunEvent = AnalystRunEvent
+
+/** A post-start exact-run failure; completed work remains attached for accounting and review. */
+export class ExactAnalystRunExecutionError extends Error {
+  readonly name: string = 'ExactAnalystRunExecutionError'
+  readonly result: ExactAnalystRunResult
+
+  constructor(message: string, result: ExactAnalystRunResult, options?: ErrorOptions) {
+    super(message, options)
+    const snapshot = snapshotExactAnalystRunReceipt(result, 'ExactAnalystRunExecutionError result')
+    if (snapshot.completion.status !== 'failed') {
+      throw new TypeError('ExactAnalystRunExecutionError result must be a failed receipt')
+    }
+    this.result = snapshot
+  }
+}
+
 export class AnalystRegistry {
   private readonly analysts = new Map<string, Analyst>()
   private readonly options: AnalystRegistryOptions
@@ -136,22 +243,25 @@ export class AnalystRegistry {
   }
 
   register(analyst: Analyst): void {
-    if (!analyst.id) throw new Error('AnalystRegistry.register: analyst.id is required')
-    if (this.analysts.has(analyst.id)) {
-      throw new Error(`AnalystRegistry.register: duplicate analyst id "${analyst.id}"`)
+    const id = analyst.id
+    const version = analyst.version
+    const cost = analyst.cost
+    if (!id) throw new Error('AnalystRegistry.register: analyst.id is required')
+    if (this.analysts.has(id)) {
+      throw new Error(`AnalystRegistry.register: duplicate analyst id "${id}"`)
     }
-    if (!analyst.version) {
-      throw new Error(`AnalystRegistry.register: analyst "${analyst.id}" must declare a version`)
+    if (!version) {
+      throw new Error(`AnalystRegistry.register: analyst "${id}" must declare a version`)
     }
-    if (analyst.cost.kind === 'deterministic' && analyst.cost.settlement_timeout_ms !== undefined) {
+    if (cost.kind === 'deterministic' && cost.settlement_timeout_ms !== undefined) {
       throw new TypeError(
-        `AnalystRegistry.register: deterministic analyst "${analyst.id}" cannot declare settlement_timeout_ms`,
+        `AnalystRegistry.register: deterministic analyst "${id}" cannot declare settlement_timeout_ms`,
       )
     }
-    if (analyst.cost.settlement_timeout_ms !== undefined) {
-      validateUsageSettlementTimeout(analyst.cost.settlement_timeout_ms)
+    if (cost.settlement_timeout_ms !== undefined) {
+      validateUsageSettlementTimeout(cost.settlement_timeout_ms)
     }
-    this.analysts.set(analyst.id, analyst)
+    this.analysts.set(id, analyst)
   }
 
   list(): ReadonlyArray<{
@@ -181,6 +291,31 @@ export class AnalystRegistry {
     throw new Error('AnalystRegistry.run: stream completed without run-completed event')
   }
 
+  /** Run exactly the ordered analysts and complete policy supplied by the caller. */
+  async runExact(
+    runId: string,
+    inputs: AnalystRunInputs,
+    runOpts: ExactRegistryRunOpts,
+  ): Promise<ExactAnalystRunResult> {
+    for await (const ev of this.runExactStream(runId, inputs, runOpts)) {
+      if (ev.type === 'run-completed') return ev.result
+    }
+    throw new Error('AnalystRegistry.runExact: stream completed without run-completed event')
+  }
+
+  /** Streaming counterpart to {@link runExact}. */
+  async *runExactStream(
+    runId: string,
+    inputs: AnalystRunInputs,
+    runOpts: ExactRegistryRunOpts,
+  ): AsyncGenerator<ExactAnalystRunEvent, void, void> {
+    for await (const event of this.executePlanStream(
+      this.normalizeExactPlan(runId, inputs, runOpts),
+    )) {
+      yield event as ExactAnalystRunEvent
+    }
+  }
+
   /**
    * Streaming counterpart to `run()`. Emits `AnalystRunEvent` values
    * in real time — `run-started`, then per-analyst `skipped` /
@@ -197,57 +332,198 @@ export class AnalystRegistry {
     inputs: AnalystRunInputs,
     runOpts: RegistryRunOpts = {},
   ): AsyncGenerator<AnalystRunEvent, void, void> {
-    const correlationId = `ar_${randomUUID().slice(0, 12)}`
-    const log = this.options.log ?? (() => {})
-    const hooks = this.options.hooks ?? {}
-    const startedAt = new Date().toISOString()
-    const started = Date.now()
-    const timeoutMs = validateTimeout(runOpts.timeoutMs)
-    const deadlineMs = timeoutMs === undefined ? undefined : started + timeoutMs
-    const timeoutSignal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs)
-    const runSignal = combineAbortSignals(runOpts.signal, timeoutSignal)
+    yield* this.executePlanStream(this.normalizeLegacyPlan(runId, inputs, runOpts))
+  }
 
-    const selected = this.selectAnalysts(runOpts)
+  private normalizeLegacyPlan(
+    runId: string,
+    inputs: AnalystRunInputs,
+    runOpts: RegistryRunOpts,
+  ): AnalystExecutionPlan {
+    const timeoutMs = validateTimeout(runOpts.timeoutMs) ?? null
     const budget = runOpts.budget ?? this.options.defaultBudget
     validateBudgetPolicy(budget)
-
-    yield {
-      type: 'run-started',
-      run_id: runId,
-      correlation_id: correlationId,
-      started_at: startedAt,
-      analyst_ids: selected.map((a) => a.id),
+    const selected = this.selectAnalysts(runOpts)
+    return {
+      runId,
+      prepared: selected.map((analyst) => ({
+        analyst,
+        input: this.routeInput(analyst, inputs),
+      })),
+      budget: budget ? { kind: 'dynamic', policy: budget } : { kind: 'none' },
+      totalTimeoutMs: timeoutMs,
+      signal: runOpts.signal ?? null,
+      costLedger: runOpts.costLedger ?? null,
+      costPhase: runOpts.costPhase ?? null,
+      tags: runOpts.tags ?? null,
+      priorFindings: runOpts.priorFindings ?? null,
+      chainFindings: runOpts.chainFindings ?? false,
+      hooks: this.options.hooks ?? {},
+      chat: this.options.chat,
+      log: this.options.log ?? (() => {}),
+      executionSnapshot: undefined,
     }
+  }
 
-    const summaries: AnalystRunSummary[] = []
-    const allFindings: AnalystFinding[] = []
-    let totalCost = 0
-    let remainingUsd = budget?.totalUsd
+  private normalizeExactPlan(
+    runId: string,
+    inputs: AnalystRunInputs,
+    runOpts: ExactRegistryRunOpts,
+  ): AnalystExecutionPlan {
+    const exactRunId = snapshotExactRunId(runId)
+    const exact = snapshotExactRegistryRunOpts(runOpts)
+    const selected = normalizeExactAnalysts(this.selectExactAnalysts(exact.analystIds))
+    const registryChat = this.options.chat
+    const registryChatIdentity = this.options.chatIdentity
+    const registryHooks = this.options.hooks
+    const registryHooksIdentity = this.options.hooksIdentity
+    if (exact.useRegistryChat && registryChat === undefined) {
+      throw new TypeError(
+        'ExactRegistryRunOpts.useRegistryChat is true but the registry has no chat client',
+      )
+    }
+    if (exact.applyRegistryHooks && !hasRegistryHooks(registryHooks)) {
+      throw new TypeError(
+        'ExactRegistryRunOpts.applyRegistryHooks is true but the registry has no lifecycle hooks',
+      )
+    }
+    const inputSnapshot = snapshotAnalystRunInputChannels(inputs)
+    const prepared = selected.map((analyst) => ({
+      analyst,
+      input: this.routeInput(analyst, inputSnapshot),
+    }))
+    if (exact.missingInputMode === 'abort') {
+      const missing = prepared.find((candidate) => candidate.input.kind === 'missing')?.analyst
+      if (missing) {
+        throw new TypeError(
+          `ExactRegistryRunOpts.missingInputMode abort preflight found no "${missing.inputKind}" input for "${missing.id}"`,
+        )
+      }
+    }
+    const hooksIdentity =
+      exact.applyRegistryHooks && registryHooks
+        ? requireExactComponentIdentity(registryHooksIdentity, 'registry hooks')
+        : null
+    const chatIdentity = exact.useRegistryChat
+      ? requireExactComponentIdentity(registryChatIdentity, 'registry chat')
+      : null
+    const costLedgerIdentity =
+      exact.costLedger === null
+        ? null
+        : requireExactComponentIdentity(exact.costLedgerIdentity ?? undefined, 'cost ledger')
+    const allocations = exactFixedBudgets(
+      exact.budget,
+      prepared
+        .filter(
+          (
+            candidate,
+          ): candidate is {
+            analyst: ExactCapableAnalyst
+            input: { kind: 'present'; value: unknown }
+          } => candidate.input.kind === 'present',
+        )
+        .map((candidate) => candidate.analyst),
+      selected,
+    )
+    const executionSnapshot = exactExecutionSnapshot(
+      selected,
+      exact,
+      allocations,
+      costLedgerIdentity,
+      hooksIdentity,
+      chatIdentity,
+    )
+    return {
+      runId: exactRunId,
+      prepared,
+      budget: { kind: 'none' },
+      totalTimeoutMs: exact.totalTimeoutMs,
+      signal: exact.signal,
+      costLedger: exact.costLedger,
+      costPhase: exact.costPhase,
+      tags: exact.tags,
+      priorFindings: exact.priorFindings,
+      chainFindings: exact.chainFindings,
+      hooks: exact.applyRegistryHooks && registryHooks ? snapshotHooks(registryHooks) : {},
+      chat: exact.useRegistryChat && registryChat ? snapshotChat(registryChat) : undefined,
+      // Exact runs expose live events and versioned hooks. An inherited logger is intentionally
+      // excluded because an anonymous callback can throw, block, or mutate shared state.
+      log: () => {},
+      executionSnapshot,
+    }
+  }
 
-    // Budget is split only across analysts that actually run. Analysts skipped
-    // for missing input never spend, so counting them would under-budget the
-    // ones that do. routeInput is pure, so the pre-count is safe.
-    const runnableAnalysts = selected.filter((a) => this.routeInput(a, inputs).kind !== 'missing')
-    const runnableCount = runnableAnalysts.length
-    const weights = budget?.weights
+  private async *executePlanStream(
+    plan: AnalystExecutionPlan,
+  ): AsyncGenerator<InternalAnalystRunEvent, void, void> {
+    const exact = plan.executionSnapshot !== undefined
+    if (exact && plan.signal?.aborted) throw abortReason(plan.signal)
+
+    const correlationId = `ar_${randomUUID().slice(0, 12)}`
+    const log = plan.log
+    const startedAt = new Date().toISOString()
+    const started = Date.now()
+    const timeoutSignal =
+      plan.totalTimeoutMs === null ? undefined : AbortSignal.timeout(plan.totalTimeoutMs)
+    const runSignal = combineAbortSignals(plan.signal ?? undefined, timeoutSignal)
+    const deadlineMs = plan.totalTimeoutMs === null ? undefined : started + plan.totalTimeoutMs
+    const runnable = plan.prepared
+      .filter(
+        (
+          candidate,
+        ): candidate is {
+          analyst: Analyst
+          input: { kind: 'present'; value: unknown }
+        } => candidate.input.kind === 'present',
+      )
+      .map((candidate) => candidate.analyst)
+    let remainingUsd = plan.budget.kind === 'dynamic' ? plan.budget.policy.totalUsd : undefined
+    const weights = plan.budget.kind === 'dynamic' ? plan.budget.policy.weights : undefined
     const totalWeight =
-      weights && budget?.totalUsd != null && !budget.allocate && runnableCount > 0
-        ? runnableAnalysts.reduce((sum, analyst) => sum + analystWeight(weights, analyst.id), 0)
+      weights &&
+      plan.budget.kind === 'dynamic' &&
+      plan.budget.policy.totalUsd != null &&
+      !plan.budget.policy.allocate &&
+      runnable.length > 0
+        ? runnable.reduce((sum, analyst) => sum + analystWeight(weights, analyst.id), 0)
         : undefined
     if (totalWeight === 0) {
       throw new Error('BudgetPolicy.weights must allocate positive weight to a runnable analyst')
     }
+    const upstreamFindings: AnalystFinding[] = []
 
-    for (const analyst of selected) {
+    yield snapshotExecutionEvent(
+      {
+        type: 'run-started',
+        run_id: plan.runId,
+        correlation_id: correlationId,
+        started_at: startedAt,
+        analyst_ids: plan.prepared.map(({ analyst }) => analyst.id),
+        ...(plan.executionSnapshot === undefined ? {} : { execution_plan: plan.executionSnapshot }),
+      },
+      exact,
+    )
+
+    const executions: AnalystExecution[] = []
+    let executionFailure: unknown
+
+    for (const { analyst, input } of plan.prepared) {
       const t0 = Date.now()
       if (runSignal?.aborted) {
         const summary = abortedBeforeStartSummary(analyst, runSignal)
-        summaries.push(summary)
-        log(`[analyst] skip ${analyst.id} — run aborted`, { runId, reason: summary.reason })
-        yield { type: 'analyst-skipped', summary }
+        executions.push({ summary, findings: [], budgetDebitUsd: 0 })
+        log(`[analyst] skip ${analyst.id} — run aborted`, {
+          runId: plan.runId,
+          reason: summary.reason,
+        })
+        yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
+        if (exact) {
+          executionFailure = abortReason(runSignal)
+          break
+        }
         continue
       }
-      const input = this.routeInput(analyst, inputs)
+
       if (input.kind === 'missing') {
         const summary: AnalystRunSummary = {
           analyst_id: analyst.id,
@@ -257,177 +533,351 @@ export class AnalystRegistry {
           latency_ms: 0,
           usage: zeroUsage(),
         }
-        summaries.push(summary)
-        log(`[analyst] skip ${analyst.id} — missing input`, { runId, kind: analyst.inputKind })
+        const execution = { summary, findings: [], budgetDebitUsd: 0 } satisfies AnalystExecution
+        executions.push(execution)
+        log(`[analyst] skip ${analyst.id} — missing input`, {
+          runId: plan.runId,
+          kind: analyst.inputKind,
+        })
+        const hookValues = snapshotAfterHookValues(summary, [], exact)
+        try {
+          await waitForHook(
+            plan.hooks.onAfterAnalyze
+              ? () =>
+                  plan.hooks.onAfterAnalyze?.({
+                    analyst,
+                    summary: hookValues.summary,
+                    findings: hookValues.findings,
+                    runId: plan.runId,
+                  })
+              : undefined,
+            runSignal,
+          )
+        } catch (error) {
+          if (!exact) throw error
+          executionFailure = error
+        }
+        yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
+        if (executionFailure !== undefined) break
+        continue
+      }
+
+      const allocatedUsd =
+        plan.executionSnapshot === undefined
+          ? allocateBudget(plan.budget.kind === 'dynamic' ? plan.budget.policy : undefined, {
+              analyst,
+              remainingUsd,
+              runningCount: runnable.length,
+              totalWeight,
+            })
+          : exactPlannedAllocation(plan.executionSnapshot, analyst.id)
+      const budgetCeilingUsd = plan.executionSnapshot === undefined ? remainingUsd : allocatedUsd
+      const usageReceipts: AnalystUsageReceipt[] = []
+      const contextTags = plan.tags === null ? undefined : { ...plan.tags }
+      const priorFindings = selectPriorFindings(plan.priorFindings ?? undefined, analyst.id)
+      const chainedFindings =
+        plan.chainFindings && upstreamFindings.length > 0 ? [...upstreamFindings] : undefined
+      const ctx: AnalystContext = {
+        runId: plan.runId,
+        correlationId,
+        deadlineMs,
+        budgetUsd: allocatedUsd,
+        costLedger: plan.costLedger ?? undefined,
+        costPhase: plan.costPhase ?? undefined,
+        chat: plan.chat,
+        tags: contextTags,
+        log: (message, fields) =>
+          log(`[${analyst.id}] ${message}`, {
+            runId: plan.runId,
+            correlationId,
+            ...fields,
+          }),
+        signal: runSignal,
+        priorFindings,
+        upstreamFindings: chainedFindings,
+        recordUsage: (receipt) => {
+          if (!exact) {
+            assertValidAnalystUsageReceipt(receipt)
+            usageReceipts.push(receipt)
+            return
+          }
+          usageReceipts.push(
+            snapshotUsageReceiptOnce(
+              receipt,
+              `AnalystRegistry.runExact analyst "${analyst.id}" usage`,
+            ),
+          )
+        },
+      }
+      if (exact) {
+        if (contextTags) deepFreezeCanonicalJson(contextTags)
+        if (priorFindings) deepFreezeCanonicalJson(priorFindings)
+        if (chainedFindings) deepFreezeCanonicalJson(chainedFindings)
+        Object.freeze(ctx)
+      }
+
+      try {
         await waitForHook(
-          hooks.onAfterAnalyze
-            ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings: [], runId })
+          plan.hooks.onBeforeAnalyze
+            ? () => plan.hooks.onBeforeAnalyze?.({ analyst, ctx, runId: plan.runId })
             : undefined,
           runSignal,
         )
-        yield { type: 'analyst-skipped', summary }
-        continue
+      } catch (error) {
+        if (!exact) throw error
+        executionFailure = error
+        break
       }
-
-      const perBudget = allocateBudget(budget, {
-        analyst,
-        remainingUsd,
-        runningCount: runnableCount,
-        totalWeight,
-      })
-      const usageReceipts: AnalystUsageReceipt[] = []
-
-      const ctx: AnalystContext = {
-        runId,
-        correlationId,
-        deadlineMs,
-        budgetUsd: perBudget,
-        costLedger: runOpts.costLedger,
-        costPhase: runOpts.costPhase,
-        chat: this.options.chat,
-        tags: runOpts.tags,
-        log: (msg, fields) => log(`[${analyst.id}] ${msg}`, { runId, correlationId, ...fields }),
-        signal: runSignal,
-        priorFindings: selectPriorFindings(runOpts.priorFindings, analyst.id),
-        upstreamFindings:
-          runOpts.chainFindings && allFindings.length > 0 ? [...allFindings] : undefined,
-        recordUsage: (receipt) => {
-          assertValidAnalystUsageReceipt(receipt)
-          usageReceipts.push(receipt)
-        },
-      }
-
-      await waitForHook(
-        hooks.onBeforeAnalyze ? () => hooks.onBeforeAnalyze?.({ analyst, ctx, runId }) : undefined,
-        runSignal,
-      )
       if (runSignal?.aborted) {
         const summary = abortedBeforeStartSummary(analyst, runSignal, Date.now() - t0)
-        summaries.push(summary)
-        log(`[analyst] skip ${analyst.id} — run aborted`, { runId, reason: summary.reason })
-        yield { type: 'analyst-skipped', summary }
+        executions.push({ summary, findings: [], budgetDebitUsd: 0 })
+        yield snapshotExecutionEvent({ type: 'analyst-skipped', summary }, exact)
+        if (exact) {
+          executionFailure = abortReason(runSignal)
+          break
+        }
         continue
       }
-      const effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, remainingUsd, analyst.id)
-      yield {
-        type: 'analyst-started',
-        analyst_id: analyst.id,
-        started_at: new Date(t0).toISOString(),
+      let effectiveBudget: number | undefined
+      try {
+        effectiveBudget = validateEffectiveBudget(ctx.budgetUsd, budgetCeilingUsd, analyst.id)
+      } catch (error) {
+        if (!exact) throw error
+        executionFailure = error
+        break
       }
+      const analystContext: AnalystContext = exact ? ctx : { ...ctx }
+      const executionSignal = exact ? ctx.signal : runSignal
+      yield snapshotExecutionEvent(
+        {
+          type: 'analyst-started',
+          analyst_id: analyst.id,
+          started_at: new Date(t0).toISOString(),
+        },
+        exact,
+      )
 
       let findings: AnalystFinding[]
       let summary: AnalystRunSummary
+      let lifecycleFailure: unknown
+      let analysisFailure: Error | undefined
       try {
         if (runSignal?.aborted) throw abortReason(runSignal)
-        findings = await waitForOperation(
-          (analyst as Analyst<unknown>).analyze(input.value, ctx),
-          runSignal,
+        const analyzed = await waitForOperation(
+          (analyst as Analyst<unknown>).analyze(input.value, analystContext),
+          executionSignal,
           analystAbortGraceMs(analyst),
         )
-        const latency = Date.now() - t0
-        const usage = resolveUsage(analyst, usageReceipts)
-        const cost = knownCostUsd(usage)
-        totalCost += cost
-        if (typeof remainingUsd === 'number') {
-          remainingUsd = Math.max(0, remainingUsd - budgetDebit(usage, effectiveBudget))
+        findings = snapshotExecutionFindings(
+          analyzed,
+          exact,
+          `AnalystRegistry.runExact analyst "${analyst.id}" findings`,
+        )
+      } catch (error) {
+        const cause = error instanceof Error ? error : new Error(String(error))
+        analysisFailure = cause
+        let hookFindings: AnalystFinding[] = []
+        if (!executionSignal?.aborted) {
+          try {
+            const rawHookFindings =
+              (await waitForHook(
+                plan.hooks.onError
+                  ? () =>
+                      plan.hooks.onError?.({
+                        analyst,
+                        error: cause,
+                        runId: plan.runId,
+                      })
+                  : undefined,
+                executionSignal,
+              )) ?? []
+            hookFindings = snapshotExecutionFindings(
+              rawHookFindings,
+              exact,
+              `AnalystRegistry.runExact analyst "${analyst.id}" onError findings`,
+            )
+          } catch (error) {
+            lifecycleFailure = error
+          }
         }
-        allFindings.push(...findings)
+        findings = hookFindings
+      }
+
+      let usage: AnalystUsageReceipt
+      try {
+        usage = resolveUsage(analyst, usageReceipts, exact)
+      } catch (error) {
+        if (!exact) throw error
+        executionFailure = error
+        break
+      }
+      if (analysisFailure === undefined) {
         summary = {
           analyst_id: analyst.id,
           status: 'ok',
           findings_count: findings.length,
-          latency_ms: latency,
+          latency_ms: Date.now() - t0,
           usage,
+          ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
         }
-        summaries.push(summary)
         log(`[analyst] ok ${analyst.id}`, {
-          runId,
+          runId: plan.runId,
           findings: findings.length,
-          latency_ms: latency,
-          cost_usd: cost,
+          latency_ms: summary.latency_ms,
+          cost_usd: knownCostUsd(usage),
           cost_kind: usage.cost.kind,
           input_tokens: usage.tokens?.input ?? null,
           output_tokens: usage.tokens?.output ?? null,
         })
-        if (effectiveBudget !== undefined && usage.cost.kind === 'uncaptured') {
-          log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
-            runId,
-            budget_usd: effectiveBudget,
-            cost_captured: false,
-          })
-        }
-      } catch (err) {
-        const latency = Date.now() - t0
-        const e = err instanceof Error ? err : new Error(String(err))
-        // Hook gets first chance to convert the error into findings.
-        const hookFindings = runSignal?.aborted
-          ? []
-          : ((await hooks.onError?.({ analyst, error: e, runId })) ?? [])
-        if (hookFindings.length) allFindings.push(...hookFindings)
-        const usage = resolveUsage(analyst, usageReceipts)
-        const cost = knownCostUsd(usage)
-        totalCost += cost
-        if (typeof remainingUsd === 'number') {
-          remainingUsd = Math.max(0, remainingUsd - budgetDebit(usage, effectiveBudget))
-        }
-        const summary: AnalystRunSummary = {
+      } else {
+        const errorClass = analysisFailure.constructor.name || 'Error'
+        const errorMessage =
+          exact && analysisFailure.message.length === 0
+            ? 'Analyst failed without an error message'
+            : analysisFailure.message
+        summary = {
           analyst_id: analyst.id,
           status: 'failed',
-          findings_count: hookFindings.length,
-          latency_ms: latency,
+          findings_count: findings.length,
+          latency_ms: Date.now() - t0,
           usage,
-          error: { class: e.constructor.name, message: e.message },
+          ...(exact ? { allocated_budget_usd: effectiveBudget ?? null } : {}),
+          error: { class: errorClass, message: errorMessage },
         }
-        summaries.push(summary)
         log(`[analyst] FAIL ${analyst.id}`, {
-          runId,
-          error_class: e.constructor.name,
-          error: e.message,
-          cost_usd: cost,
+          runId: plan.runId,
+          error_class: errorClass,
+          error: errorMessage,
+          cost_usd: knownCostUsd(usage),
           cost_kind: usage.cost.kind,
         })
-        if (effectiveBudget !== undefined && usage.cost.kind === 'uncaptured') {
-          log(`[analyst] WARN ${analyst.id} — USD cost uncaptured; budget not reconciled`, {
-            runId,
-            budget_usd: effectiveBudget,
-            cost_captured: false,
-          })
-        }
-        await waitForHook(
-          hooks.onAfterAnalyze
-            ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings: hookFindings, runId })
-            : undefined,
-          runSignal,
-        )
-        yield { type: 'analyst-completed', summary, findings: hookFindings }
-        continue
       }
-      await waitForHook(
-        hooks.onAfterAnalyze
-          ? () => hooks.onAfterAnalyze?.({ analyst, summary, findings, runId })
-          : undefined,
-        runSignal,
-      )
-      yield { type: 'analyst-completed', summary, findings }
+      logUncapturedBudgetWarning({
+        analyst,
+        runId: plan.runId,
+        budgetUsd: effectiveBudget,
+        usage,
+        log,
+      })
+
+      const execution = {
+        summary,
+        findings,
+        budgetDebitUsd: budgetDebit(summary.usage, effectiveBudget),
+      } satisfies AnalystExecution
+      if (exact) {
+        try {
+          executionCost([...executions, execution], true)
+        } catch (error) {
+          executionFailure = error
+          break
+        }
+      }
+      executions.push(execution)
+      if (plan.budget.kind === 'dynamic' && remainingUsd !== undefined) {
+        remainingUsd = Math.max(0, remainingUsd - execution.budgetDebitUsd)
+      }
+      if (plan.chainFindings) upstreamFindings.push(...findings)
+      if (lifecycleFailure !== undefined) {
+        if (!exact) throw lifecycleFailure
+        executionFailure = lifecycleFailure
+        break
+      }
+
+      const hookValues = snapshotAfterHookValues(summary, findings, exact)
+      try {
+        await waitForHook(
+          plan.hooks.onAfterAnalyze
+            ? () =>
+                plan.hooks.onAfterAnalyze?.({
+                  analyst,
+                  summary: hookValues.summary,
+                  findings: hookValues.findings,
+                  runId: plan.runId,
+                })
+            : undefined,
+          executionSignal,
+        )
+      } catch (error) {
+        if (!exact) throw error
+        executionFailure = error
+        break
+      }
+      yield snapshotExecutionEvent({ type: 'analyst-completed', summary, findings }, exact)
+      if (exact && runSignal?.aborted) {
+        executionFailure = abortReason(runSignal)
+        break
+      }
     }
 
-    const result: AnalystRunResult = {
-      run_id: runId,
+    const summaries = executions.map(({ summary }) => summary)
+    const findings = executions.flatMap((execution) => execution.findings)
+    const cost = executionCost(executions, exact)
+    const baseResult: AnalystRunResult = {
+      run_id: plan.runId,
       correlation_id: correlationId,
       started_at: startedAt,
       ended_at: new Date().toISOString(),
-      findings: allFindings,
+      findings,
       per_analyst: summaries,
-      total_cost_usd: totalCost,
-      total_cost_provenance: aggregateCostProvenance(
-        summaries.map((summary) => summary.usage?.cost ?? { kind: 'uncaptured', usd: null }),
-      ),
+      total_cost_usd: cost.known,
+      total_cost_provenance: cost.provenance,
     }
-    await waitForHook(
-      hooks.onComplete ? () => hooks.onComplete?.({ result }) : undefined,
-      runSignal,
+    if (plan.executionSnapshot === undefined) {
+      await waitForHook(
+        plan.hooks.onComplete ? () => plan.hooks.onComplete?.({ result: baseResult }) : undefined,
+        runSignal,
+      )
+      yield { type: 'run-completed', result: baseResult }
+      return
+    }
+
+    let completeResult: ExactAnalystRunResult | undefined
+    if (executionFailure === undefined) {
+      try {
+        completeResult = snapshotExactAnalystRunReceipt(
+          {
+            ...baseResult,
+            execution_plan: plan.executionSnapshot,
+            completion: { status: 'complete' },
+          },
+          'AnalystRegistry.runExact result',
+        )
+        await waitForHook(
+          plan.hooks.onComplete
+            ? () => plan.hooks.onComplete?.({ result: completeResult! })
+            : undefined,
+          runSignal,
+        )
+      } catch (error) {
+        executionFailure = error
+      }
+    }
+    if (runSignal?.aborted) executionFailure ??= abortReason(runSignal)
+    if (executionFailure === undefined && completeResult) {
+      yield snapshotExecutionEvent({ type: 'run-completed', result: completeResult }, true)
+      return
+    }
+
+    const cause =
+      executionFailure instanceof Error ? executionFailure : new Error(String(executionFailure))
+    const errorClass = cause.constructor.name || 'Error'
+    const errorMessage =
+      cause.message.trim().length === 0
+        ? 'Exact analyst run failed without a message'
+        : cause.message
+    throw new ExactAnalystRunExecutionError(
+      `exact analyst run failed after starting: ${errorMessage}; partial result is attached`,
+      {
+        ...baseResult,
+        execution_plan: plan.executionSnapshot,
+        completion: {
+          status: 'failed',
+          error: { class: errorClass, message: errorMessage },
+        },
+      },
+      { cause },
     )
-    yield { type: 'run-completed', result }
   }
 
   private selectAnalysts(opts: RegistryRunOpts): Analyst[] {
@@ -443,31 +893,531 @@ export class AnalystRegistry {
     return candidates
   }
 
+  private selectExactAnalysts(
+    ids: readonly string[],
+  ): ReadonlyArray<{ readonly registeredId: string; readonly analyst: Analyst }> {
+    return ids.map((id) => {
+      const analyst = this.analysts.get(id)
+      if (!analyst) throw new Error(`ExactRegistryRunOpts.analystIds names unknown analyst "${id}"`)
+      return { registeredId: id, analyst }
+    })
+  }
+
   private routeInput(
     analyst: Analyst,
     inputs: AnalystRunInputs,
   ): { kind: 'present'; value: unknown } | { kind: 'missing' } {
     switch (analyst.inputKind) {
-      case 'trace-store':
-        return inputs.traceStore
-          ? { kind: 'present', value: inputs.traceStore }
-          : { kind: 'missing' }
-      case 'artifact-dir':
-        return inputs.artifactDir
-          ? { kind: 'present', value: inputs.artifactDir }
-          : { kind: 'missing' }
-      case 'run-record':
-        return inputs.runRecord ? { kind: 'present', value: inputs.runRecord } : { kind: 'missing' }
-      case 'judge-input':
-        return inputs.judgeInput
-          ? { kind: 'present', value: inputs.judgeInput }
-          : { kind: 'missing' }
+      case 'trace-store': {
+        const value = inputs.traceStore
+        return value ? { kind: 'present', value } : { kind: 'missing' }
+      }
+      case 'artifact-dir': {
+        const value = inputs.artifactDir
+        return value ? { kind: 'present', value } : { kind: 'missing' }
+      }
+      case 'run-record': {
+        const value = inputs.runRecord
+        return value ? { kind: 'present', value } : { kind: 'missing' }
+      }
+      case 'judge-input': {
+        const value = inputs.judgeInput
+        return value ? { kind: 'present', value } : { kind: 'missing' }
+      }
       case 'custom': {
-        const v = inputs.custom?.[analyst.id]
-        return v !== undefined ? { kind: 'present', value: v } : { kind: 'missing' }
+        const custom = inputs.custom
+        const value = custom?.[analyst.id]
+        return value !== undefined ? { kind: 'present', value } : { kind: 'missing' }
       }
     }
   }
+}
+
+const exactRunFields = [
+  'analystIds',
+  'budget',
+  'totalTimeoutMs',
+  'signal',
+  'costLedger',
+  'costLedgerIdentity',
+  'costPhase',
+  'tags',
+  'priorFindings',
+  'chainFindings',
+  'missingInputMode',
+  'applyRegistryHooks',
+  'useRegistryChat',
+] as const
+
+const exactNonEmptyString = z.string().min(1)
+const exactFiniteNonnegative = z.number().finite().nonnegative()
+const exactBudgetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal('equal'),
+    totalUsd: exactFiniteNonnegative,
+  }),
+  z.strictObject({
+    kind: z.literal('weighted'),
+    totalUsd: exactFiniteNonnegative,
+    weights: z.record(exactNonEmptyString, exactFiniteNonnegative),
+  }),
+])
+const exactRunDataSchema = z
+  .strictObject({
+    analystIds: z.array(exactNonEmptyString).min(1),
+    budget: exactBudgetSchema.nullable(),
+    totalTimeoutMs: z.number().int().positive().max(2_147_483_647).nullable(),
+    costLedgerIdentity: z.unknown().nullable(),
+    costPhase: exactNonEmptyString.nullable(),
+    tags: z.record(z.string(), z.string()).nullable(),
+    chainFindings: z.boolean(),
+    missingInputMode: z.enum(['skip', 'abort']),
+    applyRegistryHooks: z.boolean(),
+    useRegistryChat: z.boolean(),
+  })
+  .superRefine((policy, context) => {
+    const issue = (path: PropertyKey[], message: string): void =>
+      context.addIssue({ code: 'custom', path, message })
+    if (new Set(policy.analystIds).size !== policy.analystIds.length) {
+      issue(['analystIds'], 'must not contain duplicates')
+    }
+    if (
+      policy.budget?.kind === 'weighted' &&
+      Object.values(policy.budget.weights).every((weight) => weight === 0)
+    ) {
+      issue(['budget', 'weights'], 'must allocate positive weight to at least one analyst')
+    }
+    if (policy.budget?.kind === 'weighted') {
+      const selected = [...policy.analystIds].sort()
+      const weighted = Object.keys(policy.budget.weights).sort()
+      if (
+        selected.length !== weighted.length ||
+        selected.some((id, index) => id !== weighted[index])
+      ) {
+        issue(['budget', 'weights'], 'must name every selected analyst and no others')
+      }
+    }
+  })
+
+/** Validate the canonical exact-run policy before any analyst can start. */
+export function assertExactRegistryRunOpts(value: unknown): asserts value is ExactRegistryRunOpts {
+  void snapshotExactRegistryRunOpts(value)
+}
+
+function snapshotExactRunId(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TypeError('AnalystRegistry.runExact: runId must be a non-empty string')
+  }
+  return canonicalJsonSnapshot(value, 'AnalystRegistry.runExact runId')
+}
+
+function snapshotAnalystRunInputChannels(inputs: AnalystRunInputs): AnalystRunInputs {
+  if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) {
+    throw new TypeError('AnalystRegistry.runExact: inputs must be an object')
+  }
+  const traceStore = inputs.traceStore
+  const artifactDir = inputs.artifactDir
+  const runRecord = inputs.runRecord
+  const judgeInput = inputs.judgeInput
+  const custom = inputs.custom
+  return Object.freeze({
+    traceStore,
+    artifactDir,
+    runRecord,
+    judgeInput,
+    custom,
+  })
+}
+
+/**
+ * Read the untrusted caller object once, then validate and execute only this frozen snapshot.
+ * Functions and resource handles retain identity; all data fields are copied canonically.
+ */
+function snapshotExactRegistryRunOpts(value: unknown): ExactRegistryRunOpts {
+  const captured = readOwnFields(value, exactRunFields, 'ExactRegistryRunOpts')
+  const missing = exactRunFields.find((field) => !Object.hasOwn(captured, field))
+  if (missing) {
+    throw new TypeError(`ExactRegistryRunOpts.${missing} must be supplied explicitly`)
+  }
+  const { signal, costLedger, priorFindings, ...rawData } = captured
+  const data = canonicalJsonSnapshot(rawData, 'ExactRegistryRunOpts')
+  const parsed = exactRunDataSchema.safeParse(data)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    if (issue?.code === 'unrecognized_keys' && issue.path.join('.') === 'budget') {
+      const required =
+        isPlainRecord(data.budget) && data.budget.kind === 'weighted'
+          ? 'kind, totalUsd, weights'
+          : 'kind, totalUsd'
+      throw new TypeError(`ExactRegistryRunOpts.budget must contain exactly ${required}`)
+    }
+    const path = issue?.path.length ? `.${issue.path.join('.')}` : ''
+    throw new TypeError(`ExactRegistryRunOpts${path}: ${issue?.message ?? 'is invalid'}`)
+  }
+  if (
+    signal !== null &&
+    (!signal ||
+      typeof signal !== 'object' ||
+      typeof (signal as AbortSignal).addEventListener !== 'function')
+  ) {
+    throw new TypeError('ExactRegistryRunOpts.signal must be an AbortSignal or null')
+  }
+  if (costLedger !== null && (!costLedger || typeof costLedger !== 'object')) {
+    throw new TypeError('ExactRegistryRunOpts.costLedger must be a CostLedgerHandle or null')
+  }
+  if (costLedger === null && parsed.data.costLedgerIdentity !== null) {
+    throw new TypeError('ExactRegistryRunOpts.costLedgerIdentity must be null without costLedger')
+  }
+  if (costLedger !== null && parsed.data.costLedgerIdentity === null) {
+    throw new TypeError('ExactRegistryRunOpts.costLedgerIdentity is required with costLedger')
+  }
+  if (costLedger === null && parsed.data.costPhase !== null) {
+    throw new TypeError('ExactRegistryRunOpts.costPhase requires a non-null costLedger')
+  }
+  return Object.freeze({
+    ...deepFreezeCanonicalJson(parsed.data),
+    signal: signal as AbortSignal | null,
+    costLedger: costLedger as CostLedgerHandle | null,
+    priorFindings: snapshotExactPriorFindings(priorFindings),
+  }) as ExactRegistryRunOpts
+}
+
+function snapshotExactPriorFindings(value: unknown): ExactRegistryRunOpts['priorFindings'] {
+  if (value === null) return null
+  if (Array.isArray(value)) {
+    return snapshotAnalystFindings(value, 'ExactRegistryRunOpts.priorFindings')
+  }
+  if (!isPlainRecord(value)) {
+    throw new TypeError(
+      'ExactRegistryRunOpts.priorFindings must be an array, a findings record, or null',
+    )
+  }
+  const result: Record<string, ReadonlyArray<AnalystFinding>> = {}
+  for (const [key, findings] of Object.entries(value)) {
+    if (!Array.isArray(findings)) {
+      throw new TypeError(`ExactRegistryRunOpts.priorFindings.${key} must be an array`)
+    }
+    result[key] = snapshotAnalystFindings(findings, `ExactRegistryRunOpts.priorFindings.${key}`)
+  }
+  return deepFreezeCanonicalJson(result)
+}
+
+function normalizeExactAnalysts(
+  selections: ReadonlyArray<{ readonly registeredId: string; readonly analyst: Analyst }>,
+): ExactCapableAnalyst[] {
+  return selections.map(({ registeredId, analyst }) => {
+    const exactAnalyst = analyst as Analyst & {
+      readonly executionConfig?: Readonly<Record<string, unknown>>
+    }
+    const id = analyst.id
+    const description = analyst.description
+    const inputKind = analyst.inputKind
+    const rawCostValue = analyst.cost
+    const requiresValue = analyst.requires
+    const version = analyst.version
+    const executionConfigValue = exactAnalyst.executionConfig
+    const analyzeValue = analyst.analyze
+    if (id !== registeredId) {
+      throw new TypeError(
+        `AnalystRegistry.runExact: registered analyst "${registeredId}" changed id to "${id}"`,
+      )
+    }
+    if (executionConfigValue === undefined) {
+      throw new TypeError(`AnalystRegistry.runExact: analyst "${id}" must declare executionConfig`)
+    }
+    const executionConfig = canonicalJsonSnapshot(
+      executionConfigValue,
+      `AnalystRegistry.runExact analyst "${id}" executionConfig`,
+    )
+    if (!isPlainRecord(executionConfig)) {
+      throw new TypeError(
+        `AnalystRegistry.runExact analyst "${id}" executionConfig must be an object`,
+      )
+    }
+    const rawCost = canonicalJsonSnapshot(
+      rawCostValue,
+      `AnalystRegistry.runExact analyst "${id}" cost`,
+    )
+    const cost =
+      rawCost.kind === 'llm'
+        ? Object.freeze({
+            ...rawCost,
+            settlement_timeout_ms: validateUsageSettlementTimeout(rawCost.settlement_timeout_ms),
+          })
+        : rawCost
+    const requires =
+      requiresValue === undefined
+        ? undefined
+        : canonicalJsonSnapshot(
+            requiresValue,
+            `AnalystRegistry.runExact analyst "${id}" requirements`,
+          )
+    const analyze = analyzeValue.bind(analyst)
+    return Object.freeze({
+      id,
+      description,
+      inputKind,
+      cost,
+      ...(requires === undefined ? {} : { requires }),
+      version,
+      executionConfig,
+      analyze,
+    }) satisfies ExactCapableAnalyst
+  })
+}
+
+function hasRegistryHooks(hooks: AnalystHooks | undefined): hooks is AnalystHooks {
+  return Boolean(
+    hooks && (hooks.onBeforeAnalyze || hooks.onAfterAnalyze || hooks.onError || hooks.onComplete),
+  )
+}
+
+function snapshotHooks(hooks: AnalystHooks): AnalystHooks {
+  const onBeforeAnalyze = hooks.onBeforeAnalyze
+  const onAfterAnalyze = hooks.onAfterAnalyze
+  const onError = hooks.onError
+  const onComplete = hooks.onComplete
+  return Object.freeze({
+    ...(onBeforeAnalyze === undefined ? {} : { onBeforeAnalyze: onBeforeAnalyze.bind(hooks) }),
+    ...(onAfterAnalyze === undefined ? {} : { onAfterAnalyze: onAfterAnalyze.bind(hooks) }),
+    ...(onError === undefined ? {} : { onError: onError.bind(hooks) }),
+    ...(onComplete === undefined ? {} : { onComplete: onComplete.bind(hooks) }),
+  })
+}
+
+function snapshotChat(chat: ChatClient): ChatClient {
+  const transport = chat.transport
+  const defaultModel = chat.defaultModel
+  const maximumAttempts = chat.maximumAttempts
+  const call = chat.chat
+  return Object.freeze({
+    transport,
+    ...(defaultModel === undefined ? {} : { defaultModel }),
+    ...(maximumAttempts === undefined ? {} : { maximumAttempts }),
+    chat: call.bind(chat),
+  })
+}
+
+function requireExactComponentIdentity(
+  value: ExactExecutionComponentIdentity | undefined,
+  label: string,
+): ExactExecutionComponentSnapshot {
+  if (value === undefined) {
+    throw new TypeError(`AnalystRegistry.runExact: ${label} requires a versioned identity`)
+  }
+  return snapshotExactExecutionComponentIdentity(
+    value,
+    `AnalystRegistry.runExact ${label} identity`,
+  )
+}
+
+function exactExecutionSnapshot(
+  analysts: readonly ExactCapableAnalyst[],
+  opts: ExactRegistryRunOpts,
+  allocations: Readonly<Record<string, number | null>>,
+  costLedger: ExactExecutionComponentSnapshot | null,
+  hooks: ExactExecutionComponentSnapshot | null,
+  chat: ExactExecutionComponentSnapshot | null,
+): ExactAnalystExecutionPlanSnapshot {
+  const priorFindings = exactPriorFindingsSnapshot(opts.priorFindings)
+  const budget =
+    opts.budget === null
+      ? ({ kind: 'none' } as const)
+      : opts.budget.kind === 'equal'
+        ? ({
+            kind: 'equal',
+            total_usd: opts.budget.totalUsd,
+            allocations_usd: { ...allocations },
+          } as const)
+        : ({
+            kind: 'weighted',
+            total_usd: opts.budget.totalUsd,
+            weights: { ...opts.budget.weights },
+            allocations_usd: { ...allocations },
+          } as const)
+  const material = {
+    schema_version: '1.0.0' as const,
+    analysts: analysts.map((analyst) => ({
+      id: analyst.id,
+      version: analyst.version,
+      input_kind: analyst.inputKind,
+      cost: analyst.cost,
+      requirements: analyst.requires ?? null,
+      execution_config_digest: hashCanonical(analyst.executionConfig),
+    })),
+    policy: {
+      budget,
+      total_timeout_ms: opts.totalTimeoutMs,
+      signal_provided: opts.signal !== null,
+      cost_ledger: costLedger,
+      cost_phase: opts.costPhase,
+      tags: opts.tags === null ? null : { ...opts.tags },
+      prior_findings: priorFindings,
+      chain_findings: opts.chainFindings,
+      missing_input_mode: opts.missingInputMode,
+      registry_hooks: hooks,
+      registry_chat: chat,
+    },
+  }
+  return snapshotExactExecutionPlan(
+    { ...material, digest: hashCanonical(material) },
+    'AnalystRegistry.runExact execution plan',
+  )
+}
+
+function exactPriorFindingsSnapshot(
+  findings: ExactRegistryRunOpts['priorFindings'],
+): ExactAnalystExecutionPlanSnapshot['policy']['prior_findings'] {
+  if (findings === null) return { kind: 'none' }
+  if (Array.isArray(findings)) {
+    return {
+      kind: 'ordered',
+      count: findings.length,
+      digest: hashCanonical(findings),
+    }
+  }
+  const record = findings as Readonly<Record<string, ReadonlyArray<AnalystFinding>>>
+  const keys = Object.keys(record).sort()
+  return {
+    kind: 'by_analyst',
+    keys,
+    count: keys.reduce((sum, key) => sum + (record[key]?.length ?? 0), 0),
+    digest: hashCanonical(record),
+  }
+}
+
+function canonicalJsonSnapshot<T>(value: T, label: string): T {
+  let snapshot: T
+  try {
+    snapshot = JSON.parse(canonicalString(value)) as T
+  } catch (cause) {
+    throw new TypeError(`${label} must be canonical JSON`, { cause })
+  }
+  return deepFreezeCanonicalJson(snapshot)
+}
+
+function snapshotUsageReceiptOnce(
+  receipt: AnalystUsageReceipt,
+  context: string,
+): AnalystUsageReceipt {
+  const data = readOwnFields(receipt, ['calls', 'tokens', 'cost', 'knownCostUsd'], context)
+  data.tokens =
+    data.tokens === null
+      ? null
+      : readOwnFields(
+          data.tokens,
+          ['input', 'output', 'reasoning', 'cached', 'cacheWrite'],
+          `${context} tokens`,
+        )
+  data.cost = readOwnFields(data.cost, ['kind', 'usd'], `${context} cost`)
+  const snapshot = canonicalJsonSnapshot(data as unknown as AnalystUsageReceipt, context)
+  assertValidAnalystUsageReceipt(snapshot, context)
+  return snapshot
+}
+
+function readOwnFields(
+  value: unknown,
+  fields: readonly string[],
+  context: string,
+): Record<string, unknown> {
+  if (!isPlainRecord(value)) throw new TypeError(`${context} must be a plain object`)
+  const unexpected = Object.keys(value).filter((key) => !fields.includes(key))
+  if (unexpected.length > 0) {
+    throw new TypeError(`${context} contains unknown fields: ${unexpected.sort().join(', ')}`)
+  }
+  return Object.fromEntries(
+    fields.flatMap((field) => (Object.hasOwn(value, field) ? [[field, value[field]]] : [])),
+  )
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function exactFixedBudgets(
+  exact: ExactAnalystBudgetPolicy | null,
+  runnable: readonly Analyst[],
+  selected: readonly Analyst[],
+): Readonly<Record<string, number | null>> {
+  if (exact === null) return {}
+  const allocations: Record<string, number | null> = Object.fromEntries(
+    selected.map((analyst) => [analyst.id, null]),
+  )
+  if (runnable.length === 0) return deepFreezeCanonicalJson(allocations)
+  if (exact.kind === 'equal') {
+    const each = exact.totalUsd / runnable.length
+    for (const analyst of runnable) allocations[analyst.id] = each
+    return deepFreezeCanonicalJson(allocations)
+  }
+  const totalWeight = runnable.reduce((sum, analyst) => sum + exact.weights[analyst.id]!, 0)
+  if (totalWeight === 0) {
+    throw new Error(
+      'ExactRegistryRunOpts weighted budget must allocate positive weight to a runnable analyst',
+    )
+  }
+  for (const analyst of runnable) {
+    allocations[analyst.id] = (exact.totalUsd * exact.weights[analyst.id]!) / totalWeight
+  }
+  return deepFreezeCanonicalJson(allocations)
+}
+
+interface AnalystExecution {
+  readonly summary: AnalystRunSummary
+  readonly findings: AnalystFinding[]
+  readonly budgetDebitUsd: number
+}
+
+function snapshotExecutionFindings(
+  findings: AnalystFinding[],
+  exact: boolean,
+  context: string,
+): AnalystFinding[] {
+  return exact ? deepFreezeCanonicalJson(snapshotAnalystFindings(findings, context)) : findings
+}
+
+function snapshotAfterHookValues(
+  summary: AnalystRunSummary,
+  findings: AnalystFinding[],
+  exact: boolean,
+): { summary: AnalystRunSummary; findings: AnalystFinding[] } {
+  if (!exact) return { summary, findings }
+  return {
+    summary: canonicalJsonSnapshot(summary, 'AnalystRegistry.runExact onAfterAnalyze summary'),
+    findings: deepFreezeCanonicalJson(
+      snapshotAnalystFindings(findings, 'AnalystRegistry.runExact onAfterAnalyze findings'),
+    ),
+  }
+}
+
+function exactPlannedAllocation(
+  plan: ExactAnalystExecutionPlanSnapshot,
+  analystId: string,
+): number | undefined {
+  const budget = plan.policy.budget
+  if (budget.kind === 'none') return undefined
+  const allocated = budget.allocations_usd[analystId]
+  return allocated === null ? undefined : allocated
+}
+
+function snapshotExecutionEvent<T extends InternalAnalystRunEvent>(event: T, exact: boolean): T {
+  return exact ? canonicalJsonSnapshot(event, 'AnalystRegistry.runExact event') : event
+}
+
+function logUncapturedBudgetWarning(args: {
+  analyst: Analyst
+  runId: string
+  budgetUsd: number | undefined
+  usage: AnalystUsageReceipt
+  log: (message: string, fields?: Record<string, unknown>) => void
+}): void {
+  if (args.budgetUsd === undefined || args.usage.cost.kind !== 'uncaptured') return
+  args.log(`[analyst] WARN ${args.analyst.id} — USD cost uncaptured; budget not reconciled`, {
+    runId: args.runId,
+    budget_usd: args.budgetUsd,
+    cost_captured: false,
+  })
 }
 
 function validateTimeout(timeoutMs: number | undefined): number | undefined {
@@ -664,42 +1614,57 @@ function zeroUsage(): AnalystUsageReceipt {
 function resolveUsage(
   analyst: Analyst,
   receipts: ReadonlyArray<AnalystUsageReceipt>,
+  exact = false,
 ): AnalystUsageReceipt {
-  if (receipts.length > 0) return mergeUsageReceipts(receipts)
+  if (receipts.length > 0) return mergeUsageReceipts(receipts, exact)
   if (analyst.cost.kind === 'deterministic') return zeroUsage()
   return { calls: null, tokens: null, cost: { kind: 'uncaptured', usd: null } }
 }
 
-function mergeUsageReceipts(receipts: ReadonlyArray<AnalystUsageReceipt>): AnalystUsageReceipt {
+function mergeUsageReceipts(
+  receipts: ReadonlyArray<AnalystUsageReceipt>,
+  exact = false,
+): AnalystUsageReceipt {
   const calls = receipts.every((receipt) => receipt.calls !== null)
-    ? receipts.reduce((sum, receipt) => sum + (receipt.calls ?? 0), 0)
-    : null
-  const tokens = receipts.every((receipt) => receipt.tokens !== null)
-    ? receipts.reduce<RunTokenUsage>(
-        (sum, receipt) => ({
-          input: sum.input + (receipt.tokens?.input ?? 0),
-          output: sum.output + (receipt.tokens?.output ?? 0),
-          ...(sum.reasoning !== undefined || receipt.tokens?.reasoning !== undefined
-            ? { reasoning: (sum.reasoning ?? 0) + (receipt.tokens?.reasoning ?? 0) }
-            : {}),
-          ...(sum.cached !== undefined || receipt.tokens?.cached !== undefined
-            ? { cached: (sum.cached ?? 0) + (receipt.tokens?.cached ?? 0) }
-            : {}),
-          ...(sum.cacheWrite !== undefined || receipt.tokens?.cacheWrite !== undefined
-            ? { cacheWrite: (sum.cacheWrite ?? 0) + (receipt.tokens?.cacheWrite ?? 0) }
-            : {}),
-        }),
-        { input: 0, output: 0 },
+    ? usageSum(
+        receipts.map((receipt) => receipt.calls ?? 0),
+        exact,
+        'calls',
+        true,
       )
     : null
-  const cost = aggregateCostProvenance(receipts.map((receipt) => receipt.cost))
+  const tokens = receipts.every((receipt) => receipt.tokens !== null)
+    ? (Object.fromEntries(
+        (['input', 'output', 'reasoning', 'cached', 'cacheWrite'] as const).flatMap((field) =>
+          field === 'input' ||
+          field === 'output' ||
+          receipts.some((receipt) => receipt.tokens?.[field] !== undefined)
+            ? [
+                [
+                  field,
+                  usageSum(
+                    receipts.map((receipt) => receipt.tokens?.[field] ?? 0),
+                    exact,
+                    `tokens.${field}`,
+                    true,
+                  ),
+                ],
+              ]
+            : [],
+        ),
+      ) as unknown as RunTokenUsage)
+    : null
+  const cost = aggregateCostProvenance(
+    receipts.map((receipt) => receipt.cost),
+    exact,
+  )
   return {
     calls,
     tokens,
     cost,
     ...(cost.kind === 'uncaptured'
       ? {
-          knownCostUsd: receipts.reduce((sum, receipt) => sum + knownCostUsd(receipt), 0),
+          knownCostUsd: usageSum(receipts.map(knownCostUsd), exact, 'known cost'),
         }
       : {}),
   }
@@ -716,14 +1681,50 @@ function budgetDebit(receipt: AnalystUsageReceipt, allocatedUsd: number | undefi
     : known
 }
 
-function aggregateCostProvenance(costs: ReadonlyArray<RunCostProvenance>): RunCostProvenance {
+function aggregateCostProvenance(
+  costs: ReadonlyArray<RunCostProvenance>,
+  exact = false,
+): RunCostProvenance {
   if (costs.some((cost) => cost.kind === 'uncaptured')) {
     return { kind: 'uncaptured', usd: null }
   }
-  const usd = costs.reduce((sum, cost) => sum + (cost.usd ?? 0), 0)
+  const usd = usageSum(
+    costs.map((cost) => cost.usd ?? 0),
+    exact,
+    'captured cost',
+  )
   return costs.some((cost) => cost.kind === 'estimated')
     ? { kind: 'estimated', usd }
     : { kind: 'observed', usd }
+}
+
+function executionCost(
+  executions: ReadonlyArray<AnalystExecution>,
+  exact: boolean,
+): { known: number; provenance: RunCostProvenance } {
+  const usages = executions.map((execution) => execution.summary.usage)
+  return {
+    known: usageSum(usages.map(knownCostUsd), exact, 'run known cost'),
+    provenance: aggregateCostProvenance(
+      usages.map((usage) => usage.cost),
+      exact,
+    ),
+  }
+}
+
+function usageSum(
+  values: readonly number[],
+  exact: boolean,
+  field: string,
+  integer = false,
+): number {
+  const sum = values.reduce((total, value) => total + value, 0)
+  if (exact && (integer ? !Number.isSafeInteger(sum) : !Number.isFinite(sum))) {
+    throw new RangeError(
+      `exact analyst usage ${field} aggregate ${integer ? 'exceeds a safe integer' : 'is not finite'}`,
+    )
+  }
+  return sum
 }
 
 /**

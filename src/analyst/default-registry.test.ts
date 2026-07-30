@@ -356,4 +356,14 @@ describe('buildDefaultAnalystRegistry', () => {
       /maxEvidenceRefsPerFinding/,
     )
   })
+
+  it('binds effective deterministic limits for exact-run provenance', () => {
+    expect(
+      behavioralAnalyst({ maxTraces: 25, maxEvidenceRefsPerFinding: 3 }).executionConfig,
+    ).toEqual({
+      kind: 'behavioral-efficiency',
+      max_traces: 25,
+      max_evidence_refs_per_finding: 3,
+    })
+  })
 })
