@@ -25,6 +25,26 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Completed results retain a digest of every behavior-defining source file and are read through one strict recursive schema.
   The repository includes one pinned 32-case CodeTraceBench input, two complete 64-call GLM-5.2 Agent Eval runs, and a failure-inclusive run of pinned CodeTracer on the same trajectories.
   Exact source, input, result, resume, usage, cost, and secret-scan checks are committed with the results.
+- The Python package gains a `dspy` extra: `agent-eval-rpc[dspy]` runs official `dspy.RLM` in a sandboxed Deno/Pyodide child process with seven allowlisted trace tools and strict JSON I/O.
+
+### Changed
+
+- **Breaking:** trace analysts are recursive research programs run through an explicit analysis engine.
+  `analyzeTraces` requires an `engine` (the DSPy RLM engine is the primary implementation) and reports engine iterations; `maxTurns`, `maxSubqueries`, `onTurn`, and `AnalyzeTracesTurnSnapshot` are gone.
+  `callLlmJson` remains only as the one-shot `direct` benchmark baseline.
+- **Breaking:** `defineTraceAnalyst()` returns an inert `TraceAnalystDefinition` for registration instead of a registrable analyst, and no longer takes a `cost` declaration — analyst cost is always metered LLM usage.
+  `createTraceAnalystKind` is now `createTraceAnalyst`; `TraceAnalystKindSpec` and `CreateTraceAnalystKindOpts` are replaced by `TraceAnalystDefinition`.
+- **Breaking:** `BuildTraceAnalystSurfaceDispatchOptions.analyze` receives `instructions` instead of `actorDescription`.
+- **Breaking:** `SteeringOptimizerBackend` narrows to `'pairwise'`.
+- Citation verification is store-backed: cited trace and span ids must resolve in the trace analysis store, and encoded or foreign ids are rejected.
+- External-optimizer subprocess calls fail on HTTP 200 responses with zero input and output usage, and on output over-reservation after recording the actual charge.
+- Relative external-optimizer runner commands resolve against the caller's working directory instead of the child's temporary directory.
+
+### Removed
+
+- **Breaking:** the Ax analyst stack and the `@ax-llm/ax` dependency: `createAnalystAi`, `CreateAnalystAiConfig`, `structureFindings`, `StructureFindingsOptions`, `StructureFindingsResult`, `AxGepaSteeringOptimizer`, and `AxSteeringOptimizerConfig`.
+- **Breaking:** `createPublicBenchmarkModelRunner`; the analyst benchmark CLI defaults to the DSPy RLM runner and keeps the one-shot runner as the explicit `direct` baseline.
+- `buildTraceAnalystTools`; trace tools are built from the transport-neutral descriptors.
 
 ### Fixed
 
