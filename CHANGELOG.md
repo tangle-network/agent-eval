@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.137.0] - 2026-07-29 - trace analyst measurement and review integrity
 
 ### Added
 
