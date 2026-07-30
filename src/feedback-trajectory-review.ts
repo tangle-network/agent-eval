@@ -7,7 +7,8 @@ import type {
 } from './analyst/types'
 import { assertValidAnalystUsageReceipt } from './analyst/usage-receipt'
 import type { FeedbackLabelSource, FeedbackTrajectory } from './feedback-trajectory'
-import { canonicalString, deepFreezeCanonicalJson, hashCanonical } from './ledger-core/canonical'
+import { canonicalString, hashCanonical } from './ledger-core/canonical'
+import { deepFreezeCanonicalJson } from './ledger-core/deep-freeze'
 
 export type AnalystReviewSource = Exclude<FeedbackLabelSource, 'system'>
 export type AnalystFindingDigest = `sha256:${string}`

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { canonicalString, deepFreezeCanonicalJson, hashCanonical } from '../ledger-core/canonical'
+import { canonicalString, hashCanonical } from '../ledger-core/canonical'
+import { deepFreezeCanonicalJson } from '../ledger-core/deep-freeze'
 import type { Analyst, AnalystRunEvent, AnalystRunResult, AnalystRunSummary } from './types'
 
 /** Analyst metadata required before the exact registry path will execute it. */

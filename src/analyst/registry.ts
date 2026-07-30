@@ -24,7 +24,8 @@ import {
   snapshotAnalystFindings,
   snapshotExactAnalystRunReceipt,
 } from '../feedback-trajectory-review'
-import { canonicalString, deepFreezeCanonicalJson, hashCanonical } from '../ledger-core/canonical'
+import { canonicalString, hashCanonical } from '../ledger-core/canonical'
+import { deepFreezeCanonicalJson } from '../ledger-core/deep-freeze'
 import type { RunCostProvenance, RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
 import type {
