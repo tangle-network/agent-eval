@@ -28,6 +28,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- Supervisor-run analysis now reads agent-runtime `createFileRunContext(dir)` directories directly.
+  It composes nested journal envelopes by exact node identity, preserves profile digests, runtime tags, failures, and metered spend, and leaves unrecorded roles, terminal times, policy, transcripts, verification, and judge evidence unavailable.
+  A direct run path produces one report, while a parent directory containing multiple direct runs produces a rollup.
 - Canonical `trace://<trace>/span/<span>` evidence is classified as span evidence instead of artifact evidence.
 - Public model output selects positive integer assistant step ids.
   The runner builds canonical trace URIs and exact action excerpts from those spans, and rejects missing, non-assistant, or empty steps.

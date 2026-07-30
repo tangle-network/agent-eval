@@ -121,6 +121,14 @@ for (const c of overview.error_clusters) {
 
 `CONTROL_INTEGRITY_ANALYST` checks the existing `SupervisorRunSources` or `SupervisorRunTree` directly.
 It does not define another run format.
+`analyzeSupervisorRun(runDir)` detects both the loops layout and an agent-runtime `createFileRunContext(dir)` layout.
+Runtime directories contain `spawn-journal.jsonl` plus optional `result.json` and `trajectory.json`.
+The Runtime reader unwraps `{ kind: 'begin' | 'event', root, event }` storage envelopes and feeds the normalized events into the same source parser and analyzer used by every other reader.
+Nested tree root markers are joined to their parent spawn by exact node id.
+Profile digests, runtime tags, terminal reasons, structured verdicts, and metered spend are retained exactly when recorded.
+The reader does not derive invocation roles, outcome quality, completion time, provider policy, worker transcripts, or verification results from labels or artifacts.
+Those fields remain unavailable when their source is absent.
+
 Register it as a custom-input analyst and pass the existing value under its stable id:
 
 ```ts
@@ -129,10 +137,10 @@ import {
   CONTROL_INTEGRITY_ANALYST,
 } from '@tangle-network/agent-eval/analyst'
 import {
-  readLoopsSupervisorRun,
+  readRuntimeSupervisorRun,
 } from '@tangle-network/agent-eval/supervisor-run'
 
-const sources = await readLoopsSupervisorRun(runDir)
+const sources = await readRuntimeSupervisorRun(runDir)
 const registry = new AnalystRegistry()
 registry.register(CONTROL_INTEGRITY_ANALYST)
 
@@ -142,6 +150,7 @@ const result = await registry.run('run-123', {
 ```
 
 Pass `SupervisorRunSources` when it is available.
+Use `readLoopsSupervisorRun()` when the input is explicitly the loops layout.
 A `SupervisorRunTree` does not retain raw journal multiplicity or worker request and acknowledgement rows, so tree input explicitly reports those checks as unavailable.
 
 The deterministic pass can prove only facts represented by these two existing surfaces.

@@ -63,6 +63,11 @@ export {
 } from './render'
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
 export {
+  isRuntimeSupervisorRunDir,
+  readRuntimeSupervisorRun,
+  runtimeSupervisorRunReader,
+} from './runtime-reader'
+export {
   type DecisionMetrics,
   type EconomicsMetrics,
   isUnavailable,

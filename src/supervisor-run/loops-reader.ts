@@ -25,6 +25,7 @@ import {
   renderSupervisorRunHeadline,
   renderSupervisorRunMarkdown,
 } from './render'
+import { isRuntimeSupervisorRunDir, readRuntimeSupervisorRun } from './runtime-reader'
 import {
   NO_SOURCE_LIMITS,
   type SupervisorRunReader,
@@ -270,7 +271,11 @@ export async function analyzeSupervisorRun(
   opts: LoopsReaderOptions = {},
 ): Promise<SupervisorRunReport> {
   if (typeof input === 'string') {
-    return analyzeSupervisorRunSources(await readLoopsSupervisorRun(input, opts))
+    return analyzeSupervisorRunSources(
+      (await isRuntimeSupervisorRunDir(input))
+        ? await readRuntimeSupervisorRun(input)
+        : await readLoopsSupervisorRun(input, opts),
+    )
   }
   if (isReader(input)) return analyzeSupervisorRunSources(await input.read())
   return analyzeSupervisorRunSources(input)
@@ -303,7 +308,9 @@ export async function writeSupervisorRunReport(
   runDir: string,
   opts: WriteSupervisorRunOptions = {},
 ): Promise<SupervisorRunReport> {
-  const sources = await readLoopsSupervisorRun(runDir, opts)
+  const sources = (await isRuntimeSupervisorRunDir(runDir))
+    ? await readRuntimeSupervisorRun(runDir)
+    : await readLoopsSupervisorRun(runDir, opts)
   const report = analyzeSupervisorRunSources(sources)
   const md = renderSupervisorRunMarkdown(report)
   const dest = opts.reportDir ?? runDir
@@ -389,8 +396,19 @@ export async function reportSupervisorRound(
   return rollup
 }
 
-/** Every `<...>/runs/<iid>/<arm>` directory under `root`. */
+/**
+ * Every loops or Runtime supervisor run below `root`.
+ *
+ * When `root` itself is one run, return no children so callers can distinguish
+ * a single report from a parent-directory rollup.
+ */
 export async function findSupervisorRunDirs(root: string): Promise<string[]> {
+  if (
+    (await isRuntimeSupervisorRunDir(root)) ||
+    (await findSupervisorRunDirIn(join(root, 'ws'))) !== null
+  ) {
+    return []
+  }
   const found: string[] = []
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 8) return
@@ -399,13 +417,11 @@ export async function findSupervisorRunDirs(root: string): Promise<string[]> {
       if (!e.isDirectory()) continue
       if (e.name === 'node_modules' || e.name === '.git') continue
       const full = join(dir, e.name)
-      if (e.name === 'runs') {
-        const iids = await readdir(full, { withFileTypes: true }).catch(() => [])
-        for (const iid of iids) {
-          if (!iid.isDirectory()) continue
-          const arms = await readdir(join(full, iid.name), { withFileTypes: true }).catch(() => [])
-          for (const arm of arms) if (arm.isDirectory()) found.push(join(full, iid.name, arm.name))
-        }
+      if (
+        (await isRuntimeSupervisorRunDir(full)) ||
+        (await findSupervisorRunDirIn(join(full, 'ws'))) !== null
+      ) {
+        found.push(full)
         continue
       }
       await walk(full, depth + 1)
