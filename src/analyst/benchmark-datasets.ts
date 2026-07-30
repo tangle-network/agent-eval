@@ -35,6 +35,9 @@ export interface AgentRxPredictionReport {
   failures: readonly AgentRxPrediction[]
   num_judges?: number
   trajectory_length?: number
+  most_common_failure?: number | string
+  modes?: readonly (number | string)[]
+  step_mean?: number
 }
 
 export interface CodeTraceStageAnnotation {
@@ -244,53 +247,57 @@ export function agentRxPredictionsToFindings(
   options: UpstreamPredictionAdapterOptions = {},
 ): AnalystFinding[] {
   const trajectoryId = externalId(trajectoryIdValue, 'AgentRx prediction trajectory id')
-  const predictions = parseAgentRxPredictions(output, trajectoryId)
-  const confidence = predictionConfidence(options.confidence)
-  const uri = options.stepUri ?? defaultStepUri
-  const findings: AnalystFinding[] = []
-  for (const [index, prediction] of predictions.entries()) {
-    const failureCase = parseAgentRxFailureCase(
-      prediction.failure_case,
-      `AgentRx prediction '${trajectoryId}' failures[${index}].failure_case`,
-    )
-    if (failureCase === 0) continue
-    const step = positiveStep(
+  const parsed = parseAgentRxPredictions(output, trajectoryId)
+  for (const prediction of parsed.predictions) {
+    assertStepWithinRange(
       prediction.step_number,
-      `AgentRx prediction '${trajectoryId}' failures[${index}].step_number`,
+      parsed.report?.trajectory_length,
+      `AgentRx prediction '${trajectoryId}' report`,
     )
-    assertStepWithinRange(step, options.stepCount, `AgentRx prediction '${trajectoryId}'`)
-    const area = AGENT_RX_TAXONOMY.get(failureCase)!
-    findings.push(
-      makeFinding({
-        analyst_id: options.analystId ?? 'agentrx',
-        produced_at: options.producedAt,
-        area,
-        subject: 'root-cause',
-        claim: `AgentRx classified step ${step} as ${area}.`,
-        id_basis: `${area}:${step}:${index}`,
-        rationale: prediction.description,
-        severity: 'high',
-        confidence,
-        evidence_refs: [
-          {
-            kind: options.evidenceKind ?? 'span',
-            uri: uri(trajectoryId, step),
-          },
-        ],
-        metadata: {
-          upstream: 'AgentRx',
-          failure_case: failureCase,
-          step,
-          prediction_index: index,
-          ...(prediction.checklist_reasoning === undefined ||
-          prediction.checklist_reasoning === null
-            ? {}
-            : { checklist_reasoning: prediction.checklist_reasoning }),
-        },
-      }),
+    assertStepWithinRange(
+      prediction.step_number,
+      options.stepCount,
+      `AgentRx prediction '${trajectoryId}'`,
     )
   }
-  return findings
+  const consensus = agentRxConsensus(parsed, trajectoryId)
+  if (consensus.failureCase === 0) return []
+  const confidence = predictionConfidence(options.confidence)
+  const uri = options.stepUri ?? defaultStepUri
+  assertStepWithinRange(consensus.step, options.stepCount, `AgentRx prediction '${trajectoryId}'`)
+  const area = AGENT_RX_TAXONOMY.get(consensus.failureCase)!
+  return [
+    makeFinding({
+      analyst_id: options.analystId ?? 'agentrx',
+      produced_at: options.producedAt,
+      area,
+      subject: 'root-cause',
+      claim: `AgentRx classified step ${consensus.step} as ${area}.`,
+      id_basis: `${area}:${consensus.step}`,
+      rationale: consensus.representative.description,
+      severity: 'high',
+      confidence,
+      evidence_refs: [
+        {
+          kind: options.evidenceKind ?? 'span',
+          uri: uri(trajectoryId, consensus.step),
+        },
+      ],
+      metadata: {
+        upstream: 'AgentRx',
+        failure_case: consensus.failureCase,
+        step: consensus.step,
+        step_mean: consensus.stepMean,
+        judge_votes: parsed.predictions.length,
+        consensus_votes: consensus.votes,
+        category_agreement: consensus.votes / parsed.predictions.length,
+        ...(consensus.representative.checklist_reasoning === undefined ||
+        consensus.representative.checklist_reasoning === null
+          ? {}
+          : { checklist_reasoning: consensus.representative.checklist_reasoning }),
+      },
+    }),
+  ]
 }
 
 /** Translate CodeTracer's `codetracer_labels.json` into shared findings. */
@@ -482,8 +489,18 @@ function assertStepWithinRange(step: number, stepCount: number | undefined, fiel
   if (step > count) throw new RangeError(`${field} step ${step} exceeds stepCount ${count}`)
 }
 
-function parseAgentRxPredictions(output: unknown, trajectoryId: string): AgentRxPrediction[] {
+interface ParsedAgentRxPredictions {
+  predictions: Array<
+    Omit<AgentRxPrediction, 'failure_case'> & {
+      failure_case: number
+    }
+  >
+  report?: AgentRxPredictionReport
+}
+
+function parseAgentRxPredictions(output: unknown, trajectoryId: string): ParsedAgentRxPredictions {
   let failures: unknown
+  let report: AgentRxPredictionReport | undefined
   if (Array.isArray(output)) {
     failures = output
   } else if (isRecord(output)) {
@@ -505,6 +522,15 @@ function parseAgentRxPredictions(output: unknown, trajectoryId: string): AgentRx
         `AgentRx prediction '${trajectoryId}' report.trajectory_length`,
       )
     }
+    if (output.step_mean !== undefined) {
+      if (typeof output.step_mean !== 'number' || !Number.isFinite(output.step_mean)) {
+        throw new TypeError(`AgentRx prediction '${trajectoryId}' report.step_mean must be finite`)
+      }
+    }
+    if (output.modes !== undefined && !Array.isArray(output.modes)) {
+      throw new TypeError(`AgentRx prediction '${trajectoryId}' report.modes must be an array`)
+    }
+    report = output as unknown as AgentRxPredictionReport
   } else {
     throw new TypeError(`AgentRx prediction '${trajectoryId}' must be a report or failures array`)
   }
@@ -525,7 +551,7 @@ function parseAgentRxPredictions(output: unknown, trajectoryId: string): AgentRx
       `AgentRx prediction '${trajectoryId}' declares ${output.num_judges} judges but contains ${failures.length} failures`,
     )
   }
-  return failures.map((value, index) => {
+  const predictions = failures.map((value, index) => {
     const field = `AgentRx prediction '${trajectoryId}' failures[${index}]`
     if (!isRecord(value)) throw new TypeError(`${field} must be an object`)
     assertMatchingAgentRxTaskId(value.task_id, trajectoryId, `${field}.task_id`)
@@ -561,6 +587,99 @@ function parseAgentRxPredictions(output: unknown, trajectoryId: string): AgentRx
         : { checklist_reasoning: value.checklist_reasoning as string | null }),
     }
   })
+  return { predictions, report }
+}
+
+function agentRxConsensus(
+  parsed: ParsedAgentRxPredictions,
+  trajectoryId: string,
+): {
+  failureCase: number
+  step: number
+  stepMean: number
+  votes: number
+  representative: ParsedAgentRxPredictions['predictions'][number]
+} {
+  const counts = new Map<number, number>()
+  for (const prediction of parsed.predictions) {
+    counts.set(prediction.failure_case, (counts.get(prediction.failure_case) ?? 0) + 1)
+  }
+  const maxVotes = Math.max(...counts.values())
+  let failureCase = [...counts].find(([, count]) => count === maxVotes)![0]
+  if (parsed.report?.most_common_failure !== undefined) {
+    const declared = parseAgentRxFailureCase(
+      parsed.report.most_common_failure,
+      `AgentRx prediction '${trajectoryId}' report.most_common_failure`,
+    )
+    if ((counts.get(declared) ?? 0) !== maxVotes) {
+      throw new TypeError(
+        `AgentRx prediction '${trajectoryId}' report.most_common_failure disagrees with failures`,
+      )
+    }
+    failureCase = declared
+  }
+  if (parsed.report?.modes !== undefined) {
+    const declaredModes = parsed.report.modes.map((value, index) =>
+      parseAgentRxFailureCase(value, `AgentRx prediction '${trajectoryId}' report.modes[${index}]`),
+    )
+    if (new Set(declaredModes).size !== declaredModes.length) {
+      throw new TypeError(`AgentRx prediction '${trajectoryId}' report.modes contains duplicates`)
+    }
+    const expectedModes = [...counts]
+      .filter(([, count]) => count === maxVotes)
+      .map(([value]) => value)
+      .sort((left, right) => left - right)
+    if (
+      [...new Set(declaredModes)].sort((left, right) => left - right).join(',') !==
+      expectedModes.join(',')
+    ) {
+      throw new TypeError(
+        `AgentRx prediction '${trajectoryId}' report.modes disagrees with failures`,
+      )
+    }
+  }
+
+  const computedStepMean =
+    parsed.predictions.reduce((sum, prediction) => sum + prediction.step_number, 0) /
+    parsed.predictions.length
+  if (
+    parsed.report?.step_mean !== undefined &&
+    Math.abs(parsed.report.step_mean - computedStepMean) > 1e-12
+  ) {
+    throw new TypeError(
+      `AgentRx prediction '${trajectoryId}' report.step_mean disagrees with failures`,
+    )
+  }
+  const stepMean = parsed.report?.step_mean ?? computedStepMean
+  const step =
+    failureCase === 0
+      ? 0
+      : positiveStep(
+          roundHalfToEven(stepMean),
+          `AgentRx prediction '${trajectoryId}' consensus step`,
+        )
+  const representative =
+    parsed.predictions
+      .filter((prediction) => prediction.failure_case === failureCase)
+      .sort(
+        (left, right) => Math.abs(left.step_number - step) - Math.abs(right.step_number - step),
+      )[0] ?? parsed.predictions[0]!
+  return {
+    failureCase,
+    step,
+    stepMean,
+    votes: counts.get(failureCase)!,
+    representative,
+  }
+}
+
+function roundHalfToEven(value: number): number {
+  const lower = Math.floor(value)
+  const fraction = value - lower
+  if (Math.abs(fraction - 0.5) <= Number.EPSILON * Math.max(1, Math.abs(value))) {
+    return lower % 2 === 0 ? lower : lower + 1
+  }
+  return Math.round(value)
 }
 
 function assertMatchingAgentRxTaskId(value: unknown, trajectoryId: string, field: string): void {

@@ -279,9 +279,74 @@ describe('upstream prediction adapters', () => {
         evidence_refs: [{ kind: 'span', uri: 'trace://trajectory/span/step-7' }],
         metadata: expect.objectContaining({
           failure_case: 4,
+          judge_votes: 1,
+          category_agreement: 1,
           checklist_reasoning: 'The conclusion contradicted the tool result.',
         }),
       }),
+    ])
+  })
+
+  it('reduces repeated AgentRx judge votes to the upstream consensus prediction', () => {
+    const testCase = agentRxBenchmarkCase(
+      {
+        trajectory_id: 'consensus',
+        failures: [
+          {
+            failure_id: 'root',
+            step_number: 7,
+            step_reason: 'The tool output was misread.',
+            failure_category: 'Misinterpretation of Tool Output',
+          },
+        ],
+        root_cause_failure_id: 'root',
+      },
+      null,
+      { stepCount: 8 },
+    )
+    const findings = agentRxPredictionsToFindings(
+      'consensus',
+      {
+        task_id: 'consensus',
+        failures: [
+          { failure_case: 4, step_number: 6 },
+          { failure_case: 4, step_number: 7 },
+          { failure_case: 4, step_number: 8 },
+        ],
+        num_judges: 3,
+        most_common_failure: '4',
+        modes: ['4'],
+        step_mean: 7,
+      },
+      { stepCount: 8 },
+    )
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({
+      area: 'misinterpretation-of-tool-output-handoff-failure',
+      evidence_refs: [{ uri: 'trace://consensus/span/step-7' }],
+      metadata: {
+        judge_votes: 3,
+        consensus_votes: 3,
+        category_agreement: 1,
+      },
+    })
+    expect(scoreAnalystFindings(testCase, findings).f1).toBe(1)
+  })
+
+  it('uses Python round-half-to-even for the upstream mean-step prediction', () => {
+    const findings = agentRxPredictionsToFindings('rounding', {
+      failures: [
+        { failure_case: 4, step_number: 2 },
+        { failure_case: 4, step_number: 3 },
+      ],
+      most_common_failure: '4',
+      modes: ['4'],
+      step_mean: 2.5,
+    })
+
+    expect(findings[0]?.evidence_refs).toEqual([
+      { kind: 'span', uri: 'trace://rounding/span/step-2' },
     ])
   })
 
@@ -316,17 +381,17 @@ describe('upstream prediction adapters', () => {
       'system-failure',
       'inconclusive',
     ]
-    const findings = agentRxPredictionsToFindings(
-      'taxonomy',
-      expectedAreas.map((_, index) => ({
-        failure_case: index + 1,
-        step_number: index + 1,
-      })),
-      { stepCount: 10 },
+    const findings = expectedAreas.map(
+      (_, index) =>
+        agentRxPredictionsToFindings(
+          `taxonomy-${index + 1}`,
+          [{ failure_case: index + 1, step_number: index + 1 }],
+          { stepCount: 10 },
+        )[0],
     )
 
-    expect(findings.map((finding) => finding.area)).toEqual(expectedAreas)
-    expect(findings.map((finding) => finding.metadata?.failure_case)).toEqual([
+    expect(findings.map((finding) => finding?.area)).toEqual(expectedAreas)
+    expect(findings.map((finding) => finding?.metadata?.failure_case)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     ])
   })
@@ -351,6 +416,57 @@ describe('upstream prediction adapters', () => {
           failures: [{ failure_case: 1, step_number: 1 }],
         },
         /does not match trajectory id/,
+      ],
+      [
+        {
+          failures: [
+            { failure_case: 1, step_number: 1 },
+            { failure_case: 1, step_number: 2 },
+            { failure_case: 2, step_number: 3 },
+          ],
+          most_common_failure: '2',
+        },
+        /most_common_failure disagrees/,
+      ],
+      [
+        {
+          failures: [
+            { failure_case: 1, step_number: 1 },
+            { failure_case: 2, step_number: 2 },
+          ],
+          modes: ['1'],
+        },
+        /modes disagrees/,
+      ],
+      [
+        {
+          failures: [
+            { failure_case: 1, step_number: 1 },
+            { failure_case: 2, step_number: 2 },
+          ],
+          modes: ['1', '1', '2'],
+        },
+        /modes contains duplicates/,
+      ],
+      [
+        {
+          failures: [
+            { failure_case: 1, step_number: 1 },
+            { failure_case: 1, step_number: 3 },
+          ],
+          step_mean: 3,
+        },
+        /step_mean disagrees/,
+      ],
+      [
+        {
+          failures: [
+            { failure_case: 1, step_number: 1 },
+            { failure_case: 1, step_number: 4 },
+          ],
+          trajectory_length: 3,
+        },
+        /step 4 exceeds stepCount 3/,
       ],
     ]
 
