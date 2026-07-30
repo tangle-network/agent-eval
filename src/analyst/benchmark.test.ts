@@ -184,6 +184,27 @@ describe('scoreAnalystFindings', () => {
     expect(result.unsupportedFindingIndexes).toEqual([0])
   })
 
+  it('scores critical-step location independently from issue identity', () => {
+    const result = scoreAnalystFindings(
+      {
+        id: 'independent-critical-step',
+        expectedIssues: [
+          {
+            id: 'wrong-category',
+            areas: ['performance'],
+            criticalEvidence: [{ kind: 'span', uri: failed }],
+          },
+        ],
+      },
+      [finding({ subject: 'failure-mode:tool-failure', evidence: [failed] })],
+    )
+
+    expect(result.issueRecall).toBe(0)
+    expect(result.findingPrecision).toBe(0)
+    expect(result.f1).toBe(0)
+    expect(result.criticalStepAccuracy).toBe(1)
+  })
+
   it('allows category-only labels and rejects labels with no matching field', () => {
     expect(
       scoreAnalystFindings(

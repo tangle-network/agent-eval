@@ -58,7 +58,7 @@ export function traceAnalystQualityJudge(): JudgeConfig<
 > {
   return {
     name: 'trace-analyst-quality',
-    judgeVersion: 'agent-eval:trace-analyst-quality:v1',
+    judgeVersion: 'agent-eval:trace-analyst-quality:v2',
     dimensions: [
       { key: 'issue_recall', description: 'share of labeled issues found' },
       { key: 'finding_precision', description: 'share of findings tied to a labeled issue' },
@@ -105,5 +105,7 @@ function traceAnalystJudgeScore(score: AnalystFindingScore) {
     `${score.supportedFindingIndexes.length}/${score.supportedFindingIndexes.length + score.unsupportedFindingIndexes.length} findings supported`,
     `${score.unlabeledEvidence.length} citations outside labeled locations`,
   ].join('; ')
-  return { dimensions, composite: score.f1, notes }
+  const composite =
+    score.criticalStepAccuracy === null ? score.f1 : (score.f1 + score.criticalStepAccuracy) / 2
+  return { dimensions, composite, notes }
 }

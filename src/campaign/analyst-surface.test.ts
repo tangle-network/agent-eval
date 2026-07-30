@@ -113,7 +113,50 @@ describe('traceAnalystQualityJudge', () => {
     expect(result.dimensions.issue_recall).toBe(1)
     expect(result.dimensions.finding_precision).toBe(0.5)
     expect(result.dimensions.citation_label_agreement).toBe(0.5)
-    expect(result.composite).toBeCloseTo(2 / 3)
+    expect(result.composite).toBeCloseTo(5 / 6)
+  })
+
+  it('weights issue identity and causal-step location independently', async () => {
+    const independentScenario: TraceAnalystScenario = {
+      ...scenario,
+      expectedIssues: [
+        {
+          id: 'repeated-command',
+          subjects: ['failure-mode:repeated-command'],
+          criticalEvidence: [{ kind: 'span', uri: failureUri }],
+        },
+      ],
+    }
+    const rightIssueWrongStep = await judge.score({
+      artifact: {
+        findings: [
+          finding({
+            subject: 'failure-mode:repeated-command',
+            uri: 'trace://failed/span/tool-1',
+          }),
+        ],
+      },
+      scenario: independentScenario,
+      signal,
+    })
+    const wrongIssueRightStep = await judge.score({
+      artifact: {
+        findings: [finding({ subject: 'failure-mode:network-timeout', uri: failureUri })],
+      },
+      scenario: independentScenario,
+      signal,
+    })
+
+    expect(rightIssueWrongStep.dimensions).toMatchObject({
+      f1: 1,
+      critical_step_accuracy: 0,
+    })
+    expect(rightIssueWrongStep.composite).toBe(0.5)
+    expect(wrongIssueRightStep.dimensions).toMatchObject({
+      f1: 0,
+      critical_step_accuracy: 1,
+    })
+    expect(wrongIssueRightStep.composite).toBe(0.5)
   })
 
   it('treats findings on a clean trace as false positives', async () => {

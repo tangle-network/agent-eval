@@ -319,7 +319,8 @@ Pass `labelSet: 'incorrect-and-unuseful'` to both the case and prediction adapte
 Every cited step is checked against `step_count`.
 
 `agentRxBenchmarkCase()` accepts the public [AgentRx](https://huggingface.co/datasets/microsoft/AgentRx) label format.
-It evaluates the published root-cause task by default: category accuracy and first unrecoverable step are measured separately.
+AgentRx category quality and root-step accuracy are scored independently.
+`traceAnalystQualityJudge` averages them when a root-step label exists.
 Pass `target: 'all-failures'` only when the analyst is designed to identify every annotated failure.
 
 Both adapters emit `trace://<id>/span/step-<n>` evidence by default.
@@ -343,7 +344,7 @@ import {
 
 const phoenix = createEvaluator(
   ({ output, expected }) => output === expected ? 1 : 0,
-  { name: 'exact-match', telemetry: { isEnabled: false } },
+  { name: 'exact-match', kind: 'CODE', telemetry: { isEnabled: false } },
 )
 
 const phoenixJudge = phoenixEvaluatorJudge(phoenix, {
@@ -352,6 +353,7 @@ const phoenixJudge = phoenixEvaluatorJudge(phoenix, {
 
 const autoevalsJudge = autoevalsScorerJudge(ExactMatch, {
   name: 'exact-match',
+  kind: 'CODE',
   mapInput: ({ artifact, scenario }) => ({ output: artifact, expected: scenario.expected }),
 })
 ```
@@ -360,6 +362,9 @@ These adapters do not install either upstream package for consumers.
 Install only the scorer package you use.
 Missing or non-finite scores throw instead of becoming passes.
 Phoenix evaluators marked `MINIMIZE` or `NEUTRAL` require `toComposite` so candidate selection never assumes the wrong direction.
+Mark model-backed evaluators as `kind: 'LLM'` and provide `paidCall` with the model and a receipt mapper.
+The campaign then passes its cancellation signal and cost ledger through the adapter.
+An LLM evaluator is rejected before execution when either cost capture or the campaign ledger is missing.
 
 ## Turn Reviewed Findings Into Eval Data
 
@@ -369,11 +374,13 @@ They cannot promote themselves into learning data.
 ```ts
 import {
   analystFindingDigest,
-  analystFindingsToReviewRequests,
+  analystRunDigest,
   analystRunToFeedbackTrajectory,
+  analystRunToReviewRequests,
 } from '@tangle-network/agent-eval'
 
-const requests = analystFindingsToReviewRequests(result.findings)
+const runDigest = analystRunDigest(result)
+const requests = analystRunToReviewRequests(result)
 await reviewQueue.add(requests)
 
 declare const acceptedFindingIds: ReadonlySet<string>
@@ -383,6 +390,7 @@ const trajectory = analystRunToFeedbackTrajectory(result, {
   reviewRequests: requests,
   reviewDecisions: [
     ...result.findings.map((finding) => ({
+      runDigest,
       findingId: finding.finding_id,
       findingDigest: analystFindingDigest(finding),
       verdict: acceptedFindingIds.has(finding.finding_id) ? 'confirmed' as const : 'rejected' as const,
@@ -393,6 +401,7 @@ const trajectory = analystRunToFeedbackTrajectory(result, {
       decidedAt: new Date().toISOString(),
     })),
     {
+      runDigest,
       verdict: 'completeness_assessed',
       missedIssues: [],
       source: 'user',
@@ -408,7 +417,7 @@ const trajectory = analystRunToFeedbackTrajectory(result, {
 
 `analystRunToFeedbackTrajectory()` stores review requests separately from labels.
 It can archive an unreviewed run.
-`feedbackTrajectoryToOptimizerRow()` requires a digest-bound decision for every finding and one independent completeness assessment for the run.
+`feedbackTrajectoryToOptimizerRow()` requires every decision to match the complete run digest, every finding decision to match the finding digest, and one independent completeness assessment.
 Its score is F1 over confirmed findings and independently identified misses.
 Generic labels and run-level outcomes do not satisfy these requirements.
 

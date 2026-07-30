@@ -8,8 +8,9 @@ import type { ControlRunResult } from './control-runtime'
 import {
   type AnalystReviewDecision,
   analystFindingDigest,
-  analystFindingsToReviewRequests,
+  analystRunDigest,
   analystRunToFeedbackTrajectory,
+  analystRunToReviewRequests,
   controlRunToFeedbackTrajectory,
   createFeedbackTrajectory,
   type FeedbackAttempt,
@@ -29,10 +30,11 @@ import {
 describe('feedback trajectories', () => {
   it('archives a raw analyst run without labels, decisions, or an observed outcome', () => {
     const finding = analystFinding('The tool failed repeatedly', 'tool-3')
-    const reviewRequests = analystFindingsToReviewRequests([finding], {
+    const run = analystRun([finding])
+    const reviewRequests = analystRunToReviewRequests(run, {
       createdAt: '2026-01-01T00:00:02.000Z',
     })
-    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+    const trajectory = analystRunToFeedbackTrajectory(run, {
       projectId: 'coding-agent',
       scenarioId: 'failed-command',
       task: { intent: 'Fix the command failure.' },
@@ -50,6 +52,8 @@ describe('feedback trajectories', () => {
     })
     expect(trajectory.attempts[0]?.metadata?.reviewRequests).toEqual([
       expect.objectContaining({
+        runId: run.run_id,
+        runDigest: analystRunDigest(run),
         findingId: finding.finding_id,
         findingDigest: analystFindingDigest(finding),
         severity: 'error',
@@ -61,6 +65,62 @@ describe('feedback trajectories', () => {
     expect(trajectory.metadata?.analysis).toMatchObject({ reviewDecisions: [] })
     expect(() => feedbackTrajectoryToOptimizerRow(trajectory)).toThrow(
       new RegExp(`missing independent decisions.*${finding.finding_id}`),
+    )
+  })
+
+  it('binds repeated finding review requests to distinct analyst runs', () => {
+    const finding = analystFinding('The tool failed repeatedly', 'tool-3')
+    const runA = analystRun([finding], 'analysis-a')
+    const runB = analystRun([finding], 'analysis-b')
+
+    const [requestA] = analystRunToReviewRequests(runA)
+    const [requestB] = analystRunToReviewRequests(runB)
+
+    expect(requestA).toMatchObject({
+      runId: 'analysis-a',
+      runDigest: analystRunDigest(runA),
+      findingId: finding.finding_id,
+    })
+    expect(requestB).toMatchObject({
+      runId: 'analysis-b',
+      runDigest: analystRunDigest(runB),
+      findingId: finding.finding_id,
+    })
+    expect(requestA?.id).not.toBe(requestB?.id)
+    expect(requestA?.id).toContain(analystRunDigest(runA))
+    expect(requestB?.id).toContain(analystRunDigest(runB))
+    expect(() =>
+      analystRunToFeedbackTrajectory(runB, {
+        task: { intent: 'Inspect the second trace.' },
+        reviewRequests: [requestA!],
+      }),
+    ).toThrow(/review request 0 run id mismatch/)
+  })
+
+  it('rejects a completeness decision replayed onto another empty analyst run', () => {
+    const runA = analystRun([], 'analysis-a')
+    const runB = analystRun([], 'analysis-b')
+    const replayedDecision = completenessDecision(runA)
+
+    expect(() =>
+      analystRunToFeedbackTrajectory(runB, {
+        task: { intent: 'Inspect the second trace.' },
+        reviewDecisions: [replayedDecision],
+      }),
+    ).toThrow(/run digest mismatch/)
+  })
+
+  it('invalidates completeness review when the archived run changes', () => {
+    const run = analystRun([])
+    const trajectory = analystRunToFeedbackTrajectory(run, {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions: [completenessDecision(run)],
+    })
+    const artifact = trajectory.attempts[0]!.artifact as { correlationId: string }
+    artifact.correlationId = 'changed-after-review'
+
+    expect(() => feedbackTrajectoryToOptimizerRow(trajectory)).toThrow(
+      /archived run digest mismatch/,
     )
   })
 
@@ -84,16 +144,17 @@ describe('feedback trajectories', () => {
       analystFinding('The tool failed repeatedly', 'tool-3'),
       analystFinding('The failure was never verified', 'tool-4'),
     ]
-    const incomplete = analystRunToFeedbackTrajectory(analystRun(findings), {
+    const run = analystRun(findings)
+    const incomplete = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
-      reviewDecisions: [findingDecision(findings[0]!, 'confirmed')],
+      reviewDecisions: [findingDecision(run, findings[0]!, 'confirmed')],
     })
-    const complete = analystRunToFeedbackTrajectory(analystRun(findings), {
+    const complete = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
       reviewDecisions: [
-        findingDecision(findings[0]!, 'confirmed'),
-        findingDecision(findings[1]!, 'rejected'),
-        completenessDecision(),
+        findingDecision(run, findings[0]!, 'confirmed'),
+        findingDecision(run, findings[1]!, 'rejected'),
+        completenessDecision(run),
       ],
     })
 
@@ -105,7 +166,7 @@ describe('feedback trajectories', () => {
   it('rejects duplicate, unknown, and non-independent decisions at archival time', () => {
     const finding = analystFinding('The tool failed repeatedly', 'tool-3')
     const run = analystRun([finding])
-    const duplicate = findingDecision(finding, 'confirmed')
+    const duplicate = findingDecision(run, finding, 'confirmed')
 
     expect(() =>
       analystRunToFeedbackTrajectory(run, {
@@ -118,7 +179,7 @@ describe('feedback trajectories', () => {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
           {
-            ...findingDecision(finding, 'rejected'),
+            ...findingDecision(run, finding, 'rejected'),
             findingId: 'unknown-finding',
           },
         ],
@@ -129,7 +190,7 @@ describe('feedback trajectories', () => {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
           {
-            ...findingDecision(finding, 'confirmed'),
+            ...findingDecision(run, finding, 'confirmed'),
             reviewerId: 'failure-mode',
           },
         ],
@@ -139,9 +200,10 @@ describe('feedback trajectories', () => {
 
   it('checks stored decisions against the archived findings at export time', () => {
     const finding = analystFinding('The tool failed repeatedly', 'tool-3')
-    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+    const run = analystRun([finding])
+    const trajectory = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
-      reviewDecisions: [findingDecision(finding, 'confirmed'), completenessDecision()],
+      reviewDecisions: [findingDecision(run, finding, 'confirmed'), completenessDecision(run)],
     })
     const artifact = trajectory.attempts[0]!.artifact as {
       findings: AnalystFinding[]
@@ -155,9 +217,10 @@ describe('feedback trajectories', () => {
 
   it('invalidates review when archived finding evidence changes', () => {
     const finding = analystFinding('The tool failed repeatedly', 'tool-3')
-    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+    const run = analystRun([finding])
+    const trajectory = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
-      reviewDecisions: [findingDecision(finding, 'confirmed'), completenessDecision()],
+      reviewDecisions: [findingDecision(run, finding, 'confirmed'), completenessDecision(run)],
     })
     const artifact = trajectory.attempts[0]!.artifact as {
       findings: AnalystFinding[]
@@ -191,7 +254,7 @@ describe('feedback trajectories', () => {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
           {
-            ...findingDecision(finding, 'confirmed'),
+            ...findingDecision(run, finding, 'confirmed'),
             findingDigest: `sha256:${'0'.repeat(64)}` as `sha256:${string}`,
           },
         ],
@@ -200,7 +263,7 @@ describe('feedback trajectories', () => {
     expect(() =>
       analystRunToFeedbackTrajectory(run, {
         task: { intent: 'Inspect traces.' },
-        reviewDecisions: [completenessDecision(), completenessDecision()],
+        reviewDecisions: [completenessDecision(run), completenessDecision(run)],
       }),
     ).toThrow(/duplicate completeness_assessed/)
     expect(() =>
@@ -208,7 +271,7 @@ describe('feedback trajectories', () => {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
           {
-            ...findingDecision(finding, 'confirmed'),
+            ...findingDecision(run, finding, 'confirmed'),
             decidedAt: '2026-01-01',
           },
         ],
@@ -219,7 +282,7 @@ describe('feedback trajectories', () => {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
           {
-            ...findingDecision(finding, 'confirmed'),
+            ...findingDecision(run, finding, 'confirmed'),
             verdict: 'unknown',
           } as unknown as AnalystReviewDecision,
         ],
@@ -239,12 +302,13 @@ describe('feedback trajectories', () => {
 
   it('rejects duplicate or emitted finding ids in missed issues', () => {
     const finding = analystFinding('The tool failed repeatedly', 'tool-3')
+    const run = analystRun([finding])
 
     expect(() =>
-      analystRunToFeedbackTrajectory(analystRun([finding]), {
+      analystRunToFeedbackTrajectory(run, {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
-          completenessDecision([
+          completenessDecision(run, [
             { id: 'missed-1', reason: 'First reviewer observation.' },
             { id: 'missed-1', reason: 'Duplicate reviewer observation.' },
           ]),
@@ -252,10 +316,10 @@ describe('feedback trajectories', () => {
       }),
     ).toThrow(/duplicate missed issue id "missed-1"/)
     expect(() =>
-      analystRunToFeedbackTrajectory(analystRun([finding]), {
+      analystRunToFeedbackTrajectory(run, {
         task: { intent: 'Inspect traces.' },
         reviewDecisions: [
-          completenessDecision([
+          completenessDecision(run, [
             {
               id: finding.finding_id,
               reason: 'This id is already represented by an emitted finding.',
@@ -271,12 +335,13 @@ describe('feedback trajectories', () => {
       analystFinding('The tool failed repeatedly', 'tool-3'),
       analystFinding('The failure was never verified', 'tool-4'),
     ]
+    const run = analystRun(findings)
     const reviewDecisions = [
-      findingDecision(findings[0]!, 'confirmed'),
-      findingDecision(findings[1]!, 'rejected'),
-      completenessDecision(),
+      findingDecision(run, findings[0]!, 'confirmed'),
+      findingDecision(run, findings[1]!, 'rejected'),
+      completenessDecision(run),
     ]
-    const trajectory = analystRunToFeedbackTrajectory(analystRun(findings), {
+    const trajectory = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
       reviewDecisions,
       outcome: { success: false, score: 0.9 },
@@ -304,7 +369,8 @@ describe('feedback trajectories', () => {
   })
 
   it('requires independent clean confirmation before exporting a zero-finding run', () => {
-    const raw = analystRunToFeedbackTrajectory(analystRun([]), {
+    const run = analystRun([])
+    const raw = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
       labels: [
         {
@@ -320,9 +386,9 @@ describe('feedback trajectories', () => {
       /requires exactly one independent completeness_assessed decision/,
     )
 
-    const reviewed = analystRunToFeedbackTrajectory(analystRun([]), {
+    const reviewed = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
-      reviewDecisions: [completenessDecision()],
+      reviewDecisions: [completenessDecision(run)],
     })
     expect(feedbackTrajectoryToOptimizerRow(reviewed)).toMatchObject({
       labelKinds: ['approve'],
@@ -330,7 +396,7 @@ describe('feedback trajectories', () => {
       metadata: {
         analystReview: {
           findingIds: [],
-          decisions: [completenessDecision()],
+          decisions: [completenessDecision(run)],
           precision: 1,
           recall: 1,
           f1: 1,
@@ -344,10 +410,10 @@ describe('feedback trajectories', () => {
       },
     })
 
-    const missed = analystRunToFeedbackTrajectory(analystRun([]), {
+    const missed = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
       reviewDecisions: [
-        completenessDecision([
+        completenessDecision(run, [
           {
             id: 'missed-tool-failure',
             reason: 'The independent reviewer found an omitted tool failure.',
@@ -381,9 +447,13 @@ describe('feedback trajectories', () => {
       id: `missed-${index + 1}`,
       reason: `Independent reviewer found omitted issue ${index + 1}.`,
     }))
-    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+    const run = analystRun([finding])
+    const trajectory = analystRunToFeedbackTrajectory(run, {
       task: { intent: 'Inspect traces.' },
-      reviewDecisions: [findingDecision(finding, 'confirmed'), completenessDecision(missedIssues)],
+      reviewDecisions: [
+        findingDecision(run, finding, 'confirmed'),
+        completenessDecision(run, missedIssues),
+      ],
     })
     const row = feedbackTrajectoryToOptimizerRow(trajectory)
 
@@ -581,9 +651,9 @@ function analystFinding(claim: string, spanId: string): AnalystFinding {
   })
 }
 
-function analystRun(findings: AnalystFinding[]): AnalystRunResult {
+function analystRun(findings: AnalystFinding[], runId = 'analysis-1'): AnalystRunResult {
   return {
-    run_id: 'analysis-1',
+    run_id: runId,
     correlation_id: 'correlation-1',
     started_at: '2026-01-01T00:00:00.000Z',
     ended_at: '2026-01-01T00:00:02.000Z',
@@ -595,10 +665,12 @@ function analystRun(findings: AnalystFinding[]): AnalystRunResult {
 }
 
 function findingDecision(
+  run: AnalystRunResult,
   finding: AnalystFinding,
   verdict: 'confirmed' | 'rejected',
 ): Extract<AnalystReviewDecision, { findingId: string }> {
   return {
+    runDigest: analystRunDigest(run),
     findingId: finding.finding_id,
     findingDigest: analystFindingDigest(finding),
     verdict,
@@ -612,12 +684,14 @@ function findingDecision(
 }
 
 function completenessDecision(
+  run: AnalystRunResult,
   missedIssues: Extract<
     AnalystReviewDecision,
     { verdict: 'completeness_assessed' }
   >['missedIssues'] = [],
 ): Extract<AnalystReviewDecision, { verdict: 'completeness_assessed' }> {
   return {
+    runDigest: analystRunDigest(run),
     verdict: 'completeness_assessed',
     missedIssues,
     source: 'environment',

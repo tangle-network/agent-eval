@@ -238,20 +238,16 @@ export function scoreAnalystFindings(
         : 0
       : supportedFindingIndexes.size / findings.length
   const f1 = harmonicMean(findingPrecision, issueRecall)
+  const allEvidence = findings.flatMap((finding) => finding.evidence_refs)
 
   const criticalIssues = testCase.expectedIssues.filter(
     (issue) => (issue.criticalEvidence?.length ?? 0) > 0,
   )
-  const criticalHits = testCase.expectedIssues.filter((issue, issueIndex) => {
+  const criticalHits = testCase.expectedIssues.filter((issue) => {
     if ((issue.criticalEvidence?.length ?? 0) === 0) return false
-    const findingIndex = matchedFindingByIssue.get(issueIndex)
-    return (
-      findingIndex !== undefined &&
-      matchesEvidence(findings[findingIndex]!.evidence_refs, issue.criticalEvidence ?? [], 'any')
-    )
+    return matchesEvidence(allEvidence, issue.criticalEvidence ?? [], 'any')
   }).length
 
-  const allEvidence = findings.flatMap((finding) => finding.evidence_refs)
   const findingsWithEvidence = findings.filter((finding) => finding.evidence_refs.length > 0).length
   const unlabeledEvidence = testCase.labeledEvidence
     ? allEvidence.filter(
