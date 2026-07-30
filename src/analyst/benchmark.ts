@@ -1,6 +1,7 @@
 import { performance } from 'node:perf_hooks'
-import { linearSumAssignment } from 'linear-sum-assignment'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
+import { assertValidAnalystScoringCase, scoreAnalystFindings } from './benchmark-scoring'
+import { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 import type { AnalystRegistry, RegistryRunOpts } from './registry'
 import type {
   AnalystFinding,
@@ -9,6 +10,9 @@ import type {
   AnalystUsageReceipt,
   EvidenceRef,
 } from './types'
+import { assertValidAnalystUsageReceipt } from './usage-receipt'
+
+export { scoreAnalystFindings } from './benchmark-scoring'
 
 export interface AnalystEvidenceExpectation {
   uri: string
@@ -26,8 +30,14 @@ export interface AnalystIssueExpectation {
   criticalEvidence?: readonly AnalystEvidenceExpectation[]
 }
 
+export type AnalystBenchmarkLabelState = 'positive' | 'trusted-negative' | 'unlabeled'
+
 export interface AnalystBenchmarkCase<TInput = unknown> {
   id: string
+  /** Independent source unit used for resampling, such as a task or incident. */
+  clusterId: string
+  /** Whether labels prove an issue, prove no issue, or leave the outcome unknown. */
+  labelState: AnalystBenchmarkLabelState
   input: TInput
   expectedIssues: readonly AnalystIssueExpectation[]
   /** Complete set of labeled locations used to measure label-location agreement. */
@@ -49,9 +59,11 @@ export interface AnalystFindingScore {
   criticalStepAccuracy: number | null
   /** Share of findings that cite at least one evidence location. */
   citationCoverage: number | null
+  /** Share of citations that include a non-empty source excerpt. */
+  citationExcerptCoverage: number | null
   /** Share of citations that agree with a labeled case location. */
   citationLabelAgreement: number | null
-  cleanFalsePositive: boolean
+  predictionOnLabelEmptyCase: boolean
 }
 
 export interface AnalystEvidenceResolutionError {
@@ -83,14 +95,17 @@ export type AnalystEvidenceResolver<TInput = unknown> = (input: {
 export function traceStoreEvidenceResolver<TInput>(
   getStore: (input: TInput) => TraceAnalysisStore,
 ): AnalystEvidenceResolver<TInput> {
-  return async ({ caseInput, evidence }) => {
+  return async ({ caseInput, evidence, signal }) => {
     if (evidence.kind !== 'span') return false
     const location = parseTraceSpanUri(evidence.uri)
     if (!location) return false
-    const result = await getStore(caseInput).viewSpans({
-      trace_id: location.traceId,
-      span_ids: [location.spanId],
-    })
+    const result = await getStore(caseInput).viewSpans(
+      {
+        trace_id: location.traceId,
+        span_ids: [location.spanId],
+      },
+      signal ? { signal } : undefined,
+    )
     return (
       result.trace_id === location.traceId &&
       result.missing_span_ids.length === 0 &&
@@ -103,6 +118,20 @@ export interface AnalystBenchmarkOutput {
   findings: readonly AnalystFinding[]
   usage?: AnalystUsageReceipt
   metadata?: Record<string, unknown>
+  /**
+   * End-to-end duration measured by an external runner before import.
+   * Use null when the source explicitly did not capture duration.
+   */
+  observedLatencyMs?: number | null
+  /** Marks a completed transport as a failed analyst run while retaining usage and metadata. */
+  error?: AnalystBenchmarkError
+}
+
+export interface AnalystBenchmarkError {
+  class: string
+  message: string
+  code?: string
+  status?: number
 }
 
 export interface AnalystBenchmarkRunner<TInput = unknown> {
@@ -116,9 +145,12 @@ export interface AnalystBenchmarkRunner<TInput = unknown> {
 export interface AnalystBenchmarkObservation {
   runnerId: string
   caseId: string
+  clusterId: string
+  labelState: AnalystBenchmarkLabelState
   repetition: number
   executionIndex: number
-  latencyMs: number
+  latencyMs: number | null
+  latencySource: 'benchmark-clock' | 'runner-reported' | 'uncaptured'
   findings: readonly AnalystFinding[]
   score: AnalystFindingScore
   evidenceResolution?: AnalystEvidenceResolution
@@ -126,7 +158,7 @@ export interface AnalystBenchmarkObservation {
   caseMetadata?: Record<string, unknown>
   usage?: AnalystUsageReceipt
   runnerMetadata?: Record<string, unknown>
-  error?: { class: string; message: string }
+  error?: AnalystBenchmarkError
 }
 
 export interface AnalystLatencyDistribution {
@@ -142,20 +174,45 @@ export interface AnalystBenchmarkSummary {
   plannedRuns: number
   completedRuns: number
   failedRuns: number
+  issueBearingRuns: number
+  trustedNegativeRuns: number
+  unlabeledRuns: number
+  /** Pooled across all labeled issues and findings. */
   issueRecall: number | null
+  /** Pooled across all labeled issues and findings. */
   findingPrecision: number | null
+  /** Harmonic mean of the pooled precision and recall. */
   f1: number | null
+  /** Mean of per-case recall over issue-bearing runs. */
+  macroIssueRecall: number | null
+  /** Mean of per-case precision over issue-bearing runs. */
+  macroFindingPrecision: number | null
+  /** Mean of per-case F1 over issue-bearing runs. */
+  macroF1: number | null
   criticalStepAccuracy: number | null
   citationCoverage: number | null
+  citationExcerptCoverage: number | null
   citationLabelAgreement: number | null
   citationResolution: number | null
   citationResolutionUnknownRuns: number
   unresolvedCitations: number
   citationResolutionErrors: number
-  cleanCaseFalsePositiveRate: number | null
-  cleanCaseFailureRate: number | null
-  runAgreement: number | null
-  latencyMs: AnalystLatencyDistribution
+  trustedNegativeFalsePositiveRate: number | null
+  trustedNegativeFailureRate: number | null
+  unlabeledPredictionRate: number | null
+  unlabeledFailureRate: number | null
+  /** Primary repeatability measure over complete finding identity and evidence. */
+  predictionAgreement: number | null
+  /** Repeated cases contributing equally to predictionAgreement. */
+  predictionAgreementCases: number
+  /** Secondary repeatability detail over matched expected labels. */
+  matchedLabelAgreement: number | null
+  /** Positive repeated cases contributing equally to matchedLabelAgreement. */
+  matchedLabelAgreementCases: number
+  latencyMs: AnalystLatencyDistribution | null
+  benchmarkClockLatencyRuns: number
+  runnerReportedLatencyRuns: number
+  latencyUnknownRuns: number
   calls: number
   callsUnknownRuns: number
   inputTokens: number
@@ -209,100 +266,10 @@ export interface RunAnalystBenchmarkOptions<TInput> {
   runnerOrderSeed?: number
   resolveEvidence?: AnalystEvidenceResolver<TInput>
   benchmark?: AnalystBenchmarkDescriptor
+  /** Previously persisted rows. Exact case, runner, repetition, and execution identities are required. */
+  initialObservations?: readonly AnalystBenchmarkObservation[]
+  onObservation?: (observation: AnalystBenchmarkObservation) => void | Promise<void>
   signal?: AbortSignal
-}
-
-export function scoreAnalystFindings(
-  testCase: Pick<AnalystBenchmarkCase, 'id' | 'expectedIssues' | 'labeledEvidence'>,
-  findings: readonly AnalystFinding[],
-): AnalystFindingScore {
-  validateCase(testCase)
-  const matchedFindingByIssue = matchFindingsToIssues(testCase.expectedIssues, findings)
-  const matchedIssueIds = testCase.expectedIssues
-    .filter((_, index) => matchedFindingByIssue.has(index))
-    .map((issue) => issue.id)
-  const missedIssueIds = testCase.expectedIssues
-    .filter((_, index) => !matchedFindingByIssue.has(index))
-    .map((issue) => issue.id)
-  const supportedFindingIndexes = new Set(matchedFindingByIssue.values())
-
-  const unsupportedFindingIndexes = findings
-    .map((_, index) => index)
-    .filter((index) => !supportedFindingIndexes.has(index))
-  const expectedIssueCount = testCase.expectedIssues.length
-  const issueRecall = expectedIssueCount === 0 ? 1 : matchedIssueIds.length / expectedIssueCount
-  const findingPrecision =
-    findings.length === 0
-      ? expectedIssueCount === 0
-        ? 1
-        : 0
-      : supportedFindingIndexes.size / findings.length
-  const f1 = harmonicMean(findingPrecision, issueRecall)
-  const allEvidence = findings.flatMap((finding) => finding.evidence_refs)
-
-  const criticalIssues = testCase.expectedIssues.filter(
-    (issue) => (issue.criticalEvidence?.length ?? 0) > 0,
-  )
-  const criticalHits = testCase.expectedIssues.filter((issue) => {
-    if ((issue.criticalEvidence?.length ?? 0) === 0) return false
-    return matchesEvidence(allEvidence, issue.criticalEvidence ?? [], 'any')
-  }).length
-
-  const findingsWithEvidence = findings.filter((finding) => finding.evidence_refs.length > 0).length
-  const unlabeledEvidence = testCase.labeledEvidence
-    ? allEvidence.filter(
-        (ref) => !testCase.labeledEvidence!.some((expected) => evidenceMatches(ref, expected)),
-      )
-    : []
-
-  return {
-    expectedIssueCount,
-    matchedIssueIds,
-    missedIssueIds,
-    supportedFindingIndexes: [...supportedFindingIndexes].sort((a, b) => a - b),
-    unsupportedFindingIndexes,
-    unlabeledEvidence,
-    issueRecall,
-    findingPrecision,
-    f1,
-    criticalStepAccuracy: criticalIssues.length === 0 ? null : criticalHits / criticalIssues.length,
-    citationCoverage: findings.length === 0 ? null : findingsWithEvidence / findings.length,
-    citationLabelAgreement:
-      testCase.labeledEvidence === undefined
-        ? null
-        : allEvidence.length === 0
-          ? findings.length === 0
-            ? null
-            : 0
-          : (allEvidence.length - unlabeledEvidence.length) / allEvidence.length,
-    cleanFalsePositive: expectedIssueCount === 0 && findings.length > 0,
-  }
-}
-
-function matchFindingsToIssues(
-  issues: readonly AnalystIssueExpectation[],
-  findings: readonly AnalystFinding[],
-): Map<number, number> {
-  if (issues.length === 0) return new Map()
-  const cardinalityWeight = issues.length + 1
-  const scores = issues.map((issue) => [
-    ...findings.map((finding) => {
-      if (!findingMatchesIssue(finding, issue)) return -1
-      const criticalHit =
-        (issue.criticalEvidence?.length ?? 0) > 0 &&
-        matchesEvidence(finding.evidence_refs, issue.criticalEvidence ?? [], 'any')
-      return cardinalityWeight + Number(criticalHit)
-    }),
-    ...Array.from({ length: issues.length }, () => 0),
-  ])
-  const assignment = linearSumAssignment(scores, { maximaze: true }).rowAssignments
-  const matches = new Map<number, number>()
-  for (const [issueIndex, column] of assignment.entries()) {
-    if (column < 0 || column >= findings.length) continue
-    if (!findingMatchesIssue(findings[column]!, issues[issueIndex]!)) continue
-    matches.set(issueIndex, column)
-  }
-  return matches
 }
 
 export async function runAnalystBenchmark<TInput>(
@@ -312,21 +279,29 @@ export async function runAnalystBenchmark<TInput>(
   const startedAt = new Date().toISOString()
   const repetitions = options.repetitions ?? 1
   const runnerOrderSeed = options.runnerOrderSeed ?? 0
-  const maxConcurrency = Math.min(
-    options.maxConcurrency ?? 1,
-    options.runners.length * options.cases.length * repetitions,
+  const allJobs = benchmarkJobs(options.cases, options.runners, repetitions, runnerOrderSeed)
+  const maxConcurrency = Math.min(options.maxConcurrency ?? 1, allJobs.length)
+  const initialObservations = validateInitialObservations(
+    options.initialObservations ?? [],
+    allJobs,
   )
-  const jobs = benchmarkJobs(options.cases, options.runners, repetitions, runnerOrderSeed)
-  const observations: AnalystBenchmarkObservation[] = []
+  const completed = new Set(initialObservations.map(observationKey))
+  const jobs = allJobs.filter((job) => !completed.has(jobKey(job)))
+  const observations: AnalystBenchmarkObservation[] = [...initialObservations]
   let cursor = 0
   const worker = async (): Promise<void> => {
     while (cursor < jobs.length) {
       options.signal?.throwIfAborted()
       const job = jobs[cursor++]!
-      observations.push(await runBenchmarkJob(job, options.signal, options.resolveEvidence))
+      const observation = await runBenchmarkJob(job, options.signal, options.resolveEvidence)
+      options.signal?.throwIfAborted()
+      await options.onObservation?.(observation)
+      options.signal?.throwIfAborted()
+      observations.push(observation)
     }
   }
-  await Promise.all(Array.from({ length: maxConcurrency }, worker))
+  await Promise.all(Array.from({ length: Math.min(maxConcurrency, jobs.length) }, worker))
+  options.signal?.throwIfAborted()
   const runnerOrder = new Map(options.runners.map((runner, index) => [runner.id, index]))
   const caseOrder = new Map(options.cases.map((testCase, index) => [testCase.id, index]))
   observations.sort(
@@ -348,7 +323,7 @@ export async function runAnalystBenchmark<TInput>(
     },
     observations,
     summaries: options.runners.map((runner) =>
-      summarizeRunner(
+      summarizeAnalystBenchmarkRunner(
         runner.id,
         observations.filter((observation) => observation.runnerId === runner.id),
       ),
@@ -360,6 +335,8 @@ export function registryBenchmarkRunner(options: {
   id: string
   registry: AnalystRegistry
   runOptions?: Omit<RegistryRunOpts, 'signal'>
+  /** Count any selected analyst failure as a failed benchmark run. */
+  failOnAnalystFailure?: boolean
 }): AnalystBenchmarkRunner<AnalystRunInputs> {
   return {
     id: options.id,
@@ -373,6 +350,7 @@ export function registryBenchmarkRunner(options: {
         findings: result.findings,
         usage: mergeRegistryUsage(result),
         metadata: { analystRun: result },
+        ...(options.failOnAnalystFailure ? { error: registryRunFailure(result) } : {}),
       }
     },
   }
@@ -395,14 +373,23 @@ async function runBenchmarkJob<TInput>(
       repetition: job.repetition,
       signal,
     })
+    if (output.usage) {
+      assertValidAnalystUsageReceipt(output.usage, 'analyst benchmark usage')
+    }
+    const benchmarkLatencyMs = performance.now() - started
+    const latency = resolveBenchmarkLatency(output.observedLatencyMs, benchmarkLatencyMs)
+    const scoredFindings = output.error ? [] : output.findings
     return {
       runnerId: job.runner.id,
       caseId: job.testCase.id,
+      clusterId: job.testCase.clusterId,
+      labelState: job.testCase.labelState,
       repetition: job.repetition,
       executionIndex: job.executionIndex,
-      latencyMs: performance.now() - started,
+      latencyMs: latency.value,
+      latencySource: latency.source,
       findings: output.findings,
-      score: scoreAnalystFindings(job.testCase, output.findings),
+      score: scoreAnalystFindings(job.testCase, scoredFindings),
       evidenceResolution: resolveEvidence
         ? await resolveFindingEvidence(job.testCase, output.findings, resolveEvidence, signal)
         : undefined,
@@ -410,6 +397,7 @@ async function runBenchmarkJob<TInput>(
       caseMetadata: job.testCase.metadata,
       usage: output.usage,
       runnerMetadata: output.metadata,
+      ...(output.error ? { error: output.error } : {}),
     }
   } catch (error) {
     if (signal?.aborted) throw error
@@ -417,9 +405,12 @@ async function runBenchmarkJob<TInput>(
     return {
       runnerId: job.runner.id,
       caseId: job.testCase.id,
+      clusterId: job.testCase.clusterId,
+      labelState: job.testCase.labelState,
       repetition: job.repetition,
       executionIndex: job.executionIndex,
       latencyMs: performance.now() - started,
+      latencySource: 'benchmark-clock',
       findings,
       score: scoreAnalystFindings(job.testCase, findings),
       caseTags: [...(job.testCase.tags ?? [])],
@@ -429,6 +420,37 @@ async function runBenchmarkJob<TInput>(
         message: error instanceof Error ? error.message : String(error),
       },
     }
+  }
+}
+
+function resolveBenchmarkLatency(
+  observedLatencyMs: number | null | undefined,
+  fallbackMs: number,
+): {
+  value: number | null
+  source: AnalystBenchmarkObservation['latencySource']
+} {
+  if (observedLatencyMs === undefined) {
+    return { value: fallbackMs, source: 'benchmark-clock' }
+  }
+  if (observedLatencyMs === null) return { value: null, source: 'uncaptured' }
+  if (!Number.isFinite(observedLatencyMs) || observedLatencyMs < 0) {
+    throw new RangeError('analyst benchmark observedLatencyMs must be finite and non-negative')
+  }
+  return { value: observedLatencyMs, source: 'runner-reported' }
+}
+
+function registryRunFailure(result: AnalystRunResult): AnalystBenchmarkOutput['error'] | undefined {
+  const failed = result.per_analyst.filter((summary) => summary.status === 'failed')
+  if (failed.length === 0) return undefined
+  return {
+    class: 'AnalystRunFailure',
+    message: failed
+      .map(
+        (summary) =>
+          `${summary.analyst_id}: ${summary.error?.class ?? 'Error'}: ${summary.error?.message ?? 'analyst failed'}`,
+      )
+      .join('; '),
   }
 }
 
@@ -462,6 +484,99 @@ function benchmarkJobs<TInput>(
       }))
     }).flat(),
   )
+}
+
+function validateInitialObservations<TInput>(
+  observations: readonly AnalystBenchmarkObservation[],
+  jobs: readonly {
+    runner: AnalystBenchmarkRunner<TInput>
+    testCase: AnalystBenchmarkCase<TInput>
+    repetition: number
+    executionIndex: number
+  }[],
+): AnalystBenchmarkObservation[] {
+  const expected = new Map(jobs.map((job) => [jobKey(job), job]))
+  const seen = new Set<string>()
+  return observations.map((observation) => {
+    const key = observationKey(observation)
+    if (seen.has(key)) {
+      throw new TypeError(
+        `duplicate initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}'`,
+      )
+    }
+    seen.add(key)
+    const job = expected.get(key)
+    if (!job) {
+      throw new TypeError(
+        `initial analyst benchmark observation does not match a planned job: '${observation.runnerId}/${observation.caseId}/${observation.repetition}'`,
+      )
+    }
+    if (observation.executionIndex !== job.executionIndex) {
+      throw new TypeError(
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' has executionIndex ${observation.executionIndex}; expected ${job.executionIndex}`,
+      )
+    }
+    if (
+      observation.clusterId !== job.testCase.clusterId ||
+      observation.labelState !== job.testCase.labelState
+    ) {
+      throw new TypeError(
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' does not match the current case labels`,
+      )
+    }
+    if (
+      JSON.stringify(observation.caseTags) !== JSON.stringify(job.testCase.tags ?? []) ||
+      JSON.stringify(observation.caseMetadata) !== JSON.stringify(job.testCase.metadata)
+    ) {
+      throw new TypeError(
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' does not match the current case metadata`,
+      )
+    }
+    const expectedScore = scoreAnalystFindings(
+      job.testCase,
+      observation.error ? [] : observation.findings,
+    )
+    if (JSON.stringify(observation.score) !== JSON.stringify(expectedScore)) {
+      throw new TypeError(
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' has stale or invalid scores`,
+      )
+    }
+    if (observation.usage) {
+      assertValidAnalystUsageReceipt(
+        observation.usage,
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' usage`,
+      )
+    }
+    if (
+      !['benchmark-clock', 'runner-reported', 'uncaptured'].includes(observation.latencySource) ||
+      (observation.latencySource === 'uncaptured' && observation.latencyMs !== null) ||
+      (observation.latencySource !== 'uncaptured' &&
+        (observation.latencyMs === null ||
+          !Number.isFinite(observation.latencyMs) ||
+          observation.latencyMs < 0))
+    ) {
+      throw new TypeError(
+        `initial analyst benchmark observation '${observation.runnerId}/${observation.caseId}/${observation.repetition}' has invalid latency`,
+      )
+    }
+    return { ...observation }
+  })
+}
+
+function jobKey(job: {
+  runner: { id: string }
+  testCase: { id: string }
+  repetition: number
+}): string {
+  return `${job.runner.id}\u0000${job.testCase.id}\u0000${job.repetition}`
+}
+
+function observationKey(observation: {
+  runnerId: string
+  caseId: string
+  repetition: number
+}): string {
+  return `${observation.runnerId}\u0000${observation.caseId}\u0000${observation.repetition}`
 }
 
 async function resolveFindingEvidence<TInput>(
@@ -507,173 +622,6 @@ async function resolveFindingEvidence<TInput>(
   }
 }
 
-function summarizeRunner(
-  runnerId: string,
-  observations: readonly AnalystBenchmarkObservation[],
-): AnalystBenchmarkSummary {
-  const issueBearing = observations.filter(
-    (observation) => observation.score.expectedIssueCount > 0,
-  )
-  const expectedIssues = issueBearing.reduce(
-    (sum, observation) => sum + observation.score.expectedIssueCount,
-    0,
-  )
-  const matchedIssues = issueBearing.reduce(
-    (sum, observation) => sum + observation.score.matchedIssueIds.length,
-    0,
-  )
-  const issueFindings = issueBearing.reduce(
-    (sum, observation) => sum + observation.findings.length,
-    0,
-  )
-  const supportedFindings = issueBearing.reduce(
-    (sum, observation) => sum + observation.score.supportedFindingIndexes.length,
-    0,
-  )
-  const issueRecall = expectedIssues === 0 ? null : matchedIssues / expectedIssues
-  const findingPrecision =
-    expectedIssues === 0 ? null : issueFindings === 0 ? 0 : supportedFindings / issueFindings
-  const critical = observations
-    .map((observation) => observation.score.criticalStepAccuracy)
-    .filter((value): value is number => value !== null)
-  const findingsWithEvidence = observations.reduce(
-    (sum, observation) =>
-      sum + observation.findings.filter((finding) => finding.evidence_refs.length > 0).length,
-    0,
-  )
-  const allFindings = observations.reduce(
-    (sum, observation) => sum + observation.findings.length,
-    0,
-  )
-  const citationObservations = observations.filter(
-    (observation) => observation.score.citationLabelAgreement !== null,
-  )
-  const citationCount = citationObservations.reduce(
-    (sum, observation) =>
-      sum +
-      observation.findings.reduce((count, finding) => count + finding.evidence_refs.length, 0),
-    0,
-  )
-  const invalidCitationCount = citationObservations.reduce(
-    (sum, observation) => sum + observation.score.unlabeledEvidence.length,
-    0,
-  )
-  const clean = observations.filter((observation) => observation.score.expectedIssueCount === 0)
-  const completedClean = clean.filter((observation) => !observation.error)
-  const resolvedCitations = observations.reduce(
-    (sum, observation) => sum + (observation.evidenceResolution?.resolved ?? 0),
-    0,
-  )
-  const unresolvedCitations = observations.reduce(
-    (sum, observation) => sum + (observation.evidenceResolution?.unresolvedEvidence.length ?? 0),
-    0,
-  )
-  const citationResolutionErrors = observations.reduce(
-    (sum, observation) => sum + (observation.evidenceResolution?.errors.length ?? 0),
-    0,
-  )
-  const resolutionAttempts = observations.filter((observation) =>
-    observation.findings.some((finding) => finding.evidence_refs.length > 0),
-  )
-  const citationResolutionUnknownRuns = resolutionAttempts.filter(
-    (observation) =>
-      !observation.evidenceResolution || observation.evidenceResolution.errors.length > 0,
-  ).length
-  const usages = observations.map((observation) => observation.usage)
-  const knownCostUsd = usages.reduce((sum, usage) => {
-    if (!usage) return sum
-    return sum + (usage.cost.kind === 'uncaptured' ? (usage.knownCostUsd ?? 0) : usage.cost.usd)
-  }, 0)
-  return {
-    runnerId,
-    plannedRuns: observations.length,
-    completedRuns: observations.filter((observation) => !observation.error).length,
-    failedRuns: observations.filter((observation) => Boolean(observation.error)).length,
-    issueRecall,
-    findingPrecision,
-    f1:
-      findingPrecision === null || issueRecall === null
-        ? null
-        : harmonicMean(findingPrecision, issueRecall),
-    criticalStepAccuracy: critical.length === 0 ? null : mean(critical),
-    citationCoverage: allFindings === 0 ? null : findingsWithEvidence / allFindings,
-    citationLabelAgreement:
-      citationObservations.length === 0
-        ? null
-        : citationCount === 0
-          ? 0
-          : (citationCount - invalidCitationCount) / citationCount,
-    citationResolution:
-      resolutionAttempts.length === 0 ||
-      citationResolutionUnknownRuns > 0 ||
-      resolvedCitations + unresolvedCitations === 0
-        ? null
-        : resolvedCitations / (resolvedCitations + unresolvedCitations),
-    citationResolutionUnknownRuns,
-    unresolvedCitations,
-    citationResolutionErrors,
-    cleanCaseFalsePositiveRate:
-      completedClean.length === 0
-        ? null
-        : completedClean.filter((observation) => observation.score.cleanFalsePositive).length /
-          completedClean.length,
-    cleanCaseFailureRate:
-      clean.length === 0
-        ? null
-        : clean.filter((observation) => Boolean(observation.error)).length / clean.length,
-    runAgreement: issueAgreement(observations.filter((observation) => !observation.error)),
-    latencyMs: latencyDistribution(observations.map((observation) => observation.latencyMs)),
-    calls: usages.reduce((sum, usage) => sum + (usage?.calls ?? 0), 0),
-    callsUnknownRuns: usages.filter((usage) => !usage || usage.calls === null).length,
-    inputTokens: usages.reduce((sum, usage) => sum + (usage?.tokens?.input ?? 0), 0),
-    outputTokens: usages.reduce((sum, usage) => sum + (usage?.tokens?.output ?? 0), 0),
-    reasoningTokens: usages.reduce((sum, usage) => sum + (usage?.tokens?.reasoning ?? 0), 0),
-    cachedTokens: usages.reduce((sum, usage) => sum + (usage?.tokens?.cached ?? 0), 0),
-    cacheWriteTokens: usages.reduce((sum, usage) => sum + (usage?.tokens?.cacheWrite ?? 0), 0),
-    tokenUsageUnknownRuns: usages.filter((usage) => !usage?.tokens).length,
-    reasoningTokenUsageUnknownRuns: usages.filter((usage) => usage?.tokens?.reasoning === undefined)
-      .length,
-    cachedTokenUsageUnknownRuns: usages.filter((usage) => usage?.tokens?.cached === undefined)
-      .length,
-    cacheWriteTokenUsageUnknownRuns: usages.filter(
-      (usage) => usage?.tokens?.cacheWrite === undefined,
-    ).length,
-    knownCostUsd,
-    costUnknownRuns: usages.filter((usage) => !usage || usage.cost.kind === 'uncaptured').length,
-  }
-}
-
-function findingMatchesIssue(finding: AnalystFinding, issue: AnalystIssueExpectation): boolean {
-  if (issue.findingIds && !issue.findingIds.includes(finding.finding_id)) return false
-  if (issue.areas && !issue.areas.includes(finding.area)) return false
-  if (issue.subjects && (!finding.subject || !issue.subjects.includes(finding.subject)))
-    return false
-  if (
-    issue.evidence &&
-    !matchesEvidence(finding.evidence_refs, issue.evidence, issue.evidenceMode ?? 'any')
-  ) {
-    return false
-  }
-  return true
-}
-
-function matchesEvidence(
-  actual: readonly EvidenceRef[],
-  expected: readonly AnalystEvidenceExpectation[],
-  mode: 'any' | 'all',
-): boolean {
-  if (expected.length === 0) return true
-  const match = (target: AnalystEvidenceExpectation) =>
-    actual.some((ref) => evidenceMatches(ref, target))
-  return mode === 'all' ? expected.every(match) : expected.some(match)
-}
-
-function evidenceMatches(actual: EvidenceRef, expected: AnalystEvidenceExpectation): boolean {
-  return (
-    actual.uri === expected.uri && (expected.kind === undefined || actual.kind === expected.kind)
-  )
-}
-
 function parseTraceSpanUri(uri: string): { traceId: string; spanId: string } | null {
   const match = /^trace:\/\/([^/]+)\/span\/([^/]+)$/.exec(uri)
   if (!match) return null
@@ -683,34 +631,6 @@ function parseTraceSpanUri(uri: string): { traceId: string; spanId: string } | n
     return traceId && spanId ? { traceId, spanId } : null
   } catch {
     return null
-  }
-}
-
-function validateCase(
-  testCase: Pick<AnalystBenchmarkCase, 'id' | 'expectedIssues' | 'labeledEvidence'>,
-): void {
-  if (!testCase.id.trim()) throw new TypeError('analyst benchmark case id must not be empty')
-  const ids = new Set<string>()
-  for (const issue of testCase.expectedIssues) {
-    if (!issue.id.trim()) throw new TypeError(`${testCase.id}: expected issue id must not be empty`)
-    if (ids.has(issue.id))
-      throw new TypeError(`${testCase.id}: duplicate expected issue id '${issue.id}'`)
-    ids.add(issue.id)
-    if (
-      !issue.findingIds?.length &&
-      !issue.areas?.length &&
-      !issue.subjects?.length &&
-      !issue.evidence?.length
-    ) {
-      throw new TypeError(
-        `${testCase.id}/${issue.id}: expected issue must identify a finding by id, area, subject, or evidence`,
-      )
-    }
-  }
-  for (const ref of testCase.labeledEvidence ?? []) {
-    if (!ref.uri.trim()) {
-      throw new TypeError(`${testCase.id}: labeled evidence URI must not be empty`)
-    }
   }
 }
 
@@ -736,7 +656,29 @@ function validateBenchmarkOptions<TInput>(options: RunAnalystBenchmarkOptions<TI
     options.runners.map((runner) => runner.id),
     'runner',
   )
-  for (const testCase of options.cases) validateCase(testCase)
+  for (const testCase of options.cases) validateBenchmarkCase(testCase)
+}
+
+function validateBenchmarkCase(testCase: AnalystBenchmarkCase): void {
+  assertValidAnalystScoringCase(testCase)
+  if (!testCase.clusterId.trim()) {
+    throw new TypeError(`${testCase.id}: analyst benchmark clusterId must not be empty`)
+  }
+  if (
+    testCase.labelState !== 'positive' &&
+    testCase.labelState !== 'trusted-negative' &&
+    testCase.labelState !== 'unlabeled'
+  ) {
+    throw new TypeError(`${testCase.id}: analyst benchmark labelState is invalid`)
+  }
+  if (testCase.labelState === 'positive' && testCase.expectedIssues.length === 0) {
+    throw new TypeError(`${testCase.id}: positive case requires at least one expected issue`)
+  }
+  if (testCase.labelState !== 'positive' && testCase.expectedIssues.length > 0) {
+    throw new TypeError(
+      `${testCase.id}: ${testCase.labelState} case cannot contain expected issues`,
+    )
+  }
 }
 
 function assertUniqueNonEmpty(values: readonly string[], label: string): void {
@@ -748,30 +690,6 @@ function assertUniqueNonEmpty(values: readonly string[], label: string): void {
   }
 }
 
-function harmonicMean(a: number, b: number): number {
-  return a + b === 0 ? 0 : (2 * a * b) / (a + b)
-}
-
-function mean(values: readonly number[]): number {
-  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function latencyDistribution(values: readonly number[]): AnalystLatencyDistribution {
-  const sorted = [...values].sort((a, b) => a - b)
-  return {
-    min: sorted[0] ?? 0,
-    mean: mean(sorted),
-    p50: percentile(sorted, 0.5),
-    p95: percentile(sorted, 0.95),
-    max: sorted.at(-1) ?? 0,
-  }
-}
-
-function percentile(sorted: readonly number[], quantile: number): number {
-  if (sorted.length === 0) return 0
-  return sorted[Math.ceil(quantile * sorted.length) - 1] ?? sorted.at(-1) ?? 0
-}
-
 function stableHash(value: string): number {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {
@@ -779,36 +697,6 @@ function stableHash(value: string): number {
     hash = Math.imul(hash, 16777619)
   }
   return hash >>> 0
-}
-
-function issueAgreement(observations: readonly AnalystBenchmarkObservation[]): number | null {
-  const byCase = new Map<string, AnalystBenchmarkObservation[]>()
-  for (const observation of observations) {
-    const rows = byCase.get(observation.caseId) ?? []
-    rows.push(observation)
-    byCase.set(observation.caseId, rows)
-  }
-  const agreements: number[] = []
-  for (const rows of byCase.values()) {
-    for (let left = 0; left < rows.length; left++) {
-      for (let right = left + 1; right < rows.length; right++) {
-        agreements.push(
-          jaccard(rows[left]!.score.matchedIssueIds, rows[right]!.score.matchedIssueIds),
-        )
-      }
-    }
-  }
-  return agreements.length === 0 ? null : mean(agreements)
-}
-
-function jaccard(left: readonly string[], right: readonly string[]): number {
-  const a = new Set(left)
-  const b = new Set(right)
-  const union = new Set([...a, ...b])
-  if (union.size === 0) return 1
-  let intersection = 0
-  for (const value of a) if (b.has(value)) intersection += 1
-  return intersection / union.size
 }
 
 function mergeRegistryUsage(result: AnalystRunResult): AnalystUsageReceipt {

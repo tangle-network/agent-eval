@@ -183,8 +183,14 @@ The report must answer the user's question, and findings must be an array of con
     findings: completed.findings,
     turns,
     turnCount: turns.length,
-    usage: { actor: normalizeRecordArray(completed.usage), responder: [] },
-    chatLog: { actor: normalizeRecordArray(completed.chatLog), responder: [] },
+    usage: {
+      actor: normalizeRecordArray(completed.usage.actor),
+      responder: normalizeRecordArray(completed.usage.responder),
+    },
+    chatLog: {
+      actor: normalizeRecordArray(completed.chatLog.actor),
+      responder: normalizeRecordArray(completed.chatLog.responder),
+    },
     actorPromptVersion: TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
   }
 }

@@ -1,5 +1,6 @@
 import type {
   AnalystBenchmarkCase,
+  AnalystBenchmarkLabelState,
   AnalystFindingScore,
   AnalystIssueExpectation,
 } from '../analyst/benchmark'
@@ -11,6 +12,7 @@ import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from './t
 export interface TraceAnalystScenario extends Scenario {
   kind: 'trace-analyst'
   traceStore: TraceAnalysisStore
+  labelState: AnalystBenchmarkLabelState
   expectedIssues: readonly AnalystIssueExpectation[]
   labeledEvidence?: AnalystBenchmarkCase['labeledEvidence']
 }
@@ -58,7 +60,7 @@ export function traceAnalystQualityJudge(): JudgeConfig<
 > {
   return {
     name: 'trace-analyst-quality',
-    judgeVersion: 'agent-eval:trace-analyst-quality:v2',
+    judgeVersion: 'agent-eval:trace-analyst-quality:v3',
     dimensions: [
       { key: 'issue_recall', description: 'share of labeled issues found' },
       { key: 'finding_precision', description: 'share of findings tied to a labeled issue' },
@@ -71,8 +73,10 @@ export function traceAnalystQualityJudge(): JudgeConfig<
       },
       { key: 'clean', description: '1 when a clean case produces no findings' },
     ],
-    appliesTo: (scenario) => scenario.kind === 'trace-analyst',
+    appliesTo: (scenario) =>
+      scenario.kind === 'trace-analyst' && scenario.labelState !== 'unlabeled',
     score({ artifact, scenario }) {
+      assertScorableScenario(scenario)
       const score = scoreAnalystFindings(
         {
           id: scenario.id,
@@ -86,12 +90,26 @@ export function traceAnalystQualityJudge(): JudgeConfig<
   }
 }
 
+function assertScorableScenario(scenario: TraceAnalystScenario): void {
+  if (scenario.labelState === 'unlabeled') {
+    throw new TypeError(`trace analyst scenario '${scenario.id}' has no quality labels`)
+  }
+  if (scenario.labelState === 'positive' && scenario.expectedIssues.length === 0) {
+    throw new TypeError(`positive trace analyst scenario '${scenario.id}' requires expected issues`)
+  }
+  if (scenario.labelState === 'trusted-negative' && scenario.expectedIssues.length > 0) {
+    throw new TypeError(
+      `trusted-negative trace analyst scenario '${scenario.id}' cannot contain expected issues`,
+    )
+  }
+}
+
 function traceAnalystJudgeScore(score: AnalystFindingScore) {
   const dimensions: Record<string, number> = {
     issue_recall: score.issueRecall,
     finding_precision: score.findingPrecision,
     f1: score.f1,
-    clean: score.cleanFalsePositive ? 0 : 1,
+    clean: score.predictionOnLabelEmptyCase ? 0 : 1,
   }
   if (score.criticalStepAccuracy !== null) {
     dimensions.critical_step_accuracy = score.criticalStepAccuracy

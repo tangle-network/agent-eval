@@ -76,7 +76,13 @@ export function tryAcquireAtomicFileLock(
   const owner: AtomicFileLockOwner = { pid, host: hostname(), nonce: randomUUID() }
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (existsSync(recoveryPath(options.lockPath))) {
-      return { acquired: false, reason: 'recovery' }
+      const recovery = tryAcquireRecoveryLease(options.lockPath, owner, attempt)
+      if (!recovery) return { acquired: false, reason: 'recovery' }
+      try {
+        return recoverLock(options.lockPath, owner, attempt)
+      } finally {
+        recovery.release()
+      }
     }
     if (tryLinkOwner(options.lockPath, owner, `acquire.${attempt}`)) {
       return acquired(options.lockPath, owner)
@@ -88,33 +94,75 @@ export function tryAcquireAtomicFileLock(
       return { acquired: false, reason: 'held', holder: holder.owner }
     }
 
-    const reclaimPath = recoveryPath(options.lockPath)
-    if (!tryLinkOwner(reclaimPath, owner, `reclaim.${attempt}`)) {
-      return { acquired: false, reason: 'recovery' }
-    }
+    const recovery = tryAcquireRecoveryLease(options.lockPath, owner, attempt)
+    if (!recovery) return { acquired: false, reason: 'recovery' }
     try {
-      const current = ownerState(options.lockPath)
-      if (current.state === 'held') {
-        return { acquired: false, reason: 'held', holder: current.owner }
-      }
-      if (current.state === 'stale') {
-        const tombstone = `${options.lockPath}.stale.${owner.nonce}.${attempt}`
-        try {
-          renameSync(options.lockPath, tombstone)
-          unlinkSync(tombstone)
-        } catch (error) {
-          if (!isMissing(error)) throw error
-        }
-      }
-      if (tryLinkOwner(options.lockPath, owner, `recovered.${attempt}`)) {
-        return acquired(options.lockPath, owner)
-      }
+      return recoverLock(options.lockPath, owner, attempt)
     } finally {
-      releaseOwnedPath(reclaimPath, owner)
+      recovery.release()
     }
   }
 
   throw new AtomicFileLockError(`could not acquire atomic file lock ${options.lockPath}`)
+}
+
+interface RecoveryLease {
+  release(): void
+}
+
+function tryAcquireRecoveryLease(
+  lockPath: string,
+  owner: AtomicFileLockOwner,
+  attempt: number,
+): RecoveryLease | null {
+  let leasePath = recoveryPath(lockPath)
+  const staleOwners: Array<{ path: string; owner: AtomicFileLockOwner }> = []
+
+  for (let depth = 0; depth < 64; depth += 1) {
+    const state = ownerState(leasePath)
+    if (state.state === 'missing') {
+      if (!tryLinkOwner(leasePath, owner, `reclaim.${attempt}.${depth}`)) continue
+      return {
+        release: () => {
+          for (const stale of staleOwners) releaseOwnedPath(stale.path, stale.owner)
+          releaseOwnedPath(leasePath, owner)
+        },
+      }
+    }
+    if (state.state === 'held') return null
+    staleOwners.push({ path: leasePath, owner: state.owner })
+    leasePath = `${leasePath}.next.${state.owner.nonce}`
+  }
+
+  throw new AtomicFileLockError(`atomic file lock recovery chain is too deep (${lockPath})`)
+}
+
+function recoverLock(
+  lockPath: string,
+  owner: AtomicFileLockOwner,
+  attempt: number,
+): AtomicFileLockAcquisition {
+  const current = ownerState(lockPath)
+  if (current.state === 'held') {
+    return { acquired: false, reason: 'held', holder: current.owner }
+  }
+  if (current.state === 'stale') {
+    const tombstone = `${lockPath}.stale.${owner.nonce}.${attempt}`
+    try {
+      renameSync(lockPath, tombstone)
+      unlinkSync(tombstone)
+    } catch (error) {
+      if (!isMissing(error)) throw error
+    }
+  }
+  if (tryLinkOwner(lockPath, owner, `recovered.${attempt}`)) {
+    return acquired(lockPath, owner)
+  }
+  const holder = ownerState(lockPath)
+  if (holder.state === 'held') {
+    return { acquired: false, reason: 'held', holder: holder.owner }
+  }
+  return { acquired: false, reason: 'recovery' }
 }
 
 function acquired(lockPath: string, owner: AtomicFileLockOwner): AtomicFileLockAcquisition {

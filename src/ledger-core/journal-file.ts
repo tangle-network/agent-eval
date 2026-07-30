@@ -3,9 +3,11 @@
 import {
   closeSync,
   constants,
+  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
+  readSync,
   renameSync,
   rmSync,
   writeSync,
@@ -24,6 +26,7 @@ export interface LedgerFileContext {
  * before returning so an acknowledged append survives a crash. */
 export function appendLedgerLine(path: string, line: string, context: LedgerFileContext): void {
   mkdirSync(dirname(path), { recursive: true })
+  recoverTornFinalWrite(path, context)
   const fd = openSync(path, constants.O_CREAT | constants.O_WRONLY | constants.O_APPEND, 0o600)
   try {
     writeAll(fd, Buffer.from(line, 'utf8'), context)
@@ -32,6 +35,35 @@ export function appendLedgerLine(path: string, line: string, context: LedgerFile
     closeSync(fd)
   }
   fsyncDirectory(dirname(path))
+}
+
+function recoverTornFinalWrite(path: string, context: LedgerFileContext): void {
+  let fd: number
+  try {
+    fd = openSync(path, constants.O_RDWR)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw context.integrityError(`${context.subject} ${path} could not be opened for recovery`, {
+      cause: error,
+    })
+  }
+
+  try {
+    const size = fstatSync(fd).size
+    if (size === 0 || readByte(fd, size - 1) === 0x0a) return
+    const tailStart = findFinalLineStart(fd, size)
+    const replacement = Buffer.alloc(size - tailStart, 0x20)
+    replacement[replacement.length - 1] = 0x0a
+    writeAllAt(fd, replacement, tailStart, context)
+    fsyncSync(fd)
+  } catch (error) {
+    throw context.integrityError(
+      `${context.subject} ${path} has an unrecoverable final journal write`,
+      { cause: error },
+    )
+  } finally {
+    closeSync(fd)
+  }
 }
 
 /** Replace a small sidecar file whole: write a temporary sibling, fsync it,
@@ -117,6 +149,35 @@ function writeAll(fd: number, bytes: Buffer, context: LedgerFileContext): void {
     if (written <= 0) throw context.integrityError('filesystem wrote zero bytes')
     offset += written
   }
+}
+
+function writeAllAt(fd: number, bytes: Buffer, position: number, context: LedgerFileContext): void {
+  let offset = 0
+  while (offset < bytes.byteLength) {
+    const written = writeSync(fd, bytes, offset, bytes.byteLength - offset, position + offset)
+    if (written <= 0) throw context.integrityError('filesystem wrote zero bytes')
+    offset += written
+  }
+}
+
+function findFinalLineStart(fd: number, size: number): number {
+  const chunk = Buffer.alloc(Math.min(4_096, size))
+  let cursor = size
+  while (cursor > 0) {
+    const length = Math.min(chunk.byteLength, cursor)
+    cursor -= length
+    const read = readSync(fd, chunk, 0, length, cursor)
+    for (let index = read - 1; index >= 0; index -= 1) {
+      if (chunk[index] === 0x0a) return cursor + index + 1
+    }
+  }
+  return 0
+}
+
+function readByte(fd: number, position: number): number {
+  const byte = Buffer.allocUnsafe(1)
+  const read = readSync(fd, byte, 0, 1, position)
+  return read === 1 ? byte[0]! : -1
 }
 
 function fsyncDirectory(path: string): void {

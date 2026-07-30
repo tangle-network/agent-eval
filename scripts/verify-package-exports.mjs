@@ -407,6 +407,8 @@ try {
       }
       const analystCase: AnalystBenchmarkCase<string> = {
         id: 'corroborated-failure',
+        clusterId: 'corroborated-failure',
+        labelState: 'positive',
         input: 'trace://failure',
         expectedIssues: [{
           id: 'failure',
@@ -628,6 +630,17 @@ try {
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
         if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
         if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
+        for (const name of [
+          'runAnalystBenchmarkCommand',
+          'readAnalystBenchmarkArtifact',
+          'ANALYST_BENCHMARK_MANIFEST_FILE',
+          'ANALYST_BENCHMARK_OBSERVATIONS_FILE',
+          'ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE',
+          'ANALYST_BENCHMARK_COST_LEDGER_FILE',
+          'publicBenchmarkProtocolSha256',
+        ]) {
+          if (!(name in analyst)) throw new Error('missing analyst benchmark export ' + name)
+        }
         if ('CanonicalRawAnalystFindingSchema' in analyst) {
           throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
         }

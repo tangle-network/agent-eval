@@ -67,7 +67,12 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
     pid,
   })
   if (!acquisition.acquired) throw unavailableError(opts.lockPath, acquisition)
+  const releaseOnExit = opts.releaseOnExit ?? true
+  let released = false
   const release = (): void => {
+    if (released) return
+    released = true
+    if (releaseOnExit) process.off('exit', release)
     try {
       acquisition.lock.release()
     } catch {
@@ -80,6 +85,6 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
     release()
     throw error
   }
-  if (opts.releaseOnExit ?? true) process.on('exit', release)
+  if (releaseOnExit) process.on('exit', release)
   return { release }
 }

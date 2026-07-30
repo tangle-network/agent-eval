@@ -16,6 +16,7 @@ const scenario: TraceAnalystScenario = {
   id: 'failed-command',
   kind: 'trace-analyst',
   traceStore,
+  labelState: 'positive',
   expectedIssues: [
     {
       id: 'repeated-command',
@@ -160,7 +161,12 @@ describe('traceAnalystQualityJudge', () => {
   })
 
   it('treats findings on a clean trace as false positives', async () => {
-    const clean = { ...scenario, id: 'clean', expectedIssues: [] }
+    const clean = {
+      ...scenario,
+      id: 'clean',
+      labelState: 'trusted-negative' as const,
+      expectedIssues: [],
+    }
     const result = await judge.score({
       artifact: {
         findings: [finding({ uri: 'trace://failed/span/tool-1' })],
@@ -170,5 +176,24 @@ describe('traceAnalystQualityJudge', () => {
     })
     expect(result.composite).toBe(0)
     expect(result.dimensions.clean).toBe(0)
+  })
+
+  it('excludes unlabeled traces from quality scoring', async () => {
+    const unlabeled = {
+      ...scenario,
+      id: 'unlabeled',
+      labelState: 'unlabeled' as const,
+      expectedIssues: [],
+      labeledEvidence: undefined,
+    }
+
+    expect(judge.appliesTo?.(unlabeled)).toBe(false)
+    expect(() =>
+      judge.score({
+        artifact: { findings: [] },
+        scenario: unlabeled,
+        signal,
+      }),
+    ).toThrow(/has no quality labels/)
   })
 })

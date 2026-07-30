@@ -663,7 +663,7 @@ export async function callLlm(
           attemptErrorRecorded = true
         }
         const err = new LlmCallError(
-          `LLM call ${res.status}: ${body.slice(0, 300)}`,
+          `LLM call failed with HTTP ${res.status}`,
           res.status,
           body,
           req.model,
@@ -952,12 +952,8 @@ function parseJsonSafely<T>(
   const payload = jsonPayloadMode === 'exact' ? content : extractJsonPayload(content)
   try {
     return JSON.parse(payload) as T
-  } catch (err) {
-    throw new Error(
-      `LLM returned non-JSON content (model=${model}): ${
-        err instanceof Error ? err.message : String(err)
-      }\n--- raw content ---\n${content.slice(0, 800)}`,
-    )
+  } catch {
+    throw new Error(`LLM returned non-JSON content (model=${model})`)
   }
 }
 

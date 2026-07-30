@@ -357,6 +357,7 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 You do not need a runnable agent to analyze data you already captured.
 Use `analyzeRuns()` for `RunRecord[]`.
 For traces, run a registry of built-in or custom analysts, measure it on labeled issues and exact span locations, then turn only reviewed findings into eval data.
+For a public quality check, convert CodeTraceBench with `traces import-codetracebench`, then run `agent-eval analyst-benchmark` against the pinned labels and a real model.
 
 See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md), and [trace analysis](./docs/trace-analysis.md).
 

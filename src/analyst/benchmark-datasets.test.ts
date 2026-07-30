@@ -36,6 +36,8 @@ describe('agentRxBenchmarkCase', () => {
     )
 
     expect(result.id).toBe('agentrx:2')
+    expect(result.clusterId).toBe('agentrx:2')
+    expect(result.labelState).toBe('positive')
     expect(result.expectedIssues).toEqual([
       expect.objectContaining({
         id: '2',
@@ -119,6 +121,26 @@ describe('agentRxBenchmarkCase', () => {
       ),
     ).toThrow(/beyond stepCount 2/)
   })
+
+  it('rejects ground-truth categories outside the AgentRx taxonomy', () => {
+    expect(() =>
+      agentRxBenchmarkCase(
+        {
+          trajectory_id: 'unknown-category',
+          failures: [
+            {
+              failure_id: 'root',
+              step_number: 1,
+              step_reason: 'The annotation uses an unpublished class.',
+              failure_category: 'Convenient but invented failure',
+            },
+          ],
+          root_cause_failure_id: 'root',
+        },
+        null,
+      ),
+    ).toThrow(/outside the AgentRx taxonomy/)
+  })
 })
 
 describe('codeTraceBenchCase', () => {
@@ -147,6 +169,10 @@ describe('codeTraceBenchCase', () => {
     expect(labeled.labeledEvidence).toEqual([{ kind: 'span', uri: 'trace://run%2F1/span/step-24' }])
     expect(labeled.tags).toContain('debugging')
     expect(labeled.metadata?.labelSet).toBe('incorrect-only')
+    expect(labeled).toMatchObject({
+      clusterId: 'codetrace-task:task-1',
+      labelState: 'positive',
+    })
 
     const clean = codeTraceBenchCase(
       {
@@ -160,7 +186,24 @@ describe('codeTraceBenchCase', () => {
       'trajectory',
     )
     expect(clean.expectedIssues).toEqual([])
-    expect(clean.labeledEvidence).toEqual([])
+    expect(clean).not.toHaveProperty('labeledEvidence')
+    expect(clean.labelState).toBe('unlabeled')
+
+    const trustedNegative = codeTraceBenchCase(
+      {
+        traj_id: 'trusted-negative',
+        agent: 'OpenHands',
+        model: 'DeepSeek/DeepSeek-V3.2',
+        task_name: 'task-2',
+        solved: true,
+        step_count: 3,
+        incorrect_stages: [],
+      },
+      'trajectory',
+    )
+    expect(trustedNegative.labelState).toBe('trusted-negative')
+    expect(trustedNegative.labeledEvidence).toEqual([])
+    expect(trustedNegative.clusterId).toBe(clean.clusterId)
   })
 
   it('scores a perfect official prediction as one when unuseful labels exist', () => {
@@ -238,6 +281,47 @@ describe('codeTraceBenchCase', () => {
         null,
       ),
     ).toThrow(/exceeds step_count 2/)
+  })
+
+  it.each([
+    ['traj_id', 7, /traj_id must be a string/],
+    ['agent', 7, /agent must be a string/],
+    ['model', '', /model must not be empty/],
+    ['task_name', null, /task_name must be a string/],
+    ['source_relpath', '../labels.json', /must stay within the artifact root/],
+    ['difficulty', 1, /difficulty must be a string/],
+    ['category', false, /category must be a string/],
+    ['tags', ['valid', ''], /tags\[1\] must not be empty/],
+    ['solved', 'true', /solved must be a boolean or null/],
+    ['step_count', '2', /step_count must be a positive safe integer/],
+    ['incorrect_stages', null, /incorrect_stages must be an array/],
+    [
+      'incorrect_stages',
+      [
+        { stage_id: 1, incorrect_step_ids: [1] },
+        { stage_id: 1, incorrect_step_ids: [2] },
+      ],
+      /repeats stage_id 1/,
+    ],
+  ])('rejects malformed CodeTraceBench %s metadata', (field, value, error) => {
+    const row = {
+      traj_id: 'strict-row',
+      agent: 'agent',
+      model: 'model',
+      task_name: 'task',
+      source_relpath: 'cases/strict-row',
+      difficulty: 'hard',
+      category: 'debugging',
+      tags: ['public'],
+      solved: false,
+      step_count: 2,
+      incorrect_stages: [{ stage_id: 1, incorrect_step_ids: [1] }],
+      [field]: value,
+    }
+
+    expect(() =>
+      codeTraceBenchCase(row as unknown as Parameters<typeof codeTraceBenchCase>[0], null),
+    ).toThrow(error)
   })
 
   it('rejects unknown label modes instead of silently changing the metric', () => {
@@ -507,6 +591,120 @@ describe('upstream prediction adapters', () => {
         stepCount: 2,
       }),
     ).toThrow(/exceeds stepCount 2/)
+  })
+
+  it('maps CodeTracer 0.2 flat and grouped outputs without rewriting the engine', () => {
+    const flat = codeTracerPredictionsToFindings(
+      'flat',
+      [
+        {
+          step_id: 25,
+          stage: 'full',
+          label: 'incorrect',
+          rationale: 'The command used incompatible flags.',
+        },
+      ],
+      { stepCount: 30 },
+    )
+    const grouped = codeTracerPredictionsToFindings(
+      'grouped',
+      [
+        {
+          stage: 'full',
+          labels: [
+            {
+              step_id: 29,
+              label: 'incorrect',
+              rationale: 'The final command used the wrong path.',
+            },
+          ],
+        },
+      ],
+      { stepCount: 30 },
+    )
+
+    expect(flat[0]).toMatchObject({
+      area: 'incorrect',
+      rationale: 'The command used incompatible flags.',
+      evidence_refs: [{ uri: 'trace://flat/span/step-25' }],
+      metadata: { stage_id: 'full' },
+    })
+    expect(grouped[0]).toMatchObject({
+      area: 'incorrect',
+      rationale: 'The final command used the wrong path.',
+      evidence_refs: [{ uri: 'trace://grouped/span/step-29' }],
+      metadata: { stage_id: 'full' },
+    })
+  })
+
+  it('preserves every reason and stage field emitted by CodeTracer 0.2', () => {
+    const flat = codeTracerPredictionsToFindings(
+      'observed-shapes',
+      [
+        {
+          step_id: 2,
+          stage_name: 'setup',
+          label: 'incorrect',
+          reason: 'The setup command corrupted the state.',
+        },
+        {
+          step_id: 3,
+          stage_id: 7,
+          label: 'incorrect',
+          note: 'The edit targeted the wrong file.',
+        },
+      ],
+      { stepCount: 4 },
+    )
+    const grouped = codeTracerPredictionsToFindings(
+      'observed-shapes',
+      [
+        {
+          stage_name: 'validation',
+          labels: [
+            {
+              step_id: 4,
+              label: 'incorrect',
+              comment: 'The check ignored the failing output.',
+            },
+          ],
+        },
+      ],
+      { stepCount: 4 },
+    )
+    const findings = [...flat, ...grouped]
+
+    expect(findings.map((finding) => [finding.metadata?.stage_id, finding.rationale])).toEqual([
+      ['setup', 'The setup command corrupted the state.'],
+      [7, 'The edit targeted the wrong file.'],
+      ['validation', 'The check ignored the failing output.'],
+    ])
+  })
+
+  it('rejects conflicting CodeTracer aliases instead of choosing one silently', () => {
+    expect(() =>
+      codeTracerPredictionsToFindings('conflicting-stage', [
+        { step_id: 2, stage: 'setup', stage_name: 'edit', label: 'incorrect' },
+      ]),
+    ).toThrow(/conflicting stage fields/)
+    expect(() =>
+      codeTracerPredictionsToFindings('conflicting-reason', [
+        {
+          step_id: 2,
+          label: 'incorrect',
+          rationale: 'first',
+          comment: 'second',
+        },
+      ]),
+    ).toThrow(/conflicting reason fields/)
+  })
+
+  it('rejects unknown CodeTracer 0.2 labels instead of silently dropping them', () => {
+    expect(() =>
+      codeTracerPredictionsToFindings('unknown', [
+        { step_id: 4, label: 'maybe', rationale: 'ambiguous' },
+      ] as never),
+    ).toThrow(/unsupported label row/)
   })
 })
 

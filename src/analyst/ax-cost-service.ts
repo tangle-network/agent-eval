@@ -131,6 +131,9 @@ function boundOutputTokens<TModel>(
   const maxTokens = requested === undefined ? limit : Math.min(requested, limit)
   return {
     ...request,
+    ...(request.functionCall === undefined && !request.functions?.length
+      ? { functionCall: 'none' as const }
+      : {}),
     modelConfig: { ...request.modelConfig, maxTokens, n: completions },
   }
 }
