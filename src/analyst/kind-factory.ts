@@ -251,10 +251,7 @@ async function evidenceIsResolvable(
           storeContext,
         )
         const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
-        if (
-          !span ||
-          !containsExactText([span.attributes, span.status_message], citation.excerpt)
-        ) {
+        if (!span || !containsExactText([span.attributes, span.status_message], citation.excerpt)) {
           rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span content')
           return false
         }

@@ -197,9 +197,7 @@ function parseBridgeOutput(
       rejectedFindings += 1
       onRejectedFinding(
         index,
-        parsed.error.issues
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; '),
+        parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
       )
       return
     }
