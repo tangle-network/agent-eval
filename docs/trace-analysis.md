@@ -326,7 +326,7 @@ Both adapters emit `trace://<id>/span/step-<n>` evidence by default.
 `@tangle-network/traces` uses the same IDs when converting chat trajectories.
 Pass `stepUri` when your trace store uses another URI scheme.
 `codeTracerPredictionsToFindings()` and `agentRxPredictionsToFindings()` translate the maintained upstream engines' native outputs into the same evidence and category shape.
-The AgentRx adapter accepts its `Report.to_dict()` shape or the contained `failures` array.
+AgentRx `Report.to_dict()` judge votes reduce to the upstream majority failure type and Python-rounded mean step, and direct `failures` arrays use the same reduction.
 `failure_case: 0` produces no finding, which scores as a missed root cause on AgentRx's failed trajectories.
 
 ## Use Upstream Scorers
@@ -368,6 +368,7 @@ They cannot promote themselves into learning data.
 
 ```ts
 import {
+  analystFindingDigest,
   analystFindingsToReviewRequests,
   analystRunToFeedbackTrajectory,
 } from '@tangle-network/agent-eval'
@@ -380,23 +381,35 @@ declare const acceptedFindingIds: ReadonlySet<string>
 const trajectory = analystRunToFeedbackTrajectory(result, {
   task: { intent: 'Find why the command failed.' },
   reviewRequests: requests,
-  reviewDecisions: result.findings.map((finding) => ({
-    findingId: finding.finding_id,
-    verdict: acceptedFindingIds.has(finding.finding_id) ? 'confirmed' : 'rejected',
-    source: 'user',
-    reviewerId: 'reviewer-42',
-    reviewId: 'trace-review-918',
-    reason: 'Reviewed against the cited span.',
-    decidedAt: new Date().toISOString(),
-  })),
+  reviewDecisions: [
+    ...result.findings.map((finding) => ({
+      findingId: finding.finding_id,
+      findingDigest: analystFindingDigest(finding),
+      verdict: acceptedFindingIds.has(finding.finding_id) ? 'confirmed' as const : 'rejected' as const,
+      source: 'user' as const,
+      reviewerId: 'reviewer-42',
+      reviewId: 'trace-review-918',
+      reason: 'Reviewed against the cited span.',
+      decidedAt: new Date().toISOString(),
+    })),
+    {
+      verdict: 'completeness_assessed',
+      missedIssues: [],
+      source: 'user',
+      reviewerId: 'reviewer-42',
+      reviewId: 'trace-review-918',
+      reason: 'Reviewed the full run for omitted findings.',
+      decidedAt: new Date().toISOString(),
+    },
+  ],
   trace: { artifactUri: 'traces.otlp.jsonl', traceIds: ['run-1'] },
 })
 ```
 
 `analystRunToFeedbackTrajectory()` stores review requests separately from labels.
 It can archive an unreviewed run.
-`feedbackTrajectoryToOptimizerRow()` requires one independent confirmed or rejected decision for every finding.
-A run with no findings requires one independent `confirmed_clean` decision.
+`feedbackTrajectoryToOptimizerRow()` requires a digest-bound decision for every finding and one independent completeness assessment for the run.
+Its score is F1 over confirmed findings and independently identified misses.
 Generic labels and run-level outcomes do not satisfy these requirements.
 
 ## Required Trace Data

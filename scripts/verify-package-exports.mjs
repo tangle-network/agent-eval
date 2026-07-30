@@ -155,7 +155,10 @@ try {
         CostLedger,
         CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
         analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
+        analystFindingDigest,
         InMemoryTraceStore,
+        makeFinding,
+        type AnalystReviewDecision,
         type BenchmarkRunnerConfig,
         type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
@@ -366,6 +369,25 @@ try {
         evidence: [{ uri: 'artifact://current' }],
         confidence: 1,
       })
+      const reviewedFinding = makeFinding({
+        analyst_id: 'package-check',
+        area: 'package',
+        claim: 'The digest API is exported.',
+        severity: 'info',
+        confidence: 1,
+        evidence_refs: [{ kind: 'artifact', uri: 'artifact://package-check' }],
+      })
+      const reviewedFindingDigest: \`sha256:\${string}\` =
+        analystFindingDigest(reviewedFinding)
+      const completenessDecision: AnalystReviewDecision = {
+        verdict: 'completeness_assessed',
+        missedIssues: [],
+        source: 'environment',
+        reviewerId: 'package-check-reviewer',
+        reviewId: 'package-check-review',
+        reason: 'The package export was checked independently.',
+        decidedAt: '2026-07-29T00:00:00.000Z',
+      }
       const analystCase: AnalystBenchmarkCase<string> = {
         id: 'corroborated-failure',
         input: 'trace://failure',
@@ -516,6 +538,8 @@ try {
         emitControlIntegrityFindings,
         ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
+        reviewedFindingDigest,
+        completenessDecision,
         analystCase,
         agentRxCase,
         agentRxFindings,

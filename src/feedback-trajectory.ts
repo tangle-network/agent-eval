@@ -3,16 +3,23 @@ import type { ControlEvalResult, ControlRunResult, ControlStep } from './control
 import type { DatasetScenario, DatasetSplit } from './dataset'
 import {
   type AnalystReviewDecision,
+  analystFindingDigest,
   assertUniqueFindingIds,
-  completedAnalystReviewScore,
+  completedAnalystReviewQuality,
   readAnalystReview,
+  snapshotAnalystFindings,
   validateAnalystReviewDecisions,
 } from './feedback-trajectory-review'
 
 export type {
+  AnalystFindingDigest,
+  AnalystMissedIssue,
+  AnalystReviewCounts,
   AnalystReviewDecision,
+  AnalystReviewQuality,
   AnalystReviewSource,
 } from './feedback-trajectory-review'
+export { analystFindingDigest } from './feedback-trajectory-review'
 
 export type FeedbackArtifactType =
   | 'text'
@@ -183,6 +190,7 @@ export interface AnalystFeedbackTrajectoryOptions {
 export interface AnalystReviewRequest {
   id: string
   findingId: string
+  findingDigest: `sha256:${string}`
   analystId: string
   area: string
   claim: string
@@ -379,17 +387,18 @@ export function analystRunToFeedbackTrajectory(
   run: AnalystRunResult,
   options: AnalystFeedbackTrajectoryOptions,
 ): FeedbackTrajectory {
-  const findingIds = run.findings.map((finding) => finding.finding_id)
+  const findings = snapshotAnalystFindings(run.findings, `analyst run "${run.run_id}"`)
+  const findingIds = findings.map((finding) => finding.finding_id)
   assertUniqueFindingIds(findingIds)
   const analystIds = [
     ...new Set([
-      ...run.findings.map((finding) => finding.analyst_id),
+      ...findings.map((finding) => finding.analyst_id),
       ...run.per_analyst.map((summary) => summary.analyst_id),
     ]),
   ]
   const reviewDecisions = validateAnalystReviewDecisions({
     runId: run.run_id,
-    findingIds,
+    findings,
     analystIds,
     decisions: options.reviewDecisions ?? [],
   })
@@ -412,7 +421,7 @@ export function analystRunToFeedbackTrajectory(
           analystRunId: run.run_id,
           correlationId: run.correlation_id,
           analystIds,
-          findings: run.findings,
+          findings,
         },
         createdAt,
         metadata: {
@@ -455,9 +464,10 @@ export function analystFindingsToReviewRequests(
   options: { createdAt?: string } = {},
 ): AnalystReviewRequest[] {
   const createdAt = options.createdAt ?? new Date().toISOString()
-  return findings.map((finding) => ({
+  return snapshotAnalystFindings(findings, 'analyst review request').map((finding) => ({
     id: `analyst:${finding.finding_id}`,
     findingId: finding.finding_id,
+    findingDigest: analystFindingDigest(finding),
     analystId: finding.analyst_id,
     area: finding.area,
     claim: finding.claim,
@@ -524,17 +534,21 @@ export function feedbackTrajectoryToOptimizerRow(
 ): FeedbackOptimizerRow {
   const labels = allLabels(trajectory)
   const analystReview = readAnalystReview(trajectory)
-  const analystScore = analystReview ? completedAnalystReviewScore(analystReview) : undefined
+  const analystQuality = analystReview ? completedAnalystReviewQuality(analystReview) : undefined
   const reviewLabelKinds = analystReview
-    ? analystReview.reviewDecisions.map(
-        (decision): FeedbackLabelKind => (decision.verdict === 'rejected' ? 'reject' : 'approve'),
-      )
+    ? analystReview.reviewDecisions.map((decision): FeedbackLabelKind => {
+        if (decision.verdict === 'rejected') return 'reject'
+        if (decision.verdict === 'completeness_assessed' && decision.missedIssues.length > 0) {
+          return 'revision_request'
+        }
+        return 'approve'
+      })
     : []
   return {
     scenarioId: trajectory.scenarioId ?? trajectory.id,
     trajectoryId: trajectory.id,
     labelKinds: [...new Set([...labels.map((label) => label.kind), ...reviewLabelKinds])],
-    score: analystScore ?? trajectory.outcome?.score ?? scoreFromLabels(labels),
+    score: analystQuality?.f1 ?? trajectory.outcome?.score ?? scoreFromLabels(labels),
     metadata: {
       projectId: trajectory.projectId,
       split: trajectory.split,
@@ -546,7 +560,15 @@ export function feedbackTrajectoryToOptimizerRow(
         ? {
             analystReview: {
               findingIds: analystReview.findingIds,
+              findingDigests: analystReview.findings.map((finding) => ({
+                findingId: finding.finding_id,
+                findingDigest: analystFindingDigest(finding),
+              })),
               decisions: analystReview.reviewDecisions,
+              precision: analystQuality?.precision,
+              recall: analystQuality?.recall,
+              f1: analystQuality?.f1,
+              counts: analystQuality?.counts,
             },
           }
         : {}),

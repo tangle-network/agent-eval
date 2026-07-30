@@ -19,8 +19,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
-- Generated analyst findings become review requests and cannot enter optimizer data until every finding has one explicit external decision.
-- Zero-finding analyst runs require an explicit external clean confirmation before optimizer export.
+- Generated analyst findings become digest-bound review requests and cannot enter optimizer data until every finding has one explicit external decision.
+- Every analyst run requires one independent completeness assessment before optimizer export.
+  Optimizer quality is F1 over confirmed findings and independently identified misses, with precision, recall, F1, and counts retained in metadata.
 - Trace analyst prompt optimization scores typed issue identity and exact evidence locations instead of matching phrases in generated prose.
 - Analyst benchmarks use the upstream `linear-sum-assignment` implementation to maximize one-to-one label coverage and then critical-step localization, so duplicate predictions reduce precision and ambiguous findings are scored consistently.
 - AgentRx evaluation targets its published root-cause task by default, accepts its maintained `failures` report shape, and treats `failure_case: 0` as a no-error prediction.

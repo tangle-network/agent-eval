@@ -79,7 +79,7 @@ Downstream repos own domain adapters:
 Trace findings are hypotheses until another signal confirms them.
 Use `analystFindingsToReviewRequests()` to populate a review queue.
 Use `analystRunToFeedbackTrajectory()` immediately to archive the run, even when review has not started.
-The archived trajectory cannot become optimizer input until every finding has one independent decision.
+The archived trajectory cannot become optimizer input until every finding has one independent decision and the run has one independent completeness assessment.
 
 ```ts
 const requests = analystFindingsToReviewRequests(analystRun.findings)
@@ -94,49 +94,70 @@ await trajectoryStore.save(archived)
 
 declare const reviewedFindingIds: ReadonlySet<string>
 declare const reviewReasons: ReadonlyMap<string, string>
+declare const missedIssues: Array<{
+  id: string
+  reason: string
+  evidence?: Array<{ kind: 'span'; uri: string }>
+}>
+const requestsByFindingId = new Map(requests.map((request) => [request.findingId, request]))
 
 const reviewed = analystRunToFeedbackTrajectory(analystRun, {
   task: { intent: 'Explain the failed agent run.' },
   reviewRequests: requests,
-  reviewDecisions: analystRun.findings.map((finding) => ({
-    findingId: finding.finding_id,
-    verdict: reviewedFindingIds.has(finding.finding_id) ? 'confirmed' : 'rejected',
-    source: 'user',
-    reviewerId: 'reviewer-42',
-    reviewId: 'trace-review-918',
-    reason: reviewReasons.get(finding.finding_id) ?? 'Reviewed against the cited evidence.',
-    decidedAt: new Date().toISOString(),
-  })),
+  reviewDecisions: [
+    ...analystRun.findings.map((finding) => ({
+      findingId: finding.finding_id,
+      findingDigest: requestsByFindingId.get(finding.finding_id)!.findingDigest,
+      verdict: reviewedFindingIds.has(finding.finding_id) ? 'confirmed' as const : 'rejected' as const,
+      source: 'user' as const,
+      reviewerId: 'reviewer-42',
+      reviewId: 'trace-review-918',
+      reason: reviewReasons.get(finding.finding_id) ?? 'Reviewed against the cited evidence.',
+      decidedAt: new Date().toISOString(),
+    })),
+    {
+      verdict: 'completeness_assessed',
+      missedIssues,
+      source: 'user',
+      reviewerId: 'reviewer-42',
+      reviewId: 'trace-review-918',
+      reason: 'Reviewed the full run for findings the analyst omitted.',
+      decidedAt: new Date().toISOString(),
+    },
+  ],
 })
 
 const optimizerRow = feedbackTrajectoryToOptimizerRow(reviewed)
 ```
 
 Review requests, generic labels, and run-level outcomes do not validate findings.
-Each decision must name a known finding, and the reviewer identity must differ from the analyst that produced it.
-Duplicate, unknown, and incomplete decision sets throw instead of being filtered.
-For analyst trajectories, the optimizer score is the confirmed-finding fraction.
-A confirmed clean run scores `1`.
+Each finding decision must name a known finding and echo its full content digest.
+The reviewer identity must differ from every analyst that produced the run.
+The completeness assessment records unique missed issue ids, reasons, and optional evidence.
+Duplicate, unknown, incomplete, mutated, and self-reviewed data throws instead of being filtered.
+The optimizer score is F1 over confirmed findings and independently identified misses.
+A run with no findings and no missed issues scores `1`.
 The run-level outcome remains context and does not replace that score.
 
-For a run with no findings, use one `confirmed_clean` decision from an independent reviewer or environment check:
+Every run needs one `completeness_assessed` decision from an independent reviewer or environment check:
 
 ```ts
 const reviewedCleanRun = analystRunToFeedbackTrajectory(cleanRun, {
   task: { intent: 'Check whether the run has a reportable failure.' },
   reviewDecisions: [{
-    verdict: 'confirmed_clean',
+    verdict: 'completeness_assessed',
+    missedIssues: [],
     source: 'environment',
     reviewerId: 'release-test-suite',
     reviewId: 'release-check-284',
-    reason: 'The independent release checks found no reportable failure.',
+    reason: 'The independent release checks found no omitted reportable failure.',
     decidedAt: new Date().toISOString(),
   }],
 })
 ```
 
 A raw zero-finding run is still valid archival data.
-It is not learning data until clean status is independently confirmed.
+It is not learning data until completeness is independently assessed.
 
 ## Label Sources
 

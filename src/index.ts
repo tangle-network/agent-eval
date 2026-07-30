@@ -228,7 +228,11 @@ export type { ExecutorConfig } from './executor'
 export { executeScenario } from './executor'
 export type {
   AnalystFeedbackTrajectoryOptions,
+  AnalystFindingDigest,
+  AnalystMissedIssue,
+  AnalystReviewCounts,
   AnalystReviewDecision,
+  AnalystReviewQuality,
   AnalystReviewRequest,
   AnalystReviewSource,
   FeedbackArtifactType,
@@ -250,6 +254,7 @@ export type {
   ProposedSideEffect,
 } from './feedback-trajectory'
 export {
+  analystFindingDigest,
   analystFindingsToReviewRequests,
   analystRunToFeedbackTrajectory,
   assignFeedbackSplit,
