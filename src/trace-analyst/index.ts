@@ -79,9 +79,11 @@ export type { TraceAnalysisStore } from './store'
 export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
+  otlpTextToTraceAnalysisStore,
   SpanNotFoundError,
   type ToolSpansToTraceAnalysisStoreOptions,
   ToolTraceMissingError,
+  TraceFileMalformedError,
   TraceFileMissingError,
   TraceNotFoundError,
   toolSpansToTraceAnalysisStore,

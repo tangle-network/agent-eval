@@ -4,6 +4,26 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Added
+
+- Trace analyst benchmarks now retain dataset revision, case and runner metadata, labeled issue recall, finding precision, critical-step accuracy, citation coverage, label-location agreement, actual location resolution, clean-case failures and false positives, repeat agreement, execution order, failures, latency, every reported token counter, and cost.
+- Paired analyst comparisons average repetitions within independent cases before computing intervals and report both case and observation counts.
+- Phoenix Evaluators and Braintrust Autoevals can run as campaign judges through structural adapters, without copying either scorer implementation.
+- `defineTraceAnalyst()` provides the minimal custom analyst entry point and requires an explicit cost declaration.
+- Reviewed analyst runs can become feedback trajectories while preserving findings, evidence, per-analyst status, trace references, and cost.
+- AgentRx and CodeTraceBench label adapters load public step-localization and root-cause cases without imposing a trajectory format, and output translators score the maintained upstream engines directly.
+
+### Changed
+
+- Generated analyst findings become review requests and cannot enter optimizer data until every finding has one explicit external decision.
+- Zero-finding analyst runs require an explicit external clean confirmation before optimizer export.
+- Trace analyst prompt optimization scores typed issue identity and exact evidence locations instead of matching phrases in generated prose.
+- Analyst benchmarks use the upstream `linear-sum-assignment` implementation to maximize one-to-one label coverage and then critical-step localization, so duplicate predictions reduce precision and ambiguous findings are scored consistently.
+- AgentRx evaluation targets its published root-cause task by default, accepts its maintained `failures` report shape, and treats `failure_case: 0` as a no-error prediction.
+- CodeTraceBench uses its published incorrect-step labels by default; the combined incorrect-and-unuseful task must be selected explicitly.
+
 ## [0.135.4] - 2026-07-29 - keep rich source evidence in one schema cohort
 
 ### Fixed

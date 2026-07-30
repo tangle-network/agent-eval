@@ -55,7 +55,7 @@ const optimizerRows = feedbackTrajectoriesToOptimizerRows([trajectory])
 
 ## What Belongs In Core
 
-`agent-eval` owns the substrate:
+`agent-eval` owns the shared data model:
 
 - trajectory and label schemas
 - in-memory and JSONL-backed stores
@@ -73,6 +73,70 @@ Downstream repos own domain adapters:
 - which side effects require approval
 - which budgets and metrics matter
 - where task-local data is stored
+
+## Trace Analyst Bridge
+
+Trace findings are hypotheses until another signal confirms them.
+Use `analystFindingsToReviewRequests()` to populate a review queue.
+Use `analystRunToFeedbackTrajectory()` immediately to archive the run, even when review has not started.
+The archived trajectory cannot become optimizer input until every finding has one independent decision.
+
+```ts
+const requests = analystFindingsToReviewRequests(analystRun.findings)
+await reviewQueue.add(requests)
+
+const archived = analystRunToFeedbackTrajectory(analystRun, {
+  task: { intent: 'Explain the failed agent run.' },
+  reviewRequests: requests,
+})
+
+await trajectoryStore.save(archived)
+
+declare const reviewedFindingIds: ReadonlySet<string>
+declare const reviewReasons: ReadonlyMap<string, string>
+
+const reviewed = analystRunToFeedbackTrajectory(analystRun, {
+  task: { intent: 'Explain the failed agent run.' },
+  reviewRequests: requests,
+  reviewDecisions: analystRun.findings.map((finding) => ({
+    findingId: finding.finding_id,
+    verdict: reviewedFindingIds.has(finding.finding_id) ? 'confirmed' : 'rejected',
+    source: 'user',
+    reviewerId: 'reviewer-42',
+    reviewId: 'trace-review-918',
+    reason: reviewReasons.get(finding.finding_id) ?? 'Reviewed against the cited evidence.',
+    decidedAt: new Date().toISOString(),
+  })),
+})
+
+const optimizerRow = feedbackTrajectoryToOptimizerRow(reviewed)
+```
+
+Review requests, generic labels, and run-level outcomes do not validate findings.
+Each decision must name a known finding, and the reviewer identity must differ from the analyst that produced it.
+Duplicate, unknown, and incomplete decision sets throw instead of being filtered.
+For analyst trajectories, the optimizer score is the confirmed-finding fraction.
+A confirmed clean run scores `1`.
+The run-level outcome remains context and does not replace that score.
+
+For a run with no findings, use one `confirmed_clean` decision from an independent reviewer or environment check:
+
+```ts
+const reviewedCleanRun = analystRunToFeedbackTrajectory(cleanRun, {
+  task: { intent: 'Check whether the run has a reportable failure.' },
+  reviewDecisions: [{
+    verdict: 'confirmed_clean',
+    source: 'environment',
+    reviewerId: 'release-test-suite',
+    reviewId: 'release-check-284',
+    reason: 'The independent release checks found no reportable failure.',
+    decidedAt: new Date().toISOString(),
+  }],
+})
+```
+
+A raw zero-finding run is still valid archival data.
+It is not learning data until clean status is independently confirmed.
 
 ## Label Sources
 

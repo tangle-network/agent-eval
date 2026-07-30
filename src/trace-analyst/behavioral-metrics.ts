@@ -1,11 +1,8 @@
 /**
  * Deterministic behavioral metrics over OTLP spans — pure arithmetic, no LLM.
  *
- * These are the model-independent multiplier: the four trace-quality signals a
- * tolerant analyzer (e.g. HALO) re-derives per run inside the model — token
- * growth, output decay, tool monoculture, missing self-verification — computed
- * here once, in TypeScript, with zero model judgment. A finding that falls out
- * of arithmetic is trivially model-agnostic and cannot hallucinate the trend.
+ * It computes token growth, output decay, tool monoculture, and missing
+ * self-verification once in TypeScript with no model judgment.
  *
  * General, not trace-specific: the detectors key off token trajectories and
  * tool usage present in any agentic OTLP trace, not any one benchmark.

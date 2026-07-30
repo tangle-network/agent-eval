@@ -3,13 +3,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
+import { type AnalystFinding, type AnalystRunResult, makeFinding } from './analyst/types'
 import type { ControlRunResult } from './control-runtime'
 import {
+  type AnalystReviewDecision,
+  analystFindingsToReviewRequests,
+  analystRunToFeedbackTrajectory,
   controlRunToFeedbackTrajectory,
   createFeedbackTrajectory,
   type FeedbackAttempt,
   type FeedbackLabel,
   FileSystemFeedbackTrajectoryStore,
+  feedbackTrajectoriesToOptimizerRows,
   feedbackTrajectoryToOptimizerRow,
   InMemoryFeedbackTrajectoryStore,
   parseFeedbackTrajectoriesJsonl,
@@ -21,6 +26,185 @@ import {
 } from './feedback-trajectory'
 
 describe('feedback trajectories', () => {
+  it('archives a raw analyst run without labels, decisions, or an observed outcome', () => {
+    const finding = analystFinding('The tool failed repeatedly', 'tool-3')
+    const reviewRequests = analystFindingsToReviewRequests([finding], {
+      createdAt: '2026-01-01T00:00:02.000Z',
+    })
+    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+      projectId: 'coding-agent',
+      scenarioId: 'failed-command',
+      task: { intent: 'Fix the command failure.' },
+      reviewRequests,
+      trace: {
+        artifactUri: 'file:///tmp/traces.otlp.jsonl',
+        traceIds: ['run'],
+      },
+    })
+
+    expect(trajectory.attempts[0]?.artifact).toMatchObject({
+      type: 'analyst-run',
+      analystRunId: 'analysis-1',
+      findings: [{ finding_id: finding.finding_id }],
+    })
+    expect(trajectory.attempts[0]?.metadata?.reviewRequests).toEqual([
+      expect.objectContaining({
+        findingId: finding.finding_id,
+        severity: 'error',
+        analystId: 'failure-mode',
+      }),
+    ])
+    expect(trajectory.labels).toHaveLength(0)
+    expect(trajectory.outcome?.costUsd).toBe(0.02)
+    expect(trajectory.metadata?.analysis).toMatchObject({ reviewDecisions: [] })
+    expect(() => feedbackTrajectoryToOptimizerRow(trajectory)).toThrow(
+      new RegExp(`missing independent decisions.*${finding.finding_id}`),
+    )
+  })
+
+  it('rejects two findings with a run-level outcome but no per-finding decisions', () => {
+    const findings = [
+      analystFinding('The tool failed repeatedly', 'tool-3'),
+      analystFinding('The failure was never verified', 'tool-4'),
+    ]
+    const trajectory = analystRunToFeedbackTrajectory(analystRun(findings), {
+      task: { intent: 'Inspect traces.' },
+      outcome: { success: false, score: 0 },
+    })
+
+    expect(() => feedbackTrajectoryToOptimizerRow(trajectory)).toThrow(
+      /missing independent decisions/,
+    )
+  })
+
+  it('rejects incomplete decisions instead of filtering unreviewed findings', () => {
+    const findings = [
+      analystFinding('The tool failed repeatedly', 'tool-3'),
+      analystFinding('The failure was never verified', 'tool-4'),
+    ]
+    const incomplete = analystRunToFeedbackTrajectory(analystRun(findings), {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions: [findingDecision(findings[0]!.finding_id, 'confirmed')],
+    })
+    const complete = analystRunToFeedbackTrajectory(analystRun(findings), {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions: [
+        findingDecision(findings[0]!.finding_id, 'confirmed'),
+        findingDecision(findings[1]!.finding_id, 'rejected'),
+      ],
+    })
+
+    expect(() => feedbackTrajectoriesToOptimizerRows([complete, incomplete])).toThrow(
+      /missing independent decisions/,
+    )
+  })
+
+  it('rejects duplicate, unknown, and non-independent decisions at archival time', () => {
+    const finding = analystFinding('The tool failed repeatedly', 'tool-3')
+    const run = analystRun([finding])
+    const duplicate = findingDecision(finding.finding_id, 'confirmed')
+
+    expect(() =>
+      analystRunToFeedbackTrajectory(run, {
+        task: { intent: 'Inspect traces.' },
+        reviewDecisions: [duplicate, { ...duplicate, verdict: 'rejected' }],
+      }),
+    ).toThrow(/duplicate analyst review decision/)
+    expect(() =>
+      analystRunToFeedbackTrajectory(run, {
+        task: { intent: 'Inspect traces.' },
+        reviewDecisions: [findingDecision('unknown-finding', 'rejected')],
+      }),
+    ).toThrow(/unknown finding id "unknown-finding"/)
+    expect(() =>
+      analystRunToFeedbackTrajectory(run, {
+        task: { intent: 'Inspect traces.' },
+        reviewDecisions: [
+          {
+            ...findingDecision(finding.finding_id, 'confirmed'),
+            reviewerId: 'failure-mode',
+          },
+        ],
+      }),
+    ).toThrow(/reviewerId must differ from the generating analyst/)
+  })
+
+  it('checks stored decisions against the archived findings at export time', () => {
+    const finding = analystFinding('The tool failed repeatedly', 'tool-3')
+    const trajectory = analystRunToFeedbackTrajectory(analystRun([finding]), {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions: [findingDecision(finding.finding_id, 'confirmed')],
+    })
+    const artifact = trajectory.attempts[0]!.artifact as {
+      findings: AnalystFinding[]
+    }
+    artifact.findings.push(analystFinding('The failure was never verified', 'tool-4'))
+
+    expect(() => feedbackTrajectoryToOptimizerRow(trajectory)).toThrow(
+      /missing independent decisions/,
+    )
+  })
+
+  it('exports a completely reviewed confirmed and rejected finding set', () => {
+    const findings = [
+      analystFinding('The tool failed repeatedly', 'tool-3'),
+      analystFinding('The failure was never verified', 'tool-4'),
+    ]
+    const reviewDecisions = [
+      findingDecision(findings[0]!.finding_id, 'confirmed'),
+      findingDecision(findings[1]!.finding_id, 'rejected'),
+    ]
+    const trajectory = analystRunToFeedbackTrajectory(analystRun(findings), {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions,
+      outcome: { success: false, score: 0.9 },
+    })
+
+    expect(feedbackTrajectoryToOptimizerRow(trajectory)).toMatchObject({
+      labelKinds: ['approve', 'reject'],
+      score: 0.5,
+      metadata: {
+        analystReview: {
+          findingIds: findings.map((finding) => finding.finding_id),
+          decisions: reviewDecisions,
+        },
+      },
+    })
+  })
+
+  it('requires independent clean confirmation before exporting a zero-finding run', () => {
+    const raw = analystRunToFeedbackTrajectory(analystRun([]), {
+      task: { intent: 'Inspect traces.' },
+      labels: [
+        {
+          source: 'environment',
+          kind: 'approve',
+          value: true,
+          createdAt: '2026-01-01T00:00:03.000Z',
+        },
+      ],
+      outcome: { success: true, score: 1 },
+    })
+    expect(() => feedbackTrajectoryToOptimizerRow(raw)).toThrow(
+      /zero-finding analyst run requires one independent confirmed_clean decision/,
+    )
+
+    const reviewed = analystRunToFeedbackTrajectory(analystRun([]), {
+      task: { intent: 'Inspect traces.' },
+      reviewDecisions: [cleanDecision()],
+    })
+    expect(feedbackTrajectoryToOptimizerRow(reviewed)).toMatchObject({
+      labelKinds: ['approve'],
+      score: 1,
+      metadata: {
+        analystReview: {
+          findingIds: [],
+          decisions: [cleanDecision()],
+        },
+      },
+    })
+  })
+
   it('turns control runs into stable feedback trajectories for optimization', () => {
     const run: ControlRunResult<{ count: number }, { type: 'increment' }, { count: number }> = {
       intent: 'make count positive',
@@ -186,5 +370,56 @@ function attempt(id: string): FeedbackAttempt {
     artifactType: 'plan',
     artifact: { title: 'draft' },
     createdAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function analystFinding(claim: string, spanId: string): AnalystFinding {
+  return makeFinding({
+    analyst_id: 'failure-mode',
+    area: 'failure-mode',
+    claim,
+    severity: 'high',
+    confidence: 0.9,
+    evidence_refs: [{ kind: 'span', uri: `trace://run/span/${spanId}` }],
+  })
+}
+
+function analystRun(findings: AnalystFinding[]): AnalystRunResult {
+  return {
+    run_id: 'analysis-1',
+    correlation_id: 'correlation-1',
+    started_at: '2026-01-01T00:00:00.000Z',
+    ended_at: '2026-01-01T00:00:02.000Z',
+    findings,
+    per_analyst: [],
+    total_cost_usd: 0.02,
+    total_cost_provenance: { kind: 'observed', usd: 0.02 },
+  }
+}
+
+function findingDecision(
+  findingId: string,
+  verdict: 'confirmed' | 'rejected',
+): Extract<AnalystReviewDecision, { findingId: string }> {
+  return {
+    findingId,
+    verdict,
+    source: 'user',
+    reviewerId: 'reviewer-1',
+    reviewId: 'review-1',
+    reason:
+      verdict === 'confirmed' ? 'The cited span proves the claim.' : 'The span contradicts it.',
+    decidedAt: '2026-01-01T00:00:03.000Z',
+  }
+}
+
+function cleanDecision(): Extract<AnalystReviewDecision, { verdict: 'confirmed_clean' }> {
+  return {
+    verdict: 'confirmed_clean',
+    source: 'environment',
+    reviewerId: 'trace-check-1',
+    reviewId: 'review-clean-1',
+    reason: 'Independent checks found no reportable failure.',
+    decidedAt: '2026-01-01T00:00:03.000Z',
   }
 }

@@ -11,9 +11,8 @@ import {
 import { computeTraceMetrics } from './behavioral-metrics'
 import type { TraceAnalystSpan } from './types'
 
-// A fixture shaped like the real 530b157_1 AppWorld trace where our Ax-RLM
-// returned 0 findings and HALO produced its four behavioral diagnoses:
-//   inputs 671→8776, outputs 157→75, 7× world.execute, no self-verification.
+// Suboptimal trace: inputs 671→8776, outputs 157→75,
+// 7× world.execute, and no self-verification.
 function llmSpan(step: number, inTok: number, outTok: number): TraceAnalystSpan {
   return {
     trace_id: 't1',
@@ -130,7 +129,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(metrics.inputTokenTrajectory).toEqual([100])
   })
 
-  it('fires all four HALO-class signals on the suboptimal-but-successful trace', () => {
+  it('fires all four arithmetic signals on the suboptimal-but-successful trace', () => {
     const codes = computeTraceMetrics(fixture530())
       .signals.map((s) => s.code)
       .sort()
@@ -606,8 +605,8 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
   })
 })
 
-describe('deriveEfficiencyFindings — the 0→4, any-model flip', () => {
-  it('emits 4 structured findings matching HALO, confidence 1, with auditable evidence', () => {
+describe('deriveEfficiencyFindings', () => {
+  it('emits 4 structured findings with confidence 1 and exact evidence', () => {
     const findings = deriveEfficiencyFindings(computeTraceMetrics(fixture530()), {
       producedAt: '2026-01-01T00:00:00.000Z',
     })

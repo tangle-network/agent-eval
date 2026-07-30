@@ -170,8 +170,13 @@ try {
       } from '@tangle-network/agent-eval'
       import {
         RawAnalystFindingSchema,
+        agentRxBenchmarkCase,
+        agentRxPredictionsToFindings,
+        codeTraceBenchCase,
+        codeTracerPredictionsToFindings,
+        traceStoreEvidenceResolver,
+        type AnalystBenchmarkCase,
         type RawAnalystFinding,
-        type TraceAnalystGolden,
       } from '@tangle-network/agent-eval/analyst'
       import {
         type CostLedgerHandle as ContractCostLedgerHandle,
@@ -317,17 +322,46 @@ try {
         evidence: [{ uri: 'artifact://current' }],
         confidence: 1,
       })
-      const golden: TraceAnalystGolden = {
-        question: 'find corroborated failures',
-        expected: [{
-          severity: 'high',
-          claim: 'failure',
-          evidence: [
-            { uri: 'span://primary' },
-            { uri: 'span://corroborating' },
-          ],
+      const analystCase: AnalystBenchmarkCase<string> = {
+        id: 'corroborated-failure',
+        input: 'trace://failure',
+        expectedIssues: [{
+          id: 'failure',
+          evidence: [{ uri: 'span://primary' }, { uri: 'span://corroborating' }],
+          evidenceMode: 'all',
+          criticalEvidence: [{ uri: 'span://primary' }],
         }],
+        labeledEvidence: [{ uri: 'span://primary' }, { uri: 'span://corroborating' }],
       }
+      const agentRxCase = agentRxBenchmarkCase({
+        trajectory_id: 'agent-rx',
+        failures: [{
+          failure_id: 'failure-1',
+          step_number: 1,
+          step_reason: 'failed',
+          failure_category: 'System Failure',
+        }],
+        root_cause_failure_id: 'failure-1',
+      }, 'trajectory')
+      const codeTraceCase = codeTraceBenchCase({
+        traj_id: 'code-trace',
+        agent: 'agent',
+        model: 'model',
+        task_name: 'task',
+        step_count: 1,
+        incorrect_stages: [{ stage_id: 1, incorrect_step_ids: [1] }],
+      }, 'trajectory')
+      const agentRxFindings = agentRxPredictionsToFindings('agent-rx', {
+        failure_case: 9,
+        step_number: 1,
+      })
+      const codeTraceFindings = codeTracerPredictionsToFindings('code-trace', [{
+        stage_id: 1,
+        incorrect_step_ids: [1],
+      }])
+      const evidenceResolver = traceStoreEvidenceResolver<{ traceStore: TraceAnalysisStore }>(
+        (input) => input.traceStore,
+      )
       const runs: RunRecord[] = otlpToRunRecords('{}', {
         experimentId: 'consumer',
         candidateId: 'candidate',
@@ -422,7 +456,12 @@ try {
         canonicalChat,
         canonicalJudge,
         rawFinding,
-        golden,
+        analystCase,
+        agentRxCase,
+        agentRxFindings,
+        codeTraceCase,
+        codeTraceFindings,
+        evidenceResolver,
         report,
         terminalOutcome,
         taskScore,

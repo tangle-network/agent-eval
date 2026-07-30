@@ -355,7 +355,8 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 ## Start From Existing Runs
 
 You do not need a runnable agent to analyze data you already captured.
-Use `analyzeRuns()` for `RunRecord[]`, or use the feedback and OpenTelemetry adapters to normalize existing data first.
+Use `analyzeRuns()` for `RunRecord[]`.
+For traces, run a registry of built-in or custom analysts, measure it on labeled issues and exact span locations, then turn only reviewed findings into eval data.
 
 See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md), and [trace analysis](./docs/trace-analysis.md).
 
@@ -368,7 +369,7 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 | `@tangle-network/agent-eval/profile-cell` | Create and validate portable agent-profile identities. |
 | `@tangle-network/agent-eval/ledger-core` | Generic hash-chained append-only journal: idempotent append, chain verification, trusted-head pinning, replay-to-projection, cross-process locking. |
 | `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
-| `@tangle-network/agent-eval/analyst` | Model-assisted failure analysis. |
+| `@tangle-network/agent-eval/analyst` | Built-in and custom trace analysts, labeled comparison, costs, and reports. |
 | `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
 | `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |

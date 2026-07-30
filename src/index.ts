@@ -84,7 +84,6 @@ export {
   createTraceAnalystKind,
   renderPriorFindings,
   renderUpstreamFindings,
-  type TraceAnalystGolden,
   type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
 export {
@@ -222,6 +221,10 @@ export {
 export type { ExecutorConfig } from './executor'
 export { executeScenario } from './executor'
 export type {
+  AnalystFeedbackTrajectoryOptions,
+  AnalystReviewDecision,
+  AnalystReviewRequest,
+  AnalystReviewSource,
   FeedbackArtifactType,
   FeedbackAttempt,
   FeedbackLabel,
@@ -241,6 +244,8 @@ export type {
   ProposedSideEffect,
 } from './feedback-trajectory'
 export {
+  analystFindingsToReviewRequests,
+  analystRunToFeedbackTrajectory,
   assignFeedbackSplit,
   controlRunToFeedbackTrajectory,
   createFeedbackTrajectory,

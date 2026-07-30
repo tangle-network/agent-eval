@@ -424,6 +424,8 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
 
   protected abstract readBuffer(): Promise<Buffer>
 
+  protected abstract sourcePath(): string
+
   private async index(): Promise<DatasetIndex> {
     if (!this.indexPromise) {
       this.indexPromise = this.buildIndex()
@@ -437,8 +439,10 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
 
     const byTrace = new Map<string, TraceIndexEntry>()
     let cursor = 0
+    let lineNumber = 0
     let sinceYield = 0
     while (cursor < buf.length) {
+      lineNumber += 1
       // Yield to the event loop every INDEX_YIELD_LINES lines so a huge
       // file doesn't monopolise the thread for the whole index build.
       if (++sinceYield >= INDEX_YIELD_LINES) {
@@ -459,14 +463,16 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
       let parsed: unknown
       try {
         parsed = JSON.parse(lineSlice)
-      } catch {
-        // Skip malformed lines silently. The agent shouldn't see them
-        // but we don't want one bad line to nuke an entire dataset.
-        continue
+      } catch (cause) {
+        throw new TraceFileMalformedError(this.sourcePath(), lineNumber, lineOffset, cause)
       }
-      if (!parsed || typeof parsed !== 'object') continue
+      if (!parsed || typeof parsed !== 'object') {
+        throw new TraceFileMalformedError(this.sourcePath(), lineNumber, lineOffset)
+      }
       const span = projectOtlpFlatLine(parsed as Record<string, unknown>)
-      if (!span) continue
+      if (!span) {
+        throw new TraceFileMalformedError(this.sourcePath(), lineNumber, lineOffset)
+      }
 
       let entry = byTrace.get(span.trace_id)
       if (!entry) {
@@ -759,6 +765,10 @@ export class OtlpFileTraceStore extends BufferedOtlpTraceStore {
     }
     return readFile(this.path)
   }
+
+  protected sourcePath(): string {
+    return this.path
+  }
 }
 
 class OtlpBufferTraceStore extends BufferedOtlpTraceStore {
@@ -772,6 +782,19 @@ class OtlpBufferTraceStore extends BufferedOtlpTraceStore {
   protected async readBuffer(): Promise<Buffer> {
     return this.source
   }
+
+  protected sourcePath(): string {
+    return '<memory>'
+  }
+}
+
+/** Build the bounded trace store directly from OpenInference JSONL text. */
+export function otlpTextToTraceAnalysisStore(
+  text: string,
+  opts: ToolSpansToTraceAnalysisStoreOptions = {},
+): TraceAnalysisStore {
+  if (!text.trim()) throw new CaptureIntegrityError('OTLP trace text must not be empty')
+  return new OtlpBufferTraceStore(Buffer.from(text, 'utf8'), opts)
 }
 
 /** Missing tool spans cannot distinguish a tool-free run from broken capture. */
@@ -894,6 +917,18 @@ export class TraceFileTooLargeError extends Error {
     this.path = path
     this.size_bytes = size_bytes
     this.max_bytes = max_bytes
+  }
+}
+export class TraceFileMalformedError extends CaptureIntegrityError {
+  readonly path: string
+  readonly line_number: number
+  readonly byte_offset: number
+
+  constructor(path: string, line_number: number, byte_offset: number, cause?: unknown) {
+    super(`malformed trace row in ${path} at line ${line_number}, byte ${byte_offset}`, { cause })
+    this.path = path
+    this.line_number = line_number
+    this.byte_offset = byte_offset
   }
 }
 export class TraceNotFoundError extends NotFoundError {
