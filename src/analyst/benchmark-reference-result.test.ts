@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { readAnalystBenchmarkArtifact } from './benchmark-command-result'
 import {
-  ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+  ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
+  ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION,
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
 } from './benchmark-implementation'
 
@@ -87,7 +88,7 @@ describe('CodeTraceBench GLM-5.2 reference result', () => {
       selectedCases: 32,
       protocolSha256: '166e399c9a93c9806b007273bf0b54078709389c52c6a33e3cbce0f554dab302',
       implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-      dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+      dependencyLockSha256: ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
       observations: 128,
       verificationAvailability: {
         cases: 32,
@@ -215,6 +216,32 @@ describe('CodeTraceBench GLM-5.2 reference result', () => {
     })
   })
 
+  it('proves the current dependency lock differs from the evidence lock by version stamp only', async () => {
+    const packagePath = fileURLToPath(new URL('../../package.json', import.meta.url))
+    const lockPath = fileURLToPath(new URL('../../pnpm-lock.yaml', import.meta.url))
+    const packageSource = await readFile(packagePath, 'utf8')
+    const currentVersion = JSON.parse(packageSource).version as string
+    const stampedSource = packageSource.replace(
+      `"version": "${currentVersion}"`,
+      `"version": "${ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION}"`,
+    )
+    const normalize = (value: string) => value.replace(/\r\n?/g, '\n')
+    const fileSha256 = (value: string) =>
+      createHash('sha256').update(normalize(value), 'utf8').digest('hex')
+    const recomputed = createHash('sha256')
+      .update(
+        JSON.stringify({
+          domain: 'agent-eval/public-analyst-benchmark/dependency-lock',
+          files: [
+            { path: 'package.json', sha256: fileSha256(stampedSource) },
+            { path: 'pnpm-lock.yaml', sha256: fileSha256(await readFile(lockPath, 'utf8')) },
+          ],
+        }),
+      )
+      .digest('hex')
+    expect(recomputed).toBe(ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256)
+  })
+
   it('binds the verification receipt to all three published results', async () => {
     const receipt = JSON.parse(await readFile(VERIFICATION_RECEIPT, 'utf8'))
     const digest = async (path: string) =>
@@ -248,7 +275,7 @@ describe('CodeTraceBench GLM-5.2 reference result', () => {
       },
       implementation: {
         sourceSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
-        dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
+        dependencyLockSha256: ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
       },
       failureProof: {
         parallelStart: {

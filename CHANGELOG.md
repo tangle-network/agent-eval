@@ -6,6 +6,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.138.0] - 2026-07-30 - exact analyst runs with sealed receipts
 
+### Fixed
+
+- A release version bump no longer invalidates the published analyst benchmark evidence.
+  The dependency-lock pin now tracks the current lockfiles, the evidence keeps its own creation-time digest and package version, and a test proves the two locks differ by the version stamp alone — a real dependency change still forces a new benchmark run or explicit retirement of the evidence.
+
 ### Added
 
 - `AnalystRegistry.runExact()` requires ordered analyst ids and an explicit value for every run-policy field.
