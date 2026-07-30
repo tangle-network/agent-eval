@@ -23,10 +23,16 @@
 
 import type { AxAIService, AxFunction } from '@ax-llm/ax'
 import { CostLedger } from '../cost-ledger'
+import { hashCanonical } from '../ledger-core/canonical'
 import { runTraceAnalysisLoop } from '../trace-analyst/loop'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { meterAxChatService } from './ax-cost-service'
 import { resolveAnalystModel } from './ax-service'
+import {
+  type ExactCapableAnalyst,
+  type ExactExecutionComponentIdentity,
+  snapshotExactExecutionComponentIdentity,
+} from './exact-types'
 import {
   evidenceRefsFromRawFinding,
   parseRawFinding,
@@ -35,7 +41,7 @@ import {
 } from './finding-signature'
 import { KIND_EXPECTED_SUBJECTS, parseFindingSubject } from './finding-subject'
 import { structureFindings } from './structure-findings'
-import type { Analyst, AnalystContext, AnalystCost, AnalystFinding } from './types'
+import type { AnalystContext, AnalystCost, AnalystFinding } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
@@ -86,6 +92,8 @@ export interface TraceAnalystKindSpec {
 export interface CreateTraceAnalystKindOpts {
   /** AxAIService bound at registration time. */
   ai: AxAIService
+  /** Required when this analyst is used by `runExact`; binds the effective AI service. */
+  aiIdentity?: ExactExecutionComponentIdentity
   /** Required unless `ai` was created by {@link createAnalystAi}. */
   model?: string
   /** Override the spec's `version` (e.g. when an optimizer has fitted a new prompt). */
@@ -113,7 +121,7 @@ export interface CreateTraceAnalystKindOpts {
 export function createTraceAnalystKind(
   spec: TraceAnalystKindSpec,
   opts: CreateTraceAnalystKindOpts,
-): Analyst<TraceAnalysisStore> {
+): ExactCapableAnalyst<TraceAnalysisStore> {
   rejectRemovedKindOptions(spec)
   const version = opts.versionSuffix ? `${spec.version}+${opts.versionSuffix}` : spec.version
   const model = resolveAnalystModel(opts.ai, opts.model)
@@ -122,14 +130,47 @@ export function createTraceAnalystKind(
     throw new TypeError('minimumEvidenceCitations must be a positive integer')
   }
   const settlementTimeoutMs = validateUsageSettlementTimeout(opts.settlementTimeoutMs)
+  const maxOutputTokens = spec.maxOutputTokens ?? 4096
+  const aiIdentity =
+    opts.aiIdentity === undefined
+      ? null
+      : snapshotExactExecutionComponentIdentity(
+          opts.aiIdentity,
+          'createTraceAnalystKind aiIdentity',
+        )
   return {
     id: spec.id,
     description: spec.description,
     inputKind: 'trace-store',
     cost: { ...spec.cost, settlement_timeout_ms: settlementTimeoutMs },
     version,
+    executionConfig: {
+      kind: 'trace-analyst',
+      model,
+      ai_identity: aiIdentity,
+      actor_description_digest: hashCanonical(spec.actorDescription.trim()),
+      max_subqueries: spec.subqueries?.maxCalls ?? 0,
+      max_parallel_subqueries: spec.subqueries?.maxParallel ?? 2,
+      max_turns: spec.maxTurns ?? 12,
+      max_runtime_chars: spec.maxRuntimeChars ?? 6000,
+      max_output_tokens: maxOutputTokens,
+      minimum_evidence_citations: minimumEvidenceCitations,
+      require_structured_findings: spec.requireStructuredFindings ?? false,
+      prepare_context: spec.prepareContext === undefined ? 'disabled' : 'version-bound',
+      post_process: spec.postProcess === undefined ? 'disabled' : 'version-bound',
+      recovery:
+        opts.recovery === undefined
+          ? null
+          : {
+              base_url: opts.recovery.baseUrl,
+              model: opts.recovery.model ?? model,
+              api_key_provided: opts.recovery.apiKey !== undefined,
+              fetch_implementation:
+                opts.recovery.fetchImpl === undefined ? 'global' : 'version-bound',
+            },
+      settlement_timeout_ms: settlementTimeoutMs,
+    },
     async analyze(store, ctx) {
-      const maxOutputTokens = spec.maxOutputTokens ?? 4096
       const costLedger = ctx.costLedger ?? new CostLedger(ctx.budgetUsd)
       const costTags = {
         ...(ctx.tags ?? {}),

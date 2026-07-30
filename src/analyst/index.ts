@@ -186,8 +186,25 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
-export type { DefineTraceAnalystOptions, TraceAnalystAnalyze } from './define'
+export type {
+  DefineExactTraceAnalystOptions,
+  DefineTraceAnalystOptions,
+  TraceAnalystAnalyze,
+} from './define'
 export { defineTraceAnalyst } from './define'
+export type {
+  ExactAnalystBudgetSnapshot,
+  ExactAnalystExecutionPlanSnapshot,
+  ExactAnalystRunCompletion,
+  ExactAnalystRunEvent,
+  ExactAnalystRunPolicySnapshot,
+  ExactAnalystRunResult,
+  ExactAnalystRunSummary,
+  ExactAnalystSnapshot,
+  ExactCapableAnalyst,
+  ExactExecutionComponentIdentity,
+  ExactExecutionComponentSnapshot,
+} from './exact-types'
 export type {
   RawAnalystEvidence,
   RawAnalystFinding,
@@ -247,9 +264,15 @@ export type {
   AnalystHooks,
   AnalystRegistryOptions,
   BudgetPolicy,
+  ExactAnalystBudgetPolicy,
+  ExactRegistryRunOpts,
   RegistryRunOpts,
 } from './registry'
-export { AnalystRegistry } from './registry'
+export {
+  AnalystRegistry,
+  assertExactRegistryRunOpts,
+  ExactAnalystRunExecutionError,
+} from './registry'
 export {
   type StructureFindingsOptions,
   type StructureFindingsResult,

@@ -15,6 +15,10 @@ describe('control-integrity analyst adapter', () => {
     }
     const registry = new AnalystRegistry()
     registry.register(CONTROL_INTEGRITY_ANALYST)
+    expect(CONTROL_INTEGRITY_ANALYST.executionConfig).toEqual({
+      kind: 'control-integrity',
+      produced_at_source: 'tags.producedAt-or-system-clock',
+    })
 
     const result = await registry.run(
       'run-1',

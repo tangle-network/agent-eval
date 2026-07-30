@@ -436,6 +436,8 @@ export function analystRunToFeedbackTrajectory(
           correlationId: archivedRun.correlation_id,
           analystIds,
           findings,
+          ...('execution_plan' in archivedRun ? { executionPlan: archivedRun.execution_plan } : {}),
+          ...('completion' in archivedRun ? { completion: archivedRun.completion } : {}),
         },
         createdAt,
         metadata: {

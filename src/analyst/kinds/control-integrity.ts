@@ -3,13 +3,8 @@ import {
   type SupervisorRunIntegrityEvidence,
 } from '../../supervisor-run/integrity'
 import type { SupervisorRunSources, SupervisorRunTree } from '../../supervisor-run/types'
-import {
-  type Analyst,
-  type AnalystContext,
-  type AnalystFinding,
-  type EvidenceRef,
-  makeFinding,
-} from '../types'
+import type { ExactCapableAnalyst } from '../exact-types'
+import { type AnalystContext, type AnalystFinding, type EvidenceRef, makeFinding } from '../types'
 
 const ANALYST_ID = 'control-integrity'
 
@@ -59,13 +54,19 @@ export function emitControlIntegrityFindings(
 }
 
 /** Deterministic Analyst adapter for `SupervisorRunSources | SupervisorRunTree`. */
-export class ControlIntegrityAnalyst implements Analyst<SupervisorRunSources | SupervisorRunTree> {
+export class ControlIntegrityAnalyst
+  implements ExactCapableAnalyst<SupervisorRunSources | SupervisorRunTree>
+{
   readonly id = ANALYST_ID
   readonly description =
     'Deterministic supervisor-run integrity checks with explicit unavailable evidence.'
   readonly inputKind = 'custom' as const
   readonly cost = { kind: 'deterministic' as const, est_usd_per_run: 0 }
   readonly version = '2.0.0'
+  readonly executionConfig = {
+    kind: 'control-integrity',
+    produced_at_source: 'tags.producedAt-or-system-clock',
+  } as const
 
   async analyze(
     input: SupervisorRunSources | SupervisorRunTree,
