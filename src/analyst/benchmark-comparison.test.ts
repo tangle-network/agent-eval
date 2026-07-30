@@ -137,6 +137,28 @@ describe('compareAnalystRunners', () => {
     })
   })
 
+  it('does not invent critical-step measurements for failed cases without those labels', () => {
+    const benchmark = result()
+    for (const observation of benchmark.observations) {
+      if (observation.caseId === 'clean') {
+        observation.error = { class: 'Error', message: 'analysis failed' }
+      }
+    }
+
+    const comparison = compareAnalystRunners(benchmark, {
+      baselineRunnerId: 'baseline',
+      candidateRunnerId: 'candidate',
+      resamples: 100,
+    })
+
+    expect(
+      comparison.metrics.find((metric) => metric.metric === 'criticalStepAccuracy'),
+    ).toMatchObject({
+      pairedCases: 1,
+      pairedObservations: 1,
+    })
+  })
+
   it('resamples independent cases instead of treating repetitions as new evidence', () => {
     const benchmark = result()
     const badRows = benchmark.observations.filter((observation) => observation.caseId === 'bad')

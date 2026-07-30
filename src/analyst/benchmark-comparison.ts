@@ -189,6 +189,9 @@ function metricValue(
       metric === 'f1' ||
       metric === 'criticalStepAccuracy')
   ) {
+    if (metric === 'criticalStepAccuracy' && observation.score.criticalStepAccuracy === null) {
+      return null
+    }
     return 0
   }
   if (
