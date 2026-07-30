@@ -62,6 +62,7 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   out.push('')
   out.push(`- Run: \`${r.runRef}\``)
   out.push(`- Supervisor: \`${showMeasured(r.supervisorId)}\``)
+  out.push(`- Supervisor profile: \`${showMeasured(r.supervisorProfileDigest)}\``)
   out.push(`- Generated: ${r.generatedAt}`)
   out.push('')
 
@@ -161,12 +162,12 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   out.push('')
   if (!isUnavailable(e.perWorker) && e.perWorker.length > 0) {
     out.push(
-      '| Worker id | Label | Role | Wall | Tokens in | Tokens out | Patch bytes | Verify passed | Score |',
+      '| Worker id | Label | Role | Runtime | Profile digest | Status | Failure | Infra | Wall | Tokens in | Tokens out | Patch bytes | Verify passed | Score |',
     )
-    out.push('|---|---|---|---:|---:|---:|---:|---|---:|')
+    out.push('|---|---|---|---|---|---|---|---|---:|---:|---:|---:|---|---:|')
     for (const w of e.perWorker) {
       out.push(
-        `| ${w.workerId === null ? 'unavailable — legacy label join' : `\`${w.workerId}\``} | \`${w.worker}\` | ${w.role ?? 'unavailable — no journal join'} | ${w.wallMs === null ? 'unavailable — no start/finish pair' : fmtMs(w.wallMs)} | ${w.tokensIn ?? 'unavailable — store does not attribute tokens per worker'} | ${w.tokensOut ?? 'unavailable — store does not attribute tokens per worker'} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no verdict' : String(w.passed)} | ${w.score ?? 'unavailable — no numeric score'} |`,
+        `| ${w.workerId === null ? 'unavailable — legacy label join' : `\`${w.workerId}\``} | \`${w.worker}\` | ${w.role ?? 'unavailable — source recorded no role'} | ${w.runtime ?? 'unavailable — source recorded no runtime'} | ${w.profileDigest === null ? 'unavailable — source recorded no profile digest' : `\`${w.profileDigest}\``} | ${w.status ?? 'unavailable — no terminal event'} | ${w.failure ?? 'none recorded'} | ${w.infra ?? 'unavailable'} | ${w.wallMs === null ? 'unavailable — no spawn/finish pair' : fmtMs(w.wallMs)} | ${w.tokensIn ?? 'unavailable — store does not attribute tokens per worker'} | ${w.tokensOut ?? 'unavailable — store does not attribute tokens per worker'} | ${w.patchBytes ?? 'unavailable — no worker patch file'} | ${w.passed === null ? 'unavailable — no verdict' : String(w.passed)} | ${w.score ?? 'unavailable — no numeric score'} |`,
       )
     }
     out.push('')

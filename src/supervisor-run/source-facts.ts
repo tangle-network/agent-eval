@@ -10,9 +10,12 @@ interface JournalEvent {
   parent?: unknown
   label?: unknown
   role?: unknown
+  profileDigest?: unknown
+  runtime?: unknown
   status?: unknown
   verdict?: unknown
   reason?: unknown
+  infra?: unknown
   seq?: unknown
   at?: unknown
   spend?: unknown
@@ -116,7 +119,12 @@ export interface SpawnRow {
   id: string
   parent: string | null
   label: string
-  role: SupervisorRunNodeRole
+  /** Null when the source did not explicitly record a role. */
+  role: SupervisorRunNodeRole | null
+  /** Exact canonical AgentProfile digest, when the source recorded one. */
+  profileDigest: string | null
+  /** Exact execution runtime tag, when the source recorded one. */
+  runtime: string | null
   at: number | null
   /** False when identity, parentage, label, or role was malformed. */
   valid: boolean
@@ -135,6 +143,10 @@ export interface CloseRow {
   score: number | null
   /** The verdict exactly as the journal carried it. */
   rawVerdict: unknown | null
+  /** Terminal failure detail exactly as recorded. */
+  reason: string | null
+  /** Whether Runtime classified the failure as infrastructure-caused. */
+  infra: boolean | null
   at: number | null
   spend: SpendLike
   /** False when the close event carried no spend object — not "spent nothing". */
@@ -204,6 +216,7 @@ export interface SupervisorTreeFacts {
     /** False when no metered event carried cache counters — not "nothing cached". */
     hasCache: boolean
     usd: number
+    /** Root-attributed metered events only — exactly the rows summed into this object. */
     meteredCount: number
   }
   readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
@@ -228,6 +241,13 @@ export interface SupervisorTreeFacts {
    * separate from `journalInvalidRows` because these rows were understood, not rejected.
    */
   readonly journalIgnoredRowsByKind: Readonly<Record<string, number>>
+  /**
+   * Every metered row read, root-attributed or not. `brain.meteredCount` covers only the
+   * root's own spend; a nested driver's metered rows are understood but reach this tree
+   * through that driver's settled close, so this total is what keeps row accounting exact:
+   * journalRows = spawns + closes + journalMeteredRows + ignored + journalInvalidRows.
+   */
+  readonly journalMeteredRows: number
   /** Which dialect(s) the journal's rows were actually written in. */
   readonly journalDialect: SupervisorJournalDialect
   /** Parsed once with the journal and worker artifacts. */
@@ -383,6 +403,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   let unreadableRows = 0
   const ignoredByKind = new Map<string, number>()
   const dialectsSeen = new Set<JournalRowDialect>()
+  const meteredRows: Array<{ id: string; spend: SpendLike }> = []
   for (const [sourceRow, row] of events.entries()) {
     const reading = readJournalRow(row)
     if (reading.outcome === 'unreadable') {
@@ -413,12 +434,17 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       if (ev.role !== undefined && ev.role !== 'supervisor' && ev.role !== 'worker') {
         invalidFields.push('role')
       }
-      const role: SupervisorRunNodeRole =
-        ev.role === 'supervisor' || ev.role === 'worker'
-          ? ev.role
-          : parent === null
-            ? 'supervisor'
-            : 'worker'
+      if (
+        ev.profileDigest !== undefined &&
+        !(typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0)
+      ) {
+        invalidFields.push('profileDigest')
+      }
+      if (ev.runtime !== undefined && !(typeof ev.runtime === 'string' && ev.runtime.length > 0)) {
+        invalidFields.push('runtime')
+      }
+      const role: SupervisorRunNodeRole | null =
+        ev.role === 'supervisor' || ev.role === 'worker' ? ev.role : null
       const valid = invalidFields.length === 0
       if (valid && parent === null && rootId === null) rootId = id
       spawns.push({
@@ -427,6 +453,11 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         parent,
         label,
         role,
+        profileDigest:
+          typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0
+            ? ev.profileDigest
+            : null,
+        runtime: typeof ev.runtime === 'string' && ev.runtime.length > 0 ? ev.runtime : null,
         at: ms(ev.at),
         valid,
         invalidFields,
@@ -441,6 +472,8 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         valid: verdict.valid,
         score: verdict.score,
         rawVerdict: verdict.raw,
+        reason: typeof ev.reason === 'string' ? ev.reason : null,
+        infra: typeof ev.infra === 'boolean' ? ev.infra : null,
         at: ms(ev.at),
         spend: readSpend(ev.spent),
         hasSpend: asRecord(ev.spent).tokens !== undefined,
@@ -454,6 +487,8 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         valid: null,
         score: null,
         rawVerdict: typeof ev.reason === 'string' ? ev.reason : null,
+        reason: typeof ev.reason === 'string' ? ev.reason : null,
+        infra: null,
         at: ms(ev.at),
         spend: {
           tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, hasCache: false },
@@ -462,14 +497,9 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         hasSpend: false,
       })
     } else if (kind === 'metered') {
-      const s = readSpend(ev.spend)
-      brainIn += s.tokens.input
-      brainOut += s.tokens.output
-      brainCacheRead += s.tokens.cacheRead
-      brainCacheWrite += s.tokens.cacheWrite
-      brainHasCache = brainHasCache || s.tokens.hasCache
-      brainUsd += s.usd
-      meteredCount += 1
+      // Deferred: rows are attributed after the loop, once the root is known, so a metered
+      // event that precedes the root spawn is never misattributed.
+      meteredRows.push({ id, spend: readSpend(ev.spend) })
     } else {
       // `TREE_EVENT_KINDS` and these branches are one contract: adding a kind to the set
       // without a branch here would silently drop its rows, which is the defect this
@@ -477,6 +507,20 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       const unhandled: never = kind
       throw new Error(`unhandled journal event kind ${JSON.stringify(unhandled)}`)
     }
+  }
+
+  // Only root-attributed metered events are the supervisor brain's own spend. A nested
+  // driver meters under its own id; its spend reaches this tree through its settled close,
+  // so folding it into the brain here would count the same tokens twice.
+  for (const row of meteredRows) {
+    if (rootId === null || row.id !== rootId) continue
+    brainIn += row.spend.tokens.input
+    brainOut += row.spend.tokens.output
+    brainCacheRead += row.spend.tokens.cacheRead
+    brainCacheWrite += row.spend.tokens.cacheWrite
+    brainHasCache = brainHasCache || row.spend.tokens.hasCache
+    brainUsd += row.spend.usd
+    meteredCount += 1
   }
 
   const workerSpawns = spawns.filter((s) => s.valid && s.id !== rootId)
@@ -599,12 +643,8 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   }
 
   const startedAt = ms(state?.startedAt) ?? spawns[0]?.at ?? null
-  const completedAt =
-    ms(state?.completedAt) ??
-    [...spawns.map((s) => s.at), ...closes.map((c) => c.at)].reduce<number | null>(
-      (acc, t) => (t === null ? acc : acc === null ? t : Math.max(acc, t)),
-      null,
-    )
+  const rootClose = rootId === null ? null : closes.find((close) => close.id === rootId)
+  const completedAt = ms(state?.completedAt) ?? rootClose?.at ?? null
 
   return {
     rootId,
@@ -627,6 +667,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     journalInvalidRows: parsedJournal.invalidRows + unreadableRows,
     journalMalformedJsonRows: parsedJournal.invalidRows,
     journalIgnoredRowsByKind: Object.fromEntries(ignoredByKind),
+    journalMeteredRows: meteredRows.length,
     journalDialect: summarizeDialect(dialectsSeen),
     state,
     startedAt,

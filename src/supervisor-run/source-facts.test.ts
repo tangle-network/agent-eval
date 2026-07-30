@@ -53,13 +53,14 @@ const enveloped = jsonl([
 const unwrapped = jsonl(flatEvents)
 
 /** Every non-empty line lands in exactly one bucket — the invariant that makes the
- *  counts trustworthy rather than merely present. */
+ *  counts trustworthy rather than merely present. `journalMeteredRows` is the bucket, not
+ *  `brain.meteredCount`: the brain sums only root-attributed metered rows. */
 function accountedRows(facts: SupervisorTreeFacts): number {
   const ignored = Object.values(facts.journalIgnoredRowsByKind).reduce((a, b) => a + b, 0)
   return (
     facts.spawns.length +
     facts.closes.length +
-    facts.brain.meteredCount +
+    facts.journalMeteredRows +
     ignored +
     facts.journalInvalidRows
   )
@@ -204,6 +205,28 @@ describe('parseSupervisorTree journal dialects', () => {
     expect(facts.journalIgnoredRowsByKind).toEqual({ begin: 1, waiting: 1, woken: 1 })
     // Understood but not modeled is not the same claim as malformed.
     expect(facts.journalInvalidRows).toBe(0)
+    expect(accountedRows(facts)).toBe(facts.journalRows)
+  })
+
+  it('keeps a non-root metered row accounted without folding it into the brain', () => {
+    const nested = jsonl([
+      ...flatEvents,
+      {
+        kind: 'metered',
+        id: CHILD,
+        spend: { tokens: { input: 7, output: 8 }, usd: 0.1 },
+        seq: 1,
+        at: '2026-07-31T16:59:41.000Z',
+      },
+    ])
+    const facts = parse(nested)
+
+    expect(facts.journalMeteredRows).toBe(2)
+    // A non-root node's metered spend reaches this tree through its settled close, so the
+    // brain sums only the root's rows — the same tokens are never counted twice.
+    expect(facts.brain.meteredCount).toBe(1)
+    expect(facts.brain.tokensIn).toBe(10)
+    expect(facts.brain.usd).toBe(0.5)
     expect(accountedRows(facts)).toBe(facts.journalRows)
   })
 })

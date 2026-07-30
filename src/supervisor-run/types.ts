@@ -147,6 +147,8 @@ export interface SupervisorRunSources {
   readonly journal: string | null
   /** Per-brain-call tap (JSONL): finish_reason, completion tokens, requested max tokens. */
   readonly brainLog: string | null
+  /** Source-specific reason `brainLog` is absent. */
+  readonly brainLogMissingReason?: string
   /** Supervisor state document (JSON). */
   readonly state: string | null
   /** Supervisor progress stream (JSONL). */
@@ -297,6 +299,16 @@ export interface PerWorkerRow {
   readonly worker: string
   /** Explicit journal role after the worker source was joined to its spawn. */
   readonly role: SupervisorRunNodeRole | null
+  /** Exact execution runtime tag from the spawn event. */
+  readonly runtime: string | null
+  /** Exact canonical AgentProfile digest from the spawn event. */
+  readonly profileDigest: string | null
+  /** Terminal lifecycle status exactly as recorded. */
+  readonly status: string | null
+  /** Terminal failure detail exactly as recorded. */
+  readonly failure: string | null
+  /** Runtime infrastructure classification, when recorded. */
+  readonly infra: boolean | null
   readonly wallMs: number | null
   /** `null` = this store does not attribute tokens per worker (NOT "zero tokens"). */
   readonly tokensIn: number | null
@@ -371,6 +383,7 @@ export interface SupervisorRunReport {
   readonly instanceId: string | null
   readonly arm: string | null
   readonly supervisorId: Measured<string>
+  readonly supervisorProfileDigest: Measured<string>
   readonly generatedAt: string
   readonly orchestration: OrchestrationMetrics
   readonly decision: DecisionMetrics
@@ -430,6 +443,7 @@ export type SupervisorRunTreeGapCode =
   | 'root-spawn-unavailable'
   | 'root-reward-unavailable'
   | 'child-reward-unavailable'
+  | 'node-role-unavailable'
   | 'node-schema-invalid'
 
 export interface SupervisorRunTreeGap {
