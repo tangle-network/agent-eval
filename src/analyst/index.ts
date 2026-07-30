@@ -76,7 +76,37 @@ export {
   normalizeAgentRxCategory,
   normalizeBenchmarkLabel,
 } from './benchmark-datasets'
+export type {
+  PreparedPublicAnalystBenchmark,
+  PublicAnalystBenchmarkDataset,
+  PublicAnalystBenchmarkModelConfig,
+  PublicBenchmarkDistributions,
+  PublicBenchmarkSelectionReport,
+  PublicBenchmarkValueDistribution,
+} from './benchmark-real-model'
+export {
+  adaptPublicBenchmarkFindings,
+  CODE_TRACE_BENCH_ANALYST_PROMPT,
+  createPublicBenchmarkModelRunner,
+  emptyPublicBenchmarkRunner,
+  loadPublicBenchmarkRows,
+  preparePublicAnalystBenchmark,
+  publicBenchmarkDistributions,
+  publicBenchmarkSelectionReport,
+  selectPublicBenchmarkRows,
+} from './benchmark-real-model'
 export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+export type {
+  LoadedVerificationArtifacts,
+  VerificationArtifactFile,
+  VerificationArtifactManifest,
+  VerificationArtifactRole,
+} from './benchmark-verification-artifacts'
+export {
+  appendVerificationArtifactsToOtlp,
+  DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
+  loadCodeTraceVerificationArtifacts,
+} from './benchmark-verification-artifacts'
 export type {
   ChatCallOpts,
   ChatClient,

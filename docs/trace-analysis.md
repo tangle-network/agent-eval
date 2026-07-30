@@ -330,6 +330,77 @@ Pass `stepUri` when your trace store uses another URI scheme.
 AgentRx `Report.to_dict()` judge votes reduce to the upstream majority failure type and Python-rounded mean step, and direct `failures` arrays use the same reduction.
 `failure_case: 0` produces no finding, which scores as a missed root cause on AgentRx's failed trajectories.
 
+## Run A Real-Model Public Benchmark
+
+`agent-eval analyst-benchmark` runs the existing label adapters and `runAnalystBenchmark()` with two runners: an empty-finding baseline and a benchmark-specific model analyst.
+The CodeTraceBench runner emits one prediction per incorrect step.
+The AgentRx runner emits one taxonomy label and one root-cause step.
+The generic `failure-mode` analyst is not used because its `failure-mode` area does not match either public task.
+
+Convert each public trajectory into one OTLP JSONL file first.
+`@tangle-network/traces` preserves the assistant step ids used by both adapters.
+Keep the extracted CodeTraceBench artifact tree intact because each row's `source_relpath` locates its final test output.
+
+```ts
+import { readFile, writeFile } from 'node:fs/promises'
+import {
+  chatTrajectoryToSpans,
+  serializeSpans,
+} from '@tangle-network/traces'
+
+const row = JSON.parse(await readFile('label.json', 'utf8'))
+const trajectory = JSON.parse(await readFile('agent-logs/mini.traj.json', 'utf8'))
+const spans = chatTrajectoryToSpans(trajectory, { traceId: row.traj_id })
+await writeFile('codetrace-otlp/case.jsonl', serializeSpans(spans))
+```
+
+Run a bounded comparison through any OpenAI-compatible endpoint.
+The key is read from the named environment variable and is not written to the result.
+
+```bash
+export CLI_BRIDGE_BEARER="<read from the running bridge environment>"
+
+agent-eval analyst-benchmark \
+  --dataset codetracebench \
+  --labels .artifacts/bench_manifest.verified.jsonl \
+  --trace-dir .artifacts/codetrace-otlp \
+  --artifact-dir .artifacts/codetrace-extracted \
+  --out .artifacts/codetrace-glm52 \
+  --revision ae5926b496f2f7f4c3f6337c0ad6150311d3650c5f3bd00660556b3e41739505 \
+  --split verified \
+  --base-url http://127.0.0.1:3355/v1 \
+  --api-key-env CLI_BRIDGE_BEARER \
+  --model opencode/zai-coding-plan/glm-5.2 \
+  --limit 20 \
+  --seed 7 \
+  --concurrency 4
+```
+
+The trace directory may use any filenames, but every JSONL file must contain exactly one trace.
+For CodeTraceBench, the artifact loader attaches final test output and result files as searchable `EVALUATOR` spans on the same case.
+`--artifact-dir` may be a shared extraction root with one directory per `traj_id`, or the extraction root for one archive.
+It prefers `panes/post-test.txt` over the duplicate `sessions/tests.log`, and also attaches `results.json`, `result.json`, `*_result.json`, and `*_metrics.json` when present.
+Each attached file records its role, path, byte count, span id, and SHA-256.
+Missing evidence roles are explicit.
+A case with no final test output or result stops before the model runner is constructed, so trajectory-only output is never scored as equivalent.
+
+Before the first model call, the command also checks that every selected label has a matching `step-<n>` span.
+It refuses a missing dataset revision, implicit all-case run, duplicate trajectory id, multi-trace file, missing step, oversized evidence, or existing `result.json`.
+The command consumes already-downloaded labels, normalized traces, and extracted artifacts.
+Dataset download, archive extraction, and trajectory conversion remain separate import steps.
+
+The output directory contains:
+
+- `result.json` with every observation, summary metric, comparison, error, latency, token counter, known cost, explicit unknown cost, selected case id, source digest, artifact digest, and case distribution.
+- `report.md` with the same run and selection distribution rendered for review.
+
+`--limit` uses deterministic hash selection, not stratified sampling.
+Limited runs are marked `representativeOfInput: false`.
+The result compares source and selected distributions for label class, agent, model, difficulty, and solved state.
+Only a full census of the supplied input is marked representative.
+
+AgentRx uses the same command with `--dataset agentrx` after obtaining its contact-gated label and trajectory files.
+
 ## Use Upstream Scorers
 
 Agent Eval adapts upstream evaluators instead of copying them.

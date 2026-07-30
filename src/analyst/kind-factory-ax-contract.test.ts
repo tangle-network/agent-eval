@@ -223,6 +223,7 @@ describe('createTraceAnalystKind Ax contract', () => {
           evidence: [
             { uri: 'finding://failure-123', excerpt: 'failure cluster' },
             { uri: 'event://trace-1/event-8', excerpt: 'runtime contradiction' },
+            { uri: 'trace://trace-1/span/step-4', excerpt: 'benchmark step' },
           ],
           confidence: 0.9,
         },
@@ -236,6 +237,7 @@ describe('createTraceAnalystKind Ax contract', () => {
     expect(findings[0]!.evidence_refs).toEqual([
       { kind: 'finding', uri: 'finding://failure-123', excerpt: 'failure cluster' },
       { kind: 'event', uri: 'event://trace-1/event-8', excerpt: 'runtime contradiction' },
+      { kind: 'span', uri: 'trace://trace-1/span/step-4', excerpt: 'benchmark step' },
     ])
   })
 

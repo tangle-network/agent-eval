@@ -112,6 +112,7 @@ function parseFindingWithSchema<T>(
 
 function evidenceKindFromUri(uri: string): EvidenceRef['kind'] {
   if (uri.startsWith('span://')) return 'span'
+  if (/^trace:\/\/[^/]+\/span\/[^/]+$/.test(uri)) return 'span'
   if (uri.startsWith('event://')) return 'event'
   if (uri.startsWith('finding://')) return 'finding'
   if (uri.startsWith('metric://')) return 'metric'

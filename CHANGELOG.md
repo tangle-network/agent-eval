@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Added
+
+- `agent-eval analyst-benchmark` compares an empty baseline with a real-model AgentRx or CodeTraceBench analyst through any OpenAI-compatible endpoint.
+  It requires an explicit case limit and immutable dataset revision, validates labeled spans before paid work, uses benchmark-specific output adapters, and writes complete JSON plus Markdown results.
+  CodeTraceBench cases also require hashed final verification artifacts, and limited hash samples report source-versus-selected class, agent, model, difficulty, and solved distributions without claiming representativeness.
+
+### Fixed
+
+- Canonical `trace://<trace>/span/<span>` evidence is classified as span evidence instead of artifact evidence.
+
 ## [0.137.0] - 2026-07-29 - trace analyst measurement and review integrity
 
 ### Added

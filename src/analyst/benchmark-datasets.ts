@@ -52,6 +52,8 @@ export interface CodeTraceBenchRow {
   agent: string
   model: string
   task_name: string
+  /** Native artifact extraction path in the public CodeTraceBench manifest. */
+  source_relpath?: string
   difficulty?: string
   category?: string
   tags?: string | readonly string[]
