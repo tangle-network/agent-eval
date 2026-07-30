@@ -8,6 +8,17 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
+  'd06e3e3f171cc6bd5cf36b14325f507f34b1c6a9d5129ce8a85bf3c1681f8223'
+
+/** The published benchmark evidence was produced at this package version.
+ * A release changes package.json's version field, which is part of the lock
+ * manifest but cannot change benchmark behavior, so the evidence stays bound
+ * to the digest at its creation. A test proves the current lock differs from
+ * the evidence lock by the version stamp alone; any real dependency change
+ * still forces a new benchmark run or explicit retirement of the evidence. */
+export const ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION = '0.137.0'
+
+export const ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256 =
   '1e03f2daed356d60316aabefb407ec1e437ac94d408d61eea4ae096e9c6fbb5b'
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
