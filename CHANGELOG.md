@@ -29,8 +29,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- Phoenix and Autoevals model-backed judges now share campaign cancellation and paid-call accounting.
+  They refuse unmetered execution, retain late provider receipts after cancellation, and reject incomplete token or cost capture.
 - Analyst review requests and decisions bind to the canonical digest of one complete run, so decisions cannot be replayed across runs and repeated findings cannot collide in review queues.
 - AgentRx category quality and root-step accuracy are scored independently; `traceAnalystQualityJudge` averages them when a root-step label exists.
+- Analyst runner comparisons reject invalid confidence and resample controls instead of returning non-finite intervals.
 
 ## [0.136.0] - 2026-07-29 - preserve recursive evidence and complete profile changes
 

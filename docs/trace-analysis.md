@@ -344,7 +344,7 @@ import {
 
 const phoenix = createEvaluator(
   ({ output, expected }) => output === expected ? 1 : 0,
-  { name: 'exact-match', telemetry: { isEnabled: false } },
+  { name: 'exact-match', kind: 'CODE', telemetry: { isEnabled: false } },
 )
 
 const phoenixJudge = phoenixEvaluatorJudge(phoenix, {
@@ -353,6 +353,7 @@ const phoenixJudge = phoenixEvaluatorJudge(phoenix, {
 
 const autoevalsJudge = autoevalsScorerJudge(ExactMatch, {
   name: 'exact-match',
+  kind: 'CODE',
   mapInput: ({ artifact, scenario }) => ({ output: artifact, expected: scenario.expected }),
 })
 ```
@@ -361,6 +362,9 @@ These adapters do not install either upstream package for consumers.
 Install only the scorer package you use.
 Missing or non-finite scores throw instead of becoming passes.
 Phoenix evaluators marked `MINIMIZE` or `NEUTRAL` require `toComposite` so candidate selection never assumes the wrong direction.
+Mark model-backed evaluators as `kind: 'LLM'` and provide `paidCall` with the model and a receipt mapper.
+The campaign then passes its cancellation signal and cost ledger through the adapter.
+An LLM evaluator is rejected before execution when either cost capture or the campaign ledger is missing.
 
 ## Turn Reviewed Findings Into Eval Data
 
