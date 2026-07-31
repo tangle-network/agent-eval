@@ -564,13 +564,49 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_findings_json(value: str) -> list[dict[str, Any]]:
-    try:
-        parsed = json.loads(value, parse_constant=_reject_json_constant)
-    except json.JSONDecodeError as error:
-        raise ValueError("DSPy RLM findings_json must be valid JSON") from error
-    if not isinstance(parsed, list):
-        raise ValueError("DSPy RLM findings_json must be a JSON array")
-    return [_validate_finding(row, index) for index, row in enumerate(parsed)]
+    # findings_json is model output. A model that wraps the array in a fenced
+    # block or leaves prose around it should not void a completed investigation,
+    # so the array is extracted before parsing. A genuinely absent array means
+    # "no citable finding", which is a valid empty result, not a crash. Each
+    # surviving row is still validated strictly.
+    parsed = _extract_json_array(value)
+    if parsed is None:
+        return []
+    rows: list[dict[str, Any]] = []
+    for index, row in enumerate(parsed):
+        # One malformed finding row is dropped, not fatal: the TypeScript
+        # boundary re-validates every surviving row, so nothing invalid reaches
+        # the score, and a completed investigation keeps its usable findings.
+        try:
+            rows.append(_validate_finding(row, index))
+        except ValueError:
+            continue
+    return rows
+
+
+def _extract_json_array(value: str) -> list[Any] | None:
+    text = value.strip()
+    fence = _CODE_FENCE.search(text)
+    if fence:
+        text = fence.group(1).strip()
+    for candidate in (text, _first_bracketed_array(text)):
+        if candidate is None:
+            continue
+        try:
+            parsed = json.loads(candidate, parse_constant=_reject_json_constant)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, list):
+            return parsed
+    return None
+
+
+def _first_bracketed_array(text: str) -> str | None:
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end <= start:
+        return None
+    return text[start : end + 1]
 
 
 def _validate_finding(value: Any, index: int) -> dict[str, Any]:
