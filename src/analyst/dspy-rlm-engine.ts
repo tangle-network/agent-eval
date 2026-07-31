@@ -40,12 +40,13 @@ export interface DspyRlmTraceEngineOptions {
   /**
    * How the controller's reasoning and code fields are obtained.
    *
-   * `two-step` prompts without field markers and extracts the fields with a
-   * second call — the upstream recommendation for models that answer in prose
-   * and fenced code rather than DSPy's marker format. `chat` uses the marker
-   * format directly and costs one call per turn. Default: `two-step`.
+   * `tolerant` parses marker output strictly first, then recovers the fields
+   * deterministically from prose plus a fenced code block — the shape coding
+   * models naturally emit — at no extra model cost. `two-step` extracts with a
+   * second call per turn. `chat` accepts marker output only. Default:
+   * `tolerant`.
    */
-  controlAdapter?: 'chat' | 'two-step'
+  controlAdapter?: 'chat' | 'two-step' | 'tolerant'
   /** Python command used to load agent-eval-rpc[dspy]. Default: python. */
   runner?: ExternalOptimizerRunnerCommand
   /** Whole investigation deadline. Default: 10 minutes. */
@@ -59,7 +60,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0) {
     throw new TypeError('DSPy RLM maxOutputTokens must be a positive safe integer')
   }
-  const controlAdapter = options.controlAdapter ?? 'two-step'
+  const controlAdapter = options.controlAdapter ?? 'tolerant'
   const maxReasoningTokens = options.maxReasoningTokens ?? maxOutputTokens * 4
   if (!Number.isSafeInteger(maxReasoningTokens) || maxReasoningTokens < 0) {
     throw new TypeError('DSPy RLM maxReasoningTokens must be a non-negative safe integer')
