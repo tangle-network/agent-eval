@@ -1075,6 +1075,56 @@ describe('CostLedger', () => {
     })
   })
 
+  it('records a caller-supplied failure reason on a reconciled receipt', async () => {
+    const pending = {
+      status: 'pending',
+      callId: 'orphan-1',
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      model: 'gpt-4o',
+      maximumCostUsd: 0.5,
+      timestamp: 1,
+    }
+    const { persistence, state } = memoryPersistence(eventFor(pending))
+    const ledger = new CostLedger({ costCeilingUsd: 1, persistence })
+    const receipt = ledger.reconcile(
+      'orphan-1',
+      { model: 'gpt-4o', inputTokens: 0, outputTokens: 0, actualCostUsd: 0 },
+      { error: 'process-crash-orphan' },
+    )
+
+    expect(receipt).toMatchObject({
+      status: 'settled',
+      error: 'process-crash-orphan',
+      costUsd: 0,
+    })
+    expect(persistedRecords(state.events).at(-1)).toMatchObject({
+      error: 'process-crash-orphan',
+    })
+  })
+
+  it('keeps the ledger default reason when reconcile marks failure without one', async () => {
+    const pending = {
+      status: 'pending',
+      callId: 'orphan-2',
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      model: 'gpt-4o',
+      maximumCostUsd: 0.5,
+      timestamp: 1,
+    }
+    const { persistence } = memoryPersistence(eventFor(pending))
+    const ledger = new CostLedger({ costCeilingUsd: 1, persistence })
+    const receipt = ledger.reconcile(
+      'orphan-2',
+      { model: 'gpt-4o', inputTokens: 0, outputTokens: 0, actualCostUsd: 0 },
+      { failed: true },
+    )
+    expect(receipt).toMatchObject({ status: 'settled', error: 'paid-call-failed' })
+  })
+
   it('never replays an unresolved provider call', async () => {
     const pending = {
       status: 'pending',
