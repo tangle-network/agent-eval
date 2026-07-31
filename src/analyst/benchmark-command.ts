@@ -371,15 +371,12 @@ function assertObservationAccountingComplete(
     },
   }
   const summary = costLedger.summary(filter)
-  // A completed analysis whose cost is only under-reported (a settled provider
-  // response that omitted usage) is scored with its cost flagged, not halted:
-  // one flaky internal call must not discard a run of dozens of good cases. A
-  // failed observation keeps the strict rule — a provider error that leaves
-  // cost unaccounted is the ambiguous case the fail-closed guard exists for.
-  const trustworthy = observation.error
-    ? summary.accountingComplete && summary.pendingCalls === 0 && summary.unresolvedCalls === 0
-    : costAccountingIsTrustworthy(summary)
-  if (!trustworthy) {
+  // Every settled call is honestly accounted: a known cost is summed, and a
+  // provider response that omitted usage is flagged and excluded from the
+  // reported total. Neither invalidates a run, whether the case succeeded or
+  // failed. Only a call left pending, one lost, or one charged beyond its
+  // maximum leaves the cost genuinely unknowable, and those still halt.
+  if (!costAccountingIsTrustworthy(summary)) {
     throw accountingError(
       costLedger,
       'the recursive analyst has incomplete cost accounting',
