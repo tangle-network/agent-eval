@@ -129,6 +129,7 @@ describe('createDspyRlmTraceEngine', () => {
           engine: 'test-bridge',
           modelRequestAttempts: 1,
           modelSuccessfulCompletions: 1,
+          modelRateLimitRetries: 0,
         },
       })
       expect(toolExecutions).toBe(1)

@@ -177,6 +177,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
           })
           const successfulCompletions = modelProxy.successfulCompletions()
           const requestAttempts = modelProxy.requestAttempts()
+          const rateLimitRetries = modelProxy.rateLimitRetries()
           if (parsed.modelCalls !== successfulCompletions) {
             throw new Error(
               `DSPy RLM reported ${parsed.modelCalls} model calls, but the provider proxy recorded ${successfulCompletions}`,
@@ -189,6 +190,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
               ...parsed.runtime,
               modelRequestAttempts: requestAttempts,
               modelSuccessfulCompletions: successfulCompletions,
+              modelRateLimitRetries: rateLimitRetries,
             },
           } satisfies TraceAnalysisEngineResult
         },
@@ -209,6 +211,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
         engine: 'dspy-rlm',
         model_calls: result.modelCalls,
         model_request_attempts: result.runtime.modelRequestAttempts,
+        model_rate_limit_retries: result.runtime.modelRateLimitRetries,
         tool_calls: result.toolCalls,
         findings: result.findings.length,
       })

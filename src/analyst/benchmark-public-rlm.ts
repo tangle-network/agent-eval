@@ -9,9 +9,13 @@ import {
   type CustomTokenPricing,
 } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
-import type { AnalystBenchmarkRunner } from './benchmark'
-import { adaptPublicBenchmarkFindings } from './benchmark-public-adapters'
+import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark'
+import {
+  adaptPublicBenchmarkFindings,
+  codeTraceBlockMetadataFromSubject,
+} from './benchmark-public-adapters'
 import { publicBenchmarkError } from './benchmark-public-errors'
+import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import {
   publicBenchmarkProtocolSha256,
   publicBenchmarkRlmInstructions,
@@ -25,6 +29,7 @@ import { evidenceRefsFromRawFinding } from './finding-signature'
 import { runTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
 import type { AnalystFinding, AnalystRunInputs, AnalystUsageReceipt } from './types'
 import { makeFinding } from './types'
+import { usageReceiptFromCostLedger } from './usage-receipt'
 
 /** Public benchmark candidate that runs the actual recursive trace analyst. */
 export function createPublicBenchmarkRlmRunner(
@@ -50,6 +55,12 @@ export function createPublicBenchmarkRlmRunner(
     ...(config.dspyRlm?.runner ? { runner: config.dspyRlm.runner } : {}),
   } satisfies DspyRlmTraceEngineOptions)
   const definition = publicBenchmarkDefinition(dataset, limits)
+  // Abstention floor: shares this runner's cost ledger so a fallback call's
+  // spend lands under the same case and repetition tags as the engine's calls.
+  const abstentionFallbackRunner = createPublicBenchmarkDirectRunner(dataset, {
+    ...config,
+    costLedger,
+  })
 
   return {
     id: 'dspy-rlm',
@@ -97,6 +108,11 @@ export function createPublicBenchmarkRlmRunner(
               analysis_mode: 'recursive',
               engine: 'dspy-rlm',
               model: config.model,
+              // Block coordinates from the subject grammar, so a row retained
+              // by a failed or empty case still carries its block metadata.
+              ...(dataset === 'codetracebench'
+                ? codeTraceBlockMetadataFromSubject(finding.subject)
+                : {}),
             },
             produced_at: producedAt,
           }),
@@ -109,8 +125,24 @@ export function createPublicBenchmarkRlmRunner(
           store: input.traceStore,
           ...(context.signal ? { signal: context.signal } : {}),
         })
+        // Abstention floor: the engine finished but submitted no finding at
+        // all — indistinguishable from a missed investigation, so one direct
+        // structured call gets a second opinion. An explicit clean verdict
+        // arrives as a finding and never reaches this branch; an engine error
+        // is thrown above and never reaches it either.
+        let fallback: AnalystBenchmarkOutput | undefined
+        if (completed.findings.length === 0) {
+          fallback = await abstentionFallbackRunner.analyze(input, context)
+          usage = usageReceiptFromCostLedger(costLedger, {
+            channel: 'analyst',
+            tags: {
+              benchmarkCaseId: context.caseId,
+              benchmarkRepetition: String(context.repetition),
+            },
+          })
+        }
         return {
-          findings: adapted.findings,
+          findings: fallback && !fallback.error ? fallback.findings : adapted.findings,
           usage,
           metadata: {
             analysisMode: 'recursive',
@@ -122,6 +154,13 @@ export function createPublicBenchmarkRlmRunner(
             modelCalls: completed.modelCalls,
             toolCalls: completed.toolCalls,
             runtime: completed.runtime,
+            ...(fallback
+              ? {
+                  abstentionFallback: 'direct',
+                  ...(fallback.metadata ? { abstentionFallbackMetadata: fallback.metadata } : {}),
+                  ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
+                }
+              : {}),
           },
         }
       } catch (error) {

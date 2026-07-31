@@ -1226,6 +1226,153 @@ describe('external optimizer model proxy', () => {
     }
   })
 
+  it('retries a provider 429 with jittered backoff and recovers the completion', async () => {
+    const ledger = new CostLedger()
+    const sleeps: number[] = []
+    let providerCalls = 0
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 5 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      sleepImpl: async (ms) => {
+        sleeps.push(ms)
+      },
+      fetchImpl: async () => {
+        providerCalls += 1
+        if (providerCalls <= 2) {
+          return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+            status: 429,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'recovered after rate limit' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      },
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [{ role: 'user', content: 'improve this' }],
+        max_tokens: 20,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('recovered after rate limit')
+      expect(providerCalls).toBe(3)
+      expect(proxy.rateLimitRetries()).toBe(2)
+      expect(proxy.requestAttempts()).toBe(3)
+      expect(proxy.successfulCompletions()).toBe(1)
+      // Backoff schedule 2s then 8s, each with up to 25% added jitter.
+      expect(sleeps).toHaveLength(2)
+      expect(sleeps[0]).toBeGreaterThanOrEqual(2_000)
+      expect(sleeps[0]).toBeLessThanOrEqual(2_500)
+      expect(sleeps[1]).toBeGreaterThanOrEqual(8_000)
+      expect(sleeps[1]).toBeLessThanOrEqual(10_000)
+      expect(ledger.list()).toEqual([
+        expect.objectContaining({
+          inputTokens: 10,
+          outputTokens: 5,
+          costUnknown: false,
+          usageUnknown: false,
+        }),
+      ])
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('forwards the provider 429 after exhausting the bounded retries', async () => {
+    const ledger = new CostLedger()
+    const sleeps: number[] = []
+    let providerCalls = 0
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 10 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      sleepImpl: async (ms) => {
+        sleeps.push(ms)
+      },
+      fetchImpl: async () => {
+        providerCalls += 1
+        return new Response(JSON.stringify({ error: { message: 'still rate limited' } }), {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [{ role: 'user', content: 'improve this' }],
+        max_tokens: 20,
+      })
+      expect(response.status).toBe(429)
+      expect(await response.text()).toContain('still rate limited')
+      expect(providerCalls).toBe(4)
+      expect(proxy.rateLimitRetries()).toBe(3)
+      expect(proxy.requestAttempts()).toBe(4)
+      expect(proxy.successfulCompletions()).toBe(0)
+      expect(sleeps).toHaveLength(3)
+      expect(sleeps[2]).toBeGreaterThanOrEqual(30_000)
+      expect(sleeps[2]).toBeLessThanOrEqual(37_500)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('does not retry a non-rate-limit provider failure', async () => {
+    const ledger = new CostLedger()
+    const sleeps: number[] = []
+    let providerCalls = 0
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 5 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      sleepImpl: async (ms) => {
+        sleeps.push(ms)
+      },
+      fetchImpl: async () => {
+        providerCalls += 1
+        return new Response(JSON.stringify({ error: { message: 'provider exploded' } }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [{ role: 'user', content: 'improve this' }],
+        max_tokens: 20,
+      })
+      expect(response.status).toBe(500)
+      expect(providerCalls).toBe(1)
+      expect(proxy.rateLimitRetries()).toBe(0)
+      expect(sleeps).toEqual([])
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('bounds provider responses before buffering them', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({

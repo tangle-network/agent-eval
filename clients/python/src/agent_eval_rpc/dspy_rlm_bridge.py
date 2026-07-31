@@ -266,12 +266,31 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                     question=input_value["question"],
                     analyst_instructions=input_value["instructions"],
                 )
-        model_calls = _lm_history_length(lm) - history_before
+    answer = _prediction_string(prediction, "answer")
+    raw_findings_json = _prediction_string(prediction, "findings_json")
+    findings = _parse_findings_json(raw_findings_json)
+    # The recovered-answer placeholder is adapter output, not model text, so it
+    # never feeds salvage and never earns a repair turn.
+    answer_text = "" if answer == _SAFE_FIELD_DEFAULTS["answer"] else answer
+    findings_salvage: str | None = None
+    format_repair_used = False
+    repair_error: str | None = None
+    if not findings:
+        for source_text in (raw_findings_json, answer_text):
+            salvaged = _salvage_findings_json(source_text) if source_text else None
+            if salvaged:
+                findings, findings_salvage = salvaged
+                break
+    if not findings and findings_salvage is None and answer_text:
+        # EXACTLY one repair turn on the same LM handle: the model re-emits the
+        # strict array from its own answer. The call is visible in modelCalls
+        # (counted below) and flagged in the runtime record.
+        format_repair_used = True
+        findings, repair_error = _repair_findings_turn(lm, answer_text)
+    model_calls = _lm_history_length(lm) - history_before
     if model_calls < 0:
         raise RuntimeError("DSPy LM history shrank during trace analysis")
 
-    answer = _prediction_string(prediction, "answer")
-    findings = _parse_findings_json(_prediction_string(prediction, "findings_json"))
     trajectory = _prediction_field(prediction, "trajectory")
     if not isinstance(trajectory, list):
         raise ValueError("DSPy RLM prediction trajectory must be an array")
@@ -282,7 +301,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         "findings": findings,
         "trajectory": trajectory,
         "modelCalls": model_calls,
-        "runtime": runtime,
+        "runtime": {
+            **runtime,
+            "findings_salvage": findings_salvage,
+            "format_repair_used": format_repair_used,
+            **({"format_repair_error": repair_error} if repair_error is not None else {}),
+        },
     }
 
 
@@ -569,7 +593,10 @@ def _parse_findings_json(value: str) -> list[dict[str, Any]]:
     # so the array is extracted before parsing. A genuinely absent array means
     # "no citable finding", which is a valid empty result, not a crash. Each
     # surviving row is still validated strictly.
-    parsed = _extract_json_array(value)
+    return _validated_rows(_extract_json_array(value))
+
+
+def _validated_rows(parsed: list[Any] | None) -> list[dict[str, Any]]:
     if parsed is None:
         return []
     rows: list[dict[str, Any]] = []
@@ -582,6 +609,86 @@ def _parse_findings_json(value: str) -> list[dict[str, Any]]:
         except ValueError:
             continue
     return rows
+
+
+# The findings_json marker family with damaged brackets — a truncated final
+# turn emits shapes like "[[ ## findings_json ## ]" followed by valid JSON.
+_FINDINGS_MARKER_FAMILY = re.compile(r"\[{0,2} *## *findings_json *## *\]{0,2}")
+
+
+def _salvage_findings_json(text: str) -> tuple[list[dict[str, Any]], str] | None:
+    """Deterministically recover a findings array the strict parse missed.
+
+    Tries, in order: JSON after the LAST findings_json marker (well-formed or
+    bracket-damaged), then the LAST well-formed JSON array whose elements all
+    look like findings (carry claim + evidence). Every recovered row still
+    passes the strict per-row validation; nothing is invented. Returns None
+    when no citable array exists — an empty result stays empty.
+    """
+
+    stripped = text.strip()
+    if not stripped:
+        return None
+    markers = list(_FINDINGS_MARKER_FAMILY.finditer(stripped))
+    if markers:
+        rows = _validated_rows(_extract_json_array(stripped[markers[-1].end() :]))
+        if rows:
+            return rows, "malformed-marker"
+    rows = _validated_rows(_last_findings_array(stripped))
+    if rows:
+        return rows, "trailing-json-array"
+    return None
+
+
+def _last_findings_array(text: str) -> list[Any] | None:
+    decoder = json.JSONDecoder()
+    search_end = len(text)
+    while True:
+        start = text.rfind("[", 0, search_end)
+        if start == -1:
+            return None
+        search_end = start
+        try:
+            candidate, _ = decoder.raw_decode(text, start)
+        except ValueError:
+            continue
+        if (
+            isinstance(candidate, list)
+            and candidate
+            and all(_looks_like_finding(row) for row in candidate)
+        ):
+            return candidate
+
+
+def _looks_like_finding(row: Any) -> bool:
+    return isinstance(row, dict) and "claim" in row and "evidence" in row
+
+
+_FINDINGS_REPAIR_PROMPT = """Your previous trace-analysis answer is below.
+Re-emit ONLY the strict findings_json JSON array for that answer: no prose, no Markdown fences, no field markers.
+Each element must contain only severity, claim, optional subject, confidence, optional rationale, optional recommended_action, and evidence (a non-empty array of objects with uri and optional excerpt).
+Use only identifiers and quotes already present in the answer; never invent evidence.
+Return [] if the answer reports no incorrect steps.
+
+ANSWER:
+"""
+
+
+def _repair_findings_turn(lm: Any, answer_text: str) -> tuple[list[dict[str, Any]], str | None]:
+    # A repair failure must not void the already-completed investigation: the
+    # error is returned for the runtime record instead of being raised, and the
+    # findings stay empty.
+    try:
+        completions = lm(
+            messages=[{"role": "user", "content": f"{_FINDINGS_REPAIR_PROMPT}{answer_text}"}]
+        )
+    except Exception as error:  # noqa: BLE001 — recorded in runtime, never silent
+        summary = " ".join(str(error).split())[:200]
+        return [], f"{type(error).__name__}: {summary}"
+    completion = completions[0] if isinstance(completions, list) and completions else completions
+    if not isinstance(completion, str):
+        return [], f"repair completion has unexpected type {type(completion).__name__}"
+    return _validated_rows(_extract_json_array(completion)), None
 
 
 def _extract_json_array(value: str) -> list[Any] | None:
