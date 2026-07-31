@@ -117,26 +117,15 @@ export async function validateCodeTraceFindingEvidence(options: {
   }
 
   const spanIds = [...new Set(citations.map((citation) => `step-${citation.location!.step}`))]
-  const spans = new Map<
-    string,
-    Awaited<ReturnType<TraceAnalysisStore['viewSpans']>>['spans'][number]
-  >()
-  for (let offset = 0; offset < spanIds.length; offset += TRACE_ANALYSIS_LIMITS.viewSpans) {
-    const requested = spanIds.slice(offset, offset + TRACE_ANALYSIS_LIMITS.viewSpans)
-    const result = await options.store.viewSpans(
-      {
-        trace_id: options.trajectoryId,
-        span_ids: requested,
-      },
-      options.signal ? { signal: options.signal } : undefined,
+  const { spans, missing } = await fetchTraceSpans(options.store, {
+    trajectoryId: options.trajectoryId,
+    spanIds,
+    ...(options.signal ? { signal: options.signal } : {}),
+  })
+  if (missing.length > 0) {
+    throw new Error(
+      `model finding evidence is unavailable in the case trace: ${missing.join(', ')}`,
     )
-    if (result.missing_span_ids.length > 0 || result.omitted_span_ids.length > 0) {
-      const unavailable = [...result.missing_span_ids, ...result.omitted_span_ids]
-      throw new Error(
-        `model finding evidence is unavailable in the case trace: ${unavailable.join(', ')}`,
-      )
-    }
-    for (const span of result.spans) spans.set(span.span_id, span)
   }
 
   for (const citation of citations) {
@@ -154,52 +143,63 @@ export async function validateCodeTraceFindingEvidence(options: {
   }
 }
 
+/**
+ * Resolve assistant-step evidence for a trajectory.
+ *
+ * `steps` are claims the model made explicitly: an unresolvable one is a model
+ * error and throws. `optionalSteps` are derived by the runner (a block's
+ * interior, a block's consequence step), so an unresolvable one is simply
+ * absent from the returned map and the caller decides what that means.
+ */
 export async function resolveAssistantStepEvidence(options: {
   trajectoryId: string
   steps: readonly number[]
+  optionalSteps?: readonly number[]
   store: TraceAnalysisStore
   signal?: AbortSignal
 }): Promise<Map<number, EvidenceRef>> {
-  const steps = [...new Set(options.steps)]
-  for (const step of steps) {
+  const required = [...new Set(options.steps)]
+  const optional = [...new Set(options.optionalSteps ?? [])].filter(
+    (step) => !required.includes(step),
+  )
+  for (const step of [...required, ...optional]) {
     if (!Number.isSafeInteger(step) || step < 1) {
       throw new TypeError(`assistant evidence step must be a positive safe integer: ${step}`)
     }
   }
+  const steps = [...required, ...optional]
+  if (steps.length === 0) return new Map()
 
-  const spanIds = steps.map((step) => `step-${step}`)
-  const spans = new Map<
-    string,
-    Awaited<ReturnType<TraceAnalysisStore['viewSpans']>>['spans'][number]
-  >()
-  for (let offset = 0; offset < spanIds.length; offset += TRACE_ANALYSIS_LIMITS.viewSpans) {
-    const requested = spanIds.slice(offset, offset + TRACE_ANALYSIS_LIMITS.viewSpans)
-    const result = await options.store.viewSpans(
-      {
-        trace_id: options.trajectoryId,
-        span_ids: requested,
-      },
-      options.signal ? { signal: options.signal } : undefined,
-    )
-    if (result.missing_span_ids.length > 0 || result.omitted_span_ids.length > 0) {
-      const unavailable = [...result.missing_span_ids, ...result.omitted_span_ids]
-      throw new Error(`model selected unavailable assistant steps: ${unavailable.join(', ')}`)
-    }
-    for (const span of result.spans) spans.set(span.span_id, span)
+  const { spans, missing } = await fetchTraceSpans(options.store, {
+    trajectoryId: options.trajectoryId,
+    spanIds: steps.map((step) => `step-${step}`),
+    ...(options.signal ? { signal: options.signal } : {}),
+  })
+  const missingRequired = missing.filter((spanId) =>
+    required.some((step) => `step-${step}` === spanId),
+  )
+  if (missingRequired.length > 0) {
+    throw new Error(`model selected unavailable assistant steps: ${missingRequired.join(', ')}`)
   }
 
   const evidence = new Map<number, EvidenceRef>()
   for (const step of steps) {
     const spanId = `step-${step}`
+    const optionalStep = optional.includes(step)
     const span = spans.get(spanId)
-    if (!span) throw new Error(`model selected missing assistant step '${spanId}'`)
+    if (!span) {
+      if (optionalStep) continue
+      throw new Error(`model selected missing assistant step '${spanId}'`)
+    }
     if (span.kind !== 'LLM') {
+      if (optionalStep) continue
       throw new Error(
         `model selected '${spanId}', which is ${span.kind}, not an assistant LLM span`,
       )
     }
     const content = span.attributes.content
     if (typeof content !== 'string' || content.trim().length === 0) {
+      if (optionalStep) continue
       throw new Error(`model selected '${spanId}' without action content`)
     }
     evidence.set(step, {
@@ -209,6 +209,49 @@ export async function resolveAssistantStepEvidence(options: {
     })
   }
   return evidence
+}
+
+/**
+ * Read spans by id, paging over the store's byte-budget omissions.
+ *
+ * `omitted_span_ids` names spans that exist but did not fit the response
+ * ceiling; the store guarantees at least one span lands per call, so
+ * re-requesting exactly the omitted ids terminates. Only `missing_span_ids`
+ * describes a span the trace does not contain.
+ */
+async function fetchTraceSpans(
+  store: TraceAnalysisStore,
+  options: { trajectoryId: string; spanIds: readonly string[]; signal?: AbortSignal },
+): Promise<{
+  spans: Map<string, Awaited<ReturnType<TraceAnalysisStore['viewSpans']>>['spans'][number]>
+  missing: string[]
+}> {
+  const spans = new Map<
+    string,
+    Awaited<ReturnType<TraceAnalysisStore['viewSpans']>>['spans'][number]
+  >()
+  const missing: string[] = []
+  const unique = [...new Set(options.spanIds)]
+  const context = options.signal ? { signal: options.signal } : undefined
+  for (let offset = 0; offset < unique.length; offset += TRACE_ANALYSIS_LIMITS.viewSpans) {
+    let pending = unique.slice(offset, offset + TRACE_ANALYSIS_LIMITS.viewSpans)
+    while (pending.length > 0) {
+      const result = await store.viewSpans(
+        { trace_id: options.trajectoryId, span_ids: pending },
+        context,
+      )
+      for (const span of result.spans) spans.set(span.span_id, span)
+      missing.push(...result.missing_span_ids)
+      const omitted = result.omitted_span_ids.filter((spanId) => !spans.has(spanId))
+      if (omitted.length >= pending.length) {
+        throw new Error(
+          `trace '${options.trajectoryId}' cannot project spans within the store response budget: ${omitted.join(', ')}`,
+        )
+      }
+      pending = omitted
+    }
+  }
+  return { spans, missing }
 }
 
 function scanValue(

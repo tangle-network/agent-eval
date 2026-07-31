@@ -46,6 +46,7 @@ import {
   renderCodeTraceCalibrationMarkdown,
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
+import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 import {
   emptyPublicBenchmarkRunner,
@@ -83,8 +84,19 @@ export interface AnalystBenchmarkCommandDependencies {
   ) => AnalystBenchmarkRunner<AnalystRunInputs>
 }
 
+/**
+ * Which analyst produces the scored arm.
+ *
+ * `dspy-rlm` is the recursive engine. `direct` is the retired one-shot runner,
+ * kept reachable because the published evidence was produced by it: a
+ * comparison against those numbers is only sound when the same runner can be
+ * re-run over the same inputs.
+ */
+export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct'
+
 export interface AnalystBenchmarkCommandConfig {
   dataset: PublicAnalystBenchmarkDataset
+  analyst: AnalystBenchmarkRunnerKind
   labelsPath: string
   traceDir: string
   artifactDir?: string
@@ -158,6 +170,7 @@ async function executeAnalystBenchmarkCommand(
     manifest.identitySha256,
     prepared.selectedCaseIds,
     config.repetitions,
+    config.analyst,
   )
   const costLedger = createRunCostLedger({
     storage: fsCampaignStorage(),
@@ -172,7 +185,7 @@ async function executeAnalystBenchmarkCommand(
     const markdown = renderArtifactMarkdown(artifact)
     await writeExclusiveOrVerify(paths.report, markdown)
     printSuccessSummary(artifact, paths)
-    return benchmarkExitCode(artifact.result)
+    return benchmarkExitCode(artifact.result, config.analyst)
   }
   if (await regularFileExists(paths.report)) {
     throw new Error(
@@ -183,7 +196,9 @@ async function executeAnalystBenchmarkCommand(
   const createAnalystRunner =
     dependencies.createAnalystRunner ??
     ((dataset: PublicAnalystBenchmarkDataset, model: PublicAnalystBenchmarkModelConfig) =>
-      createPublicBenchmarkRlmRunner(dataset, model))
+      config.analyst === 'direct'
+        ? createPublicBenchmarkDirectRunner(dataset, model)
+        : createPublicBenchmarkRlmRunner(dataset, model))
   const runners = [
     emptyPublicBenchmarkRunner(),
     createAnalystRunner(config.dataset, {
@@ -212,7 +227,7 @@ async function executeAnalystBenchmarkCommand(
       initialObservations: progress.observations,
       signal: runAbort.signal,
       onObservation: async (observation) => {
-        assertObservationAccountingComplete(observation, costLedger)
+        assertObservationAccountingComplete(observation, costLedger, config.analyst)
         await appendObservation(observation)
       },
       resolveEvidence: traceStoreEvidenceResolver((input) => {
@@ -236,7 +251,7 @@ async function executeAnalystBenchmarkCommand(
           outputAdapter:
             config.dataset === 'agentrx'
               ? 'agentrx-taxonomy-and-root-step'
-              : 'codetracebench-incorrect-step',
+              : 'codetracebench-incorrect-block',
           caseSelection: prepared.selection.method,
           caseSelectionSeed: config.seed,
           selectionStratified: prepared.selection.stratified,
@@ -264,12 +279,13 @@ async function executeAnalystBenchmarkCommand(
     manifest.identitySha256,
     prepared.selectedCaseIds,
     config.repetitions,
+    config.analyst,
   )
   assertSameObservations(result.observations, persisted.observations)
   const comparisons = [
     compareAnalystRunners(result, {
       baselineRunnerId: 'empty',
-      candidateRunnerId: 'dspy-rlm',
+      candidateRunnerId: config.analyst,
       seed: config.seed,
     }),
   ]
@@ -320,7 +336,7 @@ async function executeAnalystBenchmarkCommand(
   await writeExclusiveOrVerify(paths.result, `${JSON.stringify(artifact, null, 2)}\n`)
   await writeExclusiveOrVerify(paths.report, markdown)
   printSuccessSummary(artifact, paths)
-  return benchmarkExitCode(result)
+  return benchmarkExitCode(result, config.analyst)
 }
 
 const NON_SCORABLE_COST_ERRORS = new Set([
@@ -335,13 +351,14 @@ const NON_SCORABLE_COST_ERRORS = new Set([
 function assertObservationAccountingComplete(
   observation: AnalystBenchmarkObservation,
   costLedger: CostLedger,
+  analystRunnerId: string,
 ): void {
   if (observation.error && NON_SCORABLE_COST_ERRORS.has(observation.error.class)) {
     throw new CostAccountingIncompleteError(
       `Analyst benchmark stopped before scoring: ${observation.error.message}`,
     )
   }
-  if (observation.runnerId !== 'dspy-rlm') return
+  if (observation.runnerId !== analystRunnerId) return
   const summary = costLedger.summary({
     channel: 'analyst',
     tags: {
@@ -385,6 +402,9 @@ Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench la
 
 Required:
   --dataset agentrx|codetracebench
+  --analyst dspy-rlm|direct        Scored analyst. Default: dspy-rlm.
+                                   'direct' is the retired one-shot runner that
+                                   produced the published evidence.
   --labels <dataset.json|dataset.jsonl>
   --trace-dir <one-trace-per-file OTLP JSONL directory>
   --artifact-dir <extracted artifact root>  Required for CodeTraceBench
@@ -440,8 +460,13 @@ function parseCommandConfig(
 
   const maxCostUsd = positiveFiniteFlag(flags, 'max-cost-usd', 5)
   const python = flags.get('python')?.trim()
+  const analyst = flags.get('analyst')?.trim() ?? 'dspy-rlm'
+  if (analyst !== 'dspy-rlm' && analyst !== 'direct') {
+    throw new Error("--analyst must be 'dspy-rlm' or 'direct'")
+  }
   return {
     dataset,
+    analyst,
     labelsPath: requiredFlag(flags, 'labels'),
     traceDir: requiredFlag(flags, 'trace-dir'),
     ...(artifactDir ? { artifactDir } : {}),
@@ -501,6 +526,7 @@ function parseFlags(argv: readonly string[]): Map<string, string> {
 const KNOWN_FLAGS = new Set([
   'resume',
   'dataset',
+  'analyst',
   'labels',
   'trace-dir',
   'artifact-dir',
@@ -683,8 +709,10 @@ function renderArtifactMarkdown(artifact: AnalystBenchmarkArtifact): string {
   return `${renderAnalystBenchmarkMarkdown(artifact.result, artifact.comparisons).trimEnd()}${calibrationMarkdown}${verificationMarkdown}\n\n${renderSelectionMarkdown(artifact.inputs.selection.report)}\n`
 }
 
-function benchmarkExitCode(result: AnalystBenchmarkResult): number {
-  return result.summaries.find((summary) => summary.runnerId === 'dspy-rlm')?.failedRuns ? 2 : 0
+function benchmarkExitCode(result: AnalystBenchmarkResult, analystRunnerId: string): number {
+  return result.summaries.find((summary) => summary.runnerId === analystRunnerId)?.failedRuns
+    ? 2
+    : 0
 }
 
 function printSuccessSummary(

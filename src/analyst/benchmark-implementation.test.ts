@@ -38,6 +38,7 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
   'src/analyst/benchmark-public-model.ts',
+  'src/analyst/benchmark-public-prompt.ts',
   'src/analyst/benchmark-public-rlm.ts',
   'src/analyst/benchmark-public-types.ts',
   'src/analyst/benchmark-real-model.ts',
