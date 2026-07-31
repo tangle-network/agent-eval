@@ -33,9 +33,9 @@ export function createPublicBenchmarkRlmRunner(
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
   const costLedger = config.costLedger ?? new CostLedger()
   const limits = {
-    maxIterations: config.dspyRlm?.maxIterations ?? 8,
-    maxLlmCalls: config.dspyRlm?.maxLlmCalls ?? 4,
-    maxToolCalls: config.dspyRlm?.maxToolCalls ?? 32,
+    maxIterations: config.dspyRlm?.maxIterations ?? 14,
+    maxLlmCalls: config.dspyRlm?.maxLlmCalls ?? 8,
+    maxToolCalls: config.dspyRlm?.maxToolCalls ?? 80,
     maxOutputChars: config.dspyRlm?.maxOutputChars ?? 8_000,
   }
   const pricing = config.pricing ?? pricingForModel(config.model)
