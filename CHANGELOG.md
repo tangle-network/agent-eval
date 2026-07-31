@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.140.1] - 2026-07-31 - a supervisor journal is read, or reported unreadable
+
+### Fixed
+
+- `parseSupervisorTree` returned zero spawns AND zero invalid rows for the journal `agent-runtime` writes — a positive claim that the run was empty. `agent-runtime/src/durable/spawn-journal.ts:232` writes `{kind:'event', root, event}`, so reading that envelope is a correctness fix rather than leniency.
+- Every non-empty line now lands in exactly one bucket, enforced by an invariant the tests assert on every case: `journalRows === spawns + closes + metered + sum(ignored) + journalInvalidRows`. A `never`-typed switch default makes a future unhandled event kind a compile error instead of a dropped row.
+- `journalInvalidRows` widens to "could not be interpreted at all", so the three existing integrity consumers fail closed on the new case without a second field to remember. `journalMalformedJsonRows` keeps the old narrower meaning, `journalIgnoredRowsByKind` records recognized-but-unmodelled kinds by name, and `journalDialect` (`none | flat | runtime-envelope | mixed`) records that the shape differed.
+
 ## [0.140.0] - 2026-07-31 - the recursive engine runs on real providers
 
 ### Changed
