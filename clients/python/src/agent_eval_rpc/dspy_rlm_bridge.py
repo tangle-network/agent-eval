@@ -9,6 +9,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -188,6 +189,13 @@ def main() -> None:
     previous_umask = os.umask(0o077)
     try:
         _main()
+    except BaseException as error:
+        # The parent bounds captured stderr head+tail, which can truncate away
+        # the exception type buried mid-traceback. The last line always names
+        # the failure so every crash is classifiable from the retained tail.
+        summary = " ".join(str(error).split())[:200]
+        print(f"DSPY-BRIDGE-FAILURE: {type(error).__name__}: {summary}", file=sys.stderr)
+        raise
     finally:
         os.umask(previous_umask)
 
@@ -216,6 +224,7 @@ def _main() -> None:
 def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
     dspy = _load_dspy()
     model_proxy = input_value["modelProxy"]
+    control_adapter = input_value.get("controlAdapter", "chat")
     limits = input_value["limits"]
     with _probed_interpreter(dspy) as (interpreter, deno_command):
         runtime = _runtime_identity(deno_command)
@@ -226,6 +235,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             cache=False,
             num_retries=0,
             max_tokens=model_proxy["maxOutputTokens"],
+            # The controller writes code, not extended reasoning; a reasoning
+            # model left to think spends its whole completion budget thinking
+            # and returns empty text, so the control turn parses to nothing.
+            # Disabling thinking makes it emit the action directly. Providers
+            # that do not recognise the field ignore it.
+            extra_body={"thinking": {"type": "disabled"}},
         )
         tools = _build_dspy_tools(dspy, input_value["toolSpecs"])
         program = dspy.RLM(
@@ -241,7 +256,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         history_before = _lm_history_length(lm)
         callback = input_value["toolCallback"]
         with _tool_callback(callback["url"], callback["token"]):
-            with dspy.context(lm=lm):
+            # A capable model that writes prose and a fenced code block instead
+            # of DSPy's field markers fails the default adapter outright. The
+            # two-step adapter prompts without markers and extracts the fields
+            # with a second call, which is what upstream recommends for models
+            # that do not emit structured output natively.
+            with dspy.context(lm=lm, adapter=_control_adapter(dspy, lm, control_adapter)):
                 prediction = program(
                     question=input_value["question"],
                     analyst_instructions=input_value["instructions"],
@@ -462,9 +482,12 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
             "toolCallback",
             "limits",
             "toolSpecs",
+            "controlAdapter",
         },
         "analyze input",
     )
+    if value["controlAdapter"] not in ("chat", "two-step", "tolerant"):
+        raise ValueError("analyze input controlAdapter must be 'chat', 'two-step', or 'tolerant'")
     if value["operation"] != "analyze":
         raise ValueError("analyze input operation must be analyze")
     _require_non_empty_string(value["question"], "question")
@@ -678,6 +701,113 @@ def _load_dspy() -> Any:
             "DSPy is required for this bridge; install agent-eval-rpc[dspy]"
         ) from error
     return dspy
+
+
+def _control_adapter(dspy: Any, lm: Any, kind: str) -> Any:
+    if kind == "chat":
+        return dspy.ChatAdapter()
+    if kind == "two-step":
+        return dspy.TwoStepAdapter(lm)
+    if kind == "tolerant":
+        return _tolerant_adapter(dspy)
+    raise ValueError(f"unsupported control adapter '{kind}'")
+
+
+def _tolerant_adapter(dspy: Any) -> Any:
+    """ChatAdapter that always yields the declared output fields.
+
+    Strict marker parsing runs first, so a marker-following model is unchanged.
+    When it fails, every declared field is recovered from natural output — a
+    `[[ ## field ## ]]` section that is present, a matching JSON key, the fenced
+    block for `code`, otherwise a per-field safe default — so no completion
+    shape crashes the recursive loop. The defaults are chosen so recovery can
+    never invent a finding: `code`/`findings_json` fall back to a no-op, and a
+    missing answer is named as such rather than fabricated.
+    """
+
+    class TolerantControlAdapter(dspy.ChatAdapter):
+        def __init__(self) -> None:
+            # The strict fallback retries the whole call through JSONAdapter,
+            # which doubles spend and hides the first error; recovery here is
+            # deterministic, so that fallback stays off.
+            super().__init__(use_json_adapter_fallback=False)
+
+        def parse(self, signature: Any, completion: Any) -> dict[str, Any]:
+            try:
+                return super().parse(signature, completion)
+            except Exception:
+                # Recovery must never raise: a control turn always yields the
+                # declared fields, so an empty or malformed completion becomes
+                # a safe no-op turn instead of aborting a paid investigation.
+                text = completion if isinstance(completion, str) else str(completion or "")
+                return _recover_control_fields(text, list(signature.output_fields.keys()))
+
+    return TolerantControlAdapter()
+
+
+_CODE_FENCE = re.compile(r"```(?:[A-Za-z0-9_+-]*)\n(.*?)```", re.DOTALL)
+_FIELD_HEADER = re.compile(r"\[\[ ## (\w+) ## \]\]")
+
+# Missing a field must never fabricate an action or a finding. Empty code is a
+# no-op REPL turn; an empty findings array is a valid "nothing citable" result.
+_SAFE_FIELD_DEFAULTS = {
+    "code": "",
+    "findings_json": "[]",
+    "answer": "(no answer was produced from the trace investigation)",
+    "reasoning": "(no stated reasoning)",
+}
+
+
+def _recover_control_fields(completion: str, output_fields: list[str]) -> dict[str, Any]:
+    text = completion.strip()
+    parsed_json = _parse_json_object(text)
+    sections = _marker_sections(text)
+    blocks = [block.strip() for block in _CODE_FENCE.findall(text) if block.strip()]
+    prose = _CODE_FENCE.sub(" ", _FIELD_HEADER.sub(" ", text)).strip()
+
+    recovered: dict[str, Any] = {}
+    for name in output_fields:
+        if parsed_json is not None and name in parsed_json:
+            recovered[name] = parsed_json[name]
+        elif name in sections:
+            recovered[name] = sections[name]
+        elif name == "code" and blocks:
+            recovered[name] = "\n\n".join(blocks)
+        elif name in ("answer", "reasoning") and prose:
+            recovered[name] = prose
+        else:
+            recovered[name] = _SAFE_FIELD_DEFAULTS.get(name, "")
+    return recovered
+
+
+def _marker_sections(text: str) -> dict[str, str]:
+    sections: dict[str, str] = {}
+    current: str | None = None
+    buffer: list[str] = []
+    for line in text.splitlines():
+        header = _FIELD_HEADER.match(line.strip())
+        if header:
+            if current is not None:
+                sections[current] = "\n".join(buffer).strip()
+            current = header.group(1)
+            buffer = []
+        elif current is not None:
+            buffer.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buffer).strip()
+    return {name: value for name, value in sections.items() if value and name != "completed"}
+
+
+def _parse_json_object(text: str) -> dict[str, Any] | None:
+    candidate = text
+    fence = _CODE_FENCE.search(text)
+    if fence:
+        candidate = fence.group(1)
+    try:
+        value = json.loads(candidate)
+    except (ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def _lm_history_length(lm: Any) -> int:

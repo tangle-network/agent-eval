@@ -31,6 +31,22 @@ export interface DspyRlmTraceEngineOptions {
   maxCostUsd?: number
   /** Controller response cap. Default: 4096. */
   maxOutputTokens?: number
+  /**
+   * Thinking tokens one controller turn may bill on top of its completion.
+   * A reasoning model bills these beyond `maxOutputTokens`, so the cost
+   * reservation must cover them. Default: four times the completion cap.
+   */
+  maxReasoningTokens?: number
+  /**
+   * How the controller's reasoning and code fields are obtained.
+   *
+   * `tolerant` parses marker output strictly first, then recovers the fields
+   * deterministically from prose plus a fenced code block — the shape coding
+   * models naturally emit — at no extra model cost. `two-step` extracts with a
+   * second call per turn. `chat` accepts marker output only. Default:
+   * `tolerant`.
+   */
+  controlAdapter?: 'chat' | 'two-step' | 'tolerant'
   /** Python command used to load agent-eval-rpc[dspy]. Default: python. */
   runner?: ExternalOptimizerRunnerCommand
   /** Whole investigation deadline. Default: 10 minutes. */
@@ -43,6 +59,11 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
   const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_MODEL_OUTPUT_TOKENS
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0) {
     throw new TypeError('DSPy RLM maxOutputTokens must be a positive safe integer')
+  }
+  const controlAdapter = options.controlAdapter ?? 'tolerant'
+  const maxReasoningTokens = options.maxReasoningTokens ?? maxOutputTokens * 4
+  if (!Number.isSafeInteger(maxReasoningTokens) || maxReasoningTokens < 0) {
+    throw new TypeError('DSPy RLM maxReasoningTokens must be a non-negative safe integer')
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -68,6 +89,8 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
       pricing: { ...pricing },
       max_cost_usd: maxCostUsd,
       max_output_tokens: maxOutputTokens,
+      max_reasoning_tokens: maxReasoningTokens,
+      control_adapter: controlAdapter,
       timeout_ms: timeoutMs,
       max_request_bytes: MAX_MODEL_REQUEST_BYTES,
       max_response_bytes: MAX_MODEL_RESPONSE_BYTES,
@@ -94,6 +117,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
               maxRequestBytes: MAX_MODEL_REQUEST_BYTES,
               maxResponseBytes: MAX_MODEL_RESPONSE_BYTES,
               maxOutputTokensPerRequest: maxOutputTokens,
+              maxReasoningTokensPerRequest: maxReasoningTokens,
               requestTimeoutMs: timeoutMs,
               pricing,
             },
@@ -133,6 +157,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
                 description,
                 parameters,
               })),
+              controlAdapter,
               limits: {
                 maxIterations: request.limits.maxIterations,
                 maxLlmCalls: request.limits.maxLlmCalls,

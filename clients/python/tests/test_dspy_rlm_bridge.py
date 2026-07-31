@@ -168,6 +168,7 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
         "cache": False,
         "num_retries": 0,
         "max_tokens": 700,
+        "extra_body": {"thinking": {"type": "disabled"}},
     }
     assert calls["context_lm"] is calls["lm_instance"]
     assert calls["rlm"]["sub_lm"] is calls["lm_instance"]
@@ -483,6 +484,7 @@ def _write_analyze_input(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps(
             {
                 "operation": "analyze",
+                "controlAdapter": "chat",
                 "question": "Why did this run fail?",
                 "instructions": "Find the earliest causal failure.",
                 "modelProxy": {
@@ -516,6 +518,45 @@ def _write_analyze_input(tmp_path: Path) -> tuple[Path, Path]:
         )
     )
     return input_path, output_path
+
+
+def test_recover_control_fields_from_prose_and_fence() -> None:
+    completion = (
+        "I will read the trace first.\n"
+        "```python\n"
+        "overview = getDatasetOverview({})\n"
+        "print(overview)\n"
+        "```"
+    )
+    recovered = dspy_rlm_bridge._recover_control_fields(completion, ["reasoning", "code"])
+    assert recovered is not None
+    assert "getDatasetOverview" in recovered["code"]
+    assert "read the trace" in recovered["reasoning"]
+
+
+def test_recover_control_fields_from_json_object() -> None:
+    completion = '{"reasoning": "checked the span", "code": "print(1)"}'
+    recovered = dspy_rlm_bridge._recover_control_fields(completion, ["reasoning", "code"])
+    assert recovered == {"reasoning": "checked the span", "code": "print(1)"}
+
+
+def test_recover_control_fields_partial_markers_default_missing_field() -> None:
+    completion = "[[ ## reasoning ## ]]\nI planned but did not write code yet."
+    recovered = dspy_rlm_bridge._recover_control_fields(completion, ["reasoning", "code"])
+    assert "planned" in recovered["reasoning"]
+    assert recovered["code"] == ""
+
+
+def test_recover_final_fields_default_findings_to_empty() -> None:
+    completion = "The best model was copied to the required location."
+    recovered = dspy_rlm_bridge._recover_control_fields(completion, ["answer", "findings_json"])
+    assert "best model" in recovered["answer"]
+    assert recovered["findings_json"] == "[]"
+
+
+def test_recover_never_returns_none_and_never_fabricates() -> None:
+    recovered = dspy_rlm_bridge._recover_control_fields("", ["reasoning", "code"])
+    assert recovered == {"reasoning": "(no stated reasoning)", "code": ""}
 
 
 def _fake_dspy(
@@ -601,11 +642,21 @@ def _fake_dspy(
             )
 
     @contextmanager
-    def fake_context(*, lm: Any) -> Any:
+    def fake_context(*, lm: Any, adapter: Any = None) -> Any:
         calls["context_lm"] = lm
+        calls["context_adapter"] = adapter
         yield
 
+    class FakeChatAdapter:
+        pass
+
+    class FakeTwoStepAdapter:
+        def __init__(self, lm: Any) -> None:
+            calls["two_step_extraction_lm"] = lm
+
     return SimpleNamespace(
+        ChatAdapter=FakeChatAdapter,
+        TwoStepAdapter=FakeTwoStepAdapter,
         LM=FakeLm,
         PythonInterpreter=FakePythonInterpreter,
         Tool=FakeTool,

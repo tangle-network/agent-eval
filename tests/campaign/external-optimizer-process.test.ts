@@ -1107,6 +1107,80 @@ describe('external optimizer model proxy', () => {
     }
   })
 
+  it.each([
+    ['https://api.openai.com/v1', '/v1/chat/completions'],
+    ['https://api.z.ai/api/coding/paas/v4', '/api/coding/paas/v4/chat/completions'],
+    ['https://provider.example', '/v1/chat/completions'],
+    ['https://provider.example/v1/', '/v1/chat/completions'],
+  ])('appends only the endpoint to the caller base URL %s', async (baseUrl, expectedPath) => {
+    let observed = ''
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: baseUrl,
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 1 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+      fetchImpl: async (input) => {
+        observed = new URL(String(input)).pathname
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'ok' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      },
+    })
+
+    try {
+      await postModel(proxy, { model: 'model-a', messages: [], max_tokens: 20 })
+      expect(observed).toBe(expectedPath)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('admits a reasoning model whose completion fits the requested limit', async () => {
+    const ledger = new CostLedger()
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 1, maxReasoningTokensPerRequest: 600 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'thought hard, answered briefly' } }],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 500,
+              completion_tokens_details: { reasoning_tokens: 490 },
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    })
+
+    try {
+      // 500 output tokens of which 490 are reasoning: the completion this cap
+      // governs is 10, so the response is admitted rather than rejected.
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 20,
+      })
+      expect(response.status).toBe(200)
+      expect(proxy.successfulCompletions()).toBe(1)
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('rejects output beyond the requested limit after recording actual usage', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({
@@ -1135,7 +1209,8 @@ describe('external optimizer model proxy', () => {
       })
       expect(response.status).toBe(502)
       expect(await response.json()).toEqual({
-        error: 'optimizer model provider reported 21 output tokens, exceeding requested limit 20',
+        error:
+          'optimizer model provider reported 21 completion tokens, exceeding requested limit 20',
       })
       expect(proxy.successfulCompletions()).toBe(0)
       const receipts = ledger.list()
@@ -1240,6 +1315,7 @@ function modelBudget(
     maxRequestBytes: number
     maxResponseBytes: number
     maxOutputTokensPerRequest: number
+    maxReasoningTokensPerRequest: number
     pricing: {
       inputUsdPerMillion: number
       cachedInputUsdPerMillion?: number
