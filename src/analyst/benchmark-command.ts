@@ -444,7 +444,7 @@ Controls:
   --seed <integer>                 Case-selection and comparison seed. Default: 0
   --concurrency <positive integer> Parallel benchmark jobs. Default: 1
   --repetitions <positive integer> Runs per case and runner. Default: 1
-  --max-output-tokens <positive>   Model output limit per call. Default: 4096
+  --max-output-tokens <positive>   Model output limit per call. Default: 16384
   --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
   --max-cost-usd <positive>        Run-wide spend limit. Default: 5
@@ -500,7 +500,7 @@ function parseCommandConfig(
       baseUrl: openAiCompatibleBaseUrl(requiredFlag(flags, 'base-url')),
       apiKey,
       model: requiredFlag(flags, 'model'),
-      maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 4_096),
+      maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 16_384),
       timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
       maxCostUsdPerAnalysis: maxCostUsd,
       ...(python ? { dspyRlm: { runner: { command: python } } } : {}),
