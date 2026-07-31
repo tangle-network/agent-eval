@@ -13,7 +13,13 @@ import { type RawAnalystFinding, RawAnalystFindingSchema } from './finding-signa
 import { startTraceToolCallback } from './trace-tool-callback'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
-const DEFAULT_MODEL_OUTPUT_TOKENS = 4_096
+// 4096 is below what current coding models emit for a full findings array:
+// glm-5.2 through an OpenAI-compatible gateway returns 8192 and the request is
+// rejected outright (`502 — provider reported 8192 completion tokens,
+// exceeding requested limit 4096`), so the default failed 2/2 smoke cases
+// before any analysis ran. The cap exists to bound spend, and `maxCostUsd`
+// already does that directly, so it starts above what a real completion needs.
+const DEFAULT_MODEL_OUTPUT_TOKENS = 16_384
 const DEFAULT_MAX_COST_USD = 1
 const MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
 const MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -29,7 +35,7 @@ export interface DspyRlmTraceEngineOptions {
   pricing?: CustomTokenPricing
   /** Maximum provider spend for one investigation. Default: 1 USD. */
   maxCostUsd?: number
-  /** Controller response cap. Default: 4096. */
+  /** Controller response cap. Default: 16384. */
   maxOutputTokens?: number
   /**
    * Thinking tokens one controller turn may bill on top of its completion.
