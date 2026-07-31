@@ -19,6 +19,8 @@ const REPOSITORY_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const CHECKER = join(REPOSITORY_ROOT, 'scripts/check-analyst-benchmark-implementation.mjs')
 
 const EXPECTED_FILES = [
+  'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
+  'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
   'src/analyst/benchmark-agentrx-calibration.ts',
   'src/analyst/benchmark-command-artifact.ts',
   'src/analyst/benchmark-command-persistence.ts',
@@ -36,6 +38,7 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
   'src/analyst/benchmark-public-model.ts',
+  'src/analyst/benchmark-public-rlm.ts',
   'src/analyst/benchmark-public-types.ts',
   'src/analyst/benchmark-real-model.ts',
   'src/analyst/benchmark-report.ts',
@@ -45,8 +48,22 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-verification-artifacts.ts',
   'src/analyst/benchmark-verification-outcome.ts',
   'src/analyst/benchmark.ts',
+  'src/analyst/dspy-rlm-engine.ts',
+  'src/analyst/engine.ts',
+  'src/analyst/exact-types.ts',
+  'src/analyst/finding-signature.ts',
+  'src/analyst/finding-subject.ts',
+  'src/analyst/kind-factory.ts',
+  'src/analyst/parse-tolerant.ts',
+  'src/analyst/tool-groups.ts',
+  'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
+  'src/campaign/external-optimizer-contracts.ts',
+  'src/campaign/external-optimizer-http.ts',
+  'src/campaign/external-optimizer-model-proxy.ts',
+  'src/campaign/external-optimizer-resources.ts',
+  'src/campaign/external-optimizer-subprocess.ts',
   'src/campaign/search-ledger-errors.ts',
   'src/campaign/search-ledger-file.ts',
   'src/campaign/single-run-lock.ts',
@@ -57,6 +74,7 @@ const EXPECTED_FILES = [
   'src/judge-calibration.ts',
   'src/ledger-core/atomic-file-lock.ts',
   'src/ledger-core/canonical.ts',
+  'src/ledger-core/deep-freeze.ts',
   'src/ledger-core/index.ts',
   'src/ledger-core/journal-file.ts',
   'src/ledger-core/journal.ts',
@@ -76,6 +94,7 @@ const EXPECTED_FILES = [
   'src/trace-analyst/store-otlp.ts',
   'src/trace-analyst/store-schemas.ts',
   'src/trace-analyst/store.ts',
+  'src/trace-analyst/tools.ts',
   'src/trace-analyst/types.ts',
   'src/trace/attribute-vocabulary.ts',
   'src/trace/otlp-attributes.ts',
@@ -96,7 +115,12 @@ describe('public analyst benchmark implementation digest', () => {
     expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM).toBe(
       'sha256-canonical-file-manifest',
     )
-    expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES).toEqual(['package.json', 'pnpm-lock.yaml'])
+    expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES).toEqual([
+      'clients/python/pyproject.toml',
+      'clients/python/uv.lock',
+      'package.json',
+      'pnpm-lock.yaml',
+    ])
     expect(analystBenchmarkDependencyLockDigest()).toBe(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256)
   })
 

@@ -1,10 +1,7 @@
 /**
- * Canonical transport-neutral trace tools plus the Ax adapter used by the
- * built-in analyst. Schemas and handlers originate here; provider adapters
- * only translate descriptor fields and cancellation context.
+ * Canonical transport-neutral trace tools. Schemas and handlers originate
+ * here; recursive engines only translate calls across their process boundary.
  */
-
-import type { AxFunction } from '@ax-llm/ax'
 
 import type { EvalToolDef } from '../eval-tools'
 import {
@@ -142,24 +139,12 @@ export function buildTraceAnalysisToolDescriptors(
   ]
 }
 
-/** Adapt the canonical descriptors into Ax functions used by the built-in analyst. */
-export function buildTraceAnalystTools(options: BuildTraceAnalysisToolsOptions): AxFunction[] {
-  return buildTraceAnalysisToolDescriptors(options).map((descriptor) => ({
-    namespace: descriptor.namespace,
-    name: descriptor.name,
-    description: descriptor.description,
-    parameters: descriptor.parameters as AxFunction['parameters'],
-    func: (args, extra) =>
-      descriptor.handler(args, extra?.abortSignal ? { signal: extra.abortSignal } : undefined),
-  }))
-}
-
 export function traceAnalystFunctionGroup(options: BuildTraceAnalysisToolsOptions): {
   namespace: string
   title: string
   selectionCriteria: string
   description: string
-  functions: AxFunction[]
+  functions: TraceAnalysisToolDescriptor[]
 } {
   return {
     namespace: TRACE_ANALYST_TOOL_NAMESPACE,
@@ -168,6 +153,6 @@ export function traceAnalystFunctionGroup(options: BuildTraceAnalysisToolsOption
     description:
       'Discovery, narrowing, and bounded deep reads over a JSONL trace dataset. ' +
       'Always call getDatasetOverview first.',
-    functions: buildTraceAnalystTools(options),
+    functions: buildTraceAnalysisToolDescriptors(options),
   }
 }

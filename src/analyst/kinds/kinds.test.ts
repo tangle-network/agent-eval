@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { TraceAnalysisEngine } from '../engine'
 import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
-import { createTraceAnalystKind, type TraceAnalystKindSpec } from '../kind-factory'
+import { createTraceAnalyst, type TraceAnalystDefinition } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 import { computeFindingId, makeFinding } from '../types'
 import {
@@ -122,11 +123,11 @@ describe('default kind suite shape', () => {
 
   it('every default kind declares a non-empty lens prompt without duplicating the output contract', () => {
     for (const spec of DEFAULT_TRACE_ANALYST_KINDS) {
-      expect(spec.actorDescription.length).toBeGreaterThan(500)
-      expect(spec.actorDescription).not.toMatch(/`area`\s*=/)
-      expect(spec.actorDescription).not.toContain('`evidence_uri`')
-      expect(spec.actorDescription).not.toContain('`evidence_excerpt`')
-      expect(spec.actorDescription).not.toMatch(/final\(\{\s*findings/)
+      expect(spec.instructions.length).toBeGreaterThan(500)
+      expect(spec.instructions).not.toMatch(/`area`\s*=/)
+      expect(spec.instructions).not.toContain('`evidence_uri`')
+      expect(spec.instructions).not.toContain('`evidence_excerpt`')
+      expect(spec.instructions).not.toMatch(/final\(\{\s*findings/)
     }
   })
 
@@ -137,20 +138,23 @@ describe('default kind suite shape', () => {
     }
   })
 
-  it('every default kind has an explicit bounded subquery budget', () => {
+  it('every default analyst has explicit recursive and trace-read limits', () => {
     for (const spec of DEFAULT_TRACE_ANALYST_KINDS) {
-      expect(spec.subqueries?.maxCalls ?? 0).toBeGreaterThanOrEqual(1)
-      expect(spec.subqueries?.maxParallel ?? 0).toBeGreaterThanOrEqual(2)
+      expect(spec.limits?.maxLlmCalls ?? 0).toBeGreaterThanOrEqual(1)
+      expect(spec.limits?.maxIterations ?? 0).toBeGreaterThanOrEqual(1)
+      expect(spec.limits?.maxToolCalls ?? 0).toBeGreaterThanOrEqual(1)
     }
   })
 
   it('improvement kind has a maximum subquery budget for competing fixes', () => {
-    const max = Math.max(...DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.subqueries?.maxCalls ?? 0))
-    expect(IMPROVEMENT_KIND_SPEC.subqueries?.maxCalls).toBe(max)
+    const max = Math.max(
+      ...DEFAULT_TRACE_ANALYST_KINDS.map((kind) => kind.limits?.maxLlmCalls ?? 0),
+    )
+    expect(IMPROVEMENT_KIND_SPEC.limits?.maxLlmCalls).toBe(max)
   })
 
   it("knowledge-gap prompt anchors on agent-knowledge wiki + websearch + tool-doc layers, not generic 'RAG'", () => {
-    const p = KNOWLEDGE_GAP_KIND_SPEC.actorDescription
+    const p = KNOWLEDGE_GAP_KIND_SPEC.instructions
     expect(p).toMatch(/agent-knowledge/)
     expect(p).toMatch(/wiki/i)
     expect(p).toMatch(/websearch/i)
@@ -158,12 +162,12 @@ describe('default kind suite shape', () => {
   })
 
   it('knowledge-poisoning prompt enforces dual-verify (acted on + actually false)', () => {
-    expect(KNOWLEDGE_POISONING_KIND_SPEC.actorDescription).toMatch(/DUAL-VERIFY/)
+    expect(KNOWLEDGE_POISONING_KIND_SPEC.instructions).toMatch(/DUAL-VERIFY/)
     expect(KNOWLEDGE_POISONING_KIND_SPEC.minimumEvidenceCitations).toBe(2)
   })
 
   it('failure-mode prompt requires clustering, not enumeration', () => {
-    expect(FAILURE_MODE_KIND_SPEC.actorDescription).toMatch(/Cluster, do not enumerate/i)
+    expect(FAILURE_MODE_KIND_SPEC.instructions).toMatch(/Cluster, do not enumerate/i)
   })
 })
 
@@ -198,42 +202,60 @@ describe('tool-groups filter the analyst tool surface narrowly', () => {
   })
 })
 
-describe('createTraceAnalystKind wires the spec into the Analyst contract', () => {
-  it('binds versioned AI service identity into exact execution configuration', () => {
-    const spec: TraceAnalystKindSpec = {
-      id: 'identity-kind',
-      description: 'identity',
-      area: 'identity',
-      version: '1',
-      actorDescription: 'inspect identity',
-      buildTools: () => [],
-      cost: { kind: 'llm' },
-    }
-    const first = createTraceAnalystKind(spec, {
-      ai: stubAi(),
-      model: 'test-model',
-      aiIdentity: { id: 'provider', version: '1', config: { baseUrl: 'https://one.test' } },
-    })
-    const second = createTraceAnalystKind(spec, {
-      ai: stubAi(),
-      model: 'test-model',
-      aiIdentity: { id: 'provider', version: '2', config: { baseUrl: 'https://two.test' } },
+describe('createTraceAnalyst wires a definition into the Analyst contract', () => {
+  const identityDefinition: TraceAnalystDefinition = {
+    id: 'identity-kind',
+    description: 'identity',
+    area: 'identity',
+    version: '1',
+    instructions: 'inspect identity',
+    toolGroup: 'all',
+  }
+
+  it('binds versioned engine identity into exact execution configuration', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(identityDefinition, {
+      engine: stubEngine({ version: '2.0.0' }),
     })
 
-    expect(first.executionConfig.ai_identity).not.toEqual(second.executionConfig.ai_identity)
+    expect(first.executionConfig.engine_identity).not.toEqual(
+      second.executionConfig.engine_identity,
+    )
+  })
+
+  it('separates engines that differ only by endpoint', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(identityDefinition, {
+      engine: stubEngine({ executionConfig: { base_url: 'https://two.test' } }),
+    })
+
+    expect(first.executionConfig.engine_identity).not.toEqual(
+      second.executionConfig.engine_identity,
+    )
+  })
+
+  it('separates definitions that differ only by instructions', () => {
+    const first = createTraceAnalyst(identityDefinition, { engine: stubEngine() })
+    const second = createTraceAnalyst(
+      { ...identityDefinition, instructions: 'inspect identity differently' },
+      { engine: stubEngine() },
+    )
+
+    expect(first.executionConfig.instructions_digest).not.toEqual(
+      second.executionConfig.instructions_digest,
+    )
   })
 
   it('returns a registry-ready Analyst that delegates to the kind id + version', () => {
-    const spec: TraceAnalystKindSpec = {
+    const spec: TraceAnalystDefinition = {
       id: 'test-kind',
       description: 'test',
       area: 'test',
       version: '0.0.1',
-      actorDescription: 'mock prompt',
-      buildTools: () => [],
-      cost: { kind: 'llm' },
+      instructions: 'mock prompt',
+      toolGroup: 'all',
     }
-    const analyst = createTraceAnalystKind(spec, { ai: stubAi(), model: 'test-model' })
+    const analyst = createTraceAnalyst(spec, { engine: stubEngine() })
     expect(analyst.id).toBe('test-kind')
     expect(analyst.version).toBe('0.0.1')
     expect(analyst.inputKind).toBe('trace-store')
@@ -241,24 +263,27 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
     expect(analyst.executionConfig).toMatchObject({
       kind: 'trace-analyst',
       model: 'test-model',
-      max_turns: 12,
-      max_output_tokens: 4096,
+      engine: 'test-engine',
+      tool_group: 'all',
+      max_iterations: 12,
+      max_llm_calls: 8,
+      max_tool_calls: 48,
+      max_output_chars: 10_000,
+      evidence_verification: 'resolvable-excerpt-v1',
     })
   })
 
   it('versionSuffix appends to the kind version (used by optimizer pipelines)', () => {
-    const spec: TraceAnalystKindSpec = {
+    const spec: TraceAnalystDefinition = {
       id: 'k',
-      description: '',
+      description: 'test',
       area: 'k',
       version: '1.0.0',
-      actorDescription: '',
-      buildTools: () => [],
-      cost: { kind: 'llm' },
+      instructions: 'test',
+      toolGroup: 'all',
     }
-    const analyst = createTraceAnalystKind(spec, {
-      ai: stubAi(),
-      model: 'test-model',
+    const analyst = createTraceAnalyst(spec, {
+      engine: stubEngine(),
       versionSuffix: 'mipro-2026-05-18',
     })
     expect(analyst.version).toBe('1.0.0+mipro-2026-05-18')
@@ -295,7 +320,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
       ]
       const out = renderPriorFindings(prior)
       expect(out).toMatch(/PRIOR FINDINGS/)
-      expect(out).toMatch(/REUSE the `finding_id`/)
+      expect(out).toMatch(/Reuse a matching finding id/)
       const first = prior[0]
       const second = prior[1]
       if (!first || !second) throw new Error('test setup invariant')
@@ -319,7 +344,7 @@ describe('createTraceAnalystKind wires the spec into the Analyst contract', () =
         }),
       )
       const out = renderPriorFindings(many)
-      expect(out).toContain('+20 more prior findings')
+      expect(out).toContain('20 older findings omitted')
     })
   })
 
@@ -344,6 +369,16 @@ function stubStore() {
   return {} as never
 }
 
-function stubAi() {
-  return {} as never
+function stubEngine(overrides: Partial<TraceAnalysisEngine> = {}): TraceAnalysisEngine {
+  return {
+    id: 'test-engine',
+    description: 'test',
+    model: 'test-model',
+    version: '1.0.0',
+    executionConfig: { base_url: 'https://one.test' },
+    analyze: async () => {
+      throw new Error('not called')
+    },
+    ...overrides,
+  }
 }

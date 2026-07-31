@@ -1,8 +1,34 @@
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { ExactCapableAnalyst } from './exact-types'
-import type { Analyst, AnalystCost, AnalystFinding } from './types'
+import type { TraceAnalystDefinition } from './kind-factory'
+import type { Analyst, AnalystCost } from './types'
 
-export interface DefineTraceAnalystOptions {
+/**
+ * Define a reusable trace-research question.
+ *
+ * The returned value contains no model, credentials, or execution state. Bind
+ * it to any TraceAnalysisEngine with `runTraceAnalyst` or
+ * `createTraceAnalyst`.
+ */
+export function defineTraceAnalyst(definition: TraceAnalystDefinition): TraceAnalystDefinition {
+  for (const [name, value] of [
+    ['id', definition.id],
+    ['description', definition.description],
+    ['area', definition.area],
+    ['version', definition.version],
+    ['instructions', definition.instructions],
+  ] as const) {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new TypeError(`defineTraceAnalyst: ${name} must be a non-empty string`)
+    }
+  }
+  return {
+    ...definition,
+    limits: definition.limits ? { ...definition.limits } : undefined,
+  }
+}
+
+export interface DefineCustomAnalystOptions {
   id: string
   description: string
   version?: string
@@ -10,25 +36,27 @@ export interface DefineTraceAnalystOptions {
   analyze: Analyst<TraceAnalysisStore>['analyze']
 }
 
-export interface DefineExactTraceAnalystOptions extends DefineTraceAnalystOptions {
+export interface DefineExactCustomAnalystOptions extends DefineCustomAnalystOptions {
   /** Canonical JSON for behavior knobs not already bound by `version`. */
   executionConfig: Readonly<Record<string, unknown>>
 }
 
-/** Define a custom trace analyst without repeating fixed registry fields. */
-export function defineTraceAnalyst(
-  options: DefineExactTraceAnalystOptions,
+/** Construct a registrable analyst from a hand-written analyze function. */
+export function defineCustomAnalyst(
+  options: DefineExactCustomAnalystOptions,
 ): ExactCapableAnalyst<TraceAnalysisStore>
-export function defineTraceAnalyst(options: DefineTraceAnalystOptions): Analyst<TraceAnalysisStore>
-export function defineTraceAnalyst(
-  options: DefineTraceAnalystOptions | DefineExactTraceAnalystOptions,
+export function defineCustomAnalyst(
+  options: DefineCustomAnalystOptions,
+): Analyst<TraceAnalysisStore>
+export function defineCustomAnalyst(
+  options: DefineCustomAnalystOptions | DefineExactCustomAnalystOptions,
 ): Analyst<TraceAnalysisStore> | ExactCapableAnalyst<TraceAnalysisStore> {
-  if (!options.id.trim()) throw new TypeError('defineTraceAnalyst: id must not be empty')
+  if (!options.id.trim()) throw new TypeError('defineCustomAnalyst: id must not be empty')
   if (!options.description.trim()) {
-    throw new TypeError('defineTraceAnalyst: description must not be empty')
+    throw new TypeError('defineCustomAnalyst: description must not be empty')
   }
   if (options.cost === undefined) {
-    throw new TypeError('defineTraceAnalyst: cost must be declared')
+    throw new TypeError('defineCustomAnalyst: cost must be declared')
   }
   if (
     'executionConfig' in options &&
@@ -36,7 +64,7 @@ export function defineTraceAnalyst(
       typeof options.executionConfig !== 'object' ||
       Array.isArray(options.executionConfig))
   ) {
-    throw new TypeError('defineTraceAnalyst: executionConfig must be an object')
+    throw new TypeError('defineCustomAnalyst: executionConfig must be an object')
   }
   return {
     id: options.id,
@@ -48,8 +76,3 @@ export function defineTraceAnalyst(
     ...('executionConfig' in options ? { executionConfig: options.executionConfig } : {}),
   }
 }
-
-export type TraceAnalystAnalyze = (
-  store: TraceAnalysisStore,
-  context: Parameters<Analyst<TraceAnalysisStore>['analyze']>[1],
-) => Promise<AnalystFinding[]>

@@ -13,6 +13,10 @@ const IMPLEMENTATION_MODULE_PATH = resolve(
 )
 const DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/implementation'
 const DEPENDENCY_LOCK_DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/dependency-lock'
+const NON_TYPESCRIPT_IMPLEMENTATION_FILES = [
+  'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
+  'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
+]
 const UTF8 = new TextDecoder('utf-8', { fatal: true })
 
 const implementation = await loadImplementationModule()
@@ -80,11 +84,15 @@ async function discoverImplementationFiles(sourceRoot) {
     external: ['./benchmark-implementation'],
     logLevel: 'silent',
   })
-  const files = Object.keys(result.metafile.inputs)
-    .map((path) => path.replaceAll('\\', '/'))
+  const files = [
+    ...Object.keys(result.metafile.inputs).map((path) => path.replaceAll('\\', '/')),
+    ...NON_TYPESCRIPT_IMPLEMENTATION_FILES,
+  ]
     .sort()
   for (const file of files) {
-    if (!file.startsWith('src/') || !file.endsWith('.ts')) {
+    const supportedTypescript = file.startsWith('src/') && file.endsWith('.ts')
+    const supportedPython = NON_TYPESCRIPT_IMPLEMENTATION_FILES.includes(file)
+    if (!supportedTypescript && !supportedPython) {
       throw new Error(`unsupported public analyst benchmark implementation input: ${file}`)
     }
   }
@@ -147,7 +155,7 @@ function assertImplementationModule(value) {
       file.startsWith('/') ||
       file.includes('\\') ||
       file.split('/').includes('..') ||
-      !file.endsWith('.ts')
+      (!file.endsWith('.ts') && !file.endsWith('.py'))
     ) {
       throw new Error(`invalid public analyst benchmark implementation source path: ${file}`)
     }
@@ -168,6 +176,8 @@ function assertImplementationModule(value) {
     throw new Error('unsupported public analyst benchmark dependency lock digest algorithm')
   }
   assertFileManifest(value.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES, [
+    'clients/python/pyproject.toml',
+    'clients/python/uv.lock',
     'package.json',
     'pnpm-lock.yaml',
   ])

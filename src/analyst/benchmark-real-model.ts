@@ -11,9 +11,10 @@ export {
 } from './benchmark-public-data'
 export {
   CODE_TRACE_BENCH_ANALYST_PROMPT,
-  createPublicBenchmarkModelRunner,
+  createPublicBenchmarkDirectRunner,
   publicBenchmarkProtocolSha256,
 } from './benchmark-public-model'
+export { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 export type {
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,

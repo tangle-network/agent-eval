@@ -10,6 +10,11 @@ This directory records three real-model runs on the same 32 public CodeTraceBenc
 The result is useful but not strong.
 Agent Eval accounted for every provider call and beat this CodeTracer run on the published metric, but all three arms had low precision, weak repeatability, and frequent false positives on solved trajectories.
 
+**Implementation provenance.**
+These numbers were produced by the retired one-shot direct runner at implementation SHA-256 `4dba263b6256a30d56c7fdb2d992d3a953c0035d731f359b704db806f68f75ac` (the value recorded in every artifact here).
+The current Agent Eval analyst is a recursive DSPy RLM engine with a different implementation digest; the reproduce commands below therefore run a different analyst and will produce different numbers.
+These results describe only the retired runner, and no number here may be cited for the current engine until a fresh certified run replaces this directory.
+
 ## Inputs
 
 | Field | Value |

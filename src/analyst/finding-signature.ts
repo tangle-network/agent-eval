@@ -1,15 +1,8 @@
 /**
- * Typed Ax output for analyst findings.
+ * Engine-neutral structured output for trace-analyst findings.
  *
- * Ax binds the field as `findings:json[]` so the provider emits native
- * structured output. At the kind-factory boundary every row is validated
- * before it becomes an `AnalystFinding`.
- *
- * Why not `f.object().array()` directly in the signature? The Ax
- * signature string `question:string -> findings:json[]` already lets
- * the provider emit JSON arrays. A Zod boundary is required either
- * way (the provider can return any JSON), and Zod gives us a single
- * validation surface independent of which Ax version is installed.
+ * Every recursive engine returns this shape. The TypeScript boundary validates
+ * it before a finding can enter a registry or benchmark.
  */
 
 import { z } from 'zod'
@@ -61,7 +54,7 @@ export const RAW_FINDING_SCHEMA_PROMPT = `Each finding MUST be a strict JSON obj
   - severity: "critical" | "high" | "medium" | "low" | "info"
   - claim: one-sentence statement (max 2000 chars)
   - subject?: one exact subject form listed by this kind; omit rather than guess
-  - evidence: REQUIRED non-empty array of {"uri": string, "excerpt"?: string}. Use real identifiers with span://, event://, artifact://, metric://, or finding://. Include a short exact quote in excerpt when available. If nothing is citable, do not emit the finding.
+  - evidence: REQUIRED non-empty array of {"uri": string, "excerpt"?: string}. Use trace://<URL-encoded-trace-id>/span/<URL-encoded-span-id> for trace evidence or finding://<finding-id> for supplied prior findings. URL encoding means percent encoding, never base64. Include a short exact quote in excerpt when available. If nothing is citable, do not emit the finding.
   - confidence: number 0..1 (0.9+ exact evidence; 0.6-0.8 inferred pattern; <0.5 speculative)
   - rationale?: one or two reasoning sentences
   - recommended_action?: concrete imperative change; omit for descriptive findings
@@ -111,10 +104,19 @@ function parseFindingWithSchema<T>(
 }
 
 function evidenceKindFromUri(uri: string): EvidenceRef['kind'] {
-  if (uri.startsWith('span://')) return 'span'
-  if (/^trace:\/\/[^/]+\/span\/[^/]+$/.test(uri)) return 'span'
-  if (uri.startsWith('event://')) return 'event'
+  if (parseTraceSpanEvidenceUri(uri)) return 'span'
   if (uri.startsWith('finding://')) return 'finding'
-  if (uri.startsWith('metric://')) return 'metric'
   return 'artifact'
+}
+
+export function parseTraceSpanEvidenceUri(uri: string): { traceId: string; spanId: string } | null {
+  const match = /^trace:\/\/([^/]+)\/span\/([^/]+)$/.exec(uri)
+  if (!match) return null
+  try {
+    const traceId = decodeURIComponent(match[1]!)
+    const spanId = decodeURIComponent(match[2]!)
+    return traceId && spanId ? { traceId, spanId } : null
+  } catch {
+    return null
+  }
 }

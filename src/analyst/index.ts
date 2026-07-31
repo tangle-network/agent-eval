@@ -19,7 +19,6 @@ export {
   createVerifierAdapter,
   liftSeverity,
 } from './adapters'
-export { type CreateAnalystAiConfig, createAnalystAi } from './ax-service'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
 export type {
@@ -115,6 +114,7 @@ export {
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
+  ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256,
   ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION,
   ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM,
   ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
@@ -141,7 +141,8 @@ export type {
 export {
   adaptPublicBenchmarkFindings,
   CODE_TRACE_BENCH_ANALYST_PROMPT,
-  createPublicBenchmarkModelRunner,
+  createPublicBenchmarkDirectRunner,
+  createPublicBenchmarkRlmRunner,
   emptyPublicBenchmarkRunner,
   loadPublicBenchmarkRows,
   preparePublicAnalystBenchmark,
@@ -189,11 +190,22 @@ export {
   type DefaultAnalystRegistryOptions,
 } from './default-registry'
 export type {
-  DefineExactTraceAnalystOptions,
-  DefineTraceAnalystOptions,
-  TraceAnalystAnalyze,
+  DefineCustomAnalystOptions,
+  DefineExactCustomAnalystOptions,
 } from './define'
-export { defineTraceAnalyst } from './define'
+export { defineCustomAnalyst, defineTraceAnalyst } from './define'
+export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
+export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
+export type {
+  TraceAnalysisEngine,
+  TraceAnalysisEngineRequest,
+  TraceAnalysisEngineResult,
+  TraceAnalystLimits,
+} from './engine'
+export {
+  DEFAULT_TRACE_ANALYST_LIMITS,
+  resolveTraceAnalystLimits,
+} from './engine'
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,
@@ -233,10 +245,15 @@ export {
 export type { DiffPolicy, FindingsDiff, PersistedFinding } from './findings-store'
 export { defaultIsMaterial, diffFindings, FindingsStore } from './findings-store'
 export type {
-  CreateTraceAnalystKindOpts,
-  TraceAnalystKindSpec,
+  CreateTraceAnalystOptions,
+  TraceAnalystDefinition,
 } from './kind-factory'
-export { createTraceAnalystKind, renderPriorFindings, renderUpstreamFindings } from './kind-factory'
+export {
+  createTraceAnalyst,
+  renderPriorFindings,
+  renderUpstreamFindings,
+  runTraceAnalyst,
+} from './kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
@@ -275,11 +292,6 @@ export {
   assertExactRegistryRunOpts,
   ExactAnalystRunExecutionError,
 } from './registry'
-export {
-  type StructureFindingsOptions,
-  type StructureFindingsResult,
-  structureFindings,
-} from './structure-findings'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {

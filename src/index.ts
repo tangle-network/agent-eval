@@ -39,7 +39,6 @@ export {
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
-export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-service'
 // ── Analyst (registry + findings) ─────────────────────────────────────
 // Consumer-facing happy path only: build a registry (or take the default
 // kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
@@ -66,6 +65,19 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
+export { defineTraceAnalyst } from './analyst/define'
+export {
+  createDspyRlmTraceEngine,
+  type DspyRlmTraceEngineOptions,
+} from './analyst/dspy-rlm-engine'
+export {
+  DEFAULT_TRACE_ANALYST_LIMITS,
+  resolveTraceAnalystLimits,
+  type TraceAnalysisEngine,
+  type TraceAnalysisEngineRequest,
+  type TraceAnalysisEngineResult,
+  type TraceAnalystLimits,
+} from './analyst/engine'
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,
@@ -93,11 +105,12 @@ export {
   type PersistedFinding,
 } from './analyst/findings-store'
 export {
-  type CreateTraceAnalystKindOpts,
-  createTraceAnalystKind,
+  type CreateTraceAnalystOptions,
+  createTraceAnalyst,
   renderPriorFindings,
   renderUpstreamFindings,
-  type TraceAnalystKindSpec,
+  runTraceAnalyst,
+  type TraceAnalystDefinition,
 } from './analyst/kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
@@ -603,7 +616,7 @@ export {
   type Unavailable,
   writeSupervisorRunReport,
 } from './supervisor-run/index'
-// ── Trace analyst surface (Ax RLM over OTLP-JSONL) ───────────────────
+// Trace analyst surface (recursive engines over OTLP-JSONL).
 // Direct re-export of the trace-analyst submodule so consumers don't have
 // to reach into subpaths. Used by agent canonical evals via the
 // `autoresearch` block (analyzeTraces + OtlpFileTraceStore).
@@ -804,14 +817,13 @@ export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-sco
 export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
 export { mergeSteeringBundle, renderSteeringText } from './steering'
 export type {
-  AxSteeringOptimizerConfig,
   SteeringOptimizationResult,
   SteeringOptimizationRow,
   SteeringOptimizationSelector,
   SteeringOptimizerBackend,
   SteeringOptimizerConfig,
 } from './steering-optimizer'
-export { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from './steering-optimizer'
+export { PairwiseSteeringOptimizer } from './steering-optimizer'
 export type {
   InspectorContext,
   WorkspaceAssertion,
@@ -1655,7 +1667,7 @@ export { attachCostToReport, costReport } from './cost-report'
 export type { ModelSeats, SeatName, SeatPresetName } from './model-seats'
 export { resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
 
-// Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
+// Recursive trace analyst, also exported from the /traces subpath.
 
 export type {
   AttestationProvenance,

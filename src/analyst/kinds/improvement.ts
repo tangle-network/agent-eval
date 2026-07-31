@@ -17,8 +17,7 @@
  */
 
 import { findingSubjectGrammarPromptFor } from '../finding-subject'
-import type { TraceAnalystKindSpec } from '../kind-factory'
-import { buildTraceToolsForGroup } from '../tool-groups'
+import type { TraceAnalystDefinition } from '../kind-factory'
 
 const subjectGrammar = findingSubjectGrammarPromptFor('improvement')
 
@@ -30,7 +29,7 @@ ${subjectGrammar}
 
 DISCOVERY → CANDIDATE-FIXES → COMPETE → CITE protocol:
 
-1. \`traces.getDatasetOverview({})\` first. Note the agents, tools, and any system-prompt fingerprints (look for the prompt text echoed in early spans).
+1. \`getDatasetOverview({})\` first. Note the agents, tools, and any system-prompt fingerprints (look for the prompt text echoed in early spans).
 2. For each high-severity failure pattern, generate 2-3 candidate fixes. Real candidate axes:
    - **System-prompt edit** — add an instruction, remove a misleading one, restructure precedence
    - **Tool description edit** — rewrite a tool's description so the agent picks it correctly / passes valid args
@@ -42,29 +41,28 @@ DISCOVERY → CANDIDATE-FIXES → COMPETE → CITE protocol:
    - **Skill / MCP / hook / subagent** — change the reusable profile component responsible for the behavior
    - **Workflow / rollout policy** — change orchestration, budget, sampling, or stopping behavior
    - **Code** — change an implementation path when profile edits cannot repair the behavior
-3. **Compare candidate fixes with bounded subqueries.** Load the representative failure excerpts, then send one \`llmQuery\` per candidate-fix axis the same evidence. Ask for likely effect, side effects, and implementation scope. Subqueries cannot call trace tools; trace ids alone are insufficient context.
+3. **Compare candidate fixes with bounded subqueries.** Load the representative failure excerpts, then send one \`llm_query\` per candidate-fix axis the same evidence. Ask for likely effect, side effects, and implementation scope. Subqueries cannot call trace tools; trace ids alone are insufficient context.
 4. After the comparisons return, **pick the winning candidate per cluster** based on expected effect and risk, then emit ONE finding. Keep the alternatives and rejection reasons in the rationale so the recommendation is auditable.
 5. **Cross-reference upstream findings.** Cite prior failure-mode or knowledge-gap findings as \`finding://<prior-finding-id>\`. This builds the dependency graph that lets the dashboard show "fix #X resolves failure modes A, B, C."
 
 For each winning recommendation, emit ONE finding. Use one exact locus from the subject grammar and state the edit in one sentence. Match leverage to the source failure's severity; use medium for quality-of-life changes and info for cleanup with no behavioral effect. Cite the targeted \`finding://<id>\` when available and the most representative span when useful. Quote the problem being fixed. Use confidence 0.85+ for a mechanical fix to a well-evidenced failure, 0.6-0.8 when judgment is required, and <0.5 for speculation. Explain in at most two sentences why this candidate beat its alternatives. The recommended action must be the literal diff, quoted replacement, tool description, or setting change.
 
-If no upstream failure findings exist in this run, derive your own from the trace dataset using the failure-mode protocol inline (\`searchTrace\` for STATUS_CODE_ERROR / MaxTurnsExceeded / etc.). But prefer to consume upstream findings when present — the kinds are designed to chain.
+If no upstream failure findings exist in this run, derive your own from the trace dataset using the failure-mode protocol inline (\`searchTrace\` for STATUS_CODE_ERROR / MaxTurnsExceeded / etc.). Prefer upstream findings when present because the analysts are designed to chain.
 
-Do NOT propose a fix you cannot defend with evidence. "Tighten the prompt" is not a finding; "Add 'When the user asks for X, always Y' to the system prompt section "request-classification"" is.
+Do NOT propose a fix you cannot defend with evidence. "Tighten the prompt" is not a finding; "Add 'When the user asks for X, always Y' to the system prompt section "request-classification"" is.`
 
-OBSERVABILITY rules:
-- Each non-final turn must emit at least one \`console.log\` for evidence.`
-
-export const IMPROVEMENT_KIND_SPEC: TraceAnalystKindSpec = {
+export const IMPROVEMENT_KIND_SPEC: TraceAnalystDefinition = {
   id: 'improvement',
   description:
     'Converts upstream failure / gap / poisoning findings into concrete locus-named edits (prompt, tool-doc, RAG, scaffolding) with leverage grades.',
   area: 'improvement',
   version: '1.2.0',
-  actorDescription: ACTOR_PROMPT,
-  buildTools: (store) => buildTraceToolsForGroup('all', store),
-  subqueries: { maxCalls: 8, maxParallel: 4 },
-  maxTurns: 30,
-  maxRuntimeChars: 12000,
-  cost: { kind: 'llm' },
+  instructions: ACTOR_PROMPT,
+  toolGroup: 'all',
+  limits: {
+    maxLlmCalls: 8,
+    maxIterations: 30,
+    maxToolCalls: 80,
+    maxOutputChars: 12_000,
+  },
 }

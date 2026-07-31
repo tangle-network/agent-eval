@@ -147,7 +147,7 @@ export function assertCompletedArtifactMatchesRun(
   const expectedComparisons = [
     compareAnalystRunners(artifact.result, {
       baselineRunnerId: 'empty',
-      candidateRunnerId: 'model',
+      candidateRunnerId: 'dspy-rlm',
       seed: config.seed,
     }),
   ]

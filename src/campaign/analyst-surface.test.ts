@@ -55,7 +55,7 @@ describe('buildTraceAnalystSurfaceDispatch', () => {
     await dispatch('Inspect failed tool calls.', scenario, context)
     expect(seen).toEqual([
       {
-        actorDescription: 'Inspect failed tool calls.',
+        instructions: 'Inspect failed tool calls.',
         traceStore,
         runId: 'cell-1:failed-command',
         signal,

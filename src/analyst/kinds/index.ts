@@ -19,7 +19,7 @@ export { IMPROVEMENT_KIND_SPEC } from './improvement'
 export { KNOWLEDGE_GAP_KIND_SPEC } from './knowledge-gap'
 export { KNOWLEDGE_POISONING_KIND_SPEC } from './knowledge-poisoning'
 
-import type { TraceAnalystKindSpec } from '../kind-factory'
+import type { TraceAnalystDefinition } from '../kind-factory'
 import { FAILURE_MODE_KIND_SPEC } from './failure-mode'
 import { IMPROVEMENT_KIND_SPEC } from './improvement'
 import { KNOWLEDGE_GAP_KIND_SPEC } from './knowledge-gap'
@@ -30,7 +30,7 @@ import { KNOWLEDGE_POISONING_KIND_SPEC } from './knowledge-poisoning'
  * use: failure-mode first (no upstream deps), gap + poisoning next
  * (both depend on failures), improvement last (chains all three).
  */
-export const DEFAULT_TRACE_ANALYST_KINDS: readonly TraceAnalystKindSpec[] = [
+export const DEFAULT_TRACE_ANALYST_KINDS: readonly TraceAnalystDefinition[] = [
   FAILURE_MODE_KIND_SPEC,
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,

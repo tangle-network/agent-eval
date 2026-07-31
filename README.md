@@ -357,7 +357,8 @@ pnpm tsx examples/selfimprove-quickstart/index.ts
 You do not need a runnable agent to analyze data you already captured.
 Use `analyzeRuns()` for `RunRecord[]`.
 For traces, run a registry of built-in or custom analysts, measure it on labeled issues and exact span locations, then turn only reviewed findings into eval data.
-For a public quality check, convert CodeTraceBench with `traces import-codetracebench`, then run `agent-eval analyst-benchmark` against the pinned labels and a real model.
+For a public quality check, convert CodeTraceBench with `traces import-codetracebench`, then run `agent-eval analyst-benchmark` against pinned labels.
+The command compares an empty baseline with the official DSPy `RLM` trace analyst and records its trace reads, model calls, tokens, cost, runtime, and cited findings.
 
 Use `AnalystRegistry.runExact()` when the caller, rather than registry defaults, must own every execution choice.
 The ordered `analystIds` array is the execution order, and `null` explicitly disables optional budget, timeout, cancellation, cost, tag, or prior-finding channels.

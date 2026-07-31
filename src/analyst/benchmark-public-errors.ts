@@ -91,11 +91,15 @@ function redactSensitiveText(value: string, secrets: readonly string[]): string 
   for (const secret of secrets) {
     if (secret) redacted = redacted.replaceAll(secret, '[REDACTED]')
   }
-  return redacted
+  redacted = redacted
     .replace(/\bBearer\s+[^\s"',;]+/gi, 'Bearer [REDACTED]')
     .replace(
       /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\b\s*[:=]\s*[^\s"',;]+/gi,
       '$1=[REDACTED]',
     )
-    .slice(0, 500)
+  if (redacted.length <= 500) return redacted
+  const head = redacted.slice(0, 180)
+  const omitted = redacted.length - 460
+  const marker = `...[${omitted} chars omitted]...`
+  return `${head}${marker}${redacted.slice(-(500 - head.length - marker.length))}`
 }

@@ -78,7 +78,7 @@ export interface AnalystBenchmarkRunIdentity {
     analystProtocolSha256: string
     implementationSha256: string
     dependencyLockSha256: string
-    runnerIds: readonly ['empty', 'model']
+    runnerIds: readonly ['empty', 'dspy-rlm']
   }
   inputs: {
     labelsSha256: string

@@ -342,8 +342,28 @@ try {
       type RemovedCanonicalFindingSchema = typeof import('@tangle-network/agent-eval/analyst').CanonicalRawAnalystFindingSchema
       // @ts-expect-error analyst cost is reported through the usage receipt
       type RemovedAnalystCostAlias = import('@tangle-network/agent-eval').AnalystRunSummary['cost_usd']
-      // @ts-expect-error recovery has one plural-evidence processRow callback
-      type RemovedCanonicalProcessRow = import('@tangle-network/agent-eval/analyst').StructureFindingsOptions['processCanonicalRow']
+      // @ts-expect-error one-shot finding structuring was removed; use a recursive analysis engine
+      type RemovedStructureFindingsOptions = import('@tangle-network/agent-eval/analyst').StructureFindingsOptions
+      // @ts-expect-error trace analysts run through an analysis engine, not an Ax client
+      type RemovedCreateAnalystAi = typeof import('@tangle-network/agent-eval/analyst').createAnalystAi
+      // @ts-expect-error trace analysts run through an analysis engine, not an Ax client
+      type RemovedCreateAnalystAiConfig = import('@tangle-network/agent-eval/analyst').CreateAnalystAiConfig
+      // @ts-expect-error trace analysts are created from TraceAnalystDefinition via createTraceAnalyst
+      type RemovedCreateTraceAnalystKind = typeof import('@tangle-network/agent-eval/analyst').createTraceAnalystKind
+      // @ts-expect-error TraceAnalystDefinition is the one analyst definition contract
+      type RemovedTraceAnalystKindSpec = import('@tangle-network/agent-eval/analyst').TraceAnalystKindSpec
+      // @ts-expect-error TraceAnalystDefinition is the one analyst definition contract
+      type RemovedCreateTraceAnalystKindOpts = import('@tangle-network/agent-eval/analyst').CreateTraceAnalystKindOpts
+      // @ts-expect-error steering optimization is pairwise-only
+      type RemovedAxGepaSteeringOptimizer = typeof import('@tangle-network/agent-eval').AxGepaSteeringOptimizer
+      // @ts-expect-error steering optimization is pairwise-only
+      type RemovedAxSteeringOptimizerConfig = import('@tangle-network/agent-eval').AxSteeringOptimizerConfig
+      // @ts-expect-error trace analysis reports engine iterations, not per-turn snapshots
+      type RemovedAnalyzeTracesTurnSnapshot = import('@tangle-network/agent-eval/traces').AnalyzeTracesTurnSnapshot
+      // @ts-expect-error the direct one-shot runner is the explicit baseline, not the model runner
+      type RemovedCreatePublicBenchmarkModelRunner = typeof import('@tangle-network/agent-eval/analyst').createPublicBenchmarkModelRunner
+      // @ts-expect-error trace tools are built from transport-neutral descriptors
+      type RemovedBuildTraceAnalystTools = typeof import('@tangle-network/agent-eval/traces').buildTraceAnalystTools
       // @ts-expect-error comparison partitions use explicit train, selection, and test fields
       type RemovedComparisonHoldout = CompareOptimizationMethodsOptions<Scenario, unknown>['holdoutScenarios']
       // @ts-expect-error SurfaceProposer is the only candidate-proposal contract
@@ -699,7 +719,6 @@ try {
         }
         for (const name of [
           'buildTraceAnalysisToolDescriptors',
-          'buildTraceAnalystTools',
           'createBoundedTraceAnalysisStore',
           'TRACE_ANALYSIS_LIMITS',
           'TraceAnalysisValidationError',

@@ -25,7 +25,7 @@ export interface TraceAnalystArtifact {
 
 export interface BuildTraceAnalystSurfaceDispatchOptions {
   analyze(input: {
-    actorDescription: string
+    instructions: string
     traceStore: TraceAnalysisStore
     runId: string
     signal: AbortSignal
@@ -46,7 +46,7 @@ export function buildTraceAnalystSurfaceDispatch(
       )
     }
     return options.analyze({
-      actorDescription: surface,
+      instructions: surface,
       traceStore: scenario.traceStore,
       runId: `${context.cellId}:${scenario.id}`,
       signal: context.signal,

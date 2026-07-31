@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   runExternalOptimizerProcess,
@@ -124,6 +124,28 @@ describe('external optimizer process', () => {
     } finally {
       delete process.env.AGENT_EVAL_TEST_SECRET
     }
+  })
+
+  it('resolves a path-like runner command before entering the private working directory', async () => {
+    const script = [
+      "const { writeFileSync } = require('node:fs')",
+      "const output = process.argv[process.argv.indexOf('--output') + 1]",
+      "writeFileSync(output, JSON.stringify({ status: 'complete' }))",
+    ].join(';')
+
+    await expect(
+      runExternalOptimizerProcess({
+        label: 'relative-runner optimizer',
+        tempPrefix: 'agent-eval-relative-runner-',
+        module: 'unused',
+        input: {},
+        runner: {
+          command: relative(process.cwd(), process.execPath),
+          args: ['-e', script, '--'],
+        },
+        timeoutMs: 5_000,
+      }),
+    ).resolves.toEqual({ status: 'complete' })
   })
 
   it('retains the final exception after large process output', async () => {
@@ -1035,6 +1057,97 @@ describe('external optimizer model proxy', () => {
         }),
       ])
       expect(ledger.list()[0]?.actualCostUsd).toBeUndefined()
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('fails closed when a successful provider response reports zero usage', async () => {
+    const ledger = new CostLedger()
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 1 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'unmetered result' } }],
+            usage: { prompt_tokens: 0, completion_tokens: 0 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({
+        error: 'optimizer model provider reported zero token usage for a successful response',
+      })
+      expect(proxy.successfulCompletions()).toBe(0)
+      expect(ledger.summary().accountingComplete).toBe(false)
+      expect(ledger.list()).toEqual([
+        expect.objectContaining({
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        }),
+      ])
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rejects output beyond the requested limit after recording actual usage', async () => {
+    const ledger = new CostLedger()
+    const proxy = await startExternalOptimizerModelProxy({
+      upstreamBaseUrl: 'https://provider.example/v1',
+      upstreamApiKey: 'provider-secret',
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 1 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'too much output' } }],
+            usage: { prompt_tokens: 10, completion_tokens: 21 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 20,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({
+        error: 'optimizer model provider reported 21 output tokens, exceeding requested limit 20',
+      })
+      expect(proxy.successfulCompletions()).toBe(0)
+      const receipts = ledger.list()
+      expect(receipts).toEqual([
+        expect.objectContaining({
+          inputTokens: 10,
+          outputTokens: 21,
+          costUnknown: false,
+          usageUnknown: false,
+        }),
+      ])
+      expect(receipts[0]?.costUsd).toBeCloseTo(0.000052, 12)
     } finally {
       await proxy.close()
     }
