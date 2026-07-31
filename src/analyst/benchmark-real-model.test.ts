@@ -109,6 +109,68 @@ describe('createPublicBenchmarkDirectRunner', () => {
     })
   })
 
+  it('keeps usable blocks when one block is malformed and reports the rejection', async () => {
+    const traceId = 'trace-1'
+    const spans = [2, 3, 4].map((step) => span(traceId, `step-${step}`, `runCommand("${step}")`))
+    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
+      baseUrl: 'https://provider.invalid/v1',
+      apiKey: 'test',
+      model: 'glm-5.2',
+      maxOutputTokens: 1_024,
+      timeoutMs: 30_000,
+      fetchImpl: vi.fn(async () =>
+        modelResponse({
+          report: 'One usable block and one malformed block.',
+          findings: [
+            { first_step: 3, last_step: 2, escape_status: 'unescaped' },
+            {
+              first_step: 2,
+              last_step: 2,
+              consequence_step: 3,
+              escape_status: 'unescaped',
+              severity: 'high',
+              claim: 'Step 2 wrote an invalid configuration.',
+              confidence: 0.9,
+            },
+          ],
+        }),
+      ) as typeof fetch,
+    }).analyze(
+      { traceStore: singleTraceStore(traceId, spans) },
+      { caseId: `codetrace:${traceId}`, repetition: 0 },
+    )
+
+    expect(output.error).toBeUndefined()
+    expect(output.findings.map((finding) => finding.subject)).toEqual(['incorrect-step-2'])
+    const diagnostics = (output.metadata as { blockDiagnostics?: { rejectedBlocks?: string[] } })
+      .blockDiagnostics
+    expect(diagnostics?.rejectedBlocks).toHaveLength(1)
+    expect(diagnostics?.rejectedBlocks?.[0]).toContain('block 0')
+  })
+
+  it('fails the case when every reported block is malformed', async () => {
+    const traceId = 'trace-1'
+    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
+      baseUrl: 'https://provider.invalid/v1',
+      apiKey: 'test',
+      model: 'glm-5.2',
+      maxOutputTokens: 1_024,
+      timeoutMs: 30_000,
+      fetchImpl: vi.fn(async () =>
+        modelResponse({
+          report: 'Every block is malformed.',
+          findings: [{ first_step: 3, last_step: 2, escape_status: 'unescaped' }],
+        }),
+      ) as typeof fetch,
+    }).analyze(
+      { traceStore: singleTraceStore(traceId, [span(traceId, 'step-2', 'runCommand("2")')]) },
+      { caseId: `codetrace:${traceId}`, repetition: 0 },
+    )
+
+    expect(output.findings).toEqual([])
+    expect(output.error?.message).toContain('every reported failure block was malformed')
+  })
+
   it('emits one finding for a singleton block', async () => {
     const traceId = 'trace-1'
     const action = 'writeFile("broken configuration")'
@@ -313,7 +375,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const rejected: unknown[][] = [
       [validBlock(3, 2)],
       [validBlock(1, MAX_INCORRECT_BLOCK_STEPS + 1)],
-      [{ ...validBlock(2, 2), consequence_step: 2 }],
+      [{ ...validBlock(2, 2), consequence_step: 1 }],
       [{ ...validBlock(2, 2), consequence_step: undefined }],
       [
         {
@@ -338,7 +400,10 @@ describe('createPublicBenchmarkDirectRunner', () => {
     for (const findings of rejected) {
       const output = await run(findings)
       expect(output.findings).toEqual([])
-      expect(output.error).toMatchObject({ class: 'ModelOutputValidationError' })
+      // Envelope violations (too many blocks) are caught by the response schema;
+      // a response whose every block is malformed is rejected block-by-block.
+      // Both are loud and produce no findings, which is the guarantee that matters.
+      expect(['ValidationError', 'ModelOutputValidationError']).toContain(output.error?.class)
     }
   })
 

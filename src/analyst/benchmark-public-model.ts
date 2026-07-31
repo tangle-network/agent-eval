@@ -11,6 +11,7 @@ import {
   type CostReceiptInput,
   CostReservationExceededError,
 } from '../cost-ledger'
+import { ValidationError } from '../errors'
 import {
   callLlmJson,
   costReceiptFromLlm,
@@ -107,6 +108,7 @@ export function createPublicBenchmarkDirectRunner(
         benchmarkRepetition: String(context.repetition),
       }
       let rawPredictions: PublicBenchmarkModelPrediction[] = []
+      let rejectedBlocks: string[] = []
       let modelFindings: AnalystFinding[] = []
       let providerModel = model
       let producedAt: string | undefined
@@ -171,6 +173,7 @@ export function createPublicBenchmarkDirectRunner(
           }
           const response = parsePublicBenchmarkModelResponse(dataset, cached.response)
           rawPredictions = response.findings
+          rejectedBlocks = response.rejectedBlocks
           providerModel = cached.metadata.providerModel
           producedAt = cached.metadata.producedAt
           modelMetadata = {
@@ -208,7 +211,10 @@ export function createPublicBenchmarkDirectRunner(
                     ...cacheIdentity,
                     callId: providerCallId,
                     status: 'succeeded',
-                    response,
+                    // Cache the provider's own payload, not the parse result: a
+                    // resume re-parses this value, so it must stay exactly what
+                    // the contract accepts.
+                    response: completed.value,
                     metadata: {
                       providerModel: completed.result.model,
                       providerDurationMs: completed.result.durationMs,
@@ -239,6 +245,7 @@ export function createPublicBenchmarkDirectRunner(
           if (!paid.succeeded) throw paid.error
           const response = paid.value.response
           rawPredictions = response.findings
+          rejectedBlocks = response.rejectedBlocks
           providerModel = paid.value.result.model
           producedAt = paid.value.producedAt
           modelMetadata = {
@@ -264,7 +271,10 @@ export function createPublicBenchmarkDirectRunner(
         })
         modelFindings = converted.findings
         if (converted.diagnostics) {
-          modelMetadata = { ...modelMetadata, blockDiagnostics: converted.diagnostics }
+          modelMetadata = {
+            ...modelMetadata,
+            blockDiagnostics: { ...converted.diagnostics, rejectedBlocks },
+          }
         }
         if (dataset === 'codetracebench') {
           await validateCodeTraceFindingEvidence({
@@ -460,10 +470,13 @@ const CodeTraceBlockPredictionSchema = z
         message: `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
       })
     }
-    if (block.consequence_step <= block.last_step) {
+    // A step carries both the assistant action and the observation it produced,
+    // so a block whose own final observation shows the damage cites its last
+    // step. Earlier than that is not a consequence.
+    if (block.consequence_step < block.last_step) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `failure block consequence_step ${block.consequence_step} must follow last_step ${block.last_step}`,
+        message: `failure block consequence_step ${block.consequence_step} precedes last_step ${block.last_step}`,
       })
     }
   })
@@ -479,10 +492,10 @@ const AgentRxCategorySchema = z.enum([
   'system-failure',
   'inconclusive',
 ])
-const CodeTraceModelResponseSchema = z
+const CodeTraceModelResponseEnvelopeSchema = z
   .object({
     report: z.string().min(1).max(4_000),
-    findings: z.array(CodeTraceBlockPredictionSchema).max(MAX_INCORRECT_BLOCKS),
+    findings: z.array(z.unknown()).max(MAX_INCORRECT_BLOCKS),
   })
   .strict()
 const AgentRxModelResponseSchema = z
@@ -503,10 +516,35 @@ type PublicBenchmarkModelPrediction = AgentRxModelPrediction | CodeTraceModelPre
 function parsePublicBenchmarkModelResponse(
   dataset: PublicAnalystBenchmarkDataset,
   value: unknown,
-): { report: string; findings: PublicBenchmarkModelPrediction[] } {
-  return dataset === 'agentrx'
-    ? AgentRxModelResponseSchema.parse(value)
-    : CodeTraceModelResponseSchema.parse(value)
+): { report: string; findings: PublicBenchmarkModelPrediction[]; rejectedBlocks: string[] } {
+  if (dataset === 'agentrx') {
+    return { ...AgentRxModelResponseSchema.parse(value), rejectedBlocks: [] }
+  }
+  // The envelope is the contract and stays strict. Individual blocks are model
+  // output: one malformed block must not void a case whose remaining blocks are
+  // usable and whose provider call is already paid for. Every rejection is
+  // reported so a run cannot silently lose predictions.
+  const envelope = CodeTraceModelResponseEnvelopeSchema.parse(value)
+  const findings: CodeTraceModelPrediction[] = []
+  const rejectedBlocks: string[] = []
+  for (const [index, block] of envelope.findings.entries()) {
+    const parsed = CodeTraceBlockPredictionSchema.safeParse(block)
+    if (parsed.success) {
+      findings.push(parsed.data)
+      continue
+    }
+    rejectedBlocks.push(
+      `block ${index}: ${parsed.error.issues
+        .map((issue) => `${issue.path.join('.') || '<root>'} ${issue.message}`)
+        .join('; ')}`,
+    )
+  }
+  if (findings.length === 0 && envelope.findings.length > 0) {
+    throw new ValidationError(
+      `every reported failure block was malformed: ${rejectedBlocks.join(' | ')}`,
+    )
+  }
+  return { report: envelope.report, findings, rejectedBlocks }
 }
 
 async function publicBenchmarkPredictionsToFindings(options: {

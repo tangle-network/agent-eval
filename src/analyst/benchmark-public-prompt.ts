@@ -31,7 +31,7 @@ Report blocks separated by at least one correct step as separate findings, and n
 Inspect the complete supplied trace data.
 Use the final-verification outcome as evidence about the final state, not as a rule for whether earlier steps were incorrect.
 For each candidate block, inspect every assistant action in it and its following observation.
-Admit a block only when you can point at the specific later evidence it produced: name as consequence_step the step number of a later assistant action or observation that shows the damage — a failing command, a wrong file state, a repeated failure, or rework the agent had to do because of this block.
+Admit a block only when you can point at the specific evidence it produced: name as consequence_step the step number whose action or observation shows the damage — a failing command, a wrong file state, a repeated failure, or rework the agent had to do because of this block. That step is the block's own last step when its observation already shows the damage, and a later step otherwise.
 When you cannot name that later step number from the trace you were given, drop the block; a plausible story about why a step looks wrong is not evidence that it was.
 Judge that consequence from the trajectory itself: a passing final verification is not evidence that a block caused nothing, and a failing final verification is not evidence that any particular block caused it.
 For every block, decide whether the agent escaped the failure.
@@ -79,7 +79,7 @@ const AGENT_RX_JSON_CONTRACT = `Each finding must contain only:
 const CODE_TRACE_JSON_CONTRACT = `Each finding is one contiguous failure block and must contain only:
 - "first_step": a positive integer, the block's first incorrect step, matching an existing assistant LLM span named step-<n>
 - "last_step": a positive integer >= first_step, the block's last incorrect step; every step from first_step through last_step must be an existing assistant LLM span, and a block spans at most ${MAX_INCORRECT_BLOCK_STEPS} steps
-- "consequence_step": a positive integer > last_step, the later assistant step whose action or following observation shows the damage this block caused
+- "consequence_step": a positive integer >= last_step, the step whose action or following observation shows the damage this block caused; use last_step itself when that step's own observation shows the damage
 - "escape_status": "escaped" only when one single later step fully reversed the block and nothing afterwards revisits it, "unescaped" otherwise and whenever you are unsure
 - "severity": "critical", "high", "medium", "low", or "info"
 - "claim": one sentence describing the block's failure

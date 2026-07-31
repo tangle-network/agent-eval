@@ -46,6 +46,7 @@ import {
   renderCodeTraceCalibrationMarkdown,
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
+import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 import {
   emptyPublicBenchmarkRunner,
@@ -83,8 +84,19 @@ export interface AnalystBenchmarkCommandDependencies {
   ) => AnalystBenchmarkRunner<AnalystRunInputs>
 }
 
+/**
+ * Which analyst produces the scored arm.
+ *
+ * `dspy-rlm` is the recursive engine. `direct` is the retired one-shot runner,
+ * kept reachable because the published evidence was produced by it: a
+ * comparison against those numbers is only sound when the same runner can be
+ * re-run over the same inputs.
+ */
+export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct'
+
 export interface AnalystBenchmarkCommandConfig {
   dataset: PublicAnalystBenchmarkDataset
+  analyst: AnalystBenchmarkRunnerKind
   labelsPath: string
   traceDir: string
   artifactDir?: string
@@ -183,7 +195,9 @@ async function executeAnalystBenchmarkCommand(
   const createAnalystRunner =
     dependencies.createAnalystRunner ??
     ((dataset: PublicAnalystBenchmarkDataset, model: PublicAnalystBenchmarkModelConfig) =>
-      createPublicBenchmarkRlmRunner(dataset, model))
+      config.analyst === 'direct'
+        ? createPublicBenchmarkDirectRunner(dataset, model)
+        : createPublicBenchmarkRlmRunner(dataset, model))
   const runners = [
     emptyPublicBenchmarkRunner(),
     createAnalystRunner(config.dataset, {
@@ -385,6 +399,9 @@ Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench la
 
 Required:
   --dataset agentrx|codetracebench
+  --analyst dspy-rlm|direct        Scored analyst. Default: dspy-rlm.
+                                   'direct' is the retired one-shot runner that
+                                   produced the published evidence.
   --labels <dataset.json|dataset.jsonl>
   --trace-dir <one-trace-per-file OTLP JSONL directory>
   --artifact-dir <extracted artifact root>  Required for CodeTraceBench
@@ -440,8 +457,13 @@ function parseCommandConfig(
 
   const maxCostUsd = positiveFiniteFlag(flags, 'max-cost-usd', 5)
   const python = flags.get('python')?.trim()
+  const analyst = flags.get('analyst')?.trim() ?? 'dspy-rlm'
+  if (analyst !== 'dspy-rlm' && analyst !== 'direct') {
+    throw new Error("--analyst must be 'dspy-rlm' or 'direct'")
+  }
   return {
     dataset,
+    analyst,
     labelsPath: requiredFlag(flags, 'labels'),
     traceDir: requiredFlag(flags, 'trace-dir'),
     ...(artifactDir ? { artifactDir } : {}),
@@ -501,6 +523,7 @@ function parseFlags(argv: readonly string[]): Map<string, string> {
 const KNOWN_FLAGS = new Set([
   'resume',
   'dataset',
+  'analyst',
   'labels',
   'trace-dir',
   'artifact-dir',
