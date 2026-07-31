@@ -279,7 +279,7 @@ describe('runAnalystBenchmarkCommand', () => {
         { TEST_ANALYST_KEY: 'unused' },
         { createAnalystRunner },
       ),
-    ).rejects.toThrow(/pending or incomplete cost entries/)
+    ).rejects.toThrow(/pending or budget-breaching cost entries/)
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
@@ -594,6 +594,51 @@ describe('runAnalystBenchmarkCommand', () => {
     await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     })
+  })
+
+  it('finalizes when a completed analysis has one settled call the provider under-reported', async () => {
+    const fixture = await agentRxFixture()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      agentRxCommandArgs(fixture),
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createAnalystRunner: (_dataset, config) => ({
+          id: 'dspy-rlm',
+          async analyze(_input, context) {
+            // A settled provider response that omitted usage: cost is flagged
+            // unknown, the call did not fail, and the analysis completes.
+            const paid = await config.costLedger!.runPaidCall({
+              channel: 'analyst',
+              phase: 'analyst.public-benchmark',
+              actor: 'agentrx-root-cause-localizer',
+              model: 'glm-5.2',
+              maximumCharge: { externallyEnforcedMaximumUsd: 0.1 },
+              tags: {
+                analystId: 'agentrx-root-cause-localizer',
+                benchmarkCaseId: context.caseId,
+                benchmarkRepetition: String(context.repetition),
+              },
+              async execute() {
+                return { model: 'glm-5.2', inputTokens: 0, outputTokens: 0, usageUnknown: true }
+              },
+              receipt: (value) => value,
+            })
+            if (!paid.succeeded) throw paid.error
+            return { findings: [], usage: UNKNOWN_USAGE, metadata: { caseId: context.caseId } }
+          },
+        }),
+      },
+    )
+    const output = stdout.mock.calls.map(([value]) => String(value)).join('')
+    stdout.mockRestore()
+
+    expect(code).toBe(0)
+    expect(output).toContain(`result=${join(fixture.outDir, 'result.json')}`)
+    expect(output).toMatch(/unknown_cost_runs=[1-9]/)
+    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).resolves.toContain(
+      'analyst-benchmark-result',
+    )
   })
 
   it('does not score or finalize a provider failure with incomplete accounting', async () => {
