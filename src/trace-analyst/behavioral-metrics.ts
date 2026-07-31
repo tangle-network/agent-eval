@@ -69,6 +69,27 @@ interface TokenSample {
 const INPUT_GROWTH_FACTOR = 3
 /** Tool-usage signals need at least this many calls to be meaningful. */
 const MIN_TOOL_CALLS = 3
+/**
+ * Serial calls required before a strictly-decreasing output run counts as decay.
+ *
+ * A run of n independent lengths is strictly decreasing by chance with
+ * probability 1/n!, so the old minimum of 3 fired on roughly one sequence in
+ * six. The paired `inputIsMonotonic && inputGrew` guard does not offset that:
+ * context accumulates by construction in a serial agent loop, so input growth
+ * is very nearly free evidence. At 5 calls chance alone accounts for under 1%,
+ * which is the bar a signal reported at full confidence has to clear.
+ */
+const OUTPUT_DECAY_MINIMUM_CALLS = 5
+/**
+ * The last output must fall to at most this fraction of the first.
+ *
+ * Length wanders between turns for reasons that are not degradation, so
+ * direction alone is not a finding — an observed 784 → 646 run (18%) was
+ * reported as decay and was noise. Requiring the response to lose most of its
+ * length keeps the signal on the failure it names: late steps that quietly
+ * stop doing the work.
+ */
+const OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION = 0.6
 /** Tool names that read or check state count as self-verification, not mutation.
  *  Covers the inspect verbs plus the read/search tools real harnesses use to
  *  verify (Claude Code Read/Grep/Glob, codex read_file/ls/cat, git status/diff,
@@ -435,7 +456,7 @@ function tokenSignals(sequence: BehavioralTokenSequence): SuboptimalSignal[] {
   }
 
   if (
-    inputs.length >= 3 &&
+    inputs.length >= OUTPUT_DECAY_MINIMUM_CALLS &&
     inputs.length === outputs.length &&
     inputs.every((value): value is number => value !== null) &&
     outputs.every((value): value is number => value !== null)
@@ -445,7 +466,8 @@ function tokenSignals(sequence: BehavioralTokenSequence): SuboptimalSignal[] {
     const inputIsMonotonic = everyAdjacent(inputs, (previous, current) => current >= previous)
     const outputIsMonotonic = everyAdjacent(outputs, (previous, current) => current <= previous)
     const inputGrew = inputs[inputs.length - 1]! > inputs[0]!
-    if (inputIsMonotonic && inputGrew && outputIsMonotonic && last < first) {
+    const decayIsMaterial = last <= first * OUTPUT_DECAY_MAXIMUM_RETAINED_FRACTION
+    if (inputIsMonotonic && inputGrew && outputIsMonotonic && decayIsMaterial) {
       signals.push({
         code: 'output-length-decay',
         severity: 'medium',

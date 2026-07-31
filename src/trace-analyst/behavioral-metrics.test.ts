@@ -261,11 +261,39 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     expect(metrics.signals.map((signal) => signal.code)).not.toContain('output-length-decay')
   })
 
+  it('does not call a short or shallow output run decay', () => {
+    // Both fixtures are the false positive this bound exists to reject: the
+    // first is the observed 784 -> 646 run over three calls that shipped as a
+    // finding at full confidence, the second decays cleanly but only reaches
+    // 70% retained. Direction alone is not degradation.
+    const shortRun = [
+      { input: 1000, output: 784 },
+      { input: 2000, output: 700 },
+      { input: 3000, output: 646 },
+    ].map(({ input, output }, index) => ({
+      ...llmSpan(index + 1, input, output),
+      parent_span_id: null,
+    }))
+    expect(computeTraceMetrics(shortRun).signals.map((signal) => signal.code)).not.toContain(
+      'output-length-decay',
+    )
+
+    const shallowRun = [100, 400, 900, 1400, 2000].map((input, index) => ({
+      ...llmSpan(index + 1, input, 100 - index * 5),
+      parent_span_id: null,
+    }))
+    expect(computeTraceMetrics(shallowRun).signals.map((signal) => signal.code)).not.toContain(
+      'output-length-decay',
+    )
+  })
+
   it('joins serial parentless calls within one trace', () => {
     const calls = [
       { input: 100, output: 90 },
-      { input: 300, output: 60 },
-      { input: 900, output: 30 },
+      { input: 300, output: 75 },
+      { input: 900, output: 60 },
+      { input: 1500, output: 45 },
+      { input: 2200, output: 30 },
     ].map(({ input, output }, index) => ({
       ...llmSpan(index + 1, input, output),
       parent_span_id: null,
@@ -274,7 +302,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     const metrics = computeTraceMetrics(calls)
 
     expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
-      ['llm-1', 'llm-2', 'llm-3'],
+      ['llm-1', 'llm-2', 'llm-3', 'llm-4', 'llm-5'],
     ])
     expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
     expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
@@ -341,8 +369,10 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     }
     const calls = [
       { id: 'direct', parent: 'agent', input: 100, output: 90, second: 1 },
-      { id: 'phase-1', parent: 'phase', input: 400, output: 60, second: 2 },
-      { id: 'phase-2', parent: 'phase', input: 900, output: 30, second: 3 },
+      { id: 'phase-1', parent: 'phase', input: 400, output: 75, second: 2 },
+      { id: 'phase-2', parent: 'phase', input: 900, output: 60, second: 3 },
+      { id: 'phase-3', parent: 'phase', input: 1400, output: 45, second: 4 },
+      { id: 'phase-4', parent: 'phase', input: 2000, output: 30, second: 5 },
     ].map(({ id, parent, input, output, second }) => ({
       ...llmSpan(second, input, output),
       span_id: id,
@@ -352,7 +382,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
     const metrics = computeTraceMetrics([agent, phase, ...calls])
 
     expect(metrics.tokenSequences.map((sequence) => sequence.spanIds)).toEqual([
-      ['direct', 'phase-1', 'phase-2'],
+      ['direct', 'phase-1', 'phase-2', 'phase-3', 'phase-4'],
     ])
     expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
     expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
@@ -460,8 +490,8 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
       model_name: null,
       attributes: {},
     }))
-    const workerA = [100, 400, 900].map((input, index) => ({
-      ...llmSpan(index + 1, input, 90 - index * 30),
+    const workerA = [100, 400, 900, 1400, 2000].map((input, index) => ({
+      ...llmSpan(index + 1, input, 90 - index * 15),
       parent_span_id: 'worker-a',
     }))
     const workerB = {
@@ -472,7 +502,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
 
     const metrics = computeTraceMetrics([...workers, ...workerA, workerB])
 
-    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds.length)).toEqual([3, 1])
+    expect(metrics.tokenSequences.map((sequence) => sequence.spanIds.length)).toEqual([5, 1])
     expect(metrics.signals.map((signal) => signal.code)).toContain('monotonic-input-growth')
     expect(metrics.signals.map((signal) => signal.code)).toContain('output-length-decay')
   })
