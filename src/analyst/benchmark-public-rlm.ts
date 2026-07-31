@@ -12,6 +12,7 @@ import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkRunner } from './benchmark'
 import { adaptPublicBenchmarkFindings } from './benchmark-public-adapters'
 import { publicBenchmarkError } from './benchmark-public-errors'
+import { usageReceiptFromCostLedger } from './usage-receipt'
 import {
   publicBenchmarkProtocolSha256,
   publicBenchmarkRlmInstructions,
@@ -129,7 +130,13 @@ export function createPublicBenchmarkRlmRunner(
         if (isPaidCallControlError(error)) throw error
         return {
           findings: [],
-          usage,
+          // `recordUsage` only fires when the analyst completes, so a crash in
+          // the out-of-process DSPy bridge would leave usage undefined and the
+          // paid calls it already made unaccounted — which aborts the whole
+          // benchmark on incomplete cost accounting, discarding every other
+          // case. The ledger already holds those settled records, so recover
+          // the receipt from it exactly as the direct runner does.
+          usage: usage ?? usageReceiptFromCostLedger(costLedger, { channel: 'analyst', tags }),
           error: publicBenchmarkError(error, [config.apiKey]),
           metadata: {
             analysisMode: 'recursive',

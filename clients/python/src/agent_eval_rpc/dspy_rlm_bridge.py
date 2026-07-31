@@ -564,13 +564,36 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_findings_json(value: str) -> list[dict[str, Any]]:
+    """Findings recovered from the FINAL turn, on the same terms as the control
+    turns above: model output, never a contract.
+
+    A malformed final array used to raise, which killed the whole case — and
+    because the crash takes the bridge process with it, the model calls the
+    investigation already paid for never report their usage, so the benchmark
+    then aborts every OTHER case on incomplete cost accounting. One model that
+    forgot a closing brace discarded a whole paid run.
+
+    An unparseable array is therefore read as *no citable findings*, matching
+    both `_SAFE_FIELD_DEFAULTS['findings_json']` and the direct runner's rule
+    that one malformed block must not void a case whose provider call is
+    already paid for. This can only ever lower a score — it never invents a
+    finding — so a run that hits it is scored honestly rather than lost.
+    """
     try:
         parsed = json.loads(value, parse_constant=_reject_json_constant)
-    except json.JSONDecodeError as error:
-        raise ValueError("DSPy RLM findings_json must be valid JSON") from error
+    except json.JSONDecodeError:
+        return []
     if not isinstance(parsed, list):
-        raise ValueError("DSPy RLM findings_json must be a JSON array")
-    return [_validate_finding(row, index) for index, row in enumerate(parsed)]
+        return []
+    findings: list[dict[str, Any]] = []
+    for index, row in enumerate(parsed):
+        try:
+            findings.append(_validate_finding(row, index))
+        except ValueError:
+            # Per-finding rejection, exactly like the direct runner's per-block
+            # rejection: the usable siblings of a bad row still count.
+            continue
+    return findings
 
 
 def _validate_finding(value: Any, index: int) -> dict[str, Any]:
