@@ -24,11 +24,22 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { AnalystBenchmarkRunner } from './benchmark'
 import { agentRxPredictionsToFindings } from './benchmark-datasets'
 import {
-  MAX_ASSISTANT_STEP_EVIDENCE_EXCERPT_CHARACTERS,
   resolveAssistantStepEvidence,
   validateCodeTraceFindingEvidence,
 } from './benchmark-evidence-validation'
+import {
+  type CodeTraceBlockDiagnostics,
+  type CodeTraceFailureBlock,
+  expandCodeTraceFailureBlocks,
+} from './benchmark-public-adapters'
 import { publicBenchmarkError } from './benchmark-public-errors'
+import {
+  MAX_INCORRECT_BLOCK_STEPS,
+  MAX_INCORRECT_BLOCKS,
+  publicBenchmarkProtocolSha256,
+  publicBenchmarkSystemPrompt,
+  TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS,
+} from './benchmark-public-prompt'
 import {
   type PublicAnalystBenchmarkDataset,
   type PublicAnalystBenchmarkModelConfig,
@@ -41,12 +52,13 @@ import {
   readPublicBenchmarkResponseCache,
   writePublicBenchmarkResponseCache,
 } from './benchmark-response-cache'
-import { sha256Digest } from './benchmark-verification-artifacts'
 import type { AnalystFinding, AnalystRunInputs } from './types'
-import { makeFinding } from './types'
 import { usageReceiptFromCostLedger } from './usage-receipt'
 
-const TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS = [4_096, 2_048, 1_024, 512, 256, 128, 64] as const
+export {
+  CODE_TRACE_BENCH_ANALYST_PROMPT,
+  publicBenchmarkProtocolSha256,
+} from './benchmark-public-prompt'
 
 /** One-shot JSON baseline. This is not a recursive trace analyst. */
 export function createPublicBenchmarkDirectRunner(
@@ -74,7 +86,7 @@ export function createPublicBenchmarkDirectRunner(
   const actor =
     dataset === 'agentrx' ? 'agentrx-root-cause-localizer' : 'codetracebench-step-localizer'
   const outputAdapter =
-    dataset === 'agentrx' ? 'agentrx-taxonomy-and-root-step' : 'codetracebench-incorrect-step'
+    dataset === 'agentrx' ? 'agentrx-taxonomy-and-root-step' : 'codetracebench-incorrect-block'
   const llmOptions: LlmClientOptions = {
     baseUrl,
     apiKey,
@@ -240,7 +252,7 @@ export function createPublicBenchmarkDirectRunner(
           }
         }
 
-        modelFindings = await publicBenchmarkPredictionsToFindings({
+        const converted = await publicBenchmarkPredictionsToFindings({
           dataset,
           trajectoryId,
           predictions: rawPredictions,
@@ -250,6 +262,10 @@ export function createPublicBenchmarkDirectRunner(
           producedAt: requiredString(producedAt ?? '', 'finding producedAt'),
           ...(context.signal ? { signal: context.signal } : {}),
         })
+        modelFindings = converted.findings
+        if (converted.diagnostics) {
+          modelMetadata = { ...modelMetadata, blockDiagnostics: converted.diagnostics }
+        }
         if (dataset === 'codetracebench') {
           await validateCodeTraceFindingEvidence({
             trajectoryId,
@@ -406,7 +422,7 @@ function costReceiptMetadata(receipt: CostReceipt): Record<string, unknown> {
 }
 
 const ModelSeveritySchema = z.enum(['critical', 'high', 'medium', 'low', 'info'])
-const PublicBenchmarkPredictionSchema = z
+const AgentRxPredictionSchema = z
   .object({
     step: z.number().int().positive(),
     severity: ModelSeveritySchema,
@@ -416,6 +432,41 @@ const PublicBenchmarkPredictionSchema = z
     recommended_action: z.string().min(1).optional(),
   })
   .strict()
+const CodeTraceBlockPredictionSchema = z
+  .object({
+    first_step: z.number().int().positive(),
+    last_step: z.number().int().positive(),
+    consequence_step: z.number().int().positive(),
+    escape_status: z.enum(['escaped', 'unescaped']),
+    severity: ModelSeveritySchema,
+    claim: z.string().min(1),
+    confidence: z.number().min(0).max(1),
+    rationale: z.string().min(1).optional(),
+    recommended_action: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((block, ctx) => {
+    if (block.last_step < block.first_step) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `failure block last_step ${block.last_step} precedes first_step ${block.first_step}`,
+      })
+      return
+    }
+    const length = block.last_step - block.first_step + 1
+    if (length > MAX_INCORRECT_BLOCK_STEPS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
+      })
+    }
+    if (block.consequence_step <= block.last_step) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `failure block consequence_step ${block.consequence_step} must follow last_step ${block.last_step}`,
+      })
+    }
+  })
 const AgentRxCategorySchema = z.enum([
   'instruction-plan-adherence-failure',
   'invention-of-new-information',
@@ -431,21 +482,23 @@ const AgentRxCategorySchema = z.enum([
 const CodeTraceModelResponseSchema = z
   .object({
     report: z.string().min(1).max(4_000),
-    findings: z.array(PublicBenchmarkPredictionSchema).max(200),
+    findings: z.array(CodeTraceBlockPredictionSchema).max(MAX_INCORRECT_BLOCKS),
   })
   .strict()
 const AgentRxModelResponseSchema = z
   .object({
     report: z.string().min(1).max(4_000),
     findings: z
-      .array(PublicBenchmarkPredictionSchema.extend({ category: AgentRxCategorySchema }).strict())
+      .array(AgentRxPredictionSchema.extend({ category: AgentRxCategorySchema }).strict())
       .max(1),
   })
   .strict()
 
-type PublicBenchmarkModelPrediction = z.infer<typeof PublicBenchmarkPredictionSchema> & {
+type AgentRxModelPrediction = z.infer<typeof AgentRxPredictionSchema> & {
   category?: z.infer<typeof AgentRxCategorySchema>
 }
+type CodeTraceModelPrediction = z.infer<typeof CodeTraceBlockPredictionSchema>
+type PublicBenchmarkModelPrediction = AgentRxModelPrediction | CodeTraceModelPrediction
 
 function parsePublicBenchmarkModelResponse(
   dataset: PublicAnalystBenchmarkDataset,
@@ -465,19 +518,24 @@ async function publicBenchmarkPredictionsToFindings(options: {
   providerModel: string
   producedAt: string
   signal?: AbortSignal
-}): Promise<AnalystFinding[]> {
-  if (options.predictions.length === 0) return []
-  const evidenceByStep = await resolveAssistantStepEvidence({
-    trajectoryId: options.trajectoryId,
-    steps: options.predictions.map((prediction) => prediction.step),
-    store: options.store,
-    ...(options.signal ? { signal: options.signal } : {}),
-  })
+}): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics | undefined }> {
+  if (options.predictions.length === 0 && options.dataset === 'agentrx') {
+    return { findings: [], diagnostics: undefined }
+  }
   if (options.dataset === 'agentrx') {
     const prediction = options.predictions[0]!
+    if (!('step' in prediction)) {
+      throw new Error('AgentRx model output must name a single root-cause step')
+    }
     if (!prediction.category) {
       throw new Error('AgentRx model output is missing its failure category')
     }
+    const evidenceByStep = await resolveAssistantStepEvidence({
+      trajectoryId: options.trajectoryId,
+      steps: [prediction.step],
+      store: options.store,
+      ...(options.signal ? { signal: options.signal } : {}),
+    })
     const [finding] = agentRxPredictionsToFindings(
       options.trajectoryId,
       [
@@ -494,82 +552,48 @@ async function publicBenchmarkPredictionsToFindings(options: {
       },
     )
     if (!finding) throw new Error('AgentRx output adapter produced no root-cause finding')
-    return [
-      {
-        ...finding,
-        evidence_refs: [evidenceByStep.get(prediction.step)!],
-        metadata: {
-          ...finding.metadata,
-          model: options.providerModel,
+    return {
+      findings: [
+        {
+          ...finding,
+          evidence_refs: [evidenceByStep.get(prediction.step)!],
+          metadata: {
+            ...finding.metadata,
+            model: options.providerModel,
+          },
         },
-      },
-    ]
+      ],
+      diagnostics: undefined,
+    }
   }
 
-  const byStep = new Map<number, PublicBenchmarkModelPrediction>()
-  for (const prediction of options.predictions) {
-    if (!byStep.has(prediction.step)) byStep.set(prediction.step, prediction)
-  }
-  return [...byStep]
-    .sort(([left], [right]) => left - right)
-    .map(([step, prediction]) =>
-      makeFinding({
-        analyst_id: options.analystId,
-        area: 'incorrect',
-        subject: `incorrect-step-${step}`,
-        claim: `Step ${step} is incorrect. ${prediction.claim}`,
-        rationale: prediction.rationale,
-        severity: prediction.severity,
-        confidence: prediction.confidence,
-        evidence_refs: [evidenceByStep.get(step)!],
-        recommended_action: prediction.recommended_action,
-        metadata: {
-          analysis_mode: 'direct-baseline',
-          model: options.providerModel,
-        },
-        produced_at: options.producedAt,
-        id_basis: `incorrect-step-${step}`,
-      }),
-    )
-}
-
-function publicBenchmarkSystemPrompt(dataset: PublicAnalystBenchmarkDataset): string {
-  return `${dataset === 'agentrx' ? AGENT_RX_PROMPT : CODE_TRACE_BENCH_ANALYST_PROMPT}
-
-Each finding must contain only:
-- "step": a positive integer matching an existing assistant LLM span named step-<n>
-- "severity": "critical", "high", "medium", "low", or "info"
-- "claim": one sentence
-- "confidence": a number from 0 through 1
-- optional "rationale" and "recommended_action" strings
-${dataset === 'agentrx' ? `- "category": one allowed failure category listed above` : ''}
-
-Return exactly one JSON object with:
-- "report": a concise evidence-based explanation, at most 4000 characters
-- "findings": the strict finding array
-Use an empty findings array when the trace does not support a finding.
-Do not return a bare array, markdown, trace URIs, copied excerpts, or fields not listed above.
-The runner constructs exact trace URIs and action previews from each selected step.`
-}
-
-export function publicBenchmarkProtocolSha256(dataset: PublicAnalystBenchmarkDataset): string {
-  return sha256Digest(
-    JSON.stringify({
-      dataset,
-      systemPrompt: publicBenchmarkSystemPrompt(dataset),
-      transport: {
-        attempts: 1,
-        jsonMode: true,
-        thinking: 'disabled',
-      },
-      traceProjectionAttributeByteCaps: TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS,
-      evidence: {
-        location: 'model-selected-positive-integer-assistant-step',
-        uri: 'deterministic-trace-uri',
-        excerpt: `exact-action-prefix-${MAX_ASSISTANT_STEP_EVIDENCE_EXCERPT_CHARACTERS}`,
-      },
-    }),
-  )
+  const blocks = options.predictions.map((prediction): CodeTraceFailureBlock => {
+    if (!('first_step' in prediction)) {
+      throw new Error('CodeTraceBench model output must report first_step/last_step failure blocks')
+    }
+    return {
+      firstStep: prediction.first_step,
+      lastStep: prediction.last_step,
+      consequenceStep: prediction.consequence_step,
+      escapeStatus: prediction.escape_status,
+      severity: prediction.severity,
+      claim: prediction.claim,
+      confidence: prediction.confidence,
+      ...(prediction.rationale === undefined ? {} : { rationale: prediction.rationale }),
+      ...(prediction.recommended_action === undefined
+        ? {}
+        : { recommendedAction: prediction.recommended_action }),
+      metadata: { analysis_mode: 'direct-baseline', model: options.providerModel },
+    }
+  })
+  return expandCodeTraceFailureBlocks({
+    trajectoryId: options.trajectoryId,
+    blocks,
+    store: options.store,
+    analystId: options.analystId,
+    producedAt: options.producedAt,
+    ...(options.signal ? { signal: options.signal } : {}),
+  })
 }
 
 async function prepareSingleTraceContext(
@@ -601,42 +625,6 @@ async function prepareSingleTraceContext(
   }
   return undefined
 }
-
-const AGENT_RX_PROMPT = `Analyze exactly one failed agent trajectory.
-Find the first unrecoverable critical failure, not every later symptom.
-Inspect the complete supplied trace data.
-Emit zero findings only when the trace does not contain enough evidence.
-Otherwise emit exactly one finding.
-Its category MUST be exactly one of:
-instruction-plan-adherence-failure
-invention-of-new-information
-invalid-invocation
-misinterpretation-of-tool-output-handoff-failure
-intent-plan-misalignment
-underspecified-user-intent
-intent-not-supported
-guardrails-triggered
-system-failure
-inconclusive
-Its step is the positive integer n from the first unrecoverable assistant span named step-<n>.`
-
-export const CODE_TRACE_BENCH_ANALYST_PROMPT = `Analyze exactly one coding-agent trajectory and its attached final verification.
-Your task is the CodeTraceBench incorrect-step task: identify every wrong state-changing action, bad hypothesis that drives an action, and regression.
-An incorrect step remains incorrect when the agent later recovers or the final verification passes.
-Inspect the complete supplied trace data.
-Use the final-verification outcome as evidence about the final state, not as a rule for whether earlier steps were incorrect.
-For each candidate, inspect the assistant action and its following observation.
-Label a failed command when the assistant caused it through a wrong action or unsupported hypothesis.
-Label the later corrective action only when that action is itself wrong.
-Do not label a diagnostic probe merely because it exposes an earlier defect.
-Do not label a redundant but correct read or search; CodeTraceBench scores unuseful steps separately, and this run scores incorrect steps only.
-Do not label a step solely because final verification failed.
-When final verification is unavailable, use only directly observed trajectory evidence.
-Emit one finding per incorrect assistant step.
-Each finding's step MUST be the positive integer n from an existing assistant LLM span named step-<n>.
-Never select an EVALUATOR, TOOL, CHAIN, final-verification, benchmark-verification, or message-<n> span.
-Before emitting a finding, inspect its candidate span's attributes.content and describe only the action shown there.
-When the trajectory has no incorrect steps, return an empty findings array.`
 
 function trajectoryIdFromCaseId(dataset: PublicAnalystBenchmarkDataset, caseId: string): string {
   const prefix = dataset === 'agentrx' ? 'agentrx:' : 'codetrace:'

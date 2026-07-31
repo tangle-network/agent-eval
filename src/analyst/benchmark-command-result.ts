@@ -104,7 +104,7 @@ export function assertCompletedArtifactMatchesRun(
   const expectedOutputAdapter =
     config.dataset === 'agentrx'
       ? 'agentrx-taxonomy-and-root-step'
-      : 'codetracebench-incorrect-step'
+      : 'codetracebench-incorrect-block'
   if (
     provenance.id !== `${config.dataset}-real-model-analyst` ||
     provenance.startedAt !== manifest.createdAt ||

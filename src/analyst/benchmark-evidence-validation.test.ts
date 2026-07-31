@@ -101,6 +101,94 @@ describe('resolveAssistantStepEvidence', () => {
       }),
     ).rejects.toThrow(error)
   })
+
+  it.each([
+    ['missing', 'step-9', /unavailable assistant steps/],
+    ['non-assistant', 'TOOL', /not an assistant LLM span/],
+  ])('still rejects a %s required step alongside optional ones', async (_name, variant, error) => {
+    const spans =
+      variant === 'TOOL'
+        ? [span('action', 'TOOL', 'step-4'), span('action', 'LLM', 'step-5')]
+        : [span('action', 'LLM', 'step-5')]
+    await expect(
+      resolveAssistantStepEvidence({
+        trajectoryId: TRACE_ID,
+        steps: [4],
+        optionalSteps: [5],
+        store: multiSpanStore(spans),
+      }),
+    ).rejects.toThrow(error)
+  })
+
+  it('skips unresolvable optional steps instead of failing the whole request', async () => {
+    const evidence = await resolveAssistantStepEvidence({
+      trajectoryId: TRACE_ID,
+      steps: [4],
+      optionalSteps: [5, 6, 7],
+      store: multiSpanStore([
+        span('assistant action four', 'LLM', 'step-4'),
+        span('tool output', 'TOOL', 'step-6'),
+        span('   ', 'LLM', 'step-7'),
+      ]),
+    })
+
+    expect([...evidence.keys()]).toEqual([4])
+  })
+
+  it('pages over byte-budget omissions rather than treating them as unavailable', async () => {
+    const spans = [4, 5, 6].map((step) => span(`assistant action ${step}`, 'LLM', `step-${step}`))
+    const calls: string[][] = []
+    const budgetedStore = {
+      async viewSpans(input: Parameters<TraceAnalysisStore['viewSpans']>[0]) {
+        calls.push([...input.span_ids])
+        const found = spans.filter((candidate) => input.span_ids.includes(candidate.span_id))
+        // One span per call fits the response ceiling; the rest is a paging signal.
+        const [first, ...rest] = found
+        return {
+          trace_id: input.trace_id,
+          spans: first ? [first] : [],
+          missing_span_ids: input.span_ids.filter(
+            (id) => !spans.some((candidate) => candidate.span_id === id),
+          ),
+          omitted_span_ids: rest.map((candidate) => candidate.span_id),
+          has_more: rest.length > 0,
+          truncated_attribute_count: 0,
+        }
+      },
+    } as unknown as TraceAnalysisStore
+
+    const evidence = await resolveAssistantStepEvidence({
+      trajectoryId: TRACE_ID,
+      steps: [4, 5, 6],
+      store: budgetedStore,
+    })
+
+    expect([...evidence.keys()]).toEqual([4, 5, 6])
+    expect(calls).toEqual([['step-4', 'step-5', 'step-6'], ['step-5', 'step-6'], ['step-6']])
+  })
+
+  it('fails loud when a page makes no progress against the store budget', async () => {
+    const stuckStore = {
+      async viewSpans(input: Parameters<TraceAnalysisStore['viewSpans']>[0]) {
+        return {
+          trace_id: input.trace_id,
+          spans: [],
+          missing_span_ids: [],
+          omitted_span_ids: [...input.span_ids],
+          has_more: true,
+          truncated_attribute_count: 0,
+        }
+      },
+    } as unknown as TraceAnalysisStore
+
+    await expect(
+      resolveAssistantStepEvidence({
+        trajectoryId: TRACE_ID,
+        steps: [4, 5],
+        store: stuckStore,
+      }),
+    ).rejects.toThrow(/cannot project spans within the store response budget/)
+  })
 })
 
 describe('assertNoBenchmarkLabelsInTrace', () => {
@@ -204,6 +292,23 @@ function span(
     tool_name: null,
     attributes: { content },
   }
+}
+
+function multiSpanStore(spans: readonly TraceAnalystSpan[]): TraceAnalysisStore {
+  return {
+    async viewSpans(input: Parameters<TraceAnalysisStore['viewSpans']>[0]) {
+      const found = spans.filter((candidate) => input.span_ids.includes(candidate.span_id))
+      const foundIds = new Set(found.map((candidate) => candidate.span_id))
+      return {
+        trace_id: input.trace_id,
+        spans: found,
+        missing_span_ids: input.span_ids.filter((id) => !foundIds.has(id)),
+        omitted_span_ids: [],
+        has_more: false,
+        truncated_attribute_count: 0,
+      }
+    },
+  } as unknown as TraceAnalysisStore
 }
 
 function store(citedSpan: TraceAnalystSpan): TraceAnalysisStore {

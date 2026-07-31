@@ -141,14 +141,21 @@ export type {
 export {
   adaptPublicBenchmarkFindings,
   CODE_TRACE_BENCH_ANALYST_PROMPT,
+  type CodeTraceBlockDiagnostics,
+  type CodeTraceFailureBlock,
   createPublicBenchmarkDirectRunner,
   createPublicBenchmarkRlmRunner,
   emptyPublicBenchmarkRunner,
+  expandCodeTraceFailureBlocks,
   loadPublicBenchmarkRows,
+  MAX_INCORRECT_BLOCK_STEPS,
+  MAX_INCORRECT_BLOCKS,
   preparePublicAnalystBenchmark,
   publicBenchmarkDistributions,
   publicBenchmarkProtocolSha256,
+  publicBenchmarkRlmInstructions,
   publicBenchmarkSelectionReport,
+  publicBenchmarkSystemPrompt,
   selectPublicBenchmarkRows,
 } from './benchmark-real-model'
 export { renderAnalystBenchmarkMarkdown } from './benchmark-report'

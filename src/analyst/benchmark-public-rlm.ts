@@ -10,13 +10,12 @@ import {
 } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkRunner } from './benchmark'
-import { validateCodeTraceFindingEvidence } from './benchmark-evidence-validation'
 import { adaptPublicBenchmarkFindings } from './benchmark-public-adapters'
 import { publicBenchmarkError } from './benchmark-public-errors'
 import {
-  CODE_TRACE_BENCH_ANALYST_PROMPT,
   publicBenchmarkProtocolSha256,
-} from './benchmark-public-model'
+  publicBenchmarkRlmInstructions,
+} from './benchmark-public-prompt'
 import type {
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
@@ -26,36 +25,6 @@ import { evidenceRefsFromRawFinding } from './finding-signature'
 import { runTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
 import type { AnalystFinding, AnalystRunInputs, AnalystUsageReceipt } from './types'
 import { makeFinding } from './types'
-
-const AGENT_RX_RLM_INSTRUCTIONS = `Analyze exactly one failed agent trajectory.
-Find the first unrecoverable critical failure, not every later symptom.
-Use the trace tools to inspect the action and its following observation.
-Emit zero findings only when evidence does not support a root cause.
-Otherwise emit exactly one finding whose subject is exactly one of:
-instruction-plan-adherence-failure
-invention-of-new-information
-invalid-invocation
-misinterpretation-of-tool-output-handoff-failure
-intent-plan-misalignment
-underspecified-user-intent
-intent-not-supported
-guardrails-triggered
-system-failure
-inconclusive
-Cite exactly one assistant span named step-<n> as trace://<trace-id>/span/step-<n>.
-The excerpt must quote the assistant action exactly.`
-
-const CODE_TRACE_RLM_INSTRUCTIONS = `${CODE_TRACE_BENCH_ANALYST_PROMPT}
-Use the trace tools rather than asking for the whole trajectory in the prompt.
-Keep retrieved trace objects in Python variables.
-Never print an entire trace, full source file, or more than 12000 characters in one iteration.
-Build a compact table of assistant step ids, actions, following observations, and final verification.
-Inspect suspicious steps with viewSpans or searchSpan instead of repeatedly printing the table.
-Submit as soon as every state-changing assistant step has a supported verdict.
-For each incorrect step, set subject to incorrect-step-<n>.
-Cite the assistant span as trace://<URL-encoded-trace-id>/span/step-<n>.
-The evidence excerpt must be an exact quote from that span's action content.
-Return no finding for a clean trajectory.`
 
 /** Public benchmark candidate that runs the actual recursive trace analyst. */
 export function createPublicBenchmarkRlmRunner(
@@ -132,27 +101,22 @@ export function createPublicBenchmarkRlmRunner(
             produced_at: producedAt,
           }),
         )
-        const findings = adaptPublicBenchmarkFindings(
+        const adapted = await adaptPublicBenchmarkFindings({
           dataset,
           trajectoryId,
-          rawFindings,
-          'dspy-rlm',
-        )
-        if (dataset === 'codetracebench') {
-          await validateCodeTraceFindingEvidence({
-            trajectoryId,
-            findings,
-            store: input.traceStore,
-            ...(context.signal ? { signal: context.signal } : {}),
-          })
-        }
+          findings: rawFindings,
+          analystId: 'dspy-rlm',
+          store: input.traceStore,
+          ...(context.signal ? { signal: context.signal } : {}),
+        })
         return {
-          findings,
+          findings: adapted.findings,
           usage,
           metadata: {
             analysisMode: 'recursive',
             engine: 'dspy-rlm',
             protocolSha256: publicBenchmarkProtocolSha256(dataset),
+            ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
             answer: completed.answer,
             trajectory: completed.trajectory,
             modelCalls: completed.modelCalls,
@@ -199,7 +163,7 @@ function publicBenchmarkDefinition(
       dataset === 'agentrx'
         ? 'What is the first unrecoverable root cause in this failed trajectory?'
         : 'Which assistant steps are incorrect under the CodeTraceBench definition?',
-    instructions: dataset === 'agentrx' ? AGENT_RX_RLM_INSTRUCTIONS : CODE_TRACE_RLM_INSTRUCTIONS,
+    instructions: publicBenchmarkRlmInstructions(dataset),
     toolGroup: 'singleTrace',
     limits,
   }

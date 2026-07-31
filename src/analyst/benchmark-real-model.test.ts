@@ -7,15 +7,22 @@ import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import {
   createPublicBenchmarkDirectRunner,
+  MAX_INCORRECT_BLOCK_STEPS,
+  MAX_INCORRECT_BLOCKS,
   publicBenchmarkProtocolSha256,
 } from './benchmark-real-model'
 import { buildTraceToolsForGroup } from './tool-groups'
 
 describe('createPublicBenchmarkDirectRunner', () => {
-  it('makes one bounded structured call and validates the exact cited action', async () => {
+  it('makes one bounded structured call and expands a failure block into per-step findings', async () => {
     const traceId = 'trace-1'
-    const action = 'writeFile("broken configuration")'
-    const spans = [span(traceId, 'step-2', action)]
+    const actions = new Map([
+      [2, 'writeFile("broken configuration")'],
+      [3, 'runCommand("deploy --config broken")'],
+      [4, 'writeFile("workaround for the broken deploy")'],
+      [5, 'runCommand("verify --config")'],
+    ])
+    const spans = [...actions].map(([step, action]) => span(traceId, `step-${step}`, action))
     const requestedCaps: number[] = []
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -28,17 +35,22 @@ describe('createPublicBenchmarkDirectRunner', () => {
       const prompt = (body.messages as Array<{ content: string }>)
         .map((message) => message.content)
         .join('\n')
-      expect(prompt).toContain('"step": a positive integer')
+      expect(prompt).toContain('"first_step": a positive integer')
+      expect(prompt).toContain('"consequence_step"')
+      expect(prompt).toContain('"escape_status"')
       expect(prompt).toContain('constructs exact trace URIs and action previews')
       expect(prompt).not.toContain('"uri"')
       expect(prompt).not.toContain('"excerpt"')
       return modelResponse({
-        report: 'Step 2 wrote the configuration that caused the final failure.',
+        report: 'Steps 2 through 4 wrote and compounded the configuration that caused the failure.',
         findings: [
           {
-            step: 2,
+            first_step: 2,
+            last_step: 4,
+            consequence_step: 5,
+            escape_status: 'unescaped',
             severity: 'high',
-            claim: 'Step 2 wrote an invalid configuration.',
+            claim: 'The block wrote and deployed an invalid configuration.',
             confidence: 0.95,
           },
         ],
@@ -66,17 +78,26 @@ describe('createPublicBenchmarkDirectRunner', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(requestedCaps).toEqual([4_096, 2_048, 1_024])
     expect(output.error).toBeUndefined()
-    expect(output.findings).toHaveLength(1)
-    expect(output.findings[0]).toMatchObject({
-      analyst_id: 'direct',
-      subject: 'incorrect-step-2',
-      evidence_refs: [
-        {
-          uri: 'trace://trace-1/span/step-2',
-          excerpt: action,
+    expect(output.findings).toHaveLength(3)
+    for (const [index, step] of [2, 3, 4].entries()) {
+      expect(output.findings[index]).toMatchObject({
+        analyst_id: 'direct',
+        subject: `incorrect-step-${step}`,
+        claim: `Step ${step} is incorrect. The block wrote and deployed an invalid configuration.`,
+        evidence_refs: [
+          {
+            uri: `trace://trace-1/span/step-${step}`,
+            excerpt: actions.get(step),
+          },
+        ],
+        metadata: {
+          block_first_step: 2,
+          block_last_step: 4,
+          block_consequence_step: 5,
+          escape_status: 'unescaped',
         },
-      ],
-    })
+      })
+    }
     expect(output.usage).toMatchObject({
       calls: 1,
       tokens: { input: 100, output: 50 },
@@ -84,8 +105,366 @@ describe('createPublicBenchmarkDirectRunner', () => {
     expect(output.metadata).toMatchObject({
       analysisMode: 'direct-baseline',
       providerModel: 'glm-5.2',
-      outputAdapter: 'codetracebench-incorrect-step',
+      outputAdapter: 'codetracebench-incorrect-block',
     })
+  })
+
+  it('emits one finding for a singleton block', async () => {
+    const traceId = 'trace-1'
+    const action = 'writeFile("broken configuration")'
+    const fetchImpl = vi.fn(async () =>
+      modelResponse({
+        report: 'Step 2 wrote the configuration that caused the final failure.',
+        findings: [
+          {
+            first_step: 2,
+            last_step: 2,
+            consequence_step: 3,
+            escape_status: 'unescaped',
+            severity: 'high',
+            claim: 'Step 2 wrote an invalid configuration.',
+            confidence: 0.95,
+          },
+        ],
+      }),
+    ) as typeof fetch
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
+      baseUrl: 'https://provider.invalid/v1',
+      apiKey: 'test',
+      model: 'glm-5.2',
+      maxOutputTokens: 1_024,
+      timeoutMs: 30_000,
+      fetchImpl,
+    })
+
+    const output = await runner.analyze(
+      {
+        traceStore: singleTraceStore(traceId, [
+          span(traceId, 'step-2', action),
+          span(traceId, 'step-3', 'runCommand("deploy")'),
+        ]),
+      },
+      { caseId: `codetrace:${traceId}`, repetition: 0 },
+    )
+
+    expect(output.error).toBeUndefined()
+    expect(output.findings).toHaveLength(1)
+    expect(output.findings[0]).toMatchObject({
+      analyst_id: 'direct',
+      subject: 'incorrect-step-2',
+      claim: 'Step 2 is incorrect. Step 2 wrote an invalid configuration.',
+      evidence_refs: [
+        {
+          uri: 'trace://trace-1/span/step-2',
+          excerpt: action,
+        },
+      ],
+      metadata: {
+        block_first_step: 2,
+        block_last_step: 2,
+        block_consequence_step: 3,
+        escape_status: 'unescaped',
+      },
+    })
+  })
+
+  it('scores an escaped block exactly like an unescaped one and records the decision', async () => {
+    const traceId = 'trace-1'
+    const spans = [1, 2, 3, 4, 5].map((step) =>
+      span(traceId, `step-${step}`, `runCommand("attempt ${step}")`),
+    )
+    const escapedBlock = {
+      first_step: 1,
+      last_step: 2,
+      consequence_step: 3,
+      escape_status: 'escaped',
+      severity: 'medium',
+      claim: 'The failed install was rerun successfully and left no trace in the final state.',
+      confidence: 0.8,
+    }
+    const run = async (findings: unknown[]) =>
+      createPublicBenchmarkDirectRunner('codetracebench', {
+        baseUrl: 'https://provider.invalid/v1',
+        apiKey: 'test',
+        model: 'glm-5.2',
+        maxOutputTokens: 1_024,
+        timeoutMs: 30_000,
+        fetchImpl: vi.fn(async () =>
+          modelResponse({ report: 'Escape decisions per block.', findings }),
+        ) as typeof fetch,
+      }).analyze(
+        { traceStore: singleTraceStore(traceId, spans) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+    const mixed = await run([
+      escapedBlock,
+      {
+        first_step: 4,
+        last_step: 4,
+        consequence_step: 5,
+        escape_status: 'unescaped',
+        severity: 'high',
+        claim: 'The regression persisted into the final state.',
+        confidence: 0.9,
+      },
+    ])
+    expect(mixed.error).toBeUndefined()
+    expect(mixed.findings.map((finding) => finding.subject)).toEqual([
+      'incorrect-step-1',
+      'incorrect-step-2',
+      'incorrect-step-4',
+    ])
+    expect(mixed.findings[0]?.metadata).toMatchObject({ escape_status: 'escaped' })
+    expect(mixed.findings[2]?.metadata).toMatchObject({ escape_status: 'unescaped' })
+    expect(mixed.metadata).toMatchObject({
+      blockDiagnostics: { reportedBlocks: 2, escapedBlocks: 1 },
+    })
+
+    const allEscaped = await run([escapedBlock])
+    expect(allEscaped.error).toBeUndefined()
+    expect(allEscaped.findings.map((finding) => finding.subject)).toEqual([
+      'incorrect-step-1',
+      'incorrect-step-2',
+    ])
+    expect(allEscaped.metadata).toMatchObject({
+      blockDiagnostics: { reportedBlocks: 1, escapedBlocks: 1 },
+    })
+  })
+
+  it('drops a block whose consequence step is not a real assistant step', async () => {
+    const traceId = 'trace-1'
+    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
+      baseUrl: 'https://provider.invalid/v1',
+      apiKey: 'test',
+      model: 'glm-5.2',
+      maxOutputTokens: 1_024,
+      timeoutMs: 30_000,
+      fetchImpl: vi.fn(async () =>
+        modelResponse({
+          report: 'One block has downstream evidence and one does not.',
+          findings: [
+            {
+              first_step: 1,
+              last_step: 1,
+              consequence_step: 99,
+              escape_status: 'unescaped',
+              severity: 'high',
+              claim: 'An accusation with no downstream evidence.',
+              confidence: 0.9,
+            },
+            {
+              first_step: 2,
+              last_step: 2,
+              consequence_step: 3,
+              escape_status: 'unescaped',
+              severity: 'high',
+              claim: 'An accusation whose damage shows at step 3.',
+              confidence: 0.9,
+            },
+          ],
+        }),
+      ) as typeof fetch,
+    }).analyze(
+      {
+        traceStore: singleTraceStore(
+          traceId,
+          [1, 2, 3].map((step) => span(traceId, `step-${step}`, `runCommand("attempt ${step}")`)),
+        ),
+      },
+      { caseId: `codetrace:${traceId}`, repetition: 0 },
+    )
+
+    expect(output.error).toBeUndefined()
+    expect(output.findings.map((finding) => finding.subject)).toEqual(['incorrect-step-2'])
+    expect(output.metadata).toMatchObject({
+      blockDiagnostics: {
+        reportedBlocks: 2,
+        blocksWithoutConsequenceEvidence: [expect.objectContaining({ consequenceStep: 99 })],
+      },
+    })
+  })
+
+  it('rejects malformed failure blocks with a loud schema error', async () => {
+    const traceId = 'trace-1'
+    const run = async (findings: unknown[]) =>
+      createPublicBenchmarkDirectRunner('codetracebench', {
+        baseUrl: 'https://provider.invalid/v1',
+        apiKey: 'test',
+        model: 'glm-5.2',
+        maxOutputTokens: 1_024,
+        timeoutMs: 30_000,
+        fetchImpl: vi.fn(async () =>
+          modelResponse({ report: 'Malformed block shapes.', findings }),
+        ) as typeof fetch,
+      }).analyze(
+        { traceStore: singleTraceStore(traceId, [span(traceId, 'step-2', 'runCommand("x")')]) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+    const validBlock = (firstStep: number, lastStep: number) => ({
+      first_step: firstStep,
+      last_step: lastStep,
+      consequence_step: lastStep + 1,
+      escape_status: 'unescaped',
+      severity: 'high',
+      claim: 'Block claim.',
+      confidence: 0.9,
+    })
+    const rejected: unknown[][] = [
+      [validBlock(3, 2)],
+      [validBlock(1, MAX_INCORRECT_BLOCK_STEPS + 1)],
+      [{ ...validBlock(2, 2), consequence_step: 2 }],
+      [{ ...validBlock(2, 2), consequence_step: undefined }],
+      [
+        {
+          first_step: 2,
+          last_step: 2,
+          consequence_step: 3,
+          severity: 'high',
+          claim: 'Missing escape status.',
+          confidence: 0.9,
+        },
+      ],
+      [{ ...validBlock(2, 2), escape_status: 'recovered' }],
+      [{ step: 2, severity: 'high', claim: 'Legacy shape.', confidence: 0.9 }],
+      Array.from({ length: MAX_INCORRECT_BLOCKS + 1 }, (_, index) =>
+        validBlock(index + 1, index + 1),
+      ),
+      [validBlock(1.5 as number, 2)],
+      [validBlock(0, 2)],
+      [validBlock(-1, 2)],
+    ]
+
+    for (const findings of rejected) {
+      const output = await run(findings)
+      expect(output.findings).toEqual([])
+      expect(output.error).toMatchObject({ class: 'ModelOutputValidationError' })
+    }
+  })
+
+  it('drops an interior hole the runner derived but fails on a boundary the model named', async () => {
+    const traceId = 'trace-1'
+    const run = async (firstStep: number, lastStep: number) =>
+      createPublicBenchmarkDirectRunner('codetracebench', {
+        baseUrl: 'https://provider.invalid/v1',
+        apiKey: 'test',
+        model: 'glm-5.2',
+        maxOutputTokens: 1_024,
+        timeoutMs: 30_000,
+        fetchImpl: vi.fn(async () =>
+          modelResponse({
+            report: 'A block spanning a hole in the trajectory.',
+            findings: [
+              {
+                first_step: firstStep,
+                last_step: lastStep,
+                consequence_step: 5,
+                escape_status: 'unescaped',
+                severity: 'high',
+                claim: 'The block covers a hole in the trajectory.',
+                confidence: 0.9,
+              },
+            ],
+          }),
+        ) as typeof fetch,
+      }).analyze(
+        {
+          traceStore: singleTraceStore(traceId, [
+            span(traceId, 'step-1', 'runCommand("a")'),
+            span(traceId, 'step-3', 'runCommand("b")'),
+            span(traceId, 'step-5', 'runCommand("c")'),
+          ]),
+        },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+    const interiorHole = await run(1, 3)
+    expect(interiorHole.error).toBeUndefined()
+    expect(interiorHole.findings.map((finding) => finding.subject)).toEqual([
+      'incorrect-step-1',
+      'incorrect-step-3',
+    ])
+    expect(interiorHole.metadata).toMatchObject({
+      blockDiagnostics: { unresolvedBlockInteriorSteps: [2] },
+    })
+
+    const missingBoundary = await run(2, 3)
+    expect(missingBoundary.findings).toEqual([])
+    expect(missingBoundary.error).toMatchObject({
+      class: 'BenchmarkEvidenceError',
+      message: expect.stringContaining('unavailable assistant steps'),
+    })
+  })
+
+  it('gives a contested step to the first block and records the overlap', async () => {
+    const traceId = 'trace-1'
+    const spans = [2, 3, 4, 5, 6].map((step) =>
+      span(traceId, `step-${step}`, `runCommand("attempt ${step}")`),
+    )
+    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
+      baseUrl: 'https://provider.invalid/v1',
+      apiKey: 'test',
+      model: 'glm-5.2',
+      maxOutputTokens: 1_024,
+      timeoutMs: 30_000,
+      fetchImpl: vi.fn(async () =>
+        modelResponse({
+          report: 'Two overlapping blocks.',
+          findings: [
+            {
+              first_step: 2,
+              last_step: 4,
+              consequence_step: 6,
+              escape_status: 'unescaped',
+              severity: 'high',
+              claim: 'First block.',
+              confidence: 0.9,
+            },
+            {
+              first_step: 3,
+              last_step: 5,
+              consequence_step: 6,
+              escape_status: 'unescaped',
+              severity: 'low',
+              claim: 'Second block.',
+              confidence: 0.5,
+            },
+          ],
+        }),
+      ) as typeof fetch,
+    }).analyze(
+      { traceStore: singleTraceStore(traceId, spans) },
+      { caseId: `codetrace:${traceId}`, repetition: 0 },
+    )
+
+    expect(output.error).toBeUndefined()
+    expect(output.findings.map((finding) => finding.subject)).toEqual([
+      'incorrect-step-2',
+      'incorrect-step-3',
+      'incorrect-step-4',
+      'incorrect-step-5',
+    ])
+    for (const index of [0, 1, 2]) {
+      expect(output.findings[index]).toMatchObject({
+        claim: expect.stringContaining('First block.'),
+        severity: 'high',
+        metadata: { block_first_step: 2, block_last_step: 4 },
+      })
+    }
+    expect(output.findings[3]).toMatchObject({
+      claim: expect.stringContaining('Second block.'),
+      severity: 'low',
+      metadata: { block_first_step: 3, block_last_step: 5 },
+    })
+    expect(output.metadata).toMatchObject({
+      blockDiagnostics: { overlappingBlockSteps: [3, 4] },
+    })
+  })
+
+  it('bounds one case at the product of the block caps', () => {
+    expect(MAX_INCORRECT_BLOCK_STEPS).toBe(12)
+    expect(MAX_INCORRECT_BLOCKS).toBe(16)
+    expect(MAX_INCORRECT_BLOCKS * MAX_INCORRECT_BLOCK_STEPS).toBe(192)
   })
 
   it('maps AgentRx category and step output onto exact trace evidence', async () => {
@@ -162,7 +541,10 @@ describe('createPublicBenchmarkDirectRunner', () => {
         report: 'Step 2 caused the failure.',
         findings: [
           {
-            step: 2,
+            first_step: 2,
+            last_step: 2,
+            consequence_step: 3,
+            escape_status: 'unescaped',
             severity: 'high',
             claim: 'Step 2 wrote the invalid configuration.',
             confidence: 0.9,
@@ -183,6 +565,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const input = {
       traceStore: singleTraceStore(traceId, [
         span(traceId, 'step-2', 'writeFile("invalid configuration")'),
+        span(traceId, 'step-3', 'runCommand("deploy")'),
       ]),
     }
     const context = { caseId: `codetrace:${traceId}`, repetition: 0 }
@@ -355,7 +738,17 @@ describe('createPublicBenchmarkDirectRunner', () => {
       run(async () =>
         modelResponse({
           report: 'Selected a step that does not exist.',
-          findings: [{ step: 99, severity: 'high', claim: 'Missing.', confidence: 0.9 }],
+          findings: [
+            {
+              first_step: 99,
+              last_step: 99,
+              consequence_step: 100,
+              escape_status: 'unescaped',
+              severity: 'high',
+              claim: 'Missing.',
+              confidence: 0.9,
+            },
+          ],
         }),
       ),
     ).resolves.toMatchObject({

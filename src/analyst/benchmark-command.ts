@@ -236,7 +236,7 @@ async function executeAnalystBenchmarkCommand(
           outputAdapter:
             config.dataset === 'agentrx'
               ? 'agentrx-taxonomy-and-root-step'
-              : 'codetracebench-incorrect-step',
+              : 'codetracebench-incorrect-block',
           caseSelection: prepared.selection.method,
           caseSelectionSeed: config.seed,
           selectionStratified: prepared.selection.stratified,
