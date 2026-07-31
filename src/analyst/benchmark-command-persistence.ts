@@ -475,6 +475,7 @@ export async function readProgress(
   runIdentitySha256: string,
   caseIds: readonly string[],
   repetitions: number,
+  analystRunnerId: string,
 ): Promise<AnalystBenchmarkProgress> {
   const text = await readRegularFile(path, 'benchmark observation log')
   const rawLines = text.split('\n')
@@ -535,7 +536,7 @@ export async function readProgress(
     }
     if (
       !allowedCases.has(observation.caseId) ||
-      (observation.runnerId !== 'empty' && observation.runnerId !== 'dspy-rlm') ||
+      (observation.runnerId !== 'empty' && observation.runnerId !== analystRunnerId) ||
       observation.repetition >= repetitions ||
       observation.executionIndex >= plannedObservationCount
     ) {

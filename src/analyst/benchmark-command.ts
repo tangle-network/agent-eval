@@ -170,6 +170,7 @@ async function executeAnalystBenchmarkCommand(
     manifest.identitySha256,
     prepared.selectedCaseIds,
     config.repetitions,
+    config.analyst,
   )
   const costLedger = createRunCostLedger({
     storage: fsCampaignStorage(),
@@ -278,6 +279,7 @@ async function executeAnalystBenchmarkCommand(
     manifest.identitySha256,
     prepared.selectedCaseIds,
     config.repetitions,
+    config.analyst,
   )
   assertSameObservations(result.observations, persisted.observations)
   const comparisons = [
