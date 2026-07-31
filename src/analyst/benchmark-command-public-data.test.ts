@@ -626,7 +626,10 @@ describe('public analyst benchmark output adapters', () => {
 
   it('matches the public incorrect-step task, including recovered errors', () => {
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'An incorrect step remains incorrect when the agent later recovers',
+      'a repair attempt that is itself wrong, partial, or later superseded sit inside the block',
+    )
+    expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
+      'A solved trajectory still carries every mistake made along the way',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
       'A passing final verification never makes a block escaped',
@@ -636,7 +639,7 @@ describe('public analyst benchmark output adapters', () => {
       'CodeTraceBench scores unuseful steps separately',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'Use the final-verification outcome as evidence about the final state',
+      'a failing final verification is not evidence that any particular block caused it',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain('Never select an EVALUATOR, TOOL, CHAIN')
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
