@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.140.0] - 2026-07-31 - the recursive engine runs on real providers
+
+### Changed
+
+- The DSPy bridge takes a selectable control adapter, so a model that answers in prose and fenced code rather than DSPy's `[[ ## field ## ]]` markers no longer voids a completed investigation.
+  **The bridge's `analyze` input gains a required `controlAdapter` key**: a Python `agent-eval-rpc` and its npm peer must now be the same version, and a mismatch fails with `analyze input must contain exactly [...]`.
+- A single malformed finding never voids a completed RLM case; rejections are recorded with a reason instead of raised.
+- Raise the DSPy output-token default from 4096 to 16384. 4096 is below what current coding models emit for a full findings array — glm-5.2 through an OpenAI-compatible gateway returns 8192 and the request is rejected outright, so the old default failed before any analysis ran. `maxCostUsd` remains the real spend bound.
+
+### Added
+
+- First scored run of the recursive DSPy RLM analyst on the pinned 32-case CodeTraceBench corpus: F1 0.3644 over 60 of 64 completed cases at $6.73, against the retired one-shot runner's 0.3673 at $1.21 and CodeTracer's 0.3128.
+  Recursion did not improve step localization on this task, and the artifact says so; the engine's claimed value is verified findings on an arbitrary session, which this benchmark does not measure.
+
 ## [0.139.3] - 2026-07-31 - supervisor runs under `.agent`
 
 ### Changed
