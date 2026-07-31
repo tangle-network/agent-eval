@@ -326,76 +326,90 @@ describe('public analyst benchmark output adapters', () => {
     expect(diagnostics?.blocksWithoutConsequenceEvidence).toHaveLength(1)
   })
 
-  it('refuses a CodeTraceBench finding whose subject is not a failure block', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
-        dataset: 'codetracebench',
-        trajectoryId: 'run-4',
-        findings: [
-          makeFinding({
-            analyst_id: 'model-raw',
-            area: 'model-output',
-            subject: 'incorrect-step-2',
-            claim: 'Legacy per-step subject.',
-            severity: 'high',
-            confidence: 0.8,
-            evidence_refs: [
-              { kind: 'span', uri: 'trace://run-4/span/step-2', excerpt: adapterAction(2) },
-            ],
-          }),
-        ],
-        analystId: 'model',
-        store: adapterTraceStore('run-4', [2, 3]),
-      }),
-    ).rejects.toThrow(/incorrect-steps-<first>-<last>-<escaped\|unescaped>-consequence-<step>/)
+  it('drops a CodeTraceBench finding whose subject is not a failure block', async () => {
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-4',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: 'incorrect-step-2',
+          claim: 'Legacy per-step subject.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-4/span/step-2', excerpt: adapterAction(2) },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore('run-4', [2, 3]),
+    })
+    expect(findings).toEqual([])
+    expect(diagnostics?.rejectedFindings).toHaveLength(1)
+    expect(diagnostics?.rejectedFindings?.[0]).toMatch(
+      /incorrect-steps-<first>-<last>-<escaped\|unescaped>-consequence-<step>/,
+    )
   })
 
-  it('refuses a block whose own citation excerpt is not in the cited action', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
-        dataset: 'codetracebench',
-        trajectoryId: 'run-8',
-        findings: [
-          makeFinding({
-            analyst_id: 'model-raw',
-            area: 'model-output',
-            subject: 'incorrect-steps-2-2-unescaped-consequence-3',
-            claim: 'Quotes an action the span does not contain.',
-            severity: 'high',
-            confidence: 0.8,
-            evidence_refs: [
-              { kind: 'span', uri: 'trace://run-8/span/step-2', excerpt: 'rm -rf /invented' },
-            ],
-          }),
-        ],
-        analystId: 'model',
-        store: adapterTraceStore('run-8', [2, 3]),
-      }),
-    ).rejects.toThrow(/excerpt is not present/)
+  it('drops a block whose own citation excerpt is not in the cited action', async () => {
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-8',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: 'incorrect-steps-2-2-unescaped-consequence-3',
+          claim: 'Quotes an action the span does not contain.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-8/span/step-2', excerpt: 'rm -rf /invented' },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore('run-8', [2, 3]),
+    })
+    expect(findings).toEqual([])
+    expect(diagnostics?.rejectedFindings?.[0]).toMatch(/excerpt is not present/)
   })
 
-  it('refuses a block citation outside the block it declares', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
-        dataset: 'codetracebench',
-        trajectoryId: 'run-5',
-        findings: [
-          makeFinding({
-            analyst_id: 'model-raw',
-            area: 'model-output',
-            subject: 'incorrect-steps-2-3-unescaped-consequence-6',
-            claim: 'Cites a step the block does not cover.',
-            severity: 'high',
-            confidence: 0.8,
-            evidence_refs: [
-              { kind: 'span', uri: 'trace://run-5/span/step-5', excerpt: adapterAction(5) },
-            ],
-          }),
-        ],
-        analystId: 'model',
-        store: adapterTraceStore('run-5', [2, 3, 5, 6]),
-      }),
-    ).rejects.toThrow(/cites step 5 outside its block 2-3/)
+  it('drops a block citation outside the block it declares but keeps a valid sibling', async () => {
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-5',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: 'incorrect-steps-2-3-unescaped-consequence-6',
+          claim: 'Cites a step the block does not cover.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-5/span/step-5', excerpt: adapterAction(5) },
+          ],
+        }),
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: 'incorrect-steps-6-6-unescaped-consequence-7',
+          claim: 'A valid single-step block.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-5/span/step-6', excerpt: adapterAction(6) },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore('run-5', [2, 3, 5, 6, 7]),
+    })
+    expect(findings.map((finding) => finding.subject)).toEqual(['incorrect-step-6'])
+    expect(diagnostics?.rejectedFindings?.[0]).toMatch(/cites step 5 outside its block 2-3/)
   })
 
   it('refuses more blocks than the per-case maximum', async () => {

@@ -279,7 +279,7 @@ describe('runAnalystBenchmarkCommand', () => {
         { TEST_ANALYST_KEY: 'unused' },
         { createAnalystRunner },
       ),
-    ).rejects.toThrow(/pending or incomplete cost entries/)
+    ).rejects.toThrow(/pending or budget-breaching cost entries/)
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
@@ -596,60 +596,104 @@ describe('runAnalystBenchmarkCommand', () => {
     })
   })
 
-  it('does not score or finalize a provider failure with incomplete accounting', async () => {
+  it('finalizes when a completed analysis has one settled call the provider under-reported', async () => {
+    const fixture = await agentRxFixture()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      agentRxCommandArgs(fixture),
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createAnalystRunner: (_dataset, config) => ({
+          id: 'dspy-rlm',
+          async analyze(_input, context) {
+            // A settled provider response that omitted usage: cost is flagged
+            // unknown, the call did not fail, and the analysis completes.
+            const paid = await config.costLedger!.runPaidCall({
+              channel: 'analyst',
+              phase: 'analyst.public-benchmark',
+              actor: 'agentrx-root-cause-localizer',
+              model: 'glm-5.2',
+              maximumCharge: { externallyEnforcedMaximumUsd: 0.1 },
+              tags: {
+                analystId: 'agentrx-root-cause-localizer',
+                benchmarkCaseId: context.caseId,
+                benchmarkRepetition: String(context.repetition),
+              },
+              async execute() {
+                return { model: 'glm-5.2', inputTokens: 0, outputTokens: 0, usageUnknown: true }
+              },
+              receipt: (value) => value,
+            })
+            if (!paid.succeeded) throw paid.error
+            return { findings: [], usage: UNKNOWN_USAGE, metadata: { caseId: context.caseId } }
+          },
+        }),
+      },
+    )
+    const output = stdout.mock.calls.map(([value]) => String(value)).join('')
+    stdout.mockRestore()
+
+    expect(code).toBe(0)
+    expect(output).toContain(`result=${join(fixture.outDir, 'result.json')}`)
+    expect(output).toMatch(/unknown_cost_runs=[1-9]/)
+    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).resolves.toContain(
+      'analyst-benchmark-result',
+    )
+  })
+
+  it('records a provider failure as a scored failure and still finalizes', async () => {
     const fixture = await agentRxFixture()
     const secret = 'sk-provider-body-secret'
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 
-    await expect(
-      runAnalystBenchmarkCommand(
-        agentRxCommandArgs(fixture),
-        { TEST_ANALYST_KEY: 'unused' },
-        {
-          createAnalystRunner: (_dataset, config) => ({
-            id: 'dspy-rlm',
-            async analyze(_input, context) {
-              const paid = await config.costLedger!.runPaidCall({
-                channel: 'analyst',
-                phase: 'analyst.public-benchmark',
-                actor: 'agentrx-root-cause-localizer',
+    const code = await runAnalystBenchmarkCommand(
+      agentRxCommandArgs(fixture),
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createAnalystRunner: (_dataset, config) => ({
+          id: 'dspy-rlm',
+          async analyze(_input, context) {
+            const paid = await config.costLedger!.runPaidCall({
+              channel: 'analyst',
+              phase: 'analyst.public-benchmark',
+              actor: 'agentrx-root-cause-localizer',
+              model: 'unknown-provider-model',
+              maximumCharge: { externallyEnforcedMaximumUsd: 0.1 },
+              tags: {
+                analystId: 'agentrx-root-cause-localizer',
+                benchmarkCaseId: context.caseId,
+                benchmarkRepetition: String(context.repetition),
+              },
+              async execute() {
+                throw new Error(`malformed response Bearer ${secret}`)
+              },
+              receipt: () => ({
                 model: 'unknown-provider-model',
-                maximumCharge: { externallyEnforcedMaximumUsd: 0.1 },
-                tags: {
-                  analystId: 'agentrx-root-cause-localizer',
-                  benchmarkCaseId: context.caseId,
-                  benchmarkRepetition: String(context.repetition),
-                },
-                async execute() {
-                  throw new Error(`malformed response Bearer ${secret}`)
-                },
-                receipt: () => ({
-                  model: 'unknown-provider-model',
-                  inputTokens: 0,
-                  outputTokens: 0,
-                }),
-              })
-              if (paid.succeeded) throw new Error('provider failure unexpectedly succeeded')
-              throw paid.error
-            },
-          }),
-        },
-      ),
-    ).rejects.toThrow(/incomplete cost accounting/)
-
-    const observations = await readFile(
-      join(fixture.outDir, ANALYST_BENCHMARK_OBSERVATIONS_FILE),
-      'utf8',
+                inputTokens: 0,
+                outputTokens: 0,
+              }),
+            })
+            if (paid.succeeded) throw new Error('provider failure unexpectedly succeeded')
+            throw paid.error
+          },
+        }),
+      },
     )
-    expect(observations).not.toContain('"runnerId":"model"')
+    stdout.mockRestore()
+
+    // A failed provider call settles as a recorded failure: the run finalizes
+    // with a non-zero exit, the case is scored as a failure, the secret never
+    // leaks, and its cost is flagged rather than fabricated.
+    expect(code).not.toBe(0)
     const costEvents = await readFile(
       join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
       'utf8',
     )
     expect(costEvents).not.toContain(secret)
     expect(costEvents).toContain('"error":"paid-call-failed"')
-    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT',
-    })
+    await expect(readFile(join(fixture.outDir, 'result.json'), 'utf8')).resolves.toContain(
+      'analyst-benchmark-result',
+    )
   })
 
   it.each(['0', '-1', 'NaN', 'Infinity'])(

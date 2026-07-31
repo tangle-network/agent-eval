@@ -97,6 +97,7 @@ Never print an entire trace, full source file, or more than 12000 characters in 
 Build a compact table of assistant step ids, actions, following observations, and final verification.
 Inspect suspicious steps with viewSpans or searchSpan instead of repeatedly printing the table.
 This runner emits no JSON fields, so the block is encoded in the finding's subject.
+Only findings_json is scored; your prose answer is ignored, so every incorrect block you identify must appear as a finding, never only in the answer.
 Emit exactly one finding per contiguous failure block.
 Set the finding's subject to incorrect-steps-<first_step>-<last_step>-<escape_status>-consequence-<consequence_step>, using the same four values the task defines; for a block covering only step 7 that the agent never escaped and whose damage shows at step 9, the subject is incorrect-steps-7-7-unescaped-consequence-9.
 The runner expands the block to one scored step per member and builds every scored citation itself.

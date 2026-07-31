@@ -1,7 +1,11 @@
 import { arch, platform } from 'node:os'
 import { acquireSingleRunLock } from '../campaign/single-run-lock'
 import { createRunCostLedger, fsCampaignStorage } from '../campaign/storage'
-import { CostAccountingIncompleteError, type CostLedger } from '../cost-ledger'
+import {
+  CostAccountingIncompleteError,
+  type CostLedger,
+  type CostLedgerSummary,
+} from '../cost-ledger'
 import {
   type AnalystBenchmarkObservation,
   type AnalystBenchmarkResult,
@@ -359,28 +363,47 @@ function assertObservationAccountingComplete(
     )
   }
   if (observation.runnerId !== analystRunnerId) return
-  const summary = costLedger.summary({
-    channel: 'analyst',
+  const filter = {
+    channel: 'analyst' as const,
     tags: {
       benchmarkCaseId: observation.caseId,
       benchmarkRepetition: String(observation.repetition),
     },
-  })
-  if (!summary.accountingComplete || summary.pendingCalls > 0 || summary.unresolvedCalls > 0) {
-    throw accountingError(costLedger, 'the recursive analyst has incomplete cost accounting', {
-      channel: 'analyst',
-      tags: {
-        benchmarkCaseId: observation.caseId,
-        benchmarkRepetition: String(observation.repetition),
-      },
-    })
   }
+  const summary = costLedger.summary(filter)
+  // Every settled call is honestly accounted: a known cost is summed, and a
+  // provider response that omitted usage is flagged and excluded from the
+  // reported total. Neither invalidates a run, whether the case succeeded or
+  // failed. Only a call left pending, one lost, or one charged beyond its
+  // maximum leaves the cost genuinely unknowable, and those still halt.
+  if (!costAccountingIsTrustworthy(summary)) {
+    throw accountingError(
+      costLedger,
+      'the recursive analyst has incomplete cost accounting',
+      filter,
+    )
+  }
+}
+
+const BUDGET_BREACH_REASON = /exceeding its enforced maximum/
+
+/**
+ * Cost accounting is trustworthy when every call resolved and none breached its
+ * budget. A recursive analyst on a real provider will occasionally receive a
+ * settled response whose usage the provider omitted; that call is honestly
+ * recorded as unknown and excluded from the reported cost, so it does not
+ * invalidate a completed run. A call left pending, one lost, or one charged
+ * beyond its maximum is a genuine integrity failure and still halts.
+ */
+function costAccountingIsTrustworthy(summary: CostLedgerSummary): boolean {
+  if (summary.pendingCalls > 0 || summary.unresolvedCalls > 0) return false
+  return !summary.incompleteReasons.some((reason) => BUDGET_BREACH_REASON.test(reason))
 }
 
 function assertCostLedgerFinalizable(costLedger: CostLedger): void {
   const summary = costLedger.summary()
-  if (!summary.accountingComplete || summary.pendingCalls > 0 || summary.unresolvedCalls > 0) {
-    throw accountingError(costLedger, 'the run has pending or incomplete cost entries')
+  if (!costAccountingIsTrustworthy(summary)) {
+    throw accountingError(costLedger, 'the run has pending or budget-breaching cost entries')
   }
 }
 

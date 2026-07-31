@@ -401,48 +401,26 @@ def test_fixed_trace_tools_send_authenticated_callback_payloads(
     ]
 
 
-@pytest.mark.parametrize(
-    "findings_json",
-    [
-        "not json",
-        json.dumps(
-            [
-                {
-                    "severity": "high",
-                    "claim": "Invalid extra field.",
-                    "confidence": 0.8,
-                    "evidence": [{"uri": "trace://t/span/s"}],
-                    "extra": True,
-                }
-            ]
-        ),
-    ],
-)
-def test_analyze_rejects_malformed_findings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    findings_json: str,
-) -> None:
-    calls: dict[str, Any] = {}
-    fake_dspy = _fake_dspy(calls, findings_json=findings_json, invoke_tool=False)
-    monkeypatch.setattr(dspy_rlm_bridge, "_load_dspy", lambda: fake_dspy)
-    monkeypatch.setattr(
-        dspy_rlm_bridge,
-        "_build_deno_command",
-        lambda _dspy, _import_map: DENO_COMMAND,
-    )
-    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
-    input_path, output_path = _write_analyze_input(tmp_path)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["dspy-rlm-bridge", "--input", str(input_path), "--output", str(output_path)],
-    )
+def test_parse_findings_json_recovers_and_drops() -> None:
+    # a fenced or prose-wrapped array is recovered
+    fenced = "```json\n[{\"severity\": \"high\", \"claim\": \"c\", \"confidence\": 0.5, \"evidence\": [{\"uri\": \"trace://t/span/s\"}]}]\n```"
+    rows = dspy_rlm_bridge._parse_findings_json(fenced)
+    assert len(rows) == 1 and rows[0]["claim"] == "c"
 
-    with pytest.raises(ValueError, match="findings"):
-        dspy_rlm_bridge.main()
+    # non-JSON becomes an empty result, never a crash
+    assert dspy_rlm_bridge._parse_findings_json("no findings here") == []
 
-    assert not output_path.exists()
+    # a malformed row is dropped while a valid sibling survives
+    mixed = json.dumps(
+        [
+            {"severity": "high", "claim": "bad", "confidence": 0.5,
+             "evidence": [{"uri": "trace://t/span/s"}], "extra": True},
+            {"severity": "low", "claim": "good", "confidence": 0.5,
+             "evidence": [{"uri": "trace://t/span/s"}]},
+        ]
+    )
+    rows = dspy_rlm_bridge._parse_findings_json(mixed)
+    assert [r["claim"] for r in rows] == ["good"]
 
 
 def test_analyze_strips_model_output_whitespace(

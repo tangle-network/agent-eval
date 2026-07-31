@@ -1526,7 +1526,7 @@ describe('CostLedger', () => {
     })
   })
 
-  it('exposes unknown pricing and refuses to continue a capped run', async () => {
+  it('charges an unknown-cost call its reserved maximum against the ceiling', async () => {
     const ledger = new CostLedger(1)
     const result = await ledger.runPaidCall({
       channel: 'agent',
@@ -1548,20 +1548,37 @@ describe('CostLedger', () => {
       unpricedModels: ['not-in-price-table'],
     })
 
-    const denied = await ledger.runPaidCall({
+    // The unknown call is bounded by its $0.50 reservation, so a small next
+    // call still fits under the $1 ceiling and is allowed to run.
+    const allowed = await ledger.runPaidCall({
       channel: 'agent',
       phase: 'search',
-      actor: 'next-call',
+      actor: 'small-next-call',
       model: 'gpt-4o',
       maximumCharge: { model: 'gpt-4o', inputTokens: 1, outputTokens: 1 },
       async execute() {
-        return 'must not start'
+        return 'ran'
       },
       receipt: () => ({ model: 'gpt-4o', inputTokens: 1, outputTokens: 1 }),
     })
+    expect(allowed).toMatchObject({ succeeded: true })
+
+    // A next call whose reservation plus the $0.50 already charged would breach
+    // the ceiling is refused — the unknown cost cannot let the run overspend.
+    const denied = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'search',
+      actor: 'large-next-call',
+      model: 'not-in-price-table',
+      maximumCharge: { externallyEnforcedMaximumUsd: 0.75 },
+      async execute() {
+        return 'must not start'
+      },
+      receipt: () => ({ model: 'not-in-price-table', inputTokens: 1, outputTokens: 1 }),
+    })
     expect(denied).toMatchObject({
       succeeded: false,
-      error: expect.any(CostAccountingIncompleteError),
+      error: expect.any(CostCeilingReachedError),
     })
   })
 

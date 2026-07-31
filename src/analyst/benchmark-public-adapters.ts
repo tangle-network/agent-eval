@@ -47,6 +47,8 @@ export interface CodeTraceBlockDiagnostics {
   unresolvedBlockInteriorSteps: number[]
   /** Steps claimed by more than one block; the first block keeps the step. */
   overlappingBlockSteps: number[]
+  /** Findings dropped before expansion because their shape or evidence is invalid. */
+  rejectedFindings?: string[]
 }
 
 export function emptyPublicBenchmarkRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
@@ -158,17 +160,29 @@ async function adaptCodeTraceFindings(
       diagnostics: emptyCodeTraceBlockDiagnostics(),
     }
   }
-  // Check the model's own citations and excerpts here: expansion replaces them
-  // with runner-built evidence, so validating the expanded findings instead
-  // would prove nothing about what the model quoted.
-  await validateCodeTraceFindingEvidence({
-    trajectoryId,
-    findings,
-    store,
-    ...(signal ? { signal } : {}),
-  })
-  const blocks = findings.map((source) => codeTraceBlockFromFinding(trajectoryId, source))
-  return expandCodeTraceFailureBlocks({
+  // Each finding is model output. One whose subject is unparseable, whose
+  // cited step falls outside its own block, or whose evidence does not resolve
+  // is dropped with a recorded reason — the rest of a completed, paid
+  // investigation must survive it. Citations and excerpts are checked here
+  // because expansion replaces them with runner-built evidence.
+  const blocks: CodeTraceFailureBlock[] = []
+  const rejectedFindings: string[] = []
+  for (const source of findings) {
+    try {
+      await validateCodeTraceFindingEvidence({
+        trajectoryId,
+        findings: [source],
+        store,
+        ...(signal ? { signal } : {}),
+      })
+      blocks.push(codeTraceBlockFromFinding(trajectoryId, source))
+    } catch (error) {
+      rejectedFindings.push(
+        `${source.finding_id}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  const expanded = await expandCodeTraceFailureBlocks({
     trajectoryId,
     blocks,
     store,
@@ -176,6 +190,10 @@ async function adaptCodeTraceFindings(
     ...(findings[0] ? { producedAt: findings[0].produced_at } : {}),
     ...(signal ? { signal } : {}),
   })
+  return {
+    findings: expanded.findings,
+    diagnostics: { ...expanded.diagnostics, rejectedFindings },
+  }
 }
 
 function codeTraceBlockFromFinding(

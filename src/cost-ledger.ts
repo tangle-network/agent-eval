@@ -375,32 +375,34 @@ export class CostLedger {
             }
           }
           if (this.costCeilingUsd === undefined) break
-          if (this.hasIncompleteSettledCall()) {
+          if (this.hasBudgetBreachingSettledCall()) {
             return {
               succeeded: false,
               callId,
               error: new CostAccountingIncompleteError(
-                `CostLedger: accounting is incomplete; refusing paid call '${input.actor}' during '${input.phase}'`,
+                `CostLedger: a settled call exceeded its enforced maximum; refusing paid call '${input.actor}' during '${input.phase}'`,
               ),
             }
           }
-          if (summary.totalCostUsd + maximumCostUsd! > this.costCeilingUsd) {
+          // A settled call whose cost the provider left unknown is charged its
+          // reserved maximum here, so the ceiling is enforced against a real
+          // upper bound and one under-reported response cannot let later calls
+          // silently exceed the budget — while still permitting them.
+          const committedCostUsd = this.conservativeSettledCostUsd()
+          if (committedCostUsd + maximumCostUsd! > this.costCeilingUsd) {
             return {
               succeeded: false,
               callId,
               error: new CostCeilingReachedError(
                 this.costCeilingUsd,
-                summary.totalCostUsd,
+                committedCostUsd,
                 maximumCostUsd!,
                 input.phase,
                 input.actor,
               ),
             }
           }
-          if (
-            summary.totalCostUsd + summary.reservedCostUsd + maximumCostUsd! <=
-            this.costCeilingUsd
-          ) {
+          if (committedCostUsd + summary.reservedCostUsd + maximumCostUsd! <= this.costCeilingUsd) {
             break
           }
           await this.waitForReservationRelease(input.signal)
@@ -799,14 +801,27 @@ export class CostLedger {
     return priced.costUsd
   }
 
-  private hasIncompleteSettledCall(): boolean {
+  private hasBudgetBreachingSettledCall(): boolean {
     return [...this.records.values()].some(
       (record) =>
         record.status === 'settled' &&
-        (record.costUnknown ||
-          record.usageUnknown ||
-          (record.maximumCostUsd !== undefined && record.costUsd > record.maximumCostUsd)),
+        record.maximumCostUsd !== undefined &&
+        record.costUsd > record.maximumCostUsd,
     )
+  }
+
+  /**
+   * Total settled cost with each unknown-cost call charged its reserved
+   * maximum. A provider that omits a call's cost cannot make the ceiling check
+   * under-count: the call is bounded by what it was allowed to spend.
+   */
+  private conservativeSettledCostUsd(): number {
+    let total = 0
+    for (const record of this.records.values()) {
+      if (record.status !== 'settled') continue
+      total += record.costUnknown ? (record.maximumCostUsd ?? record.costUsd) : record.costUsd
+    }
+    return total
   }
 
   private appendRecord(record: CostLedgerRecord): void {
