@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.139.0] - 2026-07-31 - recursive RLM trace analysts and caller failure reasons
+
+### Added
+
+- Trace analysts run official DSPy RLMs; the Ax stack is retired (#495).
+  The published CodeTraceBench evidence remains bound to the retired direct runner via the evidence digests; a fresh certified run must replace it before any accuracy number is attributed to the new engine.
+- `CostLedger.reconcile` accepts a caller-supplied failure reason: `reconcile(callId, observed, { error })` settles a failed receipt carrying that reason, and supplying a reason implies failure.
+  0.138.0 had narrowed `CostReceipt.error` to the ledger's own `'paid-call-failed'`, silently discarding caller reasons — a crash orphan settled as a successful $0 call.
+  The receipt schema accepts any non-empty reason again, so ledgers persisted before 0.138.0 parse.
+
 ## [0.138.0] - 2026-07-30 - exact analyst runs with sealed receipts
 
 ### Fixed

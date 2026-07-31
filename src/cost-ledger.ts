@@ -57,7 +57,9 @@ export interface CostReceipt extends CostCallBase, CostUsage {
   actualCostUsd?: number
   /** Known non-provider amount supplied by an external executor. */
   estimatedCostUsd?: number
-  error?: 'paid-call-failed'
+  /** Why the call failed. `'paid-call-failed'` is the ledger's own value for
+   * recovery settles; a reconciling caller may record its own reason. */
+  error?: string
 }
 
 export type CostLedgerRecord = PendingCostCall | CostReceipt
@@ -461,7 +463,7 @@ export class CostLedger {
   reconcile(
     callId: string,
     observed: CostReceiptInput,
-    options: { failed?: boolean } = {},
+    options: { failed?: boolean; error?: string } = {},
   ): CostReceipt {
     const pending = [...this.records.values()].find(
       (record): record is PendingCostCall =>
@@ -472,7 +474,12 @@ export class CostLedger {
       throw new CostCallConflictError(`CostLedger: call '${callId}' is still active`)
     }
     this.ensureCostLimitPersisted(callId)
-    return this.commitReceipt(pending, observed, options.failed === true)
+    return this.commitReceipt(
+      pending,
+      observed,
+      options.failed === true || options.error !== undefined,
+      options.error,
+    )
   }
 
   list(filter?: CostLedgerFilter): CostReceipt[] {
@@ -751,8 +758,9 @@ export class CostLedger {
     pending: PendingCostCall,
     observed: CostReceiptInput,
     failed = false,
+    error?: string,
   ): CostReceipt {
-    const receipt = buildReceipt(pending, observed, failed)
+    const receipt = buildReceipt(pending, observed, failed, error)
     if (this.records.get(pending.callId)?.status !== 'pending') {
       throw new CostCallConflictError(`CostLedger: call '${pending.callId}' is not pending`)
     }
@@ -933,6 +941,7 @@ function buildReceipt(
   pending: PendingCostCall,
   observed: CostReceiptInput,
   failed = false,
+  error?: string,
 ): CostReceipt {
   assertUsage(observed)
   assertString(observed.model, 'receipt.model')
@@ -1018,7 +1027,7 @@ function buildReceipt(
       ...(hasActual ? { actualCostUsd: observed.actualCostUsd } : {}),
       ...(hasExternalEstimate ? { estimatedCostUsd: observed.estimatedCostUsd } : {}),
       ...(pending.maximumCostUsd === undefined ? {} : { maximumCostUsd: pending.maximumCostUsd }),
-      ...(failed ? { error: 'paid-call-failed' as const } : {}),
+      ...(failed ? { error: error ?? 'paid-call-failed' } : {}),
       ...(pending.tags ? { tags: { ...pending.tags } } : {}),
       timestamp: pending.timestamp,
     },
@@ -1062,7 +1071,7 @@ const CostReceiptBaseShape = {
   pricing: CostPricingSchema.optional(),
   actualCostUsd: NonNegative.optional(),
   estimatedCostUsd: NonNegative.optional(),
-  error: z.literal('paid-call-failed').optional(),
+  error: NonEmptyString.optional(),
 }
 const CostReceiptSchema = z
   .strictObject({
