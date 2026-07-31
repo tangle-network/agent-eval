@@ -46,7 +46,7 @@ try {
   }
   const expectedDependencyCohort = {
     '@tangle-network/agent-core': '0.4.28',
-    '@tangle-network/agent-interface': '0.39.0',
+    '@tangle-network/agent-interface': '0.40.0',
   }
   for (const [name, version] of Object.entries(expectedDependencyCohort)) {
     if (packageJson.dependencies?.[name] !== version) {

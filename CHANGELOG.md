@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.139.2] - 2026-07-31 - interface 0.40 cohort alignment
+
+### Fixed
+
+- Depend on `agent-interface@0.40.0`, matching the interface every current consumer ships.
+  agent-runtime's packed-cohort verifier requires this package's interface dependency to equal the packed cohort interface exactly; 0.139.1 still depended on 0.39.0.
+
 ## [0.139.1] - 2026-07-31 - source-only build gate
 
 ### Fixed
