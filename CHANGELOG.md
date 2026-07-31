@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.139.3] - 2026-07-31 - supervisor runs under `.agent`
+
+### Changed
+
+- Find supervisor runs under `<ws>/.agent/supervisor`, falling back to the pre-rename `<ws>/.loops/supervisor` so historical runs stay analyzable.
+  agent-runtime 0.111.0 moves the run contract to `.agent`, the one dot-dir for agent-owned state; `.agent` wins when both exist.
+  The "no supervisor run dir" gap messages name both locations.
+
 ## [0.139.2] - 2026-07-31 - interface 0.40 cohort alignment
 
 ### Fixed
