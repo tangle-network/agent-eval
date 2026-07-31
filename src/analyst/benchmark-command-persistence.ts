@@ -70,6 +70,7 @@ interface AnalystBenchmarkPersistenceConfig {
   seed: number
   concurrency: number
   repetitions: number
+  rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
   apiKeyEnv: string
@@ -152,6 +153,7 @@ export function createRunIdentity(
       seed: config.seed,
       concurrency: config.concurrency,
       repetitions: config.repetitions,
+      rlmSamples: config.rlmSamples,
       maxCostUsd: config.maxCostUsd,
       maxArtifactBytes: config.maxArtifactBytes,
       analystProtocolSha256: publicBenchmarkProtocolSha256(config.dataset),

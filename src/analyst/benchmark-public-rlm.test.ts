@@ -1,4 +1,7 @@
+import { mkdtemp } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
@@ -45,6 +48,76 @@ process.exit(1)
 
 function childScript(findingsJson: string): string {
   return CHILD_SCRIPT.replace('__FINDINGS__', findingsJson)
+}
+
+// Emits one findings array per invocation, in order, so each sequential
+// consensus sample sees a different draw. The counter survives on disk
+// because every engine call runs a fresh child process.
+const SEQUENCE_CHILD_SCRIPT = `
+const fs = require('node:fs')
+const inputPath = process.argv[process.argv.indexOf('--input') + 1]
+const outputPath = process.argv[process.argv.indexOf('--output') + 1]
+const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'))
+const counterPath = __COUNTER_PATH__
+const samples = __SAMPLES__
+async function main() {
+  let index = 0
+  try { index = Number(fs.readFileSync(counterPath, 'utf8')) } catch {}
+  fs.writeFileSync(counterPath, String(index + 1))
+  const model = await fetch(input.modelProxy.baseUrl + '/chat/completions', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + input.modelProxy.apiKey,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: input.modelProxy.model,
+      messages: [{ role: 'user', content: input.question }],
+      max_tokens: input.modelProxy.maxOutputTokens,
+    }),
+  })
+  if (!model.ok) throw new Error('model proxy failed: ' + await model.text())
+  await model.json()
+  fs.writeFileSync(outputPath, JSON.stringify({
+    answer: 'Sample ' + index + ' answer.',
+    findings: samples[Math.min(index, samples.length - 1)],
+    trajectory: [],
+    modelCalls: 1,
+    runtime: { engine: 'test-bridge' },
+  }))
+}
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
+`
+
+async function sequenceChildScript(findingsPerSample: unknown[][]): Promise<string> {
+  const counterPath = join(await mkdtemp(join(tmpdir(), 'rlm-consensus-')), 'counter')
+  return SEQUENCE_CHILD_SCRIPT.replace('__COUNTER_PATH__', JSON.stringify(counterPath)).replace(
+    '__SAMPLES__',
+    JSON.stringify(findingsPerSample),
+  )
+}
+
+function blockFinding(options: {
+  first: number
+  last: number
+  consequence: number
+  escape?: 'escaped' | 'unescaped'
+  severity?: string
+  claim: string
+  confidence: number
+  citeStep: number
+  excerpt: string
+}): Record<string, unknown> {
+  return {
+    severity: options.severity ?? 'high',
+    claim: options.claim,
+    subject: `incorrect-steps-${options.first}-${options.last}-${options.escape ?? 'unescaped'}-consequence-${options.consequence}`,
+    confidence: options.confidence,
+    evidence: [{ uri: `trace://trace-1/span/step-${options.citeStep}`, excerpt: options.excerpt }],
+  }
 }
 
 describe('createPublicBenchmarkRlmRunner', () => {
@@ -233,6 +306,348 @@ describe('createPublicBenchmarkRlmRunner', () => {
     } finally {
       await closeServer(provider)
     }
+  })
+
+  it('emits the step-level majority across three samples with donor metadata and merged usage', async () => {
+    const { provider, baseUrl } = await startFakeProvider()
+    const traceId = 'trace-1'
+    const spans = [
+      span(traceId, 'step-2', 'writeFile("broken configuration file")'),
+      span(traceId, 'step-3', 'runCommand("deploy --config broken")'),
+      span(traceId, 'step-5', 'runCommand("cleanup")'),
+    ]
+    const fallbackFetch = vi.fn() as typeof fetch
+    const script = await sequenceChildScript([
+      [
+        blockFinding({
+          first: 2,
+          last: 3,
+          consequence: 3,
+          claim: 'Steps two and three broke the deploy.',
+          confidence: 0.6,
+          citeStep: 2,
+          excerpt: 'writeFile("broken configuration file")',
+        }),
+      ],
+      [
+        blockFinding({
+          first: 2,
+          last: 2,
+          consequence: 2,
+          escape: 'escaped',
+          severity: 'medium',
+          claim: 'Step two wrote the wrong file.',
+          confidence: 0.9,
+          citeStep: 2,
+          excerpt: 'writeFile("broken configuration file")',
+        }),
+      ],
+      [
+        blockFinding({
+          first: 5,
+          last: 5,
+          consequence: 5,
+          severity: 'low',
+          claim: 'Step five is wrong.',
+          confidence: 0.8,
+          citeStep: 5,
+          excerpt: 'runCommand("cleanup")',
+        }),
+      ],
+    ])
+
+    try {
+      const runner = createPublicBenchmarkRlmRunner('codetracebench', {
+        baseUrl,
+        apiKey: 'provider-secret',
+        model: 'glm-5.2',
+        maxOutputTokens: 64,
+        timeoutMs: 5_000,
+        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        dspyRlm: {
+          samples: 3,
+          runner: { command: process.execPath, args: ['-e', script, '--'] },
+        },
+        fetchImpl: fallbackFetch,
+      })
+      const output = await runner.analyze(
+        { traceStore: singleTraceStore(traceId, spans) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+      expect(output.error).toBeUndefined()
+      expect(fallbackFetch).not.toHaveBeenCalled()
+      // Step 2 has two of three votes; steps 3 and 5 have one each.
+      expect(output.findings).toHaveLength(1)
+      expect(output.findings[0]).toMatchObject({
+        analyst_id: 'dspy-rlm',
+        subject: 'incorrect-step-2',
+        claim: 'Step 2 is incorrect. Step two wrote the wrong file.',
+        severity: 'medium',
+        metadata: expect.objectContaining({
+          block_first_step: 2,
+          block_last_step: 2,
+          block_consequence_step: 2,
+          escape_status: 'escaped',
+          consensus_samples: 3,
+          consensus_contributors: 2,
+          consensus_donor_sample: 1,
+        }),
+      })
+      expect(output.findings[0]!.confidence).toBeCloseTo(0.75, 10)
+      expect(output.metadata).toMatchObject({
+        analysisMode: 'recursive',
+        engine: 'dspy-rlm',
+        samples: 3,
+        modelCalls: 3,
+      })
+      expect(output.metadata?.abstentionFallback).toBeUndefined()
+      const sampleRuns = output.metadata?.sampleRuns as Array<Record<string, unknown>>
+      expect(sampleRuns).toHaveLength(3)
+      expect(sampleRuns[0]).toMatchObject({
+        sample: 0,
+        answer: 'Sample 0 answer.',
+        steps: [2, 3],
+        blocks: [expect.objectContaining({ firstStep: 2, lastStep: 3, acceptedSteps: [2, 3] })],
+        usage: expect.objectContaining({ calls: 1, tokens: { input: 3, output: 2 } }),
+      })
+      expect(sampleRuns[2]).toMatchObject({ sample: 2, steps: [5] })
+      expect(output.metadata?.consensus).toMatchObject({
+        samples: 3,
+        threshold: 2,
+        stepVotes: [
+          { step: 2, votes: 2, kept: true },
+          { step: 3, votes: 1, kept: false },
+          { step: 5, votes: 1, kept: false },
+        ],
+        blocks: [
+          expect.objectContaining({
+            firstStep: 2,
+            lastStep: 2,
+            donor: expect.objectContaining({ sample: 1, overlapSteps: 1 }),
+          }),
+        ],
+      })
+      // All three samples' provider calls settle on the one case.
+      expect(output.usage).toMatchObject({
+        calls: 3,
+        tokens: { input: 9, output: 6 },
+      })
+    } finally {
+      await closeServer(provider)
+    }
+  })
+
+  it('falls back to one direct call when voting leaves no majority step', async () => {
+    const { provider, baseUrl } = await startFakeProvider()
+    const traceId = 'trace-1'
+    const spans = [
+      span(traceId, 'step-2', 'writeFile("broken configuration file")'),
+      span(traceId, 'step-3', 'runCommand("deploy --config broken")'),
+      span(traceId, 'step-5', 'runCommand("cleanup")'),
+    ]
+    const fallbackFetch = vi.fn(async () =>
+      directModelResponse({
+        report: 'Step 2 wrote the configuration that broke the deploy at step 3.',
+        findings: [
+          {
+            first_step: 2,
+            last_step: 2,
+            consequence_step: 3,
+            escape_status: 'unescaped',
+            severity: 'high',
+            claim: 'Step 2 wrote an invalid configuration.',
+            confidence: 0.9,
+          },
+        ],
+      }),
+    ) as typeof fetch
+    const script = await sequenceChildScript([
+      [
+        blockFinding({
+          first: 2,
+          last: 2,
+          consequence: 2,
+          claim: 'A.',
+          confidence: 0.9,
+          citeStep: 2,
+          excerpt: 'writeFile("broken configuration file")',
+        }),
+      ],
+      [
+        blockFinding({
+          first: 3,
+          last: 3,
+          consequence: 3,
+          claim: 'B.',
+          confidence: 0.9,
+          citeStep: 3,
+          excerpt: 'runCommand("deploy --config broken")',
+        }),
+      ],
+      [
+        blockFinding({
+          first: 5,
+          last: 5,
+          consequence: 5,
+          claim: 'C.',
+          confidence: 0.9,
+          citeStep: 5,
+          excerpt: 'runCommand("cleanup")',
+        }),
+      ],
+    ])
+
+    try {
+      const runner = createPublicBenchmarkRlmRunner('codetracebench', {
+        baseUrl,
+        apiKey: 'provider-secret',
+        model: 'glm-5.2',
+        maxOutputTokens: 64,
+        timeoutMs: 5_000,
+        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        dspyRlm: {
+          samples: 3,
+          runner: { command: process.execPath, args: ['-e', script, '--'] },
+        },
+        fetchImpl: fallbackFetch,
+      })
+      const output = await runner.analyze(
+        { traceStore: singleTraceStore(traceId, spans) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+      expect(output.error).toBeUndefined()
+      // Every sample found something, yet nothing reached ceil(3/2) votes:
+      // the fallback is a post-consensus decision, not a per-sample one.
+      expect(fallbackFetch).toHaveBeenCalledTimes(1)
+      expect(output.metadata).toMatchObject({
+        samples: 3,
+        abstentionFallback: 'direct',
+        abstentionFallbackMetadata: expect.objectContaining({
+          analysisMode: 'direct-baseline',
+        }),
+      })
+      expect(output.findings).toHaveLength(1)
+      expect(output.findings[0]).toMatchObject({
+        analyst_id: 'direct',
+        subject: 'incorrect-step-2',
+      })
+      // Three engine calls plus the single fallback call on the same case.
+      expect(output.usage).toMatchObject({
+        calls: 4,
+        tokens: { input: 109, output: 56 },
+      })
+    } finally {
+      await closeServer(provider)
+    }
+  })
+
+  it('applies the abstention fallback once after consensus when every sample abstains', async () => {
+    const { provider, baseUrl } = await startFakeProvider()
+    const traceId = 'trace-1'
+    const spans = [span(traceId, 'step-2', 'runCommand("verify everything works")')]
+    const fallbackFetch = vi.fn(async () =>
+      directModelResponse({ report: 'No incorrect steps were found.', findings: [] }),
+    ) as typeof fetch
+    const script = await sequenceChildScript([[], [], []])
+
+    try {
+      const runner = createPublicBenchmarkRlmRunner('codetracebench', {
+        baseUrl,
+        apiKey: 'provider-secret',
+        model: 'glm-5.2',
+        maxOutputTokens: 64,
+        timeoutMs: 5_000,
+        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        dspyRlm: {
+          samples: 3,
+          runner: { command: process.execPath, args: ['-e', script, '--'] },
+        },
+        fetchImpl: fallbackFetch,
+      })
+      const output = await runner.analyze(
+        { traceStore: singleTraceStore(traceId, spans) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+      expect(output.error).toBeUndefined()
+      expect(fallbackFetch).toHaveBeenCalledTimes(1)
+      expect(output.findings).toEqual([])
+      expect(output.metadata).toMatchObject({ samples: 3, abstentionFallback: 'direct' })
+      const consensus = output.metadata?.consensus as { stepVotes: unknown[] }
+      expect(consensus.stepVotes).toEqual([])
+    } finally {
+      await closeServer(provider)
+    }
+  })
+
+  it('behaves exactly like the single-sample runner when samples is 1', async () => {
+    const { provider, baseUrl } = await startFakeProvider()
+    const traceId = 'trace-1'
+    const spans = [
+      span(traceId, 'step-2', 'writeFile("broken configuration file")'),
+      span(traceId, 'step-3', 'runCommand("deploy --config broken")'),
+    ]
+    const fallbackFetch = vi.fn() as typeof fetch
+    const bridgeFindings = JSON.stringify([
+      blockFinding({
+        first: 2,
+        last: 2,
+        consequence: 3,
+        claim: 'Step two wrote the wrong file.',
+        confidence: 0.9,
+        citeStep: 2,
+        excerpt: 'writeFile("broken configuration file")',
+      }),
+    ])
+
+    try {
+      const runner = createPublicBenchmarkRlmRunner('codetracebench', {
+        baseUrl,
+        apiKey: 'provider-secret',
+        model: 'glm-5.2',
+        maxOutputTokens: 64,
+        timeoutMs: 5_000,
+        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        dspyRlm: {
+          samples: 1,
+          runner: { command: process.execPath, args: ['-e', childScript(bridgeFindings), '--'] },
+        },
+        fetchImpl: fallbackFetch,
+      })
+      const output = await runner.analyze(
+        { traceStore: singleTraceStore(traceId, spans) },
+        { caseId: `codetrace:${traceId}`, repetition: 0 },
+      )
+
+      expect(output.error).toBeUndefined()
+      expect(fallbackFetch).not.toHaveBeenCalled()
+      expect(output.findings).toHaveLength(1)
+      expect(output.findings[0]).toMatchObject({ subject: 'incorrect-step-2' })
+      // The single-sample path carries no consensus fields at all.
+      expect(output.metadata?.samples).toBeUndefined()
+      expect(output.metadata?.sampleRuns).toBeUndefined()
+      expect(output.metadata?.consensus).toBeUndefined()
+      expect(output.metadata?.answer).toBeDefined()
+      expect(output.usage).toMatchObject({ calls: 1, tokens: { input: 3, output: 2 } })
+    } finally {
+      await closeServer(provider)
+    }
+  })
+
+  it('refuses consensus sampling outside CodeTraceBench', () => {
+    expect(() =>
+      createPublicBenchmarkRlmRunner('agentrx', {
+        baseUrl: 'http://127.0.0.1:9/v1',
+        apiKey: 'provider-secret',
+        model: 'glm-5.2',
+        maxOutputTokens: 64,
+        timeoutMs: 5_000,
+        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        dspyRlm: { samples: 2 },
+      }),
+    ).toThrow(/requires the codetracebench dataset/)
   })
 })
 

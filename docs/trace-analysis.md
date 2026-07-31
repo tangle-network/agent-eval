@@ -236,6 +236,9 @@ agent-eval analyst-benchmark \
   --max-cost-usd 5
 ```
 
+`--rlm-samples <k>` (CodeTraceBench, `dspy-rlm` only) runs the recursive engine `k` times per case and scores the step-level majority: a step survives when at least `ceil(k/2)` samples flag it, surviving steps reassemble into blocks, and the abstention fallback fires once, only when no step reaches the threshold.
+Per-sample blocks, the full voting record, and per-sample cost land in the observation's runner metadata; `k` is recorded in the run identity and `result.json`.
+
 The command writes every observation before producing `result.json` and `report.md`.
 It can resume without repeating completed cases.
 Dataset revisions, selected case IDs, input hashes, trace hashes, result artifacts, usage, errors, and comparison settings remain in the output.

@@ -35,6 +35,7 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-evidence-validation.ts',
   'src/analyst/benchmark-public-adapters.ts',
   'src/analyst/benchmark-public-calibration.ts',
+  'src/analyst/benchmark-public-consensus.ts',
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
   'src/analyst/benchmark-public-model.ts',

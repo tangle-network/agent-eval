@@ -55,6 +55,17 @@ export interface CodeTraceBlockDiagnostics {
   trimmedCitations?: string[]
 }
 
+/**
+ * One expanded step with the accepted block that owns it. The expansion's
+ * per-step ownership record: exactly the steps that survived shape, count,
+ * and evidence checks, so consensus voting sees the same step set the
+ * benchmark scores.
+ */
+export interface CodeTraceStepAssignment {
+  step: number
+  block: CodeTraceFailureBlock
+}
+
 export function emptyPublicBenchmarkRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
   return {
     id: 'empty',
@@ -79,7 +90,12 @@ export async function adaptPublicBenchmarkFindings(options: {
   analystId: string
   store: TraceAnalysisStore
   signal?: AbortSignal
-}): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics | undefined }> {
+}): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics | undefined
+  /** Present for CodeTraceBench only; AgentRx has no step-level expansion. */
+  stepBlocks?: CodeTraceStepAssignment[]
+}> {
   if (options.dataset === 'agentrx') {
     return {
       findings: adaptAgentRxFindings(options.trajectoryId, options.findings, options.analystId),
@@ -152,7 +168,11 @@ async function adaptCodeTraceFindings(
   analystId: string,
   store: TraceAnalysisStore,
   signal?: AbortSignal,
-): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics }> {
+): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics
+  stepBlocks: CodeTraceStepAssignment[]
+}> {
   const clean = findings.filter((finding) => finding.subject === 'clean')
   if (clean.length > 0) {
     if (findings.length !== 1) {
@@ -162,6 +182,7 @@ async function adaptCodeTraceFindings(
     return {
       findings: [],
       diagnostics: emptyCodeTraceBlockDiagnostics(),
+      stepBlocks: [],
     }
   }
   // Each finding is model output. One whose subject is unparseable, whose
@@ -200,6 +221,7 @@ async function adaptCodeTraceFindings(
   return {
     findings: expanded.findings,
     diagnostics: { ...expanded.diagnostics, rejectedFindings, trimmedCitations },
+    stepBlocks: expanded.stepBlocks,
   }
 }
 
@@ -283,12 +305,16 @@ export async function expandCodeTraceFailureBlocks(options: {
   analystId: string
   producedAt?: string
   signal?: AbortSignal
-}): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics }> {
+}): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics
+  stepBlocks: CodeTraceStepAssignment[]
+}> {
   const diagnostics = emptyCodeTraceBlockDiagnostics()
   diagnostics.reportedBlocks = options.blocks.length
-  if (options.blocks.length === 0) return { findings: [], diagnostics }
+  if (options.blocks.length === 0) return { findings: [], diagnostics, stepBlocks: [] }
   const blocks = acceptCodeTraceBlockShape(options.blocks, diagnostics)
-  if (blocks.length === 0) return { findings: [], diagnostics }
+  if (blocks.length === 0) return { findings: [], diagnostics, stepBlocks: [] }
 
   const boundarySteps = blocks.flatMap((block) => [block.firstStep, block.lastStep])
   const derivedSteps = blocks.flatMap((block) => [block.consequenceStep, ...interiorSteps(block)])
@@ -320,31 +346,32 @@ export async function expandCodeTraceFailureBlocks(options: {
     }
   }
 
-  const findings = [...byStep]
+  const stepBlocks = [...byStep]
     .sort(([left], [right]) => left - right)
-    .map(([step, block]) =>
-      makeFinding({
-        analyst_id: options.analystId,
-        area: 'incorrect',
-        subject: `incorrect-step-${step}`,
-        claim: `Step ${step} is incorrect. ${block.claim}`,
-        rationale: block.rationale,
-        severity: block.severity,
-        confidence: block.confidence,
-        evidence_refs: [evidenceByStep.get(step)!],
-        recommended_action: block.recommendedAction,
-        metadata: {
-          ...block.metadata,
-          block_first_step: block.firstStep,
-          block_last_step: block.lastStep,
-          block_consequence_step: block.consequenceStep,
-          escape_status: block.escapeStatus,
-        },
-        ...(options.producedAt === undefined ? {} : { produced_at: options.producedAt }),
-        id_basis: `incorrect-step-${step}`,
-      }),
-    )
-  return { findings, diagnostics }
+    .map(([step, block]) => ({ step, block }))
+  const findings = stepBlocks.map(({ step, block }) =>
+    makeFinding({
+      analyst_id: options.analystId,
+      area: 'incorrect',
+      subject: `incorrect-step-${step}`,
+      claim: `Step ${step} is incorrect. ${block.claim}`,
+      rationale: block.rationale,
+      severity: block.severity,
+      confidence: block.confidence,
+      evidence_refs: [evidenceByStep.get(step)!],
+      recommended_action: block.recommendedAction,
+      metadata: {
+        ...block.metadata,
+        block_first_step: block.firstStep,
+        block_last_step: block.lastStep,
+        block_consequence_step: block.consequenceStep,
+        escape_status: block.escapeStatus,
+      },
+      ...(options.producedAt === undefined ? {} : { produced_at: options.producedAt }),
+      id_basis: `incorrect-step-${step}`,
+    }),
+  )
+  return { findings, diagnostics, stepBlocks }
 }
 
 /**

@@ -13,7 +13,10 @@ import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark
 import {
   adaptPublicBenchmarkFindings,
   codeTraceBlockMetadataFromSubject,
+  type CodeTraceStepAssignment,
+  expandCodeTraceFailureBlocks,
 } from './benchmark-public-adapters'
+import { consensusCodeTraceBlocks } from './benchmark-public-consensus'
 import { publicBenchmarkError } from './benchmark-public-errors'
 import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import {
@@ -37,6 +40,15 @@ export function createPublicBenchmarkRlmRunner(
   config: PublicAnalystBenchmarkModelConfig,
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
   const costLedger = config.costLedger ?? new CostLedger()
+  const samples = config.dspyRlm?.samples ?? 1
+  if (!Number.isSafeInteger(samples) || samples < 1) {
+    throw new RangeError('dspyRlm.samples must be a positive safe integer')
+  }
+  if (samples > 1 && dataset !== 'codetracebench') {
+    throw new Error(
+      'dspyRlm.samples > 1 requires the codetracebench dataset; step-level consensus is defined on its block grammar',
+    )
+  }
   const limits = {
     maxIterations: config.dspyRlm?.maxIterations ?? 14,
     maxLlmCalls: config.dspyRlm?.maxLlmCalls ?? 8,
@@ -75,6 +87,127 @@ export function createPublicBenchmarkRlmRunner(
       try {
         if (!input.traceStore) {
           throw new Error(`${dataset} DSPy RLM runner requires a trace store`)
+        }
+        if (samples > 1) {
+          const store = input.traceStore
+          const caseUsageFilter = { channel: 'analyst' as const, tags }
+          const sampleRuns: Array<Record<string, unknown>> = []
+          const sampleAssignments: CodeTraceStepAssignment[][] = []
+          let totalModelCalls = 0
+          let totalToolCalls = 0
+          for (let sample = 0; sample < samples; sample += 1) {
+            let sampleUsage: AnalystUsageReceipt | undefined
+            const completed = await runTraceAnalyst({
+              definition,
+              engine,
+              store,
+              context: {
+                runId: context.caseId,
+                // A distinct correlation id per sample tags each sample's
+                // provider calls individually in the shared ledger, while the
+                // case and repetition tags keep all k samples' spend — and a
+                // fallback's — on this one case.
+                correlationId: `${context.caseId}:${context.repetition}:sample-${sample}`,
+                costLedger,
+                costPhase: 'analyst.public-benchmark.dspy-rlm',
+                tags,
+                recordUsage: (receipt) => {
+                  sampleUsage = receipt
+                  usage = usageReceiptFromCostLedger(costLedger, caseUsageFilter)
+                },
+                signal: context.signal,
+              },
+            })
+            const producedAt = new Date().toISOString()
+            const sampleFindings = completed.findings.map((finding) =>
+              makeFinding({
+                analyst_id: 'dspy-rlm',
+                area: 'incorrect',
+                subject: finding.subject,
+                claim: finding.claim,
+                rationale: finding.rationale,
+                severity: finding.severity,
+                confidence: finding.confidence,
+                evidence_refs: evidenceRefsFromRawFinding(finding),
+                recommended_action: finding.recommended_action,
+                metadata: {
+                  analysis_mode: 'recursive',
+                  engine: 'dspy-rlm',
+                  model: config.model,
+                  sample,
+                  ...(codeTraceBlockMetadataFromSubject(finding.subject) ?? {}),
+                },
+                produced_at: producedAt,
+              }),
+            )
+            rawFindings = [...rawFindings, ...sampleFindings]
+            const adapted = await adaptPublicBenchmarkFindings({
+              dataset,
+              trajectoryId,
+              findings: sampleFindings,
+              analystId: 'dspy-rlm',
+              store,
+              ...(context.signal ? { signal: context.signal } : {}),
+            })
+            const assignments = adapted.stepBlocks ?? []
+            sampleAssignments.push(assignments)
+            totalModelCalls += completed.modelCalls
+            totalToolCalls += completed.toolCalls
+            sampleRuns.push({
+              sample,
+              answer: completed.answer,
+              trajectory: completed.trajectory,
+              modelCalls: completed.modelCalls,
+              toolCalls: completed.toolCalls,
+              runtime: completed.runtime,
+              blocks: sampleBlockRecords(assignments),
+              steps: assignments.map((assignment) => assignment.step),
+              ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
+              ...(sampleUsage ? { usage: sampleUsage } : {}),
+            })
+          }
+          const consensus = consensusCodeTraceBlocks(sampleAssignments)
+          const expanded = await expandCodeTraceFailureBlocks({
+            trajectoryId,
+            blocks: consensus.blocks,
+            store,
+            analystId: 'dspy-rlm',
+            producedAt: new Date().toISOString(),
+            ...(context.signal ? { signal: context.signal } : {}),
+          })
+          // Abstention floor, applied AFTER the vote and never per sample:
+          // one direct structured call fires only when no step reached the
+          // majority threshold, so the whole panel — not one noisy sample —
+          // failed to localize anything.
+          let fallback: AnalystBenchmarkOutput | undefined
+          if (consensus.blocks.length === 0) {
+            fallback = await abstentionFallbackRunner.analyze(input, context)
+          }
+          usage = usageReceiptFromCostLedger(costLedger, caseUsageFilter)
+          return {
+            findings: fallback && !fallback.error ? fallback.findings : expanded.findings,
+            usage,
+            metadata: {
+              analysisMode: 'recursive',
+              engine: 'dspy-rlm',
+              protocolSha256: publicBenchmarkProtocolSha256(dataset),
+              samples,
+              sampleRuns,
+              consensus: consensus.decision,
+              blockDiagnostics: expanded.diagnostics,
+              modelCalls: totalModelCalls,
+              toolCalls: totalToolCalls,
+              ...(fallback
+                ? {
+                    abstentionFallback: 'direct',
+                    ...(fallback.metadata
+                      ? { abstentionFallbackMetadata: fallback.metadata }
+                      : {}),
+                    ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
+                  }
+                : {}),
+            },
+          }
         }
         const completed = await runTraceAnalyst({
           definition,
@@ -173,12 +306,35 @@ export function createPublicBenchmarkRlmRunner(
           metadata: {
             analysisMode: 'recursive',
             engine: 'dspy-rlm',
+            ...(samples > 1 ? { samples } : {}),
             rawFindings,
           },
         }
       }
     },
   }
+}
+
+/** Per-sample accepted blocks with the exact steps the expansion kept for each. */
+function sampleBlockRecords(
+  assignments: readonly CodeTraceStepAssignment[],
+): Array<Record<string, unknown>> {
+  const stepsByBlock = new Map<CodeTraceStepAssignment['block'], number[]>()
+  for (const { step, block } of assignments) {
+    const steps = stepsByBlock.get(block)
+    if (steps) steps.push(step)
+    else stepsByBlock.set(block, [step])
+  }
+  return [...stepsByBlock].map(([block, acceptedSteps]) => ({
+    firstStep: block.firstStep,
+    lastStep: block.lastStep,
+    consequenceStep: block.consequenceStep,
+    escapeStatus: block.escapeStatus,
+    severity: block.severity,
+    confidence: block.confidence,
+    claim: block.claim,
+    acceptedSteps,
+  }))
 }
 
 function publicBenchmarkDefinition(
