@@ -54,7 +54,7 @@ describe('BehaviorExplorer cost budget', () => {
     expect(capsule.stats.costUsd).toBe(0)
   })
 
-  it('stops a capped run after unknown cost makes the remaining budget unknowable', async () => {
+  it('continues a capped run, charging each unknown-cost run its reserved maximum', async () => {
     let call = 0
     const onCost: Array<{ usd: number; channel: string }> = []
     const explorer = new BehaviorExplorer(
@@ -67,11 +67,17 @@ describe('BehaviorExplorer cost budget', () => {
         onCost: (e) => onCost.push(e),
       }),
     )
+    // Each unknown run is charged its $1 reservation, so the conservative total
+    // stays under the $10 ceiling and all four runs execute; the run budget,
+    // not the unknown cost, ends the exploration.
     const capsule = await explorer.run()
-    expect(capsule.stats.totalRuns).toBe(2)
-    expect(capsule.stats.costUsd).toBe(1)
-    expect(capsule.stats.costUnknownRuns).toBe(1)
-    expect(onCost).toEqual([{ usd: 1, channel: 'agent' }])
+    expect(capsule.stats.totalRuns).toBe(4)
+    expect(capsule.stats.costUsd).toBe(2)
+    expect(capsule.stats.costUnknownRuns).toBe(2)
+    expect(onCost).toEqual([
+      { usd: 1, channel: 'agent' },
+      { usd: 1, channel: 'agent' },
+    ])
   })
 
   it('records known costs into the supplied ledger with channel agent + actualCostUsd', async () => {
