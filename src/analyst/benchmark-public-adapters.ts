@@ -47,6 +47,13 @@ export interface CodeTraceBlockDiagnostics {
   unresolvedBlockInteriorSteps: number[]
   /** Steps claimed by more than one block; the first block keeps the step. */
   overlappingBlockSteps: number[]
+  /**
+   * Blocks whose own shape the model got wrong — an unparseable subject, or a
+   * citation outside the block it declared. Rejected individually and reported
+   * here, never raised: the case is already paid for, and a sibling block the
+   * model got right still counts. `${finding_id}: ${reason}`.
+   */
+  malformedBlocks: string[]
 }
 
 export function emptyPublicBenchmarkRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
@@ -167,8 +174,14 @@ async function adaptCodeTraceFindings(
     store,
     ...(signal ? { signal } : {}),
   })
-  const blocks = findings.map((source) => codeTraceBlockFromFinding(trajectoryId, source))
-  return expandCodeTraceFailureBlocks({
+  const blocks: CodeTraceFailureBlock[] = []
+  const malformedBlocks: string[] = []
+  for (const source of findings) {
+    const block = codeTraceBlockFromFinding(trajectoryId, source)
+    if ('rejected' in block) malformedBlocks.push(block.rejected)
+    else blocks.push(block)
+  }
+  const expanded = await expandCodeTraceFailureBlocks({
     trajectoryId,
     blocks,
     store,
@@ -176,17 +189,29 @@ async function adaptCodeTraceFindings(
     ...(findings[0] ? { producedAt: findings[0].produced_at } : {}),
     ...(signal ? { signal } : {}),
   })
+  return {
+    ...expanded,
+    diagnostics: { ...expanded.diagnostics, malformedBlocks },
+  }
 }
 
+/**
+ * A block is MODEL OUTPUT, so a model that gets its own shape wrong rejects
+ * that block alone — it does not void the case. Raising here killed a paid
+ * investigation over one bad subject line, and in the recursive arm the raise
+ * also took the bridge process with it, leaving the calls already paid for
+ * unaccounted and aborting every other case in the run. Every rejection is
+ * reported in `malformedBlocks`, so a run can never silently lose predictions.
+ */
 function codeTraceBlockFromFinding(
   trajectoryId: string,
   source: AnalystFinding,
-): CodeTraceFailureBlock {
+): CodeTraceFailureBlock | { rejected: string } {
   const parsed = CODE_TRACE_BLOCK_SUBJECT.exec(source.subject ?? '')
   if (!parsed) {
-    throw new Error(
-      `CodeTraceBench model finding '${source.finding_id}' must set subject to incorrect-steps-<first>-<last>-<escaped|unescaped>-consequence-<step>, received '${source.subject ?? ''}'`,
-    )
+    return {
+      rejected: `${source.finding_id}: subject must be incorrect-steps-<first>-<last>-<escaped|unescaped>-consequence-<step>, received '${source.subject ?? ''}'`,
+    }
   }
   const firstStep = Number(parsed[1])
   const lastStep = Number(parsed[2])
@@ -194,9 +219,9 @@ function codeTraceBlockFromFinding(
   const cited = exactFindingSteps(trajectoryId, source)
   for (const step of cited) {
     if (step < firstStep || step > lastStep) {
-      throw new Error(
-        `CodeTraceBench model finding '${source.finding_id}' cites step ${step} outside its block ${firstStep}-${lastStep}`,
-      )
+      return {
+        rejected: `${source.finding_id}: cites step ${step} outside its block ${firstStep}-${lastStep}`,
+      }
     }
   }
   return {
@@ -334,6 +359,7 @@ function emptyCodeTraceBlockDiagnostics(): CodeTraceBlockDiagnostics {
     blocksWithoutConsequenceEvidence: [],
     unresolvedBlockInteriorSteps: [],
     overlappingBlockSteps: [],
+    malformedBlocks: [],
   }
 }
 

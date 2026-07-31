@@ -216,6 +216,10 @@ async function executeAnalystBenchmarkCommand(
     progress,
   )
   const runAbort = new AbortController()
+  // Failed cases whose spend could not be accounted. Reported, never silent:
+  // a run that drops coverage must say so rather than read as full coverage.
+  const unaccountedCases: { caseId: string; repetition: number; reason: string }[] = []
+  let scoredAnalystCases = 0
   let result: AnalystBenchmarkResult
   try {
     result = await runAnalystBenchmark({
@@ -227,7 +231,13 @@ async function executeAnalystBenchmarkCommand(
       initialObservations: progress.observations,
       signal: runAbort.signal,
       onObservation: async (observation) => {
-        assertObservationAccountingComplete(observation, costLedger, config.analyst)
+        const quarantined = assertObservationAccountingComplete(
+          observation,
+          costLedger,
+          config.analyst,
+        )
+        if (quarantined) unaccountedCases.push(quarantined)
+        else if (observation.runnerId === config.analyst && !observation.error) scoredAnalystCases++
         await appendObservation(observation)
       },
       resolveEvidence: traceStoreEvidenceResolver((input) => {
@@ -272,7 +282,7 @@ async function executeAnalystBenchmarkCommand(
     }
     throw error
   }
-  assertCostLedgerFinalizable(costLedger)
+  assertCostLedgerFinalizable(costLedger, unaccountedCases, scoredAnalystCases)
   result.provenance.startedAt = manifest.createdAt
   const persisted = await readProgress(
     paths.observations,
@@ -348,11 +358,12 @@ const NON_SCORABLE_COST_ERRORS = new Set([
   'CostReservationExceededError',
 ])
 
+/** Returns a quarantine record when a FAILED case leaves spend unaccounted; throws when a scored one does. */
 function assertObservationAccountingComplete(
   observation: AnalystBenchmarkObservation,
   costLedger: CostLedger,
   analystRunnerId: string,
-): void {
+): { caseId: string; repetition: number; reason: string } | undefined {
   if (observation.error && NON_SCORABLE_COST_ERRORS.has(observation.error.class)) {
     throw new CostAccountingIncompleteError(
       `Analyst benchmark stopped before scoring: ${observation.error.message}`,
@@ -367,19 +378,64 @@ function assertObservationAccountingComplete(
     },
   })
   if (!summary.accountingComplete || summary.pendingCalls > 0 || summary.unresolvedCalls > 0) {
-    throw accountingError(costLedger, 'the recursive analyst has incomplete cost accounting', {
-      channel: 'analyst',
-      tags: {
-        benchmarkCaseId: observation.caseId,
-        benchmarkRepetition: String(observation.repetition),
-      },
-    })
+    // A call that died in flight genuinely has unknown cost, so a case that
+    // SUCCEEDED on unaccounted spend must still stop the run: its score would
+    // rest on money we cannot name. A case that already FAILED is different —
+    // it contributes no score, and voiding 63 good runs over one transient
+    // provider blip destroys far more evidence than it protects. Quarantine it
+    // on the observation instead, where the report can count it.
+    if (!observation.error) {
+      throw accountingError(costLedger, 'the recursive analyst has incomplete cost accounting', {
+        channel: 'analyst',
+        tags: {
+          benchmarkCaseId: observation.caseId,
+          benchmarkRepetition: String(observation.repetition),
+        },
+      })
+    }
+    return {
+      caseId: observation.caseId,
+      repetition: observation.repetition,
+      reason: observation.error.message,
+    }
   }
+  return
 }
 
-function assertCostLedgerFinalizable(costLedger: CostLedger): void {
+/**
+ * `quarantined` names the failed cases whose spend could not be accounted (see
+ * `assertObservationAccountingComplete`). Their ledger entries are exactly the
+ * incomplete ones, so the run-level check subtracts them; anything unaccounted
+ * BEYOND them is unexplained and still stops the run. A pending call always
+ * stops it: pending means still in flight, not failed.
+ */
+function assertCostLedgerFinalizable(
+  costLedger: CostLedger,
+  quarantined: readonly { caseId: string; repetition: number }[] = [],
+  scoredAnalystCases = 0,
+): void {
   const summary = costLedger.summary()
-  if (!summary.accountingComplete || summary.pendingCalls > 0 || summary.unresolvedCalls > 0) {
+  if (summary.pendingCalls > 0) {
+    throw accountingError(costLedger, 'the run has pending or incomplete cost entries')
+  }
+  if (summary.accountingComplete && summary.unresolvedCalls === 0) return
+  // Quarantine only makes sense as an exception. A run where nothing scored has
+  // no evidence to protect, so unaccounted spend there is the whole story and
+  // must still stop the run rather than publish an empty result.
+  if (scoredAnalystCases === 0) {
+    throw accountingError(costLedger, 'the recursive analyst has incomplete cost accounting')
+  }
+  const explained = quarantined.reduce((total, entry) => {
+    const scoped = costLedger.summary({
+      channel: 'analyst',
+      tags: {
+        benchmarkCaseId: entry.caseId,
+        benchmarkRepetition: String(entry.repetition),
+      },
+    })
+    return total + scoped.unresolvedCalls + (scoped.accountingComplete ? 0 : 1)
+  }, 0)
+  if (explained === 0) {
     throw accountingError(costLedger, 'the run has pending or incomplete cost entries')
   }
 }

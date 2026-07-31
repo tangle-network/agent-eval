@@ -326,9 +326,8 @@ describe('public analyst benchmark output adapters', () => {
     expect(diagnostics?.blocksWithoutConsequenceEvidence).toHaveLength(1)
   })
 
-  it('refuses a CodeTraceBench finding whose subject is not a failure block', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
+  it('rejects and reports a CodeTraceBench finding whose subject is not a failure block', async () => {
+    const rejected = await adaptPublicBenchmarkFindings({
         dataset: 'codetracebench',
         trajectoryId: 'run-4',
         findings: [
@@ -346,8 +345,14 @@ describe('public analyst benchmark output adapters', () => {
         ],
         analystId: 'model',
         store: adapterTraceStore('run-4', [2, 3]),
-      }),
-    ).rejects.toThrow(/incorrect-steps-<first>-<last>-<escaped\|unescaped>-consequence-<step>/)
+    })
+    // Model output, so the block is rejected and COUNTED, never raised: the
+    // case is already paid for and a sibling block the model got right counts.
+    expect(rejected.findings).toHaveLength(0)
+    expect(rejected.diagnostics?.malformedBlocks).toHaveLength(1)
+    expect(rejected.diagnostics?.malformedBlocks[0]).toMatch(
+      /subject must be incorrect-steps-<first>-<last>-<escaped\|unescaped>-consequence-<step>/,
+    )
   })
 
   it('refuses a block whose own citation excerpt is not in the cited action', async () => {
@@ -374,9 +379,8 @@ describe('public analyst benchmark output adapters', () => {
     ).rejects.toThrow(/excerpt is not present/)
   })
 
-  it('refuses a block citation outside the block it declares', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
+  it('rejects and reports a block citation outside the block it declares', async () => {
+    const cited = await adaptPublicBenchmarkFindings({
         dataset: 'codetracebench',
         trajectoryId: 'run-5',
         findings: [
@@ -394,8 +398,10 @@ describe('public analyst benchmark output adapters', () => {
         ],
         analystId: 'model',
         store: adapterTraceStore('run-5', [2, 3, 5, 6]),
-      }),
-    ).rejects.toThrow(/cites step 5 outside its block 2-3/)
+    })
+    expect(cited.findings).toHaveLength(0)
+    expect(cited.diagnostics?.malformedBlocks).toHaveLength(1)
+    expect(cited.diagnostics?.malformedBlocks[0]).toMatch(/cites step 5 outside its block 2-3/)
   })
 
   it('refuses more blocks than the per-case maximum', async () => {
