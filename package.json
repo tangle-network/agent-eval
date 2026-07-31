@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.139.0",
+  "version": "0.139.1",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -150,7 +150,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "pnpm check:analyst-benchmark && tsdown && pnpm openapi",
+    "build": "node scripts/check-analyst-benchmark-implementation.mjs --source-only && tsdown && pnpm openapi",
     "dev": "tsdown --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",

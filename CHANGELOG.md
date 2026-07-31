@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.139.1] - 2026-07-31 - source-only build gate
+
+### Fixed
+
+- `pnpm build` verifies the benchmark implementation digest only, via the new `--source-only` flag on the check script.
+  A consumer rebuilding the package with deliberately rewritten dependency manifests — agent-runtime's packed-cohort verifier, a vendored fork — still proves the analyst-benchmark source is untouched, but no longer fails on its own dependency rewrite.
+  `pnpm verify:package` and the test suite keep enforcing the dependency-lock pin on the release path.
+
 ## [0.139.0] - 2026-07-31 - recursive RLM trace analysts and caller failure reasons
 
 ### Added
