@@ -69,7 +69,7 @@ export function analyzeSupervisorRunSources(
 
   const journalMissing =
     src.supRunDir === null
-      ? 'no supervisor run dir under <ws>/.loops/supervisor'
+      ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
       : 'journal.jsonl absent'
   const haveJournal = src.journal !== null
   const tree = parseSupervisorTree(src)
@@ -536,7 +536,7 @@ export function analyzeSupervisorRunSources(
         ? gap(
             'brain.brainTruncations',
             src.supRunDir === null
-              ? 'no supervisor run dir under <ws>/.loops/supervisor'
+              ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
               : 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out',
           )
         : brainCalls.filter((c) => c.finish_reason === 'length').length,
