@@ -14,10 +14,13 @@ function sourceIdentityIssues(facts: SupervisorTreeFacts): SupervisorRunIntegrit
         area: 'capture-integrity',
         severity: 'high',
         subject: 'journal-rows',
-        claim: 'Some supervisor journal rows are malformed',
-        detail: `${facts.journalInvalidRows} non-object or invalid JSON row(s) and ${malformedSpawns.length} malformed spawn row(s) were excluded from structural conclusions.`,
+        claim: 'Some supervisor journal rows could not be interpreted',
+        detail: `${facts.journalInvalidRows} of ${facts.journalRows} row(s) could not be interpreted (${facts.journalMalformedJsonRows} were not JSON objects) and ${malformedSpawns.length} malformed spawn row(s) were excluded from structural conclusions.`,
         evidence: [
-          evidence('journal/malformed-json-rows/count', facts.journalInvalidRows),
+          evidence('journal/uninterpretable-rows/count', facts.journalInvalidRows),
+          evidence('journal/malformed-json-rows/count', facts.journalMalformedJsonRows),
+          evidence('journal/rows/count', facts.journalRows),
+          evidence('journal/dialect', facts.journalDialect),
           ...malformedSpawns
             .slice(0, MAX_EXAMPLES)
             .map((spawn) =>
@@ -25,11 +28,14 @@ function sourceIdentityIssues(facts: SupervisorTreeFacts): SupervisorRunIntegrit
             ),
         ],
         recommendedAction:
-          'Repair or reject malformed journal rows before using the run for structural analysis.',
+          'Repair the rows, or teach the parser the shape they are in, before using the run for structural analysis. A row nobody can read must never be silently absent from the tree.',
         metadata: {
           assessment: 'unavailable',
-          malformed_json_rows: facts.journalInvalidRows,
+          journal_rows: facts.journalRows,
+          uninterpretable_rows: facts.journalInvalidRows,
+          malformed_json_rows: facts.journalMalformedJsonRows,
           malformed_spawn_rows: malformedSpawns.length,
+          journal_dialect: facts.journalDialect,
         },
       }),
     )

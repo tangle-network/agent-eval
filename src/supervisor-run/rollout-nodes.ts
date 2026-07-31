@@ -106,12 +106,15 @@ export function supervisorRunRolloutLinesFromFacts(
     })
     return { rootId: null, nodes: [], gaps }
   }
+  // `journalInvalidRows` covers rows the parser could not interpret at all, including JSON
+  // objects in a shape it does not recognize — so a journal it read but understood none of
+  // reports an explicit gap instead of an empty tree.
   const malformedSourceRows =
     tree.journalInvalidRows + tree.spawns.filter((spawn) => !spawn.valid).length
   if (malformedSourceRows > 0) {
     gaps.push({
       code: 'source-row-malformed',
-      message: `${malformedSourceRows} malformed journal row(s) were excluded from the tree`,
+      message: `${malformedSourceRows} of ${tree.journalRows} journal row(s) were unusable and excluded from the tree`,
       count: malformedSourceRows,
     })
   }

@@ -209,8 +209,27 @@ export interface SupervisorTreeFacts {
   readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
   /** Every worker source row, including duplicate identities that a map cannot retain. */
   readonly workerLogRows: readonly WorkerLogFacts[]
-  /** Non-empty journal lines that were not JSON objects. */
+  /** Every non-empty journal line, whatever shape it turned out to have. */
+  readonly journalRows: number
+  /**
+   * Journal lines this parser could not interpret at all: invalid JSON, non-objects, and
+   * JSON objects carrying no record shape it recognizes.
+   *
+   * This count is what separates "the run was empty" from "the input was unreadable".
+   * Zero spawns with zero invalid rows is a positive claim that nothing happened; it must
+   * only ever be made about bytes the parser actually understood.
+   */
   readonly journalInvalidRows: number
+  /** The `journalInvalidRows` subset that was not valid JSON, or not a JSON object. */
+  readonly journalMalformedJsonRows: number
+  /**
+   * Records recognized but deliberately not folded into the tree, counted by kind — the
+   * runtime envelope's `begin` header and the `waiting` / `woken` wait-node events. Kept
+   * separate from `journalInvalidRows` because these rows were understood, not rejected.
+   */
+  readonly journalIgnoredRowsByKind: Readonly<Record<string, number>>
+  /** Which dialect(s) the journal's rows were actually written in. */
+  readonly journalDialect: SupervisorJournalDialect
   /** Parsed once with the journal and worker artifacts. */
   readonly state: Record<string, unknown> | null
   readonly startedAt: number | null
@@ -245,6 +264,107 @@ export function workerSourceKey(
   return worker.workerId ?? worker.label
 }
 
+// ---------------------------------------------------------------------------
+// Journal dialects — the two shapes a supervision journal is actually written in.
+// ---------------------------------------------------------------------------
+
+/**
+ * How a journal's rows were shaped on disk.
+ *
+ * `flat` — one event object per line (`{kind:'spawned', id, ...}`). The loops
+ * supervisor writes this, and `readClaudeCodeSupervisorRun` synthesizes it.
+ *
+ * `runtime-envelope` — the records `agent-runtime`'s `FileSpawnJournal` writes:
+ * a `{kind:'begin', root, at}` header followed by `{kind:'event', root, event}`
+ * envelopes (`agent-runtime/src/durable/spawn-journal.ts`, `appendRecord`). It is
+ * the layout `createFileRunContext(dir)` produces at `<dir>/spawn-journal.jsonl`.
+ * This dialect is READ, not tolerated: agent-runtime is the writer, so a reader
+ * that could not interpret it was the defect, and `journalDialect` records which
+ * shape the bytes actually had so an unexpected one is never invisible.
+ *
+ * `mixed` — rows of both shapes in one file. `none` — no interpretable row at all.
+ */
+export type SupervisorJournalDialect = 'none' | 'flat' | 'runtime-envelope' | 'mixed'
+
+type JournalRowDialect = 'flat' | 'runtime-envelope'
+
+/** Event kinds this parser folds into the tree. */
+const TREE_EVENT_KINDS = ['spawned', 'settled', 'cancelled', 'metered'] as const
+type TreeEventKind = (typeof TREE_EVENT_KINDS)[number]
+
+/**
+ * Event kinds `agent-runtime` journals that this parser recognizes but does not model as
+ * tree nodes: `waiting` arms a wait node and `woken` settles it. They are counted by kind
+ * rather than dropped, so "understood, not modeled" can never be mistaken for "absent".
+ */
+const UNMODELLED_EVENT_KINDS: readonly string[] = ['waiting', 'woken']
+
+function treeEventKind(value: unknown): TreeEventKind | null {
+  return (TREE_EVENT_KINDS as readonly unknown[]).includes(value) ? (value as TreeEventKind) : null
+}
+
+type JournalRowReading =
+  | {
+      outcome: 'event'
+      dialect: JournalRowDialect
+      kind: TreeEventKind
+      event: JournalEvent
+    }
+  | { outcome: 'ignored'; dialect: JournalRowDialect; kind: string }
+  | { outcome: 'unreadable' }
+
+/**
+ * Classify one parsed journal row. Every row lands in exactly one outcome — interpreted,
+ * recognized-but-not-modeled, or unreadable — because a row that falls through silently is
+ * how a run with events reads as a run with none.
+ */
+function readJournalRow(row: Record<string, unknown>): JournalRowReading {
+  const kind = row.kind
+  if (typeof kind !== 'string') return { outcome: 'unreadable' }
+
+  // agent-runtime's FileSpawnJournal record header. It carries no event.
+  if (kind === 'begin' && typeof row.root === 'string') {
+    return { outcome: 'ignored', dialect: 'runtime-envelope', kind: 'begin' }
+  }
+  if (kind === 'event') {
+    const inner = row.event
+    if (typeof inner !== 'object' || inner === null || Array.isArray(inner)) {
+      return { outcome: 'unreadable' }
+    }
+    const innerKind = (inner as Record<string, unknown>).kind
+    if (typeof innerKind !== 'string') return { outcome: 'unreadable' }
+    const tree = treeEventKind(innerKind)
+    if (tree !== null) {
+      return {
+        outcome: 'event',
+        dialect: 'runtime-envelope',
+        kind: tree,
+        event: inner as JournalEvent,
+      }
+    }
+    // The envelope proves this IS a journaled event, so an unmodelled kind is recorded by
+    // name rather than called unreadable — the caller sees exactly what went uncounted.
+    return { outcome: 'ignored', dialect: 'runtime-envelope', kind: innerKind }
+  }
+
+  const tree = treeEventKind(kind)
+  if (tree !== null) {
+    return { outcome: 'event', dialect: 'flat', kind: tree, event: row as JournalEvent }
+  }
+  if (UNMODELLED_EVENT_KINDS.includes(kind)) {
+    return { outcome: 'ignored', dialect: 'flat', kind }
+  }
+  // A bare object with an unknown `kind` could be any record at all — unlike the envelope
+  // case there is no evidence it is a journal event, so it counts as unreadable (fail closed).
+  return { outcome: 'unreadable' }
+}
+
+function summarizeDialect(seen: ReadonlySet<JournalRowDialect>): SupervisorJournalDialect {
+  if (seen.size === 0) return 'none'
+  if (seen.size > 1) return 'mixed'
+  return seen.has('runtime-envelope') ? 'runtime-envelope' : 'flat'
+}
+
 export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFacts {
   const parsedJournal = parseJsonlWithDiagnostics(src.journal)
   const events = parsedJournal.rows
@@ -260,8 +380,21 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   let brainUsd = 0
   let meteredCount = 0
   let rootId: string | null = null
-  for (const [sourceRow, ev] of (events as JournalEvent[]).entries()) {
-    const kind = typeof ev.kind === 'string' ? ev.kind : ''
+  let unreadableRows = 0
+  const ignoredByKind = new Map<string, number>()
+  const dialectsSeen = new Set<JournalRowDialect>()
+  for (const [sourceRow, row] of events.entries()) {
+    const reading = readJournalRow(row)
+    if (reading.outcome === 'unreadable') {
+      unreadableRows += 1
+      continue
+    }
+    dialectsSeen.add(reading.dialect)
+    if (reading.outcome === 'ignored') {
+      ignoredByKind.set(reading.kind, (ignoredByKind.get(reading.kind) ?? 0) + 1)
+      continue
+    }
+    const { kind, event: ev } = reading
     const id = typeof ev.id === 'string' ? ev.id : ''
     if (kind === 'spawned') {
       const parent = typeof ev.parent === 'string' && ev.parent.length > 0 ? ev.parent : null
@@ -337,6 +470,12 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       brainHasCache = brainHasCache || s.tokens.hasCache
       brainUsd += s.usd
       meteredCount += 1
+    } else {
+      // `TREE_EVENT_KINDS` and these branches are one contract: adding a kind to the set
+      // without a branch here would silently drop its rows, which is the defect this
+      // accounting exists to prevent. The compiler refuses the omission.
+      const unhandled: never = kind
+      throw new Error(`unhandled journal event kind ${JSON.stringify(unhandled)}`)
     }
   }
 
@@ -484,7 +623,11 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     },
     workerLogs,
     workerLogRows,
-    journalInvalidRows: parsedJournal.invalidRows,
+    journalRows: events.length + parsedJournal.invalidRows,
+    journalInvalidRows: parsedJournal.invalidRows + unreadableRows,
+    journalMalformedJsonRows: parsedJournal.invalidRows,
+    journalIgnoredRowsByKind: Object.fromEntries(ignoredByKind),
+    journalDialect: summarizeDialect(dialectsSeen),
     state,
     startedAt,
     completedAt,

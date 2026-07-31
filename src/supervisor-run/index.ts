@@ -21,6 +21,7 @@ export {
   type SpawnRow,
   type SteerAcknowledgementFact,
   type SteerRequestFact,
+  type SupervisorJournalDialect,
   type SupervisorTreeFacts,
   type WorkerLogFacts,
 } from './analyze'
