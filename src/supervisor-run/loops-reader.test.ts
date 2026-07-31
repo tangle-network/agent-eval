@@ -10,6 +10,7 @@ import {
 } from './fixtures'
 import {
   analyzeSupervisorRun,
+  findSupervisorRunDirIn,
   findSupervisorRunDirs,
   loopsSupervisorRunReader,
   readLoopsSupervisorRun,
@@ -18,10 +19,12 @@ import {
 import { renderSupervisorRunMarkdown } from './render'
 import { isUnavailable, SUPERVISOR_RUN_SCHEMA } from './types'
 
-async function makeRun(opts: { steers?: boolean; withJudge?: boolean } = {}): Promise<string> {
+async function makeRun(
+  opts: { steers?: boolean; withJudge?: boolean; stateDir?: string } = {},
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'supervisor-run-test-'))
   const runDir = join(root, 'runs', 'inst-9', 'ARM')
-  const sup = join(runDir, 'ws', '.loops', 'supervisor', 'sup-1-abc')
+  const sup = join(runDir, 'ws', opts.stateDir ?? '.agent', 'supervisor', 'sup-1-abc')
   await mkdir(join(sup, 'workers'), { recursive: true })
   await writeFile(
     join(sup, 'journal.jsonl'),
@@ -57,6 +60,22 @@ async function makeRun(opts: { steers?: boolean; withJudge?: boolean } = {}): Pr
 }
 
 describe('loops reader + writeSupervisorRunReport over a real run directory', () => {
+  it('reads a legacy pre-rename run under ws/.loops via fallback', async () => {
+    const runDir = await makeRun({ stateDir: '.loops' })
+    const src = await readLoopsSupervisorRun(runDir, { opencodeDb: null })
+    expect(src.supRunDir).toBe(join(runDir, 'ws', '.loops', 'supervisor', 'sup-1-abc'))
+    const report = analyzeSupervisorRunSources(src)
+    expect(isUnavailable(report.orchestration.workersSpawned)).toBe(false)
+  })
+
+  it('prefers ws/.agent when both state dirs hold a run', async () => {
+    const runDir = await makeRun()
+    await mkdir(join(runDir, 'ws', '.loops', 'supervisor', 'sup-0-old'), { recursive: true })
+    expect(await findSupervisorRunDirIn(join(runDir, 'ws'))).toBe(
+      join(runDir, 'ws', '.agent', 'supervisor', 'sup-1-abc'),
+    )
+  })
+
   it('reads a run end to end and writes both artifacts + the log headline', async () => {
     const runDir = await makeRun({ steers: true, withJudge: true })
     const logPath = join(runDir, '..', '..', '..', 'run.log')
@@ -101,7 +120,7 @@ describe('loops reader + writeSupervisorRunReport over a real run directory', ()
 
   it('marks worker token totals unavailable when worker artifacts cannot supply join keys', async () => {
     const runDir = await makeRun()
-    const supervisorDir = join(runDir, 'ws', '.loops', 'supervisor', 'sup-1-abc')
+    const supervisorDir = join(runDir, 'ws', '.agent', 'supervisor', 'sup-1-abc')
     await rm(join(supervisorDir, 'workers'), { recursive: true, force: true })
 
     const src = await readLoopsSupervisorRun(runDir, { opencodeDb: null })
@@ -115,7 +134,7 @@ describe('loops reader + writeSupervisorRunReport over a real run directory', ()
     const workerPath = join(
       runDir,
       'ws',
-      '.loops',
+      '.agent',
       'supervisor',
       'sup-1-abc',
       'workers',
