@@ -612,7 +612,7 @@ describe('external optimizer model proxy', () => {
     }
   })
 
-  it('fails closed when cache token details contradict total input usage', async () => {
+  it('forwards a completion whose usage is internally contradictory, with cost flagged', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({
       upstreamBaseUrl: 'https://provider.example/v1',
@@ -645,10 +645,10 @@ describe('external optimizer model proxy', () => {
         messages: [],
         max_tokens: 5,
       })
-      expect(response.status).toBe(502)
-      expect(await response.json()).toEqual({
-        error: 'optimizer model response omitted complete token usage',
-      })
+      // The usage is unusable (cached + created input exceeds the total), but
+      // the completion is not, so it is forwarded with its cost flagged.
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('ok')
       expect(ledger.list()).toEqual([
         expect.objectContaining({
           costUnknown: true,
@@ -1025,7 +1025,7 @@ describe('external optimizer model proxy', () => {
     }
   })
 
-  it('fails closed when the provider omits token usage', async () => {
+  it('forwards a completion whose usage the provider omitted, with cost flagged', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({
       upstreamBaseUrl: 'https://provider.example/v1',
@@ -1047,14 +1047,14 @@ describe('external optimizer model proxy', () => {
         messages: [],
         max_tokens: 1,
       })
-      expect(response.status).toBe(502)
+      // The completion is usable, so it reaches the caller; only its cost is
+      // unknown, and that is flagged rather than fabricated.
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('no usage')
+      expect(proxy.successfulCompletions()).toBe(1)
       expect(ledger.summary().accountingComplete).toBe(false)
-      expect(ledger.summary().incompleteReasons.length).toBeGreaterThan(0)
       expect(ledger.list()).toEqual([
-        expect.objectContaining({
-          costUnknown: true,
-          usageUnknown: true,
-        }),
+        expect.objectContaining({ costUnknown: true, usageUnknown: true }),
       ])
       expect(ledger.list()[0]?.actualCostUsd).toBeUndefined()
     } finally {
@@ -1062,7 +1062,7 @@ describe('external optimizer model proxy', () => {
     }
   })
 
-  it('fails closed when a successful provider response reports zero usage', async () => {
+  it('forwards a completion whose usage is reported as zero, with cost flagged', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({
       upstreamBaseUrl: 'https://provider.example/v1',
@@ -1088,11 +1088,9 @@ describe('external optimizer model proxy', () => {
         messages: [],
         max_tokens: 1,
       })
-      expect(response.status).toBe(502)
-      expect(await response.json()).toEqual({
-        error: 'optimizer model provider reported zero token usage for a successful response',
-      })
-      expect(proxy.successfulCompletions()).toBe(0)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('unmetered result')
+      expect(proxy.successfulCompletions()).toBe(1)
       expect(ledger.summary().accountingComplete).toBe(false)
       expect(ledger.list()).toEqual([
         expect.objectContaining({

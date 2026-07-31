@@ -23,7 +23,8 @@ interface ProviderProxyResponse {
   body: Uint8Array
   receipt: CostReceiptInput
   usageComplete: boolean
-  usageError?: string
+  /** Set when the response violated the output or reasoning limit; forces a 502. */
+  usageRejected?: string
 }
 
 /**
@@ -264,14 +265,12 @@ async function handleModelProxyRequest(args: {
         return
       }
       chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
-      if (!paid.value.usageComplete) {
-        sendJsonIfOpen(response, 502, {
-          error: paid.value.usageError ?? 'optimizer model response omitted complete token usage',
-        })
-        return
-      }
-      if (paid.value.usageError) {
-        sendJsonIfOpen(response, 502, { error: paid.value.usageError })
+      // A response that violated the output or reasoning limit is rejected. A
+      // response the provider merely under-reported is forwarded with its cost
+      // charged at the reservation maximum, so the analysis keeps its usable
+      // completion and the ledger holds an honest upper-bound charge.
+      if (paid.value.usageRejected) {
+        sendJsonIfOpen(response, 502, { error: paid.value.usageRejected })
         return
       }
       if (paid.value.status >= 200 && paid.value.status < 300) {
@@ -355,9 +354,12 @@ async function forwardModelProxyRequest(args: {
   const completionTokens =
     usage === undefined ? 0 : usage.outputTokens - (usage.reasoningTokens ?? 0)
   const reasoningTokens = usage?.reasoningTokens ?? 0
-  const usageError = zeroUsage
-    ? 'optimizer model provider reported zero token usage for a successful response'
-    : successful && usage !== undefined && completionTokens > args.maxOutputTokens
+  // A response that exceeds the requested output or the declared reasoning
+  // budget violated the contract and is rejected. A response whose usage the
+  // provider merely omitted is forwarded with its cost flagged: the completion
+  // is still usable, and refusing it would fail a case over a reporting gap.
+  const usageRejected =
+    successful && usage !== undefined && completionTokens > args.maxOutputTokens
       ? `optimizer model provider reported ${completionTokens} completion tokens, exceeding requested limit ${args.maxOutputTokens}`
       : successful &&
           args.maxReasoningTokens !== undefined &&
@@ -383,7 +385,7 @@ async function forwardModelProxyRequest(args: {
             usageUnknown: true,
           },
     usageComplete: usage !== undefined && !zeroUsage,
-    ...(usageError ? { usageError } : {}),
+    ...(usageRejected ? { usageRejected } : {}),
   }
 }
 
