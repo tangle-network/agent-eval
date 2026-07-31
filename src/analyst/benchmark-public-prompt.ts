@@ -23,17 +23,16 @@ Work backward, the way this benchmark was annotated, never by scanning forward f
 Each backward chain terminates at an error-critical step — the earliest decision that triggered the downstream cascade — and that step is the block's first_step: the step that committed the mistake, not the step that planned it and not a later step that repeats it.
 The chain you traced is the block: it holds the error-critical decision plus every consecutive later step that produced, propagated, or reworked that error, so a command that failed because of the mistake and a repair attempt that is itself wrong, partial, or later superseded sit inside the block, not after it.
 A partially correct or ambiguous fix still counts as incorrect; the block ends only at the first fully correct step — a clean diagnostic read, or the corrective action that closes the issue and needs no further rework.
-A one-step block is the most common correct answer.
+Block extent follows the traced chain, nothing else.
 Report each failure block as exactly one finding whose first_step is the block's first incorrect step and whose last_step is its last, covering every consecutive step between them.
 Every step inside a block is scored on its own: naming a correct step costs exactly as much as missing an incorrect one, and naming only the first step of a longer block forfeits every unnamed step.
 Report blocks separated by at least one correct step as separate findings, and never let two blocks overlap.
-Every block needs an anchor: observed failure evidence its chain traces back from — a failing command or verification, an error observation, a regression — or, on a solved trajectory, a later step that reverts or supersedes it.
-A slip that forced no observed failure, no revert, and no rework is not labeled in this benchmark; do not report it.
-Annotation draws one chain per observed failure: expect one or two blocks per trajectory, more only when each extra block traces back from its own independent failure evidence.
+Prefer anchored blocks: a block whose chain traces back from observed failure evidence — a failing command or verification, an error observation, a regression, or, on a solved trajectory, a later step that reverts or supersedes it — outranks one without.
+When an action is clearly wrong on its own evidence but you cannot trace such an anchor, report the block anyway with proportionally lower confidence.
 A solved trajectory still carries every mistake made along the way: inspect its final patching and verification stages for a state-changing action that a later step reverted, superseded, or corrected — a wrong edit just before the final fix is incorrect even when every test ends green.
-Before emitting a candidate block, run two checks.
+Before emitting a candidate block, check its boundaries.
 Neighbor check: ask whether the accusation fits one step earlier (the decision rather than its consequence) or one step later (the next step still acts on or reworks the same error) better than where you placed it, and move the boundary when it does; a boundary off by one step scores zero at that step.
-Counterfactual check: if the block's first step had been done correctly, would the failure or rework it allegedly caused disappear? When the damage would remain anyway, the block accuses the wrong step; drop it.
+Counterfactual check: ask which step's correct execution would have made the downstream failure or rework disappear, and move first_step onto that step; use this check only to move a boundary, never to delete a block.
 For each block you keep, name as consequence_step the step number whose action or observation shows the damage — a failing command, a wrong file state, a repeated failure, or rework the agent had to do because of this block; that step is the block's own last step when its observation already shows the damage, and a later step otherwise.
 When you cannot name that step number from the trace you were given, drop the block; a plausible story about why a step looks wrong is not evidence that it was.
 A passing final verification is not evidence that a block caused nothing, and a failing final verification is not evidence that any particular block caused it.
@@ -49,7 +48,8 @@ Every step in a reported block MUST be the positive integer n from an existing a
 Never select an EVALUATOR, TOOL, CHAIN, final-verification, benchmark-verification, or message-<n> span.
 Before emitting a finding, inspect every covered span's attributes.content and describe only the actions shown there.
 Report at most ${MAX_INCORRECT_BLOCKS} blocks and at most ${MAX_INCORRECT_BLOCK_STEPS} steps in one block; when more candidates than that exist, report the ones whose chains carry the clearest downstream evidence.
-When the trajectory has no incorrect steps, return an empty findings array.`
+When the final verification failed, never return an empty findings array: name at least the single best-supported error-critical step, at lower confidence when the evidence is thin.
+When the trajectory has no incorrect steps — its final verification passed and the final-stage sweep found no reverted, superseded, or corrected action — return an empty findings array.`
 
 const AGENT_RX_PROMPT = `Analyze exactly one failed agent trajectory.
 Find the first unrecoverable critical failure, not every later symptom.
