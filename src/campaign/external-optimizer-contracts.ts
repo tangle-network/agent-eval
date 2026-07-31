@@ -36,6 +36,16 @@ export interface ExternalOptimizerModelBudget {
   maxResponseBytes: number
   /** Reject a request asking the provider for more output tokens. */
   maxOutputTokensPerRequest: number
+  /**
+   * Reasoning tokens a single response may bill beyond its completion limit.
+   *
+   * A reasoning model bounds only the completion by `max_tokens` and bills
+   * thinking on top, so a reservation sized to the completion alone is always
+   * too small and the ledger refuses the real charge. Callers that route a
+   * reasoning model declare its thinking budget here; the reservation covers
+   * it and a response exceeding it still fails loudly. Default: 0.
+   */
+  maxReasoningTokensPerRequest?: number
   /** Rates used to estimate cost when the provider omits a valid `usage.cost`. */
   pricing: CustomTokenPricing
   /** Per-provider-request deadline. Default: 300,000 ms. */

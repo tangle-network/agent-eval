@@ -216,6 +216,7 @@ def _main() -> None:
 def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
     dspy = _load_dspy()
     model_proxy = input_value["modelProxy"]
+    control_adapter = input_value.get("controlAdapter", "chat")
     limits = input_value["limits"]
     with _probed_interpreter(dspy) as (interpreter, deno_command):
         runtime = _runtime_identity(deno_command)
@@ -241,7 +242,12 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         history_before = _lm_history_length(lm)
         callback = input_value["toolCallback"]
         with _tool_callback(callback["url"], callback["token"]):
-            with dspy.context(lm=lm):
+            # A capable model that writes prose and a fenced code block instead
+            # of DSPy's field markers fails the default adapter outright. The
+            # two-step adapter prompts without markers and extracts the fields
+            # with a second call, which is what upstream recommends for models
+            # that do not emit structured output natively.
+            with dspy.context(lm=lm, adapter=_control_adapter(dspy, lm, control_adapter)):
                 prediction = program(
                     question=input_value["question"],
                     analyst_instructions=input_value["instructions"],
@@ -462,9 +468,12 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
             "toolCallback",
             "limits",
             "toolSpecs",
+            "controlAdapter",
         },
         "analyze input",
     )
+    if value["controlAdapter"] not in ("chat", "two-step"):
+        raise ValueError("analyze input controlAdapter must be 'chat' or 'two-step'")
     if value["operation"] != "analyze":
         raise ValueError("analyze input operation must be analyze")
     _require_non_empty_string(value["question"], "question")
@@ -678,6 +687,14 @@ def _load_dspy() -> Any:
             "DSPy is required for this bridge; install agent-eval-rpc[dspy]"
         ) from error
     return dspy
+
+
+def _control_adapter(dspy: Any, lm: Any, kind: str) -> Any:
+    if kind == "chat":
+        return dspy.ChatAdapter()
+    if kind == "two-step":
+        return dspy.TwoStepAdapter(lm)
+    raise ValueError(f"unsupported control adapter '{kind}'")
 
 
 def _lm_history_length(lm: Any) -> int:

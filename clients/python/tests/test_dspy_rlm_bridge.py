@@ -483,6 +483,7 @@ def _write_analyze_input(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps(
             {
                 "operation": "analyze",
+                "controlAdapter": "chat",
                 "question": "Why did this run fail?",
                 "instructions": "Find the earliest causal failure.",
                 "modelProxy": {
@@ -601,11 +602,21 @@ def _fake_dspy(
             )
 
     @contextmanager
-    def fake_context(*, lm: Any) -> Any:
+    def fake_context(*, lm: Any, adapter: Any = None) -> Any:
         calls["context_lm"] = lm
+        calls["context_adapter"] = adapter
         yield
 
+    class FakeChatAdapter:
+        pass
+
+    class FakeTwoStepAdapter:
+        def __init__(self, lm: Any) -> None:
+            calls["two_step_extraction_lm"] = lm
+
     return SimpleNamespace(
+        ChatAdapter=FakeChatAdapter,
+        TwoStepAdapter=FakeTwoStepAdapter,
         LM=FakeLm,
         PythonInterpreter=FakePythonInterpreter,
         Tool=FakeTool,

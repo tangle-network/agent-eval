@@ -195,7 +195,7 @@ async function handleModelProxyRequest(args: {
     const parsed = parseModelProxyRequest(body, args.args.model, args.args.budget)
     const maximumUsage = conservativeMaximumUsage(
       body.byteLength,
-      parsed.maxOutputTokens,
+      parsed.maxOutputTokens + (args.args.budget.maxReasoningTokensPerRequest ?? 0),
       args.args.budget.pricing,
     )
     const maximumCostUsd = costForTokenPricing(args.args.budget.pricing, maximumUsage)
@@ -231,6 +231,9 @@ async function handleModelProxyRequest(args: {
             model: args.args.model,
             pricing: args.args.budget.pricing,
             maxOutputTokens: parsed.maxOutputTokens,
+            ...(args.args.budget.maxReasoningTokensPerRequest === undefined
+              ? {}
+              : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
             maxResponseBytes: args.args.budget.maxResponseBytes,
             signal: controller.signal,
           }),
@@ -315,6 +318,8 @@ async function forwardModelProxyRequest(args: {
   model: string
   pricing: CustomTokenPricing
   maxOutputTokens: number
+  /** Enforced only when the caller declared a thinking budget. */
+  maxReasoningTokens?: number
   maxResponseBytes: number
   signal: AbortSignal
 }): Promise<ProviderProxyResponse> {
@@ -343,11 +348,22 @@ async function forwardModelProxyRequest(args: {
       (usage.cachedTokens ?? 0) +
       (usage.cacheWriteTokens ?? 0) ===
       0
+  // `outputTokens` carries reasoning tokens as a subset, and a reasoning model
+  // bounds only the completion by the requested limit. Charging the whole
+  // output against that limit rejects every ordinary response such a model
+  // returns, so the guard measures the completion it actually governs.
+  const completionTokens =
+    usage === undefined ? 0 : usage.outputTokens - (usage.reasoningTokens ?? 0)
+  const reasoningTokens = usage?.reasoningTokens ?? 0
   const usageError = zeroUsage
     ? 'optimizer model provider reported zero token usage for a successful response'
-    : successful && usage !== undefined && usage.outputTokens > args.maxOutputTokens
-      ? `optimizer model provider reported ${usage.outputTokens} output tokens, exceeding requested limit ${args.maxOutputTokens}`
-      : undefined
+    : successful && usage !== undefined && completionTokens > args.maxOutputTokens
+      ? `optimizer model provider reported ${completionTokens} completion tokens, exceeding requested limit ${args.maxOutputTokens}`
+      : successful &&
+          args.maxReasoningTokens !== undefined &&
+          reasoningTokens > args.maxReasoningTokens
+        ? `optimizer model provider reported ${reasoningTokens} reasoning tokens, exceeding the declared budget ${args.maxReasoningTokens}`
+        : undefined
   return {
     status: response.status,
     contentType: response.headers.get('content-type') ?? 'application/json',
@@ -412,10 +428,22 @@ function parseModelProxyRequest(
   return { maxOutputTokens }
 }
 
+/**
+ * Resolve the upstream URL the way an OpenAI-compatible client does.
+ *
+ * This proxy exposes `/v1/...` to its child for client compatibility. Whether
+ * that prefix belongs upstream depends on the caller's base URL: a base that
+ * already names a version segment (`/v1`, `/api/coding/paas/v4`) receives only
+ * the endpoint, and a base without one receives the whole versioned path.
+ * Forwarding the prefix unconditionally produced `/v4/v1/chat/completions`,
+ * which providers answer with 404.
+ */
 function modelProxyUpstreamUrl(baseUrl: string, requestPath: string): string {
   const upstream = new URL(baseUrl)
   const basePath = upstream.pathname.replace(/\/+$/, '')
-  const suffix = basePath.endsWith('/v1') ? requestPath.replace(/^\/v1/, '') : requestPath
+  const lastSegment = basePath.split('/').at(-1) ?? ''
+  const baseNamesVersion = /^v\d+/.test(lastSegment)
+  const suffix = baseNamesVersion ? requestPath.replace(/^\/v1(?=\/)/, '') : requestPath
   upstream.pathname = `${basePath}${suffix}`
   return upstream.toString()
 }

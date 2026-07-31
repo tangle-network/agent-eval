@@ -312,68 +312,68 @@ describe('external text optimization', () => {
     }
   })
 
-  it.each([
-    'if-compatible',
-    'required',
-  ] as const)('resumes compatible partial state with %s mode and durably completes it', async (resume) => {
-    const runDir = mkdtempSync(join(tmpdir(), `external-text-partial-${resume}-`))
-    const storage = inMemoryCampaignStorage()
-    const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
-    const input = optimizationInput([scenario], [], { runDir, storage })
-    let stateDir = ''
-    const base = {
-      name: 'partial-resume',
-      source: { kind: 'package' as const, package: 'partial-resume', version: '1.0.0' },
-      objective: 'Improve the answer.',
-      evaluationId: 'qa',
-      maxEvaluations: 2,
-      maxOptimizerCostUsd: 0,
-    }
-    const interrupted = externalTextOptimizationMethod<TestScenario, { text: string }>({
-      ...base,
-      resume: 'if-compatible',
-      run: async (context) => {
-        stateDir = context.stateDir
-        expect(context.restoreRequested).toBe(false)
-        storage.write(`${context.stateDir}/checkpoint.json`, '{"candidate":"candidate"}\n')
-        await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
-        throw new Error('simulated interruption')
-      },
-    })
-    const resumed = externalTextOptimizationMethod<TestScenario, { text: string }>({
-      ...base,
-      resume,
-      run: async (context) => {
-        expect(context.restoreRequested).toBe(true)
-        expect(context.stateDir).toBe(stateDir)
-        expect(storage.read(`${context.stateDir}/checkpoint.json`)).toContain('candidate')
-        await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
-        return {
-          bestCandidate: 'candidate',
-          resumed: true,
-          costAccounting: { kind: 'no-paid-work' },
-        }
-      },
-    })
-
-    try {
-      await expect(interrupted.optimize(input)).rejects.toThrow('simulated interruption')
-      const result = await resumed.optimize(input)
-      const events = storage
-        .read(`${stateDir}/run-manifest.jsonl`)!
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { status: string })
-
-      expect(result.provenance).toMatchObject({
-        resumed: true,
-        evaluationCount: 2,
+  it.each(['if-compatible', 'required'] as const)(
+    'resumes compatible partial state with %s mode and durably completes it',
+    async (resume) => {
+      const runDir = mkdtempSync(join(tmpdir(), `external-text-partial-${resume}-`))
+      const storage = inMemoryCampaignStorage()
+      const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
+      const input = optimizationInput([scenario], [], { runDir, storage })
+      let stateDir = ''
+      const base = {
+        name: 'partial-resume',
+        source: { kind: 'package' as const, package: 'partial-resume', version: '1.0.0' },
+        objective: 'Improve the answer.',
+        evaluationId: 'qa',
+        maxEvaluations: 2,
+        maxOptimizerCostUsd: 0,
+      }
+      const interrupted = externalTextOptimizationMethod<TestScenario, { text: string }>({
+        ...base,
+        resume: 'if-compatible',
+        run: async (context) => {
+          stateDir = context.stateDir
+          expect(context.restoreRequested).toBe(false)
+          storage.write(`${context.stateDir}/checkpoint.json`, '{"candidate":"candidate"}\n')
+          await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
+          throw new Error('simulated interruption')
+        },
       })
-      expect(events.map(({ status }) => status)).toEqual(['partial', 'partial', 'completed'])
-    } finally {
-      rmSync(runDir, { recursive: true, force: true })
-    }
-  })
+      const resumed = externalTextOptimizationMethod<TestScenario, { text: string }>({
+        ...base,
+        resume,
+        run: async (context) => {
+          expect(context.restoreRequested).toBe(true)
+          expect(context.stateDir).toBe(stateDir)
+          expect(storage.read(`${context.stateDir}/checkpoint.json`)).toContain('candidate')
+          await context.evaluate({ candidate: 'candidate', exampleId: 'train' })
+          return {
+            bestCandidate: 'candidate',
+            resumed: true,
+            costAccounting: { kind: 'no-paid-work' },
+          }
+        },
+      })
+
+      try {
+        await expect(interrupted.optimize(input)).rejects.toThrow('simulated interruption')
+        const result = await resumed.optimize(input)
+        const events = storage
+          .read(`${stateDir}/run-manifest.jsonl`)!
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as { status: string })
+
+        expect(result.provenance).toMatchObject({
+          resumed: true,
+          evaluationCount: 2,
+        })
+        expect(events.map(({ status }) => status)).toEqual(['partial', 'partial', 'completed'])
+      } finally {
+        rmSync(runDir, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('starts with fresh state and budget when the dispatch identity changes', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'external-text-dispatch-identity-'))
