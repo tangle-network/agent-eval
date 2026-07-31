@@ -470,13 +470,14 @@ const CodeTraceBlockPredictionSchema = z
         message: `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
       })
     }
-    // A step carries both the assistant action and the observation it produced,
-    // so a block whose own final observation shows the damage cites its last
-    // step. Earlier than that is not a consequence.
-    if (block.consequence_step < block.last_step) {
+    // The damage a block caused can surface anywhere from the block's own first
+    // step onward: a step carries both the assistant action and the observation
+    // it produced, and a long block often shows its damage mid-block rather than
+    // at the end. Only a consequence before the block began is incoherent.
+    if (block.consequence_step < block.first_step) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `failure block consequence_step ${block.consequence_step} precedes last_step ${block.last_step}`,
+        message: `failure block consequence_step ${block.consequence_step} precedes first_step ${block.first_step}`,
       })
     }
   })

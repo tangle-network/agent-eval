@@ -185,7 +185,7 @@ async function executeAnalystBenchmarkCommand(
     const markdown = renderArtifactMarkdown(artifact)
     await writeExclusiveOrVerify(paths.report, markdown)
     printSuccessSummary(artifact, paths)
-    return benchmarkExitCode(artifact.result)
+    return benchmarkExitCode(artifact.result, config.analyst)
   }
   if (await regularFileExists(paths.report)) {
     throw new Error(
@@ -227,7 +227,7 @@ async function executeAnalystBenchmarkCommand(
       initialObservations: progress.observations,
       signal: runAbort.signal,
       onObservation: async (observation) => {
-        assertObservationAccountingComplete(observation, costLedger)
+        assertObservationAccountingComplete(observation, costLedger, config.analyst)
         await appendObservation(observation)
       },
       resolveEvidence: traceStoreEvidenceResolver((input) => {
@@ -285,7 +285,7 @@ async function executeAnalystBenchmarkCommand(
   const comparisons = [
     compareAnalystRunners(result, {
       baselineRunnerId: 'empty',
-      candidateRunnerId: 'dspy-rlm',
+      candidateRunnerId: config.analyst,
       seed: config.seed,
     }),
   ]
@@ -336,7 +336,7 @@ async function executeAnalystBenchmarkCommand(
   await writeExclusiveOrVerify(paths.result, `${JSON.stringify(artifact, null, 2)}\n`)
   await writeExclusiveOrVerify(paths.report, markdown)
   printSuccessSummary(artifact, paths)
-  return benchmarkExitCode(result)
+  return benchmarkExitCode(result, config.analyst)
 }
 
 const NON_SCORABLE_COST_ERRORS = new Set([
@@ -351,13 +351,14 @@ const NON_SCORABLE_COST_ERRORS = new Set([
 function assertObservationAccountingComplete(
   observation: AnalystBenchmarkObservation,
   costLedger: CostLedger,
+  analystRunnerId: string,
 ): void {
   if (observation.error && NON_SCORABLE_COST_ERRORS.has(observation.error.class)) {
     throw new CostAccountingIncompleteError(
       `Analyst benchmark stopped before scoring: ${observation.error.message}`,
     )
   }
-  if (observation.runnerId !== 'dspy-rlm') return
+  if (observation.runnerId !== analystRunnerId) return
   const summary = costLedger.summary({
     channel: 'analyst',
     tags: {
@@ -708,8 +709,10 @@ function renderArtifactMarkdown(artifact: AnalystBenchmarkArtifact): string {
   return `${renderAnalystBenchmarkMarkdown(artifact.result, artifact.comparisons).trimEnd()}${calibrationMarkdown}${verificationMarkdown}\n\n${renderSelectionMarkdown(artifact.inputs.selection.report)}\n`
 }
 
-function benchmarkExitCode(result: AnalystBenchmarkResult): number {
-  return result.summaries.find((summary) => summary.runnerId === 'dspy-rlm')?.failedRuns ? 2 : 0
+function benchmarkExitCode(result: AnalystBenchmarkResult, analystRunnerId: string): number {
+  return result.summaries.find((summary) => summary.runnerId === analystRunnerId)?.failedRuns
+    ? 2
+    : 0
 }
 
 function printSuccessSummary(

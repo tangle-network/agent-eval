@@ -54,6 +54,7 @@ export interface AnalystBenchmarkProgress {
 
 interface AnalystBenchmarkPersistenceConfig {
   dataset: PublicAnalystBenchmarkDataset
+  analyst: string
   labelsPath: string
   traceDir: string
   artifactDir?: string
@@ -156,7 +157,7 @@ export function createRunIdentity(
       analystProtocolSha256: publicBenchmarkProtocolSha256(config.dataset),
       implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
       dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
-      runnerIds: ['empty', 'dspy-rlm'],
+      runnerIds: ['empty', config.analyst] as const,
     },
     inputs: {
       labelsSha256: prepared.labelsSha256,

@@ -313,9 +313,9 @@ function assertCodeTraceBlockShape(blocks: readonly CodeTraceFailureBlock[]): vo
         `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
       )
     }
-    if (block.consequenceStep < block.lastStep) {
+    if (block.consequenceStep < block.firstStep) {
       throw new Error(
-        `failure block consequence_step ${block.consequenceStep} precedes last_step ${block.lastStep}`,
+        `failure block consequence_step ${block.consequenceStep} precedes first_step ${block.firstStep}`,
       )
     }
   }

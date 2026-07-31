@@ -375,7 +375,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const rejected: unknown[][] = [
       [validBlock(3, 2)],
       [validBlock(1, MAX_INCORRECT_BLOCK_STEPS + 1)],
-      [{ ...validBlock(2, 2), consequence_step: 1 }],
+      [{ ...validBlock(3, 4), consequence_step: 2 }],
       [{ ...validBlock(2, 2), consequence_step: undefined }],
       [
         {

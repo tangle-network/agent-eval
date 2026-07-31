@@ -79,7 +79,7 @@ const AGENT_RX_JSON_CONTRACT = `Each finding must contain only:
 const CODE_TRACE_JSON_CONTRACT = `Each finding is one contiguous failure block and must contain only:
 - "first_step": a positive integer, the block's first incorrect step, matching an existing assistant LLM span named step-<n>
 - "last_step": a positive integer >= first_step, the block's last incorrect step; every step from first_step through last_step must be an existing assistant LLM span, and a block spans at most ${MAX_INCORRECT_BLOCK_STEPS} steps
-- "consequence_step": a positive integer >= last_step, the step whose action or following observation shows the damage this block caused; use last_step itself when that step's own observation shows the damage
+- "consequence_step": a positive integer >= first_step, the step whose action or following observation shows the damage this block caused; it may sit inside the block when the damage is already visible there
 - "escape_status": "escaped" only when one single later step fully reversed the block and nothing afterwards revisits it, "unescaped" otherwise and whenever you are unsure
 - "severity": "critical", "high", "medium", "low", or "info"
 - "claim": one sentence describing the block's failure
