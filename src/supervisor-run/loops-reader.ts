@@ -1,8 +1,10 @@
 /**
  * ONE implementation of `SupervisorRunReader`: the on-disk layout the loops
- * supervisor writes — `<runDir>/ws/.loops/supervisor/<id>/{journal.jsonl,
+ * supervisor writes — `<runDir>/ws/.agent/supervisor/<id>/{journal.jsonl,
  * state.json, progress.ndjson, workers/*.ndjson}` alongside the run's
- * `result.json` / `judge.json` / `driver.log` / delivered patch.
+ * `result.json` / `judge.json` / `driver.log` / delivered patch. Runs written
+ * before the `.agent` rename live under `<ws>/.loops/supervisor/<id>` and are
+ * still found via fallback.
  *
  * Nothing in `analyze.ts` knows this layout exists. A different store (an
  * archive, an object bucket, a database) implements the same interface and
@@ -38,12 +40,18 @@ async function readMaybe(path: string): Promise<string | null> {
   return readFile(path, 'utf8').catch(() => null)
 }
 
-/** Locate the (single) supervisor run dir under `<ws>/.loops/supervisor`. */
+/**
+ * Locate the (single) supervisor run dir under `<ws>/.agent/supervisor`, falling back to the
+ * pre-rename `<ws>/.loops/supervisor` so runs written by older supervisors stay analyzable.
+ */
 export async function findSupervisorRunDirIn(ws: string): Promise<string | null> {
-  const root = join(ws, '.loops', 'supervisor')
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
-  const dirs = entries.filter((e) => e.isDirectory()).map((e) => join(root, e.name))
-  return dirs[0] ?? null
+  for (const stateDir of ['.agent', '.loops']) {
+    const root = join(ws, stateDir, 'supervisor')
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+    const dirs = entries.filter((e) => e.isDirectory()).map((e) => join(root, e.name))
+    if (dirs[0] !== undefined) return dirs[0]
+  }
+  return null
 }
 
 export interface LoopsReaderOptions {
@@ -81,7 +89,7 @@ export async function readLoopsSupervisorRun(
   const workerCwds: string[] = []
   let workerStarts = 0
   if (supRunDir === null) {
-    workersMissingReason = `no supervisor run dir under ${join(ws, '.loops', 'supervisor')}`
+    workersMissingReason = `no supervisor run dir under ${join(ws, '.agent', 'supervisor')} (or legacy ${join(ws, '.loops', 'supervisor')})`
   } else {
     const workersDir = join(supRunDir, 'workers')
     const entries = await readdir(workersDir).catch(() => null)
