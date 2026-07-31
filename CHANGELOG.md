@@ -4,6 +4,31 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.139.2] - 2026-07-31 - interface 0.40 cohort alignment
+
+### Fixed
+
+- Depend on `agent-interface@0.40.0`, matching the interface every current consumer ships.
+  agent-runtime's packed-cohort verifier requires this package's interface dependency to equal the packed cohort interface exactly; 0.139.1 still depended on 0.39.0.
+
+## [0.139.1] - 2026-07-31 - source-only build gate
+
+### Fixed
+
+- `pnpm build` verifies the benchmark implementation digest only, via the new `--source-only` flag on the check script.
+  A consumer rebuilding the package with deliberately rewritten dependency manifests — agent-runtime's packed-cohort verifier, a vendored fork — still proves the analyst-benchmark source is untouched, but no longer fails on its own dependency rewrite.
+  `pnpm verify:package` and the test suite keep enforcing the dependency-lock pin on the release path.
+
+## [0.139.0] - 2026-07-31 - recursive RLM trace analysts and caller failure reasons
+
+### Added
+
+- Trace analysts run official DSPy RLMs; the Ax stack is retired (#495).
+  The published CodeTraceBench evidence remains bound to the retired direct runner via the evidence digests; a fresh certified run must replace it before any accuracy number is attributed to the new engine.
+- `CostLedger.reconcile` accepts a caller-supplied failure reason: `reconcile(callId, observed, { error })` settles a failed receipt carrying that reason, and supplying a reason implies failure.
+  0.138.0 had narrowed `CostReceipt.error` to the ledger's own `'paid-call-failed'`, silently discarding caller reasons — a crash orphan settled as a successful $0 call.
+  The receipt schema accepts any non-empty reason again, so ledgers persisted before 0.138.0 parse.
+
 ## [0.138.0] - 2026-07-30 - exact analyst runs with sealed receipts
 
 ### Fixed

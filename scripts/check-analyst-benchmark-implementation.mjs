@@ -51,7 +51,12 @@ try {
     )
   }
   const expectedDependencyLock = implementation.ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256
-  if (actualDependencyLock !== expectedDependencyLock) {
+  // --source-only verifies source identity alone: a consumer rebuilding this
+  // package with deliberately rewritten dependency manifests (runtime's
+  // packed-cohort verifier, a vendored fork) still proves the benchmark
+  // implementation is untouched, while the release path (verify:package and
+  // the test suite) keeps enforcing the dependency-lock pin.
+  if (!options.sourceOnly && actualDependencyLock !== expectedDependencyLock) {
     throw new Error(
       `public analyst benchmark dependency lock digest mismatch: expected ${expectedDependencyLock}, computed ${actualDependencyLock}`,
     )
@@ -114,9 +119,14 @@ function assertCompleteSourceManifest(manifest, discovered) {
 function parseOptions(args) {
   let sourceRoot = REPOSITORY_ROOT
   let printOnly = false
+  let sourceOnly = false
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--print') {
       printOnly = true
+      continue
+    }
+    if (args[index] === '--source-only') {
+      sourceOnly = true
       continue
     }
     if (args[index] === '--source-root' && args[index + 1]) {
@@ -125,10 +135,10 @@ function parseOptions(args) {
       continue
     }
     throw new Error(
-      'usage: node scripts/check-analyst-benchmark-implementation.mjs [--source-root PATH] [--print]',
+      'usage: node scripts/check-analyst-benchmark-implementation.mjs [--source-root PATH] [--print] [--source-only]',
     )
   }
-  return { sourceRoot, printOnly }
+  return { sourceRoot, printOnly, sourceOnly }
 }
 
 function assertImplementationModule(value) {

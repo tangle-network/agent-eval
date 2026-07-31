@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.138.0",
+  "version": "0.139.2",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -150,7 +150,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "pnpm check:analyst-benchmark && tsdown && pnpm openapi",
+    "build": "node scripts/check-analyst-benchmark-implementation.mjs --source-only && tsdown && pnpm openapi",
     "dev": "tsdown --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
@@ -168,8 +168,8 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@hono/node-server": "^2.0.12",
-    "@tangle-network/agent-core": "0.4.28",
-    "@tangle-network/agent-interface": "0.39.0",
+    "@tangle-network/agent-core": "0.4.29",
+    "@tangle-network/agent-interface": "0.40.0",
     "hono": "^4.12.32",
     "linear-sum-assignment": "1.0.9",
     "re2js": "2.8.6",
