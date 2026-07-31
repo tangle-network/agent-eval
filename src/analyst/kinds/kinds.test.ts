@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisEngine } from '../engine'
 import { parseRawFinding, RawAnalystFindingSchema } from '../finding-signature'
+import { findingSubjectGrammarPromptFor, KIND_EXPECTED_SUBJECTS } from '../finding-subject'
 import { createTraceAnalyst, type TraceAnalystDefinition } from '../kind-factory'
 import { buildTraceToolsForGroup } from '../tool-groups'
 import { computeFindingId, makeFinding } from '../types'
@@ -8,6 +9,7 @@ import {
   DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
   IMPROVEMENT_KIND_SPEC,
+  INTENT_DIVERGENCE_KIND_SPEC,
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './index'
@@ -112,13 +114,19 @@ describe('parseRawFinding logs the rejection reason on schema failure', () => {
 })
 
 describe('default kind suite shape', () => {
-  it('exposes the four failure/improvement kinds in run order', () => {
+  it('exposes the five failure/improvement kinds in run order', () => {
     expect(DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.id)).toEqual([
       'failure-mode',
+      'intent-divergence',
       'knowledge-gap',
       'knowledge-poisoning',
       'improvement',
     ])
+  })
+
+  it('improvement runs after intent-divergence so edits can act on priced divergences', () => {
+    const ids = DEFAULT_TRACE_ANALYST_KINDS.map((k) => k.id)
+    expect(ids.indexOf('intent-divergence')).toBeLessThan(ids.indexOf('improvement'))
   })
 
   it('every default kind declares a non-empty lens prompt without duplicating the output contract', () => {
@@ -168,6 +176,62 @@ describe('default kind suite shape', () => {
 
   it('failure-mode prompt requires clustering, not enumeration', () => {
     expect(FAILURE_MODE_KIND_SPEC.instructions).toMatch(/Cluster, do not enumerate/i)
+  })
+})
+
+describe('intent-divergence kind', () => {
+  const prompt = INTENT_DIVERGENCE_KIND_SPEC.instructions
+
+  it('runs the backward protocol, not a count of corrective turns', () => {
+    expect(prompt).toMatch(/DISCOVERY → BACKTRACK → QUANTIFY → CITE/)
+    expect(prompt).toMatch(/earliest[- ]detectable/i)
+    expect(prompt).toMatch(/burn(ing|ed) K? ?turns/i)
+    // The cost estimate is the deliverable: no anchor turn means no finding.
+    expect(prompt).toMatch(/you have a correction and not a divergence: drop it/)
+  })
+
+  it('supplies searchable corrective-language hints for both correction and clarification', () => {
+    for (const hint of ['stop', "don'?t", 'not what I', 'already told you', 'why are you']) {
+      expect(prompt).toContain(hint)
+    }
+    for (const hint of ['I mean(t)?', 'to be clear', 'actually,? I (want|need)']) {
+      expect(prompt).toContain(hint)
+    }
+  })
+
+  it('routes the ambiguous-request case to a clarifying-question policy, not to the agent', () => {
+    expect(prompt).toMatch(/scaffolding:\*/)
+    expect(prompt).toMatch(/clarifying-question policy/)
+    expect(KIND_EXPECTED_SUBJECTS['intent-divergence']).toContain('scaffolding')
+  })
+
+  it('emits loci, never failure-mode cluster labels', () => {
+    const allowed = KIND_EXPECTED_SUBJECTS['intent-divergence'] ?? []
+    expect(allowed.length).toBeGreaterThan(0)
+    expect(allowed).not.toContain('cluster')
+    expect(INTENT_DIVERGENCE_KIND_SPEC.instructions).toContain(
+      findingSubjectGrammarPromptFor('intent-divergence'),
+    )
+  })
+
+  it('requires both ends of the divergence to be cited', () => {
+    expect(INTENT_DIVERGENCE_KIND_SPEC.minimumEvidenceCitations).toBe(2)
+  })
+
+  it('gets ordered-read tools — search alone cannot walk backward from the correction', () => {
+    expect(INTENT_DIVERGENCE_KIND_SPEC.toolGroup).toBe('all')
+    const names = buildTraceToolsForGroup(INTENT_DIVERGENCE_KIND_SPEC.toolGroup, stubStore()).map(
+      (t) => (t as { name: string }).name,
+    )
+    expect(names).toContain('searchTrace')
+    expect(names).toContain('viewTrace')
+    expect(names).toContain('viewSpans')
+  })
+
+  it('does not outrank improvement on subquery budget', () => {
+    expect(INTENT_DIVERGENCE_KIND_SPEC.limits?.maxLlmCalls ?? 0).toBeLessThanOrEqual(
+      IMPROVEMENT_KIND_SPEC.limits?.maxLlmCalls ?? 0,
+    )
   })
 })
 
