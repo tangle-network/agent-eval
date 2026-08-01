@@ -159,6 +159,7 @@ export {
   selectPublicBenchmarkRows,
 } from './benchmark-real-model'
 export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export type {
   LoadedVerificationArtifacts,
   VerificationArtifactFile,
