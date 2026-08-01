@@ -1,0 +1,259 @@
+[
+  {
+    "traj_id": "miniswe-OpenAI__GPT-5-facebook__zstd-2094-7f31a0cb",
+    "agent": "mini-SWE-agent",
+    "model": "OpenAI/GPT-5",
+    "task_name": "facebook__zstd-2094",
+    "task_slug": "facebook__zstd-2094-7f31a0cb",
+    "difficulty": "hard",
+    "category": "software-engineering",
+    "tags": [],
+    "solved": true,
+    "step_count": 28,
+    "stages": [
+      {
+        "stage_id": 1,
+        "start_step_id": 1,
+        "end_step_id": 16
+      },
+      {
+        "stage_id": 2,
+        "start_step_id": 17,
+        "end_step_id": 26
+      },
+      {
+        "stage_id": 3,
+        "start_step_id": 27,
+        "end_step_id": 28
+      }
+    ],
+    "stage_count": 3,
+    "incorrect_error_stage_count": 1,
+    "trial_name": "facebook__zstd-2094",
+    "source_relpath": "swe_raw/mini_swe_agent__multi/facebook__zstd-2094",
+    "annotation_relpath": "merged_cleaned_step25/mini_swe_agent__multi/facebook__zstd-2094",
+    "incorrect_stages": [
+      {
+        "stage_id": 3,
+        "incorrect_step_ids": [
+          27
+        ],
+        "unuseful_step_ids": [],
+        "steps": [
+          {
+            "step_id": 27,
+            "labels": [
+              "incorrect"
+            ],
+            "action_ref": null,
+            "observation_ref": null
+          }
+        ]
+      }
+    ],
+    "generated_at": "2026-03-05T00:33:27+00:00",
+    "artifact_path": "bench_artifacts/full/miniswe-OpenAI__GPT-5-facebook__zstd-2094-7f31a0cb.tar.zst"
+  },
+  {
+    "traj_id": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-09135d56",
+    "agent": "mini-SWE-agent",
+    "model": "OpenAI/GPT-5",
+    "task_name": "instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5",
+    "task_slug": "instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-09135d56",
+    "difficulty": "hard",
+    "category": "software-engineering",
+    "tags": [],
+    "solved": true,
+    "step_count": 21,
+    "stages": [
+      {
+        "stage_id": 1,
+        "start_step_id": 1,
+        "end_step_id": 4
+      },
+      {
+        "stage_id": 2,
+        "start_step_id": 5,
+        "end_step_id": 11
+      },
+      {
+        "stage_id": 3,
+        "start_step_id": 12,
+        "end_step_id": 19
+      },
+      {
+        "stage_id": 4,
+        "start_step_id": 20,
+        "end_step_id": 21
+      }
+    ],
+    "stage_count": 4,
+    "incorrect_error_stage_count": 1,
+    "trial_name": "instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5",
+    "source_relpath": "swe_raw/mini_swe_agent__pro/instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5",
+    "annotation_relpath": "merged_cleaned_step20_three_waves/mini_swe_agent__pro/instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5",
+    "incorrect_stages": [
+      {
+        "stage_id": 4,
+        "incorrect_step_ids": [
+          20
+        ],
+        "unuseful_step_ids": [],
+        "steps": [
+          {
+            "step_id": 20,
+            "labels": [
+              "incorrect"
+            ],
+            "action_ref": null,
+            "observation_ref": null
+          }
+        ]
+      }
+    ],
+    "generated_at": "2026-03-05T00:33:40+00:00",
+    "artifact_path": "bench_artifacts/full/miniswe-OpenAI__GPT-5-instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-09135d56.tar.zst"
+  },
+  {
+    "traj_id": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2247-a9fb6037",
+    "agent": "mini-SWE-agent",
+    "model": "OpenAI/GPT-5",
+    "task_name": "ponylang__ponyc-2247",
+    "task_slug": "ponylang__ponyc-2247-a9fb6037",
+    "difficulty": "medium",
+    "category": "software-engineering",
+    "tags": [],
+    "solved": true,
+    "step_count": 22,
+    "stages": [
+      {
+        "stage_id": 1,
+        "start_step_id": 1,
+        "end_step_id": 4
+      },
+      {
+        "stage_id": 2,
+        "start_step_id": 5,
+        "end_step_id": 7
+      },
+      {
+        "stage_id": 3,
+        "start_step_id": 8,
+        "end_step_id": 17
+      },
+      {
+        "stage_id": 4,
+        "start_step_id": 18,
+        "end_step_id": 20
+      },
+      {
+        "stage_id": 5,
+        "start_step_id": 21,
+        "end_step_id": 22
+      }
+    ],
+    "stage_count": 5,
+    "incorrect_error_stage_count": 1,
+    "trial_name": "ponylang__ponyc-2247",
+    "source_relpath": "swe_raw/mini_swe_agent__multi/ponylang__ponyc-2247",
+    "annotation_relpath": "merged_cleaned_step20_three_waves/mini_swe_agent__multi/ponylang__ponyc-2247",
+    "incorrect_stages": [
+      {
+        "stage_id": 5,
+        "incorrect_step_ids": [
+          21
+        ],
+        "unuseful_step_ids": [],
+        "steps": [
+          {
+            "step_id": 21,
+            "labels": [
+              "incorrect"
+            ],
+            "action_ref": null,
+            "observation_ref": null
+          }
+        ]
+      }
+    ],
+    "generated_at": "2026-03-05T00:33:40+00:00",
+    "artifact_path": "bench_artifacts/full/miniswe-OpenAI__GPT-5-ponylang__ponyc-2247-a9fb6037.tar.zst"
+  },
+  {
+    "traj_id": "miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7",
+    "agent": "mini-SWE-agent",
+    "model": "OpenAI/GPT-5",
+    "task_name": "sveltejs__svelte-11913",
+    "task_slug": "sveltejs__svelte-11913-1fe8a1b7",
+    "difficulty": "medium",
+    "category": "software-engineering",
+    "tags": [],
+    "solved": true,
+    "step_count": 22,
+    "stages": [
+      {
+        "stage_id": 1,
+        "start_step_id": 1,
+        "end_step_id": 3
+      },
+      {
+        "stage_id": 2,
+        "start_step_id": 4,
+        "end_step_id": 18
+      },
+      {
+        "stage_id": 3,
+        "start_step_id": 19,
+        "end_step_id": 20
+      },
+      {
+        "stage_id": 4,
+        "start_step_id": 21,
+        "end_step_id": 22
+      }
+    ],
+    "stage_count": 4,
+    "incorrect_error_stage_count": 2,
+    "trial_name": "sveltejs__svelte-11913",
+    "source_relpath": "swe_raw/mini_swe_agent__multi/sveltejs__svelte-11913",
+    "annotation_relpath": "merged_cleaned_step20_three_waves/mini_swe_agent__multi/sveltejs__svelte-11913",
+    "incorrect_stages": [
+      {
+        "stage_id": 3,
+        "incorrect_step_ids": [
+          19
+        ],
+        "unuseful_step_ids": [],
+        "steps": [
+          {
+            "step_id": 19,
+            "labels": [
+              "incorrect"
+            ],
+            "action_ref": null,
+            "observation_ref": null
+          }
+        ]
+      },
+      {
+        "stage_id": 4,
+        "incorrect_step_ids": [
+          21
+        ],
+        "unuseful_step_ids": [],
+        "steps": [
+          {
+            "step_id": 21,
+            "labels": [
+              "incorrect"
+            ],
+            "action_ref": null,
+            "observation_ref": null
+          }
+        ]
+      }
+    ],
+    "generated_at": "2026-03-05T00:33:40+00:00",
+    "artifact_path": "bench_artifacts/full/miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7.tar.zst"
+  }
+]
