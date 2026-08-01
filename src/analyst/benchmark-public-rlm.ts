@@ -12,8 +12,8 @@ import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark'
 import {
   adaptPublicBenchmarkFindings,
-  codeTraceBlockMetadataFromSubject,
   type CodeTraceStepAssignment,
+  codeTraceBlockMetadataFromSubject,
   expandCodeTraceFailureBlocks,
 } from './benchmark-public-adapters'
 import { consensusCodeTraceBlocks } from './benchmark-public-consensus'
@@ -200,9 +200,7 @@ export function createPublicBenchmarkRlmRunner(
               ...(fallback
                 ? {
                     abstentionFallback: 'direct',
-                    ...(fallback.metadata
-                      ? { abstentionFallbackMetadata: fallback.metadata }
-                      : {}),
+                    ...(fallback.metadata ? { abstentionFallbackMetadata: fallback.metadata } : {}),
                     ...(fallback.error ? { abstentionFallbackError: fallback.error } : {}),
                   }
                 : {}),

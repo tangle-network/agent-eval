@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  CodeTraceFailureBlock,
-  CodeTraceStepAssignment,
-} from './benchmark-public-adapters'
+import type { CodeTraceFailureBlock, CodeTraceStepAssignment } from './benchmark-public-adapters'
 import { consensusCodeTraceBlocks } from './benchmark-public-consensus'
 
 function block(overrides: Partial<CodeTraceFailureBlock> = {}): CodeTraceFailureBlock {
@@ -145,9 +142,7 @@ describe('consensusCodeTraceBlocks', () => {
   })
 
   it('refuses fewer than two samples and duplicate step assignments', () => {
-    expect(() => consensusCodeTraceBlocks([assign(block(), [2])])).toThrow(
-      /at least two samples/,
-    )
+    expect(() => consensusCodeTraceBlocks([assign(block(), [2])])).toThrow(/at least two samples/)
     const owner = block()
     expect(() =>
       consensusCodeTraceBlocks([

@@ -401,10 +401,12 @@ describe('runAnalystBenchmarkCommand', () => {
         usage: UNKNOWN_USAGE,
       }),
     }
-    const createAnalystRunner = vi.fn((_dataset: unknown, config: { dspyRlm?: { samples?: number } }) => {
-      expect(config.dspyRlm?.samples).toBe(3)
-      return modelRunner
-    })
+    const createAnalystRunner = vi.fn(
+      (_dataset: unknown, config: { dspyRlm?: { samples?: number } }) => {
+        expect(config.dspyRlm?.samples).toBe(3)
+        return modelRunner
+      },
+    )
 
     const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const code = await runAnalystBenchmarkCommand(
