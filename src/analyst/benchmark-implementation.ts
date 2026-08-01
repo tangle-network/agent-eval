@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '701ea59184f3d227cf590ea3f16d24d65dbed2ad5644f8294801ceb66a30d4ef'
+  'a3ea8abf439c0907da6c685b3d00becca30baa6953753bb755442a3ddb306dae'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
@@ -42,6 +42,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-dataset-utils.ts',
   'src/analyst/benchmark-datasets.ts',
   'src/analyst/benchmark-evidence-validation.ts',
+  'src/analyst/benchmark-instructions-override.ts',
   'src/analyst/benchmark-public-adapters.ts',
   'src/analyst/benchmark-public-calibration.ts',
   'src/analyst/benchmark-public-consensus.ts',
@@ -113,7 +114,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '3d186014316013769f0ef866f465810d95c9fa0c9e57350ff5b06755453eef9b'
+  'a3f5a8203f0a7c74736170c53100c50c4db1cf84381533002f0539ef1e7a4c6d'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

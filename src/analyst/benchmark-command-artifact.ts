@@ -40,6 +40,8 @@ export interface AnalystBenchmarkArtifact {
       maxCostUsd: number
       maxArtifactBytes: number
       analystProtocolSha256: string
+      /** Present only when the run replaced the recursive analyst instructions. */
+      instructionsOverrideSha256?: string
       implementationSha256: string
       dependencyLockSha256: string
     }
@@ -80,6 +82,8 @@ export interface AnalystBenchmarkRunIdentity {
     maxCostUsd: number
     maxArtifactBytes: number
     analystProtocolSha256: string
+    /** Present only when the run replaced the recursive analyst instructions. */
+    instructionsOverrideSha256?: string
     implementationSha256: string
     dependencyLockSha256: string
     runnerIds: readonly ['empty', string]

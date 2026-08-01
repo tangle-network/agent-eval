@@ -66,6 +66,11 @@ export function createPublicBenchmarkDirectRunner(
   dataset: PublicAnalystBenchmarkDataset,
   config: PublicAnalystBenchmarkModelConfig,
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
+  if (config.instructionsOverride) {
+    throw new Error(
+      'the direct runner executes only the stock protocol; an instructions override requires the dspy-rlm runner',
+    )
+  }
   const model = requiredString(config.model, 'model')
   const baseUrl = requiredString(config.baseUrl, 'baseUrl')
   const apiKey = requiredString(config.apiKey, 'apiKey')

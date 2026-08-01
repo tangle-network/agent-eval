@@ -91,6 +91,9 @@ export function assertCompletedArtifactMatchesRun(
       maxCostUsd: config.maxCostUsd,
       maxArtifactBytes: config.maxArtifactBytes,
       analystProtocolSha256: config.analystProtocolSha256,
+      ...(config.instructionsOverrideSha256 === undefined
+        ? {}
+        : { instructionsOverrideSha256: config.instructionsOverrideSha256 }),
       implementationSha256: config.implementationSha256,
       dependencyLockSha256: config.dependencyLockSha256,
     },

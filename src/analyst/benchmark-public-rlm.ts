@@ -10,6 +10,7 @@ import {
 } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark'
+import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
 import {
   adaptPublicBenchmarkFindings,
   type CodeTraceStepAssignment,
@@ -19,10 +20,7 @@ import {
 import { consensusCodeTraceBlocks } from './benchmark-public-consensus'
 import { publicBenchmarkError } from './benchmark-public-errors'
 import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
-import {
-  publicBenchmarkProtocolSha256,
-  publicBenchmarkRlmInstructions,
-} from './benchmark-public-prompt'
+import { publicBenchmarkRlmInstructions } from './benchmark-public-prompt'
 import type {
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
@@ -66,11 +64,18 @@ export function createPublicBenchmarkRlmRunner(
     pricing,
     ...(config.dspyRlm?.runner ? { runner: config.dspyRlm.runner } : {}),
   } satisfies DspyRlmTraceEngineOptions)
-  const definition = publicBenchmarkDefinition(dataset, limits)
+  const instructions = config.instructionsOverride?.text ?? publicBenchmarkRlmInstructions(dataset)
+  const protocolSha256 = effectiveAnalystProtocolSha256(dataset, config.instructionsOverride)
+  const definition = publicBenchmarkDefinition(dataset, limits, instructions)
   // Abstention floor: shares this runner's cost ledger so a fallback call's
   // spend lands under the same case and repetition tags as the engine's calls.
+  // The fallback always runs the stock direct prompt — an instructions override
+  // replaces only the recursive instructions, and the effective protocol digest
+  // binds the stock digest (covering this fallback prompt) to the override.
+  const { instructionsOverride: _rlmOnlyOverride, ...directConfig } = config
+  void _rlmOnlyOverride
   const abstentionFallbackRunner = createPublicBenchmarkDirectRunner(dataset, {
-    ...config,
+    ...directConfig,
     costLedger,
   })
 
@@ -190,7 +195,7 @@ export function createPublicBenchmarkRlmRunner(
             metadata: {
               analysisMode: 'recursive',
               engine: 'dspy-rlm',
-              protocolSha256: publicBenchmarkProtocolSha256(dataset),
+              protocolSha256,
               samples,
               sampleRuns,
               consensus: consensus.decision,
@@ -278,7 +283,7 @@ export function createPublicBenchmarkRlmRunner(
           metadata: {
             analysisMode: 'recursive',
             engine: 'dspy-rlm',
-            protocolSha256: publicBenchmarkProtocolSha256(dataset),
+            protocolSha256,
             ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
             answer: completed.answer,
             trajectory: completed.trajectory,
@@ -343,6 +348,7 @@ function publicBenchmarkDefinition(
     maxToolCalls: number
     maxOutputChars: number
   },
+  instructions: string,
 ): TraceAnalystDefinition {
   return {
     id: dataset === 'agentrx' ? 'agentrx-dspy-rlm' : 'codetracebench-dspy-rlm',
@@ -356,7 +362,7 @@ function publicBenchmarkDefinition(
       dataset === 'agentrx'
         ? 'What is the first unrecoverable root cause in this failed trajectory?'
         : 'Which assistant steps are incorrect under the CodeTraceBench definition?',
-    instructions: publicBenchmarkRlmInstructions(dataset),
+    instructions,
     toolGroup: 'singleTrace',
     limits,
   }

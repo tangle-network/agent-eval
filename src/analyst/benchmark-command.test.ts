@@ -19,6 +19,9 @@ import {
   commandArgs,
   UNKNOWN_USAGE,
 } from './benchmark-command.test-support'
+import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
+import { publicBenchmarkProtocolSha256 } from './benchmark-public-prompt'
+import { sha256Digest } from './benchmark-verification-artifacts'
 import type { AnalystRunInputs } from './types'
 import { makeFinding } from './types'
 
@@ -780,4 +783,114 @@ describe('runAnalystBenchmarkCommand', () => {
       expect(createAnalystRunner).not.toHaveBeenCalled()
     },
   )
+
+  it('records exactly the stock protocol digest when --instructions-file is absent', async () => {
+    const fixture = await codeTraceFixture()
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      commandArgs(fixture),
+      { TEST_ANALYST_KEY: 'unused' },
+      { createAnalystRunner: () => stockFindingRunner() },
+    )
+    stdout.mockRestore()
+    expect(code).toBe(0)
+    const artifact = JSON.parse(await readFile(join(fixture.outDir, 'result.json'), 'utf8'))
+    expect(artifact.inputs.execution.analystProtocolSha256).toBe(
+      publicBenchmarkProtocolSha256('codetracebench'),
+    )
+    expect('instructionsOverrideSha256' in artifact.inputs.execution).toBe(false)
+    const manifest = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
+    )
+    expect(manifest.identity.config.analystProtocolSha256).toBe(
+      publicBenchmarkProtocolSha256('codetracebench'),
+    )
+    expect('instructionsOverrideSha256' in manifest.identity.config).toBe(false)
+  })
+
+  it('records the override-bound protocol digest for an --instructions-file run', async () => {
+    const fixture = await codeTraceFixture()
+    const overrideText = 'Optimized recursive analyst instructions.\n'
+    const instructionsPath = join(fixture.root, 'candidate-instructions.txt')
+    await writeFile(instructionsPath, overrideText)
+    const expectedOverrideSha = sha256Digest(overrideText)
+    const expectedProtocolSha = effectiveAnalystProtocolSha256('codetracebench', {
+      sha256: expectedOverrideSha,
+    })
+    let observedOverride: unknown
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      [...commandArgs(fixture), '--instructions-file', instructionsPath],
+      { TEST_ANALYST_KEY: 'unused' },
+      {
+        createAnalystRunner: (_dataset, config) => {
+          observedOverride = config.instructionsOverride
+          return stockFindingRunner()
+        },
+      },
+    )
+    stdout.mockRestore()
+    expect(code).toBe(0)
+    expect(observedOverride).toEqual({ text: overrideText, sha256: expectedOverrideSha })
+    expect(expectedProtocolSha).not.toBe(publicBenchmarkProtocolSha256('codetracebench'))
+    const artifact = JSON.parse(await readFile(join(fixture.outDir, 'result.json'), 'utf8'))
+    expect(artifact.inputs.execution.analystProtocolSha256).toBe(expectedProtocolSha)
+    expect(artifact.inputs.execution.instructionsOverrideSha256).toBe(expectedOverrideSha)
+    expect(artifact.result.provenance.metadata.protocolSha256).toBe(expectedProtocolSha)
+    const manifest = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
+    )
+    expect(manifest.identity.config.analystProtocolSha256).toBe(expectedProtocolSha)
+    expect(manifest.identity.config.instructionsOverrideSha256).toBe(expectedOverrideSha)
+  })
+
+  it('rejects --instructions-file with the direct analyst before any model construction', async () => {
+    const fixture = await codeTraceFixture()
+    const instructionsPath = join(fixture.root, 'candidate-instructions.txt')
+    await writeFile(instructionsPath, 'candidate')
+    const createAnalystRunner = vi.fn()
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...commandArgs(fixture), '--analyst', 'direct', '--instructions-file', instructionsPath],
+        { TEST_ANALYST_KEY: 'unused' },
+        { createAnalystRunner },
+      ),
+    ).rejects.toThrow(/--instructions-file requires --analyst dspy-rlm/)
+    expect(createAnalystRunner).not.toHaveBeenCalled()
+  })
+
+  it('fails loudly when --instructions-file cannot be read', async () => {
+    const fixture = await codeTraceFixture()
+    const missingPath = join(fixture.root, 'missing-instructions.txt')
+    const createAnalystRunner = vi.fn()
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...commandArgs(fixture), '--instructions-file', missingPath],
+        { TEST_ANALYST_KEY: 'unused' },
+        { createAnalystRunner },
+      ),
+    ).rejects.toThrow(missingPath)
+    expect(createAnalystRunner).not.toHaveBeenCalled()
+  })
 })
+
+function stockFindingRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
+  return {
+    id: 'dspy-rlm',
+    async analyze() {
+      return {
+        findings: [
+          makeFinding({
+            analyst_id: 'dspy-rlm',
+            area: 'incorrect',
+            claim: 'Step 2 changes the wrong file.',
+            severity: 'high',
+            confidence: 0.9,
+            evidence_refs: [{ kind: 'span', uri: 'trace://trace-1/span/step-2' }],
+          }),
+        ],
+        usage: UNKNOWN_USAGE,
+      }
+    },
+  }
+}

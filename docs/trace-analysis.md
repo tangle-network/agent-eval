@@ -211,6 +211,9 @@ It does not prove the run was correct.
 Measure the analyst on labeled traces before using its findings for automated changes.
 At minimum, report issue recall, finding precision, exact evidence accuracy, trusted-negative false positives, repeat agreement, failures, calls, tokens, cost, and latency.
 
+The certified reference for the shipping CodeTraceBench configuration lives in `benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/` (pre-registered two-sealed-split protocol, all arms and paired CIs disclosed); cite numbers from there, never from spent dev splits.
+Cross-run and pooled comparisons use `benchmarks/trace-analysis/tools/compare-analyst-runs.mjs`.
+
 `runAnalystBenchmark()` compares any `AnalystBenchmarkRunner` implementations.
 `agent-eval analyst-benchmark` runs the public AgentRx or CodeTraceBench adapters with:
 
@@ -238,6 +241,11 @@ agent-eval analyst-benchmark \
 
 `--rlm-samples <k>` (CodeTraceBench, `dspy-rlm` only) runs the recursive engine `k` times per case and scores the step-level majority: a step survives when at least `ceil(k/2)` samples flag it, surviving steps reassemble into blocks, and the abstention fallback fires once, only when no step reaches the threshold.
 Per-sample blocks, the full voting record, and per-sample cost land in the observation's runner metadata; `k` is recorded in the run identity and `result.json`.
+
+`--instructions-file <path>` (`dspy-rlm` only) replaces the shipped recursive analyst instructions with the file's text — the certification path for optimizer-produced candidates.
+The recorded protocol digest then binds the stock protocol digest to the override text's SHA-256, `result.json` records `instructionsOverrideSha256` under `inputs.execution`, and an unreadable or empty file fails the run before any model call.
+With the flag absent the recorded digest is byte-identical to a stock run, so override runs and stock runs are never confusable.
+The abstention fallback keeps the stock direct prompt either way.
 
 The command writes every observation before producing `result.json` and `report.md`.
 It can resume without repeating completed cases.

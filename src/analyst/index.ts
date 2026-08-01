@@ -122,6 +122,11 @@ export {
   analystBenchmarkDependencyLockDigest,
   analystBenchmarkImplementationDigest,
 } from './benchmark-implementation'
+export {
+  analystInstructionsOverrideFromText,
+  effectiveAnalystProtocolSha256,
+  readAnalystInstructionsOverride,
+} from './benchmark-instructions-override'
 export type {
   CodeTraceCalibrationRunnerSummary,
   CodeTraceCalibrationSummary,
@@ -131,6 +136,7 @@ export {
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
 export type {
+  AnalystInstructionsOverride,
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
