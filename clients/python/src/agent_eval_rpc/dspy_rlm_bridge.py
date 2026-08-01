@@ -116,9 +116,8 @@ class IncorrectBlock(pydantic.BaseModel):
         ge=1,
         description=(
             "The final consecutive step still committing to or compounding the "
-            "same mistake — cascades of repeated failed attempts at the same "
-            "wrong approach commonly span 5-10 steps; extend last_step through "
-            "all of them. >= first_step, and a block spans at most "
+            "same mistake; extend through every such step and stop at the first "
+            "step free of the error. >= first_step, and a block spans at most "
             f"{_MAX_INCORRECT_BLOCK_STEPS} steps."
         ),
     )
