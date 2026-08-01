@@ -15,7 +15,8 @@ Three arms, two sealed splits, strictly serial runs, 2 repetitions, seed 0, glm-
 | G-winner | stock engine + GEPA-optimized instructions (this directory's shipping config) | `d3829fb855690a3a385f498049801c14bb990c6e49858a6739bd331c0ab324e1` |
 
 The G-winner instruction text is now the stock prompt in this tree: `publicBenchmarkRlmInstructions('codetracebench')` reproduces it byte-identically (verified in-build; sha above).
-It was produced by `scripts/gepa-analyst-campaign.ts` — real Python GEPA, 40 evaluations, glm-5.2 reflection, output contract frozen verbatim, trained on 10 / selected on 6 scenarios from the spent pinned-32 dev split only.
+It was produced by `scripts/gepa-analyst-campaign.ts` at its round-1 revision (`0eb2e32`) — real Python GEPA, 40 evaluations, glm-5.2 reflection, output contract frozen verbatim, trained on 10 / selected on 6 scenarios from the spent pinned-32 dev split only.
+The script now carries the round-2 configuration (32-scenario stratified pool, gold-mass-weighted feedback); the round-1 parameters above are what produced this certified artifact.
 
 ## Sealed instruments
 
