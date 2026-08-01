@@ -19,39 +19,42 @@ export const TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS = [
 
 export const CODE_TRACE_BENCH_ANALYST_PROMPT = `Analyze exactly one coding-agent trajectory and its attached final verification.
 Your task is the CodeTraceBench incorrect-step task: identify every incorrect step, defined as a wrong state-changing intervention given the evidence — a mislocalized edit, a wrong hypothesis that drives an action, a regression, an irrelevant change, or an incorrect dependency or configuration choice.
+If the final verification failed, the trajectory MUST contain at least one incorrect step. Never return an empty findings array on a failing trajectory; trace backward until you find the root cause.
 Work backward, the way this benchmark was annotated, never by scanning forward for suspicious steps: start from the final verification outcome or the latest observed failure evidence, identify the immediately preceding step whose action or output produced that observed error, then recursively ask which earlier decision led to each intermediate failure, until the preceding steps contain no error or the cause is unrelated to the trajectory's own decisions.
 Each backward chain terminates at an error-critical step — the earliest decision that triggered the downstream cascade — and that step is the block's first_step: the step that committed the mistake, not the step that planned it and not a later step that repeats it.
-The chain you traced is the block: it holds the error-critical decision plus every consecutive later step that produced, propagated, or reworked that error, so a command that failed because of the mistake and a repair attempt that is itself wrong, partial, or later superseded sit inside the block, not after it.
-After fixing first_step, extend last_step forward through every consecutive step that commits to, compounds, repeats, or acts on the same mistake: a cascade of repeated failed attempts at the same wrong approach is one block spanning all of them.
+A block is a maximal contiguous sequence of strictly incorrect steps. A step belongs in the block ONLY if it introduces, propagates, or compounds the error. 
+Do NOT include steps that merely "act on", diagnose, or react to the error. A diagnostic command, a test run exposing the bug, or a correct exploratory read is a CORRECT step. 
+If an incorrect step is followed by a correct diagnostic step and then another incorrect step, you MUST emit two separate blocks. NEVER bridge correct steps by grouping them into a single block with incorrect steps. Over-blocking drastically hurts your precision.
+After identifying first_step, extend last_step forward ONLY through consecutive steps that independently introduce, propagate, or compound the mistake. A cascade of repeated failed attempts at the same wrong approach is one maximal block, provided EVERY step is independently incorrect.
 Do not end a block merely because the agent tried a variation of the same wrong approach; a variation that still carries the error stays inside the block.
 A partially correct or ambiguous fix still counts as incorrect; the block ends only at the first step free of the error — a clean diagnostic read, the corrective action that closes the issue and needs no further rework, or a genuine abandonment of the wrong approach.
 Block extent follows the traced chain and this forward extension, nothing else.
 Report each failure block as exactly one finding whose first_step is the block's first incorrect step and whose last_step is its last, covering every consecutive step between them.
-Every step inside a block is scored on its own: naming a correct step costs exactly as much as missing an incorrect one, and naming only the first step of a longer block forfeits every unnamed step.
-Report blocks separated by at least one correct step as separate findings, and never let two blocks overlap.
+Every step inside a block is scored on its own: naming a correct step costs exactly as much as missing an incorrect one, and naming only the first step of a longer block forfeits every unnamed step. Because of this, carefully verify every step between first_step and last_step. Only include steps that introduce, propagate, or compound the error.
+Report blocks separated by at least one correct step as separate findings, and never let two blocks overlap. If there are multiple separate failure cascades, emit a separate finding for each one.
 Prefer anchored blocks: a block whose chain traces back from observed failure evidence — a failing command or verification, an error observation, a regression, or, on a solved trajectory, a later step that reverts or supersedes it — outranks one without.
 When an action is clearly wrong on its own evidence but you cannot trace such an anchor, report the block anyway with proportionally lower confidence.
 A solved trajectory still carries every mistake made along the way: inspect its final patching and verification stages for a state-changing action that a later step reverted, superseded, or corrected — a wrong edit just before the final fix is incorrect even when every test ends green.
 Before emitting a candidate block, check its boundaries.
 Neighbor check: ask whether the accusation fits one step earlier (the decision rather than its consequence) or one step later (the next step still acts on or reworks the same error) better than where you placed it, and move the boundary when it does; a boundary off by one step scores zero at that step.
+Completeness check: a block must cover the maximal contiguous sequence of incorrect steps. If an agent fails at step 10, tries to fix it at 11, fails, and tries again at 12 and 13, all four steps are incorrect and must be included in the block. Never truncate a cascade. If you miss the later steps of a cascade, your recall drops to zero for them.
 Counterfactual check: ask which step's correct execution would have made the downstream failure or rework disappear, and move first_step onto that step; use this check only to move a boundary, never to delete a block.
-Width check: inspect the step immediately before first_step and the step immediately after last_step; when either neighbor commits to, compounds, or acts on the same mistake, it belongs inside the block — move that boundary outward and repeat until both neighbors are free of the error.
+Width check: inspect the step immediately before first_step and the step immediately after last_step; when either neighbor commits to, compounds, or propagates the same mistake, it belongs inside the block — move that boundary outward and repeat until both neighbors are free of the error.
 For each block you keep, name as consequence_step the step number whose action or observation shows the damage — a failing command, a wrong file state, a repeated failure, or rework the agent had to do because of this block; that step is the block's own last step when its observation already shows the damage, and a later step otherwise.
 When you cannot name that step number from the trace you were given, drop the block; a plausible story about why a step looks wrong is not evidence that it was.
 A passing final verification is not evidence that a block caused nothing, and a failing final verification is not evidence that any particular block caused it.
 For every block, decide whether the agent escaped the failure.
-Mark escape_status "escaped" only when you can name the single later step that fully reversed the block, the agent needed no other step to recover, and nothing after that step revisits the same file, command, or hypothesis; write that step number in the rationale.
+Mark escape_status "escaped" only when you can name the single later step that fully reversed the block, the agent needed no other step to recover, and nothing after that step revisits the same file, command, or hypothesis; write that step number in the rationale. If the agent required multiple steps to fix the issue, or if you are unsure, it is not escaped.
 Mark escape_status "unescaped" in every other case, including whenever you are unsure.
 A passing final verification never makes a block escaped.
 Do not label a diagnostic probe or test run merely because its output exposes an earlier defect.
-Do not label a redundant but correct read or search; CodeTraceBench scores unuseful steps separately, and this run scores incorrect steps only.
+Do not label a redundant but correct read or search; CodeTraceBench scores unuseful steps separately, and this run scores incorrect steps only. Never include a correct step in a block just to bridge two incorrect steps; instead, emit two separate blocks.
 Do not label a step solely because final verification failed.
 When final verification is unavailable, trace backward from the latest failure evidence inside the trajectory itself.
 Every step in a reported block MUST be the positive integer n from an existing assistant LLM span named step-<n>.
 Never select an EVALUATOR, TOOL, CHAIN, final-verification, benchmark-verification, or message-<n> span.
 Before emitting a finding, inspect every covered span's attributes.content and describe only the actions shown there.
-Report at most ${MAX_INCORRECT_BLOCKS} blocks and at most ${MAX_INCORRECT_BLOCK_STEPS} steps in one block; when more candidates than that exist, report the ones whose chains carry the clearest downstream evidence.
-When the final verification failed, never return an empty findings array: name at least the single best-supported error-critical step, at lower confidence when the evidence is thin.
+Report at most 16 blocks and at most 12 steps in one block; when more candidates than that exist, report the ones whose chains carry the clearest downstream evidence.
 When the trajectory has no incorrect steps — its final verification passed and the final-stage sweep found no reverted, superseded, or corrected action — return an empty findings array.`
 
 const AGENT_RX_PROMPT = `Analyze exactly one failed agent trajectory.

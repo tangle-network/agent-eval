@@ -211,6 +211,9 @@ It does not prove the run was correct.
 Measure the analyst on labeled traces before using its findings for automated changes.
 At minimum, report issue recall, finding precision, exact evidence accuracy, trusted-negative false positives, repeat agreement, failures, calls, tokens, cost, and latency.
 
+The certified reference for the shipping CodeTraceBench configuration lives in `benchmarks/trace-analysis/codetracebench-glm52-certified-20260801/` (pre-registered two-sealed-split protocol, all arms and paired CIs disclosed); cite numbers from there, never from spent dev splits.
+Cross-run and pooled comparisons use `benchmarks/trace-analysis/tools/compare-analyst-runs.mjs`.
+
 `runAnalystBenchmark()` compares any `AnalystBenchmarkRunner` implementations.
 `agent-eval analyst-benchmark` runs the public AgentRx or CodeTraceBench adapters with:
 

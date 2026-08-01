@@ -42,3 +42,39 @@ Verified synthetic coverage for the five trace families. Missing behavior/target
 Built package smoke on local private traces: 33 sessions joined to 33 `RunRecord`s and emitted 13,137 decision rows. Breakdown: Codex 2,172 decisions, Claude Code 10,198, Kimi Code 597, OpenCode 168, PiGraph 2. Failure recovery had support in Codex, Claude Code, Kimi Code, and OpenCode; all policy reports held because behavior/target propensities are missing.
 
 Next: run real local corpus measurement and keep the stable belief-state API gate closed until the empirical support thresholds clear.
+
+## 2026-08-01 - Recursive trace analyst evolve round closed
+
+Goal: recursive DSPy-RLM analyst beats one-shot on CodeTraceBench scored micro F1.
+Outcome: dev-split lift real (+8.9pp, 0.3644→0.4536), holdout transfer failed (−4.0pp micro, +5.8pp macro on 32 disjoint cases); accuracy claim NOT promoted.
+Correctness infrastructure promoted on its own proofs: Arm M recoveries (64e724d), Arm S typed environment engine (eca36d6), fail-loud product path (traces#64, agent-eval#508, supervisor-lab#48 all merged).
+
+Best branch: `evolve/analyst-stack` @ 44438de in worktree agent-eval-arm-vote-20260731.
+Instrument kept: disjoint 32-case holdout (/dev/shm/ctb-holdout-labels.json sha 53af5ffe…) + scratchpad compare_arms.py (paired cluster bootstrap).
+
+Next constraint (diagnosed, unfunded): wide-cascade under-extension — holdout gold has 9-wide blocks; the stack emits narrow typed blocks (clap-4248: gold 23-31, stack (32,33) both reps, baseline (23,30)=0.87).
+Fix direction: extend-while-chain-holds boundary doctrine + width-aware falsification; re-certify with ≥3 reps (2-rep CI ±0.15-0.28 cannot certify ±4pp deltas); then stronger controller (Claude via router); 69 more compatible upstream cases to widen the instrument.
+
+Dead ends (do not re-fund): consensus voting under any aggregator (oracle-pick 0.396 ≈ single-run 0.393 at 3× cost); suppression-style prompt caution (P1 0.218); investigation depth as an accuracy lever.
+
+## 2026-08-01 - Analyst stack SHIPPED (PR #514 merged)
+
+All 9 commits on main: M recoveries, S typed environment engine, V dormant consensus flag, P2+W+W2 rubric-aligned prompt.
+Shipped claim (pooled, 64 labeled cases, 2 reps): 0.3757 vs shipped-baseline 0.340 micro (+3.5pp), macro up on both splits, 1 failed run vs 2.
+Regime structure disclosed in PR: +8.2pp on wide-cascade gold, −1.5pp on narrow gold vs baseline.
+holdout-2 (cascade-skewed, 188 gold steps, sealed, /dev/shm/ctb-holdout2-*) remains UNSPENT — reserve for certifying the next width-adaptivity arm.
+Side-quests all merged: traces#64, agent-eval#508, supervisor-lab#48, agent-runtime#657/#659/#662/#664, agent-knowledge#105.
+
+## 2026-08-01 - Multi-pursue round: GEPA prompt certified as stock; W rejected; replay-verify shipped
+
+Four parallel tracks off main 856b3a6, all with executed proofs; two sealed splits burned once under a pre-registered protocol.
+
+Outcome: **GEPA-optimized prompt PROMOTED and shipped as the stock analyst prompt** — pooled-sealed micro 0.4809 vs incumbent 0.4285 (+5.2pp over 138 fresh observations, 0 failed runs, precision +9.7pp on cascade gold).
+The hand-designed width-adaptive arm (W) was REJECTED by its own pre-registered gate (0.4047 pooled; its dev/h1 edge did not transfer — the second consecutive transfer failure for hand-tuned doctrine edits, now a pattern).
+Convergence note: GEPA independently rediscovered W's split/boundary discipline and sharpened it (never bridge correct steps; drop "acts-on" from extension).
+
+Also shipped: traces#69 execution-replay verification (36/36 prefix replay, counterfactual proof on zstd-1733, 26.6s); agent-eval#516 comparison harness (373/373 bit-match vs published artifacts); agent-eval#515 docs truth alignment; split3 built (37 rows = the entire remaining compatible pool, unbiased by construction).
+
+Protocol lessons (measured): parallel measurement runs are FATAL (96/96 uniform wipeout from contention; serial probe immediately healthy) — strictly serial chains only; builder agents skip lint (repeat of finding #3) — full battery after any merge.
+
+Open problems, ranked: (1) thin-gold narrow regime — every config collapses to 0.17-0.18 micro on split3; (2) both sealed splits now SPENT — OpenHands/Terminus2 importers (742 rows) are the instrument unlock; (3) GEPA round 2 from the new stock baseline (train on more scenarios, micro-aligned metric via per-case TP/FP/FN counts); (4) replay-verify → gold-labeled error steps + analyst-finding-to-fix-command wire.

@@ -626,7 +626,7 @@ describe('public analyst benchmark output adapters', () => {
 
   it('matches the public incorrect-step task, including recovered errors', () => {
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'a repair attempt that is itself wrong, partial, or later superseded sit inside the block',
+      'A cascade of repeated failed attempts at the same wrong approach is one maximal block',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
       'A solved trajectory still carries every mistake made along the way',
