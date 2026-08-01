@@ -383,6 +383,23 @@ export const KIND_EXPECTED_SUBJECTS: Record<string, ReadonlyArray<FindingSubject
     'websearch.outdated',
     'prior-run-summary',
   ],
+  // Two loci in one set, split by who was wrong. A divergence the agent
+  // caused is fixed on a behavior surface (instructions, skill, tool-doc,
+  // workflow, hook, memory, profile); a divergence the user's own ambiguous
+  // request caused is fixed by a clarifying-question or checkpoint policy,
+  // which is `scaffolding`. Every entry is already an `improvement` locus, so
+  // this kind adds no `FindingSubject` variant and needs no adapter routing
+  // it does not already have.
+  'intent-divergence': [
+    'system-prompt',
+    'skill',
+    'tool-doc',
+    'workflow',
+    'hook',
+    'scaffolding',
+    'memory',
+    'agent-profile',
+  ],
   'knowledge-poisoning': [
     'knowledge.wiki',
     'knowledge.claim',

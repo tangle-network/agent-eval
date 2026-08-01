@@ -451,7 +451,7 @@ Controls:
   --rlm-samples <positive integer> Recursive-engine runs per case; above 1 the
                                    step-level majority consensus is scored
                                    (CodeTraceBench + dspy-rlm only). Default: 1
-  --max-output-tokens <positive>   Model output limit per call. Default: 4096
+  --max-output-tokens <positive>   Model output limit per call. Default: 16384
   --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
   --max-cost-usd <positive>        Run-wide spend limit. Default: 5
@@ -516,7 +516,7 @@ function parseCommandConfig(
       baseUrl: openAiCompatibleBaseUrl(requiredFlag(flags, 'base-url')),
       apiKey,
       model: requiredFlag(flags, 'model'),
-      maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 4_096),
+      maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 16_384),
       timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
       maxCostUsdPerAnalysis: maxCostUsd,
       dspyRlm: {

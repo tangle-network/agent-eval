@@ -9,6 +9,7 @@ import {
   renderFindingSubject,
 } from './finding-subject'
 import {
+  DEFAULT_TRACE_ANALYST_KINDS,
   FAILURE_MODE_KIND_SPEC,
   IMPROVEMENT_KIND_SPEC,
   KNOWLEDGE_GAP_KIND_SPEC,
@@ -303,8 +304,10 @@ describe('renderFindingSubject', () => {
 
 describe('KIND_EXPECTED_SUBJECTS', () => {
   it('covers every emitted kind in DEFAULT_TRACE_ANALYST_KINDS', () => {
+    // Derived, not listed: a hardcoded roster turns every new kind into a
+    // spurious failure here while saying nothing about the coverage it names.
     expect(Object.keys(KIND_EXPECTED_SUBJECTS).sort()).toEqual(
-      ['failure-mode', 'improvement', 'knowledge-gap', 'knowledge-poisoning'].sort(),
+      DEFAULT_TRACE_ANALYST_KINDS.map((kind) => kind.id).sort(),
     )
   })
 
