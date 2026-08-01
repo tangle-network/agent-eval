@@ -1,5 +1,9 @@
 # Distributed campaign execution: coordinator-on-A, workers-on-B
 
+> **Status: source-only, not published as of 0.140.x.** `@tangle-network/agent-eval/adapters/http` (`httpDispatch`, `runDispatchServer`) exists in source at `src/adapters/http.ts` but has no matching entry in `package.json` `exports`.
+> This doc describes the design and the wire shape.
+> Every `import` line below, run against `@tangle-network/agent-eval` installed from npm, throws `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
 The coordinator process runs `runCampaign()`, `runImprovementLoop()`, or `compareOptimizationMethods()`.
 The worker runs your actual agent.
 They do not have to live in the same process, machine, region, or cloud.
@@ -53,7 +57,7 @@ Coordinator-on-A talks to one worker-on-B over HTTP.
 **Coordinator side (machine A):**
 
 ```ts
-import { httpDispatch } from '@tangle-network/agent-eval/adapters/http'
+import { httpDispatch } from '@tangle-network/agent-eval/adapters/http'  // not currently published — see status note
 
 const dispatch = httpDispatch<MyScenario, MyArtifact>({
   url: 'https://worker.your-infra.com/dispatch',
@@ -70,7 +74,7 @@ await runImprovementLoop({ scenarios, baselineSurface, dispatchWithSurface: (sur
 **Worker side (machine B):**
 
 ```ts
-import { runDispatchServer } from '@tangle-network/agent-eval/adapters/http'
+import { runDispatchServer } from '@tangle-network/agent-eval/adapters/http'  // not currently published — see status note
 
 const handle = await runDispatchServer<MyScenario, MyArtifact>({
   dispatch: async (scenario, ctx) => {
@@ -93,7 +97,7 @@ The coordinator picks a region per cell; the same `httpDispatch` routes to
 different worker URLs based on placement.
 
 ```ts
-import { httpDispatch } from '@tangle-network/agent-eval/adapters/http'
+import { httpDispatch } from '@tangle-network/agent-eval/adapters/http'  // not currently published — see status note
 
 const REGION_URLS: Record<string, string> = {
   'us-east': 'https://worker-use1.your-infra.com/dispatch',

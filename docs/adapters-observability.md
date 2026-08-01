@@ -1,22 +1,28 @@
 # Composing agent-eval with your observability stack
 
 `@tangle-network/agent-eval` ships its own OpenTelemetry pipeline
-(`@tangle-network/agent-eval/telemetry`) that emits spans for every
-cell, judge invocation, mutator proposal, and gate decision. **It's
-just OTel**: same protocol as Langfuse SDK, OpenLLMetry, Arize
-Phoenix, TraceAI, and the OpenTelemetry GenAI semantic conventions.
+(`createOtelExporter`, from `@tangle-network/agent-eval/traces`) that
+emits spans for every cell, judge invocation, mutator proposal, and
+gate decision. **It's just OTel**: same protocol as Langfuse SDK,
+OpenLLMetry, Arize Phoenix, TraceAI, and the OpenTelemetry GenAI
+semantic conventions.
 
 That means: if you already instrument your agent with any OTel-native
 observability tool, the two compose **for free at the protocol layer**.
 This doc shows the composition pattern; no agent-eval-specific adapter
 code required.
 
-## TL;DR: one OTel context, two emitters
+## TL;DR: one collector, two independent emitters
 
-1. Set up a shared OTel tracer provider in your process (or service mesh).
+1. Set up an OTel collector endpoint (or service mesh) that every side exports to.
 2. Configure your observability tool (TraceAI / Langfuse / OpenLLMetry /
-   Phoenix) to register its instrumentations against that provider.
-3. Configure agent-eval's `/telemetry` exporter against the same provider.
+   Phoenix) to register its instrumentations against a tracer provider that
+   points at that endpoint.
+3. Configure agent-eval's exporter (`createOtelExporter`, from
+   `@tangle-network/agent-eval/traces`) against the same endpoint. It has no
+   `@opentelemetry/*` SDK dependency of its own — it reads
+   `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` directly, so
+   pointing both sides at the same collector is usually just sharing env vars.
 4. Run a campaign. Both sets of spans land at your OTel collector.
 5. Filter / route / fan-out at the collector layer: Jaeger, Tempo,
    Phoenix, Langfuse cloud, your private collector, whatever.
@@ -35,13 +41,18 @@ it*. Unified at the trace level, you see both as one timeline per cell.
 - Compose: register TraceAI's instrumentations on the global tracer
   provider, then either point both at your OTLP collector or at
   TraceAI's hosted backend if you want their UI.
-- **Or use the bridge: `@tangle-network/agent-eval/adapters/otel`.**
-  Forwards finished OTel spans (`ReadableSpan` shape) directly into the
-  hosted-tier ingest, lifting `tangle.runId` / `tangle.scenarioId` /
-  `tangle.cellId` / `tangle.generation` to first-class wire fields so
-  the dashboard pivots correctly. Zero dependency on `@opentelemetry/*`
-  at the substrate; consumers pass spans from their own OTel SDK.
+- **A bridge exists in source but is not published:** `createOtelBridge`
+  (`src/adapters/otel.ts`) converts finished OTel spans (`ReadableSpan`
+  shape) and forwards them into the hosted-tier ingest, lifting
+  `tangle.runId` / `tangle.scenarioId` / `tangle.cellId` /
+  `tangle.generation` to first-class wire fields so the dashboard pivots
+  correctly. As of 0.140.x there is no `./adapters/otel` entry in
+  `package.json` `exports`, so it is not importable from the published
+  package — the snippet below documents the design; it will throw
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` against `@tangle-network/agent-eval`
+  installed from npm.
   ```ts
+  // (not currently published — see status note above)
   import { createHostedClient } from '@tangle-network/agent-eval/hosted'
   import { createOtelBridge } from '@tangle-network/agent-eval/adapters/otel'
 
@@ -95,11 +106,14 @@ provider.register()
 //    Example for TraceAI / OpenLLMetry / Langfuse: call their init.
 //    (See each tool's docs.)
 
-// 3. agent-eval is already OTel-native; it picks up the same global
-//    provider. Just ensure `@tangle-network/agent-eval/telemetry` is
-//    initialized for the campaign:
-import { setOtelExporter } from '@tangle-network/agent-eval/telemetry'
-setOtelExporter({ kind: 'otel-global' })  // use the global provider
+// 3. agent-eval's exporter is not built on the OTel SDK provider above —
+//    it's a minimal OTLP/JSON poster with no `@opentelemetry/*` dependency
+//    of its own. It reads the same OTEL_EXPORTER_OTLP_ENDPOINT env var, so
+//    pointing it at the same collector is usually the only step needed:
+import { createOtelExporter } from '@tangle-network/agent-eval/traces'
+const exporter = createOtelExporter()  // undefined if no endpoint is configured
+// Feed it spans as your campaign's TraceEmitter closes them; call
+// `exporter?.shutdown()` when the campaign ends to flush pending spans.
 
 // 4. Run your campaign: both sets of spans land at the collector.
 import { runEval } from '@tangle-network/agent-eval/contract'
@@ -132,5 +146,5 @@ works today without them.
 
 No new dependencies. No new peer deps. No `@traceai/*`, no
 `@langfuse/*`, no `@opentelemetry/*` in our manifest. You bring the
-observability stack you want; agent-eval just emits OTel and respects
-whatever provider is registered.
+observability stack you want; agent-eval's exporter emits the same
+OTLP wire format independently, keyed on the endpoint you point it at.

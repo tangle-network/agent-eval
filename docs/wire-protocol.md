@@ -96,13 +96,70 @@ GET /v1/version
 ```json
 {
   "package": "@tangle-network/agent-eval",
-  "version": "0.20.10",
+  "version": "0.140.1",
   "wireVersion": "1.0.0",
-  "apiSurface": ["judge", "listRubrics", "version"]
+  "apiSurface": ["judge", "listRubrics", "version", "feedback.ingest", "traces.ingest"]
 }
 ```
 
 `version` matches the package version. `wireVersion` bumps independently: only on breaking request/response schema changes. Package versions can differ across releases as long as `wireVersion` matches.
+
+### `traces.ingest`: batch-ingest production trace events
+
+```http
+POST /v1/traces/ingest
+{
+  "events": [
+    {
+      "eventId": "evt_01h...",
+      "runId": "run_01h...",
+      "spanId": "span_01h...",
+      "kind": "log",
+      "timestamp": 1732556400000,
+      "payload": { "message": "..." }
+    }
+  ]
+}
+```
+
+```json
+{
+  "accepted": 1,
+  "rejected": 0,
+  "errors": []
+}
+```
+
+Also accepts `content-type: application/x-ndjson` — one `TraceEvent` object per line instead of a wrapping `{"events": [...]}` body. Max 10,000 events per call; chunk bigger streams.
+
+Best-effort: each event is appended independently, so one bad event doesn't poison the batch — rejects land in `errors[]`, keyed by `eventId`. The underlying store is append-only: retries of the same payload produce duplicate events, so consumers should de-duplicate by `eventId` downstream (production traces frequently land via at-least-once buses — Kafka, SQS — where dedup is unavoidable). Requires a `traceStore` passed to `createApp`; without one this returns `503 service_unavailable`.
+
+`kind` is one of `log`, `error`, `budget_decrement`, `budget_breach`, `state_mutation`, `policy_violation`, `redaction_applied`, `custom`, matching the `TraceSchema` v1 `EventKind` enum. `payload` is free-form — the runtime owns its shape.
+
+### `feedback.ingest`: ingest a review/feedback trajectory
+
+```http
+POST /v1/feedback
+{
+  "id": "traj_01h...",
+  "task": { "intent": "Summarize the incident report." },
+  "labels": [
+    { "source": "user", "kind": "approve", "value": true, "createdAt": "2026-08-01T00:00:00Z" }
+  ],
+  "createdAt": "2026-08-01T00:00:00Z"
+}
+```
+
+```json
+{
+  "id": "traj_01h...",
+  "persisted": true
+}
+```
+
+Idempotent on `id`: re-posting the same id replaces the prior record. Requires a `feedbackStore` passed to `createApp`; without one this returns `503 service_unavailable`.
+
+`task.intent` and `createdAt` are required; `attempts` and `labels` default to `[]`; `outcome`, `split` (`train` / `dev` / `test` / `holdout`), and `tags` are optional. See `FeedbackTrajectorySchema` in `src/wire/schemas.ts` for the full shape, including per-attempt artifacts, proposed actions, and per-label severity.
 
 ### `GET /healthz`: liveness
 
@@ -132,6 +189,7 @@ Every error response uses the same shape:
 | 404 | `rubric_not_found` | Unknown `rubricName`. |
 | 500 | `judge_error` | LLM returned malformed output. |
 | 500 | `internal_error` | Unexpected server error. |
+| 503 | `service_unavailable` | `traces.ingest` or `feedback.ingest` called without the matching store passed to `createApp`. |
 
 stdio RPC uses the same shape inside an envelope: `{"error": {...}}` instead of `{"result": {...}}`. Exit code is non-zero on error.
 
@@ -154,6 +212,16 @@ curl http://localhost:5005/v1/rubrics | jq
 curl -X POST http://localhost:5005/v1/judge \
   -H 'content-type: application/json' \
   -d '{"rubricName":"anti-slop","content":"We just shipped …"}'
+
+# traces ingest
+curl -X POST http://localhost:5005/v1/traces/ingest \
+  -H 'content-type: application/json' \
+  -d '{"events":[{"eventId":"evt_1","runId":"run_1","kind":"log","timestamp":1732556400000,"payload":{}}]}'
+
+# feedback ingest
+curl -X POST http://localhost:5005/v1/feedback \
+  -H 'content-type: application/json' \
+  -d '{"id":"traj_1","task":{"intent":"Summarize the incident report."},"createdAt":"2026-08-01T00:00:00Z"}'
 ```
 
 ## Using stdio RPC
