@@ -62,7 +62,12 @@ const SEED = 17
 const MODEL = 'glm-5.2'
 const BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
-const MAX_EVALUATIONS = SMOKE ? 3 : 40
+const EVALUATIONS_OVERRIDE = argValue('--max-evaluations')
+const MAX_EVALUATIONS = EVALUATIONS_OVERRIDE
+  ? Number.parseInt(EVALUATIONS_OVERRIDE, 10)
+  : SMOKE
+    ? 3
+    : 40
 const COST_CEILING_USD = SMOKE ? 3 : 15
 const MAX_PROPOSER_COST_USD = SMOKE ? 1 : 4
 const GEPA_TIMEOUT_MS = SMOKE ? 3_600_000 : 21_600_000
