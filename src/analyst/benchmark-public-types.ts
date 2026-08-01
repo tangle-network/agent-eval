@@ -6,6 +6,20 @@ import type { AnalystRunInputs } from './types'
 
 export type PublicAnalystBenchmarkDataset = 'agentrx' | 'codetracebench'
 
+/**
+ * Caller-supplied replacement for the recursive runner's analyst instructions.
+ * Only the `dspy-rlm` runner accepts one; the direct runner rejects it, and the
+ * recursive runner's abstention fallback keeps the stock direct prompt. Every
+ * recorded protocol digest for an override run binds the stock protocol digest
+ * to `sha256`, so an override run is never confusable with a stock run.
+ */
+export interface AnalystInstructionsOverride {
+  /** Complete instruction text used instead of the shipped RLM instructions. */
+  readonly text: string
+  /** SHA-256 hex digest of `text`. */
+  readonly sha256: string
+}
+
 export interface PublicAnalystBenchmarkModelConfig {
   baseUrl: string
   apiKey: string
@@ -16,6 +30,8 @@ export interface PublicAnalystBenchmarkModelConfig {
   pricing?: CustomTokenPricing
   /** Independent per-case recursive-engine spend limit. Default: 1 USD. */
   maxCostUsdPerAnalysis?: number
+  /** Replaces the shipped RLM instructions. `dspy-rlm` runner only. */
+  instructionsOverride?: AnalystInstructionsOverride
   dspyRlm?: {
     runner?: ExternalOptimizerRunnerCommand
     maxIterations?: number

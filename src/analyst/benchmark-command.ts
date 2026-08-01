@@ -47,6 +47,10 @@ import {
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
 } from './benchmark-implementation'
 import {
+  effectiveAnalystProtocolSha256,
+  readAnalystInstructionsOverride,
+} from './benchmark-instructions-override'
+import {
   renderCodeTraceCalibrationMarkdown,
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
@@ -58,7 +62,6 @@ import {
   type PublicAnalystBenchmarkModelConfig,
   type PublicBenchmarkSelectionReport,
   preparePublicAnalystBenchmark,
-  publicBenchmarkProtocolSha256,
 } from './benchmark-real-model'
 import { renderAnalystBenchmarkMarkdown } from './benchmark-report'
 import {
@@ -262,7 +265,10 @@ async function executeAnalystBenchmarkCommand(
           caseSelection: prepared.selection.method,
           caseSelectionSeed: config.seed,
           selectionStratified: prepared.selection.stratified,
-          protocolSha256: publicBenchmarkProtocolSha256(config.dataset),
+          protocolSha256: effectiveAnalystProtocolSha256(
+            config.dataset,
+            config.model.instructionsOverride,
+          ),
           implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
           dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
           populationRepresentativenessProven: false,
@@ -329,7 +335,13 @@ async function executeAnalystBenchmarkCommand(
         timeoutMs: config.model.timeoutMs,
         maxCostUsd: config.maxCostUsd,
         maxArtifactBytes: config.maxArtifactBytes,
-        analystProtocolSha256: publicBenchmarkProtocolSha256(config.dataset),
+        analystProtocolSha256: effectiveAnalystProtocolSha256(
+          config.dataset,
+          config.model.instructionsOverride,
+        ),
+        ...(config.model.instructionsOverride
+          ? { instructionsOverrideSha256: config.model.instructionsOverride.sha256 }
+          : {}),
         implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
         dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
       },
@@ -451,6 +463,11 @@ Controls:
   --rlm-samples <positive integer> Recursive-engine runs per case; above 1 the
                                    step-level majority consensus is scored
                                    (CodeTraceBench + dspy-rlm only). Default: 1
+  --instructions-file <path>       Replace the recursive analyst instructions
+                                   with this file's text (dspy-rlm only). The
+                                   recorded protocol digest binds the stock
+                                   protocol to the override text, and
+                                   result.json records instructionsOverrideSha256.
   --max-output-tokens <positive>   Model output limit per call. Default: 16384
   --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
@@ -498,6 +515,13 @@ function parseCommandConfig(
   if (rlmSamples > 1 && analyst !== 'dspy-rlm') {
     throw new Error('--rlm-samples above 1 requires --analyst dspy-rlm')
   }
+  const instructionsFile = flags.get('instructions-file')?.trim()
+  if (instructionsFile && analyst !== 'dspy-rlm') {
+    throw new Error('--instructions-file requires --analyst dspy-rlm')
+  }
+  const instructionsOverride = instructionsFile
+    ? readAnalystInstructionsOverride(instructionsFile)
+    : undefined
   if (rlmSamples > 1 && dataset !== 'codetracebench') {
     throw new Error(
       '--rlm-samples above 1 requires --dataset codetracebench; step-level consensus is defined on its block grammar',
@@ -519,6 +543,7 @@ function parseCommandConfig(
       maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 16_384),
       timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
       maxCostUsdPerAnalysis: maxCostUsd,
+      ...(instructionsOverride ? { instructionsOverride } : {}),
       dspyRlm: {
         ...(python ? { runner: { command: python } } : {}),
         samples: rlmSamples,
@@ -584,6 +609,7 @@ const KNOWN_FLAGS = new Set([
   'concurrency',
   'repetitions',
   'rlm-samples',
+  'instructions-file',
   'max-output-tokens',
   'python',
   'timeout-ms',

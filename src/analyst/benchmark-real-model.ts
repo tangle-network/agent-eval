@@ -23,6 +23,7 @@ export {
 } from './benchmark-public-prompt'
 export { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 export type {
+  AnalystInstructionsOverride,
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,

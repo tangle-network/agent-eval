@@ -26,10 +26,10 @@ import {
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
 } from './benchmark-implementation'
-import {
-  type PreparedPublicAnalystBenchmark,
-  type PublicAnalystBenchmarkDataset,
-  publicBenchmarkProtocolSha256,
+import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
+import type {
+  PreparedPublicAnalystBenchmark,
+  PublicAnalystBenchmarkDataset,
 } from './benchmark-real-model'
 
 export interface AnalystBenchmarkOutputPaths {
@@ -65,6 +65,7 @@ interface AnalystBenchmarkPersistenceConfig {
     model: string
     maxOutputTokens: number
     timeoutMs: number
+    instructionsOverride?: { sha256: string }
   }
   limit: number
   seed: number
@@ -156,7 +157,13 @@ export function createRunIdentity(
       rlmSamples: config.rlmSamples,
       maxCostUsd: config.maxCostUsd,
       maxArtifactBytes: config.maxArtifactBytes,
-      analystProtocolSha256: publicBenchmarkProtocolSha256(config.dataset),
+      analystProtocolSha256: effectiveAnalystProtocolSha256(
+        config.dataset,
+        config.model.instructionsOverride,
+      ),
+      ...(config.model.instructionsOverride
+        ? { instructionsOverrideSha256: config.model.instructionsOverride.sha256 }
+        : {}),
       implementationSha256: ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
       dependencyLockSha256: ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
       runnerIds: ['empty', config.analyst] as const,

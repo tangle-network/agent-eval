@@ -33,6 +33,7 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-dataset-utils.ts',
   'src/analyst/benchmark-datasets.ts',
   'src/analyst/benchmark-evidence-validation.ts',
+  'src/analyst/benchmark-instructions-override.ts',
   'src/analyst/benchmark-public-adapters.ts',
   'src/analyst/benchmark-public-calibration.ts',
   'src/analyst/benchmark-public-consensus.ts',
