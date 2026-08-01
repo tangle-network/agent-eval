@@ -82,6 +82,7 @@ export type {
   AnalystRunnerComparison,
 } from './benchmark-comparison'
 export { compareAnalystRunners } from './benchmark-comparison'
+export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export type {
   AgentRxBenchmarkCaseOptions,
   AgentRxFailure,
