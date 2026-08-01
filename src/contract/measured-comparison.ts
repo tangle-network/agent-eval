@@ -418,13 +418,22 @@ export function evaluatePairedMeasurements<TRun>(
   //
   // The blocking bar used to be `!candidate.passed` on any cell, i.e. the
   // candidate had to pass EVERY benchmark task. On a benchmark hard enough to
-  // be worth running, nothing passes everything, so the bar was unreachable:
-  // measured live, a candidate that lifted the paired mean from 0.333 to 0.989
-  // with a bootstrap interval of [0.36, 0.65] was held with "candidate failed 2
-  // benchmark tasks" — and the 2 were tasks the BASELINE failed too. That is an
-  // improvement being reported as a defect, and it is why an improvement null
-  // measured through this gate cannot be read as evidence that improvement does
-  // not work: the gate rejected winners.
+  // be worth running, nothing passes everything, so the bar was unreachable.
+  //
+  // The demonstration is the synthetic case `repairedNotRegressed(8)` in this
+  // file's tests: baseline mean 0.3339, candidate mean 0.8685, paired delta
+  // +0.5346 — held with "candidate failed 2 benchmark tasks", where both were
+  // tasks the BASELINE failed too. An improvement reported as a defect.
+  //
+  // Stated precisely because an earlier draft of this comment was not: that case
+  // is CONSTRUCTED, not observed. No live run of this gate is on disk, and no
+  // arm of the work that found this defect ever called a model. The argument for
+  // the change is the unreachable bar itself, which is visible in the predicate;
+  // it does not rest on a measured candidate, and none should be claimed here.
+  //
+  // The consequence still holds and is the reason this matters: an improvement
+  // null measured through the OLD gate cannot be read as evidence that
+  // improvement does not work, because the gate could reject winners.
   //
   // The honest bar is improvement WITHOUT regression. The improvement half is
   // already carried by `paired-significance` (the lift must clear the threshold
