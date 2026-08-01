@@ -1166,9 +1166,17 @@ describe('candidate experiment comparison', () => {
  * The promotion gate's task check used to require PERFECTION: a candidate
  * shipped only if `candidate.passed` held on every benchmark cell. On any
  * benchmark hard enough to be worth running nothing passes everything, so the
- * bar was unreachable — a candidate that lifted the paired mean by +0.53 with a
- * bootstrap interval of [0.36, 0.65] was held with "candidate failed 2 benchmark
- * tasks", and the 2 were tasks the baseline failed too.
+ * bar was unreachable — under the old check the CONSTRUCTED case
+ * `repairedNotRegressed(8)` below (baseline mean 0.3339, candidate mean 0.8685,
+ * paired delta +0.5346) would be held with "candidate failed 2 benchmark
+ * tasks", and the 2 are tasks the baseline failed too.
+ *
+ * That case is constructed, not observed: no live run of this gate is on disk.
+ * An earlier draft of this docblock reported it as a measurement and quoted a
+ * bootstrap interval that nothing produced; commit d095318 retracted the same
+ * claim from the source comment, and it is retracted here for the same reason.
+ * The argument for the change is the unreachable bar itself, visible in the
+ * predicate, which needs no measured candidate.
  *
  * The bar is now improvement WITHOUT regression. Every test below pins BOTH
  * directions: the case the gate must now let through, and the neighbouring case
@@ -1392,12 +1400,12 @@ describe('promotion gate — improvement without regression, not perfection', ()
  * live: `paired interval lower bound 0.6666666666666669 did not clear 0`, which
  * is self-contradicting, because 0.667 does clear 0.
  *
- * The refusal itself is correct and is NOT relaxed here. Re-measured rather than
- * taken on trust: under the bounded asymmetric null the estimator documents
- * (2 % of pairs drop by 1.0, the rest gain 0.0204, true mean paired delta
- * exactly 0), a constant-positive sample is what 87.4 % of n = 6 samples look
- * like, so promoting on a zero-variance sample would false-promote a true-zero
- * candidate most of the time. What is fixed is that the gate now says which
+ * The refusal itself is correct and is NOT relaxed here. Under the bounded
+ * asymmetric null the estimator documents (2 % of pairs drop by 1.0, the rest
+ * gain 0.0204, true mean paired delta exactly 0), a constant-positive sample is
+ * exactly a sample in which no pair drew the drop, so its frequency is
+ * closed-form 0.98^n — 88.6 % at n = 6. Promoting on a zero-variance sample
+ * would therefore false-promote a true-zero candidate most of the time. What is fixed is that the gate now says which
  * interval decided and why, and routes a degenerate sample to `need_more_work`
  * (fix the held-out set) instead of `hold` (fix the candidate).
  */
