@@ -4,6 +4,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased] - agent-graph retirements (tangle-network/agent-runtime#694)
+
+### Changed
+
+- **Wire-format change: OTLP trace/span ids.** All three private paddings — `padTraceId` in `store-to-otlp` and `otel-export`, plus the same strip+pad body as `runToTraceId`/`padSpanId` in `otel.ts` — are retired for `deriveHexId` from `@tangle-network/agent-trace-contract` (new dependency), routed through one shared `src/trace/wire-ids.ts`. The exporters previously produced DIFFERENT trace ids for the same run, and the strip+pad family emitted invalid hex that embedded the raw run id in the wire id — flagged by the contract's own `non-hex-id` validator. Any id that is already a valid W3C id passes through unchanged (an inbound `traceparent` survives); every other id now derives to the contract id, so trace ids emitted by prior releases for the same run DO NOT match ids emitted by this one.
+- `MultishotShape.buildOpener` / `buildDriverSystemPrompt` are now OPTIONAL: omitted callbacks derive from the `AgentProfile` + persona payload (`defaultShapeFromProfile`, exported), so a pure-profile `runMultishot({ profile, persona })` works with no role-builder functions. Existing shapes keep working unchanged.
+
+### Deprecated
+
+- `AgentDriver`, `ProductClient`, `decideNextUserTurn`, `buildDriverSystemPrompt` — a one-product REST client and its persona-driver loop do not belong in the generic substrate; they move to the product repo / become a 2-node agent graph in the next major. Each warns on first use (once per process).
+
+### Removed
+
+- `buildWorkerDriverSystemPrompt` + `WorkerDriverContext` (zero callers in any package, re-measured). Its knowledge ships as seed DATA instead: `WORKER_DRIVER_DOCTRINE` (the "never write a thin steer" driving contract) and `HARNESS_BRIEFS` (per-harness capability + caveat briefs), so a driver profile can seed from it and an optimizer can improve it — a role expressed as a code function can never improve.
+
 ## [0.140.1] - 2026-07-31 - a supervisor journal is read, or reported unreadable
 
 ### Fixed

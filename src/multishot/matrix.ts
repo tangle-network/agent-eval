@@ -65,8 +65,9 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   profiles: Array<{ id: string; value: AgentProfile }>
   /** Persona axis. */
   personas: TPersona[]
-  /** Persona-shaping callbacks. */
-  shape: MultishotShape<TPersona>
+  /** Persona-shaping callbacks. Optional — omitted callbacks are derived per
+   *  cell from that cell's profile + persona payload (pure-profile path). */
+  shape?: MultishotShape<TPersona>
   /** Judge configurations. */
   judges: MultishotJudges<TPersona>
   /** Tool definitions advertised to the agent. Defaults to delegate_research + delegate_code. */

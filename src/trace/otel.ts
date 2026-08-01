@@ -17,6 +17,7 @@ import {
 } from './otlp-attributes'
 import type { Run, Span, TraceEvent } from './schema'
 import type { TraceStore } from './store'
+import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 export const OTEL_AGENT_EVAL_SCOPE = { name: '@tangle-network/agent-eval', version: '0.3.0' }
 
@@ -91,8 +92,8 @@ function spanToOtlp(span: Span, traceId: string, events: TraceEvent[]): OtlpSpan
   const endedAt = span.endedAt ?? span.startedAt
   return {
     traceId,
-    spanId: padSpanId(span.spanId),
-    parentSpanId: span.parentSpanId ? padSpanId(span.parentSpanId) : undefined,
+    spanId: spanIdForWire(span.spanId),
+    parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : undefined,
     name: span.name,
     kind: 1, // SPAN_KIND_INTERNAL
     startTimeUnixNano: msToNs(span.startedAt),
@@ -165,15 +166,6 @@ function msToNs(ms: number): string {
   return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
 }
 
-function padSpanId(id: string): string {
-  // OTLP wants 16-hex spanIds. UUIDs are 32-hex; strip dashes and take first 16.
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 16).padEnd(16, '0')
-}
-
 function runToTraceId(run: Run): string {
-  // OTLP wants 32-hex traceIds. Use runId directly when it's 32-hex already,
-  // else SHA-ish truncate.
-  const cleaned = run.runId.replace(/-/g, '')
-  return cleaned.slice(0, 32).padEnd(32, '0')
+  return traceIdForWire(run.runId)
 }

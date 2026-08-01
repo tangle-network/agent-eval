@@ -28,6 +28,7 @@ import {
 } from './otlp-attributes'
 import { createOtlpFlatLine, epochMillisToIso, spanStatusToOtlp } from './otlp-flat'
 import type { Run, Span, TraceEvent } from './schema'
+import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 /** Marker `FileSystemTraceStore` stamps on partial-update NDJSON rows. */
 interface MaybeUpdate {
@@ -209,7 +210,7 @@ function projectCell(args: {
   }
 
   for (const run of runByRunId.values()) {
-    const traceId = padTraceId(run.runId)
+    const traceId = traceIdForWire(run.runId)
     const agentName = run.variantId ?? run.scenarioId
     const sharedResource = {
       attributes: {
@@ -221,7 +222,7 @@ function projectCell(args: {
       },
     }
 
-    const runSpanId = padSpanId(`run-${run.runId}`)
+    const runSpanId = spanIdForWire(`run-${run.runId}`)
     const runStart = msToIso(run.startedAt)
     const runEnd = msToIso(run.endedAt ?? run.startedAt)
     const runStatus =
@@ -261,8 +262,8 @@ function projectCell(args: {
         JSON.stringify(
           toLine({
             traceId,
-            spanId: padSpanId(span.spanId),
-            parentSpanId: span.parentSpanId ? padSpanId(span.parentSpanId) : runSpanId,
+            spanId: spanIdForWire(span.spanId),
+            parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : runSpanId,
             name: span.name,
             kind: spanKindToOtlpKind(span.kind),
             startTime: msToIso(span.startedAt),
@@ -412,33 +413,4 @@ const toLine = createOtlpFlatLine
 function msToIso(ms: number): string {
   if (ms <= 0) return new Date(0).toISOString()
   return epochMillisToIso(ms) ?? new Date(0).toISOString()
-}
-
-/** OTLP wants 16-hex span ids; eval traces use UUID-ish strings. Hex-strip +
- *  take 16, else deterministic FNV fold. */
-function padSpanId(id: string): string {
-  const cleaned = id.replace(/[^a-f0-9]/gi, '').toLowerCase()
-  if (cleaned.length >= 16) return cleaned.slice(0, 16)
-  return foldTo16Hex(id)
-}
-
-/** OTLP wants 32-hex trace ids; fold deterministically when too short. */
-function padTraceId(id: string): string {
-  const cleaned = id.replace(/[^a-f0-9]/gi, '').toLowerCase()
-  if (cleaned.length >= 32) return cleaned.slice(0, 32)
-  return foldTo32Hex(id)
-}
-
-function foldTo16Hex(s: string): string {
-  let h1 = 0x811c9dc5
-  for (const ch of s) {
-    h1 ^= ch.charCodeAt(0)
-    h1 = Math.imul(h1, 0x01000193) >>> 0
-  }
-  const part = h1.toString(16).padStart(8, '0')
-  return (part + part).slice(0, 16)
-}
-
-function foldTo32Hex(s: string): string {
-  return foldTo16Hex(s) + foldTo16Hex(`${s}::trace`).slice(0, 16)
 }
