@@ -92,6 +92,8 @@ _STEP_SPAN_ID = re.compile(r"^step-([1-9][0-9]*)$")
 _CODETRACE_ANALYSIS_PROMPT = """
 The complete trajectory is already loaded into the REPL as the variables `trajectory` and `final_verification`; read them with Python code instead of re-fetching the trace.
 Follow analyst_instructions for the incorrect-step task definition and block boundaries.
+Decide every block boundary and every step's failed-or-succeeded status from content you actually read: before fixing a block, read each candidate step's action and following observation from `trajectory`, extend the block through steps whose own content re-commits the same mistake, and end it at the first step free of the error; when later steps re-do earlier work, the mistake belongs to the superseded earlier attempts, not to the corrective step that landed clean.
+A step that is not itself part of the mistake splits the chain: submit separate compact blocks rather than one block spanning it.
 Where analyst_instructions describe transport — findings_json, finding subjects, evidence URIs, or excerpts — they are superseded: SUBMIT typed blocks and the caller builds every subject, URI, and excerpt from them.
 Use llm_query or llm_query_batched for focused semantic subjudgments over span content.
 Do not claim that you inspected data you did not retrieve.
@@ -115,9 +117,11 @@ class IncorrectBlock(pydantic.BaseModel):
     last_step: int = pydantic.Field(
         ge=1,
         description=(
-            "The final consecutive step still committing to or compounding the "
-            "same mistake; extend through every such step and stop at the first "
-            "step free of the error. >= first_step, and a block spans at most "
+            "The final consecutive step whose own action or observation still "
+            "commits to, compounds, repeats, or acts on the same mistake; admit "
+            "each step from its own content, so a cascade of repeated failed "
+            "attempts spans all of them and a single-shot mistake ends where the "
+            "same-mistake work ends. >= first_step, and a block spans at most "
             f"{_MAX_INCORRECT_BLOCK_STEPS} steps."
         ),
     )
@@ -164,7 +168,9 @@ class IncorrectBlock(pydantic.BaseModel):
         span = self.last_step - self.first_step + 1
         if span > _MAX_INCORRECT_BLOCK_STEPS:
             raise ValueError(
-                f"block spans {span} steps; the maximum is {_MAX_INCORRECT_BLOCK_STEPS}"
+                f"block spans {span} steps; the maximum is {_MAX_INCORRECT_BLOCK_STEPS} "
+                "— split the chain at the steps you could not admit on their own "
+                "evidence and submit the compact blocks separately"
             )
         if self.consequence_step < self.first_step:
             raise ValueError(
