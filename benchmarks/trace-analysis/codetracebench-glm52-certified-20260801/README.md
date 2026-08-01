@@ -83,3 +83,10 @@ Split3 build receipts: `~/bench-cache/ctb-20260801/split3/` (importer `@tangle-n
 Numbers here describe the configuration whose instructions hash to `d3829fb8…` running on the engine at this tree.
 The spent dev splits (pinned-32, holdout-1) are selection instruments only; do not cite dev numbers as performance claims.
 Both sealed splits are now SPENT for this configuration family — future certification requires fresh splits (OpenHands/Terminus2 importers would add 742 upstream rows).
+
+## Post-certification instrument finding (2026-08-01, disclosed)
+
+Loss decomposition after this certification found split3 positionally degenerate: 27/37 of its cases carry gold on the trajectory's final submit step, so a constant "accuse step_count−1" rule scores micro F1 0.568 there — versus 0.180 for the shipping analyst and 0.092 for the same rule on dev-32.
+split3 measures position-guessing, not analysis quality, and is retired as a certification instrument.
+The promotion decision above is unaffected: holdout-2 alone orders the arms identically (G-winner 0.6288 > incumbent 0.5641 > W 0.5224), and every split3 paired delta was inside noise.
+Full decomposition: `.evolve/narrow-regime-decomposition-2026-08-01.md`.
