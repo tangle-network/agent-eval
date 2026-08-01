@@ -174,9 +174,101 @@ Baseline for those four, read out of the certified GEPA-winner run (`/dev/shm/ce
 
 The smoke is class-conditional by construction: it estimates the effect *within* the input-blind thin-gold class, not a split-level delta. n = 8 observations; it decides whether to pay for a full measurement, nothing more.
 
-### Smoke result
+### Smoke result — primary gate missed, kill gate not triggered
 
-Pending — appended below after the run.
+Run: `/home/drew/bench-cache/ctb-20260801/split3-restored/smoke-run` (8 dspy-rlm observations, 0 failed, glm-5.2 via z.ai, 2 repetitions, GEPA-winner instructions `d3829fb8…`, $1.1723; the run's own `result.json` reports recall 0.3000, precision 0.1500, F1 0.2000, matching the recomputation below).
+Inputs kept beside it: eligible-class labels `…/split3-restored/thin-blind-labels.json` (28 rows) and restored traces `…/split3-restored/traces`.
+The comparison is paired on `caseId` + repetition against the certified GEPA-winner run; prompt, model, engine, and repetition count are identical and the trace bytes are the only difference.
+
+| Measure | baseline input | reasoning restored | delta |
+| --- | ---: | ---: | ---: |
+| micro recall | 0.3000 (3/10) | 0.3000 (3/10) | 0 |
+| micro precision | 0.1034 (3/29) | 0.1500 (3/20) | +4.7pp |
+| micro F1 | 0.1538 | 0.2000 | +4.6pp |
+| input-blind gold hit | 1/8 | 2/8 | +1 |
+| findings reported | 29 | 20 | −31% |
+| pad findings (>2 steps from gold) | 21 | 10 | −52% |
+
+| Gate | Threshold | Measured | Verdict |
+| --- | --- | ---: | --- |
+| Primary | input-blind gold recall ≥ 0.375 | 0.250 (2/8) | **miss** |
+| Secondary | precision ≥ 0.073 | 0.150 | pass |
+| Composite | micro F1 ≥ 0.25 | 0.200 | **miss** |
+| Kill | blind recall ≤ 0.125 or F1 < 0.1538 | 0.250 / 0.200 | not triggered |
+
+Per case, the mechanism is visibly bimodal:
+
+- `ponyc-2247`: 0/2 → **2/2**. Both repetitions now cite step 21, the submit decision, which the baseline never found (one repetition reported nothing at all, the other accused step 18).
+- `ansible-0fd88717`: 0/2 → 0/2, and the two repetitions collapsed to the same two citations (12, 13) instead of 2 and 6 scattered ones.
+- `svelte-11913`: 1/2 → 0/2. The baseline's lucky blind hit is gone and one repetition went silent.
+- `zstd-2094`: 0/2 → 0/2, findings 15 → 8.
+
+**Decision: do not scale this arm on split3 evidence.** The direction is positive on every measured dimension and the kill gate did not fire, but n = 8 and the primary bar was missed. Two things are nevertheless settled:
+
+1. The input defect is real and its repair is verifiable *without a model*: input-blind gold on split3 falls from 64/116 gold observations to 0/116, duplicate assistant spans from 110/967 to 2/967. That is a fidelity fix, not a score chase, and it applies to 11–21% of gold on dev-32, holdout-1, and holdout-2.
+2. Restored reasoning makes the analyst more selective, not noisier — 31% fewer findings and half the pad — which is the opposite of what more input tokens usually buy.
+
+The decision-quality question must be settled off split3, whose metric this artifact has shown to be positionally degenerate.
+
+## Exact commands for the operator
+
+Rebuild the restored input for any prepared split (deterministic, no model):
+
+```bash
+node benchmarks/trace-analysis/tools/restore-step-reasoning.mjs \
+  --labels "$LABELS" \
+  --normalized "$PREPARED/normalized" \
+  --extracted "$PREPARED/extracted" \
+  --out "$RESTORED/normalized" \
+  --receipt "$RESTORED/restore-receipt.json"
+
+npx --yes @tangle-network/traces@0.11.0 import-codetracebench "$LABELS" \
+  --trajectory-dir "$RESTORED/normalized" \
+  --out "$RESTORED/traces" \
+  --revision aa213b84ffb6690fc37ca15766d6ca174ec36d4d \
+  --concurrency 8
+```
+
+Full A/B measurement — run the same command twice, once with `--trace-dir "$RESTORED/traces"` and once with the baseline trace directory, on a split whose labels are not positionally degenerate (dev-32, holdout-1, holdout-2 — **not** split3):
+
+```bash
+MODEL_API_KEY="$ZAI_GLM_API_KEY" node dist/cli.js analyst-benchmark \
+  --dataset codetracebench \
+  --analyst dspy-rlm \
+  --python clients/python/.venv/bin/python \
+  --labels "$LABELS" \
+  --trace-dir "$RESTORED/traces" \
+  --artifact-dir "$PREPARED/extracted" \
+  --out "$OUT" \
+  --revision aa213b84ffb6690fc37ca15766d6ca174ec36d4d \
+  --split "$SPLIT" \
+  --base-url https://api.z.ai/api/coding/paas/v4 \
+  --api-key-env MODEL_API_KEY \
+  --model glm-5.2 \
+  --limit 32 --seed 0 --concurrency 6 --repetitions 2 \
+  --max-output-tokens 8192 --timeout-ms 1200000 --max-cost-usd 30 \
+  --instructions-file "$WINNER_INSTRUCTIONS"
+```
+
+Read the arms out with the two committed tools:
+
+```bash
+node benchmarks/trace-analysis/tools/compare-analyst-runs.mjs \
+  --run baseline=/path/to/baseline --run restored="$OUT" --baseline baseline
+node benchmarks/trace-analysis/tools/decompose-analyst-loss.mjs \
+  --labels "$LABELS" --traces "$RESTORED/traces" \
+  --run restored="$OUT" --markdown
+```
+
+Expected spend at 32 cases × 2 repetitions on glm-5.2: about $9 per arm, measured from this split's certified runs ($9.07 for 74 observations).
+
+## Threats to validity
+
+- n = 8 for the smoke; every per-case number is one or two observations. The decomposition itself (74 observations per arm) is not affected by this.
+- Split3 and all four splits named here are spent — they have been used for training, diagnosis, or a prior certification, so no number here certifies anything.
+- `input-blind` is a property of the trace text, not a proof that a perfect analyst would fail: an analyst that learned "accuse `step_count - 1`" would score those steps without reading anything. That is precisely why the class must not be optimized against.
+- The first smoke attempt died when the host's 61 GB `/dev/shm` filled to 100%; its own error could not be written because the log lived there too. It had produced 3 observations, which are kept at `/home/drew/bench-cache/ctb-20260801/split3-restored/partial-shm-run` and are *not* pooled into the table above. The reported run is the single completed run on disk-backed storage.
+- The restored arm was run at `--concurrency 2` on a host with load average 15–17; latency comparisons against the certified run (concurrency 6) are not meaningful. Costs and scores are.
 
 ## Appendix — per-case, per-repetition table (GEPA winner arm, split3)
 

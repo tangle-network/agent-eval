@@ -33,6 +33,12 @@ import { fileURLToPath } from 'node:url'
 const SUBMIT_BOILERPLATE = 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'
 const NEAR_STEPS = 2
 
+// A closed reader (`| head`) must end the tool quietly, not raise EPIPE.
+process.stdout.on('error', (error) => {
+  if (error.code === 'EPIPE') process.exit(0)
+  throw error
+})
+
 function usageError(message) {
   process.stderr.write(`error: ${message}\n\nrun with --help for usage\n`)
   process.exit(2)
