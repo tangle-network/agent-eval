@@ -195,7 +195,10 @@ def _build_adapter(env_adapter_class: type, input_value: dict[str, Any]) -> Any:
                     "candidate": skill_content,
                     "exampleId": item["callbackId"],
                 },
-                timeout=300.0,
+                # One agentic evaluation may legitimately run for many minutes;
+                # this deadline must exceed the campaign's per-evaluation timeout,
+                # which the TypeScript callback enforces itself.
+                timeout=1800.0,
             )
             response.raise_for_status()
             payload = response.json()
