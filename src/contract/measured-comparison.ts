@@ -522,14 +522,17 @@ export function evaluatePairedMeasurements<TRun>(
     ...(regressedTasks.length === 0
       ? []
       : [
-          `candidate regressed ${regressedTasks.length} benchmark tasks the baseline passed: ` +
+          `candidate regressed ${regressedTasks.length} benchmark ` +
+            `${regressedTasks.length === 1 ? 'task' : 'tasks'} the baseline passed: ` +
             regressedTasks.map((measurement) => measurement.cellId).join(', '),
         ]),
     ...(budgetPassed ? [] : [`total cost ${totalCost.usd} exceeded budget ${budgetUsd}`]),
-    // Non-blocking accounting, emitted only when the gate already holds, so an
-    // operator reading a hold can tell "the candidate is bad" from "the
-    // benchmark has tasks neither arm solves". It never appears on a ship, so it
-    // cannot be misread as a blocking reason.
+    // Non-blocking accounting, emitted on any outcome that did NOT ship and has
+    // tasks both arms failed — so a `hold` (whatever caused it) and also a
+    // `need_more_work`. It lets an operator reading a refusal tell "the
+    // candidate is bad" from "the benchmark has tasks neither arm solves". The
+    // `shipped` term is what keeps it off a ship, where it could be misread as a
+    // blocking reason.
     ...(shipped || sharedTaskFailures.length === 0
       ? []
       : [
@@ -589,10 +592,14 @@ export function evaluatePairedMeasurements<TRun>(
  *   - ZERO-VARIANCE sample. Every paired delta identical ⇒ the resample
  *     distribution is a point mass and the interval collapses to [g, g]. The
  *     refusal is correct and load-bearing, and the reason has to say so.
- *     Re-measured here rather than taken on trust: under the bounded asymmetric
- *     null this module documents (2 % of pairs drop by 1.0, the rest gain
- *     0.0204, true mean paired delta exactly 0), a constant-positive sample is
- *     what 87.4 % of n = 6 samples and 64.7 % of n = 20 samples look like. A
+ *     Under the bounded asymmetric null this repo documents (2 % of pairs drop
+ *     by 1.0, the rest gain 0.0204, true mean paired delta exactly 0), a
+ *     constant-positive sample is exactly a sample in which no pair drew the
+ *     drop, so its frequency is closed-form 0.98^n — 88.6 % at n = 6 and 66.8 %
+ *     at n = 20. That reconciles with the false-promotion rates measured on the
+ *     composable gate for the same null, 88.50 % at n = 6 and 65.65 % at n = 20
+ *     (see {@link decidePairedPromotion} in `src/paired-promotion-decision.ts`);
+ *     no number here is independently measured, and none needs to be. A
  *     constant positive delta is therefore NOT the strongest evidence — it is
  *     the signature of a held-out set too small or too uniform to have sampled
  *     the tail, and promoting on it would false-promote a true-zero candidate

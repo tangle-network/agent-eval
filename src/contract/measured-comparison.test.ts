@@ -1279,7 +1279,7 @@ describe('promotion gate — improvement without regression, not perfection', ()
     expect(check(result, 'no-task-regression')).toBe(false)
     expect(result.decision.outcome).toBe('hold')
     expect(result.decision.reasons).toContain(
-      'candidate regressed 1 benchmark tasks the baseline passed: task:9',
+      'candidate regressed 1 benchmark task the baseline passed: task:9',
     )
   })
 
