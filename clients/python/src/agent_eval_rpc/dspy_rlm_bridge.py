@@ -115,9 +115,11 @@ class IncorrectBlock(pydantic.BaseModel):
     last_step: int = pydantic.Field(
         ge=1,
         description=(
-            "The block's last incorrect step; >= first_step, every step in between "
-            "must independently satisfy the incorrect-step definition, and a block "
-            f"spans at most {_MAX_INCORRECT_BLOCK_STEPS} steps."
+            "The final consecutive step still committing to or compounding the "
+            "same mistake — cascades of repeated failed attempts at the same "
+            "wrong approach commonly span 5-10 steps; extend last_step through "
+            "all of them. >= first_step, and a block spans at most "
+            f"{_MAX_INCORRECT_BLOCK_STEPS} steps."
         ),
     )
     consequence_step: int = pydantic.Field(
