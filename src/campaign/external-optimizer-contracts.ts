@@ -61,6 +61,8 @@ export interface ExternalOptimizerModelProxy {
   requestAttempts: () => number
   /** Complete successful provider responses recorded during this proxy process. */
   successfulCompletions: () => number
+  /** Upstream fetches repeated because the provider answered 429. */
+  rateLimitRetries: () => number
   close: () => Promise<void>
 }
 

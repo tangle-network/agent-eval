@@ -484,6 +484,7 @@ const artifactSchema: z.ZodType<AnalystBenchmarkArtifact> = z
       execution: z.strictObject({
         repetitions: positiveInteger,
         concurrency: positiveInteger,
+        rlmSamples: positiveInteger.optional(),
         model: nonEmptyString,
         maxOutputTokens: positiveInteger,
         timeoutMs: positiveInteger,

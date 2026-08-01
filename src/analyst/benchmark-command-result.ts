@@ -84,6 +84,7 @@ export function assertCompletedArtifactMatchesRun(
     execution: {
       repetitions: config.repetitions,
       concurrency: config.concurrency,
+      ...(config.rlmSamples === undefined ? {} : { rlmSamples: config.rlmSamples }),
       model: config.model.id,
       maxOutputTokens: config.model.maxOutputTokens,
       timeoutMs: config.model.timeoutMs,
@@ -122,6 +123,7 @@ export function assertCompletedArtifactMatchesRun(
     provenance.maxConcurrency !== Math.min(config.concurrency, expectedCount) ||
     provenance.runnerOrderSeed !== config.seed ||
     provenance.metadata?.model !== config.model.id ||
+    provenance.metadata?.rlmSamples !== config.rlmSamples ||
     provenance.metadata?.outputAdapter !== expectedOutputAdapter ||
     provenance.metadata?.caseSelection !== prepared.selection.method ||
     provenance.metadata?.caseSelectionSeed !== config.seed ||

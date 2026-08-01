@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import { codeTraceFixture, codeTraceRow } from './benchmark-command.test-support'
 import type { CodeTraceBenchRow } from './benchmark-datasets'
+import { codeTraceBlockMetadataFromSubject } from './benchmark-public-adapters'
 import { preparePublicAnalystBenchmark } from './benchmark-public-data'
 import {
   adaptPublicBenchmarkFindings,
@@ -412,67 +413,166 @@ describe('public analyst benchmark output adapters', () => {
     expect(diagnostics?.rejectedFindings?.[0]).toMatch(/cites step 5 outside its block 2-3/)
   })
 
-  it('refuses more blocks than the per-case maximum', async () => {
-    await expect(
-      adaptPublicBenchmarkFindings({
-        dataset: 'codetracebench',
-        trajectoryId: 'run-6',
-        findings: Array.from({ length: MAX_INCORRECT_BLOCKS + 1 }, (_, index) =>
-          makeFinding({
-            analyst_id: 'model-raw',
-            area: 'model-output',
-            subject: `incorrect-steps-${index + 1}-${index + 1}-unescaped-consequence-${index + 2}`,
-            claim: 'Carpet bombing.',
-            severity: 'high',
-            confidence: 0.8,
-            evidence_refs: [
-              {
-                kind: 'span',
-                uri: `trace://run-6/span/step-${index + 1}`,
-                excerpt: adapterAction(index + 1),
-              },
-            ],
-          }),
-        ),
-        analystId: 'model',
-        store: adapterTraceStore(
-          'run-6',
-          Array.from({ length: MAX_INCORRECT_BLOCKS + 2 }, (_, index) => index + 1),
-        ),
-      }),
-    ).rejects.toThrow(
-      `model reported ${MAX_INCORRECT_BLOCKS + 1} failure blocks; the maximum is ${MAX_INCORRECT_BLOCKS}`,
+  it('drops blocks beyond the per-case maximum but keeps every accepted block', async () => {
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-6',
+      findings: Array.from({ length: MAX_INCORRECT_BLOCKS + 1 }, (_, index) =>
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: `incorrect-steps-${index + 1}-${index + 1}-unescaped-consequence-${index + 2}`,
+          claim: 'Carpet bombing.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            {
+              kind: 'span',
+              uri: `trace://run-6/span/step-${index + 1}`,
+              excerpt: adapterAction(index + 1),
+            },
+          ],
+        }),
+      ),
+      analystId: 'model',
+      store: adapterTraceStore(
+        'run-6',
+        Array.from({ length: MAX_INCORRECT_BLOCKS + 2 }, (_, index) => index + 1),
+      ),
+    })
+
+    expect(findings).toHaveLength(MAX_INCORRECT_BLOCKS)
+    expect(diagnostics?.droppedBlocks).toEqual([
+      `block ${MAX_INCORRECT_BLOCKS + 1}-${MAX_INCORRECT_BLOCKS + 1} (consequence ${MAX_INCORRECT_BLOCKS + 2}): model reported ${MAX_INCORRECT_BLOCKS + 1} failure blocks; the maximum is ${MAX_INCORRECT_BLOCKS}`,
+    ])
+  })
+
+  it('drops an oversized block, names the drop, and keeps a valid sibling', async () => {
+    const last = MAX_INCORRECT_BLOCK_STEPS + 1
+    const sibling = last + 2
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-7',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: `incorrect-steps-1-${last}-unescaped-consequence-${last + 1}`,
+          claim: 'One block swallowing the trajectory.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-7/span/step-1', excerpt: adapterAction(1) },
+          ],
+        }),
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: `incorrect-steps-${sibling}-${sibling}-unescaped-consequence-${sibling + 1}`,
+          claim: 'A valid single-step block.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            {
+              kind: 'span',
+              uri: `trace://run-7/span/step-${sibling}`,
+              excerpt: adapterAction(sibling),
+            },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore(
+        'run-7',
+        Array.from({ length: sibling + 1 }, (_, index) => index + 1),
+      ),
+    })
+
+    expect(findings.map((finding) => finding.subject)).toEqual([`incorrect-step-${sibling}`])
+    expect(diagnostics?.droppedBlocks).toEqual([
+      `block 1-${last} (consequence ${last + 1}): failure block spans ${last} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
+    ])
+  })
+
+  it('ends empty when every block violates shape, carrying a diagnostic for each drop', async () => {
+    const last = MAX_INCORRECT_BLOCK_STEPS + 1
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-9',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: `incorrect-steps-1-${last}-unescaped-consequence-${last + 1}`,
+          claim: 'One block swallowing the trajectory.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-9/span/step-1', excerpt: adapterAction(1) },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore(
+        'run-9',
+        Array.from({ length: last + 1 }, (_, index) => index + 1),
+      ),
+    })
+
+    expect(findings).toEqual([])
+    expect(diagnostics?.droppedBlocks).toHaveLength(1)
+    expect(diagnostics?.droppedBlocks?.[0]).toContain(
+      `failure block spans ${last} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
     )
   })
 
-  it('refuses a block wider than the per-block maximum', async () => {
-    const last = MAX_INCORRECT_BLOCK_STEPS + 1
-    await expect(
-      adaptPublicBenchmarkFindings({
-        dataset: 'codetracebench',
-        trajectoryId: 'run-7',
-        findings: [
-          makeFinding({
-            analyst_id: 'model-raw',
-            area: 'model-output',
-            subject: `incorrect-steps-1-${last}-unescaped-consequence-${last + 1}`,
-            claim: 'One block swallowing the trajectory.',
-            severity: 'high',
-            confidence: 0.8,
-            evidence_refs: [
-              { kind: 'span', uri: 'trace://run-7/span/step-1', excerpt: adapterAction(1) },
-            ],
-          }),
-        ],
-        analystId: 'model',
-        store: adapterTraceStore(
-          'run-7',
-          Array.from({ length: last + 1 }, (_, index) => index + 1),
-        ),
-      }),
-    ).rejects.toThrow(
-      `failure block spans ${last} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
+  it('keeps a block citing its consequence step and trims the out-of-range citation', async () => {
+    // cartpole rep1 shape: a correct block 14-16 also cited step 17, its
+    // consequence step, and previously lost the whole block for it.
+    const { findings, diagnostics } = await adaptPublicBenchmarkFindings({
+      dataset: 'codetracebench',
+      trajectoryId: 'run-10',
+      findings: [
+        makeFinding({
+          analyst_id: 'model-raw',
+          area: 'model-output',
+          subject: 'incorrect-steps-14-16-unescaped-consequence-17',
+          claim: 'The block corrupted training and step 17 shows the crash.',
+          severity: 'high',
+          confidence: 0.8,
+          evidence_refs: [
+            { kind: 'span', uri: 'trace://run-10/span/step-14', excerpt: adapterAction(14) },
+            { kind: 'span', uri: 'trace://run-10/span/step-17', excerpt: adapterAction(17) },
+          ],
+        }),
+      ],
+      analystId: 'model',
+      store: adapterTraceStore('run-10', [14, 15, 16, 17]),
+    })
+
+    expect(findings.map((finding) => finding.subject)).toEqual([
+      'incorrect-step-14',
+      'incorrect-step-15',
+      'incorrect-step-16',
+    ])
+    expect(diagnostics?.rejectedFindings).toEqual([])
+    expect(diagnostics?.trimmedCitations).toHaveLength(1)
+    expect(diagnostics?.trimmedCitations?.[0]).toMatch(
+      /trimmed citation step 17 outside block 14-16/,
     )
+  })
+
+  it('parses block metadata from the subject grammar and refuses to invent it', () => {
+    expect(
+      codeTraceBlockMetadataFromSubject('incorrect-steps-10-26-unescaped-consequence-26'),
+    ).toEqual({
+      block_first_step: 10,
+      block_last_step: 26,
+      block_consequence_step: 26,
+      escape_status: 'unescaped',
+    })
+    expect(codeTraceBlockMetadataFromSubject('incorrect-steps-10-26')).toBeUndefined()
+    expect(codeTraceBlockMetadataFromSubject(undefined)).toBeUndefined()
   })
 
   it('maps the explicit CodeTraceBench clean sentinel to no findings', async () => {
@@ -526,7 +626,10 @@ describe('public analyst benchmark output adapters', () => {
 
   it('matches the public incorrect-step task, including recovered errors', () => {
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'An incorrect step remains incorrect when the agent later recovers',
+      'a repair attempt that is itself wrong, partial, or later superseded sit inside the block',
+    )
+    expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
+      'A solved trajectory still carries every mistake made along the way',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
       'A passing final verification never makes a block escaped',
@@ -536,7 +639,7 @@ describe('public analyst benchmark output adapters', () => {
       'CodeTraceBench scores unuseful steps separately',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(
-      'Use the final-verification outcome as evidence about the final state',
+      'a failing final verification is not evidence that any particular block caused it',
     )
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain('Never select an EVALUATOR, TOOL, CHAIN')
     expect(CODE_TRACE_BENCH_ANALYST_PROMPT).toContain(

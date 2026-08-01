@@ -47,8 +47,23 @@ export interface CodeTraceBlockDiagnostics {
   unresolvedBlockInteriorSteps: number[]
   /** Steps claimed by more than one block; the first block keeps the step. */
   overlappingBlockSteps: number[]
+  /** Blocks dropped for violating the protocol's width, order, or count limits. */
+  droppedBlocks: string[]
   /** Findings dropped before expansion because their shape or evidence is invalid. */
   rejectedFindings?: string[]
+  /** Out-of-block citations removed from findings that kept at least one in-block citation. */
+  trimmedCitations?: string[]
+}
+
+/**
+ * One expanded step with the accepted block that owns it. The expansion's
+ * per-step ownership record: exactly the steps that survived shape, count,
+ * and evidence checks, so consensus voting sees the same step set the
+ * benchmark scores.
+ */
+export interface CodeTraceStepAssignment {
+  step: number
+  block: CodeTraceFailureBlock
 }
 
 export function emptyPublicBenchmarkRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
@@ -75,7 +90,12 @@ export async function adaptPublicBenchmarkFindings(options: {
   analystId: string
   store: TraceAnalysisStore
   signal?: AbortSignal
-}): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics | undefined }> {
+}): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics | undefined
+  /** Present for CodeTraceBench only; AgentRx has no step-level expansion. */
+  stepBlocks?: CodeTraceStepAssignment[]
+}> {
   if (options.dataset === 'agentrx') {
     return {
       findings: adaptAgentRxFindings(options.trajectoryId, options.findings, options.analystId),
@@ -148,7 +168,11 @@ async function adaptCodeTraceFindings(
   analystId: string,
   store: TraceAnalysisStore,
   signal?: AbortSignal,
-): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics }> {
+): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics
+  stepBlocks: CodeTraceStepAssignment[]
+}> {
   const clean = findings.filter((finding) => finding.subject === 'clean')
   if (clean.length > 0) {
     if (findings.length !== 1) {
@@ -158,15 +182,17 @@ async function adaptCodeTraceFindings(
     return {
       findings: [],
       diagnostics: emptyCodeTraceBlockDiagnostics(),
+      stepBlocks: [],
     }
   }
   // Each finding is model output. One whose subject is unparseable, whose
-  // cited step falls outside its own block, or whose evidence does not resolve
-  // is dropped with a recorded reason — the rest of a completed, paid
+  // citations all fall outside its own block, or whose evidence does not
+  // resolve is dropped with a recorded reason — the rest of a completed, paid
   // investigation must survive it. Citations and excerpts are checked here
   // because expansion replaces them with runner-built evidence.
   const blocks: CodeTraceFailureBlock[] = []
   const rejectedFindings: string[] = []
+  const trimmedCitations: string[] = []
   for (const source of findings) {
     try {
       await validateCodeTraceFindingEvidence({
@@ -175,7 +201,9 @@ async function adaptCodeTraceFindings(
         store,
         ...(signal ? { signal } : {}),
       })
-      blocks.push(codeTraceBlockFromFinding(trajectoryId, source))
+      const converted = codeTraceBlockFromFinding(trajectoryId, source)
+      trimmedCitations.push(...converted.trimmedCitations)
+      blocks.push(converted.block)
     } catch (error) {
       rejectedFindings.push(
         `${source.finding_id}: ${error instanceof Error ? error.message : String(error)}`,
@@ -192,14 +220,33 @@ async function adaptCodeTraceFindings(
   })
   return {
     findings: expanded.findings,
-    diagnostics: { ...expanded.diagnostics, rejectedFindings },
+    diagnostics: { ...expanded.diagnostics, rejectedFindings, trimmedCitations },
+    stepBlocks: expanded.stepBlocks,
+  }
+}
+
+/**
+ * Block coordinates recoverable from a subject in the block grammar, in the
+ * metadata field names the expanded findings carry. Returns undefined when the
+ * subject does not parse — nothing is invented for a malformed subject.
+ */
+export function codeTraceBlockMetadataFromSubject(
+  subject: string | undefined,
+): Record<string, unknown> | undefined {
+  const parsed = CODE_TRACE_BLOCK_SUBJECT.exec(subject ?? '')
+  if (!parsed) return undefined
+  return {
+    block_first_step: Number(parsed[1]),
+    block_last_step: Number(parsed[2]),
+    block_consequence_step: Number(parsed[4]),
+    escape_status: parsed[3],
   }
 }
 
 function codeTraceBlockFromFinding(
   trajectoryId: string,
   source: AnalystFinding,
-): CodeTraceFailureBlock {
+): { block: CodeTraceFailureBlock; trimmedCitations: string[] } {
   const parsed = CODE_TRACE_BLOCK_SUBJECT.exec(source.subject ?? '')
   if (!parsed) {
     throw new Error(
@@ -210,26 +257,37 @@ function codeTraceBlockFromFinding(
   const lastStep = Number(parsed[2])
   const consequenceStep = Number(parsed[4])
   const cited = exactFindingSteps(trajectoryId, source)
-  for (const step of cited) {
-    if (step < firstStep || step > lastStep) {
-      throw new Error(
-        `CodeTraceBench model finding '${source.finding_id}' cites step ${step} outside its block ${firstStep}-${lastStep}`,
-      )
-    }
+  // A citation outside [firstStep, lastStep] (typically the consequence step)
+  // is trimmed, not fatal: expansion rebuilds per-step evidence, so the block
+  // only needs one citation grounding it inside its own range. A finding whose
+  // citations ALL fall outside its block has no in-block grounding and is
+  // rejected.
+  const outOfRange = cited.filter((step) => step < firstStep || step > lastStep)
+  if (outOfRange.length === cited.length) {
+    throw new Error(
+      `CodeTraceBench model finding '${source.finding_id}' cites step ${outOfRange.join(', ')} outside its block ${firstStep}-${lastStep} and no citation falls inside the block`,
+    )
   }
+  const trimmedCitations = outOfRange.map(
+    (step) =>
+      `${source.finding_id}: trimmed citation step ${step} outside block ${firstStep}-${lastStep}`,
+  )
   return {
-    firstStep,
-    lastStep,
-    consequenceStep,
-    escapeStatus: parsed[3] as 'escaped' | 'unescaped',
-    severity: source.severity,
-    claim: source.claim,
-    confidence: source.confidence,
-    ...(source.rationale === undefined ? {} : { rationale: source.rationale }),
-    ...(source.recommended_action === undefined
-      ? {}
-      : { recommendedAction: source.recommended_action }),
-    metadata: { sourceFindingId: source.finding_id },
+    block: {
+      firstStep,
+      lastStep,
+      consequenceStep,
+      escapeStatus: parsed[3] as 'escaped' | 'unescaped',
+      severity: source.severity,
+      claim: source.claim,
+      confidence: source.confidence,
+      ...(source.rationale === undefined ? {} : { rationale: source.rationale }),
+      ...(source.recommended_action === undefined
+        ? {}
+        : { recommendedAction: source.recommended_action }),
+      metadata: { sourceFindingId: source.finding_id },
+    },
+    trimmedCitations,
   }
 }
 
@@ -247,17 +305,19 @@ export async function expandCodeTraceFailureBlocks(options: {
   analystId: string
   producedAt?: string
   signal?: AbortSignal
-}): Promise<{ findings: AnalystFinding[]; diagnostics: CodeTraceBlockDiagnostics }> {
+}): Promise<{
+  findings: AnalystFinding[]
+  diagnostics: CodeTraceBlockDiagnostics
+  stepBlocks: CodeTraceStepAssignment[]
+}> {
   const diagnostics = emptyCodeTraceBlockDiagnostics()
   diagnostics.reportedBlocks = options.blocks.length
-  if (options.blocks.length === 0) return { findings: [], diagnostics }
-  assertCodeTraceBlockShape(options.blocks)
+  if (options.blocks.length === 0) return { findings: [], diagnostics, stepBlocks: [] }
+  const blocks = acceptCodeTraceBlockShape(options.blocks, diagnostics)
+  if (blocks.length === 0) return { findings: [], diagnostics, stepBlocks: [] }
 
-  const boundarySteps = options.blocks.flatMap((block) => [block.firstStep, block.lastStep])
-  const derivedSteps = options.blocks.flatMap((block) => [
-    block.consequenceStep,
-    ...interiorSteps(block),
-  ])
+  const boundarySteps = blocks.flatMap((block) => [block.firstStep, block.lastStep])
+  const derivedSteps = blocks.flatMap((block) => [block.consequenceStep, ...interiorSteps(block)])
   const evidenceByStep = await resolveAssistantStepEvidence({
     trajectoryId: options.trajectoryId,
     steps: boundarySteps,
@@ -267,7 +327,7 @@ export async function expandCodeTraceFailureBlocks(options: {
   })
 
   const byStep = new Map<number, CodeTraceFailureBlock>()
-  for (const block of options.blocks) {
+  for (const block of blocks) {
     if (!evidenceByStep.has(block.consequenceStep)) {
       diagnostics.blocksWithoutConsequenceEvidence.push(block)
       continue
@@ -286,57 +346,75 @@ export async function expandCodeTraceFailureBlocks(options: {
     }
   }
 
-  const findings = [...byStep]
+  const stepBlocks = [...byStep]
     .sort(([left], [right]) => left - right)
-    .map(([step, block]) =>
-      makeFinding({
-        analyst_id: options.analystId,
-        area: 'incorrect',
-        subject: `incorrect-step-${step}`,
-        claim: `Step ${step} is incorrect. ${block.claim}`,
-        rationale: block.rationale,
-        severity: block.severity,
-        confidence: block.confidence,
-        evidence_refs: [evidenceByStep.get(step)!],
-        recommended_action: block.recommendedAction,
-        metadata: {
-          ...block.metadata,
-          block_first_step: block.firstStep,
-          block_last_step: block.lastStep,
-          block_consequence_step: block.consequenceStep,
-          escape_status: block.escapeStatus,
-        },
-        ...(options.producedAt === undefined ? {} : { produced_at: options.producedAt }),
-        id_basis: `incorrect-step-${step}`,
-      }),
-    )
-  return { findings, diagnostics }
+    .map(([step, block]) => ({ step, block }))
+  const findings = stepBlocks.map(({ step, block }) =>
+    makeFinding({
+      analyst_id: options.analystId,
+      area: 'incorrect',
+      subject: `incorrect-step-${step}`,
+      claim: `Step ${step} is incorrect. ${block.claim}`,
+      rationale: block.rationale,
+      severity: block.severity,
+      confidence: block.confidence,
+      evidence_refs: [evidenceByStep.get(step)!],
+      recommended_action: block.recommendedAction,
+      metadata: {
+        ...block.metadata,
+        block_first_step: block.firstStep,
+        block_last_step: block.lastStep,
+        block_consequence_step: block.consequenceStep,
+        escape_status: block.escapeStatus,
+      },
+      ...(options.producedAt === undefined ? {} : { produced_at: options.producedAt }),
+      id_basis: `incorrect-step-${step}`,
+    }),
+  )
+  return { findings, diagnostics, stepBlocks }
 }
 
-function assertCodeTraceBlockShape(blocks: readonly CodeTraceFailureBlock[]): void {
-  if (blocks.length > MAX_INCORRECT_BLOCKS) {
-    throw new Error(
-      `model reported ${blocks.length} failure blocks; the maximum is ${MAX_INCORRECT_BLOCKS}`,
-    )
-  }
+/**
+ * Enforce the protocol's per-block and per-case limits without voiding the
+ * case: an offending block is dropped and named in `diagnostics.droppedBlocks`
+ * while every valid sibling survives. A case whose blocks are ALL invalid ends
+ * empty and carries the diagnostic for each drop. Shape is checked before the
+ * count, so a malformed block never consumes one of the accepted slots.
+ */
+function acceptCodeTraceBlockShape(
+  blocks: readonly CodeTraceFailureBlock[],
+  diagnostics: CodeTraceBlockDiagnostics,
+): CodeTraceFailureBlock[] {
+  const accepted: CodeTraceFailureBlock[] = []
   for (const block of blocks) {
-    if (block.lastStep < block.firstStep) {
-      throw new Error(
-        `failure block last_step ${block.lastStep} precedes first_step ${block.firstStep}`,
+    const reason =
+      codeTraceBlockShapeViolation(block) ??
+      (accepted.length >= MAX_INCORRECT_BLOCKS
+        ? `model reported ${blocks.length} failure blocks; the maximum is ${MAX_INCORRECT_BLOCKS}`
+        : undefined)
+    if (reason) {
+      diagnostics.droppedBlocks.push(
+        `block ${block.firstStep}-${block.lastStep} (consequence ${block.consequenceStep}): ${reason}`,
       )
+      continue
     }
-    const length = block.lastStep - block.firstStep + 1
-    if (length > MAX_INCORRECT_BLOCK_STEPS) {
-      throw new Error(
-        `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`,
-      )
-    }
-    if (block.consequenceStep < block.firstStep) {
-      throw new Error(
-        `failure block consequence_step ${block.consequenceStep} precedes first_step ${block.firstStep}`,
-      )
-    }
+    accepted.push(block)
   }
+  return accepted
+}
+
+function codeTraceBlockShapeViolation(block: CodeTraceFailureBlock): string | undefined {
+  if (block.lastStep < block.firstStep) {
+    return `failure block last_step ${block.lastStep} precedes first_step ${block.firstStep}`
+  }
+  const length = block.lastStep - block.firstStep + 1
+  if (length > MAX_INCORRECT_BLOCK_STEPS) {
+    return `failure block spans ${length} steps; the maximum is ${MAX_INCORRECT_BLOCK_STEPS}`
+  }
+  if (block.consequenceStep < block.firstStep) {
+    return `failure block consequence_step ${block.consequenceStep} precedes first_step ${block.firstStep}`
+  }
+  return undefined
 }
 
 function interiorSteps(block: CodeTraceFailureBlock): number[] {
@@ -352,6 +430,7 @@ function emptyCodeTraceBlockDiagnostics(): CodeTraceBlockDiagnostics {
     blocksWithoutConsequenceEvidence: [],
     unresolvedBlockInteriorSteps: [],
     overlappingBlockSteps: [],
+    droppedBlocks: [],
   }
 }
 

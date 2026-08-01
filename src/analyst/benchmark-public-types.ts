@@ -22,6 +22,12 @@ export interface PublicAnalystBenchmarkModelConfig {
     maxLlmCalls?: number
     maxToolCalls?: number
     maxOutputChars?: number
+    /**
+     * Independent engine runs per case. Above 1 (CodeTraceBench only), the
+     * runner scores the step-level majority consensus across all runs instead
+     * of a single draw. Default: 1.
+     */
+    samples?: number
   }
   costLedger?: CostLedgerHandle
   durability?: {

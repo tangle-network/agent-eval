@@ -112,6 +112,8 @@ export interface AnalystBenchmarkCommandConfig {
   seed: number
   concurrency: number
   repetitions: number
+  /** Recursive-engine runs per case; above 1 the consensus is scored. */
+  rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
   apiKeyEnv: string
@@ -252,6 +254,7 @@ async function executeAnalystBenchmarkCommand(
         },
         metadata: {
           model: config.model.model,
+          rlmSamples: config.rlmSamples,
           outputAdapter:
             config.dataset === 'agentrx'
               ? 'agentrx-taxonomy-and-root-step'
@@ -320,6 +323,7 @@ async function executeAnalystBenchmarkCommand(
       execution: {
         repetitions: config.repetitions,
         concurrency: config.concurrency,
+        rlmSamples: config.rlmSamples,
         model: config.model.model,
         maxOutputTokens: config.model.maxOutputTokens,
         timeoutMs: config.model.timeoutMs,
@@ -444,6 +448,9 @@ Controls:
   --seed <integer>                 Case-selection and comparison seed. Default: 0
   --concurrency <positive integer> Parallel benchmark jobs. Default: 1
   --repetitions <positive integer> Runs per case and runner. Default: 1
+  --rlm-samples <positive integer> Recursive-engine runs per case; above 1 the
+                                   step-level majority consensus is scored
+                                   (CodeTraceBench + dspy-rlm only). Default: 1
   --max-output-tokens <positive>   Model output limit per call. Default: 16384
   --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
@@ -487,6 +494,15 @@ function parseCommandConfig(
   if (analyst !== 'dspy-rlm' && analyst !== 'direct') {
     throw new Error("--analyst must be 'dspy-rlm' or 'direct'")
   }
+  const rlmSamples = positiveFlag(flags, 'rlm-samples', 1)
+  if (rlmSamples > 1 && analyst !== 'dspy-rlm') {
+    throw new Error('--rlm-samples above 1 requires --analyst dspy-rlm')
+  }
+  if (rlmSamples > 1 && dataset !== 'codetracebench') {
+    throw new Error(
+      '--rlm-samples above 1 requires --dataset codetracebench; step-level consensus is defined on its block grammar',
+    )
+  }
   return {
     dataset,
     analyst,
@@ -503,12 +519,16 @@ function parseCommandConfig(
       maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 16_384),
       timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
       maxCostUsdPerAnalysis: maxCostUsd,
-      ...(python ? { dspyRlm: { runner: { command: python } } } : {}),
+      dspyRlm: {
+        ...(python ? { runner: { command: python } } : {}),
+        samples: rlmSamples,
+      },
     },
     limit: positiveFlag(flags, 'limit'),
     seed: integerFlag(flags, 'seed', 0),
     concurrency: positiveFlag(flags, 'concurrency', 1),
     repetitions: positiveFlag(flags, 'repetitions', 1),
+    rlmSamples,
     maxCostUsd,
     maxArtifactBytes: positiveFlag(
       flags,
@@ -563,6 +583,7 @@ const KNOWN_FLAGS = new Set([
   'seed',
   'concurrency',
   'repetitions',
+  'rlm-samples',
   'max-output-tokens',
   'python',
   'timeout-ms',

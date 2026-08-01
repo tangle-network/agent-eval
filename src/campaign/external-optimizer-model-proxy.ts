@@ -17,6 +17,17 @@ import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
 
 const MODEL_PROXY_PATHS = new Set(['/v1/chat/completions', '/v1/responses'])
 
+/**
+ * Backoff before repeating an upstream fetch the provider answered with 429.
+ * One admitted request retries at most this many times, each retry consuming
+ * one budgeted request slot, before the final 429 is forwarded to the child.
+ * Only HTTP 429 is retried: any other status or a transport error keeps
+ * failing immediately.
+ */
+const RATE_LIMIT_RETRY_DELAYS_MS = [2_000, 8_000, 30_000] as const
+/** Uniform 0..25% added to each delay so concurrent workers do not resynchronize. */
+const RATE_LIMIT_RETRY_JITTER_RATIO = 0.25
+
 interface ProviderProxyResponse {
   status: number
   contentType: string
@@ -51,14 +62,18 @@ export async function startExternalOptimizerModelProxy(args: {
     costUsd: number
   }
   fetchImpl?: typeof fetch
+  /** Test-only clock injection for rate-limit retry backoff. */
+  sleepImpl?: (ms: number, signal: AbortSignal) => Promise<void>
   signal?: AbortSignal
 }): Promise<ExternalOptimizerModelProxy> {
   assertModelProxyConfig(args)
   args.signal?.throwIfAborted()
   const token = randomLocalToken()
   const fetchImpl = args.fetchImpl ?? fetch
+  const sleepImpl = args.sleepImpl ?? abortableDelay
   let requestCount = 0
   let successfulCompletionCount = 0
+  let rateLimitRetryCount = 0
   let totalRequestCount = args.initialUsage?.requests ?? 0
   let committedForBudget = args.initialUsage?.costUsd ?? 0
   let reservedForBudget = 0
@@ -111,6 +126,17 @@ export async function startExternalOptimizerModelProxy(args: {
       recordSuccessfulCompletion: () => {
         successfulCompletionCount += 1
       },
+      // A retry reuses the admitted request's cost reservation (only one
+      // completion returns) but consumes one budgeted request slot, so the
+      // maxRequests accounting still counts every upstream fetch.
+      tryConsumeRateLimitRetry: () => {
+        if (totalRequestCount >= args.budget.maxRequests) return false
+        requestCount += 1
+        totalRequestCount += 1
+        rateLimitRetryCount += 1
+        return true
+      },
+      sleepImpl,
     }).finally(() => {
       controller.signal.removeEventListener('abort', abortRequest)
       activeControllers.delete(controller)
@@ -134,6 +160,7 @@ export async function startExternalOptimizerModelProxy(args: {
     apiKey: token,
     requestAttempts: () => requestCount,
     successfulCompletions: () => successfulCompletionCount,
+    rateLimitRetries: () => rateLimitRetryCount,
     close,
   }
 
@@ -179,6 +206,8 @@ async function handleModelProxyRequest(args: {
       }
   settleReservation: (maximumCostUsd: number, chargedCostUsd: number) => void
   recordSuccessfulCompletion: () => void
+  tryConsumeRateLimitRetry: () => boolean
+  sleepImpl: (ms: number, signal: AbortSignal) => Promise<void>
 }): Promise<void> {
   const { controller, request, response } = args
   try {
@@ -222,22 +251,41 @@ async function handleModelProxyRequest(args: {
           customTokenPricing: args.args.budget.pricing,
           ...maximumUsage,
         },
-        execute: async () =>
-          forwardModelProxyRequest({
-            fetchImpl: args.fetchImpl,
-            upstreamBaseUrl: args.args.upstreamBaseUrl,
-            upstreamApiKey: args.args.upstreamApiKey,
-            path,
-            body,
-            model: args.args.model,
-            pricing: args.args.budget.pricing,
-            maxOutputTokens: parsed.maxOutputTokens,
-            ...(args.args.budget.maxReasoningTokensPerRequest === undefined
-              ? {}
-              : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
-            maxResponseBytes: args.args.budget.maxResponseBytes,
-            signal: controller.signal,
-          }),
+        execute: async () => {
+          // A provider 429 is transient by contract: repeat the same upstream
+          // fetch after a jittered backoff, bounded by the retry schedule and
+          // the request budget. Every other status and every transport error
+          // returns or throws on the first attempt.
+          for (let retries = 0; ; retries += 1) {
+            const forwarded = await forwardModelProxyRequest({
+              fetchImpl: args.fetchImpl,
+              upstreamBaseUrl: args.args.upstreamBaseUrl,
+              upstreamApiKey: args.args.upstreamApiKey,
+              path,
+              body,
+              model: args.args.model,
+              pricing: args.args.budget.pricing,
+              maxOutputTokens: parsed.maxOutputTokens,
+              ...(args.args.budget.maxReasoningTokensPerRequest === undefined
+                ? {}
+                : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
+              maxResponseBytes: args.args.budget.maxResponseBytes,
+              signal: controller.signal,
+            })
+            if (
+              forwarded.status !== 429 ||
+              retries >= RATE_LIMIT_RETRY_DELAYS_MS.length ||
+              !args.tryConsumeRateLimitRetry()
+            ) {
+              return forwarded
+            }
+            const baseDelayMs = RATE_LIMIT_RETRY_DELAYS_MS[retries]!
+            await args.sleepImpl(
+              Math.round(baseDelayMs * (1 + Math.random() * RATE_LIMIT_RETRY_JITTER_RATIO)),
+              controller.signal,
+            )
+          }
+        },
         receipt: (result) => result.receipt,
         receiptFromError: () => ({
           model: args.args.model,
@@ -700,6 +748,28 @@ function readBody(request: IncomingMessage, maximumBytes: number): Promise<Uint8
 
 function randomLocalToken(): string {
   return randomBytes(32).toString('hex')
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abortError = (): Error =>
+      signal.reason instanceof Error
+        ? signal.reason
+        : new Error('optimizer model retry backoff aborted')
+    if (signal.aborted) {
+      reject(abortError())
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(abortError())
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function isAbortError(error: Error): boolean {

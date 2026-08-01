@@ -383,6 +383,74 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
+  it('records the consensus sample count in identity, provenance, and the result artifact', async () => {
+    const fixture = await codeTraceFixture()
+    const modelRunner: AnalystBenchmarkRunner<AnalystRunInputs> = {
+      id: 'dspy-rlm',
+      analyze: () => ({
+        findings: [
+          makeFinding({
+            analyst_id: 'dspy-rlm',
+            area: 'incorrect',
+            claim: 'Step 2 changes the wrong file.',
+            severity: 'high',
+            confidence: 0.9,
+            evidence_refs: [{ kind: 'span', uri: 'trace://trace-1/span/step-2' }],
+          }),
+        ],
+        usage: UNKNOWN_USAGE,
+      }),
+    }
+    const createAnalystRunner = vi.fn(
+      (_dataset: unknown, config: { dspyRlm?: { samples?: number } }) => {
+        expect(config.dspyRlm?.samples).toBe(3)
+        return modelRunner
+      },
+    )
+
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      [...commandArgs(fixture), '--rlm-samples', '3'],
+      { TEST_ANALYST_KEY: 'secret' },
+      { createAnalystRunner },
+    )
+    stdout.mockRestore()
+
+    expect(code).toBe(0)
+    expect(createAnalystRunner).toHaveBeenCalledTimes(1)
+    const artifact = (await readAnalystBenchmarkArtifact(
+      join(fixture.outDir, 'result.json'),
+    )) as unknown as Record<string, any>
+    expect(artifact.inputs.execution.rlmSamples).toBe(3)
+    expect(artifact.result.provenance.metadata.rlmSamples).toBe(3)
+    const manifest = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
+    )
+    expect(manifest.identity.config.rlmSamples).toBe(3)
+  })
+
+  it('refuses consensus sampling with the direct analyst or outside CodeTraceBench', async () => {
+    const codeTrace = await codeTraceFixture()
+    const agentRx = await agentRxFixture()
+    const createAnalystRunner = vi.fn()
+
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...commandArgs(codeTrace), '--analyst', 'direct', '--rlm-samples', '2'],
+        { TEST_ANALYST_KEY: 'unused' },
+        { createAnalystRunner },
+      ),
+    ).rejects.toThrow(/--rlm-samples above 1 requires --analyst dspy-rlm/)
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...agentRxCommandArgs(agentRx), '--rlm-samples', '2'],
+        { TEST_ANALYST_KEY: 'unused' },
+        { createAnalystRunner },
+      ),
+    ).rejects.toThrow(/--rlm-samples above 1 requires --dataset codetracebench/)
+    expect(createAnalystRunner).not.toHaveBeenCalled()
+  })
+
   it('rejects branch names and short revision hashes before constructing a runner', async () => {
     const fixture = await codeTraceFixture()
     const createAnalystRunner = vi.fn()

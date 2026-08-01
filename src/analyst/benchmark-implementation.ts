@@ -44,6 +44,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-evidence-validation.ts',
   'src/analyst/benchmark-public-adapters.ts',
   'src/analyst/benchmark-public-calibration.ts',
+  'src/analyst/benchmark-public-consensus.ts',
   'src/analyst/benchmark-public-data.ts',
   'src/analyst/benchmark-public-errors.ts',
   'src/analyst/benchmark-public-model.ts',
@@ -112,7 +113,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '195504988fe7d062a67196f5b4328019a0b07d744eb9a34273df1300706350a6'
+  '3d186014316013769f0ef866f465810d95c9fa0c9e57350ff5b06755453eef9b'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

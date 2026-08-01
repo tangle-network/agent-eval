@@ -32,6 +32,8 @@ export interface AnalystBenchmarkArtifact {
     execution: {
       repetitions: number
       concurrency: number
+      /** Absent on artifacts produced before consensus sampling existed. */
+      rlmSamples?: number
       model: string
       maxOutputTokens: number
       timeoutMs: number
@@ -73,6 +75,8 @@ export interface AnalystBenchmarkRunIdentity {
     seed: number
     concurrency: number
     repetitions: number
+    /** Absent on manifests written before consensus sampling existed. */
+    rlmSamples?: number
     maxCostUsd: number
     maxArtifactBytes: number
     analystProtocolSha256: string

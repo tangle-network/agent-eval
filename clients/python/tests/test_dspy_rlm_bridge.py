@@ -214,7 +214,7 @@ def test_analyze_uses_official_rlm_contract_and_enabled_node_tool_specs(
         ],
         "trajectory": [{"iteration": 1, "tool": "viewTrace"}],
         "modelCalls": 3,
-        "runtime": RUNTIME,
+        "runtime": {**RUNTIME, "findings_salvage": None, "format_repair_used": False},
     }
 
 
@@ -537,6 +537,127 @@ def test_recover_never_returns_none_and_never_fabricates() -> None:
     assert recovered == {"reasoning": "(no stated reasoning)", "code": ""}
 
 
+_VALID_FINDING = {
+    "severity": "high",
+    "claim": "Step 5 wrote an invalid configuration.",
+    "subject": "incorrect-steps-5-5-unescaped-consequence-6",
+    "confidence": 0.9,
+    "evidence": [{"uri": "trace://trace-1/span/step-5"}],
+}
+
+
+def test_salvage_recovers_json_after_a_malformed_marker() -> None:
+    text = (
+        "Every other step was correct.\n\n"
+        "[[ ## findings_json ## ]\n" + json.dumps([_VALID_FINDING])
+    )
+    salvaged = dspy_rlm_bridge._salvage_findings_json(text)
+    assert salvaged is not None
+    rows, method = salvaged
+    assert rows == [_VALID_FINDING]
+    assert method == "malformed-marker"
+
+
+def test_salvage_finds_the_last_findings_shaped_array() -> None:
+    text = "counts were [1, 2, 3] and the verdict is " + json.dumps([_VALID_FINDING]) + " done"
+    salvaged = dspy_rlm_bridge._salvage_findings_json(text)
+    assert salvaged is not None
+    rows, method = salvaged
+    assert rows == [_VALID_FINDING]
+    assert method == "trailing-json-array"
+
+    assert dspy_rlm_bridge._salvage_findings_json("no citable array here [1, 2]") is None
+    assert dspy_rlm_bridge._salvage_findings_json("") is None
+
+
+def _run_analyze_main(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_dspy: Any,
+) -> dict[str, Any]:
+    monkeypatch.setattr(dspy_rlm_bridge, "_load_dspy", lambda: fake_dspy)
+    monkeypatch.setattr(
+        dspy_rlm_bridge,
+        "_build_deno_command",
+        lambda _dspy, _import_map: DENO_COMMAND,
+    )
+    monkeypatch.setattr(dspy_rlm_bridge, "_runtime_identity", lambda _command: RUNTIME)
+    input_path, output_path = _write_analyze_input(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dspy-rlm-bridge", "--input", str(input_path), "--output", str(output_path)],
+    )
+    dspy_rlm_bridge.main()
+    return json.loads(output_path.read_text())
+
+
+def test_final_turn_salvages_findings_after_a_malformed_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    answer = (
+        "Step 5 wrote an invalid configuration; all later steps were repairs.\n\n"
+        "[[ ## findings_json ## ]\n" + json.dumps([_VALID_FINDING])
+    )
+    fake = _fake_dspy(calls, answer=answer, findings_json="[]", invoke_tool=False)
+
+    output = _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert output["findings"] == [_VALID_FINDING]
+    assert output["runtime"]["findings_salvage"] == "malformed-marker"
+    assert output["runtime"]["format_repair_used"] is False
+    assert "repair_calls" not in calls
+    assert output["modelCalls"] == 3
+
+
+def test_prose_only_final_turn_uses_exactly_one_repair_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    fake = _fake_dspy(
+        calls,
+        answer="Steps 12-14 form a contiguous failure block described only in prose.",
+        findings_json="[]",
+        invoke_tool=False,
+        repair_completion=json.dumps([_VALID_FINDING]),
+    )
+
+    output = _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert output["findings"] == [_VALID_FINDING]
+    assert output["runtime"]["format_repair_used"] is True
+    assert output["runtime"]["findings_salvage"] is None
+    assert len(calls["repair_calls"]) == 1
+    # The repair prompt re-presents the model's own answer text.
+    assert "described only in prose" in json.dumps(calls["repair_calls"][0])
+    # The repair call is a real model call and is counted.
+    assert output["modelCalls"] == 4
+
+
+def test_empty_final_answer_stays_empty_without_a_repair_call(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    fake = _fake_dspy(
+        calls,
+        answer=dspy_rlm_bridge._SAFE_FIELD_DEFAULTS["answer"],
+        findings_json="[]",
+        invoke_tool=False,
+    )
+
+    output = _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert output["findings"] == []
+    assert output["runtime"]["format_repair_used"] is False
+    assert output["runtime"]["findings_salvage"] is None
+    assert "repair_calls" not in calls
+    assert output["modelCalls"] == 3
+
+
 def _fake_dspy(
     calls: dict[str, Any],
     *,
@@ -544,6 +665,7 @@ def _fake_dspy(
     answer: str = "The first failing operation is step 2.",
     invoke_tool: bool = True,
     probe_output: str = "2\n",
+    repair_completion: str = "[]",
 ) -> Any:
     valid_findings = json.dumps(
         [
@@ -584,6 +706,11 @@ def _fake_dspy(
             self.history: list[dict[str, Any]] = []
             calls["lm"] = {"model": model, **kwargs}
             calls["lm_instance"] = self
+
+        def __call__(self, *args: Any, **kwargs: Any) -> list[str]:
+            calls.setdefault("repair_calls", []).append(kwargs.get("messages") or list(args))
+            self.history.append({"repair": True})
+            return [repair_completion]
 
     class FakeTool:
         def __init__(
