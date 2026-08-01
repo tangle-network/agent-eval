@@ -82,7 +82,6 @@ export type {
   AnalystRunnerComparison,
 } from './benchmark-comparison'
 export { compareAnalystRunners } from './benchmark-comparison'
-export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export type {
   AgentRxBenchmarkCaseOptions,
   AgentRxFailure,
@@ -160,6 +159,7 @@ export {
   selectPublicBenchmarkRows,
 } from './benchmark-real-model'
 export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export type {
   LoadedVerificationArtifacts,
   VerificationArtifactFile,
