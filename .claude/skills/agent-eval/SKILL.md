@@ -16,6 +16,7 @@ This file defines maintainer procedure; source and generated types define the AP
 3. Search the repository for an existing primitive, adapter, and regression test.
 4. Check `package.json` exports before adding or changing an import path.
 5. Read the nearest runnable example only when it exercises the same public path.
+6. Read `docs/trace-analysis.md` before changing analyst kinds, engines, or benchmarks.
 
 Useful starting points:
 
@@ -25,6 +26,7 @@ Useful starting points:
 | Candidate search and promotion | `src/campaign/index.ts` |
 | Canonical run data | `src/run-record.ts` |
 | Trace capture and replay | `src/trace/index.ts` |
+| Trace analysis / recursive analyst engine | `src/analyst/index.ts` |
 | Comparisons and reports | `src/reporting.ts` |
 | Benchmark adapters | `src/benchmarks/index.ts` |
 | Training-data exports | `src/rl/index.ts` |

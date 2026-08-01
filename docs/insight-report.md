@@ -317,7 +317,7 @@ Populated when an `AnalystRegistry` is passed via `analyzeRuns({ analyst })`. Th
 
 **Use this when:** triaging a regression. Failure clusters tell you "fix this kind of thing first."
 
-**To wire it:** register analysts in `AnalystRegistry`. See `src/analyst/registry.ts` and `src/analyst/kinds.ts` for the four built-in kinds (`failure-mode`, `improvement`, `knowledge-gap`, `knowledge-poisoning`).
+**To wire it:** register analysts in `AnalystRegistry`. See `src/analyst/registry.ts` and `src/analyst/kinds/index.ts` for the four built-in kinds (`failure-mode`, `improvement`, `knowledge-gap`, `knowledge-poisoning`).
 
 ---
 

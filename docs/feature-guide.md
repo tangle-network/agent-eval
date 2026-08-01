@@ -162,6 +162,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Optimization | `compareOptimizationMethods`, official optimizer adapters, `runImprovementLoop` | Prompt and skill comparison | Reserve separate final cases for method ranking. |
 | Evolution | prompt/code mutators, sandbox pool, telemetry | Autoresearch and mutation loops | Use budgets and lineage; do not run unbounded. |
 | Telemetry | `TraceStore`, OTLP, file sinks | Evidence and replay | Store traces as inspectable run evidence. |
+| Trace analysis | `AnalystRegistry`, `createDspyRlmTraceEngine`, `defineTraceAnalyst` | Diagnosing failures across a batch of runs | See [trace-analysis.md](./trace-analysis.md) and the `agent-eval analyst-benchmark` CLI. |
 | Reporting | summaries, pareto, cost tracker | Decision support | Useful for PRs, launch gates, research notes. |
 
 ## Guardrails
