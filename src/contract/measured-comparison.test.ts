@@ -1054,7 +1054,12 @@ describe('candidate experiment comparison', () => {
     ).rejects.toThrow(/dimensions must be unique/)
   })
 
-  it('does not ship incomplete or grader-failed candidate runs', async () => {
+  it('does not ship incomplete or regressed candidate runs', async () => {
+    // The 'grader' arm's baseline used to score 0.2, which the fixture grades as
+    // passed=false. A candidate that also fails that cell is a SHARED failure,
+    // not a regression, and the gate no longer blocks on it — so this arm now
+    // scores the baseline at 0.6 (passing) and has the grader reject the
+    // candidate, which is the regression the check actually guards.
     for (const failure of ['timeout', 'grader'] as const) {
       const frozen = experiment()
       const run = await runCandidateExperiment({
@@ -1065,7 +1070,7 @@ describe('candidate experiment comparison', () => {
             arm: input.arm,
             task: input.task,
             benchmarkCell: input.benchmarkCell,
-            score: input.arm === 'baseline' ? 0.2 : 0.8,
+            score: input.arm === 'baseline' ? (failure === 'grader' ? 0.6 : 0.2) : 0.8,
             ...(input.arm === 'candidate' && failure === 'timeout'
               ? { termination: { kind: 'timeout' as const, timeoutMs: 60_000 } }
               : {}),
@@ -1084,7 +1089,7 @@ describe('candidate experiment comparison', () => {
         comparison.decision.contributingChecks.find((check) =>
           failure === 'timeout'
             ? check.name === 'all-runs-completed'
-            : check.name === 'candidate-task-pass',
+            : check.name === 'no-task-regression',
         )?.passed,
       ).toBe(false)
     }
@@ -1154,5 +1159,377 @@ describe('candidate experiment comparison', () => {
         runId: 'inconsistent-profile-plan',
       }),
     ).toThrow(/materialized a different profile/)
+  })
+})
+
+/**
+ * The promotion gate's task check used to require PERFECTION: a candidate
+ * shipped only if `candidate.passed` held on every benchmark cell. On any
+ * benchmark hard enough to be worth running nothing passes everything, so the
+ * bar was unreachable — under the old check the CONSTRUCTED case
+ * `repairedNotRegressed(8)` below (baseline mean 0.3339, candidate mean 0.8685,
+ * paired delta +0.5346) would be held with "candidate failed 2 benchmark
+ * tasks", and the 2 are tasks the baseline failed too.
+ *
+ * That case is constructed, not observed: no live run of this gate is on disk.
+ * An earlier draft of this docblock reported it as a measurement and quoted a
+ * bootstrap interval that nothing produced; commit d095318 retracted the same
+ * claim from the source comment, and it is retracted here for the same reason.
+ * The argument for the change is the unreachable bar itself, visible in the
+ * predicate, which needs no measured candidate.
+ *
+ * The bar is now improvement WITHOUT regression. Every test below pins BOTH
+ * directions: the case the gate must now let through, and the neighbouring case
+ * it must still refuse. Each "must still refuse" case is the calibration for the
+ * check above it — the guard is only proven by being made to FAIL.
+ */
+describe('promotion gate — improvement without regression, not perfection', () => {
+  interface GateRun {
+    score: number
+    dimensions: Array<{ name: string; score: number }>
+    costUsd: number
+    latencyMs: number
+    completed: boolean
+    passed: boolean
+  }
+
+  const gateAdapter = {
+    score: (run: GateRun) => run.score,
+    dimensions: (run: GateRun) => run.dimensions,
+    costUsd: (run: GateRun) => run.costUsd,
+    costProvenance: () => 'observed' as const,
+    latencyMs: (run: GateRun) => run.latencyMs,
+    completed: (run: GateRun) => run.completed,
+    passed: (run: GateRun) => run.passed,
+  }
+
+  const gatePolicy = {
+    confidenceLevel: 0.95,
+    resamples: 2_000,
+    bootstrapSeed: 1_337,
+    deltaThreshold: 0,
+    minProductiveRuns: 6,
+    budgetUsd: 100,
+    criticalDimensions: ['reliability'],
+    regressionTolerance: 0.05,
+  }
+
+  const gateRun = (score: number, passed: boolean, overrides: Partial<GateRun> = {}): GateRun => ({
+    score,
+    dimensions: [{ name: 'reliability', score }],
+    costUsd: 0.01,
+    latencyMs: 100,
+    completed: true,
+    passed,
+    ...overrides,
+  })
+
+  const evaluate = (
+    measurements: Array<{ cellId: string; baseline: GateRun; candidate: GateRun }>,
+    policy: Partial<typeof gatePolicy> = {},
+  ) =>
+    evaluatePairedMeasurements({
+      measurements,
+      policy: { ...gatePolicy, ...policy },
+      adapter: gateAdapter,
+      sharedScorerChannel: true,
+    })
+
+  const check = (result: ReturnType<typeof evaluate>, name: string) => {
+    const found = result.decision.contributingChecks.find((entry) => entry.name === name)
+    if (!found) throw new Error(`gate emitted no '${name}' check`)
+    return found.passed
+  }
+
+  /** 10 cells the baseline fails; the candidate repairs `repaired` of them and
+   *  leaves the rest failing exactly where the baseline already failed. */
+  const repairedNotRegressed = (repaired: number) =>
+    Array.from({ length: 10 }, (_, index) => ({
+      cellId: `task:${index}`,
+      baseline: gateRun(0.333 + (index % 3) * 0.001, false),
+      candidate:
+        index < repaired
+          ? gateRun(0.98 + (index % 3) * 0.005, true)
+          : gateRun(0.4 + (index % 2) * 0.01, false),
+    }))
+
+  it('SHIPS a candidate that repairs 8 tasks and still fails 2 the baseline also failed', () => {
+    const result = evaluate(repairedNotRegressed(8))
+
+    expect(result.overall.delta).toBeGreaterThan(0.5)
+    expect(result.overall.confidenceInterval.lower).toBeGreaterThan(0)
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(result.decision.outcome).toBe('ship')
+    expect(result.decision.reasons).toEqual(['all measured checks passed'])
+  })
+
+  it('CALIBRATION — still HOLDS when the candidate breaks one task the baseline passed', () => {
+    // Same 8 repairs and same 1 shared failure as the shipping case above. The
+    // ONLY difference is cell 9, which the baseline passed and the candidate now
+    // fails. That single cell must flip the verdict.
+    const measurements = repairedNotRegressed(8).map((measurement, index) =>
+      index === 9
+        ? {
+            ...measurement,
+            baseline: gateRun(0.9, true),
+            candidate: gateRun(0.2, false),
+          }
+        : measurement,
+    )
+
+    const result = evaluate(measurements)
+
+    // The composite lift is still large and still significant — the hold is the
+    // regression check doing its job, not the statistics.
+    expect(result.overall.delta).toBeGreaterThan(0.3)
+    expect(check(result, 'paired-significance')).toBe(true)
+    expect(check(result, 'critical-dimensions')).toBe(true)
+    expect(check(result, 'no-task-regression')).toBe(false)
+    expect(result.decision.outcome).toBe('hold')
+    expect(result.decision.reasons).toContain(
+      'candidate regressed 1 benchmark task the baseline passed: task:9',
+    )
+  })
+
+  it('reports repaired / regressed / still-failing on a hold, so a null is separable from a gate artifact', () => {
+    const measurements = repairedNotRegressed(8).map((measurement, index) =>
+      index === 9
+        ? { ...measurement, baseline: gateRun(0.9, true), candidate: gateRun(0.2, false) }
+        : measurement,
+    )
+
+    const result = evaluate(measurements)
+
+    expect(result.decision.reasons).toContain(
+      'benchmark tasks: 8 repaired, 1 regressed, 1 still failing that the baseline also failed',
+    )
+  })
+
+  it('CALIBRATION — the accounting line never appears on a ship, so it cannot read as a blocker', () => {
+    const result = evaluate(repairedNotRegressed(8))
+
+    expect(result.decision.outcome).toBe('ship')
+    expect(result.decision.reasons.some((reason) => reason.startsWith('benchmark tasks:'))).toBe(
+      false,
+    )
+  })
+
+  it('CALIBRATION — still HOLDS a candidate whose lift is not distinguishable from zero', () => {
+    // Every task passes on both arms, so `no-task-regression` passes. The gate
+    // must still refuse: dropping the perfection bar must not turn the gate into
+    // a rubber stamp for a candidate that did not actually improve anything.
+    const measurements = Array.from({ length: 10 }, (_, index) => ({
+      cellId: `flat:${index}`,
+      baseline: gateRun(0.5 + (index % 5) * 0.02, true),
+      candidate: gateRun(0.5 + ((index + 2) % 5) * 0.02, true),
+    }))
+
+    const result = evaluate(measurements)
+
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(check(result, 'paired-significance')).toBe(false)
+    expect(result.decision.outcome).not.toBe('ship')
+  })
+
+  it('CALIBRATION — still HOLDS when a benchmark execution did not complete', () => {
+    const measurements = repairedNotRegressed(8).map((measurement, index) =>
+      index === 0
+        ? { ...measurement, candidate: gateRun(0.98, true, { completed: false }) }
+        : measurement,
+    )
+
+    const result = evaluate(measurements)
+
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(check(result, 'all-runs-completed')).toBe(false)
+    expect(result.decision.outcome).toBe('hold')
+  })
+
+  it('CALIBRATION — still HOLDS a candidate that went over budget', () => {
+    const result = evaluate(repairedNotRegressed(8), { budgetUsd: 0.05 })
+
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(check(result, 'budget')).toBe(false)
+    expect(result.decision.outcome).toBe('hold')
+  })
+
+  it('CALIBRATION — still HOLDS a candidate that stopped reporting a critical dimension', () => {
+    // Both arms have to agree on the dimension set (a one-sided drop is rejected
+    // upstream as asymmetric evidence), so the suite reports `speed` only and
+    // the critical `reliability` dimension is gone from the run entirely.
+    const measurements = repairedNotRegressed(8).map((measurement) => ({
+      ...measurement,
+      baseline: { ...measurement.baseline, dimensions: [{ name: 'speed', score: 0.5 }] },
+      candidate: { ...measurement.candidate, dimensions: [{ name: 'speed', score: 0.9 }] },
+    }))
+
+    const result = evaluate(measurements)
+
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(check(result, 'critical-dimensions')).toBe(false)
+    expect(result.decision.reasons).toContain('critical dimensions missing: reliability')
+    expect(result.decision.outcome).toBe('hold')
+  })
+
+  it('CALIBRATION — still HOLDS a candidate that lifted the score while regressing a critical dimension', () => {
+    const measurements = Array.from({ length: 10 }, (_, index) => ({
+      cellId: `goodhart:${index}`,
+      baseline: {
+        ...gateRun(0.3 + (index % 3) * 0.01, true),
+        dimensions: [{ name: 'reliability', score: 0.9 - (index % 3) * 0.01 }],
+      },
+      candidate: {
+        ...gateRun(0.8 + (index % 3) * 0.02, true),
+        dimensions: [{ name: 'reliability', score: 0.6 - (index % 3) * 0.03 }],
+      },
+    }))
+
+    const result = evaluate(measurements)
+
+    expect(check(result, 'paired-significance')).toBe(true)
+    expect(check(result, 'no-task-regression')).toBe(true)
+    expect(check(result, 'critical-dimensions')).toBe(false)
+    expect(result.decision.reasons).toContain('critical dimensions regressed: reliability')
+    expect(result.decision.outcome).toBe('hold')
+  })
+})
+
+/**
+ * The paired significance reason used to print `significance.bootstrap.low` — a
+ * DIAGNOSTIC bootstrap that on several paths never enters the decision. Observed
+ * live: `paired interval lower bound 0.6666666666666669 did not clear 0`, which
+ * is self-contradicting, because 0.667 does clear 0.
+ *
+ * The refusal itself is correct and is NOT relaxed here. Under the bounded
+ * asymmetric null the estimator documents (2 % of pairs drop by 1.0, the rest
+ * gain 0.0204, true mean paired delta exactly 0), a constant-positive sample is
+ * exactly a sample in which no pair drew the drop, so its frequency is
+ * closed-form 0.98^n — 88.6 % at n = 6. Promoting on a zero-variance sample
+ * would therefore false-promote a true-zero candidate most of the time. What is fixed is that the gate now says which
+ * interval decided and why, and routes a degenerate sample to `need_more_work`
+ * (fix the held-out set) instead of `hold` (fix the candidate).
+ */
+describe('promotion gate — the significance reason names the interval that decided', () => {
+  interface GateRun {
+    score: number
+    dimensions: Array<{ name: string; score: number }>
+    costUsd: number
+    latencyMs: number
+    completed: boolean
+    passed: boolean
+  }
+
+  const gateAdapter = {
+    score: (run: GateRun) => run.score,
+    dimensions: (run: GateRun) => run.dimensions,
+    costUsd: (run: GateRun) => run.costUsd,
+    costProvenance: () => 'observed' as const,
+    latencyMs: (run: GateRun) => run.latencyMs,
+    completed: (run: GateRun) => run.completed,
+    passed: (run: GateRun) => run.passed,
+  }
+
+  const gatePolicy = {
+    confidenceLevel: 0.95,
+    resamples: 2_000,
+    bootstrapSeed: 1_337,
+    deltaThreshold: 0,
+    minProductiveRuns: 6,
+    budgetUsd: 100,
+    criticalDimensions: ['reliability'],
+    regressionTolerance: 0.05,
+  }
+
+  const gateRun = (score: number): GateRun => ({
+    score,
+    dimensions: [{ name: 'reliability', score }],
+    costUsd: 0.01,
+    latencyMs: 100,
+    completed: true,
+    passed: true,
+  })
+
+  const evaluate = (scores: Array<{ baseline: number; candidate: number }>) =>
+    evaluatePairedMeasurements({
+      measurements: scores.map((pair, index) => ({
+        cellId: `cell:${index}`,
+        baseline: gateRun(pair.baseline),
+        candidate: gateRun(pair.candidate),
+      })),
+      policy: gatePolicy,
+      adapter: gateAdapter,
+      sharedScorerChannel: true,
+    })
+
+  it('explains a zero-variance sample instead of claiming its own bound failed to clear', () => {
+    // Six cells that all move +2/3. The old reason read "lower bound
+    // 0.6666666666666669 did not clear 0".
+    const result = evaluate(
+      Array.from({ length: 6 }, () => ({ baseline: 0.333, candidate: 0.333 + 2 / 3 })),
+    )
+    const reason = result.decision.reasons[0]!
+
+    expect(reason).toMatch(/interval is degenerate at \[0\.6666666666666669, 0\.6666666666666669\]/)
+    expect(reason).toMatch(/the mean CI collapsed to a point/)
+    expect(reason).not.toMatch(/did not clear/)
+    // The remedy is the held-out set, not a better candidate.
+    expect(result.decision.outcome).toBe('need_more_work')
+  })
+
+  it('CALIBRATION — the zero-variance sample is still REFUSED, however large the constant gain', () => {
+    // Same fixture. A constant +2/3 is a huge point estimate and the gate must
+    // still not ship it: the sample carries no information about its own error,
+    // and it is exactly the shape a true-zero candidate produces when the
+    // held-out set is too small to have sampled the tail.
+    const result = evaluate(
+      Array.from({ length: 6 }, () => ({ baseline: 0.333, candidate: 0.333 + 2 / 3 })),
+    )
+
+    expect(result.overall.delta).toBeCloseTo(2 / 3, 12)
+    expect(
+      result.decision.contributingChecks.find((entry) => entry.name === 'paired-significance')
+        ?.passed,
+    ).toBe(false)
+    expect(result.decision.outcome).not.toBe('ship')
+  })
+
+  it('CALIBRATION — a non-degenerate miss still reports a lower bound, and it is the DECIDING one', () => {
+    // Varied deltas straddling zero: the interval is real, has width, and fails
+    // honestly. This is the branch that must keep saying "did not clear".
+    const result = evaluate([
+      { baseline: 0.5, candidate: 0.56 },
+      { baseline: 0.5, candidate: 0.42 },
+      { baseline: 0.5, candidate: 0.58 },
+      { baseline: 0.5, candidate: 0.41 },
+      { baseline: 0.5, candidate: 0.57 },
+      { baseline: 0.5, candidate: 0.44 },
+      { baseline: 0.5, candidate: 0.55 },
+      { baseline: 0.5, candidate: 0.43 },
+    ])
+    const reason = result.decision.reasons[0]!
+
+    expect(reason).toMatch(/^paired mean_bootstrap interval lower bound -?\d/)
+    expect(reason).toMatch(/did not clear 0/)
+    expect(reason).not.toMatch(/degenerate/)
+    expect(result.decision.outcome).toBe('hold')
+  })
+
+  it('CALIBRATION — a pass/fail outcome reports McNemar, not a bootstrap the decision never read', () => {
+    // A two-point outcome routes to the score interval, so the diagnostic mean
+    // bootstrap never enters the decision. The old string printed it anyway.
+    const result = evaluate([
+      { baseline: 0, candidate: 1 },
+      { baseline: 0, candidate: 1 },
+      { baseline: 0, candidate: 0 },
+      { baseline: 1, candidate: 1 },
+      { baseline: 1, candidate: 1 },
+      { baseline: 1, candidate: 1 },
+      { baseline: 0, candidate: 0 },
+      { baseline: 1, candidate: 1 },
+    ])
+    const reason = result.decision.reasons[0]!
+
+    expect(reason).toMatch(/^McNemar's exact test refuses at threshold 0: b=2, c=0/)
+    expect(result.decision.outcome).toBe('hold')
   })
 })

@@ -414,7 +414,48 @@ export function evaluatePairedMeasurements<TRun>(
     measurement.candidate,
   ])
   const incompleteRuns = completedRuns.filter((run) => !run.completed)
-  const failedCandidateResults = measurements.filter((measurement) => !measurement.candidate.passed)
+  // FAILED is not REGRESSED, and the gate must ship on the second one.
+  //
+  // The blocking bar used to be `!candidate.passed` on any cell, i.e. the
+  // candidate had to pass EVERY benchmark task. On a benchmark hard enough to
+  // be worth running, nothing passes everything, so the bar was unreachable.
+  //
+  // The demonstration is the synthetic case `repairedNotRegressed(8)` in this
+  // file's tests: baseline mean 0.3339, candidate mean 0.8685, paired delta
+  // +0.5346 — held with "candidate failed 2 benchmark tasks", where both were
+  // tasks the BASELINE failed too. An improvement reported as a defect.
+  //
+  // Stated precisely because an earlier draft of this comment was not: that case
+  // is CONSTRUCTED, not observed. No live run of this gate is on disk, and no
+  // arm of the work that found this defect ever called a model. The argument for
+  // the change is the unreachable bar itself, which is visible in the predicate;
+  // it does not rest on a measured candidate, and none should be claimed here.
+  //
+  // The consequence still holds and is the reason this matters: an improvement
+  // null measured through the OLD gate cannot be read as evidence that
+  // improvement does not work, because the gate could reject winners.
+  //
+  // The honest bar is improvement WITHOUT regression. The improvement half is
+  // already carried by `paired-significance` (the lift must clear the threshold
+  // with statistical evidence) and the quality half by `critical-dimensions`.
+  // What was missing here is the per-task regression: a cell the baseline
+  // PASSED and the candidate now fails. The baseline arm is already projected
+  // through the same `adapter.passed`, so the comparison needs no new evidence —
+  // it was available and simply not read.
+  //
+  // The three-way split is retained (not just the regression count) so a future
+  // reader can tell a gate artifact from a real null: `repaired` is the work the
+  // candidate did, `shared` is the work neither arm can do, and only `regressed`
+  // blocks.
+  const regressedTasks = measurements.filter(
+    (measurement) => !measurement.candidate.passed && measurement.baseline.passed,
+  )
+  const sharedTaskFailures = measurements.filter(
+    (measurement) => !measurement.candidate.passed && !measurement.baseline.passed,
+  )
+  const repairedTasks = measurements.filter(
+    (measurement) => measurement.candidate.passed && !measurement.baseline.passed,
+  )
   const derivedMeasurementCost: AgentImprovementCost = {
     usd: measurementCostUsd,
     provenance: measurements.every(
@@ -449,7 +490,10 @@ export function evaluatePairedMeasurements<TRun>(
     { name: 'paired-significance', passed: significance.significant },
     { name: 'paired-precision', passed: powerSufficient },
     { name: 'all-runs-completed', passed: incompleteRuns.length === 0 },
-    { name: 'candidate-task-pass', passed: failedCandidateResults.length === 0 },
+    // Renamed from `candidate-task-pass` with the semantics. A consumer keyed on
+    // the old name now sees a MISSING check rather than a silently different
+    // one, which is the failure mode worth having.
+    { name: 'no-task-regression', passed: regressedTasks.length === 0 },
     {
       name: 'critical-dimensions',
       passed: regressions.length === 0 && missingCriticalDimensions.length === 0,
@@ -459,18 +503,12 @@ export function evaluatePairedMeasurements<TRun>(
   const shipped = checks.every((check) => check.passed)
   const hardFailure =
     incompleteRuns.length > 0 ||
-    failedCandidateResults.length > 0 ||
+    regressedTasks.length > 0 ||
     regressions.length > 0 ||
     missingCriticalDimensions.length > 0 ||
     !budgetPassed
   const reasons = [
-    ...(significance.significant
-      ? []
-      : [
-          significance.fewRuns
-            ? `only ${significance.n} paired runs; ${significance.minimumRequired} required`
-            : `paired interval lower bound ${significance.bootstrap.low} did not clear ${deltaThreshold}`,
-        ]),
+    ...(significance.significant ? [] : [significanceReason(significance, deltaThreshold)]),
     ...(powerSufficient || significance.fewRuns ? [] : [power.reason]),
     ...(regressions.length === 0
       ? []
@@ -481,10 +519,26 @@ export function evaluatePairedMeasurements<TRun>(
     ...(incompleteRuns.length === 0
       ? []
       : [`${incompleteRuns.length} benchmark executions did not exit successfully`]),
-    ...(failedCandidateResults.length === 0
+    ...(regressedTasks.length === 0
       ? []
-      : [`candidate failed ${failedCandidateResults.length} benchmark tasks`]),
+      : [
+          `candidate regressed ${regressedTasks.length} benchmark ` +
+            `${regressedTasks.length === 1 ? 'task' : 'tasks'} the baseline passed: ` +
+            regressedTasks.map((measurement) => measurement.cellId).join(', '),
+        ]),
     ...(budgetPassed ? [] : [`total cost ${totalCost.usd} exceeded budget ${budgetUsd}`]),
+    // Non-blocking accounting, emitted on any outcome that did NOT ship and has
+    // tasks both arms failed — so a `hold` (whatever caused it) and also a
+    // `need_more_work`. It lets an operator reading a refusal tell "the
+    // candidate is bad" from "the benchmark has tasks neither arm solves". The
+    // `shipped` term is what keeps it off a ship, where it could be misread as a
+    // blocking reason.
+    ...(shipped || sharedTaskFailures.length === 0
+      ? []
+      : [
+          `benchmark tasks: ${repairedTasks.length} repaired, ${regressedTasks.length} regressed, ` +
+            `${sharedTaskFailures.length} still failing that the baseline also failed`,
+        ]),
   ]
 
   return {
@@ -500,7 +554,11 @@ export function evaluatePairedMeasurements<TRun>(
         ? 'ship'
         : hardFailure
           ? 'hold'
-          : significance.fewRuns || !powerSufficient
+          : // A degenerate paired sample is a MEASUREMENT that cannot decide, not
+            // a candidate that lost. `hold` sends the operator to build a better
+            // candidate; `need_more_work` sends them to the held-out set, which is
+            // the only thing that can actually resolve a zero-variance sample.
+            significance.fewRuns || !powerSufficient || significance.decision.indeterminate
             ? 'need_more_work'
             : 'hold',
       reasons: reasons.length > 0 ? reasons : ['all measured checks passed'],
@@ -519,6 +577,66 @@ export function evaluatePairedMeasurements<TRun>(
     totalCost,
     measurementWorkDurationMs,
   }
+}
+
+/**
+ * Say why the paired significance check refused, reading the interval that
+ * ACTUALLY decided.
+ *
+ * The old string always printed `significance.bootstrap.low`, which is a
+ * DIAGNOSTIC bootstrap that on several paths never enters the decision at all.
+ * That produced self-contradicting holds — observed live: "paired interval lower
+ * bound 0.6666666666666669 did not clear 0", where 0.667 plainly clears 0. Three
+ * paths where the old string was simply reporting the wrong number:
+ *
+ *   - ZERO-VARIANCE sample. Every paired delta identical ⇒ the resample
+ *     distribution is a point mass and the interval collapses to [g, g]. The
+ *     refusal is correct and load-bearing, and the reason has to say so.
+ *     Under the bounded asymmetric null this repo documents (2 % of pairs drop
+ *     by 1.0, the rest gain 0.0204, true mean paired delta exactly 0), a
+ *     constant-positive sample is exactly a sample in which no pair drew the
+ *     drop, so its frequency is closed-form 0.98^n — 88.6 % at n = 6 and 66.8 %
+ *     at n = 20. That reconciles with the false-promotion rates measured on the
+ *     composable gate for the same null, 88.50 % at n = 6 and 65.65 % at n = 20
+ *     (see {@link decidePairedPromotion} in `src/paired-promotion-decision.ts`);
+ *     no number here is independently measured, and none needs to be. A
+ *     constant positive delta is therefore NOT the strongest evidence — it is
+ *     the signature of a held-out set too small or too uniform to have sampled
+ *     the tail, and promoting on it would false-promote a true-zero candidate
+ *     most of the time. No distribution-free bound rescues it either: a
+ *     Hoeffding 95 % lower bound on a constant +0.667 with scores in [0, 1] is
+ *     −0.33 at n = 6 and −0.11 at n = 10, first clearing 0 at n = 20. The
+ *     estimator genuinely cannot express this sample, so the gate says that and
+ *     routes to `need_more_work` — vary or extend the held-out cells.
+ *   - TWO-POINT outcome, where the score interval decided and the bootstrap was
+ *     never consulted.
+ *   - McNEMAR VETO, where no interval failed at all.
+ */
+function significanceReason(
+  significance: ReturnType<typeof heldoutSignificance>,
+  deltaThreshold: number,
+): string {
+  if (significance.fewRuns) {
+    return `only ${significance.n} paired runs; ${significance.minimumRequired} required`
+  }
+  const { decision } = significance
+  if (decision.indeterminate) {
+    return (
+      `paired ${decision.statistic} interval is degenerate at [${decision.low}, ${decision.high}] ` +
+      `(${decision.indeterminateCause}); a zero-width interval carries no information about its ` +
+      `own error, so no threshold can be cleared on it — vary or extend the held-out cells`
+    )
+  }
+  if (decision.exactTestVetoes && decision.mcnemar !== null) {
+    return (
+      `McNemar's exact test refuses at threshold ${deltaThreshold}: ` +
+      `b=${decision.mcnemar.b}, c=${decision.mcnemar.c}, p=${decision.mcnemar.pValue}`
+    )
+  }
+  return (
+    `paired ${decision.statistic} interval lower bound ${decision.low} ` +
+    `did not clear ${deltaThreshold}.${decision.methodDetail}`
+  )
 }
 
 /** Build the only publishable comparison: paired statistics over Runtime receipts. */
