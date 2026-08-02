@@ -36,7 +36,6 @@ export {
   runMultishotMatrix,
 } from './matrix'
 export { type RunMultishotOptions, runMultishot } from './multishot'
-
 export {
   defaultRouterBaseUrl,
   estimateRouterCost,
@@ -46,6 +45,12 @@ export {
   requireRouterApiKey,
   routerCompletion,
 } from './router'
+export {
+  defaultMultishotDriverSystemPrompt,
+  defaultMultishotOpener,
+  defaultShapeFromProfile,
+  renderPersonaFacts,
+} from './shape-defaults'
 
 export {
   type MultishotArtifact,

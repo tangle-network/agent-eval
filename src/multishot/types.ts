@@ -79,12 +79,18 @@ export interface MultishotPersona {
   [k: string]: unknown
 }
 
+/**
+ * Persona-shaping callbacks. Both are OPTIONAL: when omitted, the loop derives
+ * them from the `AgentProfile` + persona payload (see `defaultShapeFromProfile`)
+ * so a pure-profile call — `runMultishot({ profile, persona })` — works with no
+ * role-builder functions. Provide callbacks only to override the derived shape.
+ */
 export interface MultishotShape<TPersona extends MultishotPersona> {
   /** Opening user message (turn 0) — the persona's first ask. */
-  buildOpener: (persona: TPersona) => string
+  buildOpener?: (persona: TPersona) => string
   /** System prompt the driver LLM uses to roleplay the persona. Should set
    *  voice, goals, constraints, time-pressure, and the "never go silent" rule. */
-  buildDriverSystemPrompt: (persona: TPersona) => string
+  buildDriverSystemPrompt?: (persona: TPersona) => string
 }
 
 export class MultishotDriverEmptyError extends Error {

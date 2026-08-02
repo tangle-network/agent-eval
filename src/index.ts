@@ -217,6 +217,7 @@ export {
   stopOnRepeatedAction,
   subjectiveEval,
 } from './control-runtime'
+export { resetDeprecationWarnings, warnDeprecatedOnce } from './deprecation'
 export type {
   DetectorEvent,
   DetectorSeverity,
@@ -232,13 +233,8 @@ export {
   observeAll,
   repeatedActionDetector,
 } from './detectors'
-export type { AgentDriverConfig, DecideNextUserTurnOpts, WorkerDriverContext } from './driver'
-export {
-  AgentDriver,
-  buildDriverSystemPrompt,
-  buildWorkerDriverSystemPrompt,
-  decideNextUserTurn,
-} from './driver'
+export type { AgentDriverConfig, DecideNextUserTurnOpts } from './driver'
+export { AgentDriver, buildDriverSystemPrompt, decideNextUserTurn } from './driver'
 export type { AgentEvalErrorCode } from './errors'
 // Error taxonomy — every error this package throws as part of its public
 // contract extends AgentEvalError. Pattern-match by `instanceof` or by the
@@ -678,6 +674,9 @@ export type {
   TurnMetrics,
   TurnResult,
 } from './types'
+// Worker-driver knowledge as SEED DATA (the deleted buildWorkerDriverSystemPrompt,
+// re-expressed so a driver profile can seed from it and an optimizer can improve it).
+export { HARNESS_BRIEFS, WORKER_DRIVER_DOCTRINE } from './worker-driver-seed'
 
 // ── Core primitives ──────────────────────────────────────────────────
 

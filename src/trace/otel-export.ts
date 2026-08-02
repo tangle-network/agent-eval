@@ -15,6 +15,7 @@ import {
   type ToolSpanOtlpInput,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
+import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
@@ -174,9 +175,9 @@ function toOtlpSpan(span: ExportableSpan): OtlpSpan {
   applyLlmSpanOtlpAttributes(attrs, span)
   if (span.tool) applyToolSpanOtlpAttributes(attrs, span.tool)
   return {
-    traceId: padTraceId(span.traceId),
-    spanId: padSpanId(span.spanId),
-    parentSpanId: span.parentSpanId ? padSpanId(span.parentSpanId) : undefined,
+    traceId: traceIdForWire(span.traceId),
+    spanId: spanIdForWire(span.spanId),
+    parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : undefined,
     name: span.name,
     kind: 1, // SPAN_KIND_INTERNAL
     startTimeUnixNano: msToNs(span.startedAt),
@@ -202,14 +203,4 @@ function toAttributes(record: Record<string, string | number | boolean>): OtlpSp
 
 function msToNs(ms: number): string {
   return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
-}
-
-function padSpanId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 16).padEnd(16, '0')
-}
-
-function padTraceId(id: string): string {
-  const cleaned = id.replace(/-/g, '')
-  return cleaned.slice(0, 32).padEnd(32, '0')
 }

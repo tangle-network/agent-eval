@@ -1,12 +1,17 @@
+import { warnDeprecatedOnce } from './deprecation'
 import type { CheckResult, ProductClientConfig, RouteMap, TestResult } from './types'
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
 /**
  * ProductClient — configurable HTTP client for exercising any agent's APIs.
  *
  * Routes are config, not hardcoded. Each agent provides its own RouteMap.
+ *
+ * @deprecated A one-product REST client does not belong in the generic
+ * substrate. Moves to the product repo in the next major
+ * (tangle-network/agent-runtime#694); vendor it if you construct it directly.
  */
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
-
 export class ProductClient {
   private baseUrl: string
   private routes: RouteMap
@@ -14,6 +19,10 @@ export class ProductClient {
   private timeoutMs: number
 
   constructor(config: ProductClientConfig) {
+    warnDeprecatedOnce(
+      'ProductClient',
+      'ProductClient is deprecated and moves to the product repo in the next major (tangle-network/agent-runtime#694).',
+    )
     this.baseUrl = config.baseUrl.replace(/\/+$/, '')
     this.routes = config.routes
     this.timeoutMs = config.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS

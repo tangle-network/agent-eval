@@ -1,3 +1,4 @@
+import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isOtelConfigured, withOtelPipeline } from '../src/otel-pipeline'
 import { createOtelTracingStore, otelRunCompleteHook } from '../src/trace/otel-bridge'
@@ -88,7 +89,10 @@ describe('OTEL export', () => {
     expect(body.resourceSpans[0].scopeSpans[0].spans).toHaveLength(2)
     const span = body.resourceSpans[0].scopeSpans[0].spans[0]
     expect(span.name).toBe('judge:domain')
-    expect(span.traceId).toBe('aaaa0000000000000000000000000000')
+    // Wire ids come from the contract's deriveHexId — the retired strip+pad
+    // ('aaaa' + zero-fill) must never be emitted again.
+    expect(span.traceId).toBe(deriveHexId('aaaa', 16))
+    expect(span.traceId).not.toBe('aaaa0000000000000000000000000000')
     const attributes = Object.fromEntries(
       span.attributes.map((attribute: any) => [attribute.key, Object.values(attribute.value)[0]]),
     )

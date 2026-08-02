@@ -14,6 +14,7 @@ import {
   requireRouterApiKey,
   routerCompletion,
 } from './router'
+import { defaultShapeFromProfile } from './shape-defaults'
 import {
   type MultishotArtifact,
   MultishotDriverEmptyError,
@@ -30,7 +31,9 @@ import {
 export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   profile: AgentProfile
   persona: TPersona
-  shape: MultishotShape<TPersona>
+  /** Persona-shaping callbacks. Optional — omitted callbacks are derived from
+   *  the profile + persona payload, so a pure-profile call works. */
+  shape?: MultishotShape<TPersona>
   /** Tool definitions advertised to the agent. Defaults to delegate_research + delegate_code. */
   tools?: MultishotToolDefinition[]
   /** Map from tool name → executor invoked inline when the agent emits a tool_call. */
@@ -97,13 +100,15 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const agentTransport = opts.agentTransport ?? routerTransport
   const driverTransport = opts.driverTransport ?? routerTransport
 
+  const shape = defaultShapeFromProfile(opts.profile, opts.shape)
+
   const start = Date.now()
   const transcript: MultishotMessage[] = []
   const artifacts: MultishotArtifact[] = []
   let toolCalls = 0
   let totalCostUsd = 0
 
-  const opener = opts.shape.buildOpener(opts.persona)
+  const opener = shape.buildOpener(opts.persona)
   transcript.push({ role: 'user', content: opener })
 
   const systemPrompt = opts.profile.prompt?.systemPrompt ?? ''
@@ -197,7 +202,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
       const driver = await driverTurn({
         transport: driverTransport,
         persona: opts.persona,
-        shape: opts.shape,
+        shape,
         transcript,
         turn,
         models: driverModels,
@@ -216,7 +221,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
 async function driverTurn<TPersona extends MultishotPersona>(opts: {
   transport: MultishotTransport
   persona: TPersona
-  shape: MultishotShape<TPersona>
+  shape: Required<MultishotShape<TPersona>>
   transcript: MultishotMessage[]
   turn: number
   models: string[]

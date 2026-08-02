@@ -13,11 +13,7 @@ import {
   createChatClient,
 } from './analyst/chat-client'
 import { CostLedger } from './cost-ledger'
-import {
-  buildDriverSystemPrompt,
-  buildWorkerDriverSystemPrompt,
-  decideNextUserTurn,
-} from './driver'
+import { buildDriverSystemPrompt, decideNextUserTurn } from './driver'
 import type { DriverState, PersonaConfig } from './types'
 
 const STATE: DriverState = {
@@ -289,51 +285,5 @@ describe('decideNextUserTurn', () => {
     ).rejects.toThrow(/hard maximumCharge/)
     expect(calls).toBe(1)
     expect(opaqueCalls).toBe(0)
-  })
-})
-
-describe('buildWorkerDriverSystemPrompt — harness-aware driving contract', () => {
-  const GOAL = 'make the failing test suite pass without touching the public API'
-
-  it('weaves in the goal, the named harness, and its capability brief', () => {
-    const p = buildWorkerDriverSystemPrompt({
-      goal: GOAL,
-      harness: 'claude-code',
-      harnessBrief: '- parallel Task sub-agents (~10)\n- native WebSearch + MCP',
-    })
-    expect(p).toContain(GOAL)
-    expect(p).toContain('claude-code')
-    expect(p).toContain('parallel Task sub-agents')
-  })
-
-  it('demands rich, high-signal instructions and forbids thin steers', () => {
-    const p = buildWorkerDriverSystemPrompt({ goal: GOAL })
-    expect(p).toMatch(/dense, specific/i)
-    expect(p).toMatch(/thin steer/i)
-    expect(p).toMatch(/out-drive a human/i)
-  })
-
-  it('drives the worker to exploit its harness — parallelize, sub-agents, run-to-completion', () => {
-    const p = buildWorkerDriverSystemPrompt({ goal: GOAL })
-    expect(p).toMatch(/parallel/i)
-    expect(p).toMatch(/sub-agent/i)
-    expect(p).toMatch(/run to completion/i)
-  })
-
-  it('requires verification and refuses self-declared completion', () => {
-    const p = buildWorkerDriverSystemPrompt({ goal: GOAL })
-    expect(p).toMatch(/verif/i)
-    expect(p).toMatch(/never accept "done" without the check/i)
-    expect(p).toMatch(/the deliverable's checker does/i)
-  })
-
-  it('handles the first turn (no progress) and a resumed turn (with progress) distinctly', () => {
-    const first = buildWorkerDriverSystemPrompt({ goal: GOAL })
-    const resumed = buildWorkerDriverSystemPrompt({
-      goal: GOAL,
-      progress: 'wrote stub, 3/10 tests pass',
-    })
-    expect(first).toMatch(/has not started yet/i)
-    expect(resumed).toContain('3/10 tests pass')
   })
 })

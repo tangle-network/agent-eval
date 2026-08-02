@@ -27,6 +27,9 @@ importers:
       '@tangle-network/agent-interface':
         specifier: 0.40.0
         version: 0.40.0
+      '@tangle-network/agent-trace-contract':
+        specifier: ^1.0.2
+        version: 1.0.2
       hono:
         specifier: ^4.12.32
         version: 4.12.32
@@ -809,6 +812,9 @@ packages:
 
   '@tangle-network/agent-interface@0.40.0':
     resolution: {integrity: sha512-4A6+bb5Ub22WJsVQRNuNIr6BSsfQG4ZZT436GZ2qUcZocjJ7186MEbN7kOmYq9TQ9qeMSUh/HbyYw2nsok5b+w==}
+
+  '@tangle-network/agent-trace-contract@1.0.2':
+    resolution: {integrity: sha512-v7uMh56jkEp4vckevEU9xKsIatbs5dqzGPp69dFLSSXUVit0RP6VD6EANMXVlTCUk+6wVKBLHJx23XspVCEiIA==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -2286,6 +2292,8 @@ snapshots:
       '@noble/hashes': 1.8.0
       spdx-expression-parse: 5.0.0
       zod: 4.4.3
+
+  '@tangle-network/agent-trace-contract@1.0.2': {}
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
