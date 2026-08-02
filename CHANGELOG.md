@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.142.0] - 2026-08-02 - current agent control contracts
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependency cohort with `0.4.31` and `0.42.0`, including native continuation results bound to the submitted turn and current run control reference.
+
 ## [0.141.0] - 2026-08-02 - portable trace identity and profile-native multishot
 
 ### Changed
