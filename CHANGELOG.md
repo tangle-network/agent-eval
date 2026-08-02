@@ -4,7 +4,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased] - agent-graph retirements (tangle-network/agent-runtime#694)
+## [0.141.0] - 2026-08-02 - portable trace identity and profile-native multishot
 
 ### Changed
 
