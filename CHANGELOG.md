@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.142.1] - 2026-08-02 - current shared type patch
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependency cohort with `0.4.32` and `0.42.1`, preventing nested copies when consumers use the current interaction-field contract.
+
 ## [0.142.0] - 2026-08-02 - current agent control contracts
 
 ### Changed
