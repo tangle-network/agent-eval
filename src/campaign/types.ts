@@ -21,6 +21,7 @@ import type {
   CostChannel,
   CostLedgerHandle,
   CostLedgerSummary,
+  CostProvenance,
   PaidCallResult,
   RunPaidCallInput,
 } from '../cost-ledger'
@@ -573,9 +574,11 @@ export interface CampaignCellResult<TArtifact> {
   generation?: number
   artifact: TArtifact
   judgeScores: Record<string, JudgeScore>
+  /** Known subtotal in USD. When `costProvenance.kind === 'uncaptured'`, this
+   *  remains the sum of known receipts and MUST NOT be treated as total spend. */
   costUsd: number
-  /** True when at least one priced receipt used the model table instead of a provider bill. */
-  costEstimated?: boolean
+  /** Exact origin of the cell's total cost. Unknown cost is never encoded as zero. */
+  costProvenance: CostProvenance
   /** Exact durable receipts required to reuse this cached result. */
   costCallIds?: string[]
   /** Agent-call token usage committed by `ctx.cost.runPaidCall`.

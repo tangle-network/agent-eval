@@ -1,4 +1,5 @@
 import type { AgentProfileCell } from '../agent-profile-cell'
+import type { CostProvenance } from '../cost-ledger'
 import type {
   JudgeScoresRecord,
   RunOutcome,
@@ -59,21 +60,22 @@ export function campaignCellToRunRecord<TArtifact>(
     quality.raw.judge_error_count ?? 0,
     execution.judgeErrorCount ?? 0,
   )
-  const cellCostCaptured = Number.isFinite(cell.costUsd) && cell.costUsd >= 0
-  const costUsd = cellCostCaptured ? cell.costUsd : (options.defaultCostUsd ?? null)
-  const costProvenance =
-    costUsd === null
-      ? ({ kind: 'uncaptured', usd: null } as const)
-      : cellCostCaptured && !cell.costEstimated
-        ? ({ kind: 'observed', usd: costUsd } as const)
-        : ({ kind: 'estimated', usd: costUsd } as const)
+  const cellCostProvenance = campaignCellCostProvenance(cell)
+  const costProvenance: CostProvenance =
+    cellCostProvenance.kind === 'uncaptured' && options.defaultCostUsd !== undefined
+      ? { kind: 'estimated', usd: options.defaultCostUsd }
+      : cellCostProvenance
+  const costUsd = costProvenance.kind === 'uncaptured' ? null : costProvenance.usd
   const raw: Record<string, number> = {
     ...finiteMetrics(options.raw),
     ...quality.raw,
     rep: cell.rep,
     duration_ms: cell.durationMs,
     ...(costUsd === null ? {} : { cost_usd: costUsd }),
-    cost_estimated: cell.costEstimated ? 1 : 0,
+    ...(cellCostProvenance.kind === 'uncaptured' ? { cost_known_subtotal_usd: cell.costUsd } : {}),
+    cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
+    cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
+    cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
     tokens_input: cell.tokenUsage.input,
     tokens_output: cell.tokenUsage.output,
     latency_ms: cell.durationMs,
@@ -131,6 +133,40 @@ export function campaignCellToRunRecord<TArtifact>(
     scenarioId: options.scenarioId ?? cell.scenarioId,
     ...(options.agentProfile ? { agentProfile: options.agentProfile } : {}),
   })
+}
+
+/**
+ * Validate the cost fields that cross campaign cache and RunRecord boundaries.
+ * `costUsd` is a known subtotal for uncaptured cells, but it must equal the
+ * authoritative total whenever that total is observed or estimated.
+ */
+export function campaignCellCostProvenance<TArtifact>(
+  cell: Pick<CampaignCellResult<TArtifact>, 'cellId' | 'costUsd' | 'costProvenance'>,
+): CostProvenance {
+  if (!Number.isFinite(cell.costUsd) || cell.costUsd < 0) {
+    throw new Error(`campaign cell '${cell.cellId}' has invalid costUsd`)
+  }
+  const provenance = cell.costProvenance
+  if (!provenance || typeof provenance !== 'object') {
+    throw new Error(`campaign cell '${cell.cellId}' has no costProvenance`)
+  }
+  if (provenance.kind === 'uncaptured') {
+    if (provenance.usd !== null) {
+      throw new Error(`campaign cell '${cell.cellId}' has invalid uncaptured costProvenance`)
+    }
+    return { kind: 'uncaptured', usd: null }
+  }
+  if (
+    (provenance.kind !== 'observed' && provenance.kind !== 'estimated') ||
+    !Number.isFinite(provenance.usd) ||
+    provenance.usd < 0
+  ) {
+    throw new Error(`campaign cell '${cell.cellId}' has invalid costProvenance`)
+  }
+  if (provenance.usd !== cell.costUsd) {
+    throw new Error(`campaign cell '${cell.cellId}' has costUsd inconsistent with costProvenance`)
+  }
+  return { kind: provenance.kind, usd: provenance.usd }
 }
 
 export function campaignCellExecutionEvidence<TArtifact>(

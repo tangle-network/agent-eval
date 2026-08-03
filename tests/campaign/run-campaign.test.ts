@@ -259,6 +259,36 @@ describe('runCampaign — core primitive', () => {
     ).rejects.toThrow(/cached cell.*missing ledger receipt/)
   })
 
+  it('reruns a cached cell that predates explicit cost provenance', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'cost-provenance-cache',
+      expectUsage: 'off' as const,
+      runDir: '/cost-provenance-cache',
+      storage,
+    }
+
+    const first = await runCampaign(options)
+    expect(first.cells[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
+    expect(dispatchCount).toBe(1)
+
+    const cachePath = '/cost-provenance-cache/a_0/cached-result.json'
+    const stale = JSON.parse(storage.read(cachePath)!) as Record<string, unknown>
+    delete stale.costProvenance
+    storage.write(cachePath, JSON.stringify(stale))
+
+    const second = await runCampaign(options)
+    expect(dispatchCount).toBe(2)
+    expect(second.cells[0]!.cached).toBe(false)
+    expect(second.cells[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
+  })
+
   it('rejects a cached judge score when its exact paid receipt is missing', async () => {
     const storage = inMemoryCampaignStorage()
     const paidJudge: JudgeConfig<FakeArtifact, FakeScenario> = {

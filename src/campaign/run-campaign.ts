@@ -20,7 +20,7 @@ import { confidenceInterval } from '../statistics'
 import { contentHash } from '../verdict-cache'
 import { assertCampaignDesign, campaignScenarioIdentity, campaignSplitDigest } from './coverage'
 import { resolveRunDir } from './run-dir'
-import { projectCampaignCellQuality } from './run-record'
+import { campaignCellCostProvenance, projectCampaignCellQuality } from './run-record'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type {
   CampaignAggregates,
@@ -580,7 +580,13 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const tokenUsage: CampaignTokenUsage = {
     input: agentCost.inputTokens,
     output: agentCost.outputTokens,
+    ...(agentCost.reasoningTokens !== undefined && agentCost.reasoningTokens > 0
+      ? { reasoning: agentCost.reasoningTokens }
+      : {}),
     ...(agentCost.cachedTokens > 0 ? { cached: agentCost.cachedTokens } : {}),
+    ...(agentCost.cacheWriteTokens !== undefined && agentCost.cacheWriteTokens > 0
+      ? { cacheWrite: agentCost.cacheWriteTokens }
+      : {}),
   }
   const resolvedModel = agentReceipts.at(-1)?.model
   const dispatchResult = {
@@ -645,9 +651,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     artifact: (artifact ?? null) as TArtifact,
     judgeScores,
     costUsd: agentCost.totalCostUsd,
-    costEstimated: agentReceipts.some(
-      (receipt) => receipt.actualCostUsd === undefined && !receipt.costUnknown,
-    ),
+    costProvenance: agentCost.costProvenance,
     costCallIds,
     tokenUsage,
     ...(resolvedModel ? { resolvedModel } : {}),
@@ -1036,6 +1040,7 @@ function readCachedCell<TArtifact>(args: {
     if (cached.manifestHash !== args.manifestHash) {
       return { status: 'miss', reason: 'manifest-mismatch' }
     }
+    campaignCellCostProvenance(cached)
     return { status: 'hit', cell: cached }
   } catch {
     return { status: 'miss', reason: 'corrupt' }

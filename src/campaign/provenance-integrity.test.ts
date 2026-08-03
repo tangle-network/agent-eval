@@ -38,6 +38,7 @@ function campaign(composite: number, runDir: string): CampaignResult<unknown, Te
           quality: { composite, dimensions: { quality: composite }, notes: '' },
         },
         costUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
         costCallIds: [],
         tokenUsage: { input: 0, output: 0 },
         durationMs: 1,

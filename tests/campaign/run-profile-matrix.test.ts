@@ -145,7 +145,10 @@ describe('runProfileMatrix', () => {
     // Base guardrails come straight from the cell's reported cost/tokens/latency.
     expect(raw.cost_usd).toBe(0.001)
     // Source-billed cost is authoritative — the estimate never overrides it.
+    expect(rec.costProvenance).toEqual({ kind: 'observed', usd: 0.001 })
+    expect(raw.cost_observed).toBe(1)
     expect(raw.cost_estimated).toBe(0)
+    expect(raw.cost_uncaptured).toBe(0)
     expect(raw.tokens_input).toBe(120)
     expect(raw.tokens_output).toBe(40)
     expect(raw.latency_ms).toBeGreaterThanOrEqual(0)
@@ -215,6 +218,7 @@ describe('runProfileMatrix', () => {
     // 'test-model' matches no pricing table entry — an unpriced model stays $0
     // (no fabrication), and the estimate flag is off.
     expect(raw.cost_usd).toBe(0)
+    expect(result.records[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
     expect(raw.cost_estimated).toBe(0)
     expect('tokens_per_dollar' in raw).toBe(false) // guarded: cost === 0
     for (const v of Object.values(raw)) expect(Number.isFinite(v)).toBe(true)
@@ -257,6 +261,7 @@ describe('runProfileMatrix', () => {
     const expected = (160 / 1000) * 0.0003 + (2086 / 1000) * 0.0011
     expect(raw.cost_usd).toBeCloseTo(expected, 8)
     expect(rec.costUsd).toBeCloseTo(expected, 8) // canonical field → totalCostUsd populates
+    expect(rec.costProvenance).toEqual({ kind: 'estimated', usd: expected })
     expect(raw.cost_estimated).toBe(1) // labeled: an estimate, not a billed number
     expect(raw.tokens_per_dollar).toBeGreaterThan(0) // ratio now finite + populated
     // Integrity: real activity AND no longer uncosted (the cost axis is filled).
@@ -266,6 +271,10 @@ describe('runProfileMatrix', () => {
       expected * result.records.length,
       6,
     )
+    expect(result.byProfile[pricedProfileId]!.costProvenance).toEqual({
+      kind: 'estimated',
+      usd: expect.closeTo(expected * result.records.length, 6),
+    })
     // Every cost surface agrees — the embedded campaign aggregate is reconciled
     // to the priced total, not runCampaign's raw ctx.cost ledger ($0).
     expect(result.campaigns[pricedProfileId]!.aggregates.cost.totalCostUsd).toBeCloseTo(
@@ -328,6 +337,79 @@ describe('runProfileMatrix', () => {
     expect(result.records[0]!.outcome.searchScore).toBeUndefined()
     expect(result.byProfile[BASELINE_PROFILE_ID]!.meanComposite).toBeNull()
     expect(result.byScenario).toEqual({})
+  })
+
+  it('preserves known usage while leaving failed-call cost uncaptured', async () => {
+    const inputTokens = 236_736
+    const cachedTokens = 9_497_984
+    const cacheWriteTokens = 12_345
+    const outputTokens = 155_470
+    const reasoningTokens = 109_802
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [PROFILES[0]!],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      integrity: 'off',
+      dispatch: async (_profile, _scenario, ctx) => {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'router',
+          model: 'test-model@2025-01-01',
+          execute: async () => {
+            throw new Error('provider deadline')
+          },
+          receipt: () => ({
+            model: 'test-model@2025-01-01',
+            inputTokens: 0,
+            outputTokens: 0,
+            actualCostUsd: 0,
+          }),
+          receiptFromError: () => ({
+            model: 'test-model@2025-01-01',
+            inputTokens,
+            cachedTokens,
+            cacheWriteTokens,
+            outputTokens,
+            reasoningTokens,
+            costUnknown: true,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value as FakeArtifact
+      },
+    })
+
+    const record = result.records[0]!
+    expect(record).toMatchObject({
+      terminalOutcome: 'failed',
+      terminalFailureReason: 'provider deadline',
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+      tokenUsage: {
+        input: inputTokens,
+        cached: cachedTokens,
+        cacheWrite: cacheWriteTokens,
+        output: outputTokens,
+        reasoning: reasoningTokens,
+      },
+    })
+    expect(record.outcome.raw).toMatchObject({
+      cost_observed: 0,
+      cost_estimated: 0,
+      cost_uncaptured: 1,
+      cost_known_subtotal_usd: 0,
+      tokens_input: inputTokens,
+      tokens_cached: cachedTokens,
+      tokens_cache_write: cacheWriteTokens,
+      tokens_output: outputTokens,
+      tokens_reasoning: reasoningTokens,
+    })
+    expect(record.outcome.raw.cost_usd).toBeUndefined()
+    expect(result.byProfile[BASELINE_PROFILE_ID]!.totalCostUsd).toBeNull()
+    expect(result.byProfile[BASELINE_PROFILE_ID]!.costProvenance).toEqual({
+      kind: 'uncaptured',
+      usd: null,
+    })
   })
 
   it('byProfile separates the tuned profile from baseline; byScenario + byPersona pivot', async () => {

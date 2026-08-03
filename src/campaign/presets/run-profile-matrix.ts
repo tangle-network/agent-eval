@@ -43,6 +43,7 @@ import {
   harnessAxisOf,
 } from '../../agent-profile'
 import { type AgentProfileCell, buildAgentProfileCell } from '../../agent-profile-cell'
+import type { CostProvenance } from '../../cost-ledger'
 import { AgentEvalError } from '../../errors'
 import {
   assertRealBackend,
@@ -163,7 +164,9 @@ export interface ProfileSummary {
   records: number
   /** Mean across scored records, or null when the profile has no task labels. */
   meanComposite: number | null
-  totalCostUsd: number
+  /** Total cost, or null when any call's cost was not captured. */
+  totalCostUsd: number | null
+  costProvenance: CostProvenance
   /** Per-profile integrity verdict — surfaces a single profile that ran stub
    *  even when the matrix as a whole looks real. */
   integrity: BackendIntegrityReport
@@ -440,7 +443,8 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       records.push(record)
     }
 
-    const totalCostUsd = campaign.aggregates.cost.totalCostUsd
+    const costProvenance = campaign.aggregates.cost.costProvenance
+    const totalCostUsd = costProvenance.kind === 'uncaptured' ? null : costProvenance.usd
     campaigns[profileId] = campaign
 
     byProfile[profileId] = {
@@ -458,6 +462,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         profileRecords.map(scoreOf).filter((score): score is number => score !== undefined),
       ),
       totalCostUsd,
+      costProvenance,
       integrity: summarizeBackendIntegrity(profileRecords),
     }
   }
