@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.142.2] - 2026-08-02 - current shared type cohort
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.4.33` and `0.43.0`, so Eval, Runtime, Knowledge, and Sandbox share the current canonical profile contract.
+
 ## [0.142.1] - 2026-08-02 - current shared type patch
 
 ### Changed
