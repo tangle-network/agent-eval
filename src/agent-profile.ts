@@ -51,12 +51,13 @@ export const HARNESS_NATIVE_MODEL = 'default'
  * or column→profile mapping (the pattern that let those copies drift and silently
  * break the harness pivot).
  *
- * Each cell clones `base`, sets `model.default`, and stamps `metadata.harness` +
- * `metadata.harnessModel` (both hash-bearing, so every cell gets a distinct
- * `agentProfileId` row and results join back by harness/model via {@link harnessAxisOf}
- * with no hand-recomputed key). A vendor-locked harness snaps to its family's swept
- * models — or its native default ({@link HARNESS_NATIVE_MODEL}) when it supports none —
- * so every requested harness runs; `keepIncompatible` forces every pair verbatim.
+ * Each cell clones `base`, sets the canonical top-level `harness` and `model.default`,
+ * and stamps `metadata.harness` + `metadata.harnessModel` for matrix grouping. Both
+ * metadata fields are hash-bearing, so every cell gets a distinct `agentProfileId` row
+ * and results join back by harness/model via {@link harnessAxisOf} with no
+ * hand-recomputed key. A vendor-locked harness snaps to its family's swept models — or
+ * its native default ({@link HARNESS_NATIVE_MODEL}) when it supports none — so every
+ * requested harness runs; `keepIncompatible` forces every pair verbatim.
  *
  * Omit `harnesses`/`models` to sweep the full default set — the "turn it on for
  * everything we care about" switch, identical in shape whether one harness or all.
@@ -89,6 +90,7 @@ export function expandProfileAxes(spec: ProfileAxisSpec): AgentProfile[] {
     for (const model of effective) {
       const profile: AgentProfile = {
         ...spec.base,
+        harness,
         name: `${spec.base.name ?? 'agent'}/${harness}/${model}`,
         model: { ...spec.base.model, default: model },
         metadata: { ...(spec.base.metadata ?? {}), harness, harnessModel: model },
