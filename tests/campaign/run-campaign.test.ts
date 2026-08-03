@@ -259,7 +259,7 @@ describe('runCampaign — core primitive', () => {
     ).rejects.toThrow(/cached cell.*missing ledger receipt/)
   })
 
-  it('reruns a cached cell that predates explicit cost provenance', async () => {
+  it('requires explicit opt-in before rerunning a cache that predates cost provenance', async () => {
     const storage = inMemoryCampaignStorage()
     let dispatchCount = 0
     const options = {
@@ -283,7 +283,17 @@ describe('runCampaign — core primitive', () => {
     delete stale.costProvenance
     storage.write(cachePath, JSON.stringify(stale))
 
-    const second = await runCampaign(options)
+    const plan = planCampaignRun<FakeScenario, FakeArtifact>(options)
+    expect(plan.cells).toMatchObject([
+      { cellId: 'a:0', status: 'run', reason: 'missing-cost-provenance' },
+    ])
+
+    await expect(runCampaign(options)).rejects.toThrow(
+      /predates explicit cost provenance.*refusing an automatic paid re-dispatch/,
+    )
+    expect(dispatchCount).toBe(1)
+
+    const second = await runCampaign({ ...options, resumable: false })
     expect(dispatchCount).toBe(2)
     expect(second.cells[0]!.cached).toBe(false)
     expect(second.cells[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })

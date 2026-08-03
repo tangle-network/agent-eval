@@ -395,6 +395,13 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       cellId: args.slot.cellId,
       manifestHash: args.manifestHash,
     })
+    if (cached.status === 'miss' && cached.reason === 'missing-cost-provenance') {
+      throw new CostAccountingIncompleteError(
+        `runCampaign: cached cell '${args.slot.cellId}' predates explicit cost provenance; ` +
+          'refusing an automatic paid re-dispatch. Inspect planCampaignRun, then set ' +
+          'resumable: false only when a full rerun is intended.',
+      )
+    }
     if (cached.status === 'hit') {
       enforceDispatchUsage(cached.cell, args.opts.expectUsage ?? 'warn')
       const cachedHasUsage =
@@ -757,7 +764,7 @@ export interface CampaignRunPlanCell {
   seed: number
   cachePath: string
   status: 'cached' | 'run'
-  reason?: 'missing' | 'manifest-mismatch' | 'cell-mismatch' | 'corrupt' | 'resumable-off'
+  reason?: CacheMissReason | 'resumable-off'
 }
 
 export interface CampaignRunPlan {
@@ -1021,9 +1028,16 @@ function dispatchRefFor<TScenario extends Scenario, TArtifact>(
   return ref
 }
 
+type CacheMissReason =
+  | 'missing'
+  | 'manifest-mismatch'
+  | 'cell-mismatch'
+  | 'missing-cost-provenance'
+  | 'corrupt'
+
 type CacheRead<TArtifact> =
   | { status: 'hit'; cell: CampaignCellResult<TArtifact> }
-  | { status: 'miss'; reason: 'missing' | 'manifest-mismatch' | 'cell-mismatch' | 'corrupt' }
+  | { status: 'miss'; reason: CacheMissReason }
 
 function readCachedCell<TArtifact>(args: {
   storage: CampaignStorage
@@ -1034,16 +1048,24 @@ function readCachedCell<TArtifact>(args: {
   const raw = args.storage.read(args.cachePath)
   if (raw === undefined) return { status: 'miss', reason: 'missing' }
 
+  let cached: CampaignCellResult<TArtifact>
   try {
-    const cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
-    if (cached.cellId !== args.cellId) return { status: 'miss', reason: 'cell-mismatch' }
-    if (cached.manifestHash !== args.manifestHash) {
-      return { status: 'miss', reason: 'manifest-mismatch' }
-    }
+    cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
+  } catch {
+    return { status: 'miss', reason: 'corrupt' }
+  }
+  if (cached.cellId !== args.cellId) return { status: 'miss', reason: 'cell-mismatch' }
+  if (cached.manifestHash !== args.manifestHash) {
+    return { status: 'miss', reason: 'manifest-mismatch' }
+  }
+  try {
     campaignCellCostProvenance(cached)
     return { status: 'hit', cell: cached }
   } catch {
-    return { status: 'miss', reason: 'corrupt' }
+    return {
+      status: 'miss',
+      reason: cached.costProvenance === undefined ? 'missing-cost-provenance' : 'corrupt',
+    }
   }
 }
 
