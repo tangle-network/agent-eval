@@ -1,0 +1,312 @@
+{
+  "kind": "agent-eval/gepa-analyst-family-split-plan",
+  "round": 3,
+  "scenarioFamily": "oht2",
+  "seed": 31,
+  "metric": "plain per-case judge composite (f1 averaged with critical-step accuracy when defined); no gold-mass weighting",
+  "spent": "Every traj_id under train and selection is GEPA-SPENT: certification splits must exclude these rows.",
+  "trainPerFamily": 12,
+  "selectionPerFamily": 8,
+  "pools": [
+    {
+      "name": "openhands",
+      "labelsPath": "/dev/shm/ctb-openhands-dev-labels.json",
+      "labelsSha256": "2bd62a9d5ec785482611e1b02a1a829cf98c0777b6ae1ac9b1867b8fc9e4b8c6",
+      "durableLabelsPath": "/home/drew/bench-cache/ctb-20260801/oht2/ctb-openhands-dev-labels.json",
+      "rowCount": 464,
+      "positiveCount": 146
+    },
+    {
+      "name": "terminus2",
+      "labelsPath": "/dev/shm/ctb-terminus2-dev-labels.json",
+      "labelsSha256": "8388ffde9c1b3b3f8f04afb4356a3b10abefda6db9ecd0216f65003bf6251958",
+      "durableLabelsPath": "/home/drew/bench-cache/ctb-20260801/oht2/ctb-terminus2-dev-labels.json",
+      "rowCount": 188,
+      "positiveCount": 50
+    }
+  ],
+  "train": [
+    {
+      "trajId": "openhands-Anthropic__Claude-Sonnet-4-20250514-Thinking-fibonacci-server-89ec6d06",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-Anthropic__Claude-Sonnet-4-20250514-Thinking-intrusion-detection-a847d6de",
+      "family": "openhands",
+      "goldMass": 9,
+      "maxBlockWidth": 5,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-classifier-debug-0b0fdb32",
+      "family": "openhands",
+      "goldMass": 2,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-microsoft__vscode-153121-9abfbc86",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-build-tcc-qemu-0af21736",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-financial-document-processor-39cf7cca",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-Anthropic__Claude-Sonnet-4-20250514-Thinking-distribution-search-b2092e02",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-chem-rf-43d5d989",
+      "family": "openhands",
+      "goldMass": 5,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-microsoft__vscode-109750-0071ea66",
+      "family": "openhands",
+      "goldMass": 4,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-amuse-install-4d9725f6",
+      "family": "openhands",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-instance_ansible__ansible-6cc97447aac5816745278f3735af128afb255c81-v0f01c69f1e2528b935359cfe578530722bca2c59-83adb675",
+      "family": "openhands",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-pmars-78f839aa",
+      "family": "openhands",
+      "goldMass": 2,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-polyglot-rust-c-9477650d",
+      "family": "terminus2",
+      "goldMass": 8,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-bank-trans-filter-991f9d5d",
+      "family": "terminus2",
+      "goldMass": 2,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-magsac-install-4c7fd435",
+      "family": "terminus2",
+      "goldMass": 8,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-lean4-proof-0dd8d068",
+      "family": "terminus2",
+      "goldMass": 5,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-predicate-pushdown-bench-0225294a",
+      "family": "terminus2",
+      "goldMass": 4,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-adaptive-rejection-sampler-63290128",
+      "family": "terminus2",
+      "goldMass": 5,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-install-windows-3.11-9b3a3ca5",
+      "family": "terminus2",
+      "goldMass": 9,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-tree-directory-parser-6c88f322",
+      "family": "terminus2",
+      "goldMass": 6,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-mteb-leaderboard-d9697907",
+      "family": "terminus2",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-circuit-fibsqrt-2c6a2717",
+      "family": "terminus2",
+      "goldMass": 6,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-02d55149",
+      "family": "terminus2",
+      "goldMass": 3,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-build-pov-ray-4a3cb2c6",
+      "family": "terminus2",
+      "goldMass": 3,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    }
+  ],
+  "selection": [
+    {
+      "trajId": "openhands-OpenAI__GPT-5-prettier__prettier-3515-0d82b41d",
+      "family": "openhands",
+      "goldMass": 3,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-instance_ansible__ansible-fb144c44144f8bd3542e71f5db62b6d322c7bd85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-57b35ea6",
+      "family": "openhands",
+      "goldMass": 5,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-fix-code-vulnerability-10de86e2",
+      "family": "openhands",
+      "goldMass": 3,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-DeepSeek__DeepSeek-V3.2-multi-source-data-merger-250e898f",
+      "family": "openhands",
+      "goldMass": 5,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-mui__material-ui-13778-83d0b364",
+      "family": "openhands",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-django__django-14351-058e4e93",
+      "family": "openhands",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-instance_ansible__ansible-942424e10b2095a173dbd78e7128f52f7995849b-v30a923fb5c164d6cd18280c02422f75e611e8fb2-83422c29",
+      "family": "openhands",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "openhands-OpenAI__GPT-5-microsoft__vscode-160342-be2f227f",
+      "family": "openhands",
+      "goldMass": 12,
+      "maxBlockWidth": 4,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-npm-conflict-resolution-1fb2a796",
+      "family": "terminus2",
+      "goldMass": 1,
+      "maxBlockWidth": 1,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-bn-fit-modify-e23f783a",
+      "family": "terminus2",
+      "goldMass": 3,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-regex-chess-f6300f5d",
+      "family": "terminus2",
+      "goldMass": 15,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-path-tracing-reverse-56141d64",
+      "family": "terminus2",
+      "goldMass": 2,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-pov-ray-0022ddb2",
+      "family": "terminus2",
+      "goldMass": 9,
+      "maxBlockWidth": 6,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-model-extraction-relu-logits-e2e85d60",
+      "family": "terminus2",
+      "goldMass": 6,
+      "maxBlockWidth": 6,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-DeepSeek__DeepSeek-V3.2-catch-me-if-you-can-7f73ac9f",
+      "family": "terminus2",
+      "goldMass": 7,
+      "maxBlockWidth": 3,
+      "stratum": "wide"
+    },
+    {
+      "trajId": "terminus2-Anthropic__Claude-Sonnet-4-20250514-Thinking-solve-maze-challenge-27b84da7",
+      "family": "terminus2",
+      "goldMass": 6,
+      "maxBlockWidth": 2,
+      "stratum": "narrow"
+    }
+  ]
+}
