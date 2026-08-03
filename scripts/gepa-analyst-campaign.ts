@@ -124,6 +124,8 @@ const MODEL = 'glm-5.2'
 const BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
 const EVALUATIONS_OVERRIDE = argValue('--max-evaluations')
+/** In family mode this is the upstream evaluation target GEPA optimizes with,
+ * not the callback's hard cap — see the budget-geometry note at the recipe. */
 const MAX_EVALUATIONS = EVALUATIONS_OVERRIDE
   ? Number.parseInt(EVALUATIONS_OVERRIDE, 10)
   : SMOKE
@@ -131,17 +133,17 @@ const MAX_EVALUATIONS = EVALUATIONS_OVERRIDE
     : FAMILY
       ? 50
       : 60
-const COST_CEILING_USD = SMOKE ? 3 : 20
+// Family analyses run on trajectories roughly twice mini-SWE length, and the
+// callback cap intentionally exceeds the upstream target by one iteration
+// burst, so the family ceiling carries ~2x headroom over expected spend — a
+// runaway guard, not a target.
+const COST_CEILING_USD = SMOKE ? 3 : FAMILY ? 30 : 20
 const MAX_PROPOSER_COST_USD = SMOKE ? 1 : 5
 const GEPA_TIMEOUT_MS = SMOKE ? 3_600_000 : 28_800_000
 const ANALYSIS_TIMEOUT_MS = 1_200_000
 const EVAL_COST_PHASE = 'gepa.analyst-evaluation'
-/**
- * Concurrent analyses cap. The z.ai glm seat starts returning 429s at ~5
- * concurrent requests (measured), so the family campaign runs at most 3
- * evaluations in flight; the mini-SWE round stays strictly serial.
- */
-const EVAL_CONCURRENCY = FAMILY ? 3 : 1
+/** GEPA reflection minibatch size; also a term of the budget-overshoot bound. */
+const REFLECTION_MINIBATCH_SIZE = 3
 const DSPY_PYTHON = join(ROOT, 'clients/python/.venv/bin/python')
 /** Omni needs GEPA's official composition functions, present only in the source venv. */
 const GEPA_PYTHON = join(
@@ -514,13 +516,22 @@ async function main(): Promise<void> {
 
     // Smoke touches one train + one selection row from openhands and one train
     // row from terminus2 — 3 scenarios, both families, both split roles.
+    // Zero-finding runs concentrate on solved trajectories on these families,
+    // so the smoke prefers unsolved rows: it must demonstrate the nonzero-score
+    // path, not just the plumbing.
+    const preferUnsolved = (pool: FamilyPoolSplit, rows: readonly FamilyPlanRow[]) => {
+      const unsolved = rows.find(
+        (row) => pool.rowsByTrajId.get(row.trajId)?.solved === false,
+      )
+      return unsolved ?? rows[0]!
+    }
     const activeByPool = new Map<string, { train: FamilyPlanRow[]; selection: FamilyPlanRow[] }>(
       split.map((pool) => [
         pool.name,
         SMOKE
           ? {
-              train: [pool.train[0]!],
-              selection: pool.name === 'openhands' ? [pool.selection[0]!] : [],
+              train: [preferUnsolved(pool, pool.train)],
+              selection: pool.name === 'openhands' ? [preferUnsolved(pool, pool.selection)] : [],
             }
           : { train: [...pool.train], selection: [...pool.selection] },
       ]),
@@ -1015,28 +1026,52 @@ async function main(): Promise<void> {
     'block caps, and any candidate missing it verbatim scores 0 without being executed. ' +
     'Edit only the policy text above the contract.'
 
-  const engineRun = (maxEvaluations: number, runSeed: number): GepaEngineRun => ({
+  /**
+   * Family budget geometry — how one engine run's numbers are derived.
+   *
+   * gepa 0.1.4 checks its metric-call budget only once per iteration-loop
+   * pass, so after a passing check it can still spend one full iteration:
+   * parent minibatch + proposed minibatch + (on acceptance) a full valset
+   * evaluation. If the callback's hard cap equals GEPA's own target, that
+   * boundary overshoot hits the cap, the callback returns HTTP 429, and
+   * raise_on_exception kills the whole run (measured on both smoke shapes).
+   *
+   * The fix is headroom, not tolerance: the callback cap exceeds the
+   * upstream target by exactly one worst-case iteration burst. The bridge
+   * derates the upstream limit by maxConcurrency - 1, so maxConcurrency
+   * serves here as the headroom knob only — engineConfig.engine.parallel is
+   * false, execution stays strictly serial (every gepa parallel path gates
+   * on that flag, and serial calls also keep the z.ai seat far below its
+   * ~5-concurrent 429 limit), and the injected max_workers value is inert.
+   *
+   * Cost stays bounded by the callback cap (upstream + burst) and the run
+   * cost ceiling; GEPA stops at the first boundary at or past its target.
+   */
+  const boundaryBurst = 2 * REFLECTION_MINIBATCH_SIZE + selectionScenarios.length
+  const familyEngineRun = (upstreamEvaluations: number, runSeed: number): GepaEngineRun => ({
     engine: 'gepa',
-    maxEvaluations,
+    maxEvaluations: upstreamEvaluations + boundaryBurst,
     maxProposerCostUsd: MAX_PROPOSER_COST_USD,
-    maxConcurrency: EVAL_CONCURRENCY,
+    maxConcurrency: boundaryBurst + 1,
     engineConfig: {
       engine: {
         capture_stdio: false,
-        max_workers: EVAL_CONCURRENCY,
-        parallel: EVAL_CONCURRENCY > 1,
+        parallel: false,
         raise_on_exception: true,
         seed: runSeed,
       },
-      reflection: { reflection_minibatch_size: 3, skip_perfect_score: false },
+      reflection: {
+        reflection_minibatch_size: REFLECTION_MINIBATCH_SIZE,
+        skip_perfect_score: false,
+      },
     },
   })
   let recipe: GepaOptimizationRecipe
   if (FAMILY && RECIPE_KIND === 'omni') {
-    // Same total evaluation budget as the engine recipe, split across GEPA's
-    // official Omni composition: two explore stages then a continuation that
-    // starts from the explore winner. maxWorkers 1 keeps the explore stages
-    // sequential so the global concurrency cap stays at EVAL_CONCURRENCY.
+    // Same total upstream evaluation budget as the engine recipe, split
+    // across GEPA's official Omni composition: two explore stages then a
+    // continuation that starts from the explore winner. maxWorkers 1 keeps
+    // the explore stages sequential.
     const exploreEvaluations = Math.max(1, Math.round(MAX_EVALUATIONS * 0.24))
     const continueEvaluations = MAX_EVALUATIONS - 2 * exploreEvaluations
     if (continueEvaluations < 1) {
@@ -1047,14 +1082,37 @@ async function main(): Promise<void> {
     recipe = {
       kind: 'omni',
       explore: [
-        engineRun(exploreEvaluations, SEED + 101),
-        engineRun(exploreEvaluations, SEED + 102),
+        familyEngineRun(exploreEvaluations, SEED + 101),
+        familyEngineRun(exploreEvaluations, SEED + 102),
       ],
-      continueWith: engineRun(continueEvaluations, SEED + 103),
+      continueWith: familyEngineRun(continueEvaluations, SEED + 103),
       maxWorkers: 1,
     }
+  } else if (FAMILY) {
+    recipe = { kind: 'engine', run: familyEngineRun(MAX_EVALUATIONS, SEED) }
   } else {
-    recipe = { kind: 'engine', run: engineRun(MAX_EVALUATIONS, SEED) }
+    recipe = {
+      kind: 'engine',
+      run: {
+        engine: 'gepa',
+        maxEvaluations: MAX_EVALUATIONS,
+        maxProposerCostUsd: MAX_PROPOSER_COST_USD,
+        maxConcurrency: 1,
+        engineConfig: {
+          engine: {
+            capture_stdio: false,
+            max_workers: 1,
+            parallel: false,
+            raise_on_exception: true,
+            seed: SEED,
+          },
+          reflection: {
+            reflection_minibatch_size: REFLECTION_MINIBATCH_SIZE,
+            skip_perfect_score: false,
+          },
+        },
+      },
+    }
   }
 
   const method = gepaOptimizationMethod<GepaAnalystScenario, GepaAnalystArtifact>({
@@ -1121,7 +1179,8 @@ async function main(): Promise<void> {
 
   console.log(
     `[gepa-analyst-r${ROUND}] starting GEPA: recipe=${recipe.kind} ` +
-      `maxEvaluations=${MAX_EVALUATIONS} concurrency=${EVAL_CONCURRENCY} runDir=${RUN_DIR}`,
+      `maxEvaluations=${MAX_EVALUATIONS}${FAMILY ? ` boundaryBurst=${boundaryBurst}` : ''} ` +
+      `runDir=${RUN_DIR}`,
   )
   const started = Date.now()
   const result = await method.optimize(input)
@@ -1268,7 +1327,16 @@ async function main(): Promise<void> {
         },
     maxEvaluations: MAX_EVALUATIONS,
     evaluationsUsed: result.provenance?.evaluationCount,
-    evalConcurrency: EVAL_CONCURRENCY,
+    ...(FAMILY
+      ? {
+          budgetGeometry: {
+            upstreamEvaluationTarget: MAX_EVALUATIONS,
+            boundaryBurst,
+            callbackCapPerRun: MAX_EVALUATIONS + boundaryBurst,
+            execution: 'serial (engine parallel=false)',
+          },
+        }
+      : {}),
     baselineSha256,
     winnerSha256,
     winnerChanged: winnerSha256 !== baselineSha256,
