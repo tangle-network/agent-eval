@@ -316,14 +316,15 @@ def _validate_engine_options(value: Any, label: str) -> None:
     if not isinstance(engine, str) or not engine.strip() or engine.strip() != engine:
         raise ValueError(f"GEPA bridge input {label}.engine must be a trimmed non-empty string")
     max_proposer_cost = value.get("maxProposerCostUsd")
-    if (
+    if max_proposer_cost is not None and (
         isinstance(max_proposer_cost, bool)
         or not isinstance(max_proposer_cost, (float, int))
         or not math.isfinite(max_proposer_cost)
         or max_proposer_cost <= 0
     ):
         raise ValueError(
-            f"GEPA bridge input {label}.maxProposerCostUsd must be a positive finite number"
+            f"GEPA bridge input {label}.maxProposerCostUsd must be a positive finite "
+            "number when supplied"
         )
     engine_config = value.setdefault("engineConfig", {})
     if not isinstance(engine_config, dict):

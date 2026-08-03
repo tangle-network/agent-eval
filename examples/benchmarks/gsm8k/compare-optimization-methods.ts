@@ -42,6 +42,7 @@ import {
   positiveNumberEnv,
 } from '../../_shared/env'
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
+import { loadOptimizerExecutionOwner } from '../../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 import { evaluate, loadDataset } from './index'
 
@@ -61,8 +62,6 @@ const TRAIN_N = positiveIntegerEnv('TRAIN_N', 8)
 const SELECTION_N = positiveIntegerEnv('SELECTION_N', 8)
 const TEST_N = positiveIntegerEnv('TEST_N', 20)
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
-const OPTIMIZER_API_KEY = (process.env.OPTIMIZER_API_KEY || API_KEY)?.trim()
-const OPTIMIZER_BASE_URL = (process.env.OPTIMIZER_BASE_URL || BASE_URL).trim()
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const MAX_OPTIMIZER_MODEL_COST_USD = positiveNumberEnv('MAX_OPTIMIZER_MODEL_COST_USD', 10)
 const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 25)
@@ -118,10 +117,6 @@ if (!API_KEY) {
   console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
   process.exit(1)
 }
-if (!OPTIMIZER_API_KEY) {
-  throw new Error('Set OPTIMIZER_API_KEY or LLM_API_KEY for GEPA and SkillOpt.')
-}
-const optimizerApiKey = OPTIMIZER_API_KEY
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
 }
@@ -307,6 +302,10 @@ async function main() {
   const runner = {
     command: OPTIMIZER_PYTHON,
   }
+  const [gepaOwner, skillOptOwner] = await Promise.all([
+    loadOptimizerExecutionOwner(GEPA_MODEL),
+    loadOptimizerExecutionOwner(SKILLOPT_MODEL),
+  ])
   const methods: OptimizationMethod<GsmScenario, Artifact>[] = [
     gepaOptimizationMethod<GsmScenario, Artifact>({
       name: 'gepa',
@@ -323,8 +322,7 @@ async function main() {
       },
       optimizer: {
         model: GEPA_MODEL,
-        baseUrl: OPTIMIZER_BASE_URL,
-        apiKey: optimizerApiKey,
+        ...gepaOwner,
         budget: gepaModelBudget,
       },
       describeScenario: (scenario) => ({
@@ -345,8 +343,7 @@ async function main() {
       },
       optimizer: {
         model: SKILLOPT_MODEL,
-        baseUrl: OPTIMIZER_BASE_URL,
-        apiKey: optimizerApiKey,
+        ...skillOptOwner,
         budget: skillOptModelBudget,
       },
       maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
@@ -411,9 +408,12 @@ async function main() {
       worker: { model: MODEL, baseUrl: BASE_URL },
       optimizers: {
         python: OPTIMIZER_PYTHON,
-        baseUrl: OPTIMIZER_BASE_URL,
-        gepa: { model: GEPA_MODEL, budget: gepaModelBudget },
-        skillopt: { model: SKILLOPT_MODEL, budget: skillOptModelBudget },
+        gepa: { model: GEPA_MODEL, callRef: gepaOwner.callRef, budget: gepaModelBudget },
+        skillopt: {
+          model: SKILLOPT_MODEL,
+          callRef: skillOptOwner.callRef,
+          budget: skillOptModelBudget,
+        },
       },
     },
     limits: {

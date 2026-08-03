@@ -17,14 +17,12 @@ export function assertPriorExternalOptimizerUsage(
   budget: OpenAICompatibleOptimizerModel['budget'],
   name: string,
 ): void {
-  if (!summary.accountingComplete || !summary.usageComplete) {
-    throw new Error(
-      `${name}: cannot resume optimizer-model work with incomplete prior cost or usage`,
-    )
+  if (!summary.usageComplete || (budget.maxCostUsd !== undefined && !summary.accountingComplete)) {
+    throw new Error(`${name}: cannot resume optimizer-model work with incomplete bounded usage`)
   }
   if (
     summary.totalCalls > budget.maxRequests ||
-    summary.totalCostUsd > budget.maxCostUsd + Number.EPSILON
+    (budget.maxCostUsd !== undefined && summary.totalCostUsd > budget.maxCostUsd + Number.EPSILON)
   ) {
     throw new Error(`${name}: prior optimizer-model usage exceeds the configured budget`)
   }

@@ -7,9 +7,13 @@ import type {
   CustomTokenPricing,
 } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
+import { canonicalJson } from '../verdict-cache'
 import {
   assertExternalOptimizerModelBudget,
+  assertJsonValue,
   type ExternalOptimizerModelBudget,
+  type ExternalOptimizerModelCall,
+  type ExternalOptimizerModelExecutionObservation,
   type ExternalOptimizerModelProxy,
   isRecord,
 } from './external-optimizer-contracts'
@@ -17,16 +21,11 @@ import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
 
 const MODEL_PROXY_PATHS = new Set(['/v1/chat/completions', '/v1/responses'])
 
-/**
- * Backoff before repeating an upstream fetch the provider answered with 429.
- * One admitted request retries at most this many times, each retry consuming
- * one budgeted request slot, before the final 429 is forwarded to the child.
- * Only HTTP 429 is retried: any other status or a transport error keeps
- * failing immediately.
- */
-const RATE_LIMIT_RETRY_DELAYS_MS = [2_000, 8_000, 30_000] as const
-/** Uniform 0..25% added to each delay so concurrent workers do not resynchronize. */
-const RATE_LIMIT_RETRY_JITTER_RATIO = 0.25
+type UnsequencedExecutionObservation = ExternalOptimizerModelExecutionObservation extends infer T
+  ? T extends ExternalOptimizerModelExecutionObservation
+    ? Omit<T, 'sequence'>
+    : never
+  : never
 
 interface ProviderProxyResponse {
   status: number
@@ -34,21 +33,16 @@ interface ProviderProxyResponse {
   body: Uint8Array
   receipt: CostReceiptInput
   usageComplete: boolean
+  /** A Runtime-owned call failed after returning complete execution evidence. */
+  modelCallFailed?: string
   /** Set when the response violated the output or reasoning limit; forces a 502. */
   usageRejected?: string
 }
 
-/**
- * Put an OpenAI-compatible optimizer behind the shared cost ledger.
- *
- * The child process receives only a loopback URL and an ephemeral token.
- * Provider credentials stay in this process. Every request reserves its
- * conservative byte-count input bound plus the provider-enforced output cap
- * before it leaves the machine.
- */
-export async function startExternalOptimizerModelProxy(args: {
-  upstreamBaseUrl: string
-  upstreamApiKey: string
+type ExternalOptimizerModelProxyArgs = {
+  call: ExternalOptimizerModelCall
+  callRef: string
+  recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   budget: ExternalOptimizerModelBudget
   costLedger: CostLedgerHandle
@@ -59,21 +53,32 @@ export async function startExternalOptimizerModelProxy(args: {
   tags?: Record<string, string>
   initialUsage?: {
     requests: number
-    costUsd: number
+    /** Known billed subtotal. Omit when prior billed USD is unknown. */
+    costUsd?: number
   }
-  fetchImpl?: typeof fetch
-  /** Test-only clock injection for rate-limit retry backoff. */
-  sleepImpl?: (ms: number, signal: AbortSignal) => Promise<void>
   signal?: AbortSignal
-}): Promise<ExternalOptimizerModelProxy> {
+}
+
+/**
+ * Put an OpenAI-compatible optimizer behind the shared cost ledger.
+ *
+ * The child process receives only a loopback URL and an ephemeral token. The
+ * package that owns execution receives a validated immutable request through
+ * `call`; Eval receives no provider credential. Every request reserves its
+ * conservative byte-count input bound plus the declared output cap before the
+ * owner is invoked exactly once.
+ */
+export async function startExternalOptimizerModelProxy(
+  args: ExternalOptimizerModelProxyArgs,
+): Promise<ExternalOptimizerModelProxy> {
   assertModelProxyConfig(args)
   args.signal?.throwIfAborted()
   const token = randomLocalToken()
-  const fetchImpl = args.fetchImpl ?? fetch
-  const sleepImpl = args.sleepImpl ?? abortableDelay
   let requestCount = 0
   let successfulCompletionCount = 0
-  let rateLimitRetryCount = 0
+  let modelCallInvocations = 0
+  let executionRecordCount = 0
+  let executionSequence = 0
   let totalRequestCount = args.initialUsage?.requests ?? 0
   let committedForBudget = args.initialUsage?.costUsd ?? 0
   let reservedForBudget = 0
@@ -103,40 +108,44 @@ export async function startExternalOptimizerModelProxy(args: {
       controller,
       token,
       args,
-      fetchImpl,
       nextReservation: (maximumCostUsd) => {
         if (totalRequestCount >= args.budget.maxRequests) {
           return { accepted: false as const, reason: 'optimizer model request limit reached' }
         }
         if (
+          args.budget.maxCostUsd !== undefined &&
+          maximumCostUsd !== undefined &&
           committedForBudget + reservedForBudget + maximumCostUsd >
-          args.budget.maxCostUsd + Number.EPSILON
+            args.budget.maxCostUsd + Number.EPSILON
         ) {
           return { accepted: false as const, reason: 'optimizer model cost limit reached' }
         }
         requestCount += 1
         totalRequestCount += 1
-        reservedForBudget += maximumCostUsd
+        reservedForBudget += maximumCostUsd ?? 0
         return { accepted: true as const }
       },
       settleReservation: (maximumCostUsd, chargedCostUsd) => {
-        reservedForBudget = Math.max(0, reservedForBudget - maximumCostUsd)
-        committedForBudget += chargedCostUsd
+        reservedForBudget = Math.max(0, reservedForBudget - (maximumCostUsd ?? 0))
+        committedForBudget += chargedCostUsd ?? 0
       },
       recordSuccessfulCompletion: () => {
         successfulCompletionCount += 1
       },
-      // A retry reuses the admitted request's cost reservation (only one
-      // completion returns) but consumes one budgeted request slot, so the
-      // maxRequests accounting still counts every upstream fetch.
-      tryConsumeRateLimitRetry: () => {
-        if (totalRequestCount >= args.budget.maxRequests) return false
-        requestCount += 1
-        totalRequestCount += 1
-        rateLimitRetryCount += 1
-        return true
+      recordExecutionReceipt: (observation) => {
+        try {
+          args.recordExecution({ ...observation, sequence: executionSequence + 1 })
+        } catch (error) {
+          throw new ModelExecutionPersistenceError(
+            `optimizer model execution evidence was not persisted: ${toErrorMessage(error)}`,
+          )
+        }
+        executionSequence += 1
+        executionRecordCount += 1
       },
-      sleepImpl,
+      recordModelCallInvocation: () => {
+        modelCallInvocations += 1
+      },
     }).finally(() => {
       controller.signal.removeEventListener('abort', abortRequest)
       activeControllers.delete(controller)
@@ -155,12 +164,19 @@ export async function startExternalOptimizerModelProxy(args: {
   }
   args.signal?.addEventListener('abort', onAbort, { once: true })
   if (args.signal?.aborted) onAbort()
+  const assertExecutionComplete = (): void => {
+    if (executionRecordCount !== modelCallInvocations) {
+      throw new Error(
+        `external optimizer model callback returned ${executionRecordCount} execution records for ${modelCallInvocations} invoked calls`,
+      )
+    }
+  }
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     apiKey: token,
     requestAttempts: () => requestCount,
     successfulCompletions: () => successfulCompletionCount,
-    rateLimitRetries: () => rateLimitRetryCount,
+    assertExecutionComplete,
     close,
   }
 
@@ -177,7 +193,20 @@ export async function startExternalOptimizerModelProxy(args: {
     if (activeControllers.size !== 0 || activeHandlers.size !== 0) {
       throw new Error('external optimizer model proxy closed with active request work')
     }
+    let executionError: unknown
+    try {
+      assertExecutionComplete()
+    } catch (error) {
+      executionError = error
+    }
+    if (serverResult?.status === 'rejected' && executionError !== undefined) {
+      throw new AggregateError(
+        [serverResult.reason, executionError],
+        'external optimizer model proxy close and execution evidence both failed',
+      )
+    }
     if (serverResult?.status === 'rejected') throw serverResult.reason
+    if (executionError !== undefined) throw executionError
   }
 }
 
@@ -187,8 +216,9 @@ async function handleModelProxyRequest(args: {
   controller: AbortController
   token: string
   args: {
-    upstreamBaseUrl: string
-    upstreamApiKey: string
+    call: ExternalOptimizerModelCall
+    callRef: string
+    recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
     model: string
     budget: ExternalOptimizerModelBudget
     costLedger: CostLedgerHandle
@@ -197,17 +227,19 @@ async function handleModelProxyRequest(args: {
     channel?: CostChannel
     tags?: Record<string, string>
   }
-  fetchImpl: typeof fetch
-  nextReservation: (maximumCostUsd: number) =>
+  nextReservation: (maximumCostUsd: number | undefined) =>
     | { accepted: true }
     | {
         accepted: false
         reason: 'optimizer model request limit reached' | 'optimizer model cost limit reached'
       }
-  settleReservation: (maximumCostUsd: number, chargedCostUsd: number) => void
+  settleReservation: (
+    maximumCostUsd: number | undefined,
+    chargedCostUsd: number | undefined,
+  ) => void
   recordSuccessfulCompletion: () => void
-  tryConsumeRateLimitRetry: () => boolean
-  sleepImpl: (ms: number, signal: AbortSignal) => Promise<void>
+  recordExecutionReceipt: (observation: UnsequencedExecutionObservation) => void
+  recordModelCallInvocation: () => void
 }): Promise<void> {
   const { controller, request, response } = args
   try {
@@ -228,7 +260,9 @@ async function handleModelProxyRequest(args: {
       parsed.maxOutputTokens + (args.args.budget.maxReasoningTokensPerRequest ?? 0),
       args.args.budget.pricing,
     )
-    const maximumCostUsd = costForTokenPricing(args.args.budget.pricing, maximumUsage)
+    const maximumCostUsd = args.args.budget.pricing
+      ? costForTokenPricing(args.args.budget.pricing, maximumUsage)
+      : undefined
     const reservation = args.nextReservation(maximumCostUsd)
     if (!reservation.accepted) {
       sendJsonIfOpen(response, 429, { error: reservation.reason })
@@ -247,45 +281,30 @@ async function handleModelProxyRequest(args: {
         actor: args.args.actor,
         ...(args.args.tags ? { tags: args.args.tags } : {}),
         model: args.args.model,
-        maximumCharge: {
-          customTokenPricing: args.args.budget.pricing,
-          ...maximumUsage,
-        },
-        execute: async () => {
-          // A provider 429 is transient by contract: repeat the same upstream
-          // fetch after a jittered backoff, bounded by the retry schedule and
-          // the request budget. Every other status and every transport error
-          // returns or throws on the first attempt.
-          for (let retries = 0; ; retries += 1) {
-            const forwarded = await forwardModelProxyRequest({
-              fetchImpl: args.fetchImpl,
-              upstreamBaseUrl: args.args.upstreamBaseUrl,
-              upstreamApiKey: args.args.upstreamApiKey,
-              path,
-              body,
-              model: args.args.model,
-              pricing: args.args.budget.pricing,
-              maxOutputTokens: parsed.maxOutputTokens,
-              ...(args.args.budget.maxReasoningTokensPerRequest === undefined
-                ? {}
-                : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
-              maxResponseBytes: args.args.budget.maxResponseBytes,
-              signal: controller.signal,
-            })
-            if (
-              forwarded.status !== 429 ||
-              retries >= RATE_LIMIT_RETRY_DELAYS_MS.length ||
-              !args.tryConsumeRateLimitRetry()
-            ) {
-              return forwarded
+        ...(args.args.budget.pricing
+          ? {
+              maximumCharge: {
+                customTokenPricing: args.args.budget.pricing,
+                ...maximumUsage,
+              },
             }
-            const baseDelayMs = RATE_LIMIT_RETRY_DELAYS_MS[retries]!
-            await args.sleepImpl(
-              Math.round(baseDelayMs * (1 + Math.random() * RATE_LIMIT_RETRY_JITTER_RATIO)),
-              controller.signal,
-            )
-          }
-        },
+          : {}),
+        execute: async () =>
+          forwardModelProxyRequest({
+            call: args.args.call,
+            callRef: args.args.callRef,
+            recordExecutionReceipt: args.recordExecutionReceipt,
+            recordModelCallInvocation: args.recordModelCallInvocation,
+            path,
+            requestBody: parsed.body,
+            model: args.args.model,
+            maxOutputTokens: parsed.maxOutputTokens,
+            ...(args.args.budget.maxReasoningTokensPerRequest === undefined
+              ? {}
+              : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
+            maxResponseBytes: args.args.budget.maxResponseBytes,
+            signal: controller.signal,
+          }),
         receipt: (result) => result.receipt,
         receiptFromError: () => ({
           model: args.args.model,
@@ -300,16 +319,23 @@ async function handleModelProxyRequest(args: {
           ? paid.receipt.usageUnknown || paid.receipt.costUnknown
             ? maximumCostUsd
             : paid.receipt.costUsd
-          : 0
+          : undefined
         sendJsonIfOpen(
           response,
           isAbortError(paid.error)
             ? 504
-            : paid.error instanceof ProviderResponseTooLargeError
+            : paid.error instanceof ProviderResponseTooLargeError ||
+                paid.error instanceof MissingModelExecutionError ||
+                paid.error instanceof ModelExecutionPersistenceError ||
+                paid.error instanceof OwnerModelContractError
               ? 502
               : 429,
           { error: paid.error.message },
         )
+        return
+      }
+      if (paid.value.modelCallFailed) {
+        sendJsonIfOpen(response, 502, { error: paid.value.modelCallFailed })
         return
       }
       chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
@@ -357,44 +383,91 @@ function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown)
 }
 
 async function forwardModelProxyRequest(args: {
-  fetchImpl: typeof fetch
-  upstreamBaseUrl: string
-  upstreamApiKey: string
+  call: ExternalOptimizerModelCall
+  callRef: string
+  recordExecutionReceipt: (observation: UnsequencedExecutionObservation) => void
+  recordModelCallInvocation: () => void
   path: string
-  body: Uint8Array
+  requestBody: Readonly<Record<string, unknown>>
   model: string
-  pricing: CustomTokenPricing
   maxOutputTokens: number
   /** Enforced only when the caller declared a thinking budget. */
   maxReasoningTokens?: number
   maxResponseBytes: number
   signal: AbortSignal
 }): Promise<ProviderProxyResponse> {
-  const upstream = modelProxyUpstreamUrl(args.upstreamBaseUrl, args.path)
-  const response = await args.fetchImpl(upstream, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${args.upstreamApiKey}`,
-      'content-type': 'application/json',
-    },
-    body: args.body.buffer.slice(
-      args.body.byteOffset,
-      args.body.byteOffset + args.body.byteLength,
-    ) as ArrayBuffer,
-    signal: args.signal,
-    redirect: 'error',
-  })
+  args.recordModelCallInvocation()
+  let called: Awaited<ReturnType<ExternalOptimizerModelCall>>
+  try {
+    called = await args.call({
+      path: args.path as '/v1/chat/completions' | '/v1/responses',
+      model: args.model,
+      body: freezeJsonSnapshot(args.requestBody, 'optimizer model call body') as Readonly<
+        Record<string, unknown>
+      >,
+      signal: args.signal,
+    })
+  } catch (error) {
+    throw new MissingModelExecutionError(
+      `optimizer model callback rejected without execution evidence: ${toErrorMessage(error)}`,
+    )
+  }
+  if (!called || typeof called !== 'object' || typeof called.succeeded !== 'boolean') {
+    throw new MissingModelExecutionError(
+      'optimizer model callback returned no typed success/failure outcome',
+    )
+  }
+  let execution: unknown
+  try {
+    execution = freezeJsonSnapshot(called.execution, 'optimizer model callback execution evidence')
+  } catch (error) {
+    throw new MissingModelExecutionError(
+      `optimizer model callback returned invalid execution evidence: ${toErrorMessage(error)}`,
+    )
+  }
+  if (called.succeeded) {
+    if (!(called.response instanceof Response)) {
+      throw new MissingModelExecutionError(
+        'optimizer model callback success did not return a Response',
+      )
+    }
+    args.recordExecutionReceipt({
+      callRef: args.callRef,
+      path: args.path as '/v1/chat/completions' | '/v1/responses',
+      model: args.model,
+      succeeded: true,
+      responseStatus: called.response.status,
+      execution,
+    })
+  } else {
+    if (typeof called.error !== 'string' || !called.error.trim()) {
+      throw new MissingModelExecutionError(
+        'optimizer model callback failure did not return a public error',
+      )
+    }
+    args.recordExecutionReceipt({
+      callRef: args.callRef,
+      path: args.path as '/v1/chat/completions' | '/v1/responses',
+      model: args.model,
+      succeeded: false,
+      error: called.error,
+      execution,
+    })
+    const failedReceipt = snapshotModelReceipt(called.receipt, args.model)
+    return {
+      status: 502,
+      contentType: 'application/json',
+      body: new TextEncoder().encode(JSON.stringify({ error: called.error })),
+      receipt: failedReceipt,
+      usageComplete: failedReceipt.usageUnknown !== true,
+      modelCallFailed: called.error,
+    }
+  }
+  const response = called.response
+  const authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model)
   const body = await readProviderResponseBody(response, args.maxResponseBytes)
   const usage = parseProviderUsage(body)
   const successful = response.status >= 200 && response.status < 300
-  const zeroUsage =
-    successful &&
-    usage !== undefined &&
-    usage.inputTokens +
-      usage.outputTokens +
-      (usage.cachedTokens ?? 0) +
-      (usage.cacheWriteTokens ?? 0) ===
-      0
   // `outputTokens` carries reasoning tokens as a subset, and a reasoning model
   // bounds only the completion by the requested limit. Charging the whole
   // output against that limit rejects every ordinary response such a model
@@ -414,26 +487,71 @@ async function forwardModelProxyRequest(args: {
           reasoningTokens > args.maxReasoningTokens
         ? `optimizer model provider reported ${reasoningTokens} reasoning tokens, exceeding the declared budget ${args.maxReasoningTokens}`
         : undefined
+  if (usage !== undefined) {
+    assertResponseUsageMatchesReceipt(usage, authoritativeReceipt)
+  }
   return {
     status: response.status,
     contentType: response.headers.get('content-type') ?? 'application/json',
     body,
-    receipt:
-      usage && !zeroUsage
-        ? {
-            model: args.model,
-            ...usage,
-            ...(usage.actualCostUsd === undefined ? { customTokenPricing: args.pricing } : {}),
-          }
-        : {
-            model: args.model,
-            inputTokens: 0,
-            outputTokens: 0,
-            costUnknown: true,
-            usageUnknown: true,
-          },
-    usageComplete: usage !== undefined && !zeroUsage,
+    receipt: authoritativeReceipt,
+    usageComplete: authoritativeReceipt.usageUnknown !== true,
     ...(usageRejected ? { usageRejected } : {}),
+  }
+}
+
+function snapshotModelReceipt(value: CostReceiptInput, expectedModel: string): CostReceiptInput {
+  let snapshot: CostReceiptInput
+  try {
+    assertJsonValue(value, 'optimizer model callback receipt')
+    snapshot = JSON.parse(canonicalJson(value)) as CostReceiptInput
+  } catch (error) {
+    throw new OwnerModelContractError(
+      `optimizer model callback returned an invalid receipt: ${toErrorMessage(error)}`,
+    )
+  }
+  if (snapshot.model !== expectedModel) {
+    throw new OwnerModelContractError(
+      `optimizer model callback receipt used '${snapshot.model}' instead of '${expectedModel}'`,
+    )
+  }
+  return snapshot
+}
+
+function freezeJsonSnapshot(value: unknown, label: string): unknown {
+  assertJsonValue(value, label)
+  return deepFreezeJson(JSON.parse(canonicalJson(value)))
+}
+
+function deepFreezeJson(value: unknown): unknown {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) deepFreezeJson(child)
+    Object.freeze(value)
+  }
+  return value
+}
+
+function assertResponseUsageMatchesReceipt(
+  usage: NonNullable<ReturnType<typeof parseProviderUsage>>,
+  receipt: CostReceiptInput,
+): void {
+  for (const field of [
+    'inputTokens',
+    'outputTokens',
+    'cachedTokens',
+    'cacheWriteTokens',
+    'reasoningTokens',
+  ] as const) {
+    if ((usage[field] ?? 0) !== (receipt[field] ?? 0)) {
+      throw new OwnerModelContractError(
+        `optimizer model response usage disagrees with Runtime receipt at ${field}`,
+      )
+    }
+  }
+  if (usage.actualCostUsd !== undefined && usage.actualCostUsd !== receipt.actualCostUsd) {
+    throw new OwnerModelContractError(
+      'optimizer model response cost disagrees with Runtime receipt',
+    )
   }
 }
 
@@ -441,7 +559,7 @@ function parseModelProxyRequest(
   body: Uint8Array,
   expectedModel: string,
   budget: ExternalOptimizerModelBudget,
-): { maxOutputTokens: number } {
+): { maxOutputTokens: number; body: Readonly<Record<string, unknown>> } {
   let value: unknown
   try {
     value = JSON.parse(Buffer.from(body).toString('utf8'))
@@ -475,27 +593,7 @@ function parseModelProxyRequest(
   if (maxOutputTokens > budget.maxOutputTokensPerRequest) {
     throw new Error('optimizer model request exceeds maxOutputTokensPerRequest')
   }
-  return { maxOutputTokens }
-}
-
-/**
- * Resolve the upstream URL the way an OpenAI-compatible client does.
- *
- * This proxy exposes `/v1/...` to its child for client compatibility. Whether
- * that prefix belongs upstream depends on the caller's base URL: a base that
- * already names a version segment (`/v1`, `/api/coding/paas/v4`) receives only
- * the endpoint, and a base without one receives the whole versioned path.
- * Forwarding the prefix unconditionally produced `/v4/v1/chat/completions`,
- * which providers answer with 404.
- */
-function modelProxyUpstreamUrl(baseUrl: string, requestPath: string): string {
-  const upstream = new URL(baseUrl)
-  const basePath = upstream.pathname.replace(/\/+$/, '')
-  const lastSegment = basePath.split('/').at(-1) ?? ''
-  const baseNamesVersion = /^v\d+/.test(lastSegment)
-  const suffix = baseNamesVersion ? requestPath.replace(/^\/v1(?=\/)/, '') : requestPath
-  upstream.pathname = `${basePath}${suffix}`
-  return upstream.toString()
+  return { maxOutputTokens, body: value }
 }
 
 function parseProviderUsage(
@@ -531,42 +629,78 @@ function parseProviderUsage(
     : isRecord(usage.completion_tokens_details)
       ? usage.completion_tokens_details
       : {}
-  const cachedTokens = optionalTokenCount(inputDetails, [
+  const nestedCachedTokens = optionalTokenCount(inputDetails, [
     'cached_tokens',
     'cache_read_tokens',
-    'cache_read_input_tokens',
   ])
-  const cacheWriteTokens = optionalTokenCount(inputDetails, [
+  const separateCachedTokens = optionalTokenCount(usage, ['cache_read_input_tokens'])
+  const nestedCacheWriteTokens = optionalTokenCount(inputDetails, [
     'cache_write_tokens',
     'cache_creation_tokens',
-    'cache_creation_input_tokens',
   ])
-  const reasoningTokens = optionalTokenCount(outputDetails, ['reasoning_tokens'])
+  const separateCacheWriteTokens = optionalTokenCount(usage, ['cache_creation_input_tokens'])
+  const nestedReasoningTokens = optionalTokenCount(outputDetails, ['reasoning_tokens'])
+  const separateReasoningTokens = optionalTokenCount(usage, ['reasoning_tokens'])
   const actualCostUsd =
     typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0
       ? usage.cost
       : undefined
   if (
-    cachedTokens === INVALID_TOKEN_COUNT ||
-    cacheWriteTokens === INVALID_TOKEN_COUNT ||
-    reasoningTokens === INVALID_TOKEN_COUNT
+    nestedCachedTokens === INVALID_TOKEN_COUNT ||
+    separateCachedTokens === INVALID_TOKEN_COUNT ||
+    nestedCacheWriteTokens === INVALID_TOKEN_COUNT ||
+    separateCacheWriteTokens === INVALID_TOKEN_COUNT ||
+    nestedReasoningTokens === INVALID_TOKEN_COUNT ||
+    separateReasoningTokens === INVALID_TOKEN_COUNT
   ) {
     return undefined
   }
-  const classifiedInputTokens = (cachedTokens ?? 0) + (cacheWriteTokens ?? 0)
+  const cached = selectProviderTokenClass(nestedCachedTokens, separateCachedTokens)
+  const cacheWrite = selectProviderTokenClass(nestedCacheWriteTokens, separateCacheWriteTokens)
+  const reasoning = selectProviderTokenClass(nestedReasoningTokens, separateReasoningTokens)
+  if (cached === undefined || cacheWrite === undefined || reasoning === undefined) return undefined
+  const classifiedInputTokens =
+    (cached.includedInTotal ? cached.count : 0) +
+    (cacheWrite.includedInTotal ? cacheWrite.count : 0)
   if (
     classifiedInputTokens > (totalInputTokens as number) ||
-    (reasoningTokens ?? 0) > (outputTokens as number)
+    reasoning.count > (outputTokens as number)
   ) {
     return undefined
   }
   return {
     inputTokens: (totalInputTokens as number) - classifiedInputTokens,
     outputTokens: outputTokens as number,
-    ...(cachedTokens === undefined ? {} : { cachedTokens }),
-    ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }),
-    ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+    ...(cached.supplied ? { cachedTokens: cached.count } : {}),
+    ...(cacheWrite.supplied ? { cacheWriteTokens: cacheWrite.count } : {}),
+    ...(reasoning.supplied ? { reasoningTokens: reasoning.count } : {}),
     ...(actualCostUsd === undefined ? {} : { actualCostUsd }),
+  }
+}
+
+/**
+ * OpenAI reports a cache class inside the input total; Anthropic reports it
+ * beside the input total. When both equivalent forms are present they must
+ * agree, and the nested normalized form wins.
+ */
+function selectProviderTokenClass(
+  nested: number | undefined,
+  separate: number | undefined,
+): { count: number; supplied: boolean; includedInTotal: boolean } | undefined {
+  if (nested !== undefined && separate !== undefined && nested > 0 && separate > 0) {
+    if (nested !== separate) return undefined
+    return { count: nested, supplied: true, includedInTotal: true }
+  }
+  if (nested !== undefined && nested > 0) {
+    return { count: nested, supplied: true, includedInTotal: true }
+  }
+  if (separate !== undefined && separate > 0) {
+    return { count: separate, supplied: true, includedInTotal: false }
+  }
+  return {
+    count: 0,
+    supplied: nested !== undefined || separate !== undefined,
+    includedInTotal: nested !== undefined,
   }
 }
 
@@ -590,8 +724,11 @@ function optionalTokenCount(
 function conservativeMaximumUsage(
   inputTokenUpperBound: number,
   outputTokenUpperBound: number,
-  pricing: CustomTokenPricing,
+  pricing?: CustomTokenPricing,
 ): Pick<CostReceiptInput, 'inputTokens' | 'outputTokens' | 'cachedTokens' | 'cacheWriteTokens'> {
+  if (pricing === undefined) {
+    return { inputTokens: inputTokenUpperBound, outputTokens: outputTokenUpperBound }
+  }
   const inputRates = [
     pricing.inputUsdPerMillion,
     pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion,
@@ -644,8 +781,9 @@ async function readProviderResponseBody(response: Response, maxBytes: number): P
 }
 
 function assertModelProxyConfig(args: {
-  upstreamBaseUrl: string
-  upstreamApiKey: string
+  call: ExternalOptimizerModelCall
+  callRef: string
+  recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   budget: ExternalOptimizerModelBudget
   phase: string
@@ -653,12 +791,10 @@ function assertModelProxyConfig(args: {
   tags?: Record<string, string>
   initialUsage?: {
     requests: number
-    costUsd: number
+    costUsd?: number
   }
 }): void {
   for (const [label, value] of [
-    ['upstreamBaseUrl', args.upstreamBaseUrl],
-    ['upstreamApiKey', args.upstreamApiKey],
     ['model', args.model],
     ['phase', args.phase],
     ['actor', args.actor],
@@ -667,22 +803,18 @@ function assertModelProxyConfig(args: {
       throw new Error(`external optimizer model proxy: ${label} must be trimmed and non-empty`)
     }
   }
-  let parsed: URL
-  try {
-    parsed = new URL(args.upstreamBaseUrl)
-  } catch {
-    throw new Error('external optimizer model proxy: upstreamBaseUrl must be an HTTP(S) URL')
+  if (typeof args.call !== 'function') {
+    throw new Error('external optimizer model proxy: call must be a function')
   }
   if (
-    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash
+    typeof args.callRef !== 'string' ||
+    !args.callRef.trim() ||
+    args.callRef.trim() !== args.callRef
   ) {
-    throw new Error(
-      'external optimizer model proxy: upstreamBaseUrl must be an HTTP(S) URL without credentials, query, or fragment',
-    )
+    throw new Error('external optimizer model proxy: callRef must be trimmed and non-empty')
+  }
+  if (typeof args.recordExecution !== 'function') {
+    throw new Error('external optimizer model proxy: recordExecution must be a function')
   }
   assertExternalOptimizerModelBudget(args.budget, 'external optimizer model proxy: budget')
   if (args.tags !== undefined) {
@@ -696,8 +828,8 @@ function assertModelProxyConfig(args: {
     if (
       !Number.isSafeInteger(args.initialUsage.requests) ||
       args.initialUsage.requests < 0 ||
-      !Number.isFinite(args.initialUsage.costUsd) ||
-      args.initialUsage.costUsd < 0
+      (args.initialUsage.costUsd !== undefined &&
+        (!Number.isFinite(args.initialUsage.costUsd) || args.initialUsage.costUsd < 0))
     ) {
       throw new Error(
         'external optimizer model proxy: initialUsage must contain non-negative requests and cost',
@@ -705,7 +837,9 @@ function assertModelProxyConfig(args: {
     }
     if (
       args.initialUsage.requests > args.budget.maxRequests ||
-      args.initialUsage.costUsd > args.budget.maxCostUsd + Number.EPSILON
+      (args.budget.maxCostUsd !== undefined &&
+        args.initialUsage.costUsd !== undefined &&
+        args.initialUsage.costUsd > args.budget.maxCostUsd + Number.EPSILON)
     ) {
       throw new Error('external optimizer model proxy: initialUsage exceeds the configured budget')
     }
@@ -719,6 +853,10 @@ class ProviderResponseTooLargeError extends Error {
     super('optimizer model response exceeds maxResponseBytes')
   }
 }
+
+class MissingModelExecutionError extends Error {}
+class ModelExecutionPersistenceError extends Error {}
+class OwnerModelContractError extends Error {}
 
 function readBody(request: IncomingMessage, maximumBytes: number): Promise<Uint8Array> {
   return new Promise((resolvePromise, reject) => {
@@ -748,28 +886,6 @@ function readBody(request: IncomingMessage, maximumBytes: number): Promise<Uint8
 
 function randomLocalToken(): string {
   return randomBytes(32).toString('hex')
-}
-
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const abortError = (): Error =>
-      signal.reason instanceof Error
-        ? signal.reason
-        : new Error('optimizer model retry backoff aborted')
-    if (signal.aborted) {
-      reject(abortError())
-      return
-    }
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      reject(abortError())
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 function isAbortError(error: Error): boolean {

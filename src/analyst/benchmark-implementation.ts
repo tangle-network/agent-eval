@@ -111,10 +111,11 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/trace/attribute-vocabulary.ts',
   'src/trace/otlp-attributes.ts',
   'src/trace/raw-provider-sink.ts',
+  'src/verdict-cache.ts',
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'b8b6d4f7a01f8341a0565159806f93ff9ca71c88322e63e4e52a86eed2c1d9c7'
+  '02ffe561616f79e62fcc3292ccd17cf55d5b385b8749367ce6b64e9f40586ac5'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

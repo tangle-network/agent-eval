@@ -33,6 +33,10 @@ import {
   SEARCH,
 } from '../_shared/extraction-task'
 import { assertMatchedMethodLimits } from '../_shared/matched-method-limits'
+import {
+  loadOptimizerExecutionOwner,
+  type OptimizerExecutionOwner,
+} from '../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
@@ -42,8 +46,6 @@ const BASE_URL = (
   'https://api.openai.com/v1'
 ).trim()
 const MODEL = process.env.LLM_MODEL || 'gpt-4.1-mini'
-const OPTIMIZER_API_KEY = (process.env.OPTIMIZER_API_KEY || API_KEY)?.trim()
-const OPTIMIZER_BASE_URL = (process.env.OPTIMIZER_BASE_URL || BASE_URL).trim()
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
@@ -79,10 +81,6 @@ const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', SKILLOPT
 if (!API_KEY) {
   throw new Error('Set LLM_API_KEY, or TANGLE_API_KEY with TANGLE_ROUTER_URL, for the worker.')
 }
-if (!OPTIMIZER_API_KEY) {
-  throw new Error('Set OPTIMIZER_API_KEY or LLM_API_KEY for GEPA and SkillOpt.')
-}
-const optimizerApiKey = OPTIMIZER_API_KEY
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
 }
@@ -166,7 +164,10 @@ const optimizerRunner = {
   command: OPTIMIZER_PYTHON,
 }
 
-function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
+function createMethods(owners: {
+  gepa?: OptimizerExecutionOwner
+  skillopt?: OptimizerExecutionOwner
+}): OptimizationMethod<ExtractScenario, Artifact>[] {
   const methods: OptimizationMethod<ExtractScenario, Artifact>[] = []
   if (selectedNames.includes('gepa')) {
     methods.push(
@@ -186,8 +187,7 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         },
         optimizer: {
           model: GEPA_MODEL,
-          baseUrl: OPTIMIZER_BASE_URL,
-          apiKey: optimizerApiKey,
+          ...owners.gepa!,
           budget: gepaModelBudget!,
         },
         describeScenario,
@@ -210,8 +210,7 @@ function createMethods(): OptimizationMethod<ExtractScenario, Artifact>[] {
         },
         optimizer: {
           model: SKILLOPT_MODEL,
-          baseUrl: OPTIMIZER_BASE_URL,
-          apiKey: optimizerApiKey,
+          ...owners.skillopt!,
           budget: skillOptModelBudget!,
         },
         maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
@@ -245,7 +244,15 @@ async function main() {
   const runRoot = join(process.cwd(), '.evolve', 'compare-optimization-methods', String(Date.now()))
   mkdirSync(runRoot, { recursive: true })
   const startedAt = Date.now()
-  const methods = createMethods()
+  const owners = {
+    ...(selectedNames.includes('gepa')
+      ? { gepa: await loadOptimizerExecutionOwner(GEPA_MODEL) }
+      : {}),
+    ...(selectedNames.includes('skillopt')
+      ? { skillopt: await loadOptimizerExecutionOwner(SKILLOPT_MODEL) }
+      : {}),
+  }
+  const methods = createMethods(owners)
 
   console.log(`Official optimization methods: ${methods.map((method) => method.name).join(', ')}`)
   console.log(`Worker model: ${MODEL}`)
@@ -289,7 +296,10 @@ async function main() {
     optimizer: {
       names: methods.map((method) => method.name),
       python: OPTIMIZER_PYTHON,
-      baseUrl: OPTIMIZER_BASE_URL,
+      executionOwners: {
+        gepa: owners.gepa?.callRef ?? null,
+        skillopt: owners.skillopt?.callRef ?? null,
+      },
       gepaModel: selectedNames.includes('gepa') ? GEPA_MODEL : null,
       skillOptModel: selectedNames.includes('skillopt') ? SKILLOPT_MODEL : null,
     },

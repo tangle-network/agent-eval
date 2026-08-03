@@ -25,10 +25,110 @@ export interface ExternalOptimizerCallback {
   close: () => Promise<void>
 }
 
+/** One exact model request admitted by the loopback proxy. */
+export interface ExternalOptimizerModelCallRequest {
+  readonly path: '/v1/chat/completions' | '/v1/responses'
+  readonly model: string
+  readonly body: Readonly<Record<string, unknown>>
+  readonly signal: AbortSignal
+}
+
+/** Runtime-owned result for one admitted optimizer-model call. */
+export type ExternalOptimizerModelCallResult =
+  | {
+      readonly succeeded: true
+      /** OpenAI-compatible response forwarded unchanged to the optimizer process. */
+      readonly response: Response
+      /** Canonical measured usage/cost input retained by Agent Eval's cost ledger. */
+      readonly receipt: import('../cost-ledger').CostReceiptInput
+      /** Opaque, finite JSON proof of the exact execution retained in provenance. */
+      readonly execution: unknown
+    }
+  | {
+      readonly succeeded: false
+      /** Public failure text safe to retain and return to the child process. */
+      readonly error: string
+      /** Usage/cost state for the failed Runtime call. Unknown values stay unknown. */
+      readonly receipt: import('../cost-ledger').CostReceiptInput
+      /** Opaque, finite JSON proof of the failed exact execution. */
+      readonly execution: unknown
+    }
+
+/**
+ * Execution-neutral model-call seam for an external optimizer.
+ *
+ * The package that owns execution implements this with its exact execution
+ * path. For Discovery that owner is Runtime and the identity is an
+ * AgentProfile. The loopback proxy owns request validation, limits, response
+ * bounds, and cost-ledger recording. Once invoked, the callback must resolve
+ * with one success/failure result. Rejecting loses the execution record and
+ * therefore fails the optimizer attempt.
+ */
+export type ExternalOptimizerModelCall = (
+  request: ExternalOptimizerModelCallRequest,
+) => Promise<ExternalOptimizerModelCallResult>
+
+/** One opaque Runtime execution record retained for one admitted model call. */
+export type ExternalOptimizerModelExecutionObservation =
+  | {
+      readonly sequence: number
+      readonly callRef: string
+      readonly path: ExternalOptimizerModelCallRequest['path']
+      readonly model: string
+      readonly succeeded: true
+      readonly responseStatus: number
+      readonly execution: unknown
+    }
+  | {
+      readonly sequence: number
+      readonly callRef: string
+      readonly path: ExternalOptimizerModelCallRequest['path']
+      readonly model: string
+      readonly succeeded: false
+      readonly error: string
+      readonly execution: unknown
+    }
+
+export type ExternalOptimizerEvaluationRefusalReason =
+  | 'invalid-request'
+  | 'evaluation-limit'
+  | 'evaluation-failed'
+
+/**
+ * Durable callback-side record of every candidate submitted for scoring,
+ * scored task, and callback refusal. Optimizer-internal proposals that never
+ * reach this callback are outside this record's scope.
+ */
+export type ExternalOptimizerEvaluationObservation =
+  | {
+      readonly kind: 'proposal'
+      readonly sequence: number
+      readonly candidate: ExternalTextCandidate
+      readonly candidateHash: string
+    }
+  | {
+      readonly kind: 'evaluation'
+      readonly sequence: number
+      readonly candidate: ExternalTextCandidate
+      readonly candidateHash: string
+      readonly exampleId: string
+      /** One-based accepted evaluation number for this optimizer attempt. */
+      readonly evaluationNumber: number
+      readonly response: unknown
+    }
+  | {
+      readonly kind: 'refusal'
+      readonly sequence: number
+      readonly reason: ExternalOptimizerEvaluationRefusalReason
+      readonly candidate?: ExternalTextCandidate
+      readonly candidateHash?: string
+      readonly exampleId?: string
+    }
+
 export interface ExternalOptimizerModelBudget {
-  /** Maximum optimizer-model spend, independent of task-evaluation spend. */
-  maxCostUsd: number
-  /** Network attempts, including provider retries. */
+  /** Optional optimizer-model spend ceiling, independent of task-evaluation spend. */
+  maxCostUsd?: number
+  /** Maximum calls into the execution owner; owner-internal retries are reported there. */
   maxRequests: number
   /** Reject a request body above this byte count. */
   maxRequestBytes: number
@@ -46,8 +146,12 @@ export interface ExternalOptimizerModelBudget {
    * it and a response exceeding it still fails loudly. Default: 0.
    */
   maxReasoningTokensPerRequest?: number
-  /** Rates used to estimate cost when the provider omits a valid `usage.cost`. */
-  pricing: CustomTokenPricing
+  /**
+   * Optional rates used to estimate cost when the provider omits a valid
+   * `usage.cost`. Omit when billed USD is unknown; catalog estimates are not
+   * enforcement evidence.
+   */
+  pricing?: CustomTokenPricing
   /** Per-provider-request deadline. Default: 300,000 ms. */
   requestTimeoutMs?: number
 }
@@ -57,12 +161,12 @@ export interface ExternalOptimizerModelProxy {
   baseUrl: string
   /** Ephemeral credential supplied only to the local proxy. */
   apiKey: string
-  /** Provider requests admitted during this proxy process, including failures. */
+  /** Execution-owner calls admitted during this proxy process, including failures. */
   requestAttempts: () => number
-  /** Complete successful provider responses recorded during this proxy process. */
+  /** Successful 2xx responses recorded during this proxy process. */
   successfulCompletions: () => number
-  /** Upstream fetches repeated because the provider answered 429. */
-  rateLimitRetries: () => number
+  /** Fail if an invoked caller-owned model path omitted its execution record. */
+  assertExecutionComplete: () => void
   close: () => Promise<void>
 }
 
@@ -154,8 +258,18 @@ export function assertExternalOptimizerModelBudget(
       throw new Error(`${label}.${field} must be a positive safe integer`)
     }
   }
-  if (!Number.isFinite(value.maxCostUsd) || value.maxCostUsd <= 0) {
-    throw new Error(`${label}.maxCostUsd must be positive and finite`)
+  if (
+    value.maxReasoningTokensPerRequest !== undefined &&
+    (!Number.isSafeInteger(value.maxReasoningTokensPerRequest) ||
+      value.maxReasoningTokensPerRequest < 0)
+  ) {
+    throw new Error(`${label}.maxReasoningTokensPerRequest must be a non-negative safe integer`)
+  }
+  if (
+    value.maxCostUsd !== undefined &&
+    (!Number.isFinite(value.maxCostUsd) || value.maxCostUsd <= 0)
+  ) {
+    throw new Error(`${label}.maxCostUsd must be positive and finite when supplied`)
   }
   if (
     value.requestTimeoutMs !== undefined &&
@@ -165,7 +279,12 @@ export function assertExternalOptimizerModelBudget(
   ) {
     throw new Error(`${label}.requestTimeoutMs must be between 1 and ${MAX_TIMER_DELAY_MS}`)
   }
-  costForTokenPricing(value.pricing, { inputTokens: 1, outputTokens: 1 })
+  if (value.pricing !== undefined) {
+    costForTokenPricing(value.pricing, { inputTokens: 1, outputTokens: 1 })
+  }
+  if (value.maxCostUsd !== undefined && value.pricing === undefined) {
+    throw new Error(`${label}.pricing is required when maxCostUsd is supplied`)
+  }
 }
 
 export function safePathComponent(value: string): string {

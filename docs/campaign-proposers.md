@@ -126,8 +126,10 @@ import {
 
 const optimizer = {
   model: 'gpt-4.1-mini',
-  baseUrl: 'https://api.openai.com/v1',
-  apiKey: process.env.OPENAI_API_KEY!,
+  // Supplied by the package that owns execution. Discovery derives these
+  // from Runtime and one exact AgentProfile.
+  call: optimizerExecution.call,
+  callRef: optimizerExecution.callRef,
   budget: {
     maxCostUsd: 5,
     maxRequests: 100,
@@ -247,7 +249,8 @@ The `recipe` maps directly to official GEPA operations:
 | `vote` | Run independent engines and use GEPA's vote composition. |
 | `omni` | Run official best-of exploration, then continue from its winner. |
 
-Each engine run requires `maxEvaluations` and `maxProposerCostUsd`.
+Each engine run requires `maxEvaluations`.
+`maxProposerCostUsd` is optional and should be supplied only when the execution owner can enforce billed USD.
 `engineConfig` carries the JSON-safe subset of configuration for the registered GEPA engine.
 GEPA validates the engine name and those values.
 Python callables, classes, custom loggers, and callbacks cannot be serialized through this TypeScript bridge.
@@ -255,7 +258,7 @@ For a custom engine, set `engineModules` to public dotted Python modules that ca
 The optimizer process imports those modules before GEPA resolves the engine name.
 
 The standard GEPA engine accepts the official `GEPAConfig` fields.
-Give Agent Eval the model, exact endpoint rates, and provider connection separately:
+Give Agent Eval the model, caller-owned execution callback, stable callback identity, and exact endpoint rates only when they are known:
 
 ```ts
 const method = gepaOptimizationMethod({
@@ -272,8 +275,8 @@ const method = gepaOptimizationMethod({
   },
   optimizer: {
     model: 'gpt-4.1-mini',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: process.env.OPENAI_API_KEY!,
+    call: optimizerExecution.call,
+    callRef: optimizerExecution.callRef,
     budget: {
       maxCostUsd: 8,
       maxRequests: 100,
@@ -292,8 +295,9 @@ const method = gepaOptimizationMethod({
 ```
 
 Replace the rates with the exact rates charged by your endpoint.
+If billed USD is unknown, omit `maxCostUsd`, `pricing`, and `maxProposerCostUsd`; the recorded cost remains unknown rather than becoming a guessed zero.
 With `optimizer`, every recipe stage must use the standard `gepa` engine.
-Agent Eval keeps the provider key outside Python, enforces the shared model budget, and records exact provider usage.
+Agent Eval receives no provider key, enforces the declared request and token budget, and records the execution owner's exact usage and opaque finite JSON evidence.
 `maxProposerCostUsd` also limits each individual GEPA engine stage.
 
 Other official engines can still receive their own settings:

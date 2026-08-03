@@ -1,6 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { contentHash } from '../verdict-cache'
 import {
   type ExternalOptimizerCallback,
+  type ExternalOptimizerEvaluationObservation,
+  type ExternalTextCandidate,
   type ExternalTextEvaluationRequest,
   isExternalTextCandidate,
   isRecord,
@@ -9,11 +12,18 @@ import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
 
 const MAX_CALLBACK_BODY_BYTES = 1_000_000
 
+type UnsequencedObservation = ExternalOptimizerEvaluationObservation extends infer T
+  ? T extends ExternalOptimizerEvaluationObservation
+    ? Omit<T, 'sequence'>
+    : never
+  : never
+
 export async function startExternalOptimizerCallback<TResponse>(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
+  observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   signal?: AbortSignal
 }): Promise<ExternalOptimizerCallback> {
   assertCallbackConfig(args)
@@ -23,6 +33,8 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
   let closePromise: Promise<void> | undefined
   const activeControllers = new Set<AbortController>()
   const activeHandlers = new Set<Promise<void>>()
+  const proposedCandidateHashes = new Set<string>()
+  let observationSequence = 0
   const server = createServer((request, response) => {
     if (!accepting) {
       sendJsonIfOpen(response, 503, { error: 'external optimizer callback is closing' })
@@ -38,16 +50,27 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
     controller.signal.addEventListener('abort', abortRequest, { once: true })
 
     let handler!: Promise<void>
-    handler = handleCallback(request, response, controller.signal, args, () => {
-      const accepted = args.acceptEvaluation ? args.acceptEvaluation() : evaluations + 1
-      if (accepted === undefined) return undefined
-      if (!Number.isSafeInteger(accepted) || accepted <= 0) {
-        throw new Error('external optimizer callback: invalid accepted evaluation count')
-      }
-      if (accepted > args.maxEvaluations) return undefined
-      evaluations += 1
-      return accepted
-    }).finally(() => {
+    handler = handleCallback(
+      request,
+      response,
+      controller.signal,
+      args,
+      () => {
+        const accepted = args.acceptEvaluation ? args.acceptEvaluation() : evaluations + 1
+        if (accepted === undefined) return undefined
+        if (!Number.isSafeInteger(accepted) || accepted <= 0) {
+          throw new Error('external optimizer callback: invalid accepted evaluation count')
+        }
+        if (accepted > args.maxEvaluations) return undefined
+        evaluations += 1
+        return accepted
+      },
+      (observation) => {
+        if (!args.observe) return
+        args.observe({ ...observation, sequence: ++observationSequence })
+      },
+      proposedCandidateHashes,
+    ).finally(() => {
       controller.signal.removeEventListener('abort', abortRequest)
       activeControllers.delete(controller)
       activeHandlers.delete(handler)
@@ -98,8 +121,11 @@ async function handleCallback<TResponse>(
     maxEvaluations: number
     acceptEvaluation?: () => number | undefined
     evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
+    observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   },
   nextEvaluation: () => number | undefined,
+  observe: (observation: UnsequencedObservation) => void,
+  proposedCandidateHashes: Set<string>,
 ): Promise<void> {
   try {
     if (request.method !== 'POST' || request.url !== '/evaluate') {
@@ -110,24 +136,63 @@ async function handleCallback<TResponse>(
       sendJsonIfOpen(response, 401, { error: 'unauthorized' })
       return
     }
-    const body = await readJson(request)
+    let body: unknown
+    try {
+      body = await readJson(request)
+    } catch {
+      observe({ kind: 'refusal', reason: 'invalid-request' })
+      sendJsonIfOpen(response, 400, { error: 'request body must be bounded valid JSON' })
+      return
+    }
     if (
       !isRecord(body) ||
       !isExternalTextCandidate(body.candidate) ||
       typeof body.exampleId !== 'string'
     ) {
+      observe({ kind: 'refusal', reason: 'invalid-request' })
       sendJsonIfOpen(response, 400, { error: 'candidate and exampleId are required strings' })
       return
     }
+    const candidate = cloneCandidate(body.candidate)
+    const candidateHash = contentHash({ kind: 'external-text-candidate', candidate })
+    if (!proposedCandidateHashes.has(candidateHash)) {
+      observe({ kind: 'proposal', candidate, candidateHash })
+      proposedCandidateHashes.add(candidateHash)
+    }
     const count = nextEvaluation()
     if (count === undefined) {
+      observe({
+        kind: 'refusal',
+        reason: 'evaluation-limit',
+        candidate,
+        candidateHash,
+        exampleId: body.exampleId,
+      })
       sendJsonIfOpen(response, 429, { error: 'evaluation limit reached' })
       return
     }
-    const result = await args.evaluate(
-      { candidate: body.candidate, exampleId: body.exampleId },
-      signal,
-    )
+    let result: TResponse
+    try {
+      result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal)
+    } catch {
+      observe({
+        kind: 'refusal',
+        reason: 'evaluation-failed',
+        candidate,
+        candidateHash,
+        exampleId: body.exampleId,
+      })
+      sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
+      return
+    }
+    observe({
+      kind: 'evaluation',
+      candidate,
+      candidateHash,
+      exampleId: body.exampleId,
+      evaluationNumber: count,
+      response: structuredClone(result),
+    })
     sendJsonIfOpen(response, 200, result)
   } catch {
     sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
@@ -174,6 +239,7 @@ function assertCallbackConfig(args: {
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<unknown>
+  observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   signal?: AbortSignal
 }): void {
   if (typeof args.token !== 'string' || !args.token.trim()) {
@@ -188,4 +254,11 @@ function assertCallbackConfig(args: {
   if (typeof args.evaluate !== 'function') {
     throw new Error('external optimizer callback: evaluate must be a function')
   }
+  if (args.observe !== undefined && typeof args.observe !== 'function') {
+    throw new Error('external optimizer callback: observe must be a function')
+  }
+}
+
+function cloneCandidate(candidate: ExternalTextCandidate): ExternalTextCandidate {
+  return typeof candidate === 'string' ? candidate : { ...candidate }
 }

@@ -5,6 +5,10 @@ import {
   assertPriorExternalOptimizerUsage,
 } from './external-optimizer-accounting'
 import {
+  openExternalOptimizerExecutionLog,
+  openExternalOptimizerObservationLog,
+} from './external-optimizer-observations'
+import {
   closeExternalOptimizerResources,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerResumeMode,
@@ -47,6 +51,7 @@ import {
 import { assertGepaBridgeOutput, type GepaBridgeOutput } from './gepa-optimization-result'
 import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
+  combineComparisonCosts,
   costFromLedgerSummary,
   type OptimizationMethod,
   optimizationTokenUsageFromSummary,
@@ -58,8 +63,8 @@ import type { Scenario } from './types'
 export interface GepaEngineOptions {
   /** GEPA engine name. GEPA validates names available in its Python runtime. */
   engine: string
-  /** Required cap for this engine's own model or CLI spend. */
-  maxProposerCostUsd: number
+  /** Optional billed-USD stop. Omit when the execution owner reports USD as unknown. */
+  maxProposerCostUsd?: number
   /** Maximum concurrent evaluations inside this engine. Default: 1. */
   maxConcurrency?: number
   /** Stop the engine after it reaches this score. */
@@ -263,7 +268,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         optimizerModel: config.optimizer
           ? {
               model: config.optimizer.model,
-              baseUrl: config.optimizer.baseUrl,
+              callRef: config.optimizer.callRef,
               budget: config.optimizer.budget,
             }
           : null,
@@ -283,6 +288,16 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         attemptId,
         maxEvaluations: evaluationLimit,
       })
+      const observationLog = openExternalOptimizerObservationLog({
+        storage,
+        path: `${runDir}/observations-${attemptId}.jsonl`,
+      })
+      const executionLog = config.optimizer
+        ? openExternalOptimizerExecutionLog({
+            storage,
+            path: `${runDir}/model-executions-${attemptId}.jsonl`,
+          })
+        : undefined
       const scenarioById = mapExternalScenarios(
         input.trainScenarios,
         input.selectionScenarios,
@@ -306,6 +321,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         maxEvaluations: evaluationLimit,
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
+        observe: observationLog.observe,
         ...(signal ? { signal } : {}),
       })
 
@@ -327,8 +343,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
             })
             assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
             modelProxy = await startExternalOptimizerModelProxy({
-              upstreamBaseUrl: config.optimizer.baseUrl,
-              upstreamApiKey: config.optimizer.apiKey,
+              call: config.optimizer.call,
+              callRef: config.optimizer.callRef,
+              recordExecution: executionLog!.observe,
               model: config.optimizer.model,
               budget: config.optimizer.budget,
               costLedger,
@@ -337,7 +354,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               tags: { ...runBudget.attemptTags },
               initialUsage: {
                 requests: priorOptimizerUsage.totalCalls,
-                costUsd: priorOptimizerUsage.totalCostUsd,
+                ...(priorOptimizerUsage.costProvenance.kind === 'uncaptured'
+                  ? {}
+                  : { costUsd: priorOptimizerUsage.totalCostUsd }),
               },
               ...(signal ? { signal } : {}),
             })
@@ -436,6 +455,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
       const optimizerCost = costFromLedgerSummary(optimizerSummary)
       const reportedProposerCost = result.proposerCostUsd ?? 0
       if (modelProxy) {
+        modelProxy.assertExecutionComplete()
         assertExternalOptimizerCompletionCount(
           result.tokenUsage,
           modelProxy.requestAttempts(),
@@ -448,20 +468,24 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
         : undefined
       const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
+      const meteredCost = modelProxy
+        ? combineComparisonCosts([
+            { label: 'evaluation', cost: evaluationCost },
+            { label: 'optimizer model', cost: optimizerCost },
+          ])
+        : undefined
+      const externalTotalCostUsd = evaluationCost.totalCostUsd + reportedProposerCost
       return {
         winnerSurface: decodeExternalTextCandidate(result.bestCandidate),
         cost: modelProxy
-          ? {
-              totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
-              accountingComplete:
-                evaluationCost.accountingComplete && optimizerCost.accountingComplete,
-              incompleteReasons: [
-                ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
-                ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
-              ],
-            }
+          ? meteredCost!
           : {
-              totalCostUsd: evaluationCost.totalCostUsd + reportedProposerCost,
+              totalCostUsd: externalTotalCostUsd,
+              costProvenance:
+                result.proposerCostAccounting === 'reported' &&
+                evaluationCost.costProvenance.kind !== 'uncaptured'
+                  ? { kind: 'estimated', usd: externalTotalCostUsd }
+                  : { kind: 'uncaptured', usd: null },
               accountingComplete: false,
               incompleteReasons: [
                 ...evaluationCost.incompleteReasons,
@@ -476,13 +500,20 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         durationMs: Date.now() - started,
         provenance: {
           ...runtime,
-          ...(config.optimizer ? { optimizerModel: config.optimizer.model } : {}),
+          ...(config.optimizer
+            ? {
+                optimizerModel: config.optimizer.model,
+                optimizerCallRef: config.optimizer.callRef,
+              }
+            : {}),
           compatibleRunId,
           runId,
           resumed: result.resumed,
           evaluationCount: runBudget.acceptedEvaluations(),
           artifactDir: outputDir,
           ...(tokenUsage ? { tokenUsage } : {}),
+          observations: observationLog.summary(),
+          ...(executionLog ? { modelExecutions: executionLog.summary() } : {}),
         },
       }
     },

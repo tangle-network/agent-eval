@@ -102,6 +102,7 @@ const EXPECTED_FILES = [
   'src/trace/attribute-vocabulary.ts',
   'src/trace/otlp-attributes.ts',
   'src/trace/raw-provider-sink.ts',
+  'src/verdict-cache.ts',
 ] as const
 
 describe('public analyst benchmark implementation digest', () => {

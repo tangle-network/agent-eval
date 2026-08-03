@@ -174,6 +174,13 @@ Agent Eval supplies the train and selection cases, executes candidates, records 
 ```ts
 import { gepaOptimizationMethod } from '@tangle-network/agent-eval/campaign'
 
+// Supplied by the package that owns model execution. Discovery uses Runtime
+// with one exact AgentProfile; Agent Eval receives no provider credential.
+declare const optimizerExecution: {
+  call: import('@tangle-network/agent-eval/campaign').ExternalOptimizerModelCall
+  callRef: string
+}
+
 const optimizerPricing = {
   inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
   outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
@@ -192,8 +199,7 @@ const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
   },
   optimizer: {
     model: 'gpt-4.1-mini',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: process.env.OPENAI_API_KEY!,
+    ...optimizerExecution,
     budget: {
       maxCostUsd: 5,
       maxRequests: 100,
@@ -209,7 +215,8 @@ const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
 ```
 
 GEPA also supports official sequential, adaptive, best-of, vote, and Omni recipes through the same factory.
-When every recipe stage uses the standard GEPA engine, Agent Eval keeps the provider key outside Python and records exact reflection usage through a local proxy.
+When every recipe stage uses the standard GEPA engine, Agent Eval gives Python only a loopback address and asks the caller-owned execution package to make every model call.
+Every call must return measured usage and finite JSON execution evidence; Agent Eval stores both and fails the attempt when either is missing.
 Other official GEPA engines can still run through `engineConfig`, but their model spend remains incomplete unless the engine reports it.
 Custom engines can register through GEPA's official registry by listing their Python modules in `engineModules`.
 
@@ -218,6 +225,7 @@ Run the repository example:
 ```sh
 OPTIMIZERS=gepa \
 LLM_API_KEY="$OPENAI_API_KEY" \
+OPTIMIZER_EXECUTION_OWNER_MODULE=@acme/runtime-optimizer-owner \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
@@ -233,6 +241,11 @@ SkillOpt receives train and selection cases but never receives final cases.
 ```ts
 import { skillOptOptimizationMethod } from '@tangle-network/agent-eval/campaign'
 
+declare const optimizerExecution: {
+  call: import('@tangle-network/agent-eval/campaign').ExternalOptimizerModelCall
+  callRef: string
+}
+
 const optimizerPricing = {
   inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
   outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
@@ -247,8 +260,7 @@ const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
   },
   optimizer: {
     model: 'gpt-4.1-mini',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: process.env.OPENAI_API_KEY!,
+    ...optimizerExecution,
     budget: {
       maxCostUsd: 5,
       maxRequests: 100,
@@ -265,8 +277,9 @@ const skillopt = skillOptOptimizationMethod<MyCase, MyArtifact>({
 ```
 
 Replace the example rates with the exact rates for your endpoint.
-Agent Eval places a local OpenAI-compatible proxy between each standard optimizer and the provider.
-The proxy enforces request, byte, token, and dollar limits before forwarding calls, records exact usage from provider responses, and does not pass the provider key to the optimizer process.
+Agent Eval places a local OpenAI-compatible proxy between each standard optimizer and the caller-owned execution package.
+The proxy enforces request, byte, and token limits before one callback invocation, records the caller's measured receipt and execution evidence, and does not accept a provider URL or credential.
+Dollar limits and pricing are optional; omit both when billed USD is unknown instead of supplying a catalog estimate as if it were observed billing.
 
 ## Optimize A DSPy Program
 

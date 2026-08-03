@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import type { OpenAICompatibleOptimizerModel } from '../../src/campaign'
 
 export interface CapturedModelRequest {
   authorization: string | undefined
@@ -62,6 +63,69 @@ export async function startModelServer(content: string): Promise<{
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
       })
+    },
+  }
+}
+
+export function localOptimizerModel(
+  baseUrl: string,
+  options: { model?: string; maxRequests?: number; maxOutputTokens?: number } = {},
+): OpenAICompatibleOptimizerModel {
+  const model = options.model ?? 'local-model'
+  return {
+    model,
+    callRef: `test-local-model:${baseUrl}`,
+    call: async (request) => {
+      const response = await fetch(`${baseUrl.replace(/\/v1$/, '')}${request.path}`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer provider-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request.body),
+        signal: request.signal,
+      })
+      const value = (await response.clone().json()) as {
+        usage?: { prompt_tokens?: number; completion_tokens?: number }
+      }
+      return {
+        succeeded: true,
+        response,
+        receipt:
+          value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
+            ? {
+                model: request.model,
+                inputTokens: value.usage.prompt_tokens,
+                outputTokens: value.usage.completion_tokens,
+                customTokenPricing: {
+                  inputUsdPerMillion: 1,
+                  outputUsdPerMillion: 2,
+                },
+              }
+            : {
+                model: request.model,
+                inputTokens: 0,
+                outputTokens: 0,
+                usageUnknown: true,
+                costUnknown: true,
+              },
+        execution: {
+          kind: 'test-local-model',
+          model: request.model,
+          status: response.status,
+        },
+      }
+    },
+    budget: {
+      maxCostUsd: 1,
+      maxRequests: options.maxRequests ?? 10,
+      maxRequestBytes: 100_000,
+      maxResponseBytes: 100_000,
+      maxOutputTokensPerRequest: options.maxOutputTokens ?? 2_000,
+      pricing: {
+        inputUsdPerMillion: 1,
+        outputUsdPerMillion: 2,
+      },
     },
   }
 }

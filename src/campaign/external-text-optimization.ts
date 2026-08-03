@@ -39,6 +39,7 @@ import {
   snapshotExternalTextOptimizationConfig,
 } from './external-text-optimization-contract'
 import {
+  combineComparisonCosts,
   costFromLedgerSummary,
   type OptimizationMethod,
   optimizationTokenUsageFromSummary,
@@ -417,17 +418,20 @@ export function externalTextOptimizationMethod<TScenario extends Scenario, TArti
             event: { runId, attemptId, status: 'completed' },
           })
         }
+        const measuredCost = combineComparisonCosts([
+          { label: 'evaluation', cost: evaluationCost },
+          { label: 'optimizer', cost: optimizerCost },
+        ])
         return {
           winnerSurface: decodeExternalTextCandidate(result.bestCandidate),
           cost: {
-            totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
-            accountingComplete:
-              evaluationCost.accountingComplete &&
-              optimizerCost.accountingComplete &&
-              externalCostReason === undefined,
+            ...measuredCost,
+            ...(externalCostReason
+              ? { costProvenance: { kind: 'uncaptured', usd: null } as const }
+              : {}),
+            accountingComplete: measuredCost.accountingComplete && externalCostReason === undefined,
             incompleteReasons: [
-              ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
-              ...optimizerCost.incompleteReasons.map((reason) => `optimizer: ${reason}`),
+              ...measuredCost.incompleteReasons,
               ...(externalCostReason
                 ? [`optimizer: external spend is not observed: ${externalCostReason}`]
                 : []),

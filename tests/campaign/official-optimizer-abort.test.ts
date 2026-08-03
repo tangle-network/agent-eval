@@ -159,8 +159,10 @@ function fakeOptimizerRunner(optimizer: 'gepa' | 'skillopt', readyPath: string) 
 function optimizerModel() {
   return {
     model: 'model',
-    baseUrl: 'http://127.0.0.1:1/v1',
-    apiKey: 'provider-secret',
+    callRef: 'test-abort-owner',
+    call: async () => {
+      throw new Error('abort test runner must not invoke the model')
+    },
     budget: {
       maxCostUsd: 1,
       maxRequests: 2,

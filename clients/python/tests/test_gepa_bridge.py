@@ -636,6 +636,44 @@ def test_input_allows_train_only_optimization_but_requires_training_data(
         gepa_bridge._validate_input(input_value)
 
 
+def test_input_allows_evaluation_bounded_run_without_guessed_usd_cap(
+    tmp_path: Path,
+) -> None:
+    input_value = _valid_input(tmp_path)
+    del input_value["recipe"]["run"]["maxProposerCostUsd"]
+
+    gepa_bridge._validate_input(input_value)
+
+    api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="engine",
+    )
+    config = gepa_bridge._engine_config(
+        api,
+        input_value["recipe"]["run"],
+        tmp_path / "external",
+        model_proxy=None,
+        proxy_usage=None,
+    )
+    assert "max_token_cost" not in config
+
+    input_value["recipe"]["run"]["engine"] = "gepa"
+    launcher_api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="launcher",
+    )
+    launcher_config = gepa_bridge._engine_config(
+        launcher_api,
+        input_value["recipe"]["run"],
+        tmp_path / "launcher",
+        model_proxy=None,
+        proxy_usage=None,
+    )
+    assert "max_reflection_cost" not in launcher_config["engine"]
+
+
 def test_proxied_gepa_accepts_official_retry_configuration(tmp_path: Path) -> None:
     input_value = _valid_input(tmp_path)
     input_value["recipe"] = {
