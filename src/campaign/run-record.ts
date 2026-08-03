@@ -72,6 +72,7 @@ export function campaignCellToRunRecord<TArtifact>(
     rep: cell.rep,
     duration_ms: cell.durationMs,
     ...(costUsd === null ? {} : { cost_usd: costUsd }),
+    // Retain the observed subtotal even when the caller supplies an estimated total.
     ...(cellCostProvenance.kind === 'uncaptured' ? { cost_known_subtotal_usd: cell.costUsd } : {}),
     cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
     cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
