@@ -203,6 +203,7 @@ describe('selfImprove — complete optimization methods', () => {
           winnerSurface: paid.value,
           cost: {
             totalCostUsd: 0.02,
+            costProvenance: { kind: 'observed', usd: 0.02 },
             accountingComplete: true,
             incompleteReasons: [],
           },
@@ -217,6 +218,15 @@ describe('selfImprove — complete optimization methods', () => {
               revision: 'abc123',
             },
             optimizerModel: 'test-model@2026-07-24',
+            optimizerCallRef: 'test-owner:official-test',
+            modelExecutions: {
+              scope: 'runtime-model-calls',
+              path: '/tmp/official-test/model-executions.jsonl',
+              sha256: `sha256:${'0'.repeat(64)}`,
+              calls: 1,
+              succeeded: 1,
+              failed: 0,
+            },
             runId: 'official-run',
             resumed: false,
             evaluationCount: 6,
@@ -264,6 +274,7 @@ describe('selfImprove — complete optimization methods', () => {
       name: 'official:test',
       cost: {
         totalCostUsd: 0.02,
+        costProvenance: { kind: 'observed', usd: 0.02 },
         accountingComplete: true,
         incompleteReasons: [],
       },
@@ -295,7 +306,12 @@ describe('selfImprove — complete optimization methods', () => {
       name: 'official:test',
       optimize: async () => ({
         winnerSurface: 'BETTER',
-        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+        cost: {
+          totalCostUsd: 0,
+          costProvenance: { kind: 'observed', usd: 0 },
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
       }),
     }
     await expect(

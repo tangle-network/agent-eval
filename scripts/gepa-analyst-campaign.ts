@@ -66,6 +66,7 @@ import type {
 import { createRunCostLedger, fsCampaignStorage } from '../src/campaign/storage'
 import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from '../src/campaign/types'
 import type { TraceAnalysisStore } from '../src/trace-analyst/store'
+import { loadOptimizerExecutionOwner } from '../examples/_shared/optimizer-execution-owner'
 
 // ── Configuration ─────────────────────────────────────────────────────
 
@@ -573,6 +574,8 @@ async function main(): Promise<void> {
 
   // ── GEPA method ─────────────────────────────────────────────────────
 
+  const optimizerExecution = await loadOptimizerExecutionOwner(MODEL)
+
   const method = gepaOptimizationMethod<GepaAnalystScenario, GepaAnalystArtifact>({
     name: 'gepa-analyst-policy-r2',
     objective:
@@ -617,8 +620,7 @@ async function main(): Promise<void> {
     },
     optimizer: {
       model: MODEL,
-      baseUrl: BASE_URL,
-      apiKey: API_KEY!,
+      ...optimizerExecution,
       budget: {
         maxCostUsd: MAX_PROPOSER_COST_USD,
         maxRequests: 120,

@@ -1,45 +1,34 @@
 import {
   assertExternalOptimizerModelBudget,
   type ExternalOptimizerModelBudget,
+  type ExternalOptimizerModelCall,
 } from './external-optimizer-process'
 
 export type OptimizerModelBudget = ExternalOptimizerModelBudget
 
-/** One metered OpenAI-compatible model connection shared by official optimizers. */
+/** One metered model path supplied by the package that owns execution. */
 export interface OpenAICompatibleOptimizerModel {
   model: string
-  baseUrl: string
-  apiKey: string
   budget: OptimizerModelBudget
+  /** Caller-owned execution path, such as Runtime's exact AgentProfile adapter. */
+  call: ExternalOptimizerModelCall
+  /** Stable public identity included in resumable-run compatibility. */
+  callRef: string
 }
 
 export function assertOptimizerModel(value: OpenAICompatibleOptimizerModel, label: string): void {
   if (!value || typeof value !== 'object') {
     throw new Error(`${label} is required`)
   }
-  for (const field of ['model', 'baseUrl', 'apiKey'] as const) {
-    const item = value[field]
+  for (const [field, item] of [
+    ['model', value.model],
+    ['callRef', value.callRef],
+  ] as const) {
     if (typeof item !== 'string' || !item.trim() || item.trim() !== item) {
       throw new Error(`${label}.${field} must be trimmed and non-empty`)
     }
   }
-  let url: URL
-  try {
-    url = new URL(value.baseUrl)
-  } catch {
-    throw new Error(`${label}.baseUrl must be an absolute HTTP URL`)
-  }
-  if (
-    !['http:', 'https:'].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error(
-      `${label}.baseUrl must use HTTP or HTTPS without credentials, query, or fragment`,
-    )
-  }
+  if (typeof value.call !== 'function') throw new Error(`${label}.call must be a function`)
   assertExternalOptimizerModelBudget(value.budget, `${label}.budget`)
 }
 
@@ -47,7 +36,9 @@ export function snapshotOptimizerModel(
   value: OpenAICompatibleOptimizerModel,
 ): OpenAICompatibleOptimizerModel {
   return {
-    ...value,
+    model: value.model,
     budget: structuredClone(value.budget),
+    call: value.call,
+    callRef: value.callRef,
   }
 }

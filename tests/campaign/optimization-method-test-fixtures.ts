@@ -50,6 +50,7 @@ export const solveJudge: JudgeConfig<TestArtifact, TestScenario> = {
 
 export const completeCost = (totalCostUsd: number) => ({
   totalCostUsd,
+  costProvenance: { kind: 'observed' as const, usd: totalCostUsd },
   accountingComplete: true,
   incompleteReasons: [],
 })
@@ -75,7 +76,12 @@ export function incompleteCostMethod(
     name,
     optimize: async () => ({
       winnerSurface,
-      cost: { totalCostUsd: 0, accountingComplete: false, incompleteReasons: [reason] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'uncaptured', usd: null },
+        accountingComplete: false,
+        incompleteReasons: [reason],
+      },
     }),
   }
 }

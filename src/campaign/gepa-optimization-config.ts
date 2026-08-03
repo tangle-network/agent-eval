@@ -284,9 +284,12 @@ function assertEngineOptions(run: GepaEngineOptions, label: string): void {
   if (typeof run.engine !== 'string' || !run.engine.trim() || run.engine.trim() !== run.engine) {
     throw new Error(`gepaOptimizationMethod: ${label}.engine must be a trimmed non-empty string`)
   }
-  if (!Number.isFinite(run.maxProposerCostUsd) || run.maxProposerCostUsd <= 0) {
+  if (
+    run.maxProposerCostUsd !== undefined &&
+    (!Number.isFinite(run.maxProposerCostUsd) || run.maxProposerCostUsd <= 0)
+  ) {
     throw new Error(
-      `gepaOptimizationMethod: ${label}.maxProposerCostUsd must be a positive finite number`,
+      `gepaOptimizationMethod: ${label}.maxProposerCostUsd must be a positive finite number when supplied`,
     )
   }
   if (run.maxConcurrency !== undefined) {

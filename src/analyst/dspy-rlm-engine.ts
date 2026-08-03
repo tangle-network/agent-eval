@@ -1,4 +1,6 @@
 import {
+  type ExternalOptimizerModelCall,
+  type ExternalOptimizerModelExecutionObservation,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
@@ -6,7 +8,7 @@ import {
 import { startExternalOptimizerModelProxy } from '../campaign/external-optimizer-model-proxy'
 import { runWithCleanup } from '../campaign/external-optimizer-resources'
 import { runExternalOptimizerProcess } from '../campaign/external-optimizer-subprocess'
-import type { CustomTokenPricing } from '../cost-ledger'
+import type { CostReceiptInput, CustomTokenPricing } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './engine'
 import { type RawAnalystFinding, RawAnalystFindingSchema } from './finding-signature'
@@ -110,12 +112,16 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
         ...(request.signal ? { signal: request.signal } : {}),
       })
       let modelProxy: ExternalOptimizerModelProxy | undefined
+      const modelExecutions: ExternalOptimizerModelExecutionObservation[] = []
       const result = await runWithCleanup({
         label: 'DSPy RLM trace-analysis resources',
         run: async () => {
           modelProxy = await startExternalOptimizerModelProxy({
-            upstreamBaseUrl: options.baseUrl,
-            upstreamApiKey: options.apiKey,
+            call: dspyModelCall(options, pricing),
+            callRef: `dspy-rlm:${options.model}:${new URL(options.baseUrl).origin}`,
+            recordExecution: (observation) => {
+              modelExecutions.push(structuredClone(observation))
+            },
             model: options.model,
             budget: {
               maxCostUsd,
@@ -183,12 +189,12 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
           })
           const successfulCompletions = modelProxy.successfulCompletions()
           const requestAttempts = modelProxy.requestAttempts()
-          const rateLimitRetries = modelProxy.rateLimitRetries()
           if (parsed.modelCalls !== successfulCompletions) {
             throw new Error(
               `DSPy RLM reported ${parsed.modelCalls} model calls, but the provider proxy recorded ${successfulCompletions}`,
             )
           }
+          modelProxy.assertExecutionComplete()
           return {
             ...parsed,
             toolCalls: callback.calls(),
@@ -196,7 +202,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
               ...parsed.runtime,
               modelRequestAttempts: requestAttempts,
               modelSuccessfulCompletions: successfulCompletions,
-              modelRateLimitRetries: rateLimitRetries,
+              modelExecutions,
             },
           } satisfies TraceAnalysisEngineResult
         },
@@ -217,7 +223,6 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
         engine: 'dspy-rlm',
         model_calls: result.modelCalls,
         model_request_attempts: result.runtime.modelRequestAttempts,
-        model_rate_limit_retries: result.runtime.modelRateLimitRetries,
         tool_calls: result.toolCalls,
         findings: result.findings.length,
       })
@@ -281,6 +286,114 @@ function assertOptions(options: DspyRlmTraceEngineOptions): void {
     if (typeof value !== 'string' || !value.trim()) {
       throw new TypeError(`DSPy RLM ${name} must be a non-empty string`)
     }
+  }
+  let baseUrl: URL
+  try {
+    baseUrl = new URL(options.baseUrl)
+  } catch {
+    throw new TypeError('DSPy RLM baseUrl must be an HTTP(S) URL')
+  }
+  if (
+    (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') ||
+    baseUrl.username ||
+    baseUrl.password ||
+    baseUrl.search ||
+    baseUrl.hash
+  ) {
+    throw new TypeError(
+      'DSPy RLM baseUrl must be an HTTP(S) URL without credentials, query, or fragment',
+    )
+  }
+}
+
+function dspyModelCall(
+  options: DspyRlmTraceEngineOptions,
+  pricing: CustomTokenPricing,
+): ExternalOptimizerModelCall {
+  return async (request) => {
+    const started = performance.now()
+    const baseUrl = options.baseUrl.replace(/\/+$/, '')
+    const path = /\/v\d+$/.test(baseUrl) ? request.path.replace(/^\/v1/, '') : request.path
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${options.apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request.body),
+        signal: request.signal,
+        redirect: 'error',
+      })
+      return {
+        succeeded: true,
+        response,
+        receipt: await dspyResponseReceipt(response.clone(), request.model, pricing),
+        execution: {
+          kind: 'agent-eval/dspy-rlm-model-call',
+          model: request.model,
+          path: request.path,
+          status: response.status,
+          durationMs: performance.now() - started,
+        },
+      }
+    } catch (error) {
+      return {
+        succeeded: false,
+        error: error instanceof Error ? error.message : String(error),
+        receipt: unknownDspyReceipt(request.model),
+        execution: {
+          kind: 'agent-eval/dspy-rlm-model-call',
+          model: request.model,
+          path: request.path,
+          error: error instanceof Error ? error.name : 'Error',
+          durationMs: performance.now() - started,
+        },
+      }
+    }
+  }
+}
+
+async function dspyResponseReceipt(
+  response: Response,
+  model: string,
+  pricing: CustomTokenPricing,
+): Promise<CostReceiptInput> {
+  let value: unknown
+  try {
+    value = await response.json()
+  } catch {
+    return unknownDspyReceipt(model)
+  }
+  if (!isRecord(value) || !isRecord(value.usage)) return unknownDspyReceipt(model)
+  const inputTokens = value.usage.prompt_tokens ?? value.usage.input_tokens
+  const outputTokens = value.usage.completion_tokens ?? value.usage.output_tokens
+  if (
+    !Number.isSafeInteger(inputTokens) ||
+    (inputTokens as number) < 0 ||
+    !Number.isSafeInteger(outputTokens) ||
+    (outputTokens as number) < 0
+  ) {
+    return unknownDspyReceipt(model)
+  }
+  const actualCostUsd = value.usage.cost
+  return {
+    model,
+    inputTokens: inputTokens as number,
+    outputTokens: outputTokens as number,
+    ...(typeof actualCostUsd === 'number' && Number.isFinite(actualCostUsd) && actualCostUsd >= 0
+      ? { actualCostUsd }
+      : { customTokenPricing: pricing }),
+  }
+}
+
+function unknownDspyReceipt(model: string): CostReceiptInput {
+  return {
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    usageUnknown: true,
+    costUnknown: true,
   }
 }
 

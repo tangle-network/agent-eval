@@ -78,20 +78,18 @@ describe('external optimizer server lifecycle', () => {
     const ledger = new CostLedger()
     let activeProviderCalls = 0
     const proxy = await startExternalOptimizerModelProxy({
-      upstreamBaseUrl: 'https://provider.example/v1',
-      upstreamApiKey: 'provider-secret',
-      model: 'model-a',
-      budget: modelBudget(),
-      costLedger: ledger,
-      phase: 'optimizer',
-      actor: 'official-library',
-      fetchImpl: async () => {
+      ...modelSource(async () => {
         activeProviderCalls += 1
         started.resolve()
         await provider.promise
         activeProviderCalls -= 1
         return successfulProviderResponse()
-      },
+      }),
+      model: 'model-a',
+      budget: modelBudget(),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
     })
     const request = settled(postModel(proxy, validModelRequest()))
     await started.promise
@@ -122,18 +120,16 @@ describe('external optimizer server lifecycle', () => {
     const ledger = new CostLedger()
     let providerAttempts = 0
     const proxy = await startExternalOptimizerModelProxy({
-      upstreamBaseUrl: 'https://provider.example/v1',
-      upstreamApiKey: 'provider-secret',
+      ...modelSource(async () => {
+        providerAttempts += 1
+        if (providerAttempts === 1) throw new Error('transient provider failure')
+        return successfulProviderResponse()
+      }),
       model: 'model-a',
       budget: modelBudget(),
       costLedger: ledger,
       phase: 'optimizer',
       actor: 'official-library',
-      fetchImpl: async () => {
-        providerAttempts += 1
-        if (providerAttempts === 1) throw new Error('transient provider failure')
-        return successfulProviderResponse()
-      },
     })
 
     try {
@@ -165,28 +161,28 @@ describe('external optimizer server lifecycle', () => {
     const ledger = new CostLedger()
     let providerAborted = false
     const proxy = await startExternalOptimizerModelProxy({
-      upstreamBaseUrl: 'https://provider.example/v1',
-      upstreamApiKey: 'provider-secret',
+      ...modelSource(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal
+            if (!signal) throw new Error('provider signal missing')
+            started.resolve()
+            signal.addEventListener(
+              'abort',
+              () => {
+                providerAborted = true
+                reject(signal.reason)
+              },
+              { once: true },
+            )
+          }),
+      ),
       model: 'model-a',
       budget: modelBudget(),
       costLedger: ledger,
       phase: 'optimizer',
       actor: 'official-library',
       signal: owner.signal,
-      fetchImpl: async (_input, init) =>
-        await new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal
-          if (!signal) throw new Error('provider signal missing')
-          started.resolve()
-          signal.addEventListener(
-            'abort',
-            () => {
-              providerAborted = true
-              reject(signal.reason)
-            },
-            { once: true },
-          )
-        }),
     })
     const request = settled(postModel(proxy, validModelRequest()))
     await started.promise
@@ -202,6 +198,68 @@ describe('external optimizer server lifecycle', () => {
     expect(await postModelStatus(proxy, validModelRequest())).toBe(0)
   })
 })
+
+function modelSource(ownerCall: typeof fetch) {
+  const records: unknown[] = []
+  return {
+    callRef: 'test-runtime-owner',
+    call: async (request: {
+      model: string
+      body: Readonly<Record<string, unknown>>
+      signal: AbortSignal
+    }) => {
+      try {
+        const response = await ownerCall('https://test-owner.invalid/chat/completions', {
+          method: 'POST',
+          body: JSON.stringify(request.body),
+          signal: request.signal,
+        })
+        const value = (await response.clone().json()) as {
+          usage?: { prompt_tokens?: number; completion_tokens?: number }
+        }
+        return {
+          succeeded: true as const,
+          response,
+          receipt:
+            value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
+              ? {
+                  model: request.model,
+                  inputTokens: value.usage.prompt_tokens,
+                  outputTokens: value.usage.completion_tokens,
+                  customTokenPricing: {
+                    inputUsdPerMillion: 1,
+                    outputUsdPerMillion: 1,
+                  },
+                }
+              : {
+                  model: request.model,
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  costUnknown: true,
+                  usageUnknown: true,
+                },
+          execution: { kind: 'test-runtime-owner', status: response.status },
+        }
+      } catch (error) {
+        return {
+          succeeded: false as const,
+          error: error instanceof Error ? error.message : String(error),
+          receipt: {
+            model: request.model,
+            inputTokens: 0,
+            outputTokens: 0,
+            costUnknown: true,
+            usageUnknown: true,
+          },
+          execution: { kind: 'test-runtime-owner', failed: true },
+        }
+      }
+    },
+    recordExecution: (record: unknown) => {
+      records.push(structuredClone(record))
+    },
+  }
+}
 
 function postEvaluation(url: string, token: string, signal?: AbortSignal): Promise<Response> {
   return fetch(url, {

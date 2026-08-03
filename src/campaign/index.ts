@@ -77,6 +77,19 @@ export type {
   CrossSurfaceSelections,
   CrossSurfaceTaskRow,
 } from './cross-surface-types'
+export type {
+  ExternalOptimizerExecutionSummary,
+  ExternalOptimizerObservationSummary,
+} from './external-optimizer-observations'
+export type {
+  ExternalOptimizerEvaluationObservation,
+  ExternalOptimizerEvaluationRefusalReason,
+  ExternalOptimizerModelBudget,
+  ExternalOptimizerModelCall,
+  ExternalOptimizerModelCallRequest,
+  ExternalOptimizerModelCallResult,
+  ExternalOptimizerModelExecutionObservation,
+} from './external-optimizer-process'
 export {
   type ExternalOptimizationExample,
   type ExternalTextEvaluationResponse,
@@ -184,6 +197,7 @@ export type {
 export {
   type CompareOptimizationMethodsOptions,
   type ComparisonCost,
+  combineComparisonCosts,
   compareOptimizationMethods,
   costFromLedgerSummary,
   type OptimizationMethod,

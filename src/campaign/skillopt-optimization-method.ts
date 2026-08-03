@@ -5,6 +5,10 @@ import {
   assertPriorExternalOptimizerUsage,
 } from './external-optimizer-accounting'
 import {
+  openExternalOptimizerExecutionLog,
+  openExternalOptimizerObservationLog,
+} from './external-optimizer-observations'
+import {
   closeExternalOptimizerResources,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerResumeMode,
@@ -33,6 +37,7 @@ import {
 } from './external-text-optimization'
 import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
+  combineComparisonCosts,
   costFromLedgerSummary,
   type OptimizationMethod,
   optimizationTokenUsageFromSummary,
@@ -161,7 +166,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         background: config.background ?? '',
         optimizerModel: {
           model: config.optimizer.model,
-          baseUrl: config.optimizer.baseUrl,
+          callRef: config.optimizer.callRef,
           budget: config.optimizer.budget,
         },
         seedCandidate: input.baselineSurface,
@@ -186,6 +191,14 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         attemptId,
         maxEvaluations: config.maxEvaluations,
       })
+      const observationLog = openExternalOptimizerObservationLog({
+        storage,
+        path: `${runDir}/observations-${attemptId}.jsonl`,
+      })
+      const executionLog = openExternalOptimizerExecutionLog({
+        storage,
+        path: `${runDir}/model-executions-${attemptId}.jsonl`,
+      })
       const scenarioById = mapExternalScenarios(
         input.trainScenarios,
         input.selectionScenarios,
@@ -209,6 +222,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         maxEvaluations: config.maxEvaluations,
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
+        observe: observationLog.observe,
         ...(signal ? { signal } : {}),
       })
       const runnerEnv = bridgeRunner?.env ?? {}
@@ -228,8 +242,9 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
           })
           assertPriorExternalOptimizerUsage(priorOptimizerUsage, config.optimizer.budget, name)
           const modelProxy = await startExternalOptimizerModelProxy({
-            upstreamBaseUrl: config.optimizer.baseUrl,
-            upstreamApiKey: config.optimizer.apiKey,
+            call: config.optimizer.call,
+            callRef: config.optimizer.callRef,
+            recordExecution: executionLog.observe,
             model: config.optimizer.model,
             budget: config.optimizer.budget,
             costLedger,
@@ -238,7 +253,9 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
             tags: { ...runBudget.attemptTags },
             initialUsage: {
               requests: priorOptimizerUsage.totalCalls,
-              costUsd: priorOptimizerUsage.totalCostUsd,
+              ...(priorOptimizerUsage.costProvenance.kind === 'uncaptured'
+                ? {}
+                : { costUsd: priorOptimizerUsage.totalCostUsd }),
             },
             ...(signal ? { signal } : {}),
           })
@@ -337,6 +354,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         tags: runBudget.runTags,
       })
       const optimizerCost = costFromLedgerSummary(optimizerUsage)
+      modelProxy.assertExecutionComplete()
       assertExternalOptimizerCompletionCount(
         result.tokenUsage,
         modelProxy.requestAttempts(),
@@ -346,26 +364,26 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
       )
       const tokenUsage = optimizationTokenUsageFromSummary(optimizerUsage, optimizerReceipts)
       const runtime = observedExternalOptimizerRuntime(runtimeIdentity)
+      const combinedCost = combineComparisonCosts([
+        { label: 'evaluation', cost: evaluationCost },
+        { label: 'optimizer model', cost: optimizerCost },
+      ])
       return {
         winnerSurface: result.bestCandidate,
-        cost: {
-          totalCostUsd: evaluationCost.totalCostUsd + optimizerCost.totalCostUsd,
-          accountingComplete: evaluationCost.accountingComplete && optimizerCost.accountingComplete,
-          incompleteReasons: [
-            ...evaluationCost.incompleteReasons.map((reason) => `evaluation: ${reason}`),
-            ...optimizerCost.incompleteReasons.map((reason) => `optimizer model: ${reason}`),
-          ],
-        },
+        cost: combinedCost,
         durationMs: Date.now() - started,
         provenance: {
           ...runtime,
           optimizerModel: config.optimizer.model,
+          optimizerCallRef: config.optimizer.callRef,
           compatibleRunId,
           runId,
           resumed: result.resumed,
           evaluationCount: runBudget.acceptedEvaluations(),
           artifactDir: outputDir,
           ...(tokenUsage ? { tokenUsage } : {}),
+          observations: observationLog.summary(),
+          modelExecutions: executionLog.summary(),
         },
       }
     },

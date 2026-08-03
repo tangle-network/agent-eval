@@ -475,12 +475,13 @@ def _engine_config(
         kwargs: dict[str, Any] = {
             "engine": run["engine"],
             "max_evals": run.get("maxEvaluations"),
-            "max_token_cost": run["maxProposerCostUsd"],
             "output_dir": output_dir / "evaluations",
             "run_dir": str(output_dir / "state"),
             "engine_config": engine_config,
             "max_concurrency": run.get("maxConcurrency", 1),
         }
+        if run.get("maxProposerCostUsd") is not None:
+            kwargs["max_token_cost"] = run["maxProposerCostUsd"]
         if run.get("stopAtScore") is not None:
             kwargs["stop_at_score"] = run["stopAtScore"]
         if run.get("sandbox") is not None:
@@ -496,7 +497,8 @@ def _engine_config(
     if not isinstance(nested_engine, dict):
         raise ValueError("GEPA engineConfig.engine must be an object")
     nested_engine["max_metric_calls"] = run.get("maxEvaluations")
-    nested_engine["max_reflection_cost"] = run["maxProposerCostUsd"]
+    if run.get("maxProposerCostUsd") is not None:
+        nested_engine["max_reflection_cost"] = run["maxProposerCostUsd"]
     nested_engine["run_dir"] = str(output_dir / "state")
     nested_engine["max_workers"] = run.get("maxConcurrency", 1)
     if run.get("stopAtScore") is not None:

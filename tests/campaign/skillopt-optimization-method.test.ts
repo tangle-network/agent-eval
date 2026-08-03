@@ -7,6 +7,7 @@ import {
   compareOptimizationMethods,
   type JudgeConfig,
   type MutableSurface,
+  type OpenAICompatibleOptimizerModel,
   type Scenario,
   skillOptOptimizationMethod,
 } from '../../src/campaign'
@@ -218,6 +219,7 @@ describe('skillOptOptimizationMethod', () => {
     expect(result.scores[0]!.winnerComposite).toBe(1)
     expect(result.scores[0]!.optimizationCost).toEqual({
       totalCostUsd: 0.00002,
+      costProvenance: { kind: 'estimated', usd: 0.00002 },
       accountingComplete: true,
       incompleteReasons: [],
     })
@@ -256,9 +258,28 @@ describe('skillOptOptimizationMethod', () => {
         totalTokens: 15,
         calls: 1,
       },
+      observations: {
+        scope: 'callback-submitted-candidates',
+        sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        submittedCandidates: 1,
+        evaluations: 1,
+        refusals: 0,
+      },
+      modelExecutions: {
+        scope: 'runtime-model-calls',
+        sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        calls: 1,
+        succeeded: 1,
+        failed: 0,
+      },
     })
     expect(result.scores[0]!.provenance?.runId).toMatch(
       new RegExp(`^${result.scores[0]!.provenance?.compatibleRunId}-[0-9a-f]{32}$`),
+    )
+    const provenance = result.scores[0]!.provenance!
+    expect(readFileSync(provenance.observations!.path, 'utf8').trim().split('\n')).toHaveLength(2)
+    expect(readFileSync(provenance.modelExecutions!.path, 'utf8').trim().split('\n')).toHaveLength(
+      1,
     )
   })
 
@@ -287,6 +308,7 @@ describe('skillOptOptimizationMethod', () => {
     })
     expect(second.scores[0]!.optimizationCost).toEqual({
       totalCostUsd: 0.00004,
+      costProvenance: { kind: 'estimated', usd: 0.00004 },
       accountingComplete: true,
       incompleteReasons: [],
     })
@@ -450,11 +472,50 @@ async function startModelServer(): Promise<string> {
   return `http://127.0.0.1:${address.port}/v1`
 }
 
-function optimizerModel(baseUrl = 'http://127.0.0.1:1/v1') {
+function optimizerModel(baseUrl = 'http://127.0.0.1:1/v1'): OpenAICompatibleOptimizerModel {
   return {
     model: 'model',
-    baseUrl,
-    apiKey: 'provider-secret',
+    callRef: `test-model-server:${baseUrl}`,
+    call: async (request) => {
+      const response = await fetch(`${baseUrl.replace(/\/v1$/, '')}${request.path}`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer provider-secret',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(request.body),
+        signal: request.signal,
+      })
+      const value = (await response.clone().json()) as {
+        usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+      }
+      return {
+        succeeded: true,
+        response,
+        receipt:
+          value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
+            ? {
+                model: request.model,
+                inputTokens: value.usage.prompt_tokens,
+                outputTokens: value.usage.completion_tokens,
+                ...(value.usage.cost === undefined
+                  ? { customTokenPricing: OPTIMIZER_BUDGET.pricing }
+                  : { actualCostUsd: value.usage.cost }),
+              }
+            : {
+                model: request.model,
+                inputTokens: 0,
+                outputTokens: 0,
+                costUnknown: true,
+                usageUnknown: true,
+              },
+        execution: {
+          kind: 'test-model-server',
+          callRef: `test-model-server:${baseUrl}`,
+          status: response.status,
+        },
+      }
+    },
     budget: OPTIMIZER_BUDGET,
   }
 }

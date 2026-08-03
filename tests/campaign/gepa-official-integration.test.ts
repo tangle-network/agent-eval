@@ -8,7 +8,7 @@ import {
   type JudgeConfig,
   type Scenario,
 } from '../../src/campaign'
-import { startModelServer } from './official-optimizer-test-support'
+import { localOptimizerModel, startModelServer } from './official-optimizer-test-support'
 
 interface TestScenario extends Scenario {
   prompt: string
@@ -55,7 +55,7 @@ officialIt(
             },
           },
         },
-        optimizer: optimizerModel(modelServer.baseUrl),
+        optimizer: localOptimizerModel(modelServer.baseUrl),
         describeScenario: (scenario) => ({ prompt: scenario.prompt }),
         describeArtifact: (artifact) => ({ text: artifact.text }),
         runner: {
@@ -132,23 +132,4 @@ const kEqualsTwoJudge: JudgeConfig<TestArtifact, TestScenario> = {
       notes: score ? '' : 'The candidate must be JSON with k set to 2.',
     }
   },
-}
-
-function optimizerModel(baseUrl: string) {
-  return {
-    model: 'local-model',
-    baseUrl,
-    apiKey: 'provider-secret',
-    budget: {
-      maxCostUsd: 1,
-      maxRequests: 10,
-      maxRequestBytes: 100_000,
-      maxResponseBytes: 100_000,
-      maxOutputTokensPerRequest: 2_000,
-      pricing: {
-        inputUsdPerMillion: 1,
-        outputUsdPerMillion: 2,
-      },
-    },
-  }
 }

@@ -41,6 +41,15 @@ function optimizerProvenance(optimizerModel: string): OptimizationMethodProvenan
       version: '1.0.0',
     },
     optimizerModel,
+    optimizerCallRef: 'test-owner:model-backed',
+    modelExecutions: {
+      scope: 'runtime-model-calls',
+      path: '/tmp/test-optimizer/model-executions.jsonl',
+      sha256: `sha256:${'0'.repeat(64)}`,
+      calls: 0,
+      succeeded: 0,
+      failed: 0,
+    },
     runId: 'test-run',
     resumed: false,
     evaluationCount: 1,
@@ -211,7 +220,9 @@ describe('compareOptimizationMethods', () => {
 
     expect(result.best.name).toBe('known-cost')
     expect(result.optimizationCost.accountingComplete).toBe(false)
+    expect(result.optimizationCost.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(result.totalCost.accountingComplete).toBe(false)
+    expect(result.totalCost.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(result.optimizationCost.incompleteReasons).toEqual([
       "method 'unknown-cost': provider omitted price",
     ])
@@ -279,6 +290,7 @@ describe('compareOptimizationMethods', () => {
     expect(paidCalls).toBe(4)
     expect(first.testCost).toEqual({
       totalCostUsd: 0.04,
+      costProvenance: { kind: 'observed', usd: 0.04 },
       accountingComplete: true,
       incompleteReasons: [],
     })

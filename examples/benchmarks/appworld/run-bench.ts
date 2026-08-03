@@ -38,6 +38,10 @@ import {
   stringEnv,
 } from '../../_shared/env'
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
+import {
+  loadOptimizerExecutionOwner,
+  type OptimizerExecutionOwner,
+} from '../../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 
 const execFileAsync = promisify(execFile)
@@ -258,6 +262,10 @@ function officialMethods(
     gepa?: ReturnType<typeof optimizerModelBudgetFromEnv>
     skillopt?: ReturnType<typeof optimizerModelBudgetFromEnv>
   },
+  owners: {
+    gepa?: OptimizerExecutionOwner
+    skillopt?: OptimizerExecutionOwner
+  },
 ): OptimizationMethod<AppWorldScenario, AppWorldArtifact>[] {
   const runner = {
     command: OPTIMIZER_PYTHON,
@@ -289,8 +297,7 @@ function officialMethods(
         },
         optimizer: {
           model: GEPA_MODEL,
-          baseUrl: BASE_URL,
-          apiKey: API_KEY,
+          ...owners.gepa!,
           budget: budgets.gepa,
         },
         describeScenario,
@@ -314,8 +321,7 @@ function officialMethods(
         },
         optimizer: {
           model: SKILLOPT_MODEL,
-          baseUrl: BASE_URL,
-          apiKey: API_KEY,
+          ...owners.skillopt!,
           budget: budgets.skillopt,
         },
         maxEvaluations: SKILLOPT_MAX_EVALUATIONS,
@@ -379,7 +385,15 @@ async function main(): Promise<void> {
       ? { skillopt: optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZER_MODEL_COST_USD) }
       : {}),
   }
-  const methods = officialMethods(selected, budgets)
+  const owners = {
+    ...(selected.has('gepa')
+      ? { gepa: await loadOptimizerExecutionOwner(GEPA_MODEL) }
+      : {}),
+    ...(selected.has('skillopt')
+      ? { skillopt: await loadOptimizerExecutionOwner(SKILLOPT_MODEL) }
+      : {}),
+  }
+  const methods = officialMethods(selected, budgets, owners)
   if (methods.length === 0) {
     throw new Error(`BENCH_METHODS matched no methods: ${only.join(',')}`)
   }
@@ -422,9 +436,11 @@ async function main(): Promise<void> {
       worker: { model: MODEL, baseUrl: BASE_URL },
       optimizer: {
         python: OPTIMIZER_PYTHON,
-        gepa: selected.has('gepa') ? { model: GEPA_MODEL, budget: budgets.gepa } : null,
+        gepa: selected.has('gepa')
+          ? { model: GEPA_MODEL, callRef: owners.gepa!.callRef, budget: budgets.gepa }
+          : null,
         skillopt: selected.has('skillopt')
-          ? { model: SKILLOPT_MODEL, budget: budgets.skillopt }
+          ? { model: SKILLOPT_MODEL, callRef: owners.skillopt!.callRef, budget: budgets.skillopt }
           : null,
       },
     },

@@ -79,3 +79,25 @@ def test_published_gepa_performs_nonzero_optimize_anything_work(tmp_path: Path) 
         ("ALWAYS_RETURN_READY", "selection"),
     ]
     assert (tmp_path / "state" / "gepa_state.bin").stat().st_size > 0
+
+
+def test_published_gepa_accepts_evaluation_limit_without_guessed_usd_cap(
+    tmp_path: Path,
+) -> None:
+    from agent_eval_rpc.gepa_api import load_gepa_api
+    from agent_eval_rpc.gepa_bridge import _engine_config
+
+    config = _engine_config(
+        load_gepa_api(),
+        {
+            "engine": "gepa",
+            "engineConfig": {},
+            "maxEvaluations": 4,
+        },
+        tmp_path / "uncapped-cost",
+        model_proxy=None,
+        proxy_usage=None,
+    )
+
+    assert config.engine.max_metric_calls == 4
+    assert config.engine.max_reflection_cost is None

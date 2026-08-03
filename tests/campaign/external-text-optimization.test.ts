@@ -76,6 +76,7 @@ describe('external text optimization', () => {
     expect(result.winnerSurface).toBe('candidate')
     expect(result.cost).toEqual({
       totalCostUsd: 0.01,
+      costProvenance: { kind: 'observed', usd: 0.01 },
       accountingComplete: true,
       incompleteReasons: [],
     })
@@ -163,6 +164,7 @@ describe('external text optimization', () => {
     expect(result.winnerSurface).toBe('baseline')
     expect(result.cost).toEqual({
       totalCostUsd: 0,
+      costProvenance: { kind: 'observed', usd: 0 },
       accountingComplete: true,
       incompleteReasons: [],
     })
@@ -622,6 +624,7 @@ describe('external text optimization', () => {
     const result = await external.optimize(optimizationInput([scenario], []))
     expect(result.cost).toEqual({
       totalCostUsd: 0,
+      costProvenance: { kind: 'uncaptured', usd: null },
       accountingComplete: false,
       incompleteReasons: [
         'optimizer: external spend is not observed: provider bills outside this process',

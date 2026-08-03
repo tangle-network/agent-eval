@@ -8,7 +8,7 @@ import {
   type Scenario,
   skillOptOptimizationMethod,
 } from '../../src/campaign'
-import { startModelServer } from './official-optimizer-test-support'
+import { localOptimizerModel, startModelServer } from './official-optimizer-test-support'
 
 interface TestScenario extends Scenario {
   prompt: string
@@ -62,22 +62,7 @@ officialIt(
           maxAnalystRounds: 1,
           evaluationWorkers: 1,
         },
-        optimizer: {
-          model: 'local-model',
-          baseUrl: modelServer.baseUrl,
-          apiKey: 'provider-secret',
-          budget: {
-            maxCostUsd: 1,
-            maxRequests: 10,
-            maxRequestBytes: 100_000,
-            maxResponseBytes: 100_000,
-            maxOutputTokensPerRequest: 256,
-            pricing: {
-              inputUsdPerMillion: 1,
-              outputUsdPerMillion: 2,
-            },
-          },
-        },
+        optimizer: localOptimizerModel(modelServer.baseUrl, { maxOutputTokens: 256 }),
         maxEvaluations: 3,
         runner: { command: officialPython! },
       })
