@@ -44,11 +44,14 @@ USER_SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 # Manifest `agent` value -> CodeTracer skills allowed to normalize the row.
 # swe_raw OpenHands trials publish LiteLLM completion logs, handled by the
 # openhands_completions user skill; terminal-bench trials use the upstream
-# openhands sessions skill. A row that detects as any skill outside its
-# family set is a faithfulness failure, not a fallback. mini-SWE rows keep
-# the original prepare.py staging path and are out of scope here.
+# openhands sessions skill. SWE-agent trials publish classic .traj files,
+# handled by the sweagent_traj user skill (no upstream commit ships a
+# SWE-agent parser). A row that detects as any skill outside its family set
+# is a faithfulness failure, not a fallback. mini-SWE rows keep the
+# original prepare.py staging path and are out of scope here.
 FAMILY_SKILLS = {
     "OpenHands": ("openhands_sessions", "openhands_completions"),
+    "SWE-agent": ("sweagent_traj",),
     "Terminus2": ("terminus2_commands",),
 }
 
