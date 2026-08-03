@@ -43,6 +43,8 @@ export * from './sim-fidelity'
 export * from './tournament'
 /** @stable Verifiable reward extraction (compile / test / schema) with judge-noise filtering. */
 export * from './verifiable-reward'
+/** Execution-verified gold labels joined into RL-ready rows (replay-verify batches → trainer input). */
+export * from './verified-findings-dataset'
 
 // ── Deployment-outcome store (predictive-validity calibration) ──────
 // Promoted to public so external consumers don't have to inline the
