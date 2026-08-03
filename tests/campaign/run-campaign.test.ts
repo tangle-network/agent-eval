@@ -494,6 +494,33 @@ describe('runCampaign — core primitive', () => {
     await expect(runCampaign(options)).rejects.toThrow(/missing ledger receipt/)
   })
 
+  it.each([
+    ['missing', undefined],
+    ['empty', []],
+  ])('rejects uncaptured zero-cost cache with %s receipt IDs', async (_name, costCallIds) => {
+    const storage = inMemoryCampaignStorage()
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      expectUsage: 'off' as const,
+      runDir: '/unknown-zero-receipt-cache',
+      storage,
+    }
+    await runCampaign(options)
+
+    const path = '/unknown-zero-receipt-cache/a_0/cached-result.json'
+    const cached = JSON.parse(storage.read(path)!) as Record<string, unknown>
+    cached.costProvenance = { kind: 'uncaptured', usd: null }
+    cached.costCallIds = costCallIds
+    storage.write(path, JSON.stringify(cached))
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'invalid-cost-receipts',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/does not identify its ledger receipts/)
+  })
+
   it('terminates when a judge reports a paid call without recording it', async () => {
     const unmeteredJudge: JudgeConfig<FakeArtifact, FakeScenario> = {
       name: 'unmetered-judge',

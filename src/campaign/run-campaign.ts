@@ -1101,10 +1101,14 @@ function cachedCellReceiptProblem(
   costLedger: CostLedgerHandle,
   stableCostTags: Record<string, string>,
 ): string | undefined {
-  const cachedHasUsage =
-    cached.costUsd > 0 || cached.tokenUsage.input > 0 || cached.tokenUsage.output > 0
+  const requiresReceiptIdentity =
+    cached.costProvenance.kind !== 'observed' ||
+    cached.costUsd > 0 ||
+    cached.tokenUsage.input > 0 ||
+    cached.tokenUsage.output > 0 ||
+    Object.keys(cached.judgeScores).length > 0
   if (cached.costCallIds === undefined) {
-    if (cachedHasUsage || Object.keys(cached.judgeScores).length > 0) {
+    if (requiresReceiptIdentity) {
       return 'does not identify its ledger receipts'
     }
     return undefined
@@ -1115,6 +1119,9 @@ function cachedCellReceiptProblem(
     new Set(cached.costCallIds).size !== cached.costCallIds.length
   ) {
     return 'has invalid ledger receipt IDs'
+  }
+  if (cached.costCallIds.length === 0 && requiresReceiptIdentity) {
+    return 'does not identify its ledger receipts'
   }
   const restoredCallIds = new Set(
     costLedger.list({ tags: stableCostTags }).map((receipt) => receipt.callId),
