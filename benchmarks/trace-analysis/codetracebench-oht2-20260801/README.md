@@ -1,6 +1,6 @@
-# CodeTraceBench OpenHands + Terminus2 Bulk Import Recipe
+# CodeTraceBench OpenHands + Terminus2 + SWE-agent Bulk Import Recipe
 
-This directory turns the verified CodeTraceBench OpenHands and Terminus2 rows into traces-importable inputs.
+This directory turns the verified CodeTraceBench OpenHands, Terminus2, and SWE-agent rows into traces-importable inputs.
 It extends the mini-SWE recipe in [`../codetracebench-glm52-20260730/`](../codetracebench-glm52-20260730/) from a 32-row single-shot preparation to a per-row fault-tolerant bulk pipeline.
 
 ## Provenance
@@ -14,7 +14,7 @@ It extends the mini-SWE recipe in [`../codetracebench-glm52-20260730/`](../codet
 
 ## Why local skills exist
 
-Upstream CodeTracer ships `openhands` and `terminus2` seed parsers, but neither reproduces the CodeTraceBench annotation's step numbering, and the swe_raw OpenHands layout has no upstream parser at any commit.
+Upstream CodeTracer ships `openhands` and `terminus2` seed parsers, but neither reproduces the CodeTraceBench annotation's step numbering, and the swe_raw OpenHands and SWE-agent layouts have no upstream parser at any commit (checked at the pinned revision, which is also repository HEAD).
 A trajectory whose steps.json disagrees with the annotation's step ids silently misaligns every label, so each published layout gets a parser whose enumeration was validated against the manifest `step_count` for every verified row:
 
 | Skill | Layout | Convention | Count evidence |
@@ -22,6 +22,7 @@ A trajectory whose steps.json disagrees with the annotation's step ids silently 
 | [`skills/openhands_completions`](./skills/openhands_completions/SKILL.md) | swe_raw per-call LiteLLM logs | non-finish assistant tool calls in the fullest call view | 313/313 |
 | [`skills/openhands_sessions`](./skills/openhands_sessions/SKILL.md) | session event streams | action events with a cause-paired observation, any action type | 183/199 |
 | [`skills/terminus2_commands`](./skills/terminus2_commands/SKILL.md) | episode logs | one step per `commands[]` entry across episodes | 220/222 |
+| [`skills/sweagent_traj`](./skills/sweagent_traj/SKILL.md) | classic SWE-agent `.traj` files | one step per `trajectory[]` entry, blanks included | 106/108 |
 
 The skills follow the upstream `SKILL.md` + `parser.py` contract and load through `SkillPool(user_dir=...)`, so CodeTracer detects them exactly like seed skills.
 The upstream seed parsers stay untouched; family membership in `prepare-bulk.py` routes every row through the annotation-faithful skill and treats any other detection as a `wrong-normalizer` failure.
@@ -57,7 +58,7 @@ traces import-codetracebench "$WORK/ctb-oht2-labels-openhands.json" \
   --concurrency 8
 ```
 
-`--family Terminus2` runs the same way.
+`--family Terminus2` and `--family SWE-agent` run the same way.
 Archives cache in `$WORK/<family>/archives`, so reruns skip completed downloads.
 `$WORK/<family>/prepare-bulk-receipt.json` records every row's status, normalizer, step count, hashes, and failure reason.
 
@@ -67,6 +68,8 @@ Archives cache in `$WORK/<family>/archives`, so reruns skip completed downloads.
 | --- | ---: | ---: | ---: | --- |
 | OpenHands | 520 | 496 | 24 | 8 `no-artifact` (manifest rows without archives), 16 `step-count-mismatch` (published session views disagree with the annotated count) |
 | Terminus2 | 222 | 220 | 2 | 2 `no-normalizer` (archives containing only empty directories) |
+| SWE-agent (2026-08-02) | 108 | 106 | 2 | 2 `step-count-mismatch` (function-call-style trajectories whose annotated view condensed the run) |
 
 Passing OpenHands rows split 313 `openhands_completions` + 183 `openhands_sessions`.
 The 16 OpenHands `step-count-mismatch` rows are condensed or partial session streams where no published view (flat export, events, event_cache) reproduces the annotated step count; importing any of them would misalign labels, so they stay out.
+The 2 SWE-agent `step-count-mismatch` rows publish trajectories with 45/48 and 92/94 empty `response` fields whose annotated views (26 and 54 steps) match no published view of the 48- and 94-entry arrays, so they stay out for the same reason.
