@@ -574,7 +574,7 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
         generation: cell.generation ?? null,
         judgeScores: cell.judgeScores,
         costUsd: cell.costUsd,
-        costEstimated: cell.costEstimated ?? null,
+        costProvenance: cell.costProvenance,
         costCallIds: [...(cell.costCallIds ?? [])].sort(),
         tokenUsage: cell.tokenUsage,
         resolvedModel: cell.resolvedModel ?? null,

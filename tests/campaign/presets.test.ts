@@ -144,6 +144,7 @@ function provenanceFixtureCampaign(composite: number, suffix: string) {
         artifact: {},
         judgeScores: { j: { composite, dimensions: { q: composite }, notes: '' } },
         costUsd: 0.01,
+        costProvenance: { kind: 'observed', usd: 0.01 },
         costCallIds: [],
         tokenUsage: { input: 10, output: 5 },
         durationMs: 5,

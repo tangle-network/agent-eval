@@ -249,14 +249,195 @@ describe('runCampaign — core primitive', () => {
     expect(r2.aggregates.cost.totalCostUsd).toBe(0.8)
     expect(r2.aggregates.cost.totalCalls).toBe(2)
 
+    const emptyLedger = new CostLedger()
+    expect(
+      planCampaignRun({
+        scenarios: SCENARIOS,
+        dispatch: counting,
+        costLedger: emptyLedger,
+        runDir,
+      }),
+    ).toMatchObject({ cellsCached: 0, cellsToRun: 0, cellsBlocked: 2 })
+
     await expect(
       runCampaign({
         scenarios: SCENARIOS,
         dispatch: counting,
-        costLedger: new CostLedger(0),
+        costLedger: emptyLedger,
         runDir,
       }),
-    ).rejects.toThrow(/cached cell.*missing ledger receipt/)
+    ).rejects.toThrow(/a:0 .*missing ledger receipt.*b:0 .*missing ledger receipt/)
+    expect(dispatchCount).toBe(2)
+
+    const rerun = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: counting,
+      costLedger: emptyLedger,
+      rerunInvalidCachedCells: true,
+      runDir,
+    })
+    expect(dispatchCount).toBe(4)
+    expect(rerun.cells.every((cell) => !cell.cached)).toBe(true)
+  })
+
+  it('preflights every cache before spend and can rerun only invalid cached cells', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const scenarios = [
+      ...SCENARIOS,
+      { id: 'c', kind: 'chat', intent: 'do Z' },
+    ] satisfies FakeScenario[]
+    const options = {
+      scenarios,
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'cost-provenance-cache',
+      expectUsage: 'off' as const,
+      runDir: '/cost-provenance-cache',
+      storage,
+    }
+
+    const first = await runCampaign(options)
+    expect(first.cells.every((cell) => cell.costProvenance.kind === 'observed')).toBe(true)
+    expect(dispatchCount).toBe(3)
+
+    const runnablePath = '/cost-provenance-cache/a_0/cached-result.json'
+    const runnable = JSON.parse(storage.read(runnablePath)!) as Record<string, unknown>
+    runnable.manifestHash = 'different-manifest'
+    storage.write(runnablePath, JSON.stringify(runnable))
+
+    const stalePath = '/cost-provenance-cache/c_0/cached-result.json'
+    const stale = JSON.parse(storage.read(stalePath)!) as Record<string, unknown>
+    delete stale.costProvenance
+    storage.write(stalePath, JSON.stringify(stale))
+
+    const plan = planCampaignRun<FakeScenario, FakeArtifact>(options)
+    expect(plan).toMatchObject({ cellsCached: 1, cellsToRun: 1, cellsBlocked: 1 })
+    expect(plan.cells).toEqual([
+      expect.objectContaining({ cellId: 'a:0', status: 'run', reason: 'manifest-mismatch' }),
+      expect.objectContaining({ cellId: 'b:0', status: 'cached' }),
+      expect.objectContaining({
+        cellId: 'c:0',
+        status: 'blocked',
+        reason: 'missing-cost-provenance',
+      }),
+    ])
+
+    await expect(runCampaign(options)).rejects.toThrow(
+      /c:0 \(missing-cost-provenance\).*refusing to begin campaign/,
+    )
+    expect(dispatchCount).toBe(3)
+
+    const allowedPlan = planCampaignRun<FakeScenario, FakeArtifact>({
+      ...options,
+      rerunInvalidCachedCells: true,
+    })
+    expect(allowedPlan).toMatchObject({ cellsCached: 1, cellsToRun: 2, cellsBlocked: 0 })
+
+    const second = await runCampaign({ ...options, rerunInvalidCachedCells: true })
+    expect(dispatchCount).toBe(5)
+    expect(second.cells.map((cell) => ({ id: cell.cellId, cached: cell.cached }))).toEqual([
+      { id: 'a:0', cached: false },
+      { id: 'b:0', cached: true },
+      { id: 'c:0', cached: false },
+    ])
+  })
+
+  it('requires opt-in before rerunning a cache with inconsistent cost provenance', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'invalid-cost-provenance-cache',
+      expectUsage: 'off' as const,
+      runDir: '/invalid-cost-provenance-cache',
+      storage,
+    }
+
+    await runCampaign(options)
+    const cachePath = '/invalid-cost-provenance-cache/a_0/cached-result.json'
+    const invalid = JSON.parse(storage.read(cachePath)!) as Record<string, unknown>
+    invalid.costProvenance = { kind: 'observed', usd: 1 }
+    storage.write(cachePath, JSON.stringify(invalid))
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'invalid-cost-provenance',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/a:0 \(invalid-cost-provenance\)/)
+    expect(dispatchCount).toBe(1)
+
+    await runCampaign({ ...options, rerunInvalidCachedCells: true })
+    expect(dispatchCount).toBe(2)
+  })
+
+  it.each([
+    ['null', 'null'],
+    ['an array', '[]'],
+    ['a number', '42'],
+    ['a string', '"cache"'],
+  ])('classifies valid JSON containing %s as a corrupt cache', async (_name, raw) => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'non-record-cache',
+      expectUsage: 'off' as const,
+      runDir: '/non-record-cache',
+      storage,
+    }
+
+    await runCampaign(options)
+    storage.write('/non-record-cache/a_0/cached-result.json', raw)
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'corrupt',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/a:0 \(corrupt\)/)
+    expect(dispatchCount).toBe(1)
+
+    await runCampaign({ ...options, rerunInvalidCachedCells: true })
+    expect(dispatchCount).toBe(2)
+  })
+
+  it('classifies an existing but unreadable cache as corrupt', async () => {
+    const storage = inMemoryCampaignStorage()
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => ({
+        text: scenario.id,
+        intent: scenario.intent,
+      }),
+      dispatchRef: 'unreadable-cache',
+      expectUsage: 'off' as const,
+      runDir: '/unreadable-cache',
+      storage,
+    }
+    await runCampaign(options)
+    const unreadableStorage = {
+      ...storage,
+      read(path: string) {
+        return path.endsWith('/cached-result.json') ? undefined : storage.read(path)
+      },
+    }
+
+    expect(
+      planCampaignRun<FakeScenario, FakeArtifact>({
+        ...options,
+        storage: unreadableStorage,
+      }).cells[0],
+    ).toMatchObject({ status: 'blocked', reason: 'corrupt' })
   })
 
   it('rejects a cached judge score when its exact paid receipt is missing', async () => {
@@ -311,6 +492,33 @@ describe('runCampaign — core primitive', () => {
     )
 
     await expect(runCampaign(options)).rejects.toThrow(/missing ledger receipt/)
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['empty', []],
+  ])('rejects uncaptured zero-cost cache with %s receipt IDs', async (_name, costCallIds) => {
+    const storage = inMemoryCampaignStorage()
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: DISPATCH,
+      expectUsage: 'off' as const,
+      runDir: '/unknown-zero-receipt-cache',
+      storage,
+    }
+    await runCampaign(options)
+
+    const path = '/unknown-zero-receipt-cache/a_0/cached-result.json'
+    const cached = JSON.parse(storage.read(path)!) as Record<string, unknown>
+    cached.costProvenance = { kind: 'uncaptured', usd: null }
+    cached.costCallIds = costCallIds
+    storage.write(path, JSON.stringify(cached))
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'invalid-cost-receipts',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/does not identify its ledger receipts/)
   })
 
   it('terminates when a judge reports a paid call without recording it', async () => {
@@ -466,6 +674,7 @@ describe('runCampaign — core primitive', () => {
     })
     expect(cached.totalCells).toBe(2)
     expect(cached.cellsCached).toBe(2)
+    expect(cached.cellsBlocked).toBe(0)
     expect(cached.cellsToRun).toBe(0)
     expect(cached.cells.every((cell) => cell.status === 'cached')).toBe(true)
 
@@ -475,11 +684,26 @@ describe('runCampaign — core primitive', () => {
       runDir,
     })
     expect(stale.cellsCached).toBe(0)
+    expect(stale.cellsBlocked).toBe(0)
     expect(stale.cellsToRun).toBe(2)
     expect(stale.cells.map((cell) => cell.reason)).toEqual([
       'manifest-mismatch',
       'manifest-mismatch',
     ])
+  })
+
+  it('does not create a run directory while planning', () => {
+    const previewDir = join(runDir, 'preview-only')
+    expect(existsSync(previewDir)).toBe(false)
+
+    const plan = planCampaignRun<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      dispatchRef: 'read-only-preview',
+      runDir: previewDir,
+    })
+
+    expect(plan).toMatchObject({ cellsCached: 0, cellsToRun: 2, cellsBlocked: 0 })
+    expect(existsSync(previewDir)).toBe(false)
   })
 
   it('captures dispatch errors per cell without crashing campaign', async () => {
