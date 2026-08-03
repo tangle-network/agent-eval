@@ -78,6 +78,8 @@ export function analyzeSupervisorRunSources(
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
+  const rootSpawn =
+    rootId === null ? null : (tree.spawns.find((spawn) => spawn.id === rootId) ?? null)
   const spawnById = new Map(workerSpawns.map((spawn) => [spawn.id, spawn]))
   const spawnsByLabel = new Map<string, SpawnRow[]>()
   for (const spawn of workerSpawns) {
@@ -411,9 +413,13 @@ export function analyzeSupervisorRunSources(
   }
 
   // ── economics ──────────────────────────────────────────────────────────
-  const journalWorkerIn = workerCloses.reduce((a, c) => a + c.spend.tokens.input, 0)
-  const journalWorkerOut = workerCloses.reduce((a, c) => a + c.spend.tokens.output, 0)
-  const journalWorkerUsd = workerCloses.reduce((a, c) => a + c.spend.usd, 0)
+  const rootChildIds = new Set(
+    workerSpawns.filter((spawn) => spawn.parent === rootId).map((spawn) => spawn.id),
+  )
+  const rootChildCloses = workerCloses.filter((close) => rootChildIds.has(close.id))
+  const journalWorkerIn = rootChildCloses.reduce((a, c) => a + c.spend.tokens.input, 0)
+  const journalWorkerOut = rootChildCloses.reduce((a, c) => a + c.spend.tokens.output, 0)
+  const journalWorkerUsd = rootChildCloses.reduce((a, c) => a + c.spend.usd, 0)
   const workerUsdById = new Map<string, number>()
   for (const c of workerCloses) {
     workerUsdById.set(c.id, (workerUsdById.get(c.id) ?? 0) + c.spend.usd)
@@ -467,13 +473,29 @@ export function analyzeSupervisorRunSources(
     const close = spawn === null ? null : (closeById.get(spawn.id) ?? null)
     const passed = close?.valid ?? f?.passed ?? null
     const matchingRoles = new Set(matchingSpawns.map((candidate) => candidate.role))
+    const matchingRuntimes = new Set(matchingSpawns.map((candidate) => candidate.runtime))
+    const matchingProfiles = new Set(matchingSpawns.map((candidate) => candidate.profileDigest))
+    const journalWallMs =
+      spawn?.at !== null &&
+      spawn?.at !== undefined &&
+      close?.at !== null &&
+      close?.at !== undefined &&
+      close.at >= spawn.at
+        ? close.at - spawn.at
+        : null
     return {
       workerId: w.workerId ?? null,
       worker: w.label,
       role: matchingRoles.size === 1 ? (matchingSpawns[0]?.role ?? null) : null,
-      wallMs: f?.started != null && f.finishedAt != null ? f.finishedAt - f.started : null,
-      tokensIn: w.tokensIn ?? null,
-      tokensOut: w.tokensOut ?? null,
+      runtime: matchingRuntimes.size === 1 ? (matchingSpawns[0]?.runtime ?? null) : null,
+      profileDigest:
+        matchingProfiles.size === 1 ? (matchingSpawns[0]?.profileDigest ?? null) : null,
+      status: close?.status ?? null,
+      failure: close?.reason ?? null,
+      infra: close?.infra ?? null,
+      wallMs: f?.started != null && f.finishedAt != null ? f.finishedAt - f.started : journalWallMs,
+      tokensIn: w.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
+      tokensOut: w.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
       usd:
         usdLimit !== null
           ? null
@@ -536,9 +558,10 @@ export function analyzeSupervisorRunSources(
       src.brainLog === null
         ? gap(
             'brain.brainTruncations',
-            src.supRunDir === null
-              ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
-              : 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out',
+            src.brainLogMissingReason ??
+              (src.supRunDir === null
+                ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
+                : 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out'),
           )
         : brainCalls.filter((c) => c.finish_reason === 'length').length,
     workers: {
@@ -574,7 +597,7 @@ export function analyzeSupervisorRunSources(
       usdLimit !== null
         ? usdLimit
         : stateUsd !== null
-          ? `state.json result.spentUsd${journalWorkerUsd === 0 ? ' — brain-priced only; worker CLI inference is unpriced (see worker token counts)' : ''}`
+          ? `state.json result.spentUsd${rootChildCloses.length > 0 && journalWorkerUsd === 0 ? ' — brain-priced only; worker CLI inference is unpriced (see worker token counts)' : ''}`
           : haveJournal
             ? 'journal metered + settled usd'
             : journalMissing,
@@ -664,6 +687,10 @@ export function analyzeSupervisorRunSources(
     instanceId: src.instanceId,
     arm: src.arm,
     supervisorId: rootId !== null ? rootId : unavailable(journalMissing),
+    supervisorProfileDigest:
+      rootSpawn?.profileDigest !== null && rootSpawn?.profileDigest !== undefined
+        ? rootSpawn.profileDigest
+        : gap('supervisorProfileDigest', 'root spawned event has no profile digest'),
     generatedAt: new Date(now()).toISOString(),
     orchestration,
     decision,

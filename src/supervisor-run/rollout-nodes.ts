@@ -179,6 +179,7 @@ export function supervisorRunRolloutLinesFromFacts(
         model: opts.supervisorModel ?? null,
         provider: null,
         profile_commit: null,
+        agent_profile_cell_id: rootSpawn?.profileDigest ?? null,
         sampling: null,
       },
       outcome: {
@@ -206,10 +207,15 @@ export function supervisorRunRolloutLinesFromFacts(
           completed_at: tree.completedAt,
           workers_spawned: tree.workerSpawns.length,
           brain_metered_events: tree.brain.meteredCount,
+          runtime: rootSpawn?.runtime ?? null,
+          profile_digest: rootSpawn?.profileDigest ?? null,
         },
         is_completed: state?.status === 'completed',
         is_truncated: false,
-        error: null,
+        error:
+          result?.kind === 'interrupted' && typeof result.reason === 'string'
+            ? result.reason
+            : null,
         realness_gated: false,
       },
       cost: {
@@ -264,6 +270,14 @@ export function supervisorRunRolloutLinesFromFacts(
   // Stable ids are authoritative. Labels are a compatibility join for stores
   // that predate workerId and are only safe when the store keeps them unique.
   for (const spawn of tree.workerSpawns) {
+    if (spawn.role === null) {
+      gaps.push({
+        code: 'node-role-unavailable',
+        message: `child ${JSON.stringify(spawn.label)} has no explicit invocation role`,
+        nodeId: spawn.id,
+      })
+      continue
+    }
     const close = closeById.get(spawn.id) ?? null
     const workerSource = sourceById.get(spawn.id) ?? fallbackSourceByLabel.get(spawn.label) ?? null
     const facts =
@@ -292,6 +306,7 @@ export function supervisorRunRolloutLinesFromFacts(
         model: isSupervisor ? (opts.supervisorModel ?? null) : (opts.workerModel ?? null),
         provider: null,
         profile_commit: null,
+        agent_profile_cell_id: spawn.profileDigest,
         sampling: null,
       },
       outcome: {
@@ -322,10 +337,17 @@ export function supervisorRunRolloutLinesFromFacts(
           steers_queued: facts?.steersQueued ?? null,
           steers_delivered: facts?.steersDelivered ?? null,
           questions: facts?.questions ?? null,
+          runtime: spawn.runtime,
+          profile_digest: spawn.profileDigest,
         },
-        is_completed: close?.kind === 'settled',
+        is_completed: close?.kind === 'settled' && close.status === 'done',
         is_truncated: close?.kind === 'cancelled',
-        error: close?.kind === 'cancelled' ? (close.verdict ?? 'cancelled') : null,
+        error:
+          close?.kind === 'cancelled'
+            ? (close.reason ?? 'cancelled')
+            : close?.status === 'down'
+              ? (close.reason ?? 'child down')
+              : null,
         realness_gated: false,
       },
       // `close.spend` is only a measurement when the close event carried one;

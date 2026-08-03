@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { SupervisorRunNodeRole as RootSupervisorRunNodeRole } from '../index'
 import {
+  type SupervisorRunNodeRole as RootSupervisorRunNodeRole,
+  isRuntimeSupervisorRunDir as rootIsRuntimeSupervisorRunDir,
+  readRuntimeSupervisorRun as rootReadRuntimeSupervisorRun,
+  runtimeSupervisorRunReader as rootRuntimeSupervisorRunReader,
+} from '../index'
+import {
+  isRuntimeSupervisorRunDir,
   NO_SOURCE_LIMITS,
+  readRuntimeSupervisorRun,
+  runtimeSupervisorRunReader,
   type SourceLimits,
   type SupervisorRunNodeRole,
   type WorkerLogSource,
@@ -23,5 +31,11 @@ describe('supervisor-run public contract', () => {
     expect(rootRole).toBe('supervisor')
     expect(worker.workerId).toBe('worker-1')
     expect(limits).toMatchObject({ managerTokens: null, workerTokens: null })
+    expect(typeof readRuntimeSupervisorRun).toBe('function')
+    expect(typeof runtimeSupervisorRunReader).toBe('function')
+    expect(typeof isRuntimeSupervisorRunDir).toBe('function')
+    expect(rootReadRuntimeSupervisorRun).toBe(readRuntimeSupervisorRun)
+    expect(rootRuntimeSupervisorRunReader).toBe(runtimeSupervisorRunReader)
+    expect(rootIsRuntimeSupervisorRunDir).toBe(isRuntimeSupervisorRunDir)
   })
 })
