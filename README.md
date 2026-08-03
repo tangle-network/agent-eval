@@ -113,6 +113,26 @@ console.log(
 Each call runs every case, records the artifact, applies the same judge, and returns score distributions.
 The surface is the value being changed, such as a prompt, skill, or serialized configuration.
 
+### Inspect cached cells before rerunning
+
+`runCampaign()` refuses to start when an existing cache file is unreadable or lacks trustworthy cost data.
+This check covers the full schedule before concurrent work begins, so one bad cache cannot waste paid calls from earlier cells.
+Use `planCampaignRun()` to see which cells are reusable, runnable, or blocked:
+
+```ts
+const plan = planCampaignRun({
+  scenarios,
+  dispatch,
+  judges: [judge],
+  runDir: 'release-candidate',
+})
+
+console.table(plan.cells)
+```
+
+After inspecting the plan, set `rerunInvalidCachedCells: true` to rerun only blocked cells while retaining valid cached cells.
+Set `resumable: false` only when you intend to rerun every cell.
+
 ### Stop after the first failed cell
 
 `runCampaign()` normally records a dispatch or judge error on that cell and continues the remaining cases.

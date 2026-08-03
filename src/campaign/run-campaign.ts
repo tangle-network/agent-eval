@@ -61,6 +61,12 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
   /** When true (default), completed cells are cached by
    *  (manifestHash, scenarioId, rep, generation). Re-runs skip cached cells. */
   resumable?: boolean
+  /**
+   * Explicitly rerun only cached cells whose saved result is unreadable or
+   * has missing/invalid cost provenance. Valid cached cells remain reusable.
+   * Default false refuses to begin work when any such cache entry exists.
+   */
+  rerunInvalidCachedCells?: boolean
   /** Optional store — when present, every artifact + judge score is captured
    *  with the configured `captureSource`. Capture is default ON; pass `'off'`
    *  to disable. */
@@ -226,6 +232,18 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   // Build the cell schedule (scenario × rep).
   const schedule = buildCellSchedule(opts.scenarios, seed, reps)
 
+  if (resumable) {
+    assertScheduleCachesReusable({
+      schedule,
+      runDir: opts.runDir,
+      manifestHash,
+      storage,
+      costLedger,
+      costTags: opts.costTags,
+      rerunInvalidCachedCells: opts.rerunInvalidCachedCells ?? false,
+    })
+  }
+
   // Concurrency-limited execution.
   const campaignAbort = new AbortController()
   const onOwnerAbort = (): void => campaignAbort.abort(opts.signal?.reason)
@@ -375,15 +393,9 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   args: ExecuteCellArgs<TScenario, TArtifact>,
 ): Promise<ExecuteCellResult<TArtifact>> {
   const storage = args.storage
-  const cellDir = join(args.opts.runDir, args.slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+  const cellDir = cellDirectory(args.opts.runDir, args.slot.cellId)
   storage.ensureDir(cellDir)
-  const stableCostTags = {
-    ...(args.opts.costTags ?? {}),
-    runDir: args.opts.runDir,
-    cellId: args.slot.cellId,
-    scenarioId: args.slot.scenario.id,
-    rep: String(args.slot.rep),
-  }
+  const stableCostTags = stableCostTagsFor(args.opts, args.slot)
   const costTags = { ...stableCostTags, runAttemptId: args.runAttemptId }
 
   // Resumability: cache key = (manifestHash, scenarioId, rep)
@@ -395,49 +407,28 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       cellId: args.slot.cellId,
       manifestHash: args.manifestHash,
     })
-    if (cached.status === 'miss' && cached.reason === 'missing-cost-provenance') {
-      throw new CostAccountingIncompleteError(
-        `runCampaign: cached cell '${args.slot.cellId}' predates explicit cost provenance; ` +
-          'refusing an automatic paid re-dispatch. Inspect planCampaignRun, then set ' +
-          'resumable: false only when a full rerun is intended.',
-      )
+    if (
+      cached.status === 'miss' &&
+      cacheIssueRequiresExplicitRerun(cached.reason) &&
+      !args.opts.rerunInvalidCachedCells
+    ) {
+      throw invalidCachedCellsError([{ cellId: args.slot.cellId, reason: cached.reason }])
     }
     if (cached.status === 'hit') {
-      enforceDispatchUsage(cached.cell, args.opts.expectUsage ?? 'warn')
-      const cachedHasUsage =
-        cached.cell.costUsd > 0 ||
-        cached.cell.tokenUsage.input > 0 ||
-        cached.cell.tokenUsage.output > 0
-      if (cached.cell.costCallIds === undefined) {
-        if (cachedHasUsage || Object.keys(cached.cell.judgeScores).length > 0) {
-          throw new CostAccountingIncompleteError(
-            `runCampaign: cached cell '${args.slot.cellId}' does not identify its ledger receipts`,
-          )
-        }
-      } else if (
-        !Array.isArray(cached.cell.costCallIds) ||
-        cached.cell.costCallIds.some(
-          (callId) => typeof callId !== 'string' || callId.trim().length === 0,
-        ) ||
-        new Set(cached.cell.costCallIds).size !== cached.cell.costCallIds.length
-      ) {
-        throw new CostAccountingIncompleteError(
-          `runCampaign: cached cell '${args.slot.cellId}' has invalid ledger receipt IDs`,
-        )
-      } else {
-        const restoredCallIds = new Set(
-          args.costLedger.list({ tags: stableCostTags }).map((receipt) => receipt.callId),
-        )
-        const missingCallIds = cached.cell.costCallIds.filter(
-          (callId) => !restoredCallIds.has(callId),
-        )
-        if (missingCallIds.length > 0) {
-          throw new CostAccountingIncompleteError(
-            `runCampaign: cached cell '${args.slot.cellId}' is missing ledger receipt(s): ${missingCallIds.join(', ')}`,
-          )
-        }
+      const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
+      if (receiptProblem === undefined) {
+        enforceDispatchUsage(cached.cell, args.opts.expectUsage ?? 'warn')
+        return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
       }
-      return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
+      if (!args.opts.rerunInvalidCachedCells) {
+        throw invalidCachedCellsError([
+          {
+            cellId: args.slot.cellId,
+            reason: 'invalid-cost-receipts',
+            detail: receiptProblem,
+          },
+        ])
+      }
     }
   }
 
@@ -763,8 +754,8 @@ export interface CampaignRunPlanCell {
   rep: number
   seed: number
   cachePath: string
-  status: 'cached' | 'run'
-  reason?: CacheMissReason | 'resumable-off'
+  status: 'cached' | 'run' | 'blocked'
+  reason?: CacheIssueReason | 'resumable-off'
 }
 
 export interface CampaignRunPlan {
@@ -772,6 +763,7 @@ export interface CampaignRunPlan {
   splitDigest: `sha256:${string}`
   totalCells: number
   cellsCached: number
+  cellsBlocked: number
   cellsToRun: number
   cells: CampaignRunPlanCell[]
 }
@@ -784,10 +776,16 @@ export interface PlanCampaignRunOptions<TScenario extends Scenario, TArtifact> {
   seed?: number
   reps?: number
   resumable?: boolean
+  /** See RunCampaignOptions.rerunInvalidCachedCells. */
+  rerunInvalidCachedCells?: boolean
   runDir: string
   /** Subject repo for the shared run-dir root (see RunCampaignOptions.repo). */
   repo?: string
   storage?: CampaignStorage
+  /** Spend account used to validate cached receipt identities. */
+  costLedger?: CostLedgerHandle
+  /** Receipt tags used by the campaign that produced the cached cells. */
+  costTags?: Readonly<Record<string, string>>
 }
 
 /**
@@ -808,6 +806,7 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
     throw new Error('planCampaignRun: runDir is required and must be a non-empty string')
   }
   opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const costLedger = opts.costLedger ?? createRunCostLedger({ storage, runDir: opts.runDir })
 
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,
@@ -819,11 +818,7 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
   const splitDigest = campaignSplitDigest(opts.scenarios, reps)
 
   const cells = buildCellSchedule(opts.scenarios, seed, reps).map((slot): CampaignRunPlanCell => {
-    const cachePath = join(
-      opts.runDir,
-      slot.cellId.replace(/[^a-zA-Z0-9_-]/g, '_'),
-      'cached-result.json',
-    )
+    const cachePath = cellCachePath(opts.runDir, slot.cellId)
     if (!resumable) {
       return {
         cellId: slot.cellId,
@@ -843,6 +838,22 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
       manifestHash,
     })
     if (cached.status === 'hit') {
+      const receiptProblem = cachedCellReceiptProblem(
+        cached.cell,
+        costLedger,
+        stableCostTagsFor({ runDir: opts.runDir, costTags: opts.costTags }, slot),
+      )
+      if (receiptProblem !== undefined) {
+        return {
+          cellId: slot.cellId,
+          scenarioId: slot.scenario.id,
+          rep: slot.rep,
+          seed: slot.cellSeed,
+          cachePath,
+          status: opts.rerunInvalidCachedCells ? 'run' : 'blocked',
+          reason: 'invalid-cost-receipts',
+        }
+      }
       return {
         cellId: slot.cellId,
         scenarioId: slot.scenario.id,
@@ -853,24 +864,27 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
       }
     }
 
+    const blocked = cacheIssueRequiresExplicitRerun(cached.reason) && !opts.rerunInvalidCachedCells
     return {
       cellId: slot.cellId,
       scenarioId: slot.scenario.id,
       rep: slot.rep,
       seed: slot.cellSeed,
       cachePath,
-      status: 'run',
+      status: blocked ? 'blocked' : 'run',
       reason: cached.reason,
     }
   })
 
   const cellsCached = cells.filter((cell) => cell.status === 'cached').length
+  const cellsBlocked = cells.filter((cell) => cell.status === 'blocked').length
   return {
     manifestHash,
     splitDigest,
     totalCells: cells.length,
     cellsCached,
-    cellsToRun: cells.length - cellsCached,
+    cellsBlocked,
+    cellsToRun: cells.filter((cell) => cell.status === 'run').length,
     cells,
   }
 }
@@ -1017,6 +1031,98 @@ function buildCellSchedule<TScenario extends Scenario>(
   return schedule
 }
 
+type CellScheduleSlot<TScenario extends Scenario> = ReturnType<
+  typeof buildCellSchedule<TScenario>
+>[number]
+
+function cellDirectory(runDir: string, cellId: string): string {
+  return join(runDir, cellId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+}
+
+function cellCachePath(runDir: string, cellId: string): string {
+  return join(cellDirectory(runDir, cellId), 'cached-result.json')
+}
+
+function stableCostTagsFor<TScenario extends Scenario>(
+  opts: Pick<RunCampaignOptions<TScenario, unknown>, 'runDir' | 'costTags'>,
+  slot: CellScheduleSlot<TScenario>,
+): Record<string, string> {
+  return {
+    ...(opts.costTags ?? {}),
+    runDir: opts.runDir,
+    cellId: slot.cellId,
+    scenarioId: slot.scenario.id,
+    rep: String(slot.rep),
+  }
+}
+
+function assertScheduleCachesReusable<TScenario extends Scenario>(args: {
+  schedule: CellScheduleSlot<TScenario>[]
+  runDir: string
+  manifestHash: string
+  storage: CampaignStorage
+  costLedger: CostLedgerHandle
+  costTags?: Readonly<Record<string, string>>
+  rerunInvalidCachedCells: boolean
+}): void {
+  const blocked: InvalidCachedCell[] = []
+  for (const slot of args.schedule) {
+    const cached = readCachedCell<unknown>({
+      storage: args.storage,
+      cachePath: cellCachePath(args.runDir, slot.cellId),
+      cellId: slot.cellId,
+      manifestHash: args.manifestHash,
+    })
+    if (cached.status === 'hit') {
+      const receiptProblem = cachedCellReceiptProblem(
+        cached.cell,
+        args.costLedger,
+        stableCostTagsFor({ runDir: args.runDir, costTags: args.costTags }, slot),
+      )
+      if (receiptProblem !== undefined && !args.rerunInvalidCachedCells) {
+        blocked.push({
+          cellId: slot.cellId,
+          reason: 'invalid-cost-receipts',
+          detail: receiptProblem,
+        })
+      }
+    } else if (cacheIssueRequiresExplicitRerun(cached.reason) && !args.rerunInvalidCachedCells) {
+      blocked.push({ cellId: slot.cellId, reason: cached.reason })
+    }
+  }
+  if (blocked.length > 0) throw invalidCachedCellsError(blocked)
+}
+
+function cachedCellReceiptProblem(
+  cached: CampaignCellResult<unknown>,
+  costLedger: CostLedgerHandle,
+  stableCostTags: Record<string, string>,
+): string | undefined {
+  const cachedHasUsage =
+    cached.costUsd > 0 || cached.tokenUsage.input > 0 || cached.tokenUsage.output > 0
+  if (cached.costCallIds === undefined) {
+    if (cachedHasUsage || Object.keys(cached.judgeScores).length > 0) {
+      return 'does not identify its ledger receipts'
+    }
+    return undefined
+  }
+  if (
+    !Array.isArray(cached.costCallIds) ||
+    cached.costCallIds.some((callId) => typeof callId !== 'string' || callId.trim().length === 0) ||
+    new Set(cached.costCallIds).size !== cached.costCallIds.length
+  ) {
+    return 'has invalid ledger receipt IDs'
+  }
+  const restoredCallIds = new Set(
+    costLedger.list({ tags: stableCostTags }).map((receipt) => receipt.callId),
+  )
+  const missingCallIds = cached.costCallIds.filter((callId) => !restoredCallIds.has(callId))
+  if (missingCallIds.length > 0) {
+    return `is missing ledger receipt(s): ${missingCallIds.join(', ')}`
+  }
+  return undefined
+}
+
 function dispatchRefFor<TScenario extends Scenario, TArtifact>(
   dispatch: DispatchFn<TScenario, TArtifact> | undefined,
   override: string | undefined,
@@ -1028,16 +1134,18 @@ function dispatchRefFor<TScenario extends Scenario, TArtifact>(
   return ref
 }
 
-type CacheMissReason =
+type CacheIssueReason =
   | 'missing'
   | 'manifest-mismatch'
   | 'cell-mismatch'
   | 'missing-cost-provenance'
+  | 'invalid-cost-provenance'
+  | 'invalid-cost-receipts'
   | 'corrupt'
 
 type CacheRead<TArtifact> =
   | { status: 'hit'; cell: CampaignCellResult<TArtifact> }
-  | { status: 'miss'; reason: CacheMissReason }
+  | { status: 'miss'; reason: CacheIssueReason }
 
 function readCachedCell<TArtifact>(args: {
   storage: CampaignStorage
@@ -1046,7 +1154,12 @@ function readCachedCell<TArtifact>(args: {
   manifestHash: string
 }): CacheRead<TArtifact> {
   const raw = args.storage.read(args.cachePath)
-  if (raw === undefined) return { status: 'miss', reason: 'missing' }
+  if (raw === undefined) {
+    return {
+      status: 'miss',
+      reason: args.storage.exists(args.cachePath) ? 'corrupt' : 'missing',
+    }
+  }
 
   let cached: CampaignCellResult<TArtifact>
   try {
@@ -1064,9 +1177,40 @@ function readCachedCell<TArtifact>(args: {
   } catch {
     return {
       status: 'miss',
-      reason: cached.costProvenance === undefined ? 'missing-cost-provenance' : 'corrupt',
+      reason:
+        cached.costProvenance === undefined ? 'missing-cost-provenance' : 'invalid-cost-provenance',
     }
   }
+}
+
+function cacheIssueRequiresExplicitRerun(reason: CacheIssueReason): boolean {
+  return (
+    reason === 'cell-mismatch' ||
+    reason === 'missing-cost-provenance' ||
+    reason === 'invalid-cost-provenance' ||
+    reason === 'invalid-cost-receipts' ||
+    reason === 'corrupt'
+  )
+}
+
+interface InvalidCachedCell {
+  cellId: string
+  reason: CacheIssueReason
+  detail?: string
+}
+
+function invalidCachedCellsError(
+  cells: ReadonlyArray<InvalidCachedCell>,
+): CostAccountingIncompleteError {
+  const details = cells
+    .map((cell) => `${cell.cellId} (${cell.reason}${cell.detail ? `: ${cell.detail}` : ''})`)
+    .join(', ')
+  return new CostAccountingIncompleteError(
+    `runCampaign: cached cell(s) require explicit paid re-dispatch: ${details}; ` +
+      'refusing to begin campaign. Inspect planCampaignRun, then set ' +
+      'rerunInvalidCachedCells: true to rerun only these cells while retaining valid caches, ' +
+      'or resumable: false when a full rerun is intended.',
+  )
 }
 
 interface CaptureArgs<TScenario extends Scenario, TArtifact> {

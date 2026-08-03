@@ -249,21 +249,46 @@ describe('runCampaign — core primitive', () => {
     expect(r2.aggregates.cost.totalCostUsd).toBe(0.8)
     expect(r2.aggregates.cost.totalCalls).toBe(2)
 
+    const emptyLedger = new CostLedger()
+    expect(
+      planCampaignRun({
+        scenarios: SCENARIOS,
+        dispatch: counting,
+        costLedger: emptyLedger,
+        runDir,
+      }),
+    ).toMatchObject({ cellsCached: 0, cellsToRun: 0, cellsBlocked: 2 })
+
     await expect(
       runCampaign({
         scenarios: SCENARIOS,
         dispatch: counting,
-        costLedger: new CostLedger(0),
+        costLedger: emptyLedger,
         runDir,
       }),
     ).rejects.toThrow(/cached cell.*missing ledger receipt/)
+    expect(dispatchCount).toBe(2)
+
+    const rerun = await runCampaign({
+      scenarios: SCENARIOS,
+      dispatch: counting,
+      costLedger: emptyLedger,
+      rerunInvalidCachedCells: true,
+      runDir,
+    })
+    expect(dispatchCount).toBe(4)
+    expect(rerun.cells.every((cell) => !cell.cached)).toBe(true)
   })
 
-  it('requires explicit opt-in before rerunning a cache that predates cost provenance', async () => {
+  it('preflights every cache before spend and can rerun only invalid cached cells', async () => {
     const storage = inMemoryCampaignStorage()
     let dispatchCount = 0
+    const scenarios = [
+      ...SCENARIOS,
+      { id: 'c', kind: 'chat', intent: 'do Z' },
+    ] satisfies FakeScenario[]
     const options = {
-      scenarios: SCENARIOS.slice(0, 1),
+      scenarios,
       dispatch: async (scenario: FakeScenario) => {
         dispatchCount += 1
         return { text: scenario.id, intent: scenario.intent }
@@ -275,28 +300,81 @@ describe('runCampaign — core primitive', () => {
     }
 
     const first = await runCampaign(options)
-    expect(first.cells[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
-    expect(dispatchCount).toBe(1)
+    expect(first.cells.every((cell) => cell.costProvenance.kind === 'observed')).toBe(true)
+    expect(dispatchCount).toBe(3)
 
-    const cachePath = '/cost-provenance-cache/a_0/cached-result.json'
-    const stale = JSON.parse(storage.read(cachePath)!) as Record<string, unknown>
+    const runnablePath = '/cost-provenance-cache/a_0/cached-result.json'
+    const runnable = JSON.parse(storage.read(runnablePath)!) as Record<string, unknown>
+    runnable.manifestHash = 'different-manifest'
+    storage.write(runnablePath, JSON.stringify(runnable))
+
+    const stalePath = '/cost-provenance-cache/c_0/cached-result.json'
+    const stale = JSON.parse(storage.read(stalePath)!) as Record<string, unknown>
     delete stale.costProvenance
-    storage.write(cachePath, JSON.stringify(stale))
+    storage.write(stalePath, JSON.stringify(stale))
 
     const plan = planCampaignRun<FakeScenario, FakeArtifact>(options)
-    expect(plan.cells).toMatchObject([
-      { cellId: 'a:0', status: 'run', reason: 'missing-cost-provenance' },
+    expect(plan).toMatchObject({ cellsCached: 1, cellsToRun: 1, cellsBlocked: 1 })
+    expect(plan.cells).toEqual([
+      expect.objectContaining({ cellId: 'a:0', status: 'run', reason: 'manifest-mismatch' }),
+      expect.objectContaining({ cellId: 'b:0', status: 'cached' }),
+      expect.objectContaining({
+        cellId: 'c:0',
+        status: 'blocked',
+        reason: 'missing-cost-provenance',
+      }),
     ])
 
     await expect(runCampaign(options)).rejects.toThrow(
-      /predates explicit cost provenance.*refusing an automatic paid re-dispatch/,
+      /c:0 \(missing-cost-provenance\).*refusing to begin campaign/,
     )
+    expect(dispatchCount).toBe(3)
+
+    const allowedPlan = planCampaignRun<FakeScenario, FakeArtifact>({
+      ...options,
+      rerunInvalidCachedCells: true,
+    })
+    expect(allowedPlan).toMatchObject({ cellsCached: 1, cellsToRun: 2, cellsBlocked: 0 })
+
+    const second = await runCampaign({ ...options, rerunInvalidCachedCells: true })
+    expect(dispatchCount).toBe(5)
+    expect(second.cells.map((cell) => ({ id: cell.cellId, cached: cell.cached }))).toEqual([
+      { id: 'a:0', cached: false },
+      { id: 'b:0', cached: true },
+      { id: 'c:0', cached: false },
+    ])
+  })
+
+  it('requires opt-in before rerunning a cache with inconsistent cost provenance', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'invalid-cost-provenance-cache',
+      expectUsage: 'off' as const,
+      runDir: '/invalid-cost-provenance-cache',
+      storage,
+    }
+
+    await runCampaign(options)
+    const cachePath = '/invalid-cost-provenance-cache/a_0/cached-result.json'
+    const invalid = JSON.parse(storage.read(cachePath)!) as Record<string, unknown>
+    invalid.costProvenance = { kind: 'observed', usd: 1 }
+    storage.write(cachePath, JSON.stringify(invalid))
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'invalid-cost-provenance',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/a:0 \(invalid-cost-provenance\)/)
     expect(dispatchCount).toBe(1)
 
-    const second = await runCampaign({ ...options, resumable: false })
+    await runCampaign({ ...options, rerunInvalidCachedCells: true })
     expect(dispatchCount).toBe(2)
-    expect(second.cells[0]!.cached).toBe(false)
-    expect(second.cells[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
   })
 
   it('rejects a cached judge score when its exact paid receipt is missing', async () => {
@@ -506,6 +584,7 @@ describe('runCampaign — core primitive', () => {
     })
     expect(cached.totalCells).toBe(2)
     expect(cached.cellsCached).toBe(2)
+    expect(cached.cellsBlocked).toBe(0)
     expect(cached.cellsToRun).toBe(0)
     expect(cached.cells.every((cell) => cell.status === 'cached')).toBe(true)
 
@@ -515,6 +594,7 @@ describe('runCampaign — core primitive', () => {
       runDir,
     })
     expect(stale.cellsCached).toBe(0)
+    expect(stale.cellsBlocked).toBe(0)
     expect(stale.cellsToRun).toBe(2)
     expect(stale.cells.map((cell) => cell.reason)).toEqual([
       'manifest-mismatch',
