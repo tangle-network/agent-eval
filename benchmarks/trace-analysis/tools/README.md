@@ -40,3 +40,19 @@ node benchmarks/trace-analysis/tools/compare-analyst-runs.mjs \
 
 Recomputes the artifact's `summaries`, `comparisons`, and `codeTraceCalibration` from its own `observations` and prints MATCH/MISMATCH per field (exit 1 on any mismatch).
 Comparison CIs use the artifact's recorded `provenance.runnerOrderSeed`, so `intervalLow`/`intervalHigh` reproduce exactly; `--seed` overrides it when checking a foreign artifact.
+
+## decompose-analyst-loss.mjs
+
+Decomposes a CodeTraceBench run's micro-F1 loss per gold step and per finding, from the run's own observations plus the split's labels and OTLP traces — no model calls.
+Full class definitions live in the tool's header (`--help`).
+
+```bash
+node benchmarks/trace-analysis/tools/decompose-analyst-loss.mjs \
+  --labels LABELS.json --traces TRACE_DIR \
+  [--normalized NORMALIZED_ROOT] \
+  --run LABEL=PATH [--run LABEL2=PATH2 ...] [--runner ID] [--markdown] [--json]
+```
+
+- Reports the official micro view (precision over labelState-`positive` runs, matching `result.summaries[].f1` on splits that carry label-empty rows) beside the pooled all-runs view; counterfactuals (`dropBlindGold`, `snapNear`, `snapFar`, `dropEscaped`, `abstainSolved`) accumulate in the official currency.
+- `--normalized` points at the split's normalized trees (`<trajectory>/steps.json`) and adds gold classes per `tool_type` plus thinking-presence counts.
+- The `split structure` section needs no run: gold block width/position distributions and the constant positional rule calibration (`n-0`/`n-1`/`n-2`/last-2 window plus a shift 0–15 x width 1–3 sweep) scored against the official scorer on labeled cases.
