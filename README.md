@@ -132,6 +132,7 @@ console.table(plan.cells)
 
 After inspecting the plan, set `rerunInvalidCachedCells: true` to rerun only blocked cells while retaining valid cached cells.
 Set `resumable: false` only when you intend to rerun every cell.
+When execution uses a shared `costLedger` or custom `costTags`, pass those same values to `planCampaignRun()` so both calls inspect the same receipts.
 
 ### Stop after the first failed cell
 

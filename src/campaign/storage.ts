@@ -120,9 +120,11 @@ export function createRunCostLedger(input: {
   storage: CampaignStorage
   runDir: string
   costCeilingUsd?: number
+  /** Set false for read-only inspection that must not create the run directory. */
+  ensureRunDir?: boolean
 }): CostLedger {
   const path = join(input.runDir, 'cost-ledger.jsonl')
-  input.storage.ensureDir(input.runDir)
+  if (input.ensureRunDir ?? true) input.storage.ensureDir(input.runDir)
   return new CostLedger({
     costCeilingUsd: input.costCeilingUsd,
     persistence: {

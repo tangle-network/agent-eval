@@ -233,6 +233,8 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const schedule = buildCellSchedule(opts.scenarios, seed, reps)
 
   if (resumable) {
+    // Execution reads each cache again so another process cannot replace a
+    // checked file between this whole-schedule refusal and per-cell reuse.
     assertScheduleCachesReusable({
       schedule,
       runDir: opts.runDir,
@@ -806,7 +808,8 @@ export function planCampaignRun<TScenario extends Scenario, TArtifact>(
     throw new Error('planCampaignRun: runDir is required and must be a non-empty string')
   }
   opts.runDir = resolveRunDir(opts.runDir, opts.repo)
-  const costLedger = opts.costLedger ?? createRunCostLedger({ storage, runDir: opts.runDir })
+  const costLedger =
+    opts.costLedger ?? createRunCostLedger({ storage, runDir: opts.runDir, ensureRunDir: false })
 
   const manifestHash = computeManifestHash({
     scenarios: opts.scenarios,
@@ -1161,12 +1164,16 @@ function readCachedCell<TArtifact>(args: {
     }
   }
 
-  let cached: CampaignCellResult<TArtifact>
+  let parsed: unknown
   try {
-    cached = JSON.parse(raw) as CampaignCellResult<TArtifact>
+    parsed = JSON.parse(raw)
   } catch {
     return { status: 'miss', reason: 'corrupt' }
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { status: 'miss', reason: 'corrupt' }
+  }
+  const cached = parsed as CampaignCellResult<TArtifact>
   if (cached.cellId !== args.cellId) return { status: 'miss', reason: 'cell-mismatch' }
   if (cached.manifestHash !== args.manifestHash) {
     return { status: 'miss', reason: 'manifest-mismatch' }

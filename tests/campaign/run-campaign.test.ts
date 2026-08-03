@@ -266,7 +266,7 @@ describe('runCampaign — core primitive', () => {
         costLedger: emptyLedger,
         runDir,
       }),
-    ).rejects.toThrow(/cached cell.*missing ledger receipt/)
+    ).rejects.toThrow(/a:0 .*missing ledger receipt.*b:0 .*missing ledger receipt/)
     expect(dispatchCount).toBe(2)
 
     const rerun = await runCampaign({
@@ -375,6 +375,69 @@ describe('runCampaign — core primitive', () => {
 
     await runCampaign({ ...options, rerunInvalidCachedCells: true })
     expect(dispatchCount).toBe(2)
+  })
+
+  it.each([
+    ['null', 'null'],
+    ['an array', '[]'],
+    ['a number', '42'],
+    ['a string', '"cache"'],
+  ])('classifies valid JSON containing %s as a corrupt cache', async (_name, raw) => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => {
+        dispatchCount += 1
+        return { text: scenario.id, intent: scenario.intent }
+      },
+      dispatchRef: 'non-record-cache',
+      expectUsage: 'off' as const,
+      runDir: '/non-record-cache',
+      storage,
+    }
+
+    await runCampaign(options)
+    storage.write('/non-record-cache/a_0/cached-result.json', raw)
+
+    expect(planCampaignRun<FakeScenario, FakeArtifact>(options).cells[0]).toMatchObject({
+      status: 'blocked',
+      reason: 'corrupt',
+    })
+    await expect(runCampaign(options)).rejects.toThrow(/a:0 \(corrupt\)/)
+    expect(dispatchCount).toBe(1)
+
+    await runCampaign({ ...options, rerunInvalidCachedCells: true })
+    expect(dispatchCount).toBe(2)
+  })
+
+  it('classifies an existing but unreadable cache as corrupt', async () => {
+    const storage = inMemoryCampaignStorage()
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario: FakeScenario) => ({
+        text: scenario.id,
+        intent: scenario.intent,
+      }),
+      dispatchRef: 'unreadable-cache',
+      expectUsage: 'off' as const,
+      runDir: '/unreadable-cache',
+      storage,
+    }
+    await runCampaign(options)
+    const unreadableStorage = {
+      ...storage,
+      read(path: string) {
+        return path.endsWith('/cached-result.json') ? undefined : storage.read(path)
+      },
+    }
+
+    expect(
+      planCampaignRun<FakeScenario, FakeArtifact>({
+        ...options,
+        storage: unreadableStorage,
+      }).cells[0],
+    ).toMatchObject({ status: 'blocked', reason: 'corrupt' })
   })
 
   it('rejects a cached judge score when its exact paid receipt is missing', async () => {
@@ -600,6 +663,20 @@ describe('runCampaign — core primitive', () => {
       'manifest-mismatch',
       'manifest-mismatch',
     ])
+  })
+
+  it('does not create a run directory while planning', () => {
+    const previewDir = join(runDir, 'preview-only')
+    expect(existsSync(previewDir)).toBe(false)
+
+    const plan = planCampaignRun<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      dispatchRef: 'read-only-preview',
+      runDir: previewDir,
+    })
+
+    expect(plan).toMatchObject({ cellsCached: 0, cellsToRun: 2, cellsBlocked: 0 })
+    expect(existsSync(previewDir)).toBe(false)
   })
 
   it('captures dispatch errors per cell without crashing campaign', async () => {
