@@ -259,6 +259,13 @@ export function assertExternalOptimizerModelBudget(
     }
   }
   if (
+    value.maxReasoningTokensPerRequest !== undefined &&
+    (!Number.isSafeInteger(value.maxReasoningTokensPerRequest) ||
+      value.maxReasoningTokensPerRequest < 0)
+  ) {
+    throw new Error(`${label}.maxReasoningTokensPerRequest must be a non-negative safe integer`)
+  }
+  if (
     value.maxCostUsd !== undefined &&
     (!Number.isFinite(value.maxCostUsd) || value.maxCostUsd <= 0)
   ) {

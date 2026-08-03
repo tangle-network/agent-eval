@@ -606,6 +606,27 @@ describe('external optimizer process', () => {
 })
 
 describe('external optimizer model proxy', () => {
+  it('rejects reasoning-token allowances that could understate the reservation', async () => {
+    for (const maxReasoningTokensPerRequest of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(
+        startRuntimeOwnedModelProxy({
+          callRef: 'test-runtime:invalid-reasoning-budget',
+          call: async () => {
+            throw new Error('must not execute')
+          },
+          recordExecution: () => undefined,
+          model: 'model-a',
+          budget: modelBudget({ maxReasoningTokensPerRequest }),
+          costLedger: new CostLedger(),
+          phase: 'optimizer',
+          actor: 'official-library',
+        }),
+      ).rejects.toThrow(
+        'maxReasoningTokensPerRequest must be a non-negative safe integer',
+      )
+    }
+  })
+
   it('fails loud when the execution owner rejects without evidence', async () => {
     const records: unknown[] = []
     const proxy = await startRuntimeOwnedModelProxy({
