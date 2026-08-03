@@ -4,6 +4,24 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.143.0] - 2026-08-03 - exact campaign cost provenance
+
+### Changed
+
+- **Breaking:** `CampaignCellResult.costEstimated` is replaced by the required `costProvenance` union, and `ProfileSummary.totalCostUsd` becomes `number | null` with an adjacent `costProvenance` value.
+- Campaign measurement digests now include the complete cost-provenance value, so digest equality is intentionally not preserved across the `0.142.x` to `0.143.0` data boundary.
+- Run-record raw cost fields now describe the total as observed, estimated, or uncaptured, while `cost_known_subtotal_usd` retains any measured subtotal when the total remains unknown.
+- `planCampaignRun` reports `cellsBlocked`, and each planned cell may be `blocked` when saved data cannot prove its cost or receipt identity.
+- Caches created before `0.143.0` have no complete cost provenance and therefore stop a resumable campaign by default.
+  Inspect the plan and set `rerunInvalidCachedCells: true` for a one-time selective rerun, or set `resumable: false` for an intentional full rerun.
+
+### Fixed
+
+- Failed provider calls retain input, cached-input, cache-write, output, and reasoning tokens without presenting an unknown USD total as zero.
+- Campaign execution inspects every saved cell and its exact billing receipts before any concurrent dispatch begins, so a late stale cell cannot waste spend in earlier cells.
+- Malformed, unreadable, mismatched, or receipt-incomplete saved cells require explicit rerun approval instead of being silently reused or re-executed.
+- `planCampaignRun` no longer creates the run directory while performing read-only inspection.
+
 ## [0.142.2] - 2026-08-02 - current shared type cohort
 
 ### Changed
