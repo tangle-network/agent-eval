@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.2] - 2026-08-03 - concurrent exact profile comparison
+
+### Changed
+
+- `runProfileMatrix` accepts caller-controlled `maxProfileConcurrency` while preserving deterministic output order and independent per-profile run directories and cost ceilings.
+- Profiles may keep the exact provider-facing model alias used for execution when every paid-call receipt supplies the related snapshot-bearing model written to durable records.
+
+### Fixed
+
+- Broad profile comparisons no longer have to serialize every profile campaign or maintain a second matrix runner just to compare exact execution profiles at practical throughput.
+
 ## [0.144.1] - 2026-08-03 - runtime-owned optimizer model calls
 
 ### Fixed

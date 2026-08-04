@@ -432,14 +432,106 @@ describe('runProfileMatrix', () => {
     expect(result.byPersona!.bob!.n).toBe(4)
   })
 
-  it('fails loud at preflight when a profile model lacks a snapshot version', async () => {
+  it('records the paid-call snapshot when an exact execution profile uses a moving provider alias', async () => {
+    const moving: AgentProfile = {
+      name: 'moving',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    const snapshot = 'deepseek/deepseek-v4-flash@2026-08-03'
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [moving],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      dispatch: async (profile, scenario, ctx) =>
+        paidArtifact(
+          ctx,
+          { text: `${profile.name}:${scenario.id}` },
+          {
+            model: snapshot,
+            inputTokens: 12,
+            outputTokens: 3,
+            actualCostUsd: 0.001,
+          },
+        ),
+    })
+
+    expect(result.records).toHaveLength(1)
+    expect(result.records[0]!.model).toBe(snapshot)
+    expect(result.records[0]!.agentProfile?.model).toBe(snapshot)
+    expect(result.byProfile[agentProfileId(moving)]!.model).toBe(snapshot)
+  })
+
+  it('rejects a moving model alias when dispatch omits its resolved snapshot', async () => {
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [{ name: 'bare', model: { default: 'gpt-4o' } }],
+        dispatch: stubDispatch,
+      }),
+    ).rejects.toThrow(/reported no resolved model/u)
+  })
+
+  it('rejects a paid-call snapshot unrelated to the declared moving model', async () => {
     await expect(
       runProfileMatrix({
         ...baseOpts(),
         profiles: [{ name: 'bare', model: { default: 'gpt-4o' } }],
         dispatch: realDispatch,
       }),
-    ).rejects.toBeInstanceOf(ProfileMatrixError)
+    ).rejects.toThrow(/reported unrelated snapshot/u)
+  })
+
+  it('runs independent profile campaigns at caller-controlled concurrency and preserves order', async () => {
+    const profiles: AgentProfile[] = ['one', 'two', 'three'].map((name) => ({
+      name,
+      model: { default: 'test-model@2025-01-01' },
+    }))
+    let active = 0
+    let peak = 0
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles,
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      maxConcurrency: 1,
+      maxProfileConcurrency: 2,
+      dispatch: async (profile, scenario, ctx) => {
+        active += 1
+        peak = Math.max(peak, active)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        active -= 1
+        return paidArtifact(
+          ctx,
+          { text: `${profile.name}:${scenario.id}` },
+          {
+            model: 'test-model@2025-01-01',
+            inputTokens: 12,
+            outputTokens: 3,
+            actualCostUsd: 0.001,
+          },
+        )
+      },
+    })
+
+    expect(peak).toBe(2)
+    expect(result.records.map((record) => record.candidateId)).toEqual(profiles.map(agentProfileId))
+    expect(Object.keys(result.byProfile)).toEqual(profiles.map(agentProfileId))
+  })
+
+  it('rejects invalid profile concurrency before dispatch', async () => {
+    let calls = 0
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        maxProfileConcurrency: 0,
+        dispatch: async (profile, scenario, ctx) => {
+          calls += 1
+          return realDispatch(profile, scenario, ctx)
+        },
+      }),
+    ).rejects.toThrow(/maxConcurrency must be a positive integer/u)
+    expect(calls).toBe(0)
   })
 
   it('rejects an empty profiles list', async () => {
