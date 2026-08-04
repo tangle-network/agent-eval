@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ANALYST_BENCHMARK_OBSERVATIONS_FILE } from './benchmark-command'
 import type { AnalystUsageReceipt } from './types'
 
@@ -11,6 +12,9 @@ export const UNKNOWN_USAGE: AnalystUsageReceipt = {
 }
 
 export const AGENT_RX_TEST_REVISION = 'abcdef0123456789abcdef0123456789abcdef01'
+export const TEST_MODEL_OWNER_MODULE = fileURLToPath(
+  new URL('../../tests/fixtures/benchmark-model-owner.mjs', import.meta.url),
+)
 
 export async function progressRows(outDir: string): Promise<
   Array<{
@@ -131,10 +135,8 @@ export function commandArgs(fixture: {
     'ae5926b496f2f7f4c3f6337c0ad6150311d3650c5f3bd00660556b3e41739505',
     '--split',
     'verified',
-    '--base-url',
-    'http://127.0.0.1:3355/v1',
-    '--api-key-env',
-    'TEST_ANALYST_KEY',
+    '--model-owner-module',
+    TEST_MODEL_OWNER_MODULE,
     '--model',
     'opencode/zai-coding-plan/glm-5.2',
     '--limit',
@@ -164,10 +166,8 @@ export function agentRxCommandArgs(fixture: {
     AGENT_RX_TEST_REVISION.toUpperCase(),
     '--split',
     'test',
-    '--base-url',
-    'http://127.0.0.1:3355/v1',
-    '--api-key-env',
-    'TEST_ANALYST_KEY',
+    '--model-owner-module',
+    TEST_MODEL_OWNER_MODULE,
     '--model',
     'opencode/kimi-for-coding/k3',
     '--limit',

@@ -58,4 +58,32 @@ describe('startTraceToolCallback', () => {
       await callback.close()
     }
   })
+
+  it('enforces caller-selected response bytes after recording the tool call', async () => {
+    const largeTool: TraceAnalysisToolDescriptor = {
+      ...tool,
+      handler: async () => ({ value: 'x'.repeat(100) }),
+    }
+    const callback = await startTraceToolCallback({
+      tools: [largeTool],
+      maxCalls: 1,
+      limits: { maxResponseBytes: 30 },
+    })
+    try {
+      const response = await fetch(callback.url, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${callback.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ name: 'echo', args: {} }),
+      })
+
+      expect(response.status).toBe(413)
+      await expect(response.json()).resolves.toEqual({ error: 'trace tool response too large' })
+      expect(callback.calls()).toBe(1)
+    } finally {
+      await callback.close()
+    }
+  })
 })

@@ -27,6 +27,7 @@ export type {
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
+  PublicAnalystBenchmarkModelOwner,
   PublicBenchmarkDistributions,
   PublicBenchmarkSelectionReport,
   PublicBenchmarkValueDistribution,

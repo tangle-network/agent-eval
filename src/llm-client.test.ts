@@ -209,7 +209,8 @@ describe('costReceiptFromLlm', () => {
       outputTokens: 50,
       usageUnknown: false,
     })
-    expect(receipt.actualCostUsd).toBeCloseTo(0.000082, 12)
+    expect(receipt.estimatedCostUsd).toBeCloseTo(0.000082, 12)
+    expect(receipt.actualCostUsd).toBeUndefined()
   })
 
   it('uses the cache-read rate for cached prompt tokens', async () => {
@@ -246,7 +247,8 @@ describe('costReceiptFromLlm', () => {
       cachedTokens: 80,
       outputTokens: 50,
     })
-    expect(receipt.actualCostUsd).toBeCloseTo(0.000128, 12)
+    expect(receipt.estimatedCostUsd).toBeCloseTo(0.000128, 12)
+    expect(receipt.actualCostUsd).toBeUndefined()
   })
 
   it('preserves OpenAI-compatible reasoning usage through the cost ledger', async () => {

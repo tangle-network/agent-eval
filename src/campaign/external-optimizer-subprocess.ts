@@ -2,18 +2,17 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { lstat, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
-import { type ExternalOptimizerRunnerCommand, isRecord } from './external-optimizer-contracts'
+import {
+  type ExternalOptimizerRunnerCommand,
+  isRecord,
+  resolveExternalOptimizerProcessLimits,
+} from './external-optimizer-contracts'
 import { runWithCleanup } from './external-optimizer-resources'
 
-const MAX_PROCESS_OUTPUT_CHARS = 64_000
-const MAX_PROCESS_INPUT_BYTES = 64 * 1024 * 1024
-const MAX_PROCESS_RESULT_BYTES = 4 * 1024 * 1024
 const PROCESS_TERMINATION_GRACE_MS = 5_000
 const PROCESS_TERMINATION_POLL_MS = 25
 const PROCESS_KILL_WAIT_MS = 1_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
-const PROCESS_OUTPUT_HEAD_CHARS = MAX_PROCESS_OUTPUT_CHARS / 2
-const PROCESS_OUTPUT_TAIL_CHARS = MAX_PROCESS_OUTPUT_CHARS - PROCESS_OUTPUT_HEAD_CHARS
 
 interface ProcessOutputCapture {
   full: string | undefined
@@ -28,6 +27,8 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
   module: string
   input: unknown
   runner?: ExternalOptimizerRunnerCommand
+  /** Additional bridge arguments inserted before --input/--output. */
+  additionalArgs?: readonly string[]
   timeoutMs: number
   signal?: AbortSignal
 }): Promise<TOutput> {
@@ -38,6 +39,7 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
   ) {
     throw new Error(`${args.label} timeoutMs must be between 1 and ${MAX_TIMER_DELAY_MS}`)
   }
+  const limits = resolveExternalOptimizerProcessLimits(args.runner?.limits)
   if (process.platform === 'win32') {
     throw new Error(
       `${args.label} requires POSIX process-group cleanup; run the optimizer through WSL or Linux`,
@@ -56,15 +58,14 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
       }
       const inputJson = `${serializedInput}\n`
       const inputBytes = Buffer.byteLength(inputJson)
-      if (inputBytes > MAX_PROCESS_INPUT_BYTES) {
-        throw new Error(
-          `${args.label} input exceeds ${MAX_PROCESS_INPUT_BYTES} bytes (${inputBytes})`,
-        )
+      if (inputBytes > limits.maxInputBytes) {
+        throw new Error(`${args.label} input exceeds ${limits.maxInputBytes} bytes (${inputBytes})`)
       }
       await writeFile(inputPath, inputJson)
       const command = resolveRunnerCommand(args.runner?.command ?? 'python')
       const commandArgs = [
         ...(args.runner?.args ?? ['-m', args.module]),
+        ...(args.additionalArgs ?? []),
         '--input',
         inputPath,
         '--output',
@@ -77,11 +78,12 @@ export async function runExternalOptimizerProcess<TOutput>(args: {
         cwd: dir,
         env: args.runner?.env,
         timeoutMs: args.timeoutMs,
+        maxOutputChars: limits.maxOutputChars,
         signal: args.signal,
       })
       throwIfAborted(args.signal, args.label)
       const raw = JSON.parse(
-        await readBoundedTextFile(outputPath, MAX_PROCESS_RESULT_BYTES, `${args.label} output`),
+        await readBoundedTextFile(outputPath, limits.maxResultBytes, `${args.label} output`),
       ) as unknown
       throwIfAborted(args.signal, args.label)
       if (!isRecord(raw)) throw new Error(`${args.label} output must be a JSON object`)
@@ -124,6 +126,7 @@ function runProcess(args: {
   cwd: string | undefined
   env: NodeJS.ProcessEnv | undefined
   timeoutMs: number
+  maxOutputChars: number
   signal: AbortSignal | undefined
 }): Promise<void> {
   throwIfAborted(args.signal, args.label)
@@ -176,10 +179,10 @@ function runProcess(args: {
     args.signal?.addEventListener('abort', onAbort, { once: true })
     if (args.signal?.aborted) onAbort()
     child.stdout.on('data', (chunk: Buffer) => {
-      appendProcessOutput(stdout, chunk)
+      appendProcessOutput(stdout, chunk, args.maxOutputChars)
     })
     child.stderr.on('data', (chunk: Buffer) => {
-      appendProcessOutput(stderr, chunk)
+      appendProcessOutput(stderr, chunk, args.maxOutputChars)
     })
     child.on('error', (error) => {
       finish(new Error(`${args.label} could not start: ${error.message}`))
@@ -295,21 +298,27 @@ function createProcessOutputCapture(): ProcessOutputCapture {
   return { full: '', head: '', tail: '', totalChars: 0 }
 }
 
-function appendProcessOutput(capture: ProcessOutputCapture, chunk: Buffer): void {
+function appendProcessOutput(
+  capture: ProcessOutputCapture,
+  chunk: Buffer,
+  maxOutputChars: number,
+): void {
   const text = chunk.toString()
   capture.totalChars += text.length
+  const headChars = Math.floor(maxOutputChars / 2)
+  const tailChars = maxOutputChars - headChars
   if (capture.full !== undefined) {
     const combined = `${capture.full}${text}`
-    if (combined.length <= MAX_PROCESS_OUTPUT_CHARS) {
+    if (combined.length <= maxOutputChars) {
       capture.full = combined
       return
     }
-    capture.head = combined.slice(0, PROCESS_OUTPUT_HEAD_CHARS)
-    capture.tail = combined.slice(-PROCESS_OUTPUT_TAIL_CHARS)
+    capture.head = combined.slice(0, headChars)
+    capture.tail = combined.slice(-tailChars)
     capture.full = undefined
     return
   }
-  capture.tail = `${capture.tail}${text}`.slice(-PROCESS_OUTPUT_TAIL_CHARS)
+  capture.tail = `${capture.tail}${text}`.slice(-tailChars)
 }
 
 function summarizeProcessOutput(capture: ProcessOutputCapture, max = 4_000): string {

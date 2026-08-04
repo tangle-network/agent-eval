@@ -3,6 +3,8 @@ import { constants } from 'node:fs'
 import { link, lstat, mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { arch, platform } from 'node:os'
 import { dirname, resolve } from 'node:path'
+import { resolveExternalOptimizerProcessLimits } from '../campaign/external-optimizer-contracts'
+import { resolveModelPricing } from '../metrics'
 import type { AnalystBenchmarkObservation } from './benchmark'
 import {
   ANALYST_BENCHMARK_COST_LEDGER_FILE,
@@ -30,6 +32,7 @@ import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-overrid
 import type {
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
+  PublicAnalystBenchmarkModelConfig,
 } from './benchmark-real-model'
 
 export interface AnalystBenchmarkOutputPaths {
@@ -60,13 +63,7 @@ interface AnalystBenchmarkPersistenceConfig {
   artifactDir?: string
   revision: string
   split: string
-  model: {
-    baseUrl: string
-    model: string
-    maxOutputTokens: number
-    timeoutMs: number
-    instructionsOverride?: { sha256: string }
-  }
+  model: PublicAnalystBenchmarkModelConfig
   limit: number
   seed: number
   concurrency: number
@@ -74,7 +71,7 @@ interface AnalystBenchmarkPersistenceConfig {
   rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
-  apiKeyEnv: string
+  modelOwnerModule: string
   command: string
 }
 
@@ -131,6 +128,7 @@ export function createRunIdentity(
   config: AnalystBenchmarkPersistenceConfig,
   prepared: PreparedPublicAnalystBenchmark,
 ): AnalystBenchmarkRunIdentity {
+  const model = commandModelIdentity(config.model)
   const caseDefinitions = prepared.cases.map((testCase) => ({
     id: testCase.id,
     clusterId: testCase.clusterId,
@@ -147,8 +145,7 @@ export function createRunIdentity(
       datasetSplit: config.split,
       model: {
         id: config.model.model,
-        maxOutputTokens: config.model.maxOutputTokens,
-        timeoutMs: config.model.timeoutMs,
+        ...model,
       },
       limit: config.limit,
       seed: config.seed,
@@ -179,6 +176,43 @@ export function createRunIdentity(
   }
 }
 
+function commandModelIdentity(config: PublicAnalystBenchmarkModelConfig) {
+  const catalogPricing = resolveModelPricing(config.model)
+  const pricing =
+    config.pricing ??
+    (catalogPricing
+      ? {
+          inputUsdPerMillion: catalogPricing.input * 1_000,
+          outputUsdPerMillion: catalogPricing.output * 1_000,
+        }
+      : undefined)
+  if (!pricing) {
+    throw new Error(`benchmark model '${config.model}' has no recorded pricing`)
+  }
+  const recursive = config.dspyRlm
+  return {
+    ownerCallRef: config.callRef,
+    maxOutputTokens: config.maxOutputTokens,
+    maxReasoningTokens: config.maxReasoningTokens ?? config.maxOutputTokens * 4,
+    maxRequestBytes: config.maxModelRequestBytes ?? 16 * 1024 * 1024,
+    maxResponseBytes: config.maxModelResponseBytes ?? 4 * 1024 * 1024,
+    requestTimeoutMs: config.modelRequestTimeoutMs ?? config.timeoutMs,
+    timeoutMs: config.timeoutMs,
+    pricing: { ...pricing },
+    recursiveLimits: {
+      maxIterations: recursive?.maxIterations ?? 14,
+      maxLlmCalls: recursive?.maxLlmCalls ?? 8,
+      maxToolCalls: recursive?.maxToolCalls ?? 80,
+      maxOutputChars: recursive?.maxOutputChars ?? 8_000,
+      maxModelRequests: recursive?.maxModelRequests ?? null,
+      traceToolRequestBytes: recursive?.traceToolRequestBytes ?? 1_000_000,
+      traceToolResponseBytes: recursive?.traceToolResponseBytes ?? 4_000_000,
+      traceToolTimeoutMs: recursive?.traceToolTimeoutMs ?? 60_000,
+    },
+    processLimits: resolveExternalOptimizerProcessLimits(recursive?.runner?.limits),
+  }
+}
+
 export function createLocalRunReceipt(
   config: AnalystBenchmarkPersistenceConfig,
   paths: AnalystBenchmarkOutputPaths,
@@ -190,8 +224,7 @@ export function createLocalRunReceipt(
       traceDir: resolve(config.traceDir),
       ...(config.artifactDir ? { artifactDir: resolve(config.artifactDir) } : {}),
       outputDir: paths.directory,
-      baseUrl: config.model.baseUrl,
-      apiKeyEnvironment: config.apiKeyEnv,
+      modelOwnerModule: config.modelOwnerModule,
     },
     command: config.command,
     environment: {
@@ -332,7 +365,7 @@ export async function readAndValidateResumeFiles(
     storedLocalIdentitySha256 !== currentLocalIdentitySha256 ||
     canonicalJson(value.local) !== canonicalJson(localReceiptInput.local)
   ) {
-    throw new Error('benchmark local paths or endpoint do not match the requested resume')
+    throw new Error('benchmark local paths or model-owner module do not match the requested resume')
   }
   if (localReceiptContent !== `${JSON.stringify(expectedLocalReceipt, null, 2)}\n`) {
     throw new Error(`benchmark local run receipt does not exactly match: ${paths.localReceipt}`)

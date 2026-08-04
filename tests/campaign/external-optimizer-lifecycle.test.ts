@@ -3,7 +3,7 @@ import {
   startExternalOptimizerCallback,
   startExternalOptimizerModelProxy,
 } from '../../src/campaign/external-optimizer-process'
-import { CostLedger } from '../../src/cost-ledger'
+import { CostLedger, costForTokenPricing } from '../../src/cost-ledger'
 
 describe('external optimizer server lifecycle', () => {
   it('waits for active callback evaluation work and rejects new work during close', async () => {
@@ -107,7 +107,7 @@ describe('external optimizer server lifecycle', () => {
     await closing
     await request
     expect(activeProviderCalls).toBe(0)
-    expect(ledger.summary()).toMatchObject({
+    expect(ledger.summary(), proxy.failures().map((error) => error.message).join('\n')).toMatchObject({
       totalCalls: 1,
       pendingCalls: 0,
       accountingComplete: true,
@@ -134,7 +134,8 @@ describe('external optimizer server lifecycle', () => {
 
     try {
       expect((await postModel(proxy, validModelRequest())).status).not.toBe(200)
-      expect((await postModel(proxy, validModelRequest())).status).toBe(200)
+      const successful = await postModel(proxy, validModelRequest())
+      expect(successful.status, await successful.clone().text()).toBe(200)
       expect(proxy.requestAttempts()).toBe(2)
       expect(proxy.requestAttempts()).toBe(2)
       expect(proxy.successfulCompletions()).toBe(1)
@@ -204,40 +205,68 @@ function modelSource(ownerCall: typeof fetch) {
   return {
     callRef: 'test-runtime-owner',
     call: async (request: {
-      model: string
-      body: Readonly<Record<string, unknown>>
+      request: {
+        model: string
+        messages: readonly unknown[]
+        maxTokens?: number
+      }
       signal: AbortSignal
     }) => {
       try {
         const response = await ownerCall('https://test-owner.invalid/chat/completions', {
           method: 'POST',
-          body: JSON.stringify(request.body),
+          body: JSON.stringify({
+            model: request.request.model,
+            messages: request.request.messages,
+            max_tokens: request.request.maxTokens,
+          }),
           signal: request.signal,
         })
         const value = (await response.clone().json()) as {
+          choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>
           usage?: { prompt_tokens?: number; completion_tokens?: number }
         }
+        const inputTokens = value.usage?.prompt_tokens
+        const outputTokens = value.usage?.completion_tokens
+        const usageKnown = inputTokens !== undefined && outputTokens !== undefined
         return {
           succeeded: true as const,
-          response,
-          receipt:
-            value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
-              ? {
-                  model: request.model,
-                  inputTokens: value.usage.prompt_tokens,
-                  outputTokens: value.usage.completion_tokens,
-                  customTokenPricing: {
-                    inputUsdPerMillion: 1,
-                    outputUsdPerMillion: 1,
-                  },
-                }
-              : {
-                  model: request.model,
-                  inputTokens: 0,
-                  outputTokens: 0,
-                  costUnknown: true,
-                  usageUnknown: true,
+          response: {
+            content: value.choices?.[0]?.message?.content ?? '',
+            usage: {
+              promptTokens: inputTokens ?? 0,
+              completionTokens: outputTokens ?? 0,
+              totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+              ...(usageKnown ? {} : { captured: false }),
+            },
+            costUsd: usageKnown
+              ? costForTokenPricing(
+                  { inputUsdPerMillion: 1, outputUsdPerMillion: 1 },
+                  { inputTokens, outputTokens },
+                )
+              : null,
+            model: request.request.model,
+            durationMs: 0,
+            finishReason: value.choices?.[0]?.finish_reason ?? null,
+            raw: value,
+          },
+          receipt: usageKnown
+            ? {
+                model: request.request.model,
+                inputTokens,
+                outputTokens,
+                customTokenPricing: {
+                  inputUsdPerMillion: 1,
+                  outputUsdPerMillion: 1,
                 },
+              }
+            : {
+                model: request.request.model,
+                inputTokens: 0,
+                outputTokens: 0,
+                costUnknown: true,
+                usageUnknown: true,
+              },
           execution: { kind: 'test-runtime-owner', status: response.status },
         }
       } catch (error) {
@@ -245,7 +274,7 @@ function modelSource(ownerCall: typeof fetch) {
           succeeded: false as const,
           error: error instanceof Error ? error.message : String(error),
           receipt: {
-            model: request.model,
+            model: request.request.model,
             inputTokens: 0,
             outputTokens: 0,
             costUnknown: true,

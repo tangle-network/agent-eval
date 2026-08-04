@@ -396,7 +396,7 @@ describe('analyst benchmark persistence and resume', () => {
     expect(analyze).toHaveBeenCalledOnce()
   })
 
-  it('rejects a resume whose public inputs, local paths, or endpoint differ', async () => {
+  it('rejects a resume whose public inputs, local paths, or execution-owner module differ', async () => {
     const fixture = await agentRxFixture()
     const args = agentRxCommandArgs(fixture)
     await runAnalystBenchmarkCommand(
@@ -412,7 +412,7 @@ describe('analyst benchmark persistence and resume', () => {
     await unlink(join(fixture.outDir, 'result.json'))
     await unlink(join(fixture.outDir, 'report.md'))
     const changedArgs = [...args]
-    changedArgs[changedArgs.indexOf('--model') + 1] = 'another/model'
+    changedArgs[changedArgs.indexOf('--model') + 1] = 'opencode/zai-coding-plan/glm-5.2'
     const createAnalystRunner = vi.fn()
 
     await expect(
@@ -424,13 +424,22 @@ describe('analyst benchmark persistence and resume', () => {
     ).rejects.toThrow(/resume configuration or inputs do not match/)
     expect(createAnalystRunner).not.toHaveBeenCalled()
 
-    const changedEndpointArgs = [...args]
-    changedEndpointArgs[changedEndpointArgs.indexOf('--base-url') + 1] = 'http://127.0.0.1:4455/v1'
+    const changedOwnerArgs = [...args]
+    changedOwnerArgs[changedOwnerArgs.indexOf('--model-owner-module') + 1] = 'alternate-test-owner'
     await expect(
       runAnalystBenchmarkCommand(
-        [...changedEndpointArgs, '--resume'],
+        [...changedOwnerArgs, '--resume'],
         { TEST_ANALYST_KEY: 'unused' },
-        { createAnalystRunner },
+        {
+          createAnalystRunner,
+          loadModelExecutionOwner: async (_moduleRef, { model }) => ({
+            call: async () => {
+              throw new Error('resume validation must run before model execution')
+            },
+            callRef: `test-owner:${model}`,
+            recordExecution: () => undefined,
+          }),
+        },
       ),
     ).rejects.toThrow(/resume configuration or inputs do not match/)
     expect(createAnalystRunner).not.toHaveBeenCalled()

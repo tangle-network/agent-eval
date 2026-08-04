@@ -1,4 +1,9 @@
-import { assertJsonValue, assertNoCredentialValues, isRecord } from './external-optimizer-process'
+import {
+  assertJsonValue,
+  assertNoCredentialValues,
+  isRecord,
+  resolveExternalOptimizerCallbackLimits,
+} from './external-optimizer-process'
 import { snapshotExternalOptimizerRunner } from './external-optimizer-run-config'
 import type {
   GepaAdaptiveEngineRun,
@@ -25,6 +30,9 @@ export function snapshotGepaOptimizationConfig<TScenario extends Scenario, TArti
     recipe: structuredClone(config.recipe),
     ...(config.engineModules ? { engineModules: [...config.engineModules] } : {}),
     ...(config.optimizer ? { optimizer: snapshotOptimizerModel(config.optimizer) } : {}),
+    ...(config.evaluationCallbackLimits
+      ? { evaluationCallbackLimits: { ...config.evaluationCallbackLimits } }
+      : {}),
     ...(runner ? { runner } : {}),
   }
 }
@@ -114,6 +122,10 @@ export function assertGepaOptimizationConfig<TScenario extends Scenario, TArtifa
     )
   }
   assertEngineModules(config.engineModules)
+  resolveExternalOptimizerCallbackLimits(
+    config.evaluationCallbackLimits,
+    'gepaOptimizationMethod: evaluationCallbackLimits',
+  )
   if (config.optimizer !== undefined) {
     assertOptimizerModel(config.optimizer, 'gepaOptimizationMethod: optimizer')
     if (config.engineModules?.length) {

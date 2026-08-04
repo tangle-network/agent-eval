@@ -161,23 +161,27 @@ export function costReceiptFromLlm(
 ): CostReceiptInput {
   const cachedTokens = result.usage.cachedPromptTokens ?? 0
   const inputTokens = Math.max(0, result.usage.promptTokens - cachedTokens)
-  const configuredCostUsd =
-    result.costUsd === null && customTokenPricing && result.usage.captured !== false
-      ? costForTokenPricing(customTokenPricing, {
-          inputTokens,
-          ...(cachedTokens > 0 ? { cachedTokens } : {}),
-          outputTokens: result.usage.completionTokens,
-        })
-      : undefined
+  const providerCostUsd = providerReportedCost(result.raw)
   return {
     model: result.model,
     inputTokens,
     outputTokens: result.usage.completionTokens,
     reasoningTokens: result.usage.reasoningTokens,
     cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
-    actualCostUsd: result.costUsd ?? configuredCostUsd,
+    ...(providerCostUsd === undefined
+      ? customTokenPricing && result.usage.captured !== false
+        ? { customTokenPricing }
+        : result.costUsd === null
+          ? {}
+          : { estimatedCostUsd: result.costUsd }
+      : { actualCostUsd: providerCostUsd }),
     usageUnknown: result.usage.captured === false,
   }
+}
+
+function providerReportedCost(raw: Record<string, unknown>): number | undefined {
+  const value = raw._response_cost ?? raw.cost_usd
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 /** Structured-response failures retain their completed provider receipt. */

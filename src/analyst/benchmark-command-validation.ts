@@ -486,8 +486,40 @@ const artifactSchema: z.ZodType<AnalystBenchmarkArtifact> = z
         concurrency: positiveInteger,
         rlmSamples: positiveInteger.optional(),
         model: nonEmptyString,
+        modelOwnerCallRef: nonEmptyString.optional(),
         maxOutputTokens: positiveInteger,
+        maxReasoningTokens: nonNegativeInteger.optional(),
+        maxModelRequestBytes: positiveInteger.optional(),
+        maxModelResponseBytes: positiveInteger.optional(),
+        modelRequestTimeoutMs: positiveInteger.optional(),
         timeoutMs: positiveInteger,
+        pricing: z
+          .strictObject({
+            inputUsdPerMillion: nonNegativeNumber,
+            cachedInputUsdPerMillion: nonNegativeNumber.optional(),
+            cacheWriteUsdPerMillion: nonNegativeNumber.optional(),
+            outputUsdPerMillion: nonNegativeNumber,
+          })
+          .optional(),
+        recursiveLimits: z
+          .strictObject({
+            maxIterations: positiveInteger,
+            maxLlmCalls: positiveInteger,
+            maxToolCalls: positiveInteger,
+            maxOutputChars: positiveInteger,
+            maxModelRequests: positiveInteger.nullable(),
+            traceToolRequestBytes: positiveInteger,
+            traceToolResponseBytes: positiveInteger,
+            traceToolTimeoutMs: positiveInteger,
+          })
+          .optional(),
+        processLimits: z
+          .strictObject({
+            maxInputBytes: positiveInteger,
+            maxResultBytes: positiveInteger,
+            maxOutputChars: positiveInteger,
+          })
+          .optional(),
         maxCostUsd: nonNegativeNumber,
         maxArtifactBytes: positiveInteger,
         analystProtocolSha256: sha256,

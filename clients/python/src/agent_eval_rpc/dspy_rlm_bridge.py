@@ -28,8 +28,7 @@ import pydantic
 
 from agent_eval_rpc.optimizer_bridge_common import atomic_write_json
 
-_MAX_INPUT_BYTES = 4 * 1024 * 1024
-_TOOL_CALLBACK_TIMEOUT_SECONDS = 60.0
+_DEFAULT_MAX_INPUT_BYTES = 4 * 1024 * 1024
 _SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
 _FINDING_KEYS = frozenset(
     {
@@ -188,6 +187,7 @@ class _CodetraceEnvironment:
 class _ToolCallback:
     url: str
     token: str
+    timeout_seconds: float
 
 
 _ACTIVE_TOOL_CALLBACK: ContextVar[_ToolCallback | None] = ContextVar(
@@ -318,11 +318,14 @@ def main() -> None:
 
 def _main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--max-input-bytes", type=int, default=_DEFAULT_MAX_INPUT_BYTES)
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    input_value = _read_json(Path(args.input))
+    if args.max_input_bytes <= 0:
+        raise ValueError("--max-input-bytes must be positive")
+    input_value = _read_json(Path(args.input), args.max_input_bytes)
     operation = input_value.get("operation")
     if operation == "inspect":
         _require_exact_keys(input_value, {"operation"}, "inspect input")
@@ -374,7 +377,9 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
 
         history_before = _lm_history_length(lm)
         callback = input_value["toolCallback"]
-        with _tool_callback(callback["url"], callback["token"]):
+        with _tool_callback(
+            callback["url"], callback["token"], callback["timeoutMs"] / 1_000
+        ):
             # Environment materialization and excerpt reads use the same
             # authenticated tool callback as model-driven tool calls, so they
             # count against the Node-side tool budget and never bypass it.
@@ -976,8 +981,10 @@ def _deno_cache_dir(deno_executable: Path) -> Path:
 
 
 @contextmanager
-def _tool_callback(url: str, token: str) -> Any:
-    reset_token = _ACTIVE_TOOL_CALLBACK.set(_ToolCallback(url=url, token=token))
+def _tool_callback(url: str, token: str, timeout_seconds: float) -> Any:
+    reset_token = _ACTIVE_TOOL_CALLBACK.set(
+        _ToolCallback(url=url, token=token, timeout_seconds=timeout_seconds)
+    )
     try:
         yield
     finally:
@@ -992,7 +999,7 @@ def _call_trace_tool(name: str, args: dict[str, Any]) -> Any:
         callback.url,
         headers={"Authorization": f"Bearer {callback.token}"},
         json={"name": name, "args": args},
-        timeout=_TOOL_CALLBACK_TIMEOUT_SECONDS,
+        timeout=callback.timeout_seconds,
     )
     response.raise_for_status()
     try:
@@ -1040,9 +1047,10 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
     _require_positive_integer(model_proxy["maxOutputTokens"], "modelProxy.maxOutputTokens")
 
     callback = _require_object(value["toolCallback"], "toolCallback")
-    _require_exact_keys(callback, {"url", "token"}, "toolCallback")
+    _require_exact_keys(callback, {"url", "token", "timeoutMs"}, "toolCallback")
     _require_http_url(callback["url"], "toolCallback.url")
     _require_non_empty_string(callback["token"], "toolCallback.token")
+    _require_positive_integer(callback["timeoutMs"], "toolCallback.timeoutMs")
 
     limits = _require_object(value["limits"], "limits")
     _require_exact_keys(
@@ -1488,10 +1496,12 @@ def _prediction_string(prediction: Any, name: str) -> str:
     return _require_non_empty_string(value, f"DSPy RLM prediction {name}")
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path, max_input_bytes: int) -> dict[str, Any]:
+    if path.stat().st_size > max_input_bytes:
+        raise ValueError(f"DSPy RLM bridge input exceeds {max_input_bytes} bytes")
     raw = path.read_bytes()
-    if len(raw) > _MAX_INPUT_BYTES:
-        raise ValueError(f"DSPy RLM bridge input exceeds {_MAX_INPUT_BYTES} bytes")
+    if len(raw) > max_input_bytes:
+        raise ValueError(f"DSPy RLM bridge input exceeds {max_input_bytes} bytes")
     try:
         value = json.loads(raw, parse_constant=_reject_json_constant)
     except json.JSONDecodeError as error:

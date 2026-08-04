@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import type { OpenAICompatibleOptimizerModel } from '../../src/campaign'
+import { costReceiptFromLlm, type LlmCallRequest, LlmClient } from '../../src/llm-client'
 
 export interface CapturedModelRequest {
   authorization: string | undefined
@@ -72,47 +73,33 @@ export function localOptimizerModel(
   options: { model?: string; maxRequests?: number; maxOutputTokens?: number } = {},
 ): OpenAICompatibleOptimizerModel {
   const model = options.model ?? 'local-model'
+  const pricing = {
+    inputUsdPerMillion: 1,
+    outputUsdPerMillion: 2,
+  }
+  const client = new LlmClient({
+    baseUrl,
+    apiKey: 'provider-secret',
+    maximumAttempts: 1,
+    customTokenPricing: pricing,
+  })
   return {
     model,
     callRef: `test-local-model:${baseUrl}`,
     call: async (request) => {
-      const response = await fetch(`${baseUrl.replace(/\/v1$/, '')}${request.path}`, {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer provider-secret',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(request.body),
-        signal: request.signal,
-      })
-      const value = (await response.clone().json()) as {
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
-      }
+      const response = await client.call(
+        structuredClone(request.request) as unknown as LlmCallRequest,
+        { signal: request.signal, idempotencyKey: request.callId },
+      )
       return {
         succeeded: true,
         response,
-        receipt:
-          value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
-            ? {
-                model: request.model,
-                inputTokens: value.usage.prompt_tokens,
-                outputTokens: value.usage.completion_tokens,
-                customTokenPricing: {
-                  inputUsdPerMillion: 1,
-                  outputUsdPerMillion: 2,
-                },
-              }
-            : {
-                model: request.model,
-                inputTokens: 0,
-                outputTokens: 0,
-                usageUnknown: true,
-                costUnknown: true,
-              },
+        receipt: JSON.parse(
+          JSON.stringify(costReceiptFromLlm(response, pricing)),
+        ),
         execution: {
           kind: 'test-local-model',
-          model: request.model,
-          status: response.status,
+          model: request.request.model,
         },
       }
     },
@@ -122,10 +109,7 @@ export function localOptimizerModel(
       maxRequestBytes: 100_000,
       maxResponseBytes: 100_000,
       maxOutputTokensPerRequest: options.maxOutputTokens ?? 2_000,
-      pricing: {
-        inputUsdPerMillion: 1,
-        outputUsdPerMillion: 2,
-      },
+      pricing,
     },
   }
 }

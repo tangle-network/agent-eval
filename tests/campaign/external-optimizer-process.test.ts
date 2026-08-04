@@ -11,6 +11,7 @@ import {
 } from '../../src/campaign/external-optimizer-process'
 import {
   CostLedger,
+  costForTokenPricing,
   type CostLedgerHandle,
   type CostReceiptInput,
   type CustomTokenPricing,
@@ -55,22 +56,48 @@ function startExternalOptimizerModelProxy(args: FakeOwnerProxyArgs) {
     call: async (request) => {
       const started = performance.now()
       try {
-        const response = await ownerCall(`https://test-owner.invalid${request.path}`, {
+        const response = await ownerCall('https://test-owner.invalid/v1/chat/completions', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
           },
-          body: JSON.stringify(request.body),
+          body: JSON.stringify({
+            model: request.request.model,
+            messages: request.request.messages,
+            max_tokens: request.request.maxTokens,
+            ...(request.request.temperature === undefined
+              ? {}
+              : { temperature: request.request.temperature }),
+          }),
           signal: request.signal,
           redirect: 'error',
         })
+        const receipt = await fakeOwnerReceipt(
+          response.clone(),
+          request.request.model,
+          args.budget.pricing,
+        )
+        const canonical = await fakeOwnerResponse(response.clone(), receipt, started)
+        if (!response.ok) {
+          return {
+            succeeded: false as const,
+            error: `test execution owner returned HTTP ${response.status}`,
+            receipt,
+            execution: {
+              kind: 'test-owner-call',
+              model: request.request.model,
+              status: response.status,
+              durationMs: performance.now() - started,
+            },
+          }
+        }
         return {
           succeeded: true as const,
-          response,
-          receipt: await fakeOwnerReceipt(response.clone(), request.model, args.budget.pricing),
+          response: canonical,
+          receipt,
           execution: {
             kind: 'test-owner-call',
-            model: request.model,
+            model: request.request.model,
             status: response.status,
             durationMs: performance.now() - started,
           },
@@ -79,10 +106,10 @@ function startExternalOptimizerModelProxy(args: FakeOwnerProxyArgs) {
         return {
           succeeded: false as const,
           error: error instanceof Error ? error.message : String(error),
-          receipt: unknownReceipt(request.model),
+          receipt: unknownReceipt(request.request.model),
           execution: {
             kind: 'test-owner-call',
-            model: request.model,
+            model: request.request.model,
             error: error instanceof Error ? error.name : 'Error',
             durationMs: performance.now() - started,
           },
@@ -146,7 +173,7 @@ async function fakeOwnerReceipt(
   const actualCost = usage.cost
   return {
     model,
-    inputTokens: (totalInput as number) - nestedCachedTokens - nestedCacheWriteTokens,
+    inputTokens: (totalInput as number) - nestedCachedTokens,
     outputTokens: output as number,
     ...(cachedTokens > 0 ? { cachedTokens } : {}),
     ...(cacheWriteTokens > 0 ? { cacheWriteTokens } : {}),
@@ -156,6 +183,82 @@ async function fakeOwnerReceipt(
       : pricing
         ? { customTokenPricing: pricing }
         : { costUnknown: true }),
+  }
+}
+
+async function fakeOwnerResponse(
+  response: Response,
+  receipt: CostReceiptInput,
+  startedAt: number,
+) {
+  const text = await response.text()
+  let raw: Record<string, unknown> = { body: text }
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      raw = JSON.parse(JSON.stringify(parsed)) as Record<string, unknown>
+    }
+  } catch {
+    // The canonical owner can retain an unstructured provider body as evidence.
+  }
+  const choices = Array.isArray(raw.choices) ? raw.choices : []
+  const first = choices[0]
+  const firstRecord = first && typeof first === 'object' ? (first as Record<string, unknown>) : {}
+  const message =
+    firstRecord.message && typeof firstRecord.message === 'object'
+      ? (firstRecord.message as Record<string, unknown>)
+      : {}
+  const output = Array.isArray(raw.output) ? raw.output : []
+  const outputText = output
+    .flatMap((item) =>
+      item && typeof item === 'object' && Array.isArray((item as Record<string, unknown>).content)
+        ? ((item as Record<string, unknown>).content as unknown[])
+        : [],
+    )
+    .find(
+      (part) =>
+        part &&
+        typeof part === 'object' &&
+        (part as Record<string, unknown>).type === 'output_text' &&
+        typeof (part as Record<string, unknown>).text === 'string',
+    ) as Record<string, unknown> | undefined
+  const content =
+    typeof message.content === 'string'
+      ? message.content
+      : typeof raw.output_text === 'string'
+        ? raw.output_text
+        : typeof outputText?.text === 'string'
+          ? outputText.text
+          : text
+  const usageKnown = receipt.usageUnknown !== true
+  const promptTokens = usageKnown ? receipt.inputTokens + (receipt.cachedTokens ?? 0) : 0
+  const completionTokens = usageKnown ? receipt.outputTokens : 0
+  return {
+    content,
+    usage: {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      ...(usageKnown ? {} : { captured: false }),
+      ...(receipt.cachedTokens === undefined
+        ? {}
+        : { cachedPromptTokens: receipt.cachedTokens }),
+      ...(receipt.reasoningTokens === undefined
+        ? {}
+        : { reasoningTokens: receipt.reasoningTokens }),
+    },
+    costUsd:
+      receipt.actualCostUsd ??
+      receipt.estimatedCostUsd ??
+      (receipt.customTokenPricing && receipt.usageUnknown !== true
+        ? costForTokenPricing(receipt.customTokenPricing, receipt)
+        : null),
+    model: receipt.model,
+    durationMs: performance.now() - startedAt,
+    finishReason:
+      typeof firstRecord.finish_reason === 'string' ? firstRecord.finish_reason : null,
+    contentEmpty: content.trim().length === 0,
+    raw,
   }
 }
 
@@ -263,6 +366,37 @@ describe('external optimizer callback', () => {
     expect(responses.map((response) => response.status).sort()).toEqual([200, 200, 429, 429])
     expect(accepted).toBe(2)
     expect(callback.evaluations()).toBe(2)
+  })
+
+  it('lets callers raise the former one-megabyte request limit', async () => {
+    const candidate = 'x'.repeat(1_000_100)
+    const callback = await startExternalOptimizerCallback({
+      token: 'secret',
+      maxEvaluations: 1,
+      limits: { maxRequestBytes: 1_100_000 },
+      evaluate: async ({ candidate: received }) => ({ matches: received === candidate }),
+    })
+    openCallbacks.push(callback)
+
+    const response = await post(callback.url, 'secret', candidate, 'large-case')
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ matches: true })
+  })
+
+  it('enforces a caller-selected callback response limit', async () => {
+    const callback = await startExternalOptimizerCallback({
+      token: 'secret',
+      maxEvaluations: 1,
+      limits: { maxResponseBytes: 20 },
+      evaluate: async () => ({ result: 'x'.repeat(100) }),
+    })
+    openCallbacks.push(callback)
+
+    const response = await post(callback.url, 'secret')
+
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({ error: 'evaluation response too large' })
   })
 
   it('aborts active evaluation work before close resolves', async () => {
@@ -446,6 +580,39 @@ describe('external optimizer process', () => {
     ).rejects.toThrow('output exceeds 4194304 bytes')
   })
 
+  it('enforces caller-selected process input and result limits', async () => {
+    await expect(
+      runExternalOptimizerProcess({
+        label: 'small-input optimizer',
+        tempPrefix: 'agent-eval-small-input-',
+        module: 'unused',
+        input: { value: 'x'.repeat(100) },
+        runner: { command: process.execPath, limits: { maxInputBytes: 20 } },
+        timeoutMs: 5_000,
+      }),
+    ).rejects.toThrow('input exceeds 20 bytes')
+
+    const script = [
+      "const { writeFileSync } = require('node:fs')",
+      "const output = process.argv[process.argv.indexOf('--output') + 1]",
+      "writeFileSync(output, JSON.stringify({ value: 'x'.repeat(100) }))",
+    ].join(';')
+    await expect(
+      runExternalOptimizerProcess({
+        label: 'small-result optimizer',
+        tempPrefix: 'agent-eval-small-result-',
+        module: 'unused',
+        input: {},
+        runner: {
+          command: process.execPath,
+          args: ['-e', script, '--'],
+          limits: { maxResultBytes: 20 },
+        },
+        timeoutMs: 5_000,
+      }),
+    ).rejects.toThrow('output exceeds 20 bytes')
+  })
+
   it('terminates optimizer descendants when the process times out', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'agent-eval-descendant-'))
     const marker = join(dir, 'descendant-survived.txt')
@@ -627,6 +794,79 @@ describe('external optimizer model proxy', () => {
     }
   })
 
+  it('converts an official-optimizer request into one deeply frozen canonical call', async () => {
+    const fixture = JSON.parse(
+      await readFile(
+        new URL('../fixtures/official-optimizer-chat-request.json', import.meta.url),
+        'utf8',
+      ),
+    ) as Record<string, unknown>
+    const records: Array<Record<string, unknown>> = []
+    let seenCallId = ''
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:official-optimizer',
+      call: async (request) => {
+        seenCallId = request.callId
+        expect(Object.isFrozen(request.request)).toBe(true)
+        expect(Object.isFrozen(request.request.messages)).toBe(true)
+        expect(Object.isFrozen(request.request.messages[0])).toBe(true)
+        expect(request.request).toEqual({
+          model: 'model-a',
+          messages: fixture.messages,
+          maxTokens: 256,
+          temperature: 0.2,
+        })
+        expect(request.endpointFormat).toBe('chat-completions')
+        return {
+          succeeded: true,
+          response: {
+            content: '{"edits":[]}',
+            usage: {
+              promptTokens: 12,
+              completionTokens: 5,
+              totalTokens: 17,
+            },
+            costUsd: 0.000022,
+            model: request.request.model,
+            durationMs: 12,
+            finishReason: 'stop',
+            raw: { runtime: 'profile' },
+          },
+          receipt: {
+            model: request.request.model,
+            inputTokens: 12,
+            outputTokens: 5,
+            customTokenPricing: {
+              inputUsdPerMillion: 1,
+              outputUsdPerMillion: 2,
+            },
+          },
+          execution: { kind: 'runtime-profile-call' },
+        }
+      },
+      recordExecution: (record) =>
+        records.push(structuredClone(record) as Record<string, unknown>),
+      model: 'model-a',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 256 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, fixture)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        model: 'model-a',
+        choices: [{ message: { role: 'assistant', content: '{"edits":[]}' } }],
+      })
+      expect(seenCallId).toMatch(/\S/)
+      expect(records).toMatchObject([{ callId: seenCallId, succeeded: true }])
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('fails loud when the execution owner rejects without evidence', async () => {
     const records: unknown[] = []
     const proxy = await startRuntimeOwnedModelProxy({
@@ -666,7 +906,7 @@ describe('external optimizer model proxy', () => {
         succeeded: false,
         error: 'runtime execution failed',
         receipt: {
-          model: request.model,
+          model: request.request.model,
           inputTokens: 7,
           outputTokens: 0,
           costUnknown: true,
@@ -723,15 +963,21 @@ describe('external optimizer model proxy', () => {
       callRef: 'runtime-profile:unknown-billing',
       call: async (request) => ({
         succeeded: true,
-        response: new Response(
-          JSON.stringify({
-            choices: [{ message: { role: 'assistant', content: 'revised' } }],
-            usage: { prompt_tokens: 7, completion_tokens: 3 },
-          }),
-          { headers: { 'content-type': 'application/json' } },
-        ),
+        response: {
+          content: 'revised',
+          usage: {
+            promptTokens: 7,
+            completionTokens: 3,
+            totalTokens: 10,
+          },
+          costUsd: null,
+          model: request.request.model,
+          durationMs: 0,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
         receipt: {
-          model: request.model,
+          model: request.request.model,
           inputTokens: 7,
           outputTokens: 3,
           costUnknown: true,
@@ -941,7 +1187,7 @@ describe('external optimizer model proxy', () => {
     }
   })
 
-  it('prices Chat Completions cache reads and cache writes without double-counting input', async () => {
+  it('keeps non-cached input, cache reads, and cache writes as distinct billed classes', async () => {
     const ledger = new CostLedger()
     const proxy = await startExternalOptimizerModelProxy({
       model: 'model-a',
@@ -984,7 +1230,7 @@ describe('external optimizer model proxy', () => {
       expect(response.status).toBe(200)
       expect(ledger.list()).toEqual([
         expect.objectContaining({
-          inputTokens: 50,
+          inputTokens: 80,
           cachedTokens: 20,
           cacheWriteTokens: 30,
           outputTokens: 10,
@@ -992,7 +1238,7 @@ describe('external optimizer model proxy', () => {
           costUnknown: false,
         }),
       ])
-      expect(ledger.list()[0]?.costUsd).toBeCloseTo(0.00024, 12)
+      expect(ledger.list()[0]?.costUsd).toBeCloseTo(0.0003, 12)
       expect(ledger.list()[0]?.actualCostUsd).toBeUndefined()
     } finally {
       await proxy.close()
@@ -1144,15 +1390,15 @@ describe('external optimizer model proxy', () => {
       expect(response.status).toBe(200)
       expect(ledger.list()).toEqual([
         expect.objectContaining({
-          inputTokens: 50,
+          inputTokens: 70,
           cachedTokens: 50,
           cacheWriteTokens: 20,
           outputTokens: 20,
           reasoningTokens: 5,
-          costUsd: 0.000265,
           costUnknown: false,
         }),
       ])
+      expect(ledger.list()[0]?.costUsd).toBeCloseTo(0.000305, 12)
     } finally {
       await proxy.close()
     }
@@ -1202,13 +1448,20 @@ describe('external optimizer model proxy', () => {
         max_output_tokens: 1,
         max_tokens: 11,
       })
+      const reasoningOverride = await postModel(proxy, {
+        model: 'model-a',
+        messages: [],
+        max_tokens: 1,
+        reasoning_effort: 'high',
+      })
       expect([
         wrongModel.status,
         tooManyTokens.status,
         streaming.status,
         multipleCompletions.status,
         hiddenLargerLimit.status,
-      ]).toEqual([400, 400, 400, 400, 400])
+        reasoningOverride.status,
+      ]).toEqual([400, 400, 400, 400, 400, 400])
       expect(providerCalls).toBe(0)
       expect(ledger.list()).toEqual([])
     } finally {
@@ -1366,7 +1619,7 @@ describe('external optimizer model proxy', () => {
       max_tokens: 1,
     }
     const requestBytes = Buffer.byteLength(JSON.stringify(requestBody))
-    const maximumPerRequest = (requestBytes + 1) / 1_000_000
+    const maximumPerRequest = (requestBytes * 2 + 1) / 1_000_000
     let releaseProvider: (() => void) | undefined
     const providerPending = new Promise<void>((resolve) => {
       releaseProvider = resolve
@@ -1556,7 +1809,7 @@ describe('external optimizer model proxy', () => {
       expect(response.status).toBe(502)
       expect(await response.json()).toEqual({
         error:
-          'optimizer model provider reported 21 completion tokens, exceeding requested limit 20',
+          'optimizer model execution reported 21 completion tokens, exceeding requested limit 20',
       })
       expect(proxy.successfulCompletions()).toBe(0)
       const receipts = ledger.list()
@@ -1598,8 +1851,8 @@ describe('external optimizer model proxy', () => {
         messages: [{ role: 'user', content: 'improve this' }],
         max_tokens: 20,
       })
-      expect(response.status).toBe(429)
-      expect(await response.text()).toContain('still rate limited')
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain('test execution owner returned HTTP 429')
       expect(ownerCalls).toBe(1)
       expect(proxy.requestAttempts()).toBe(1)
       expect(proxy.successfulCompletions()).toBe(0)
@@ -1633,7 +1886,8 @@ describe('external optimizer model proxy', () => {
         messages: [{ role: 'user', content: 'improve this' }],
         max_tokens: 20,
       })
-      expect(response.status).toBe(500)
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain('test execution owner returned HTTP 500')
       expect(ownerCalls).toBe(1)
       expect(proxy.requestAttempts()).toBe(1)
       proxy.assertExecutionComplete()

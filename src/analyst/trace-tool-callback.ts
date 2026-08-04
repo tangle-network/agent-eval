@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import {
+  type ExternalOptimizerCallbackLimits,
+  resolveExternalOptimizerCallbackLimits,
+} from '../campaign/external-optimizer-contracts'
 import { closeServer, listenLocal, sendJson } from '../campaign/external-optimizer-http'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
-
-const MAX_REQUEST_BYTES = 1_000_000
-const MAX_RESPONSE_BYTES = 4_000_000
 
 export interface TraceToolCallback {
   url: string
@@ -13,15 +14,20 @@ export interface TraceToolCallback {
   close: () => Promise<void>
 }
 
+export type TraceToolCallbackLimits = ExternalOptimizerCallbackLimits
+
 /** Expose one bounded trace-tool set only on an authenticated loopback socket. */
 export async function startTraceToolCallback(args: {
   tools: readonly TraceAnalysisToolDescriptor[]
   maxCalls: number
+  /** Trace-tool request/response byte limits. Omitted fields use finite defaults. */
+  limits?: Partial<TraceToolCallbackLimits>
   signal?: AbortSignal
 }): Promise<TraceToolCallback> {
   if (!Number.isSafeInteger(args.maxCalls) || args.maxCalls <= 0) {
     throw new TypeError('trace tool callback maxCalls must be a positive safe integer')
   }
+  const limits = resolveExternalOptimizerCallbackLimits(args.limits, 'trace tool callback limits')
   args.signal?.throwIfAborted()
   const byName = new Map(args.tools.map((tool) => [tool.name, tool]))
   if (byName.size !== args.tools.length) {
@@ -92,7 +98,7 @@ export async function startTraceToolCallback(args: {
         sendJsonIfOpen(response, 429, { error: 'trace tool call limit reached' })
         return
       }
-      const body = await readJson(request)
+      const body = await readJson(request, limits.maxRequestBytes)
       if (!isRecord(body) || typeof body.name !== 'string' || !('args' in body)) {
         sendJsonIfOpen(response, 400, { error: 'name and args are required' })
         return
@@ -105,7 +111,7 @@ export async function startTraceToolCallback(args: {
       calls += 1
       const result = await tool.handler(body.args, { signal })
       const encoded = JSON.stringify({ result })
-      if (Buffer.byteLength(encoded) > MAX_RESPONSE_BYTES) {
+      if (Buffer.byteLength(encoded) > limits.maxResponseBytes) {
         sendJsonIfOpen(response, 413, { error: 'trace tool response too large' })
         return
       }
@@ -144,13 +150,13 @@ async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promis
   }
 }
 
-function readJson(request: IncomingMessage): Promise<unknown> {
+function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > MAX_REQUEST_BYTES) {
+      if (size > maxRequestBytes) {
         reject(new Error('trace tool request too large'))
         request.destroy()
         return

@@ -10,10 +10,12 @@ import {
 } from './external-optimizer-observations'
 import {
   closeExternalOptimizerResources,
+  type ExternalOptimizerCallbackLimits,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerResumeMode,
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
+  resolveExternalOptimizerCallbackLimits,
   runExternalOptimizerProcess,
   runWithCleanup,
   startExternalOptimizerCallback,
@@ -156,6 +158,8 @@ export interface GepaOptimizationMethodConfig<TScenario extends Scenario, TArtif
   maxCandidateChars?: number
   /** Reject serialized score evidence longer than this. Default: 100,000 characters. */
   maxEvidenceChars?: number
+  /** Candidate-evaluation callback byte limits. Omitted fields use finite defaults. */
+  evaluationCallbackLimits?: Partial<ExternalOptimizerCallbackLimits>
   /** End the bridge process after this many milliseconds. Default: 30 minutes. */
   timeoutMs?: number
   /**
@@ -265,6 +269,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         selectionSet,
         maxCandidateChars,
         maxEvidenceChars,
+        evaluationCallbackLimits: resolveExternalOptimizerCallbackLimits(
+          config.evaluationCallbackLimits,
+        ),
         optimizerModel: config.optimizer
           ? {
               model: config.optimizer.model,
@@ -322,6 +329,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
         observe: observationLog.observe,
+        ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
         ...(signal ? { signal } : {}),
       })
 

@@ -1,18 +1,21 @@
 import {
+  assertExternalOptimizerModelBudget,
   type ExternalOptimizerModelCall,
   type ExternalOptimizerModelExecutionObservation,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
+  resolveExternalOptimizerCallbackLimits,
+  resolveExternalOptimizerProcessLimits,
 } from '../campaign/external-optimizer-contracts'
 import { startExternalOptimizerModelProxy } from '../campaign/external-optimizer-model-proxy'
 import { runWithCleanup } from '../campaign/external-optimizer-resources'
 import { runExternalOptimizerProcess } from '../campaign/external-optimizer-subprocess'
-import type { CostReceiptInput, CustomTokenPricing } from '../cost-ledger'
+import type { CustomTokenPricing } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './engine'
 import { type RawAnalystFinding, RawAnalystFindingSchema } from './finding-signature'
-import { startTraceToolCallback } from './trace-tool-callback'
+import { startTraceToolCallback, type TraceToolCallbackLimits } from './trace-tool-callback'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
 // 4096 is below what current coding models emit for a full findings array:
@@ -23,15 +26,21 @@ const DEFAULT_TIMEOUT_MS = 10 * 60_000
 // already does that directly, so it starts above what a real completion needs.
 const DEFAULT_MODEL_OUTPUT_TOKENS = 16_384
 const DEFAULT_MAX_COST_USD = 1
-const MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
-const MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
+const DEFAULT_MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
+const DEFAULT_MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
+const DEFAULT_TRACE_TOOL_TIMEOUT_MS = 60_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 const BRIDGE_MODULE = 'agent_eval_rpc.dspy_rlm_bridge'
 /** Bumped whenever this engine's execution behavior changes. */
 const DSPY_RLM_ENGINE_VERSION = '1.0.0'
 
 export interface DspyRlmTraceEngineOptions {
-  baseUrl: string
-  apiKey: string
+  /** Caller-owned execution path. Agent Eval never receives provider credentials. */
+  call: ExternalOptimizerModelCall
+  /** Stable public identity for the caller-owned path, such as an AgentProfile digest. */
+  callRef: string
+  /** Persist the finite execution record returned for every admitted call. */
+  recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   /** Exact provider rates. Required when the model is absent from the pricing table. */
   pricing?: CustomTokenPricing
@@ -45,6 +54,18 @@ export interface DspyRlmTraceEngineOptions {
    * reservation must cover them. Default: four times the completion cap.
    */
   maxReasoningTokens?: number
+  /** Maximum caller-owned model invocations. Default derives from the analysis limits. */
+  maxModelRequests?: number
+  /** Maximum model request bytes. Default: 16 MiB. */
+  maxModelRequestBytes?: number
+  /** Maximum model response bytes. Default: 4 MiB. */
+  maxModelResponseBytes?: number
+  /** Deadline for one caller-owned model invocation. Default: the whole analysis deadline. */
+  modelRequestTimeoutMs?: number
+  /** Trace-tool loopback request/response byte limits. */
+  traceToolLimits?: Partial<TraceToolCallbackLimits>
+  /** Deadline for one Python-to-Node trace-tool call. Default: 60 seconds. */
+  traceToolTimeoutMs?: number
   /**
    * How the controller's reasoning and code fields are obtained.
    *
@@ -74,16 +95,34 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
     throw new TypeError('DSPy RLM maxReasoningTokens must be a non-negative safe integer')
   }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new TypeError('DSPy RLM timeoutMs must be a positive safe integer')
-  }
+  assertTimerDelay(timeoutMs, 'timeoutMs')
   const maxCostUsd = options.maxCostUsd ?? DEFAULT_MAX_COST_USD
   if (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0) {
     throw new TypeError('DSPy RLM maxCostUsd must be positive and finite')
   }
   const pricing = options.pricing ?? pricingForModel(options.model)
+  const maxModelRequestBytes = options.maxModelRequestBytes ?? DEFAULT_MAX_MODEL_REQUEST_BYTES
+  const maxModelResponseBytes = options.maxModelResponseBytes ?? DEFAULT_MAX_MODEL_RESPONSE_BYTES
+  const modelRequestTimeoutMs = options.modelRequestTimeoutMs ?? timeoutMs
+  const traceToolTimeoutMs = options.traceToolTimeoutMs ?? DEFAULT_TRACE_TOOL_TIMEOUT_MS
+  assertExternalOptimizerModelBudget(
+    {
+      maxCostUsd,
+      maxRequests: options.maxModelRequests ?? 1,
+      maxRequestBytes: maxModelRequestBytes,
+      maxResponseBytes: maxModelResponseBytes,
+      maxOutputTokensPerRequest: maxOutputTokens,
+      maxReasoningTokensPerRequest: maxReasoningTokens,
+      pricing,
+      requestTimeoutMs: modelRequestTimeoutMs,
+    },
+    'DSPy RLM model limits',
+  )
+  resolveExternalOptimizerCallbackLimits(options.traceToolLimits, 'DSPy RLM trace tool limits')
+  assertTimerDelay(traceToolTimeoutMs, 'traceToolTimeoutMs')
 
   const runner = sanitizedRunner(options.runner)
+  const processLimits = resolveExternalOptimizerProcessLimits(runner?.limits)
   return {
     id: 'dspy-rlm',
     description: 'Official DSPy RLM with bounded trace tools and metered model calls.',
@@ -91,17 +130,21 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
     version: DSPY_RLM_ENGINE_VERSION,
     executionConfig: {
       bridge_module: BRIDGE_MODULE,
-      base_url: options.baseUrl,
+      call_ref: options.callRef,
       model: options.model,
-      api_key_provided: true,
       pricing: { ...pricing },
       max_cost_usd: maxCostUsd,
       max_output_tokens: maxOutputTokens,
       max_reasoning_tokens: maxReasoningTokens,
       control_adapter: controlAdapter,
       timeout_ms: timeoutMs,
-      max_request_bytes: MAX_MODEL_REQUEST_BYTES,
-      max_response_bytes: MAX_MODEL_RESPONSE_BYTES,
+      max_model_requests: options.maxModelRequests ?? null,
+      max_request_bytes: maxModelRequestBytes,
+      max_response_bytes: maxModelResponseBytes,
+      model_request_timeout_ms: modelRequestTimeoutMs,
+      trace_tool_limits: options.traceToolLimits ?? null,
+      trace_tool_timeout_ms: traceToolTimeoutMs,
+      process_limits: processLimits,
       runner: runner ? 'caller-supplied' : 'default',
       runner_command: runner?.command ?? null,
     },
@@ -109,6 +152,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
       const callback = await startTraceToolCallback({
         tools: request.tools,
         maxCalls: request.limits.maxToolCalls,
+        ...(options.traceToolLimits ? { limits: options.traceToolLimits } : {}),
         ...(request.signal ? { signal: request.signal } : {}),
       })
       let modelProxy: ExternalOptimizerModelProxy | undefined
@@ -117,20 +161,21 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
         label: 'DSPy RLM trace-analysis resources',
         run: async () => {
           modelProxy = await startExternalOptimizerModelProxy({
-            call: dspyModelCall(options, pricing),
-            callRef: `dspy-rlm:${options.model}:${new URL(options.baseUrl).origin}`,
+            call: options.call,
+            callRef: options.callRef,
             recordExecution: (observation) => {
               modelExecutions.push(structuredClone(observation))
+              options.recordExecution(observation)
             },
             model: options.model,
             budget: {
               maxCostUsd,
-              maxRequests: request.limits.maxIterations + request.limits.maxLlmCalls + 1,
-              maxRequestBytes: MAX_MODEL_REQUEST_BYTES,
-              maxResponseBytes: MAX_MODEL_RESPONSE_BYTES,
+              maxRequests: resolveMaxModelRequests(options.maxModelRequests, request.limits),
+              maxRequestBytes: maxModelRequestBytes,
+              maxResponseBytes: maxModelResponseBytes,
               maxOutputTokensPerRequest: maxOutputTokens,
               maxReasoningTokensPerRequest: maxReasoningTokens,
-              requestTimeoutMs: timeoutMs,
+              requestTimeoutMs: modelRequestTimeoutMs,
               pricing,
             },
             costLedger: request.costLedger,
@@ -163,6 +208,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
               toolCallback: {
                 url: callback.url,
                 token: callback.token,
+                timeoutMs: traceToolTimeoutMs,
               },
               toolSpecs: request.tools.map(({ name, description, parameters }) => ({
                 name,
@@ -177,6 +223,7 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
               },
             },
             ...(runner ? { runner } : {}),
+            additionalArgs: ['--max-input-bytes', String(processLimits.maxInputBytes)],
             timeoutMs,
             ...(request.signal ? { signal: request.signal } : {}),
           })
@@ -279,121 +326,42 @@ function parseBridgeOutput(
 
 function assertOptions(options: DspyRlmTraceEngineOptions): void {
   for (const [name, value] of [
-    ['baseUrl', options.baseUrl],
-    ['apiKey', options.apiKey],
+    ['callRef', options.callRef],
     ['model', options.model],
   ] as const) {
-    if (typeof value !== 'string' || !value.trim()) {
-      throw new TypeError(`DSPy RLM ${name} must be a non-empty string`)
+    if (typeof value !== 'string' || !value.trim() || value !== value.trim()) {
+      throw new TypeError(`DSPy RLM ${name} must be a trimmed non-empty string`)
     }
   }
-  let baseUrl: URL
-  try {
-    baseUrl = new URL(options.baseUrl)
-  } catch {
-    throw new TypeError('DSPy RLM baseUrl must be an HTTP(S) URL')
+  if (typeof options.call !== 'function') {
+    throw new TypeError('DSPy RLM call must be a function')
+  }
+  if (typeof options.recordExecution !== 'function') {
+    throw new TypeError('DSPy RLM recordExecution must be a function')
   }
   if (
-    (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') ||
-    baseUrl.username ||
-    baseUrl.password ||
-    baseUrl.search ||
-    baseUrl.hash
+    options.maxModelRequests !== undefined &&
+    (!Number.isSafeInteger(options.maxModelRequests) || options.maxModelRequests <= 0)
   ) {
-    throw new TypeError(
-      'DSPy RLM baseUrl must be an HTTP(S) URL without credentials, query, or fragment',
-    )
+    throw new TypeError('DSPy RLM maxModelRequests must be a positive safe integer')
   }
 }
 
-function dspyModelCall(
-  options: DspyRlmTraceEngineOptions,
-  pricing: CustomTokenPricing,
-): ExternalOptimizerModelCall {
-  return async (request) => {
-    const started = performance.now()
-    const baseUrl = options.baseUrl.replace(/\/+$/, '')
-    const path = /\/v\d+$/.test(baseUrl) ? request.path.replace(/^\/v1/, '') : request.path
-    try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${options.apiKey}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(request.body),
-        signal: request.signal,
-        redirect: 'error',
-      })
-      return {
-        succeeded: true,
-        response,
-        receipt: await dspyResponseReceipt(response.clone(), request.model, pricing),
-        execution: {
-          kind: 'agent-eval/dspy-rlm-model-call',
-          model: request.model,
-          path: request.path,
-          status: response.status,
-          durationMs: performance.now() - started,
-        },
-      }
-    } catch (error) {
-      return {
-        succeeded: false,
-        error: error instanceof Error ? error.message : String(error),
-        receipt: unknownDspyReceipt(request.model),
-        execution: {
-          kind: 'agent-eval/dspy-rlm-model-call',
-          model: request.model,
-          path: request.path,
-          error: error instanceof Error ? error.name : 'Error',
-          durationMs: performance.now() - started,
-        },
-      }
-    }
+function resolveMaxModelRequests(
+  configured: number | undefined,
+  limits: { maxIterations: number; maxLlmCalls: number },
+): number {
+  if (configured !== undefined) return configured
+  const derived = limits.maxIterations + limits.maxLlmCalls + 1
+  if (!Number.isSafeInteger(derived) || derived <= 0) {
+    throw new Error('DSPy RLM analysis limits produce an invalid model request limit')
   }
+  return derived
 }
 
-async function dspyResponseReceipt(
-  response: Response,
-  model: string,
-  pricing: CustomTokenPricing,
-): Promise<CostReceiptInput> {
-  let value: unknown
-  try {
-    value = await response.json()
-  } catch {
-    return unknownDspyReceipt(model)
-  }
-  if (!isRecord(value) || !isRecord(value.usage)) return unknownDspyReceipt(model)
-  const inputTokens = value.usage.prompt_tokens ?? value.usage.input_tokens
-  const outputTokens = value.usage.completion_tokens ?? value.usage.output_tokens
-  if (
-    !Number.isSafeInteger(inputTokens) ||
-    (inputTokens as number) < 0 ||
-    !Number.isSafeInteger(outputTokens) ||
-    (outputTokens as number) < 0
-  ) {
-    return unknownDspyReceipt(model)
-  }
-  const actualCostUsd = value.usage.cost
-  return {
-    model,
-    inputTokens: inputTokens as number,
-    outputTokens: outputTokens as number,
-    ...(typeof actualCostUsd === 'number' && Number.isFinite(actualCostUsd) && actualCostUsd >= 0
-      ? { actualCostUsd }
-      : { customTokenPricing: pricing }),
-  }
-}
-
-function unknownDspyReceipt(model: string): CostReceiptInput {
-  return {
-    model,
-    inputTokens: 0,
-    outputTokens: 0,
-    usageUnknown: true,
-    costUnknown: true,
+function assertTimerDelay(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
+    throw new TypeError(`DSPy RLM ${field} must be between 1 and ${MAX_TIMER_DELAY_MS}`)
   }
 }
 
@@ -418,6 +386,7 @@ function sanitizedRunner(
     ...(runner.command ? { command: runner.command } : {}),
     ...(runner.args ? { args: runner.args } : {}),
     ...(runner.env ? { env: removeCredentialEnvironment(runner.env) } : {}),
+    ...(runner.limits ? { limits: { ...runner.limits } } : {}),
   }
 }
 

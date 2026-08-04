@@ -55,6 +55,7 @@ describe('external optimizer observation artifacts', () => {
 
     log.observe({
       sequence: 1,
+      callId: 'optimizer-call-1',
       callRef: 'runtime:profile',
       path: '/v1/chat/completions',
       model: 'deepseek-v4-flash',
@@ -65,6 +66,7 @@ describe('external optimizer observation artifacts', () => {
     evidence.nested.attempt = 99
     log.observe({
       sequence: 2,
+      callId: 'optimizer-call-2',
       callRef: 'runtime:profile',
       path: '/v1/chat/completions',
       model: 'deepseek-v4-flash',

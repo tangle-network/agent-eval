@@ -17,6 +17,7 @@ import {
   agentRxFixture,
   codeTraceFixture,
   commandArgs,
+  TEST_MODEL_OWNER_MODULE,
   UNKNOWN_USAGE,
 } from './benchmark-command.test-support'
 import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
@@ -233,8 +234,7 @@ describe('runAnalystBenchmarkCommand', () => {
         traceDir: fixture.traceDir,
         artifactDir: fixture.artifactDir,
         outputDir: fixture.outDir,
-        baseUrl: 'http://127.0.0.1:3355/v1',
-        apiKeyEnvironment: 'TEST_ANALYST_KEY',
+        modelOwnerModule: TEST_MODEL_OWNER_MODULE,
       },
       files: {
         costLedger: join(fixture.outDir, ANALYST_BENCHMARK_COST_LEDGER_FILE),
@@ -362,27 +362,45 @@ describe('runAnalystBenchmarkCommand', () => {
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
-  it('refuses credential-bearing base URLs before constructing the model runner', async () => {
+  it('refuses an execution-owner module without a call function', async () => {
     const fixture = await codeTraceFixture()
     const args = commandArgs(fixture)
-    args[args.indexOf('--base-url') + 1] = 'http://secret@127.0.0.1:3355/v1'
     const createAnalystRunner = vi.fn()
 
     await expect(
-      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner }),
-    ).rejects.toThrow(/without credentials/)
+      runAnalystBenchmarkCommand(
+        args,
+        {},
+        {
+          createAnalystRunner,
+          loadModelExecutionOwner: async () =>
+            ({ callRef: 'test-owner:invalid', recordExecution: () => undefined }) as never,
+        },
+      ),
+    ).rejects.toThrow(/model execution owner call must be a function/)
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 
-  it('refuses remote plain HTTP before constructing the model runner', async () => {
+  it('refuses an execution-owner module without a stable public identity', async () => {
     const fixture = await codeTraceFixture()
     const args = commandArgs(fixture)
-    args[args.indexOf('--base-url') + 1] = 'http://provider.example/v1'
     const createAnalystRunner = vi.fn()
 
     await expect(
-      runAnalystBenchmarkCommand(args, { TEST_ANALYST_KEY: 'unused' }, { createAnalystRunner }),
-    ).rejects.toThrow(/must use HTTPS unless/)
+      runAnalystBenchmarkCommand(
+        args,
+        {},
+        {
+          createAnalystRunner,
+          loadModelExecutionOwner: async () =>
+            ({
+              call: async () => undefined,
+              callRef: ' ',
+              recordExecution: () => undefined,
+            }) as never,
+        },
+      ),
+    ).rejects.toThrow(/callRef must be trimmed and non-empty/)
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
 

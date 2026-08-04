@@ -55,13 +55,45 @@ export function createPublicBenchmarkRlmRunner(
   }
   const pricing = config.pricing ?? pricingForModel(config.model)
   const engine = createDspyRlmTraceEngine({
-    baseUrl: config.baseUrl,
-    apiKey: config.apiKey,
+    call: config.call,
+    callRef: config.callRef,
+    recordExecution: config.recordExecution,
     model: config.model,
     maxOutputTokens: config.maxOutputTokens,
     timeoutMs: config.timeoutMs,
     maxCostUsd: config.maxCostUsdPerAnalysis ?? 1,
     pricing,
+    ...(config.maxReasoningTokens === undefined
+      ? {}
+      : { maxReasoningTokens: config.maxReasoningTokens }),
+    ...(config.maxModelRequestBytes === undefined
+      ? {}
+      : { maxModelRequestBytes: config.maxModelRequestBytes }),
+    ...(config.maxModelResponseBytes === undefined
+      ? {}
+      : { maxModelResponseBytes: config.maxModelResponseBytes }),
+    ...(config.modelRequestTimeoutMs === undefined
+      ? {}
+      : { modelRequestTimeoutMs: config.modelRequestTimeoutMs }),
+    ...(config.dspyRlm?.maxModelRequests === undefined
+      ? {}
+      : { maxModelRequests: config.dspyRlm.maxModelRequests }),
+    ...(config.dspyRlm?.traceToolRequestBytes === undefined &&
+    config.dspyRlm?.traceToolResponseBytes === undefined
+      ? {}
+      : {
+          traceToolLimits: {
+            ...(config.dspyRlm?.traceToolRequestBytes === undefined
+              ? {}
+              : { maxRequestBytes: config.dspyRlm.traceToolRequestBytes }),
+            ...(config.dspyRlm?.traceToolResponseBytes === undefined
+              ? {}
+              : { maxResponseBytes: config.dspyRlm.traceToolResponseBytes }),
+          },
+        }),
+    ...(config.dspyRlm?.traceToolTimeoutMs === undefined
+      ? {}
+      : { traceToolTimeoutMs: config.dspyRlm.traceToolTimeoutMs }),
     ...(config.dspyRlm?.runner ? { runner: config.dspyRlm.runner } : {}),
   } satisfies DspyRlmTraceEngineOptions)
   const instructions = config.instructionsOverride?.text ?? publicBenchmarkRlmInstructions(dataset)
@@ -305,7 +337,7 @@ export function createPublicBenchmarkRlmRunner(
         return {
           findings: [],
           usage,
-          error: publicBenchmarkError(error, [config.apiKey]),
+          error: publicBenchmarkError(error, []),
           metadata: {
             analysisMode: 'recursive',
             engine: 'dspy-rlm',

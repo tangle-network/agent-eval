@@ -71,9 +71,11 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
+  'src/campaign/external-optimizer-callback.ts',
   'src/campaign/external-optimizer-contracts.ts',
   'src/campaign/external-optimizer-http.ts',
   'src/campaign/external-optimizer-model-proxy.ts',
+  'src/campaign/external-optimizer-process.ts',
   'src/campaign/external-optimizer-resources.ts',
   'src/campaign/external-optimizer-subprocess.ts',
   'src/campaign/search-ledger-errors.ts',
@@ -115,7 +117,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '02ffe561616f79e62fcc3292ccd17cf55d5b385b8749367ce6b64e9f40586ac5'
+  'd317d9e7593ddc13f22a4a1e3d62d2fa1e4591395ef3984a0c7585a75794cf8d'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

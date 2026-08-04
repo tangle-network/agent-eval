@@ -10,10 +10,12 @@ import {
 } from './external-optimizer-observations'
 import {
   closeExternalOptimizerResources,
+  type ExternalOptimizerCallbackLimits,
   type ExternalOptimizerModelProxy,
   type ExternalOptimizerResumeMode,
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
+  resolveExternalOptimizerCallbackLimits,
   runExternalOptimizerProcess,
   runWithCleanup,
   startExternalOptimizerCallback,
@@ -102,6 +104,8 @@ export interface SkillOptOptimizationMethodConfig<TScenario extends Scenario, TA
   maxCandidateChars?: number
   /** Maximum serialized scenario plus evaluation evidence. Default: 100,000. */
   maxEvidenceChars?: number
+  /** Candidate-evaluation callback byte limits. Omitted fields use finite defaults. */
+  evaluationCallbackLimits?: Partial<ExternalOptimizerCallbackLimits>
   timeoutMs?: number
   describeScenario?: (scenario: TScenario) => unknown
   describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
@@ -176,6 +180,9 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         hardScoreThreshold: config.hardScoreThreshold ?? 1,
         maxCandidateChars,
         maxEvidenceChars,
+        evaluationCallbackLimits: resolveExternalOptimizerCallbackLimits(
+          config.evaluationCallbackLimits,
+        ),
         runner: externalOptimizerRunnerIdentity(bridgeRunner, 'agent_eval_rpc.skillopt_bridge'),
       }
       const compatibleRunId = externalOptimizerCompatibleRunKey(runMaterial)
@@ -223,6 +230,7 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         acceptEvaluation: () => runBudget.acceptEvaluation(),
         evaluate,
         observe: observationLog.observe,
+        ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
         ...(signal ? { signal } : {}),
       })
       const runnerEnv = bridgeRunner?.env ?? {}

@@ -3,6 +3,19 @@ import { describe, expect, it, vi } from 'vitest'
 import { CostLedger } from '../cost-ledger'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import { createDspyRlmTraceEngine } from './dspy-rlm-engine'
+import { testModelExecutionOwner } from './model-execution.test-support'
+
+const TEST_PRICING = { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }
+
+function dspyModelOwner(baseUrl: string, onExecution?: (observation: unknown) => void) {
+  return testModelExecutionOwner({
+    baseUrl,
+    bearer: 'provider-secret',
+    fetchImpl: fetch,
+    pricing: TEST_PRICING,
+    ...(onExecution ? { onExecution } : {}),
+  })
+}
 
 const CHILD_SCRIPT = `
 const fs = require('node:fs')
@@ -87,14 +100,13 @@ describe('createDspyRlmTraceEngine', () => {
         return { total_traces: 1 }
       },
     }
+    const modelExecutions: unknown[] = []
     const engine = createDspyRlmTraceEngine({
-      baseUrl: `http://127.0.0.1:${address.port}/v1`,
-      apiKey: 'provider-secret',
+      ...dspyModelOwner(`http://127.0.0.1:${address.port}/v1`, (observation) => {
+        modelExecutions.push(observation)
+      }),
       model: 'model-a',
-      pricing: {
-        inputUsdPerMillion: 1,
-        outputUsdPerMillion: 2,
-      },
+      pricing: TEST_PRICING,
       maxCostUsd: 0.1,
       maxOutputTokens: 64,
       runner: {
@@ -133,6 +145,13 @@ describe('createDspyRlmTraceEngine', () => {
       })
       expect(toolExecutions).toBe(1)
       expect(providerAuthorization).toBe('Bearer provider-secret')
+      expect(modelExecutions).toEqual([
+        expect.objectContaining({
+          callId: expect.any(String),
+          callRef: 'test-owner:fake-runtime',
+          succeeded: true,
+        }),
+      ])
       expect(ledger.list()).toEqual([
         expect.objectContaining({
           channel: 'analyst',
@@ -188,10 +207,9 @@ describe('createDspyRlmTraceEngine', () => {
     }
     const invalidFinding = { ...validFinding, subject: 'step:2' }
     const engine = createDspyRlmTraceEngine({
-      baseUrl: `http://127.0.0.1:${address.port}/v1`,
-      apiKey: 'provider-secret',
+      ...dspyModelOwner(`http://127.0.0.1:${address.port}/v1`),
       model: 'model-a',
-      pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+      pricing: TEST_PRICING,
       maxCostUsd: 0.1,
       maxOutputTokens: 64,
       runner: {
@@ -236,8 +254,7 @@ describe('createDspyRlmTraceEngine', () => {
   it('requires explicit pricing for an unknown model', () => {
     expect(() =>
       createDspyRlmTraceEngine({
-        baseUrl: 'https://provider.example/v1',
-        apiKey: 'secret',
+        ...dspyModelOwner('https://provider.example/v1'),
         model: 'unknown-model-with-no-pricing',
       }),
     ).toThrow("no pricing is configured for 'unknown-model-with-no-pricing'")

@@ -1,4 +1,8 @@
-import { assertJsonValue, assertNoCredentialValues } from './external-optimizer-process'
+import {
+  assertJsonValue,
+  assertNoCredentialValues,
+  resolveExternalOptimizerCallbackLimits,
+} from './external-optimizer-process'
 import { snapshotExternalOptimizerRunner } from './external-optimizer-run-config'
 import { assertOptimizerModel, snapshotOptimizerModel } from './optimizer-model'
 import type { SkillOptOptimizationMethodConfig } from './skillopt-optimization-method'
@@ -18,6 +22,9 @@ export function snapshotSkillOptOptimizationConfig<TScenario extends Scenario, T
     ...config,
     trainer: structuredClone(config.trainer),
     optimizer: snapshotOptimizerModel(config.optimizer),
+    ...(config.evaluationCallbackLimits
+      ? { evaluationCallbackLimits: { ...config.evaluationCallbackLimits } }
+      : {}),
     ...(runner ? { runner } : {}),
   }
 }
@@ -129,6 +136,10 @@ export function assertSkillOptOptimizationConfig<TScenario extends Scenario, TAr
     'optimizer',
   )
   assertOptimizerModel(config.optimizer, 'skillOptOptimizationMethod: optimizer')
+  resolveExternalOptimizerCallbackLimits(
+    config.evaluationCallbackLimits,
+    'skillOptOptimizationMethod: evaluationCallbackLimits',
+  )
   const evidenceLimit = config.maxEvidenceChars ?? SKILLOPT_DEFAULT_MAX_EVIDENCE_CHARS
   if (
     JSON.stringify(config.objective).length > evidenceLimit ||
