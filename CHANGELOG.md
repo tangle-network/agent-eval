@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.4] - 2026-08-04 - prompt-cache cohort alignment
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.5.0` and `0.43.1`, so Eval consumes the shared prompt-cache accounting contract used by Runtime and Knowledge.
+
 ## [0.144.3] - 2026-08-03 - exact profile matrix evidence
 
 ### Changed
