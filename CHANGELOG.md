@@ -20,6 +20,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- Runtime file-backed run contexts are now read by the supervisor-run parser instead of being mistaken for missing inline journals.
+- Agent-profile matrix expansion preserves the canonical `harness` field on every generated profile.
 - OpenAI-style nested prompt-cache fields and Anthropic-style separate cache-read and cache-creation fields are preserved and reconciled against the execution owner's receipt.
 - Negative, fractional, and unsafe reasoning-token allowances are rejected before they can understate a cost reservation.
 - The official optimizer model callback is invoked exactly once per admitted request; Agent Eval no longer hides a second retry policy inside its proxy.
