@@ -18,6 +18,8 @@ composition point already exists (see Produced-state grading below).**
 
 When variants of the same task run inside one `runCampaign`, give those scenarios the same `seedGroup` so each repetition uses common randomness.
 Use `runProfileMatrix` instead when profiles are separate campaign axes.
+Set `maxConcurrency` for cases within one profile and `maxProfileConcurrency` for independent profile columns; results retain caller order regardless of completion order.
+An execution profile may carry the provider-facing moving model alias only when each paid-call receipt supplies the related snapshot-bearing model stored in the resulting `RunRecord`.
 | `runAgentMatrix` | The bare N-axis cartesian scheduler with concurrency control. The layer beneath the eval surface: reach for it only when you need raw scheduling, not eval semantics. | cell results |
 
 Mental model: **measure** (`runCampaign`/`runEval`) → **factor** (`runProfileMatrix`) →
