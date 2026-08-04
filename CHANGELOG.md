@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.3] - 2026-08-03 - exact profile matrix evidence
+
+### Changed
+
+- Campaign cells expose every distinct agent receipt model in `resolvedModels` and expose `resolvedModel` only when all agent receipts agree.
+- Snapshot validation accepts Router `-MMDD` model snapshots while rejecting routing selectors such as `@preset/name`.
+
+### Fixed
+
+- `runProfileMatrix` rejects mismatched receipt models, multiple resolved snapshots within one profile, and duplicate profile identities before they can corrupt comparisons.
+- A failed profile campaign now cancels active sibling campaigns through their existing abort signals instead of allowing additional paid work to continue.
+- Profile campaign cache identity now includes the caller commit, optional `dispatchRef`, profile identity, and comparison config, so changed execution cannot reuse and relabel an old cell.
+
 ## [0.144.2] - 2026-08-03 - concurrent exact profile comparison
 
 ### Changed

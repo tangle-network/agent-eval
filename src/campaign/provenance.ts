@@ -577,6 +577,7 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
         costProvenance: cell.costProvenance,
         costCallIds: [...(cell.costCallIds ?? [])].sort(),
         tokenUsage: cell.tokenUsage,
+        resolvedModels: [...(cell.resolvedModels ?? [])].sort(),
         resolvedModel: cell.resolvedModel ?? null,
         durationMs: cell.durationMs,
         seed: cell.seed,

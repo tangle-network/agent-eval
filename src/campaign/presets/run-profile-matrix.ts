@@ -104,6 +104,9 @@ export interface RunProfileMatrixOptions<TScenario extends Scenario, TArtifact> 
   /** Git SHA the harness ran from — stamped onto every RunRecord (mandatory
    *  for paper-grade records). */
   commitSha: string
+  /** Additional stable identity for dispatch behavior that can change without
+   *  changing `commitSha`, such as a caller-owned executable or remote config. */
+  dispatchRef?: string
   /** Logical experiment id shared across the whole matrix so the promotion
    *  gate can pair profiles on matched scenarios. Default: a hash of the
    *  profile + scenario ids. */
@@ -229,35 +232,52 @@ interface BuildRecordArgs<TScenario extends Scenario, TArtifact> {
   ) => { prompt: string; completion: string } | undefined
 }
 
-/**
- * Resolve the concrete, snapshot-bearing model for a cell whose profile
- * declared a moving alias or `HARNESS_NATIVE_MODEL`. The dispatch must report it via
- * the model in a paid-call receipt — surfaced as `cell.resolvedModel`. Throws when it is
- * missing or lacks a snapshot, so a provenance-broken row can never be
- * recorded as the bare sentinel.
- */
-function requireResolvedModel(
+function receiptModels(cell: CampaignCellResult<unknown>): string[] {
+  const reported = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+  return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
+}
+
+/** Resolve and validate every paid-call model used by one cell. */
+function recordModel(
   cell: CampaignCellResult<unknown>,
   profileId: string,
   declaredModel: string,
 ): string {
-  const resolved = cell.resolvedModel?.trim()
-  if (!resolved) {
+  const reported = receiptModels(cell)
+  if (modelHasSnapshot(declaredModel)) {
+    for (const model of reported) {
+      if (model !== declaredModel) {
+        throw new ProfileMatrixError(
+          `profile '${profileId}' paid-call model '${model}' for cell '${cell.cellId}' does not match its declared exact model '${declaredModel}'`,
+        )
+      }
+    }
+    return declaredModel
+  }
+
+  if (reported.length === 0) {
     throw new ProfileMatrixError(
       `profile '${profileId}' declared a moving model but its dispatch reported no resolved model for cell '${cell.cellId}' — return a snapshot-bearing model in the ctx.cost.runPaidCall receipt`,
     )
   }
-  if (!modelHasSnapshot(resolved)) {
+  for (const model of reported) {
+    if (!modelHasSnapshot(model)) {
+      throw new ProfileMatrixError(
+        `profile '${profileId}' resolved to model '${model}' for cell '${cell.cellId}', which lacks a snapshot version — pin it in the paid-call receipt`,
+      )
+    }
+    if (declaredModel !== HARNESS_NATIVE_MODEL && !sameMovingModel(declaredModel, model)) {
+      throw new ProfileMatrixError(
+        `profile '${profileId}' declared model '${declaredModel}' but cell '${cell.cellId}' reported unrelated snapshot '${model}'`,
+      )
+    }
+  }
+  if (reported.length !== 1) {
     throw new ProfileMatrixError(
-      `profile '${profileId}' resolved to model '${resolved}' for cell '${cell.cellId}', which lacks a snapshot version — pin it (name@YYYY-MM-DD or name-YYYYMMDD) in the paid-call receipt`,
+      `profile '${profileId}' cell '${cell.cellId}' reported multiple paid-call model snapshots: ${reported.join(', ')}`,
     )
   }
-  if (declaredModel !== HARNESS_NATIVE_MODEL && !sameMovingModel(declaredModel, resolved)) {
-    throw new ProfileMatrixError(
-      `profile '${profileId}' declared model '${declaredModel}' but cell '${cell.cellId}' reported unrelated snapshot '${resolved}'`,
-    )
-  }
-  return resolved
+  return reported[0]!
 }
 
 function sameMovingModel(declared: string, resolved: string): boolean {
@@ -265,25 +285,13 @@ function sameMovingModel(declared: string, resolved: string): boolean {
     .replace(/@[^/]+$/u, '')
     .replace(/-\d{8}$/u, '')
     .replace(/-\d{4}-\d{2}-\d{2}$/u, '')
+    .replace(/-\d{4}$/u, '')
     .replace(/:date-[^/]+$/u, '')
   return (
     resolvedBase === declared ||
     resolvedBase.endsWith(`/${declared}`) ||
     declared.endsWith(`/${resolvedBase}`)
   )
-}
-
-/** Resolve the immutable model identity written to one record. A moving provider alias may
- * execute, but it is never acceptable evidence unless the paid-call receipt names the pinned
- * snapshot that actually served the request. */
-function recordModel(
-  cell: CampaignCellResult<unknown>,
-  profileId: string,
-  declaredModel: string,
-): string {
-  return modelHasSnapshot(declaredModel)
-    ? declaredModel
-    : requireResolvedModel(cell, profileId, declaredModel)
 }
 
 function buildRunRecord<TScenario extends Scenario, TArtifact>(
@@ -340,10 +348,26 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   const integrityMode = opts.integrity ?? 'assert'
   const maxProfileConcurrency = opts.maxProfileConcurrency ?? 1
   const profileIds = opts.profiles.map(agentProfileId)
+  if (opts.dispatchRef !== undefined && opts.dispatchRef.trim().length === 0) {
+    throw new ProfileMatrixError('dispatchRef must be a non-empty string when provided')
+  }
+  const duplicateProfileIds = profileIds.filter((id, index) => profileIds.indexOf(id) !== index)
+  if (duplicateProfileIds.length > 0) {
+    throw new ProfileMatrixError(
+      `duplicate agentProfileId values are not allowed: ${[...new Set(duplicateProfileIds)].join(', ')}`,
+    )
+  }
   const experimentId =
     opts.experimentId ??
     `pm_${sha({ profileIds, scenarios: opts.scenarios.map((s) => s.id) }).slice(0, 16)}`
-  const matrixId = `mtx_${sha({ experimentId, profileIds, seed, splitTag }).slice(0, 16)}`
+  const matrixId = `mtx_${sha({
+    experimentId,
+    profileIds,
+    seed,
+    splitTag,
+    commitSha: opts.commitSha,
+    dispatchRef: opts.dispatchRef ?? null,
+  }).slice(0, 16)}`
   // Scenario lookup for the corpus-text extractor (records carry trajectory text).
   const scenarioById = new Map(opts.scenarios.map((s) => [s.id, s]))
 
@@ -389,103 +413,123 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   const campaigns: Record<string, CampaignResult<TArtifact, TScenario>> = {}
   const byProfile: Record<string, ProfileSummary> = {}
 
-  const columns = await mapConcurrent(opts.profiles, maxProfileConcurrency, async (profile) => {
-    const profileHash = agentProfileHash(profile)
-    const profileId = agentProfileId(profile)
-    const declaredModel = agentProfileModelId(profile)
-    const configHash = sha({
-      profile: profileHash,
-      judges: (opts.judges ?? []).map((j) => j.name),
-      seed,
-      splitTag,
-    })
-
-    // Bind the profile into a campaign dispatch. Name it so the campaign's
-    // manifest hash is stable + distinct per profile.
-    const dispatch = (scenario: TScenario, ctx: DispatchContext): Promise<TArtifact> =>
-      opts.dispatch(profile, scenario, ctx)
-    Object.defineProperty(dispatch, 'name', { value: `profile_${sanitize(profileId)}` })
-
-    const campaign = await runCampaign<TScenario, TArtifact>({
-      scenarios: opts.scenarios,
-      dispatch,
-      judges: opts.judges,
-      seed,
-      reps: opts.reps,
-      maxConcurrency: opts.maxConcurrency,
-      costCeiling: opts.costCeiling,
-      labeledStore: opts.labeledStore,
-      captureSource: opts.captureSource,
-      storage: opts.storage,
-      now: opts.now,
-      runDir: join(opts.runDir, sanitize(profileId)),
-    })
-
-    // The canonical (profile, harness, model) identity for every record in this
-    // column, so results group by `groupRunsByAgentProfileCell` (harness/model
-    // aware). Harness comes from the axis stamp `expandProfileAxes` left on the
-    // profile; a profile that wasn't axis-expanded simply has no harness in its
-    // cell (unchanged grouping). A moving model alias means the cell identity
-    // must carry the resolved snapshot per cell (surfaced via
-    // `cell.resolvedModel`), so the pivot groups by the model that actually ran and
-    // the cell identity matches the RunRecord's pinned model.
-    const axis = harnessAxisOf(profile)
-    const buildCellIdentity = (cellModel: string): Promise<AgentProfileCell> =>
-      buildAgentProfileCell({
-        profileId,
-        sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
-        model: cellModel,
-        ...(axis ? { harness: { id: axis.harness } } : {}),
+  const columns = await mapConcurrent(
+    opts.profiles,
+    maxProfileConcurrency,
+    async (profile, _index, signal) => {
+      const profileHash = agentProfileHash(profile)
+      const profileId = agentProfileId(profile)
+      const declaredModel = agentProfileModelId(profile)
+      const configHash = sha({
+        profile: profileHash,
+        judges: (opts.judges ?? []).map((j) => j.name),
+        seed,
+        splitTag,
+        dispatchRef: opts.dispatchRef ?? null,
       })
-    // A profile with a pinned declared model builds its cell identity once and
-    // shares it; a moving alias builds one per cell after resolution.
-    const sharedCellIdentity = modelHasSnapshot(declaredModel)
-      ? await buildCellIdentity(declaredModel)
-      : undefined
-
-    const profileRecords: RunRecord[] = []
-    for (const cell of campaign.cells) {
-      const agentProfileCell =
-        sharedCellIdentity ?? (await buildCellIdentity(recordModel(cell, profileId, declaredModel)))
-      const record = buildRunRecord({
-        cell,
-        profile,
+      const dispatchRef = `profile-matrix:${sha({
+        commitSha: opts.commitSha,
+        caller: opts.dispatchRef ?? null,
+        profileId,
         profileHash,
         configHash,
-        experimentId,
-        splitTag,
-        commitSha: opts.commitSha,
-        matrixId,
-        agentProfileCell,
-        scenario: scenarioById.get(cell.scenarioId),
-        corpusText: opts.corpusText,
-      })
-      if (validate) validateRunRecord(record)
-      profileRecords.push(record)
-    }
+      })}`
 
-    const costProvenance = campaign.aggregates.cost.costProvenance
-    const totalCostUsd = costProvenance.kind === 'uncaptured' ? null : costProvenance.usd
-    return {
-      profileId,
-      campaign,
-      records: profileRecords,
-      summary: {
+      // Bind the profile into a campaign dispatch. Name it so the campaign's
+      // manifest hash is stable + distinct per profile.
+      const dispatch = (scenario: TScenario, ctx: DispatchContext): Promise<TArtifact> =>
+        opts.dispatch(profile, scenario, ctx)
+      Object.defineProperty(dispatch, 'name', { value: `profile_${sanitize(profileId)}` })
+
+      const campaign = await runCampaign<TScenario, TArtifact>({
+        scenarios: opts.scenarios,
+        dispatch,
+        dispatchRef,
+        signal,
+        judges: opts.judges,
+        seed,
+        reps: opts.reps,
+        maxConcurrency: opts.maxConcurrency,
+        costCeiling: opts.costCeiling,
+        labeledStore: opts.labeledStore,
+        captureSource: opts.captureSource,
+        storage: opts.storage,
+        now: opts.now,
+        runDir: join(opts.runDir, sanitize(profileId)),
+      })
+
+      // The canonical (profile, harness, model) identity for every record in this
+      // column, so results group by `groupRunsByAgentProfileCell` (harness/model
+      // aware). Harness comes from the axis stamp `expandProfileAxes` left on the
+      // profile; a profile that wasn't axis-expanded simply has no harness in its
+      // cell (unchanged grouping). A moving model alias means the cell identity
+      // must carry the resolved snapshot per cell (surfaced via
+      // `cell.resolvedModels`), so the pivot groups by the model that actually ran and
+      // the cell identity matches the RunRecord's pinned model.
+      const axis = harnessAxisOf(profile)
+      const buildCellIdentity = (cellModel: string): Promise<AgentProfileCell> =>
+        buildAgentProfileCell({
+          profileId,
+          sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
+          model: cellModel,
+          ...(axis ? { harness: { id: axis.harness } } : {}),
+        })
+      // A profile with a pinned declared model builds its cell identity once and
+      // shares it; a moving alias builds one per cell after resolution.
+      const sharedCellIdentity = modelHasSnapshot(declaredModel)
+        ? await buildCellIdentity(declaredModel)
+        : undefined
+
+      const profileRecords: RunRecord[] = []
+      for (const cell of campaign.cells) {
+        const agentProfileCell =
+          sharedCellIdentity ??
+          (await buildCellIdentity(recordModel(cell, profileId, declaredModel)))
+        const record = buildRunRecord({
+          cell,
+          profile,
+          profileHash,
+          configHash,
+          experimentId,
+          splitTag,
+          commitSha: opts.commitSha,
+          matrixId,
+          agentProfileCell,
+          scenario: scenarioById.get(cell.scenarioId),
+          corpusText: opts.corpusText,
+        })
+        if (validate) validateRunRecord(record)
+        profileRecords.push(record)
+      }
+
+      const recordedModels = [...new Set(profileRecords.map((record) => record.model))]
+      if (recordedModels.length > 1) {
+        throw new ProfileMatrixError(
+          `profile '${profileId}' resolved to multiple model snapshots: ${recordedModels.join(', ')}`,
+        )
+      }
+
+      const costProvenance = campaign.aggregates.cost.costProvenance
+      const totalCostUsd = costProvenance.kind === 'uncaptured' ? null : costProvenance.usd
+      return {
         profileId,
-        profileHash,
-        model: modelHasSnapshot(declaredModel)
-          ? declaredModel
-          : (profileRecords[0]?.model ?? declaredModel),
-        records: profileRecords.length,
-        meanComposite: meanOrNull(
-          profileRecords.map(scoreOf).filter((score): score is number => score !== undefined),
-        ),
-        totalCostUsd,
-        costProvenance,
-        integrity: summarizeBackendIntegrity(profileRecords),
-      },
-    }
-  })
+        campaign,
+        records: profileRecords,
+        summary: {
+          profileId,
+          profileHash,
+          model: recordedModels[0] ?? declaredModel,
+          records: profileRecords.length,
+          meanComposite: meanOrNull(
+            profileRecords.map(scoreOf).filter((score): score is number => score !== undefined),
+          ),
+          totalCostUsd,
+          costProvenance,
+          integrity: summarizeBackendIntegrity(profileRecords),
+        },
+      }
+    },
+  )
 
   // Merge in caller order so concurrency cannot change output or report ordering.
   for (const column of columns) {

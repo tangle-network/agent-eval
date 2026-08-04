@@ -482,6 +482,194 @@ describe('runProfileMatrix', () => {
     ).rejects.toThrow(/reported unrelated snapshot/u)
   })
 
+  it('rejects every mismatched paid-call model even when the last receipt matches a pinned profile', async () => {
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [PROFILES[0]!],
+        scenarios: [SCENARIOS[0]!],
+        reps: 1,
+        dispatch: async (profile, scenario, ctx) => {
+          await paidArtifact(ctx, undefined, {
+            model: 'other-model@2026-08-01',
+            inputTokens: 5,
+            outputTokens: 1,
+            actualCostUsd: 0.001,
+          })
+          return paidArtifact(
+            ctx,
+            { text: `${profile.name}:${scenario.id}` },
+            {
+              model: 'test-model@2025-01-01',
+              inputTokens: 5,
+              outputTokens: 1,
+              actualCostUsd: 0.001,
+            },
+          )
+        },
+      }),
+    ).rejects.toThrow(/paid-call model 'other-model@2026-08-01'.*does not match/u)
+  })
+
+  it('rejects multiple resolved snapshots across cells in one moving profile', async () => {
+    const moving: AgentProfile = {
+      name: 'moving',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [moving],
+        scenarios: SCENARIOS.slice(0, 2),
+        reps: 1,
+        dispatch: async (profile, scenario, ctx) =>
+          paidArtifact(
+            ctx,
+            { text: `${profile.name}:${scenario.id}` },
+            {
+              model:
+                scenario.id === 's1'
+                  ? 'deepseek/deepseek-v4-flash-0731'
+                  : 'deepseek/deepseek-v4-flash-0801',
+              inputTokens: 12,
+              outputTokens: 3,
+              actualCostUsd: 0.001,
+            },
+          ),
+      }),
+    ).rejects.toThrow(/resolved to multiple model snapshots/u)
+  })
+
+  it('rejects duplicate profile ids before dispatch', async () => {
+    let calls = 0
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [PROFILES[0]!, PROFILES[0]!],
+        dispatch: async (profile, scenario, ctx) => {
+          calls += 1
+          return realDispatch(profile, scenario, ctx)
+        },
+      }),
+    ).rejects.toThrow(/duplicate agentProfileId/u)
+    expect(calls).toBe(0)
+  })
+
+  it('cancels a paid sibling profile campaign when another profile fails model validation', async () => {
+    const profiles: AgentProfile[] = [
+      { name: 'bad', model: { default: 'gpt-4o' } },
+      { name: 'slow', model: { default: 'test-model@2025-01-01' } },
+      { name: 'not-started', model: { default: 'test-model@2025-01-01' } },
+    ]
+    const started: string[] = []
+    let markSlowStarted: (() => void) | undefined
+    const slowStarted = new Promise<void>((resolve) => {
+      markSlowStarted = resolve
+    })
+    let slowCancelled = false
+
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles,
+        scenarios: [SCENARIOS[0]!],
+        reps: 1,
+        maxProfileConcurrency: 2,
+        dispatch: async (profile, scenario, ctx) => {
+          started.push(profile.name!)
+          if (profile.name === 'bad') {
+            await slowStarted
+            return paidArtifact(
+              ctx,
+              { text: `${profile.name}:${scenario.id}` },
+              {
+                model: 'unrelated-model@2026-08-01',
+                inputTokens: 12,
+                outputTokens: 3,
+                actualCostUsd: 0.001,
+              },
+            )
+          }
+          const paid = await ctx.cost.runPaidCall({
+            actor: 'slow-worker',
+            model: 'test-model@2025-01-01',
+            execute: (signal) =>
+              new Promise<FakeArtifact>((_resolve, reject) => {
+                markSlowStarted?.()
+                const stop = () => {
+                  slowCancelled = true
+                  reject(signal.reason instanceof Error ? signal.reason : new Error('cancelled'))
+                }
+                if (signal.aborted) stop()
+                else signal.addEventListener('abort', stop, { once: true })
+              }),
+            receipt: () => ({
+              model: 'test-model@2025-01-01',
+              inputTokens: 0,
+              outputTokens: 0,
+              actualCostUsd: 0,
+            }),
+          })
+          if (!paid.succeeded) throw paid.error
+          return paid.value
+        },
+      }),
+    ).rejects.toThrow(/reported unrelated snapshot/u)
+
+    expect(slowCancelled).toBe(true)
+    expect(started).toEqual(['bad', 'slow'])
+  })
+
+  it('does not reuse cached cells across different caller commits', async () => {
+    const storage = inMemoryCampaignStorage()
+    const profile = PROFILES[0]!
+    let calls = 0
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      candidate,
+      scenario,
+      ctx,
+    ) => {
+      calls += 1
+      return paidArtifact(
+        ctx,
+        { text: `${candidate.name}:${scenario.id}:${calls}` },
+        {
+          model: 'test-model@2025-01-01',
+          inputTokens: 12,
+          outputTokens: 3,
+          actualCostUsd: 0.001,
+        },
+      )
+    }
+    const common = {
+      ...baseOpts(),
+      profiles: [profile],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      storage,
+      dispatch,
+    }
+
+    const first = await runProfileMatrix({ ...common, commitSha: 'commit-one' })
+    const second = await runProfileMatrix({ ...common, commitSha: 'commit-two' })
+    const externalChange = await runProfileMatrix({
+      ...common,
+      commitSha: 'commit-two',
+      dispatchRef: 'remote-executor-v2',
+    })
+
+    expect(calls).toBe(3)
+    expect(first.campaigns[agentProfileId(profile)]!.manifestHash).not.toBe(
+      second.campaigns[agentProfileId(profile)]!.manifestHash,
+    )
+    expect(second.campaigns[agentProfileId(profile)]!.manifestHash).not.toBe(
+      externalChange.campaigns[agentProfileId(profile)]!.manifestHash,
+    )
+    expect(second.campaigns[agentProfileId(profile)]!.cells[0]!.cached).toBe(false)
+    expect(second.records[0]!.commitSha).toBe('commit-two')
+    expect(second.records[0]!.configHash).not.toBe(externalChange.records[0]!.configHash)
+  })
+
   it('runs independent profile campaigns at caller-controlled concurrency and preserves order', async () => {
     const profiles: AgentProfile[] = ['one', 'two', 'three'].map((name) => ({
       name,

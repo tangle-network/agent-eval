@@ -40,6 +40,7 @@
  */
 
 import {
+  modelHasSnapshot,
   type RunCostProvenance,
   type RunRecord,
   type RunSplitTag,
@@ -633,12 +634,4 @@ function ensureSnapshot(model: string, fallbackModel: string): string {
     ? fallbackModel.slice(fallbackModel.indexOf('@'))
     : '@otlp'
   return `${model}${fallbackTag}`
-}
-
-function modelHasSnapshot(model: string): boolean {
-  if (model.includes('@')) return true
-  if (/-\d{8}$/.test(model)) return true
-  if (/-\d{4}-\d{2}-\d{2}$/.test(model)) return true
-  if (/:date-/.test(model)) return true
-  return false
 }

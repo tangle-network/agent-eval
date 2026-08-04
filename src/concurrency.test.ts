@@ -30,6 +30,7 @@ describe('mapConcurrent', () => {
     let releaseFailure: (() => void) | undefined
     let releaseInFlight: (() => void) | undefined
     let releaseStarted: (() => void) | undefined
+    let inFlightSignal: AbortSignal | undefined
     const failNow = new Promise<void>((resolve) => {
       releaseFailure = resolve
     })
@@ -41,7 +42,7 @@ describe('mapConcurrent', () => {
     })
 
     let settled = false
-    const run = mapConcurrent([0, 1, 2, 3], 2, async (_value, index) => {
+    const run = mapConcurrent([0, 1, 2, 3], 2, async (_value, index, signal) => {
       started.push(index)
       if (started.length === 2) releaseStarted?.()
       await bothStarted
@@ -49,6 +50,7 @@ describe('mapConcurrent', () => {
         await failNow
         throw firstError
       }
+      inFlightSignal = signal
       await finishInFlight
       return index
     })
@@ -70,6 +72,7 @@ describe('mapConcurrent', () => {
     releaseInFlight?.()
     const outcome = await run
     expect(outcome).toEqual({ status: 'rejected', error: firstError })
+    expect(inFlightSignal?.aborted).toBe(true)
     expect(started).toEqual([0, 1])
   })
 
