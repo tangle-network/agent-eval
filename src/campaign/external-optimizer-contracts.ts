@@ -1,12 +1,49 @@
+import { constants as bufferConstants } from 'node:buffer'
+import type { ChatRequest, ChatResponse } from '../analyst/chat-client'
 import type { CustomTokenPricing } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
+const MAXIMUM_JSON_BYTES = Math.min(
+  bufferConstants.MAX_LENGTH - 1,
+  bufferConstants.MAX_STRING_LENGTH,
+)
+
+export interface ExternalOptimizerProcessLimits {
+  /** Maximum serialized input written for the child process. */
+  maxInputBytes: number
+  /** Maximum JSON result read from the child process. */
+  maxResultBytes: number
+  /** Maximum stdout or stderr characters retained for diagnostics. */
+  maxOutputChars: number
+}
+
+export const DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS: Readonly<ExternalOptimizerProcessLimits> =
+  Object.freeze({
+    maxInputBytes: 64 * 1024 * 1024,
+    maxResultBytes: 4 * 1024 * 1024,
+    maxOutputChars: 64_000,
+  })
+
+export interface ExternalOptimizerCallbackLimits {
+  /** Maximum serialized request accepted by the loopback callback. */
+  maxRequestBytes: number
+  /** Maximum serialized response returned by the loopback callback. */
+  maxResponseBytes: number
+}
+
+export const DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS: Readonly<ExternalOptimizerCallbackLimits> =
+  Object.freeze({
+    maxRequestBytes: 1_000_000,
+    maxResponseBytes: 4_000_000,
+  })
 
 export interface ExternalOptimizerRunnerCommand {
   command?: string
   args?: readonly string[]
   env?: NodeJS.ProcessEnv
+  /** Child-process resource limits. Omitted fields use finite defaults. */
+  limits?: Partial<ExternalOptimizerProcessLimits>
 }
 
 export type ExternalOptimizerResumeMode = 'never' | 'if-compatible' | 'required'
@@ -25,11 +62,72 @@ export interface ExternalOptimizerCallback {
   close: () => Promise<void>
 }
 
+export function resolveExternalOptimizerProcessLimits(
+  value: Partial<ExternalOptimizerProcessLimits> | undefined,
+  label = 'external optimizer process limits',
+): ExternalOptimizerProcessLimits {
+  const resolved = {
+    ...DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS,
+    ...value,
+  }
+  assertBoundedPositiveInteger(resolved.maxInputBytes, `${label}.maxInputBytes`, MAXIMUM_JSON_BYTES)
+  assertBoundedPositiveInteger(
+    resolved.maxResultBytes,
+    `${label}.maxResultBytes`,
+    MAXIMUM_JSON_BYTES,
+  )
+  assertBoundedPositiveInteger(
+    resolved.maxOutputChars,
+    `${label}.maxOutputChars`,
+    bufferConstants.MAX_STRING_LENGTH,
+  )
+  return resolved
+}
+
+export function resolveExternalOptimizerCallbackLimits(
+  value: Partial<ExternalOptimizerCallbackLimits> | undefined,
+  label = 'external optimizer callback limits',
+): ExternalOptimizerCallbackLimits {
+  const resolved = {
+    ...DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
+    ...value,
+  }
+  assertBoundedPositiveInteger(
+    resolved.maxRequestBytes,
+    `${label}.maxRequestBytes`,
+    MAXIMUM_JSON_BYTES,
+  )
+  assertBoundedPositiveInteger(
+    resolved.maxResponseBytes,
+    `${label}.maxResponseBytes`,
+    MAXIMUM_JSON_BYTES,
+  )
+  return resolved
+}
+
+type DeepReadonly<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends readonly (infer U)[]
+    ? readonly DeepReadonly<U>[]
+    : T extends object
+      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+      : T
+
+/** Provider-neutral request parsed once from the optimizer's loopback protocol. */
+export type ExternalOptimizerChatRequest = DeepReadonly<
+  Omit<ChatRequest, 'model'> & { model: string }
+>
+
+export type ExternalOptimizerEndpointFormat = 'chat-completions' | 'responses'
+
 /** One exact model request admitted by the loopback proxy. */
 export interface ExternalOptimizerModelCallRequest {
-  readonly path: '/v1/chat/completions' | '/v1/responses'
-  readonly model: string
-  readonly body: Readonly<Record<string, unknown>>
+  /** Stable identity allocated by the cost ledger for this paid call. */
+  readonly callId: string
+  /** Deeply immutable canonical request; HTTP protocol fields never cross this boundary. */
+  readonly request: ExternalOptimizerChatRequest
+  /** Child response shape, when the execution owner needs to retain it as evidence. */
+  readonly endpointFormat?: ExternalOptimizerEndpointFormat
   readonly signal: AbortSignal
 }
 
@@ -37,9 +135,14 @@ export interface ExternalOptimizerModelCallRequest {
 export type ExternalOptimizerModelCallResult =
   | {
       readonly succeeded: true
-      /** OpenAI-compatible response forwarded unchanged to the optimizer process. */
-      readonly response: Response
-      /** Canonical measured usage/cost input retained by Agent Eval's cost ledger. */
+      /** Canonical response encoded back into the child's protocol by Agent Eval. */
+      readonly response: ChatResponse
+      /**
+       * Canonical measured usage/cost input retained by Agent Eval's cost ledger.
+       * `inputTokens` is the non-cached portion, `cachedTokens` is the cache-read
+       * portion, and response `promptTokens` equals their sum. Cache-write tokens
+       * remain a separately billed class and are never silently added to that total.
+       */
       readonly receipt: import('../cost-ledger').CostReceiptInput
       /** Opaque, finite JSON proof of the exact execution retained in provenance. */
       readonly execution: unknown
@@ -72,8 +175,9 @@ export type ExternalOptimizerModelCall = (
 export type ExternalOptimizerModelExecutionObservation =
   | {
       readonly sequence: number
+      readonly callId: string
       readonly callRef: string
-      readonly path: ExternalOptimizerModelCallRequest['path']
+      readonly path: '/v1/chat/completions' | '/v1/responses'
       readonly model: string
       readonly succeeded: true
       readonly responseStatus: number
@@ -81,8 +185,9 @@ export type ExternalOptimizerModelExecutionObservation =
     }
   | {
       readonly sequence: number
+      readonly callId: string
       readonly callRef: string
-      readonly path: ExternalOptimizerModelCallRequest['path']
+      readonly path: '/v1/chat/completions' | '/v1/responses'
       readonly model: string
       readonly succeeded: false
       readonly error: string
@@ -167,6 +272,8 @@ export interface ExternalOptimizerModelProxy {
   successfulCompletions: () => number
   /** Fail if an invoked caller-owned model path omitted its execution record. */
   assertExecutionComplete: () => void
+  /** Failures retained by the proxy after converting them to loopback responses. */
+  failures: () => readonly Error[]
   close: () => Promise<void>
 }
 
@@ -250,14 +357,22 @@ export function assertExternalOptimizerModelBudget(
   }
   for (const [field, entry] of [
     ['maxRequests', value.maxRequests],
-    ['maxRequestBytes', value.maxRequestBytes],
-    ['maxResponseBytes', value.maxResponseBytes],
     ['maxOutputTokensPerRequest', value.maxOutputTokensPerRequest],
   ] as const) {
     if (!Number.isSafeInteger(entry) || entry <= 0) {
       throw new Error(`${label}.${field} must be a positive safe integer`)
     }
   }
+  assertBoundedPositiveInteger(
+    value.maxRequestBytes,
+    `${label}.maxRequestBytes`,
+    MAXIMUM_JSON_BYTES,
+  )
+  assertBoundedPositiveInteger(
+    value.maxResponseBytes,
+    `${label}.maxResponseBytes`,
+    MAXIMUM_JSON_BYTES,
+  )
   if (
     value.maxReasoningTokensPerRequest !== undefined &&
     (!Number.isSafeInteger(value.maxReasoningTokensPerRequest) ||
@@ -289,6 +404,12 @@ export function assertExternalOptimizerModelBudget(
 
 export function safePathComponent(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
+}
+
+function assertBoundedPositiveInteger(value: number, label: string, maximum: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new Error(`${label} must be an integer between 1 and ${maximum}`)
+  }
 }
 
 function isCredentialKey(key: string): boolean {

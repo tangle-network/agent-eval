@@ -41,6 +41,16 @@ RUNTIME = {
 }
 
 
+def test_read_json_enforces_the_caller_selected_input_limit(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.json"
+    input_path.write_text(json.dumps({"value": "x" * 100}))
+
+    with pytest.raises(ValueError, match="exceeds 20 bytes"):
+        dspy_rlm_bridge._read_json(input_path, 20)
+
+    assert dspy_rlm_bridge._read_json(input_path, 1_000) == {"value": "x" * 100}
+
+
 def test_inspect_reports_pinned_runtime_and_private_atomic_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -388,7 +398,7 @@ def test_fixed_trace_tools_send_authenticated_callback_payloads(
 
     monkeypatch.setattr(httpx, "post", fake_post)
     function = getattr(dspy_rlm_bridge, function_name)
-    with dspy_rlm_bridge._tool_callback("http://127.0.0.1:9000/call", "secret-token"):
+    with dspy_rlm_bridge._tool_callback("http://127.0.0.1:9000/call", "secret-token", 60.0):
         assert function(**kwargs) == {"ok": True}
 
     assert observed == [
@@ -474,6 +484,7 @@ def _write_analyze_input(tmp_path: Path) -> tuple[Path, Path]:
                 "toolCallback": {
                     "url": "http://127.0.0.1:8124/call",
                     "token": "callback-token",
+                    "timeoutMs": 60_000,
                 },
                 "limits": {
                     "maxIterations": 4,

@@ -6,6 +6,25 @@ import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
+import { testModelExecutionOwner } from './model-execution.test-support'
+
+const TEST_PRICING = { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }
+
+function rlmModelOwner(baseUrl: string, fallbackFetch?: typeof fetch) {
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    if (fallbackFetch && body.response_format !== undefined) {
+      return fallbackFetch(input, init)
+    }
+    return fetch(input, init)
+  }) as typeof fetch
+  return testModelExecutionOwner({
+    baseUrl,
+    bearer: 'provider-secret',
+    fetchImpl,
+    pricing: TEST_PRICING,
+  })
+}
 
 const CHILD_SCRIPT = `
 const fs = require('node:fs')
@@ -147,14 +166,12 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: { runner: { command: process.execPath, args: ['-e', childScript('[]'), '--'] } },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -196,14 +213,12 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: { runner: { command: process.execPath, args: ['-e', childScript('[]'), '--'] } },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -225,14 +240,12 @@ describe('createPublicBenchmarkRlmRunner', () => {
     const fallbackFetch = vi.fn() as typeof fetch
 
     const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-      baseUrl: 'http://127.0.0.1:9/v1',
-      apiKey: 'provider-secret',
+      ...rlmModelOwner('http://127.0.0.1:9/v1', fallbackFetch),
       model: 'glm-5.2',
       maxOutputTokens: 64,
       timeoutMs: 5_000,
-      pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+      pricing: TEST_PRICING,
       dspyRlm: { runner: { command: process.execPath, args: ['-e', FAILING_CHILD_SCRIPT, '--'] } },
-      fetchImpl: fallbackFetch,
     })
     const output = await runner.analyze(
       { traceStore: singleTraceStore(traceId, spans) },
@@ -270,16 +283,14 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: {
           runner: { command: process.execPath, args: ['-e', childScript(bridgeFindings), '--'] },
         },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -358,17 +369,15 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: {
           samples: 3,
           runner: { command: process.execPath, args: ['-e', script, '--'] },
         },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -500,17 +509,15 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: {
           samples: 3,
           runner: { command: process.execPath, args: ['-e', script, '--'] },
         },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -554,17 +561,15 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: {
           samples: 3,
           runner: { command: process.execPath, args: ['-e', script, '--'] },
         },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -604,17 +609,15 @@ describe('createPublicBenchmarkRlmRunner', () => {
 
     try {
       const runner = createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl,
-        apiKey: 'provider-secret',
+        ...rlmModelOwner(baseUrl, fallbackFetch),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: {
           samples: 1,
           runner: { command: process.execPath, args: ['-e', childScript(bridgeFindings), '--'] },
         },
-        fetchImpl: fallbackFetch,
       })
       const output = await runner.analyze(
         { traceStore: singleTraceStore(traceId, spans) },
@@ -639,12 +642,11 @@ describe('createPublicBenchmarkRlmRunner', () => {
   it('refuses consensus sampling outside CodeTraceBench', () => {
     expect(() =>
       createPublicBenchmarkRlmRunner('agentrx', {
-        baseUrl: 'http://127.0.0.1:9/v1',
-        apiKey: 'provider-secret',
+        ...rlmModelOwner('http://127.0.0.1:9/v1'),
         model: 'glm-5.2',
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        pricing: TEST_PRICING,
         dspyRlm: { samples: 2 },
       }),
     ).toThrow(/requires the codetracebench dataset/)

@@ -205,6 +205,7 @@ def _write_codetrace_input(tmp_path: Path, *, instructions: str = CODETRACE_INST
                 "toolCallback": {
                     "url": "http://127.0.0.1:8124/call",
                     "token": "callback-token",
+                    "timeoutMs": 60_000,
                 },
                 "limits": {"maxIterations": 4, "maxLlmCalls": 6, "maxOutputChars": 8_000},
                 "toolSpecs": [

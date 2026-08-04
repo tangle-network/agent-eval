@@ -1,4 +1,8 @@
-import type { ExternalOptimizerRunnerCommand } from '../campaign/external-optimizer-contracts'
+import type {
+  ExternalOptimizerModelCall,
+  ExternalOptimizerModelExecutionObservation,
+  ExternalOptimizerRunnerCommand,
+} from '../campaign/external-optimizer-contracts'
 import type { CostLedgerHandle, CustomTokenPricing } from '../cost-ledger'
 import type { AnalystBenchmarkCase } from './benchmark'
 import type { VerificationArtifactManifest } from './benchmark-verification-artifacts'
@@ -20,12 +24,33 @@ export interface AnalystInstructionsOverride {
   readonly sha256: string
 }
 
+/** Model execution supplied by the package that owns credentials and provider policy. */
+export interface PublicAnalystBenchmarkModelOwner {
+  call: ExternalOptimizerModelCall
+  callRef: string
+  recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
+  /** Exact rates when the selected model is absent from Agent Eval's catalog. */
+  pricing?: CustomTokenPricing
+}
+
 export interface PublicAnalystBenchmarkModelConfig {
-  baseUrl: string
-  apiKey: string
+  /** Caller-owned execution path. Agent Eval never receives provider credentials. */
+  call: ExternalOptimizerModelCall
+  /** Stable public identity for the caller-owned execution path. */
+  callRef: string
+  /** Persist every finite execution record returned by the caller-owned path. */
+  recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   maxOutputTokens: number
   timeoutMs: number
+  /** Model request bytes per call. Default: 16 MiB. */
+  maxModelRequestBytes?: number
+  /** Model response bytes per call. Default: 4 MiB. */
+  maxModelResponseBytes?: number
+  /** Reasoning tokens billed beyond completion tokens. Default: four times output. */
+  maxReasoningTokens?: number
+  /** Deadline for one caller-owned model invocation. Default: timeoutMs. */
+  modelRequestTimeoutMs?: number
   /** Required when the model is absent from agent-eval's pricing table. */
   pricing?: CustomTokenPricing
   /** Independent per-case recursive-engine spend limit. Default: 1 USD. */
@@ -38,6 +63,10 @@ export interface PublicAnalystBenchmarkModelConfig {
     maxLlmCalls?: number
     maxToolCalls?: number
     maxOutputChars?: number
+    maxModelRequests?: number
+    traceToolRequestBytes?: number
+    traceToolResponseBytes?: number
+    traceToolTimeoutMs?: number
     /**
      * Independent engine runs per case. Above 1 (CodeTraceBench only), the
      * runner scores the step-level majority consensus across all runs instead
@@ -50,8 +79,6 @@ export interface PublicAnalystBenchmarkModelConfig {
     runIdentitySha256: string
     responseCacheDir: string
   }
-  /** Test-only transport injection. */
-  fetchImpl?: typeof fetch
 }
 
 export interface PreparedPublicAnalystBenchmark {

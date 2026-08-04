@@ -15,7 +15,8 @@ Agent Eval separates five concerns:
 
 The built-in model-backed analysts use the official DSPy `RLM`.
 DSPy runs the research loop and a sandboxed Python interpreter.
-Agent Eval owns trace access, credentials, cancellation, cost accounting, and output validation.
+Agent Eval owns trace access, cancellation, cost accounting, and output validation.
+The calling application owns model execution, credentials, retries, and provider policy.
 
 `callLlmJson()` and `createPublicBenchmarkDirectRunner()` are direct-call baselines.
 They are not trace analysts.
@@ -37,46 +38,54 @@ The Python extra pins the tested stable DSPy and Deno versions.
 ```ts
 import {
   createDspyRlmTraceEngine,
+  type DspyRlmTraceEngineOptions,
 } from '@tangle-network/agent-eval/analyst'
 import {
   analyzeTraces,
 } from '@tangle-network/agent-eval/traces'
 
-const engine = createDspyRlmTraceEngine({
-  baseUrl: process.env.LLM_BASE_URL!,
-  apiKey: process.env.LLM_API_KEY!,
-  model: process.env.LLM_MODEL!,
-  pricing: {
-    inputUsdPerMillion: 3,
-    outputUsdPerMillion: 15,
-  },
-  maxCostUsd: 0.50,
-  runner: { command: '.venv/bin/python' },
-})
+type ModelOwner = Pick<
+  DspyRlmTraceEngineOptions,
+  'call' | 'callRef' | 'recordExecution'
+>
 
-const result = await analyzeTraces(
-  { question: 'What first caused this run to fail?' },
-  {
-    source: 'run.otlp.jsonl',
-    engine,
-    toolGroup: 'singleTrace',
-    limits: {
-      maxIterations: 8,
-      maxLlmCalls: 4,
-      maxToolCalls: 32,
+export async function answerOneQuestion(modelOwner: ModelOwner) {
+  const engine = createDspyRlmTraceEngine({
+    ...modelOwner,
+    model: 'deepseek-v4-flash',
+    pricing: {
+      inputUsdPerMillion: 3,
+      outputUsdPerMillion: 15,
     },
-  },
-)
+    maxCostUsd: 0.50,
+    runner: { command: '.venv/bin/python' },
+  })
 
-console.log(result.answer)
-console.log(result.findings)
-console.log(result.trajectory)
+  const result = await analyzeTraces(
+    { question: 'What first caused this run to fail?' },
+    {
+      source: 'run.otlp.jsonl',
+      engine,
+      toolGroup: 'singleTrace',
+      limits: {
+        maxIterations: 8,
+        maxLlmCalls: 4,
+        maxToolCalls: 32,
+      },
+    },
+  )
+
+  console.log(result.answer)
+  console.log(result.findings)
+  console.log(result.trajectory)
+}
 ```
 
 Omit `pricing` only when Agent Eval already recognizes the exact model or model family.
 Unknown pricing fails before the first model call.
 
-The provider key remains in the Node process.
+Agent Eval never receives the provider key.
+The caller-supplied model owner runs the exact Runtime path and returns one typed outcome, measured usage receipt, and finite execution record per admitted request.
 The Python process receives an authenticated loopback model endpoint with an ephemeral credential.
 Each trace read also crosses an authenticated loopback callback and counts against `maxToolCalls`.
 
@@ -229,15 +238,17 @@ agent-eval analyst-benchmark \
   --out .artifacts/analyst-run \
   --revision aa213b84ffb6690fc37ca15766d6ca174ec36d4d \
   --split verified \
-  --base-url http://127.0.0.1:3355/v1 \
-  --api-key-env CLI_BRIDGE_BEARER \
-  --model claude-code/sonnet \
+  --model-owner-module ./dist/runtime-model-owner.mjs \
+  --model deepseek-v4-flash \
   --python .venv/bin/python \
   --limit 20 \
   --seed 7 \
   --concurrency 1 \
   --max-cost-usd 5
 ```
+
+The model-owner module exports `createModelExecutionOwner({ model, environment })` and returns `call`, `callRef`, `recordExecution`, plus exact pricing when the model is not in Agent Eval's catalog.
+Runtime-backed products use that module to materialize one exact agent profile; the benchmark command never receives provider credentials or adds provider retries.
 
 `--rlm-samples <k>` (CodeTraceBench, `dspy-rlm` only) runs the recursive engine `k` times per case and scores the step-level majority: a step survives when at least `ceil(k/2)` samples flag it, surviving steps reassemble into blocks, and the abstention fallback fires once, only when no step reaches the threshold.
 Per-sample blocks, the full voting record, and per-sample cost land in the observation's runner metadata; `k` is recorded in the run identity and `result.json`.

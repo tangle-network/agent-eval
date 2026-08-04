@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { testModelExecutionOwner } from '../../src/analyst/model-execution.test-support'
 import {
   compareOptimizationMethods,
   type JudgeConfig,
@@ -473,49 +474,17 @@ async function startModelServer(): Promise<string> {
 }
 
 function optimizerModel(baseUrl = 'http://127.0.0.1:1/v1'): OpenAICompatibleOptimizerModel {
+  const owner = testModelExecutionOwner({
+    baseUrl,
+    bearer: 'provider-secret',
+    fetchImpl: fetch,
+    pricing: OPTIMIZER_BUDGET.pricing,
+    callRef: `test-model-server:${baseUrl}`,
+  })
   return {
     model: 'model',
-    callRef: `test-model-server:${baseUrl}`,
-    call: async (request) => {
-      const response = await fetch(`${baseUrl.replace(/\/v1$/, '')}${request.path}`, {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer provider-secret',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(request.body),
-        signal: request.signal,
-      })
-      const value = (await response.clone().json()) as {
-        usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
-      }
-      return {
-        succeeded: true,
-        response,
-        receipt:
-          value.usage?.prompt_tokens !== undefined && value.usage.completion_tokens !== undefined
-            ? {
-                model: request.model,
-                inputTokens: value.usage.prompt_tokens,
-                outputTokens: value.usage.completion_tokens,
-                ...(value.usage.cost === undefined
-                  ? { customTokenPricing: OPTIMIZER_BUDGET.pricing }
-                  : { actualCostUsd: value.usage.cost }),
-              }
-            : {
-                model: request.model,
-                inputTokens: 0,
-                outputTokens: 0,
-                costUnknown: true,
-                usageUnknown: true,
-              },
-        execution: {
-          kind: 'test-model-server',
-          callRef: `test-model-server:${baseUrl}`,
-          status: response.status,
-        },
-      }
-    },
+    callRef: owner.callRef,
+    call: owner.call,
     budget: OPTIMIZER_BUDGET,
   }
 }

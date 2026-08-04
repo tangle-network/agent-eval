@@ -250,28 +250,37 @@ Configure the official restricted cache as shown above, or call `dspy.configure_
 
 DSPy programs should use DSPy's official optimizers directly.
 Agent Eval also runs the official `dspy.RLM` for recursive trace analysis.
-The TypeScript API starts the Python bridge, provides authenticated trace tools, keeps provider credentials in Node, enforces model and trace-read limits, and validates cited findings.
+The TypeScript API starts the Python bridge, provides authenticated trace tools, calls a caller-owned model execution path, enforces model and trace-read limits, and validates cited findings.
 The Python bridge owns no trace storage or model credentials.
 
 ```ts
-import { createDspyRlmTraceEngine } from '@tangle-network/agent-eval/analyst'
+import {
+  createDspyRlmTraceEngine,
+  type DspyRlmTraceEngineOptions,
+} from '@tangle-network/agent-eval/analyst'
 import { analyzeTraces } from '@tangle-network/agent-eval/traces'
 
-const engine = createDspyRlmTraceEngine({
-  baseUrl: process.env.LLM_BASE_URL!,
-  apiKey: process.env.LLM_API_KEY!,
-  model: process.env.LLM_MODEL!,
-  pricing: {
-    inputUsdPerMillion: 3,
-    outputUsdPerMillion: 15,
-  },
-  runner: { command: '.venv/bin/python' },
-})
+type ModelOwner = Pick<
+  DspyRlmTraceEngineOptions,
+  'call' | 'callRef' | 'recordExecution'
+>
 
-const result = await analyzeTraces(
-  { question: 'What first caused this run to fail?' },
-  { source: 'run.otlp.jsonl', engine, toolGroup: 'singleTrace' },
-)
+export async function analyzeRun(modelOwner: ModelOwner) {
+  const engine = createDspyRlmTraceEngine({
+    ...modelOwner,
+    model: 'deepseek-v4-flash',
+    pricing: {
+      inputUsdPerMillion: 3,
+      outputUsdPerMillion: 15,
+    },
+    runner: { command: '.venv/bin/python' },
+  })
+
+  return analyzeTraces(
+    { question: 'What first caused this run to fail?' },
+    { source: 'run.otlp.jsonl', engine, toolGroup: 'singleTrace' },
+  )
+}
 ```
 
 See [Trace Analysis](../../docs/trace-analysis.md) for custom definitions, limits, result fields, and the public quality benchmark.

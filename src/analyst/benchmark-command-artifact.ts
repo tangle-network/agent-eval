@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { CustomTokenPricing } from '../cost-ledger'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 import type { AgentRxCalibrationSummary } from './benchmark-agentrx-calibration'
 import type { AnalystRunnerComparison } from './benchmark-comparison'
@@ -35,8 +36,29 @@ export interface AnalystBenchmarkArtifact {
       /** Absent on artifacts produced before consensus sampling existed. */
       rlmSamples?: number
       model: string
+      modelOwnerCallRef: string
       maxOutputTokens: number
+      maxReasoningTokens: number
+      maxModelRequestBytes: number
+      maxModelResponseBytes: number
+      modelRequestTimeoutMs: number
       timeoutMs: number
+      pricing: CustomTokenPricing
+      recursiveLimits: {
+        maxIterations: number
+        maxLlmCalls: number
+        maxToolCalls: number
+        maxOutputChars: number
+        maxModelRequests: number | null
+        traceToolRequestBytes: number
+        traceToolResponseBytes: number
+        traceToolTimeoutMs: number
+      }
+      processLimits: {
+        maxInputBytes: number
+        maxResultBytes: number
+        maxOutputChars: number
+      }
       maxCostUsd: number
       maxArtifactBytes: number
       analystProtocolSha256: string
@@ -70,8 +92,29 @@ export interface AnalystBenchmarkRunIdentity {
     datasetSplit: string
     model: {
       id: string
+      ownerCallRef: string
       maxOutputTokens: number
+      maxReasoningTokens: number
+      maxRequestBytes: number
+      maxResponseBytes: number
+      requestTimeoutMs: number
       timeoutMs: number
+      pricing: CustomTokenPricing
+      recursiveLimits: {
+        maxIterations: number
+        maxLlmCalls: number
+        maxToolCalls: number
+        maxOutputChars: number
+        maxModelRequests: number | null
+        traceToolRequestBytes: number
+        traceToolResponseBytes: number
+        traceToolTimeoutMs: number
+      }
+      processLimits: {
+        maxInputBytes: number
+        maxResultBytes: number
+        maxOutputChars: number
+      }
     }
     limit: number
     seed: number
@@ -115,8 +158,7 @@ export interface AnalystBenchmarkLocalRunReceipt {
     traceDir: string
     artifactDir?: string
     outputDir: string
-    baseUrl: string
-    apiKeyEnvironment: string
+    modelOwnerModule: string
   }
   command: string
   environment: {

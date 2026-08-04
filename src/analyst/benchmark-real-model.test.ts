@@ -9,9 +9,25 @@ import {
   createPublicBenchmarkDirectRunner,
   MAX_INCORRECT_BLOCK_STEPS,
   MAX_INCORRECT_BLOCKS,
+  type PublicAnalystBenchmarkModelConfig,
   publicBenchmarkProtocolSha256,
 } from './benchmark-real-model'
+import { publicBenchmarkCallId } from './benchmark-response-cache'
+import { testModelExecutionOwner } from './model-execution.test-support'
 import { buildTraceToolsForGroup } from './tool-groups'
+
+function directConfig(
+  fetchImpl: typeof fetch,
+  overrides: Partial<PublicAnalystBenchmarkModelConfig> = {},
+): PublicAnalystBenchmarkModelConfig {
+  return {
+    ...testModelExecutionOwner({ fetchImpl }),
+    model: 'glm-5.2',
+    maxOutputTokens: 1_024,
+    timeoutMs: 30_000,
+    ...overrides,
+  }
+}
 
 describe('createPublicBenchmarkDirectRunner', () => {
   it('makes one bounded structured call and expands a failure block into per-step findings', async () => {
@@ -56,14 +72,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
         ],
       })
     }) as typeof fetch
-    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl,
-    })
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', directConfig(fetchImpl))
 
     const output = await runner.analyze(
       {
@@ -112,30 +121,28 @@ describe('createPublicBenchmarkDirectRunner', () => {
   it('keeps usable blocks when one block is malformed and reports the rejection', async () => {
     const traceId = 'trace-1'
     const spans = [2, 3, 4].map((step) => span(traceId, `step-${step}`, `runCommand("${step}")`))
-    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl: vi.fn(async () =>
-        modelResponse({
-          report: 'One usable block and one malformed block.',
-          findings: [
-            { first_step: 3, last_step: 2, escape_status: 'unescaped' },
-            {
-              first_step: 2,
-              last_step: 2,
-              consequence_step: 3,
-              escape_status: 'unescaped',
-              severity: 'high',
-              claim: 'Step 2 wrote an invalid configuration.',
-              confidence: 0.9,
-            },
-          ],
-        }),
-      ) as typeof fetch,
-    }).analyze(
+    const output = await createPublicBenchmarkDirectRunner(
+      'codetracebench',
+      directConfig(
+        vi.fn(async () =>
+          modelResponse({
+            report: 'One usable block and one malformed block.',
+            findings: [
+              { first_step: 3, last_step: 2, escape_status: 'unescaped' },
+              {
+                first_step: 2,
+                last_step: 2,
+                consequence_step: 3,
+                escape_status: 'unescaped',
+                severity: 'high',
+                claim: 'Step 2 wrote an invalid configuration.',
+                confidence: 0.9,
+              },
+            ],
+          }),
+        ) as typeof fetch,
+      ),
+    ).analyze(
       { traceStore: singleTraceStore(traceId, spans) },
       { caseId: `codetrace:${traceId}`, repetition: 0 },
     )
@@ -150,19 +157,17 @@ describe('createPublicBenchmarkDirectRunner', () => {
 
   it('fails the case when every reported block is malformed', async () => {
     const traceId = 'trace-1'
-    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl: vi.fn(async () =>
-        modelResponse({
-          report: 'Every block is malformed.',
-          findings: [{ first_step: 3, last_step: 2, escape_status: 'unescaped' }],
-        }),
-      ) as typeof fetch,
-    }).analyze(
+    const output = await createPublicBenchmarkDirectRunner(
+      'codetracebench',
+      directConfig(
+        vi.fn(async () =>
+          modelResponse({
+            report: 'Every block is malformed.',
+            findings: [{ first_step: 3, last_step: 2, escape_status: 'unescaped' }],
+          }),
+        ) as typeof fetch,
+      ),
+    ).analyze(
       { traceStore: singleTraceStore(traceId, [span(traceId, 'step-2', 'runCommand("2")')]) },
       { caseId: `codetrace:${traceId}`, repetition: 0 },
     )
@@ -190,14 +195,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
         ],
       }),
     ) as typeof fetch
-    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl,
-    })
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', directConfig(fetchImpl))
 
     const output = await runner.analyze(
       {
@@ -245,16 +243,14 @@ describe('createPublicBenchmarkDirectRunner', () => {
       confidence: 0.8,
     }
     const run = async (findings: unknown[]) =>
-      createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'https://provider.invalid/v1',
-        apiKey: 'test',
-        model: 'glm-5.2',
-        maxOutputTokens: 1_024,
-        timeoutMs: 30_000,
-        fetchImpl: vi.fn(async () =>
-          modelResponse({ report: 'Escape decisions per block.', findings }),
-        ) as typeof fetch,
-      }).analyze(
+      createPublicBenchmarkDirectRunner(
+        'codetracebench',
+        directConfig(
+          vi.fn(async () =>
+            modelResponse({ report: 'Escape decisions per block.', findings }),
+          ) as typeof fetch,
+        ),
+      ).analyze(
         { traceStore: singleTraceStore(traceId, spans) },
         { caseId: `codetrace:${traceId}`, repetition: 0 },
       )
@@ -296,38 +292,36 @@ describe('createPublicBenchmarkDirectRunner', () => {
 
   it('drops a block whose consequence step is not a real assistant step', async () => {
     const traceId = 'trace-1'
-    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl: vi.fn(async () =>
-        modelResponse({
-          report: 'One block has downstream evidence and one does not.',
-          findings: [
-            {
-              first_step: 1,
-              last_step: 1,
-              consequence_step: 99,
-              escape_status: 'unescaped',
-              severity: 'high',
-              claim: 'An accusation with no downstream evidence.',
-              confidence: 0.9,
-            },
-            {
-              first_step: 2,
-              last_step: 2,
-              consequence_step: 3,
-              escape_status: 'unescaped',
-              severity: 'high',
-              claim: 'An accusation whose damage shows at step 3.',
-              confidence: 0.9,
-            },
-          ],
-        }),
-      ) as typeof fetch,
-    }).analyze(
+    const output = await createPublicBenchmarkDirectRunner(
+      'codetracebench',
+      directConfig(
+        vi.fn(async () =>
+          modelResponse({
+            report: 'One block has downstream evidence and one does not.',
+            findings: [
+              {
+                first_step: 1,
+                last_step: 1,
+                consequence_step: 99,
+                escape_status: 'unescaped',
+                severity: 'high',
+                claim: 'An accusation with no downstream evidence.',
+                confidence: 0.9,
+              },
+              {
+                first_step: 2,
+                last_step: 2,
+                consequence_step: 3,
+                escape_status: 'unescaped',
+                severity: 'high',
+                claim: 'An accusation whose damage shows at step 3.',
+                confidence: 0.9,
+              },
+            ],
+          }),
+        ) as typeof fetch,
+      ),
+    ).analyze(
       {
         traceStore: singleTraceStore(
           traceId,
@@ -350,16 +344,14 @@ describe('createPublicBenchmarkDirectRunner', () => {
   it('rejects malformed failure blocks with a loud schema error', async () => {
     const traceId = 'trace-1'
     const run = async (findings: unknown[]) =>
-      createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'https://provider.invalid/v1',
-        apiKey: 'test',
-        model: 'glm-5.2',
-        maxOutputTokens: 1_024,
-        timeoutMs: 30_000,
-        fetchImpl: vi.fn(async () =>
-          modelResponse({ report: 'Malformed block shapes.', findings }),
-        ) as typeof fetch,
-      }).analyze(
+      createPublicBenchmarkDirectRunner(
+        'codetracebench',
+        directConfig(
+          vi.fn(async () =>
+            modelResponse({ report: 'Malformed block shapes.', findings }),
+          ) as typeof fetch,
+        ),
+      ).analyze(
         { traceStore: singleTraceStore(traceId, [span(traceId, 'step-2', 'runCommand("x")')]) },
         { caseId: `codetrace:${traceId}`, repetition: 0 },
       )
@@ -410,29 +402,27 @@ describe('createPublicBenchmarkDirectRunner', () => {
   it('drops an interior hole the runner derived but fails on a boundary the model named', async () => {
     const traceId = 'trace-1'
     const run = async (firstStep: number, lastStep: number) =>
-      createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'https://provider.invalid/v1',
-        apiKey: 'test',
-        model: 'glm-5.2',
-        maxOutputTokens: 1_024,
-        timeoutMs: 30_000,
-        fetchImpl: vi.fn(async () =>
-          modelResponse({
-            report: 'A block spanning a hole in the trajectory.',
-            findings: [
-              {
-                first_step: firstStep,
-                last_step: lastStep,
-                consequence_step: 5,
-                escape_status: 'unescaped',
-                severity: 'high',
-                claim: 'The block covers a hole in the trajectory.',
-                confidence: 0.9,
-              },
-            ],
-          }),
-        ) as typeof fetch,
-      }).analyze(
+      createPublicBenchmarkDirectRunner(
+        'codetracebench',
+        directConfig(
+          vi.fn(async () =>
+            modelResponse({
+              report: 'A block spanning a hole in the trajectory.',
+              findings: [
+                {
+                  first_step: firstStep,
+                  last_step: lastStep,
+                  consequence_step: 5,
+                  escape_status: 'unescaped',
+                  severity: 'high',
+                  claim: 'The block covers a hole in the trajectory.',
+                  confidence: 0.9,
+                },
+              ],
+            }),
+          ) as typeof fetch,
+        ),
+      ).analyze(
         {
           traceStore: singleTraceStore(traceId, [
             span(traceId, 'step-1', 'runCommand("a")'),
@@ -466,38 +456,36 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const spans = [2, 3, 4, 5, 6].map((step) =>
       span(traceId, `step-${step}`, `runCommand("attempt ${step}")`),
     )
-    const output = await createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl: vi.fn(async () =>
-        modelResponse({
-          report: 'Two overlapping blocks.',
-          findings: [
-            {
-              first_step: 2,
-              last_step: 4,
-              consequence_step: 6,
-              escape_status: 'unescaped',
-              severity: 'high',
-              claim: 'First block.',
-              confidence: 0.9,
-            },
-            {
-              first_step: 3,
-              last_step: 5,
-              consequence_step: 6,
-              escape_status: 'unescaped',
-              severity: 'low',
-              claim: 'Second block.',
-              confidence: 0.5,
-            },
-          ],
-        }),
-      ) as typeof fetch,
-    }).analyze(
+    const output = await createPublicBenchmarkDirectRunner(
+      'codetracebench',
+      directConfig(
+        vi.fn(async () =>
+          modelResponse({
+            report: 'Two overlapping blocks.',
+            findings: [
+              {
+                first_step: 2,
+                last_step: 4,
+                consequence_step: 6,
+                escape_status: 'unescaped',
+                severity: 'high',
+                claim: 'First block.',
+                confidence: 0.9,
+              },
+              {
+                first_step: 3,
+                last_step: 5,
+                consequence_step: 6,
+                escape_status: 'unescaped',
+                severity: 'low',
+                claim: 'Second block.',
+                confidence: 0.5,
+              },
+            ],
+          }),
+        ) as typeof fetch,
+      ),
+    ).analyze(
       { traceStore: singleTraceStore(traceId, spans) },
       { caseId: `codetrace:${traceId}`, repetition: 0 },
     )
@@ -549,14 +537,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
         ],
       }),
     ) as typeof fetch
-    const runner = createPublicBenchmarkDirectRunner('agentrx', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl,
-    })
+    const runner = createPublicBenchmarkDirectRunner('agentrx', directConfig(fetchImpl))
 
     const output = await runner.analyze(
       { traceStore: singleTraceStore(traceId, [span(traceId, 'step-4', action)]) },
@@ -582,7 +563,7 @@ describe('createPublicBenchmarkDirectRunner', () => {
     })
   })
 
-  it('reuses a cached paid response after settlement persistence fails', async () => {
+  it('records a stable paid-call identity and refuses duplication after settlement persistence fails', async () => {
     const traceId = 'trace-1'
     const durability = {
       runIdentitySha256: 'a'.repeat(64),
@@ -617,16 +598,17 @@ describe('createPublicBenchmarkDirectRunner', () => {
         ],
       }),
     ) as typeof fetch
-    const config = {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
+    const executionRecords: Array<{ callId?: string }> = []
+    const config = directConfig(fetchImpl, {
+      ...testModelExecutionOwner({
+        fetchImpl,
+        onExecution: (observation) => {
+          executionRecords.push(structuredClone(observation))
+        },
+      }),
       costLedger: ledger,
       durability,
-      fetchImpl,
-    }
+    })
     const input = {
       traceStore: singleTraceStore(traceId, [
         span(traceId, 'step-2', 'writeFile("invalid configuration")'),
@@ -640,34 +622,21 @@ describe('createPublicBenchmarkDirectRunner', () => {
     ).rejects.toBeInstanceOf(CostCallConflictError)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(ledger.listPending?.()).toHaveLength(1)
+    const expectedCallId = publicBenchmarkCallId({
+      runIdentitySha256: durability.runIdentitySha256,
+      caseId: context.caseId,
+      repetition: context.repetition,
+    })
+    expect(executionRecords).toEqual([expect.objectContaining({ callId: expectedCallId })])
 
     state.rejectSettlement = false
-    const resumed = await createPublicBenchmarkDirectRunner('codetracebench', config).analyze(
-      input,
-      context,
-    )
-    const replayed = await createPublicBenchmarkDirectRunner('codetracebench', config).analyze(
-      input,
-      context,
-    )
+    await expect(
+      createPublicBenchmarkDirectRunner('codetracebench', config).analyze(input, context),
+    ).rejects.toBeInstanceOf(CostCallConflictError)
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(ledger.listPending?.()).toHaveLength(0)
-    expect(resumed.error).toBeUndefined()
-    expect(replayed.error).toBeUndefined()
-    expect(resumed.findings).toHaveLength(1)
-    expect(replayed.findings).toEqual(resumed.findings)
-    expect(resumed.metadata).toMatchObject({
-      responseSource: 'durable-cache',
-      cost: {
-        source: 'agent-eval-model-pricing',
-        estimatedCostUsd: expect.any(Number),
-        ratesPerThousandTokens: {
-          inputUsdPerThousand: 0.0006,
-          outputUsdPerThousand: 0.0022,
-        },
-      },
-    })
+    expect(ledger.listPending?.()).toHaveLength(1)
+    expect(executionRecords).toHaveLength(1)
   })
 
   it('refuses to replay an interrupted provider request without a cached response', async () => {
@@ -701,18 +670,20 @@ describe('createPublicBenchmarkDirectRunner', () => {
     const interruptedFetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       providerCallIds.push(new Headers(init?.headers).get('Idempotency-Key') ?? '')
       markStarted()
-      return new Promise<Response>(() => {})
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal
+        const abort = () => reject(signal?.reason ?? new DOMException('aborted', 'AbortError'))
+        signal?.addEventListener('abort', abort, { once: true })
+        if (signal?.aborted) abort()
+      })
     }) as typeof fetch
-    const firstRunner = createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: 'test',
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      costLedger: new CostLedger({ persistence }),
-      durability,
-      fetchImpl: interruptedFetch,
-    })
+    const firstRunner = createPublicBenchmarkDirectRunner(
+      'codetracebench',
+      directConfig(interruptedFetch, {
+        costLedger: new CostLedger({ persistence }),
+        durability,
+      }),
+    )
     const interrupted = firstRunner.analyze(input, { ...context, signal: controller.signal })
     await started
     controller.abort()
@@ -727,14 +698,10 @@ describe('createPublicBenchmarkDirectRunner', () => {
     }) as typeof fetch
     await expect(
       createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'https://provider.invalid/v1',
-        apiKey: 'test',
-        model: 'glm-5.2',
-        maxOutputTokens: 1_024,
-        timeoutMs: 30_000,
-        costLedger: new CostLedger({ persistence }),
-        durability,
-        fetchImpl: resumedFetch,
+        ...directConfig(resumedFetch, {
+          costLedger: new CostLedger({ persistence }),
+          durability,
+        }),
       }).analyze(input, context),
     ).rejects.toBeInstanceOf(CostCallConflictError)
 
@@ -745,20 +712,14 @@ describe('createPublicBenchmarkDirectRunner', () => {
 
   it.each([401, 429])('persists HTTP %i without the provider body or bearer', async (status) => {
     const secret = 'AUDIT_SECRET_456'
-    const runner = createPublicBenchmarkDirectRunner('codetracebench', {
-      baseUrl: 'https://provider.invalid/v1',
-      apiKey: secret,
-      model: 'glm-5.2',
-      maxOutputTokens: 1_024,
-      timeoutMs: 30_000,
-      fetchImpl: vi.fn(
-        async () =>
-          new Response(JSON.stringify({ error: `Bearer ${secret}` }), {
-            status,
-            headers: { 'content-type': 'application/json' },
-          }),
-      ) as typeof fetch,
-    })
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: `Bearer ${secret}` }), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ) as typeof fetch
+    const runner = createPublicBenchmarkDirectRunner('codetracebench', directConfig(fetchImpl))
 
     const output = await runner.analyze(
       { traceStore: singleTraceStore('trace-1', [span('trace-1', 'step-1', 'Inspect.')]) },
@@ -768,8 +729,8 @@ describe('createPublicBenchmarkDirectRunner', () => {
     expect(output.error).toEqual({
       class: 'LlmCallError',
       code: 'judge',
-      status,
-      message: `Provider request failed with HTTP ${status}.`,
+      status: 502,
+      message: 'Provider request failed with HTTP 502.',
     })
     expect(JSON.stringify(output)).not.toContain(secret)
   })
@@ -779,14 +740,10 @@ describe('createPublicBenchmarkDirectRunner', () => {
       response: () => Promise<Response>,
       spans = [span('trace-1', 'step-1', 'A')],
     ) =>
-      createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'https://provider.invalid/v1',
-        apiKey: 'test',
-        model: 'glm-5.2',
-        maxOutputTokens: 1_024,
-        timeoutMs: 30_000,
-        fetchImpl: vi.fn(response) as typeof fetch,
-      }).analyze(
+      createPublicBenchmarkDirectRunner(
+        'codetracebench',
+        directConfig(vi.fn(response) as typeof fetch),
+      ).analyze(
         { traceStore: singleTraceStore('trace-1', spans) },
         { caseId: 'codetrace:trace-1', repetition: 0 },
       )
@@ -795,10 +752,10 @@ describe('createPublicBenchmarkDirectRunner', () => {
       run(async () => {
         throw new DOMException('timed out', 'AbortError')
       }),
-    ).resolves.toMatchObject({ error: { class: 'ProviderTimeoutError' } })
-    await expect(run(async () => new Response('not-json', { status: 200 }))).resolves.toMatchObject(
-      { error: { class: 'ModelOutputParseError' } },
-    )
+    ).resolves.toMatchObject({ error: { class: 'LlmCallError', status: 502 } })
+    await expect(run(async () => modelTextResponse('not-json'))).resolves.toMatchObject({
+      error: { class: 'LlmResponseError' },
+    })
     await expect(
       run(async () =>
         modelResponse({
@@ -932,6 +889,20 @@ function modelResponse(
           finish_reason: 'stop',
         },
       ],
+      usage,
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  )
+}
+
+function modelTextResponse(
+  content: string,
+  usage = { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+): Response {
+  return new Response(
+    JSON.stringify({
+      model: 'glm-5.2',
+      choices: [{ message: { content }, finish_reason: 'stop' }],
       usage,
     }),
     { status: 200, headers: { 'content-type': 'application/json' } },

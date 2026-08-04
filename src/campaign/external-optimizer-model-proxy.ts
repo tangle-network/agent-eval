@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { ChatResponse } from '../analyst/chat-client'
 import type {
   CostChannel,
   CostLedgerHandle,
@@ -11,6 +12,8 @@ import { canonicalJson } from '../verdict-cache'
 import {
   assertExternalOptimizerModelBudget,
   assertJsonValue,
+  type ExternalOptimizerChatRequest,
+  type ExternalOptimizerEndpointFormat,
   type ExternalOptimizerModelBudget,
   type ExternalOptimizerModelCall,
   type ExternalOptimizerModelExecutionObservation,
@@ -20,6 +23,7 @@ import {
 import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
 
 const MODEL_PROXY_PATHS = new Set(['/v1/chat/completions', '/v1/responses'])
+type ModelProxyPath = '/v1/chat/completions' | '/v1/responses'
 
 type UnsequencedExecutionObservation = ExternalOptimizerModelExecutionObservation extends infer T
   ? T extends ExternalOptimizerModelExecutionObservation
@@ -51,6 +55,8 @@ type ExternalOptimizerModelProxyArgs = {
   /** Cost-ledger channel. Defaults to `optimizer`. */
   channel?: CostChannel
   tags?: Record<string, string>
+  /** Deterministic ledger identity for a single-request proxy. */
+  callId?: string
   initialUsage?: {
     requests: number
     /** Known billed subtotal. Omit when prior billed USD is unknown. */
@@ -79,6 +85,7 @@ export async function startExternalOptimizerModelProxy(
   let modelCallInvocations = 0
   let executionRecordCount = 0
   let executionSequence = 0
+  const failures: Error[] = []
   let totalRequestCount = args.initialUsage?.requests ?? 0
   let committedForBudget = args.initialUsage?.costUsd ?? 0
   let reservedForBudget = 0
@@ -146,6 +153,9 @@ export async function startExternalOptimizerModelProxy(
       recordModelCallInvocation: () => {
         modelCallInvocations += 1
       },
+      recordFailure: (error) => {
+        failures.push(error)
+      },
     }).finally(() => {
       controller.signal.removeEventListener('abort', abortRequest)
       activeControllers.delete(controller)
@@ -160,6 +170,7 @@ export async function startExternalOptimizerModelProxy(
     return closePromise
   }
   const onAbort = (): void => {
+    for (const controller of activeControllers) controller.abort(args.signal?.reason)
     void close().catch(() => undefined)
   }
   args.signal?.addEventListener('abort', onAbort, { once: true })
@@ -177,6 +188,7 @@ export async function startExternalOptimizerModelProxy(
     requestAttempts: () => requestCount,
     successfulCompletions: () => successfulCompletionCount,
     assertExecutionComplete,
+    failures: () => [...failures],
     close,
   }
 
@@ -185,7 +197,6 @@ export async function startExternalOptimizerModelProxy(
     accepting = false
     const closingServer = closeServer(server)
     server.closeIdleConnections?.()
-    for (const controller of activeControllers) controller.abort()
     const [serverResult] = await Promise.allSettled([
       closingServer,
       waitForActiveHandlers(activeHandlers),
@@ -226,6 +237,7 @@ async function handleModelProxyRequest(args: {
     actor: string
     channel?: CostChannel
     tags?: Record<string, string>
+    callId?: string
   }
   nextReservation: (maximumCostUsd: number | undefined) =>
     | { accepted: true }
@@ -240,6 +252,7 @@ async function handleModelProxyRequest(args: {
   recordSuccessfulCompletion: () => void
   recordExecutionReceipt: (observation: UnsequencedExecutionObservation) => void
   recordModelCallInvocation: () => void
+  recordFailure: (error: Error) => void
 }): Promise<void> {
   const { controller, request, response } = args
   try {
@@ -248,13 +261,14 @@ async function handleModelProxyRequest(args: {
       sendJsonIfOpen(response, 404, { error: 'not found' })
       return
     }
+    const modelPath = path as ModelProxyPath
     if (request.headers.authorization !== `Bearer ${args.token}`) {
       sendJsonIfOpen(response, 401, { error: 'unauthorized' })
       return
     }
 
     const body = await readBody(request, args.args.budget.maxRequestBytes)
-    const parsed = parseModelProxyRequest(body, args.args.model, args.args.budget)
+    const parsed = parseModelProxyRequest(body, modelPath, args.args.model, args.args.budget)
     const maximumUsage = conservativeMaximumUsage(
       body.byteLength,
       parsed.maxOutputTokens + (args.args.budget.maxReasoningTokensPerRequest ?? 0),
@@ -276,6 +290,7 @@ async function handleModelProxyRequest(args: {
     let chargedForBudget = maximumCostUsd
     try {
       const paid = await args.args.costLedger.runPaidCall<ProviderProxyResponse>({
+        ...(args.args.callId ? { callId: args.args.callId } : {}),
         channel: args.args.channel ?? 'optimizer',
         phase: args.args.phase,
         actor: args.args.actor,
@@ -289,21 +304,23 @@ async function handleModelProxyRequest(args: {
               },
             }
           : {}),
-        execute: async () =>
+        signal: controller.signal,
+        execute: async (paidCallSignal, paidCallId) =>
           forwardModelProxyRequest({
             call: args.args.call,
+            callId: paidCallId,
             callRef: args.args.callRef,
             recordExecutionReceipt: args.recordExecutionReceipt,
             recordModelCallInvocation: args.recordModelCallInvocation,
-            path,
-            requestBody: parsed.body,
+            path: modelPath,
+            request: parsed.request,
             model: args.args.model,
             maxOutputTokens: parsed.maxOutputTokens,
             ...(args.args.budget.maxReasoningTokensPerRequest === undefined
               ? {}
               : { maxReasoningTokens: args.args.budget.maxReasoningTokensPerRequest }),
             maxResponseBytes: args.args.budget.maxResponseBytes,
-            signal: controller.signal,
+            signal: paidCallSignal,
           }),
         receipt: (result) => result.receipt,
         receiptFromError: () => ({
@@ -315,6 +332,7 @@ async function handleModelProxyRequest(args: {
         }),
       })
       if (!paid.succeeded) {
+        args.recordFailure(paid.error)
         chargedForBudget = paid.receipt
           ? paid.receipt.usageUnknown || paid.receipt.costUnknown
             ? maximumCostUsd
@@ -384,11 +402,12 @@ function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown)
 
 async function forwardModelProxyRequest(args: {
   call: ExternalOptimizerModelCall
+  callId: string
   callRef: string
   recordExecutionReceipt: (observation: UnsequencedExecutionObservation) => void
   recordModelCallInvocation: () => void
-  path: string
-  requestBody: Readonly<Record<string, unknown>>
+  path: ModelProxyPath
+  request: ExternalOptimizerChatRequest
   model: string
   maxOutputTokens: number
   /** Enforced only when the caller declared a thinking budget. */
@@ -400,11 +419,12 @@ async function forwardModelProxyRequest(args: {
   let called: Awaited<ReturnType<ExternalOptimizerModelCall>>
   try {
     called = await args.call({
-      path: args.path as '/v1/chat/completions' | '/v1/responses',
-      model: args.model,
-      body: freezeJsonSnapshot(args.requestBody, 'optimizer model call body') as Readonly<
-        Record<string, unknown>
-      >,
+      callId: args.callId,
+      request: freezeJsonSnapshot(
+        args.request,
+        'optimizer model canonical request',
+      ) as ExternalOptimizerChatRequest,
+      endpointFormat: endpointFormat(args.path),
       signal: args.signal,
     })
   } catch (error) {
@@ -426,19 +446,62 @@ async function forwardModelProxyRequest(args: {
     )
   }
   if (called.succeeded) {
-    if (!(called.response instanceof Response)) {
-      throw new MissingModelExecutionError(
-        'optimizer model callback success did not return a Response',
-      )
+    let authoritativeReceipt: CostReceiptInput
+    let canonicalResponse: ChatResponse
+    try {
+      authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model)
+      canonicalResponse = snapshotChatResponse(called.response, args.model)
+      assertResponseUsageMatchesReceipt(canonicalResponse, authoritativeReceipt)
+    } catch (error) {
+      args.recordExecutionReceipt({
+        callId: args.callId,
+        callRef: args.callRef,
+        path: args.path,
+        model: args.model,
+        succeeded: false,
+        error: toErrorMessage(error),
+        execution,
+      })
+      throw error
     }
     args.recordExecutionReceipt({
+      callId: args.callId,
       callRef: args.callRef,
-      path: args.path as '/v1/chat/completions' | '/v1/responses',
+      path: args.path,
       model: args.model,
       succeeded: true,
-      responseStatus: called.response.status,
+      responseStatus: 200,
       execution,
     })
+    // Output tokens include the reasoning subset. The child's requested
+    // completion limit governs visible completion tokens, while the separately
+    // declared reasoning budget governs thinking tokens.
+    const usageKnown = canonicalResponse.usage.captured !== false
+    const reasoningTokens = canonicalResponse.usage.reasoningTokens ?? 0
+    const completionTokens = canonicalResponse.usage.completionTokens - reasoningTokens
+    const usageRejected =
+      usageKnown && completionTokens > args.maxOutputTokens
+        ? `optimizer model execution reported ${completionTokens} completion tokens, exceeding requested limit ${args.maxOutputTokens}`
+        : usageKnown &&
+            args.maxReasoningTokens !== undefined &&
+            reasoningTokens > args.maxReasoningTokens
+          ? `optimizer model execution reported ${reasoningTokens} reasoning tokens, exceeding the declared budget ${args.maxReasoningTokens}`
+          : undefined
+    const responseBody = encodeCanonicalModelResponse({
+      path: args.path,
+      callId: args.callId,
+      response: canonicalResponse,
+      receipt: authoritativeReceipt,
+      maxBytes: args.maxResponseBytes,
+    })
+    return {
+      status: 200,
+      contentType: 'application/json',
+      body: responseBody,
+      receipt: authoritativeReceipt,
+      usageComplete: authoritativeReceipt.usageUnknown !== true,
+      ...(usageRejected ? { usageRejected } : {}),
+    }
   } else {
     if (typeof called.error !== 'string' || !called.error.trim()) {
       throw new MissingModelExecutionError(
@@ -446,8 +509,9 @@ async function forwardModelProxyRequest(args: {
       )
     }
     args.recordExecutionReceipt({
+      callId: args.callId,
       callRef: args.callRef,
-      path: args.path as '/v1/chat/completions' | '/v1/responses',
+      path: args.path,
       model: args.model,
       succeeded: false,
       error: called.error,
@@ -462,41 +526,6 @@ async function forwardModelProxyRequest(args: {
       usageComplete: failedReceipt.usageUnknown !== true,
       modelCallFailed: called.error,
     }
-  }
-  const response = called.response
-  const authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model)
-  const body = await readProviderResponseBody(response, args.maxResponseBytes)
-  const usage = parseProviderUsage(body)
-  const successful = response.status >= 200 && response.status < 300
-  // `outputTokens` carries reasoning tokens as a subset, and a reasoning model
-  // bounds only the completion by the requested limit. Charging the whole
-  // output against that limit rejects every ordinary response such a model
-  // returns, so the guard measures the completion it actually governs.
-  const completionTokens =
-    usage === undefined ? 0 : usage.outputTokens - (usage.reasoningTokens ?? 0)
-  const reasoningTokens = usage?.reasoningTokens ?? 0
-  // A response that exceeds the requested output or the declared reasoning
-  // budget violated the contract and is rejected. A response whose usage the
-  // provider merely omitted is forwarded with its cost flagged: the completion
-  // is still usable, and refusing it would fail a case over a reporting gap.
-  const usageRejected =
-    successful && usage !== undefined && completionTokens > args.maxOutputTokens
-      ? `optimizer model provider reported ${completionTokens} completion tokens, exceeding requested limit ${args.maxOutputTokens}`
-      : successful &&
-          args.maxReasoningTokens !== undefined &&
-          reasoningTokens > args.maxReasoningTokens
-        ? `optimizer model provider reported ${reasoningTokens} reasoning tokens, exceeding the declared budget ${args.maxReasoningTokens}`
-        : undefined
-  if (usage !== undefined) {
-    assertResponseUsageMatchesReceipt(usage, authoritativeReceipt)
-  }
-  return {
-    status: response.status,
-    contentType: response.headers.get('content-type') ?? 'application/json',
-    body,
-    receipt: authoritativeReceipt,
-    usageComplete: authoritativeReceipt.usageUnknown !== true,
-    ...(usageRejected ? { usageRejected } : {}),
   }
 }
 
@@ -532,34 +561,57 @@ function deepFreezeJson(value: unknown): unknown {
 }
 
 function assertResponseUsageMatchesReceipt(
-  usage: NonNullable<ReturnType<typeof parseProviderUsage>>,
+  response: ChatResponse,
   receipt: CostReceiptInput,
 ): void {
-  for (const field of [
-    'inputTokens',
-    'outputTokens',
-    'cachedTokens',
-    'cacheWriteTokens',
-    'reasoningTokens',
-  ] as const) {
-    if ((usage[field] ?? 0) !== (receipt[field] ?? 0)) {
+  if (response.usage.captured === false || receipt.usageUnknown === true) {
+    if (response.usage.captured !== false || receipt.usageUnknown !== true) {
       throw new OwnerModelContractError(
-        `optimizer model response usage disagrees with Runtime receipt at ${field}`,
+        'optimizer model response and execution receipt disagree about whether usage was captured',
+      )
+    }
+  } else {
+    const cachedTokens = response.usage.cachedPromptTokens ?? 0
+    if (receipt.inputTokens + (receipt.cachedTokens ?? 0) !== response.usage.promptTokens) {
+      throw new OwnerModelContractError(
+        'optimizer model response promptTokens must equal receipt inputTokens plus cachedTokens',
+      )
+    }
+    if (cachedTokens !== (receipt.cachedTokens ?? 0)) {
+      throw new OwnerModelContractError(
+        'optimizer model response cachedPromptTokens disagrees with the execution receipt',
+      )
+    }
+    if (response.usage.completionTokens !== receipt.outputTokens) {
+      throw new OwnerModelContractError(
+        'optimizer model response completionTokens disagrees with the execution receipt',
+      )
+    }
+    if ((response.usage.reasoningTokens ?? 0) !== (receipt.reasoningTokens ?? 0)) {
+      throw new OwnerModelContractError(
+        'optimizer model response reasoningTokens disagrees with the execution receipt',
       )
     }
   }
-  if (usage.actualCostUsd !== undefined && usage.actualCostUsd !== receipt.actualCostUsd) {
+  const receiptCostUsd =
+    receipt.actualCostUsd ??
+    receipt.estimatedCostUsd ??
+    (receipt.customTokenPricing && receipt.usageUnknown !== true
+      ? costForTokenPricing(receipt.customTokenPricing, receipt)
+      : null)
+  if (response.costUsd !== receiptCostUsd) {
     throw new OwnerModelContractError(
-      'optimizer model response cost disagrees with Runtime receipt',
+      'optimizer model response billed cost disagrees with the execution receipt',
     )
   }
 }
 
 function parseModelProxyRequest(
   body: Uint8Array,
+  path: ModelProxyPath,
   expectedModel: string,
   budget: ExternalOptimizerModelBudget,
-): { maxOutputTokens: number; body: Readonly<Record<string, unknown>> } {
+): { maxOutputTokens: number; request: ExternalOptimizerChatRequest } {
   let value: unknown
   try {
     value = JSON.parse(Buffer.from(body).toString('utf8'))
@@ -578,147 +630,525 @@ function parseModelProxyRequest(
       throw new Error(`optimizer model request ${field} must be 1 when supplied`)
     }
   }
-  const suppliedMaximums = [
-    value.max_output_tokens,
-    value.max_completion_tokens,
-    value.max_tokens,
-  ].filter((maximum) => maximum !== undefined)
-  if (
-    suppliedMaximums.length === 0 ||
-    suppliedMaximums.some((maximum) => !Number.isSafeInteger(maximum) || (maximum as number) <= 0)
-  ) {
-    throw new Error('optimizer model request requires a positive output-token limit')
+  if (value.reasoning !== undefined || value.reasoning_effort !== undefined) {
+    throw new Error('optimizer model reasoning settings belong to the execution AgentProfile')
   }
-  const maxOutputTokens = Math.max(...(suppliedMaximums as number[]))
+  const maxOutputTokens = parseOutputMaximum(
+    value,
+    path === '/v1/responses'
+      ? ['max_output_tokens']
+      : ['max_tokens', 'max_completion_tokens', 'max_output_tokens'],
+  )
   if (maxOutputTokens > budget.maxOutputTokensPerRequest) {
     throw new Error('optimizer model request exceeds maxOutputTokensPerRequest')
   }
-  return { maxOutputTokens, body: value }
+  const request =
+    path === '/v1/chat/completions'
+      ? parseChatCompletionsRequest(value, expectedModel, maxOutputTokens)
+      : parseResponsesRequest(value, expectedModel, maxOutputTokens)
+  return {
+    maxOutputTokens,
+    request: freezeJsonSnapshot(
+      request,
+      'optimizer model canonical request',
+    ) as ExternalOptimizerChatRequest,
+  }
 }
 
-function parseProviderUsage(
-  body: Uint8Array,
-):
-  | Omit<CostReceiptInput, 'model' | 'customTokenPricing' | 'costUnknown' | 'usageUnknown'>
-  | undefined {
-  let value: unknown
-  try {
-    value = JSON.parse(Buffer.from(body).toString('utf8'))
-  } catch {
-    return undefined
+function parseChatCompletionsRequest(
+  body: Record<string, unknown>,
+  model: string,
+  maxTokens: number,
+): Omit<ExternalOptimizerChatRequest, never> {
+  assertAllowedKeys(body, [
+    'model',
+    'messages',
+    'max_tokens',
+    'max_completion_tokens',
+    'max_output_tokens',
+    'temperature',
+    'thinking',
+    'response_format',
+    'stream',
+    'n',
+    'best_of',
+    'candidate_count',
+    'num_candidates',
+  ])
+  return {
+    model,
+    messages: parseChatMessages(body.messages),
+    maxTokens,
+    ...parseTemperature(body.temperature),
+    ...parseThinking(body.thinking),
+    ...parseChatResponseFormat(body.response_format),
   }
-  if (!isRecord(value) || !isRecord(value.usage)) return undefined
+}
+
+function parseResponsesRequest(
+  body: Record<string, unknown>,
+  model: string,
+  maxTokens: number,
+): Omit<ExternalOptimizerChatRequest, never> {
+  assertAllowedKeys(body, [
+    'model',
+    'input',
+    'instructions',
+    'max_output_tokens',
+    'temperature',
+    'thinking',
+    'text',
+    'stream',
+    'n',
+    'best_of',
+    'candidate_count',
+    'num_candidates',
+  ])
+  const instructions = body.instructions
+  if (instructions !== undefined && typeof instructions !== 'string') {
+    throw new Error('optimizer Responses instructions must be a string')
+  }
+  return {
+    model,
+    messages: [
+      ...(instructions === undefined ? [] : [{ role: 'system' as const, content: instructions }]),
+      ...parseResponsesInput(body.input),
+    ],
+    maxTokens,
+    ...parseTemperature(body.temperature),
+    ...parseThinking(body.thinking),
+    ...parseResponsesTextFormat(body.text),
+  }
+}
+
+function parseOutputMaximum(body: Record<string, unknown>, fields: readonly string[]): number {
+  const supplied = fields.flatMap((field) =>
+    body[field] === undefined ? [] : [{ field, value: body[field] }],
+  )
+  if (
+    supplied.length === 0 ||
+    supplied.some(({ value }) => !Number.isSafeInteger(value) || (value as number) <= 0)
+  ) {
+    throw new Error('optimizer model request requires a positive output-token limit')
+  }
+  const values = new Set(supplied.map(({ value }) => value as number))
+  if (values.size !== 1) {
+    throw new Error('optimizer model request supplied conflicting output-token limits')
+  }
+  return supplied[0]!.value as number
+}
+
+function parseTemperature(value: unknown): { temperature?: number } {
+  if (value === undefined) return {}
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error('optimizer model request temperature must be finite')
+  }
+  return { temperature: value }
+}
+
+function parseThinking(value: unknown): { thinking?: 'enabled' | 'disabled' } {
+  if (value === undefined) return {}
+  if (!isRecord(value)) {
+    throw new Error('optimizer model request thinking must be an object')
+  }
+  assertAllowedKeys(value, ['type'], 'optimizer model request thinking')
+  if (value.type !== 'enabled' && value.type !== 'disabled') {
+    throw new Error('optimizer model request thinking.type must be enabled or disabled')
+  }
+  return { thinking: value.type }
+}
+
+function parseChatMessages(value: unknown): ExternalOptimizerChatRequest['messages'] {
+  if (!Array.isArray(value)) throw new Error('optimizer chat request messages must be an array')
+  return value.map((message, index) => parseMessage(message, `optimizer chat message ${index}`))
+}
+
+function parseResponsesInput(value: unknown): ExternalOptimizerChatRequest['messages'] {
+  if (typeof value === 'string') return [{ role: 'user', content: value }]
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('optimizer Responses request requires non-empty input')
+  }
+  return value.map((message, index) => {
+    if (!isRecord(message)) {
+      throw new Error(`optimizer Responses input ${index} must be a message object`)
+    }
+    assertAllowedKeys(message, ['type', 'role', 'content'], `optimizer Responses input ${index}`)
+    if (message.type !== undefined && message.type !== 'message') {
+      throw new Error(`optimizer Responses input ${index} type must be message`)
+    }
+    return parseMessage(message, `optimizer Responses input ${index}`, true)
+  })
+}
+
+function parseMessage(
+  value: unknown,
+  label: string,
+  responsesContent = false,
+): ExternalOptimizerChatRequest['messages'][number] {
+  if (!isRecord(value)) throw new Error(`${label} must be an object`)
+  assertAllowedKeys(
+    value,
+    responsesContent ? ['type', 'role', 'content'] : ['role', 'content'],
+    label,
+  )
+  if (value.role !== 'system' && value.role !== 'user' && value.role !== 'assistant') {
+    throw new Error(`${label} role must be system, user, or assistant`)
+  }
+  return {
+    role: value.role,
+    content: parseMessageContent(value.content, label, responsesContent),
+  }
+}
+
+function parseMessageContent(
+  value: unknown,
+  label: string,
+  responsesContent: boolean,
+): ExternalOptimizerChatRequest['messages'][number]['content'] {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} content must be text or a non-empty content array`)
+  }
+  return value.map((part, partIndex) => {
+    if (!isRecord(part)) throw new Error(`${label} content ${partIndex} must be an object`)
+    const partLabel = `${label} content ${partIndex}`
+    if (part.type === 'text' || (responsesContent && part.type === 'input_text')) {
+      assertAllowedKeys(part, ['type', 'text'], partLabel)
+      if (typeof part.text !== 'string') throw new Error(`${partLabel} text must be a string`)
+      return { type: 'text' as const, text: part.text }
+    }
+    if (responsesContent && part.type === 'output_text') {
+      assertAllowedKeys(part, ['type', 'text'], partLabel)
+      if (typeof part.text !== 'string') throw new Error(`${partLabel} text must be a string`)
+      return { type: 'text' as const, text: part.text }
+    }
+    if (part.type === 'image_url') {
+      assertAllowedKeys(part, ['type', 'image_url'], partLabel)
+      if (!isRecord(part.image_url) || typeof part.image_url.url !== 'string') {
+        throw new Error(`${partLabel} image_url must contain a URL string`)
+      }
+      assertAllowedKeys(part.image_url, ['url', 'detail'], `${partLabel} image_url`)
+      const detail = parseImageDetail(part.image_url.detail, partLabel)
+      return { type: 'image_url' as const, image_url: { url: part.image_url.url, ...detail } }
+    }
+    if (responsesContent && part.type === 'input_image') {
+      assertAllowedKeys(part, ['type', 'image_url', 'detail'], partLabel)
+      if (typeof part.image_url !== 'string') {
+        throw new Error(`${partLabel} image_url must be a URL string`)
+      }
+      const detail = parseImageDetail(part.detail, partLabel)
+      return { type: 'image_url' as const, image_url: { url: part.image_url, ...detail } }
+    }
+    throw new Error(`${partLabel} uses an unsupported content type`)
+  })
+}
+
+function parseImageDetail(value: unknown, label: string): { detail?: 'auto' | 'low' | 'high' } {
+  if (value === undefined) return {}
+  if (value !== 'auto' && value !== 'low' && value !== 'high') {
+    throw new Error(`${label} image detail must be auto, low, or high`)
+  }
+  return { detail: value }
+}
+
+function parseChatResponseFormat(
+  value: unknown,
+): Pick<ExternalOptimizerChatRequest, 'jsonMode' | 'jsonSchema'> {
+  if (value === undefined) return {}
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    throw new Error('optimizer chat response_format must be an object with a type')
+  }
+  if (value.type === 'text') {
+    assertAllowedKeys(value, ['type'], 'optimizer chat response_format')
+    return {}
+  }
+  if (value.type === 'json_object') {
+    assertAllowedKeys(value, ['type'], 'optimizer chat response_format')
+    return { jsonMode: true }
+  }
+  if (value.type !== 'json_schema') {
+    throw new Error('optimizer chat response_format type is unsupported')
+  }
+  assertAllowedKeys(value, ['type', 'json_schema'], 'optimizer chat response_format')
+  return { jsonSchema: parseJsonSchema(value.json_schema, 'optimizer chat response_format') }
+}
+
+function parseResponsesTextFormat(
+  value: unknown,
+): Pick<ExternalOptimizerChatRequest, 'jsonMode' | 'jsonSchema'> {
+  if (value === undefined) return {}
+  if (!isRecord(value)) throw new Error('optimizer Responses text must be an object')
+  assertAllowedKeys(value, ['format'], 'optimizer Responses text')
+  if (value.format === undefined) return {}
+  if (!isRecord(value.format) || typeof value.format.type !== 'string') {
+    throw new Error('optimizer Responses text.format must be an object with a type')
+  }
+  const format = value.format
+  if (format.type === 'text') {
+    assertAllowedKeys(format, ['type'], 'optimizer Responses text.format')
+    return {}
+  }
+  if (format.type === 'json_object') {
+    assertAllowedKeys(format, ['type'], 'optimizer Responses text.format')
+    return { jsonMode: true }
+  }
+  if (format.type !== 'json_schema') {
+    throw new Error('optimizer Responses text.format type is unsupported')
+  }
+  return { jsonSchema: parseJsonSchema(format, 'optimizer Responses text.format', true) }
+}
+
+function parseJsonSchema(
+  value: unknown,
+  label: string,
+  flat = false,
+): { name: string; schema: Record<string, unknown> } {
+  if (!isRecord(value)) throw new Error(`${label} JSON schema must be an object`)
+  assertAllowedKeys(value, ['name', 'schema', 'strict', ...(flat ? ['type'] : [])], label)
+  if (typeof value.name !== 'string' || !value.name.trim()) {
+    throw new Error(`${label} JSON schema name must be non-empty`)
+  }
+  if (!isRecord(value.schema)) throw new Error(`${label} JSON schema body must be an object`)
+  if (value.strict !== undefined && value.strict !== true) {
+    throw new Error(`${label} JSON schema strict must be true when supplied`)
+  }
+  return {
+    name: value.name,
+    schema: freezeJsonSnapshot(value.schema, `${label} schema`) as Record<string, unknown>,
+  }
+}
+
+function assertAllowedKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label = 'optimizer model request',
+): void {
+  const allowedSet = new Set(allowed)
+  const unknown = Object.keys(value).filter((key) => !allowedSet.has(key))
+  if (unknown.length > 0)
+    throw new Error(`${label} contains unsupported fields: ${unknown.join(', ')}`)
+}
+
+function snapshotChatResponse(value: unknown, expectedModel: string): ChatResponse {
+  if (!isRecord(value)) {
+    throw new OwnerModelContractError('optimizer model callback response must be an object')
+  }
+  if (typeof value.content !== 'string') {
+    throw new OwnerModelContractError('optimizer model callback response content must be a string')
+  }
+  if (value.model !== expectedModel) {
+    throw new OwnerModelContractError(
+      `optimizer model callback response used '${String(value.model)}' instead of '${expectedModel}'`,
+    )
+  }
+  if (!isNonnegativeFiniteNumber(value.durationMs)) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response durationMs must be finite and non-negative',
+    )
+  }
+  if (value.costUsd !== null && !isNonnegativeFiniteNumber(value.costUsd)) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response costUsd must be null or finite and non-negative',
+    )
+  }
+  if (
+    value.finishReason !== undefined &&
+    value.finishReason !== null &&
+    typeof value.finishReason !== 'string'
+  ) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response finishReason must be a string or null',
+    )
+  }
+  if (
+    value.contentEmpty !== undefined &&
+    (typeof value.contentEmpty !== 'boolean' ||
+      value.contentEmpty !== (value.content.trim().length === 0))
+  ) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response contentEmpty must match content',
+    )
+  }
+  if (!isRecord(value.raw)) {
+    throw new OwnerModelContractError('optimizer model callback response raw must be an object')
+  }
+  if (!isRecord(value.usage)) {
+    throw new OwnerModelContractError('optimizer model callback response usage must be an object')
+  }
   const usage = value.usage
-  const totalInputTokens = usage.input_tokens ?? usage.prompt_tokens
-  const outputTokens = usage.output_tokens ?? usage.completion_tokens
+  for (const field of ['promptTokens', 'completionTokens', 'totalTokens'] as const) {
+    if (!isNonnegativeSafeInteger(usage[field])) {
+      throw new OwnerModelContractError(
+        `optimizer model callback response usage.${field} must be a non-negative safe integer`,
+      )
+    }
+  }
+  const promptTokens = usage.promptTokens as number
+  const completionTokens = usage.completionTokens as number
+  const totalTokens = usage.totalTokens as number
+  if (totalTokens !== promptTokens + completionTokens) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response totalTokens must equal promptTokens plus completionTokens',
+    )
+  }
+  if (usage.captured !== undefined && typeof usage.captured !== 'boolean') {
+    throw new OwnerModelContractError(
+      'optimizer model callback response usage.captured must be a boolean',
+    )
+  }
   if (
-    !Number.isSafeInteger(totalInputTokens) ||
-    (totalInputTokens as number) < 0 ||
-    !Number.isSafeInteger(outputTokens) ||
-    (outputTokens as number) < 0
+    usage.cachedPromptTokens !== undefined &&
+    (!isNonnegativeSafeInteger(usage.cachedPromptTokens) || usage.cachedPromptTokens > promptTokens)
   ) {
-    return undefined
+    throw new OwnerModelContractError(
+      'optimizer model callback response cachedPromptTokens must be a subset of promptTokens',
+    )
   }
-  const inputDetails = isRecord(usage.input_tokens_details)
-    ? usage.input_tokens_details
-    : isRecord(usage.prompt_tokens_details)
-      ? usage.prompt_tokens_details
-      : {}
-  const outputDetails = isRecord(usage.output_tokens_details)
-    ? usage.output_tokens_details
-    : isRecord(usage.completion_tokens_details)
-      ? usage.completion_tokens_details
-      : {}
-  const nestedCachedTokens = optionalTokenCount(inputDetails, [
-    'cached_tokens',
-    'cache_read_tokens',
-  ])
-  const separateCachedTokens = optionalTokenCount(usage, ['cache_read_input_tokens'])
-  const nestedCacheWriteTokens = optionalTokenCount(inputDetails, [
-    'cache_write_tokens',
-    'cache_creation_tokens',
-  ])
-  const separateCacheWriteTokens = optionalTokenCount(usage, ['cache_creation_input_tokens'])
-  const nestedReasoningTokens = optionalTokenCount(outputDetails, ['reasoning_tokens'])
-  const separateReasoningTokens = optionalTokenCount(usage, ['reasoning_tokens'])
-  const actualCostUsd =
-    typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0
-      ? usage.cost
-      : undefined
   if (
-    nestedCachedTokens === INVALID_TOKEN_COUNT ||
-    separateCachedTokens === INVALID_TOKEN_COUNT ||
-    nestedCacheWriteTokens === INVALID_TOKEN_COUNT ||
-    separateCacheWriteTokens === INVALID_TOKEN_COUNT ||
-    nestedReasoningTokens === INVALID_TOKEN_COUNT ||
-    separateReasoningTokens === INVALID_TOKEN_COUNT
+    usage.reasoningTokens !== undefined &&
+    (!isNonnegativeSafeInteger(usage.reasoningTokens) || usage.reasoningTokens > completionTokens)
   ) {
-    return undefined
+    throw new OwnerModelContractError(
+      'optimizer model callback response reasoningTokens must be a subset of completionTokens',
+    )
   }
-  const cached = selectProviderTokenClass(nestedCachedTokens, separateCachedTokens)
-  const cacheWrite = selectProviderTokenClass(nestedCacheWriteTokens, separateCacheWriteTokens)
-  const reasoning = selectProviderTokenClass(nestedReasoningTokens, separateReasoningTokens)
-  if (cached === undefined || cacheWrite === undefined || reasoning === undefined) return undefined
-  const classifiedInputTokens =
-    (cached.includedInTotal ? cached.count : 0) +
-    (cacheWrite.includedInTotal ? cacheWrite.count : 0)
-  if (
-    classifiedInputTokens > (totalInputTokens as number) ||
-    reasoning.count > (outputTokens as number)
-  ) {
-    return undefined
+  let raw: Record<string, unknown>
+  try {
+    raw = freezeJsonSnapshot(
+      value.raw,
+      'optimizer model callback canonical response.raw',
+    ) as Record<string, unknown>
+  } catch (error) {
+    throw new OwnerModelContractError(
+      `optimizer model callback returned invalid raw response evidence: ${toErrorMessage(error)}`,
+    )
   }
-  return {
-    inputTokens: (totalInputTokens as number) - classifiedInputTokens,
-    outputTokens: outputTokens as number,
-    ...(cached.supplied ? { cachedTokens: cached.count } : {}),
-    ...(cacheWrite.supplied ? { cacheWriteTokens: cacheWrite.count } : {}),
-    ...(reasoning.supplied ? { reasoningTokens: reasoning.count } : {}),
-    ...(actualCostUsd === undefined ? {} : { actualCostUsd }),
-  }
+  return deepFreezeJson({
+    content: value.content,
+    usage: {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      ...(usage.captured === undefined ? {} : { captured: usage.captured }),
+      ...(usage.reasoningTokens === undefined ? {} : { reasoningTokens: usage.reasoningTokens }),
+      ...(usage.cachedPromptTokens === undefined
+        ? {}
+        : { cachedPromptTokens: usage.cachedPromptTokens }),
+    },
+    costUsd: value.costUsd,
+    model: value.model,
+    durationMs: value.durationMs,
+    ...(value.finishReason === undefined ? {} : { finishReason: value.finishReason }),
+    ...(value.contentEmpty === undefined ? {} : { contentEmpty: value.contentEmpty }),
+    raw,
+  }) as ChatResponse
 }
 
-/**
- * OpenAI reports a cache class inside the input total; Anthropic reports it
- * beside the input total. When both equivalent forms are present they must
- * agree, and the nested normalized form wins.
- */
-function selectProviderTokenClass(
-  nested: number | undefined,
-  separate: number | undefined,
-): { count: number; supplied: boolean; includedInTotal: boolean } | undefined {
-  if (nested !== undefined && separate !== undefined && nested > 0 && separate > 0) {
-    if (nested !== separate) return undefined
-    return { count: nested, supplied: true, includedInTotal: true }
-  }
-  if (nested !== undefined && nested > 0) {
-    return { count: nested, supplied: true, includedInTotal: true }
-  }
-  if (separate !== undefined && separate > 0) {
-    return { count: separate, supplied: true, includedInTotal: false }
-  }
-  return {
-    count: 0,
-    supplied: nested !== undefined || separate !== undefined,
-    includedInTotal: nested !== undefined,
-  }
+function encodeCanonicalModelResponse(args: {
+  path: ModelProxyPath
+  callId: string
+  response: ChatResponse
+  receipt: CostReceiptInput
+  maxBytes: number
+}): Uint8Array {
+  const usage = encodeProtocolUsage(args.path, args.response, args.receipt)
+  const finishReason =
+    args.response.finishReason === undefined ? 'stop' : args.response.finishReason
+  const body =
+    args.path === '/v1/chat/completions'
+      ? {
+          id: `chatcmpl-${args.callId}`,
+          object: 'chat.completion',
+          created: 0,
+          model: args.response.model,
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content: args.response.content },
+              finish_reason: finishReason,
+            },
+          ],
+          ...(usage ? { usage } : {}),
+        }
+      : {
+          id: `resp-${args.callId}`,
+          object: 'response',
+          created_at: 0,
+          model: args.response.model,
+          status: finishReason === 'length' ? 'incomplete' : 'completed',
+          error: null,
+          incomplete_details: finishReason === 'length' ? { reason: 'max_output_tokens' } : null,
+          output: [
+            {
+              id: `msg-${args.callId}`,
+              type: 'message',
+              status: finishReason === 'length' ? 'incomplete' : 'completed',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'output_text',
+                  text: args.response.content,
+                  annotations: [],
+                },
+              ],
+            },
+          ],
+          output_text: args.response.content,
+          ...(usage ? { usage } : {}),
+        }
+  const encoded = new TextEncoder().encode(JSON.stringify(body))
+  if (encoded.byteLength > args.maxBytes) throw new ProviderResponseTooLargeError()
+  return encoded
 }
 
-const INVALID_TOKEN_COUNT = Symbol('invalid-token-count')
+function endpointFormat(path: ModelProxyPath): ExternalOptimizerEndpointFormat {
+  return path === '/v1/responses' ? 'responses' : 'chat-completions'
+}
 
-function optionalTokenCount(
-  details: Record<string, unknown>,
-  fields: readonly string[],
-): number | undefined | typeof INVALID_TOKEN_COUNT {
-  let found: number | undefined
-  for (const field of fields) {
-    const value = details[field]
-    if (value === undefined || value === null) continue
-    if (!Number.isSafeInteger(value) || (value as number) < 0) return INVALID_TOKEN_COUNT
-    if (found !== undefined && found !== value) return INVALID_TOKEN_COUNT
-    found = value as number
+function encodeProtocolUsage(
+  path: ModelProxyPath,
+  response: ChatResponse,
+  receipt: CostReceiptInput,
+): Record<string, unknown> | undefined {
+  if (response.usage.captured === false) return undefined
+  const inputDetails = {
+    ...(receipt.cachedTokens === undefined ? {} : { cached_tokens: receipt.cachedTokens }),
+    ...(receipt.cacheWriteTokens === undefined
+      ? {}
+      : path === '/v1/chat/completions'
+        ? { cache_creation_tokens: receipt.cacheWriteTokens }
+        : { cache_write_tokens: receipt.cacheWriteTokens }),
   }
-  return found
+  const outputDetails = {
+    ...(receipt.reasoningTokens === undefined ? {} : { reasoning_tokens: receipt.reasoningTokens }),
+  }
+  return path === '/v1/chat/completions'
+    ? {
+        prompt_tokens: response.usage.promptTokens,
+        completion_tokens: response.usage.completionTokens,
+        total_tokens: response.usage.totalTokens,
+        ...(Object.keys(inputDetails).length > 0 ? { prompt_tokens_details: inputDetails } : {}),
+        ...(Object.keys(outputDetails).length > 0
+          ? { completion_tokens_details: outputDetails }
+          : {}),
+        ...(receipt.actualCostUsd === undefined ? {} : { cost: receipt.actualCostUsd }),
+      }
+    : {
+        input_tokens: response.usage.promptTokens,
+        output_tokens: response.usage.completionTokens,
+        total_tokens: response.usage.totalTokens,
+        ...(Object.keys(inputDetails).length > 0 ? { input_tokens_details: inputDetails } : {}),
+        ...(Object.keys(outputDetails).length > 0 ? { output_tokens_details: outputDetails } : {}),
+        ...(receipt.actualCostUsd === undefined ? {} : { cost: receipt.actualCostUsd }),
+      }
+}
+
+function isNonnegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function isNonnegativeSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
 }
 
 function conservativeMaximumUsage(
@@ -732,52 +1162,17 @@ function conservativeMaximumUsage(
   const inputRates = [
     pricing.inputUsdPerMillion,
     pricing.cachedInputUsdPerMillion ?? pricing.inputUsdPerMillion,
-    pricing.cacheWriteUsdPerMillion ?? pricing.inputUsdPerMillion,
   ]
   const mostExpensiveInputClass = inputRates.indexOf(Math.max(...inputRates))
   return {
     inputTokens: mostExpensiveInputClass === 0 ? inputTokenUpperBound : 0,
     ...(mostExpensiveInputClass === 1 ? { cachedTokens: inputTokenUpperBound } : {}),
-    ...(mostExpensiveInputClass === 2 ? { cacheWriteTokens: inputTokenUpperBound } : {}),
+    // Cache creation is a separately billed class in CostReceipt. Reserve a
+    // full request-sized write in addition to the most expensive prompt class;
+    // selecting only one class would understate a call that both reads and writes.
+    cacheWriteTokens: inputTokenUpperBound,
     outputTokens: outputTokenUpperBound,
   }
-}
-
-async function readProviderResponseBody(response: Response, maxBytes: number): Promise<Uint8Array> {
-  const declaredLength = response.headers.get('content-length')
-  if (declaredLength !== null) {
-    const parsedLength = Number(declaredLength)
-    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
-      throw new ProviderResponseTooLargeError()
-    }
-  }
-  if (!response.body) return new Uint8Array()
-
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let totalBytes = 0
-  try {
-    while (true) {
-      const next = await reader.read()
-      if (next.done) break
-      totalBytes += next.value.byteLength
-      if (totalBytes > maxBytes) {
-        await reader.cancel()
-        throw new ProviderResponseTooLargeError()
-      }
-      chunks.push(next.value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const body = new Uint8Array(totalBytes)
-  let offset = 0
-  for (const chunk of chunks) {
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return body
 }
 
 function assertModelProxyConfig(args: {
@@ -789,6 +1184,7 @@ function assertModelProxyConfig(args: {
   phase: string
   actor: string
   tags?: Record<string, string>
+  callId?: string
   initialUsage?: {
     requests: number
     costUsd?: number
@@ -815,6 +1211,18 @@ function assertModelProxyConfig(args: {
   }
   if (typeof args.recordExecution !== 'function') {
     throw new Error('external optimizer model proxy: recordExecution must be a function')
+  }
+  if (args.callId !== undefined) {
+    if (
+      typeof args.callId !== 'string' ||
+      !args.callId.trim() ||
+      args.callId !== args.callId.trim()
+    ) {
+      throw new Error('external optimizer model proxy: callId must be trimmed and non-empty')
+    }
+    if (args.budget.maxRequests !== 1) {
+      throw new Error('external optimizer model proxy: callId requires budget.maxRequests to be 1')
+    }
   }
   assertExternalOptimizerModelBudget(args.budget, 'external optimizer model proxy: budget')
   if (args.tags !== undefined) {

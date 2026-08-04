@@ -1,4 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import {
+  type ExternalOptimizerModelProxy,
+  runWithCleanup,
+  startExternalOptimizerModelProxy,
+} from '../campaign/external-optimizer-process'
 import {
   CostAccountingIncompleteError,
   CostCallConflictError,
@@ -12,15 +18,8 @@ import {
   CostReservationExceededError,
 } from '../cost-ledger'
 import { ValidationError } from '../errors'
-import {
-  callLlmJson,
-  costReceiptFromLlm,
-  costReceiptFromLlmError,
-  type LlmCallRequest,
-  type LlmCallResult,
-  type LlmClientOptions,
-  maximumChargeForLlmRequest,
-} from '../llm-client'
+import { callLlmJson, type LlmCallRequest, type LlmClientOptions } from '../llm-client'
+import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { AnalystBenchmarkRunner } from './benchmark'
 import { agentRxPredictionsToFindings } from './benchmark-datasets'
@@ -72,10 +71,19 @@ export function createPublicBenchmarkDirectRunner(
     )
   }
   const model = requiredString(config.model, 'model')
-  const baseUrl = requiredString(config.baseUrl, 'baseUrl')
-  const apiKey = requiredString(config.apiKey, 'apiKey')
+  const callRef = requiredString(config.callRef, 'callRef')
+  if (typeof config.call !== 'function') throw new TypeError('call must be a function')
+  if (typeof config.recordExecution !== 'function') {
+    throw new TypeError('recordExecution must be a function')
+  }
   const maxOutputTokens = positiveSafeInteger(config.maxOutputTokens, 'maxOutputTokens')
   const timeoutMs = positiveSafeInteger(config.timeoutMs, 'timeoutMs')
+  const maxReasoningTokens = config.maxReasoningTokens ?? maxOutputTokens * 4
+  const maxModelRequestBytes = config.maxModelRequestBytes ?? 16 * 1024 * 1024
+  const maxModelResponseBytes = config.maxModelResponseBytes ?? 4 * 1024 * 1024
+  const modelRequestTimeoutMs = config.modelRequestTimeoutMs ?? timeoutMs
+  const pricing = config.pricing ?? pricingForModel(model)
+  const maxCostUsd = config.maxCostUsdPerAnalysis ?? 1
   const costLedger = config.costLedger ?? new CostLedger()
   const durability = config.durability
     ? {
@@ -93,16 +101,6 @@ export function createPublicBenchmarkDirectRunner(
     dataset === 'agentrx' ? 'agentrx-root-cause-localizer' : 'codetracebench-step-localizer'
   const outputAdapter =
     dataset === 'agentrx' ? 'agentrx-taxonomy-and-root-step' : 'codetracebench-incorrect-block'
-  const llmOptions: LlmClientOptions = {
-    baseUrl,
-    apiKey,
-    maximumAttempts: 1,
-    jsonSchemaTransport: 'json-object',
-    jsonPayloadMode: 'exact',
-    thinking: 'disabled',
-    ...(config.fetchImpl ? { fetch: config.fetchImpl } : {}),
-  }
-
   return {
     id: 'direct',
     async analyze(input, context) {
@@ -121,6 +119,7 @@ export function createPublicBenchmarkDirectRunner(
         analysisMode: 'direct-baseline',
         outputAdapter,
         protocolSha256: publicBenchmarkProtocolSha256(dataset),
+        callRef,
       }
       try {
         if (!input.traceStore) {
@@ -145,7 +144,7 @@ export function createPublicBenchmarkDirectRunner(
           jsonMode: true,
           thinking: 'disabled',
           maxTokens: maxOutputTokens,
-          timeoutMs,
+          timeoutMs: modelRequestTimeoutMs,
         }
         const cacheIdentity = durability
           ? {
@@ -190,26 +189,51 @@ export function createPublicBenchmarkDirectRunner(
           }
         } else {
           assertNoSettledResponseWithoutCache(costLedger, callId)
-          let completedResult: LlmCallResult | undefined
-          const paid = await costLedger.runPaidCall({
-            ...(callId ? { callId } : {}),
-            channel: 'analyst',
-            phase: 'analyst.public-benchmark',
-            actor,
-            model,
-            signal: context.signal,
-            maximumCharge: maximumChargeForLlmRequest(request, llmOptions),
-            tags: costTags,
-            execute: async (signal, providerCallId) => {
+          const providerCallId = callId ?? `analyst-benchmark-${randomUUID()}`
+          let modelProxy: ExternalOptimizerModelProxy | undefined
+          const completed = await runWithCleanup({
+            label: 'public benchmark direct model resources',
+            run: async () => {
+              modelProxy = await startExternalOptimizerModelProxy({
+                call: config.call,
+                callRef,
+                recordExecution: config.recordExecution,
+                model,
+                budget: {
+                  maxCostUsd,
+                  maxRequests: 1,
+                  maxRequestBytes: maxModelRequestBytes,
+                  maxResponseBytes: maxModelResponseBytes,
+                  maxOutputTokensPerRequest: maxOutputTokens,
+                  maxReasoningTokensPerRequest: maxReasoningTokens,
+                  pricing,
+                  requestTimeoutMs: modelRequestTimeoutMs,
+                },
+                costLedger,
+                channel: 'analyst',
+                phase: 'analyst.public-benchmark',
+                actor,
+                tags: costTags,
+                callId: providerCallId,
+                ...(context.signal ? { signal: context.signal } : {}),
+              })
+              const llmOptions: LlmClientOptions = {
+                baseUrl: modelProxy.baseUrl,
+                apiKey: modelProxy.apiKey,
+                maximumAttempts: 1,
+                jsonSchemaTransport: 'json-object',
+                jsonPayloadMode: 'exact',
+                thinking: 'disabled',
+              }
               try {
                 const completed = await callLlmJson<unknown>(request, {
                   ...llmOptions,
-                  signal,
+                  ...(context.signal ? { signal: context.signal } : {}),
                   idempotencyKey: providerCallId,
                 })
-                completedResult = completed.result
                 const response = parsePublicBenchmarkModelResponse(dataset, completed.value)
                 const responseProducedAt = new Date().toISOString()
+                const receipt = requiredSettledReceipt(costLedger, providerCallId)
                 if (cacheIdentity) {
                   writePublicBenchmarkResponseCache(durability!.responseCacheDir, {
                     kind: 'agent-eval/public-benchmark-model-response',
@@ -226,41 +250,47 @@ export function createPublicBenchmarkDirectRunner(
                       finishReason: completed.result.finishReason ?? null,
                       producedAt: responseProducedAt,
                     },
-                    receipt: costReceiptFromLlm(completed.result),
+                    receipt: cacheReceiptInput(receipt),
                   })
                 }
-                return { ...completed, response, producedAt: responseProducedAt }
+                modelProxy.assertExecutionComplete()
+                return { ...completed, response, producedAt: responseProducedAt, receipt }
               } catch (error) {
+                const controlFailure = modelProxy.failures().find(isPaidCallControlError)
+                if (controlFailure) throw controlFailure
+                const receipt = settledReceipt(costLedger, providerCallId)
                 if (cacheIdentity) {
-                  writePublicBenchmarkResponseCache(durability!.responseCacheDir, {
-                    kind: 'agent-eval/public-benchmark-model-response',
-                    ...cacheIdentity,
-                    callId: providerCallId,
-                    status: 'failed',
-                    error: publicBenchmarkError(error, [apiKey]),
-                    receipt: receiptForProviderFailure(error, completedResult, model),
-                  })
+                  if (receipt) {
+                    writePublicBenchmarkResponseCache(durability!.responseCacheDir, {
+                      kind: 'agent-eval/public-benchmark-model-response',
+                      ...cacheIdentity,
+                      callId: providerCallId,
+                      status: 'failed',
+                      error: publicBenchmarkError(error, []),
+                      receipt: cacheReceiptInput(receipt),
+                    })
+                  }
                 }
                 throw error
               }
             },
-            receipt: ({ result }) => costReceiptFromLlm(result),
-            receiptFromError: (error) => receiptForProviderFailure(error, completedResult, model),
+            cleanup: async () => {
+              await modelProxy?.close()
+            },
           })
-          if (!paid.succeeded) throw paid.error
-          const response = paid.value.response
+          const response = completed.response
           rawPredictions = response.findings
           rejectedBlocks = response.rejectedBlocks
-          providerModel = paid.value.result.model
-          producedAt = paid.value.producedAt
+          providerModel = completed.result.model
+          producedAt = completed.producedAt
           modelMetadata = {
             ...modelMetadata,
             responseSource: 'provider',
             report: response.report,
-            providerModel: paid.value.result.model,
-            providerDurationMs: paid.value.result.durationMs,
-            finishReason: paid.value.result.finishReason ?? null,
-            cost: costReceiptMetadata(paid.receipt),
+            providerModel: completed.result.model,
+            providerDurationMs: completed.result.durationMs,
+            finishReason: completed.result.finishReason ?? null,
+            cost: costReceiptMetadata(completed.receipt),
           }
         }
 
@@ -306,7 +336,7 @@ export function createPublicBenchmarkDirectRunner(
             channel: 'analyst',
             tags: costTags,
           }),
-          error: publicBenchmarkError(error, [apiKey]),
+          error: publicBenchmarkError(error, []),
           metadata: {
             ...modelMetadata,
             rawPredictions,
@@ -397,23 +427,55 @@ function isPaidCallControlError(error: unknown): boolean {
   )
 }
 
-function receiptForProviderFailure(
-  error: unknown,
-  completedResult: LlmCallResult | undefined,
-  model: string,
-): CostReceiptInput {
-  if (completedResult) return costReceiptFromLlm(completedResult)
-  if (error instanceof Error) {
-    const captured = costReceiptFromLlmError(error)
-    if (captured) return captured
+function settledReceipt(costLedger: CostLedgerHandle, callId: string): CostReceipt | undefined {
+  return costLedger.list().find((receipt) => receipt.callId === callId)
+}
+
+function requiredSettledReceipt(costLedger: CostLedgerHandle, callId: string): CostReceipt {
+  const receipt = settledReceipt(costLedger, callId)
+  if (!receipt) {
+    throw new CostAccountingIncompleteError(
+      `caller-owned model call '${callId}' produced no cost receipt`,
+    )
   }
-  return {
-    model,
-    inputTokens: 0,
-    outputTokens: 0,
-    costUnknown: true,
-    usageUnknown: true,
+  return receipt
+}
+
+function cacheReceiptInput(receipt: CostReceipt): CostReceiptInput {
+  const usage = {
+    model: receipt.model,
+    inputTokens: receipt.inputTokens,
+    outputTokens: receipt.outputTokens,
+    ...(receipt.reasoningTokens === undefined ? {} : { reasoningTokens: receipt.reasoningTokens }),
+    ...(receipt.cachedTokens === undefined ? {} : { cachedTokens: receipt.cachedTokens }),
+    ...(receipt.cacheWriteTokens === undefined
+      ? {}
+      : { cacheWriteTokens: receipt.cacheWriteTokens }),
+    ...(receipt.usageUnknown === undefined ? {} : { usageUnknown: receipt.usageUnknown }),
   }
+  if (receipt.costUnknown) return { ...usage, costUnknown: true }
+  if (receipt.actualCostUsd !== undefined) {
+    return { ...usage, actualCostUsd: receipt.actualCostUsd }
+  }
+  if (receipt.estimatedCostUsd !== undefined) {
+    return { ...usage, estimatedCostUsd: receipt.estimatedCostUsd }
+  }
+  if (receipt.pricing) {
+    return {
+      ...usage,
+      customTokenPricing: {
+        inputUsdPerMillion: receipt.pricing.inputUsdPerThousand * 1_000,
+        ...(receipt.pricing.cachedInputUsdPerThousand === undefined
+          ? {}
+          : { cachedInputUsdPerMillion: receipt.pricing.cachedInputUsdPerThousand * 1_000 }),
+        ...(receipt.pricing.cacheWriteUsdPerThousand === undefined
+          ? {}
+          : { cacheWriteUsdPerMillion: receipt.pricing.cacheWriteUsdPerThousand * 1_000 }),
+        outputUsdPerMillion: receipt.pricing.outputUsdPerThousand * 1_000,
+      },
+    }
+  }
+  return { ...usage, estimatedCostUsd: receipt.costUsd }
 }
 
 function costReceiptMetadata(receipt: CostReceipt): Record<string, unknown> {
@@ -433,6 +495,19 @@ function costReceiptMetadata(receipt: CostReceipt): Record<string, unknown> {
   return {
     source: 'unknown',
     estimatedCostUsd: null,
+  }
+}
+
+function pricingForModel(model: string): NonNullable<PublicAnalystBenchmarkModelConfig['pricing']> {
+  const pricing = resolveModelPricing(model)
+  if (!pricing) {
+    throw new Error(
+      `no pricing is configured for '${model}'; provide PublicAnalystBenchmarkModelConfig.pricing`,
+    )
+  }
+  return {
+    inputUsdPerMillion: pricing.input * 1_000,
+    outputUsdPerMillion: pricing.output * 1_000,
   }
 }
 

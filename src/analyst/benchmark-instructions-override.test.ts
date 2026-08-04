@@ -11,6 +11,13 @@ import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import { publicBenchmarkProtocolSha256 } from './benchmark-public-prompt'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 import { sha256Digest } from './benchmark-verification-artifacts'
+import { testModelExecutionOwner } from './model-execution.test-support'
+
+const UNUSED_MODEL_OWNER = testModelExecutionOwner({
+  fetchImpl: (async () => {
+    throw new Error('model execution is not expected in a construction test')
+  }) as typeof fetch,
+})
 
 describe('effectiveAnalystProtocolSha256', () => {
   it('is byte-identical to the stock protocol digest when no override is active', () => {
@@ -87,8 +94,7 @@ describe('createPublicBenchmarkRlmRunner with an instructions override', () => {
     // receives a config with the override stripped.
     expect(() =>
       createPublicBenchmarkRlmRunner('codetracebench', {
-        baseUrl: 'http://127.0.0.1:3355/v1',
-        apiKey: 'key',
+        ...UNUSED_MODEL_OWNER,
         model: 'test-model',
         maxOutputTokens: 1024,
         timeoutMs: 1000,
@@ -103,8 +109,7 @@ describe('createPublicBenchmarkDirectRunner with an instructions override', () =
   it('refuses the override instead of silently running the stock prompt', () => {
     expect(() =>
       createPublicBenchmarkDirectRunner('codetracebench', {
-        baseUrl: 'http://127.0.0.1:3355/v1',
-        apiKey: 'key',
+        ...UNUSED_MODEL_OWNER,
         model: 'test-model',
         maxOutputTokens: 1024,
         timeoutMs: 1000,

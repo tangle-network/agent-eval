@@ -82,6 +82,9 @@ export type {
   ExternalOptimizerObservationSummary,
 } from './external-optimizer-observations'
 export type {
+  ExternalOptimizerCallbackLimits,
+  ExternalOptimizerChatRequest,
+  ExternalOptimizerEndpointFormat,
   ExternalOptimizerEvaluationObservation,
   ExternalOptimizerEvaluationRefusalReason,
   ExternalOptimizerModelBudget,
@@ -89,6 +92,14 @@ export type {
   ExternalOptimizerModelCallRequest,
   ExternalOptimizerModelCallResult,
   ExternalOptimizerModelExecutionObservation,
+  ExternalOptimizerProcessLimits,
+  ExternalOptimizerRunnerCommand,
+} from './external-optimizer-process'
+export {
+  DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
+  DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS,
+  resolveExternalOptimizerCallbackLimits,
+  resolveExternalOptimizerProcessLimits,
 } from './external-optimizer-process'
 export {
   type ExternalOptimizationExample,

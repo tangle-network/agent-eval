@@ -86,8 +86,16 @@ export function assertCompletedArtifactMatchesRun(
       concurrency: config.concurrency,
       ...(config.rlmSamples === undefined ? {} : { rlmSamples: config.rlmSamples }),
       model: config.model.id,
+      modelOwnerCallRef: config.model.ownerCallRef,
       maxOutputTokens: config.model.maxOutputTokens,
+      maxReasoningTokens: config.model.maxReasoningTokens,
+      maxModelRequestBytes: config.model.maxRequestBytes,
+      maxModelResponseBytes: config.model.maxResponseBytes,
+      modelRequestTimeoutMs: config.model.requestTimeoutMs,
       timeoutMs: config.model.timeoutMs,
+      pricing: config.model.pricing,
+      recursiveLimits: config.model.recursiveLimits,
+      processLimits: config.model.processLimits,
       maxCostUsd: config.maxCostUsd,
       maxArtifactBytes: config.maxArtifactBytes,
       analystProtocolSha256: config.analystProtocolSha256,
@@ -126,6 +134,7 @@ export function assertCompletedArtifactMatchesRun(
     provenance.maxConcurrency !== Math.min(config.concurrency, expectedCount) ||
     provenance.runnerOrderSeed !== config.seed ||
     provenance.metadata?.model !== config.model.id ||
+    provenance.metadata?.modelOwnerCallRef !== config.model.ownerCallRef ||
     provenance.metadata?.rlmSamples !== config.rlmSamples ||
     provenance.metadata?.outputAdapter !== expectedOutputAdapter ||
     provenance.metadata?.caseSelection !== prepared.selection.method ||

@@ -2,15 +2,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { contentHash } from '../verdict-cache'
 import {
   type ExternalOptimizerCallback,
+  type ExternalOptimizerCallbackLimits,
   type ExternalOptimizerEvaluationObservation,
   type ExternalTextCandidate,
   type ExternalTextEvaluationRequest,
   isExternalTextCandidate,
   isRecord,
+  resolveExternalOptimizerCallbackLimits,
 } from './external-optimizer-contracts'
 import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
-
-const MAX_CALLBACK_BODY_BYTES = 1_000_000
 
 type UnsequencedObservation = ExternalOptimizerEvaluationObservation extends infer T
   ? T extends ExternalOptimizerEvaluationObservation
@@ -24,9 +24,12 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
   observe?: (observation: ExternalOptimizerEvaluationObservation) => void
+  /** Loopback JSON byte limits. Omitted fields use finite defaults. */
+  limits?: Partial<ExternalOptimizerCallbackLimits>
   signal?: AbortSignal
 }): Promise<ExternalOptimizerCallback> {
   assertCallbackConfig(args)
+  const limits = resolveExternalOptimizerCallbackLimits(args.limits)
   args.signal?.throwIfAborted()
   let evaluations = 0
   let accepting = true
@@ -55,6 +58,7 @@ export async function startExternalOptimizerCallback<TResponse>(args: {
       response,
       controller.signal,
       args,
+      limits,
       () => {
         const accepted = args.acceptEvaluation ? args.acceptEvaluation() : evaluations + 1
         if (accepted === undefined) return undefined
@@ -123,6 +127,7 @@ async function handleCallback<TResponse>(
     evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<TResponse>
     observe?: (observation: ExternalOptimizerEvaluationObservation) => void
   },
+  limits: ExternalOptimizerCallbackLimits,
   nextEvaluation: () => number | undefined,
   observe: (observation: UnsequencedObservation) => void,
   proposedCandidateHashes: Set<string>,
@@ -138,7 +143,7 @@ async function handleCallback<TResponse>(
     }
     let body: unknown
     try {
-      body = await readJson(request)
+      body = await readJson(request, limits.maxRequestBytes)
     } catch {
       observe({ kind: 'refusal', reason: 'invalid-request' })
       sendJsonIfOpen(response, 400, { error: 'request body must be bounded valid JSON' })
@@ -185,6 +190,31 @@ async function handleCallback<TResponse>(
       sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
       return
     }
+    let encoded: string
+    try {
+      encoded = encodeJsonResponse(result)
+    } catch {
+      observe({
+        kind: 'refusal',
+        reason: 'evaluation-failed',
+        candidate,
+        candidateHash,
+        exampleId: body.exampleId,
+      })
+      sendJsonIfOpen(response, 500, { error: 'evaluation response must be valid JSON' })
+      return
+    }
+    if (Buffer.byteLength(encoded) > limits.maxResponseBytes) {
+      observe({
+        kind: 'refusal',
+        reason: 'evaluation-failed',
+        candidate,
+        candidateHash,
+        exampleId: body.exampleId,
+      })
+      sendJsonIfOpen(response, 413, { error: 'evaluation response too large' })
+      return
+    }
     observe({
       kind: 'evaluation',
       candidate,
@@ -193,7 +223,7 @@ async function handleCallback<TResponse>(
       evaluationNumber: count,
       response: structuredClone(result),
     })
-    sendJsonIfOpen(response, 200, result)
+    sendEncodedJsonIfOpen(response, 200, encoded)
   } catch {
     sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
   }
@@ -210,13 +240,13 @@ function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown)
   sendJson(response, status, body)
 }
 
-function readJson(request: IncomingMessage): Promise<unknown> {
+function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<unknown> {
   return new Promise((resolvePromise, reject) => {
     let size = 0
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > MAX_CALLBACK_BODY_BYTES) {
+      if (size > maxRequestBytes) {
         reject(new Error('callback body too large'))
         request.destroy()
         return
@@ -234,12 +264,28 @@ function readJson(request: IncomingMessage): Promise<unknown> {
   })
 }
 
+function encodeJsonResponse(value: unknown): string {
+  const encoded = JSON.stringify(value)
+  if (encoded === undefined) throw new Error('evaluation response must be JSON-serializable')
+  return encoded
+}
+
+function sendEncodedJsonIfOpen(response: ServerResponse, status: number, encoded: string): void {
+  if (response.destroyed || response.writableEnded) return
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(Buffer.byteLength(encoded)),
+  })
+  response.end(encoded)
+}
+
 function assertCallbackConfig(args: {
   token: string
   maxEvaluations: number
   acceptEvaluation?: () => number | undefined
   evaluate: (request: ExternalTextEvaluationRequest, signal: AbortSignal) => Promise<unknown>
   observe?: (observation: ExternalOptimizerEvaluationObservation) => void
+  limits?: Partial<ExternalOptimizerCallbackLimits>
   signal?: AbortSignal
 }): void {
   if (typeof args.token !== 'string' || !args.token.trim()) {

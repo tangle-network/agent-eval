@@ -1,4 +1,6 @@
 import { arch, platform } from 'node:os'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { acquireSingleRunLock } from '../campaign/single-run-lock'
 import { createRunCostLedger, fsCampaignStorage } from '../campaign/storage'
 import {
@@ -6,6 +8,7 @@ import {
   type CostLedger,
   type CostLedgerSummary,
 } from '../cost-ledger'
+import { resolveModelPricing } from '../metrics'
 import {
   type AnalystBenchmarkObservation,
   type AnalystBenchmarkResult,
@@ -60,6 +63,7 @@ import {
   emptyPublicBenchmarkRunner,
   type PublicAnalystBenchmarkDataset,
   type PublicAnalystBenchmarkModelConfig,
+  type PublicAnalystBenchmarkModelOwner,
   type PublicBenchmarkSelectionReport,
   preparePublicAnalystBenchmark,
 } from './benchmark-real-model'
@@ -89,15 +93,19 @@ export interface AnalystBenchmarkCommandDependencies {
     dataset: PublicAnalystBenchmarkDataset,
     config: PublicAnalystBenchmarkModelConfig,
   ) => AnalystBenchmarkRunner<AnalystRunInputs>
+  loadModelExecutionOwner?: (
+    moduleRef: string,
+    context: {
+      model: string
+      environment: Readonly<NodeJS.ProcessEnv>
+    },
+  ) => Promise<PublicAnalystBenchmarkModelOwner>
 }
 
 /**
  * Which analyst produces the scored arm.
  *
- * `dspy-rlm` is the recursive engine. `direct` is the retired one-shot runner,
- * kept reachable because the published evidence was produced by it: a
- * comparison against those numbers is only sound when the same runner can be
- * re-run over the same inputs.
+ * `dspy-rlm` is the recursive engine. `direct` is the one-shot comparison arm.
  */
 export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct'
 
@@ -119,7 +127,7 @@ export interface AnalystBenchmarkCommandConfig {
   rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
-  apiKeyEnv: string
+  modelOwnerModule: string
   command: string
   resume: boolean
 }
@@ -135,7 +143,7 @@ export async function runAnalystBenchmarkCommand(
     process.stdout.write(`${ANALYST_BENCHMARK_HELP}\n`)
     return 0
   }
-  const config = parseCommandConfig(argv, env)
+  const config = await parseCommandConfig(argv, env, dependencies)
   const outputLock = acquireSingleRunLock({
     lockPath: await prepareOutputLockPath(config.outDir),
   })
@@ -257,6 +265,7 @@ async function executeAnalystBenchmarkCommand(
         },
         metadata: {
           model: config.model.model,
+          modelOwnerCallRef: config.model.callRef,
           rlmSamples: config.rlmSamples,
           outputAdapter:
             config.dataset === 'agentrx'
@@ -331,8 +340,16 @@ async function executeAnalystBenchmarkCommand(
         concurrency: config.concurrency,
         rlmSamples: config.rlmSamples,
         model: config.model.model,
-        maxOutputTokens: config.model.maxOutputTokens,
-        timeoutMs: config.model.timeoutMs,
+        modelOwnerCallRef: manifest.identity.config.model.ownerCallRef,
+        maxOutputTokens: manifest.identity.config.model.maxOutputTokens,
+        maxReasoningTokens: manifest.identity.config.model.maxReasoningTokens,
+        maxModelRequestBytes: manifest.identity.config.model.maxRequestBytes,
+        maxModelResponseBytes: manifest.identity.config.model.maxResponseBytes,
+        modelRequestTimeoutMs: manifest.identity.config.model.requestTimeoutMs,
+        timeoutMs: manifest.identity.config.model.timeoutMs,
+        pricing: manifest.identity.config.model.pricing,
+        recursiveLimits: manifest.identity.config.model.recursiveLimits,
+        processLimits: manifest.identity.config.model.processLimits,
         maxCostUsd: config.maxCostUsd,
         maxArtifactBytes: config.maxArtifactBytes,
         analystProtocolSha256: effectiveAnalystProtocolSha256(
@@ -442,16 +459,15 @@ Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench la
 Required:
   --dataset agentrx|codetracebench
   --analyst dspy-rlm|direct        Scored analyst. Default: dspy-rlm.
-                                   'direct' is the retired one-shot runner that
-                                   produced the published evidence.
+                                   'direct' is the one-shot comparison arm.
   --labels <dataset.json|dataset.jsonl>
   --trace-dir <one-trace-per-file OTLP JSONL directory>
   --artifact-dir <extracted artifact root>  Required for CodeTraceBench
   --out <new output directory>
   --revision <full 40- or 64-character hex digest>
   --split <dataset split>
-  --base-url <OpenAI-compatible /v1 URL>
-  --api-key-env <environment variable containing the bearer>
+  --model-owner-module <module>   Module exporting createModelExecutionOwner;
+                                   the owner keeps provider credentials and policy
   --model <provider model id>
   --limit <positive case count>
 
@@ -469,6 +485,22 @@ Controls:
                                    protocol to the override text, and
                                    result.json records instructionsOverrideSha256.
   --max-output-tokens <positive>   Model output limit per call. Default: 16384
+  --max-reasoning-tokens <integer> Reasoning-token limit per call. Default: 65536
+  --max-model-requests <positive>  Caller-owned model calls per analysis.
+                                   Default: max iterations + model calls + 1
+  --max-model-request-bytes <positive>   Default: 16777216
+  --max-model-response-bytes <positive>  Default: 4194304
+  --model-request-timeout-ms <positive>  Default: --timeout-ms
+  --max-iterations <positive>      Recursive iterations per analysis. Default: 14
+  --max-llm-calls <positive>       DSPy model calls per analysis. Default: 8
+  --max-tool-calls <positive>      Trace-tool calls per analysis. Default: 80
+  --max-analysis-output-chars <positive> Default: 8000
+  --trace-tool-request-bytes <positive>  Default: 1000000
+  --trace-tool-response-bytes <positive> Default: 4000000
+  --trace-tool-timeout-ms <positive>     Default: 60000
+  --max-process-input-bytes <positive>   Default: 67108864
+  --max-process-result-bytes <positive>  Default: 4194304
+  --max-process-output-chars <positive>  Default: 64000
   --python <executable>             Python with agent-eval-rpc[dspy]. Default: python
   --timeout-ms <positive>          Model analyst deadline per case. Default: 300000
   --max-cost-usd <positive>        Run-wide spend limit. Default: 5
@@ -478,14 +510,14 @@ Writes result.json with every observation, metric, usage field, error, compariso
 input digest, artifact digest, case distribution, selected case id, and explicit
 unknown cost. Limited deterministic-hash subsets are marked non-representative.
 Completed observations are fsynced to observations.jsonl. Shareable output is in
-result.json and report.md. Machine-local paths, endpoint, and command are isolated
-in run.local.json.
-The key is read from the named environment variable and is never written.`
+result.json and report.md. Machine-local paths, execution-owner module, and command
+are isolated in run.local.json. Provider credentials never enter this command.`
 
-function parseCommandConfig(
+async function parseCommandConfig(
   argv: readonly string[],
   env: NodeJS.ProcessEnv,
-): AnalystBenchmarkCommandConfig {
+  dependencies: AnalystBenchmarkCommandDependencies,
+): Promise<AnalystBenchmarkCommandConfig> {
   const flags = parseFlags(argv)
   assertKnownFlags(flags)
   const dataset = requiredFlag(flags, 'dataset')
@@ -496,15 +528,6 @@ function parseCommandConfig(
   if (dataset === 'codetracebench' && !artifactDir) {
     throw new Error('--artifact-dir is required for CodeTraceBench')
   }
-  const apiKeyEnv = requiredFlag(flags, 'api-key-env')
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(apiKeyEnv)) {
-    throw new Error('--api-key-env must be a valid environment variable name')
-  }
-  const apiKey = env[apiKeyEnv]?.trim()
-  if (!apiKey) {
-    throw new Error(`--api-key-env points to an empty or missing variable: ${apiKeyEnv}`)
-  }
-
   const maxCostUsd = positiveFiniteFlag(flags, 'max-cost-usd', 5)
   const python = flags.get('python')?.trim()
   const analyst = flags.get('analyst')?.trim() ?? 'dspy-rlm'
@@ -527,6 +550,19 @@ function parseCommandConfig(
       '--rlm-samples above 1 requires --dataset codetracebench; step-level consensus is defined on its block grammar',
     )
   }
+  const model = requiredFlag(flags, 'model')
+  const modelOwnerModule = requiredFlag(flags, 'model-owner-module')
+  const owner = await (dependencies.loadModelExecutionOwner ?? loadModelExecutionOwner)(
+    modelOwnerModule,
+    {
+      model,
+      environment: Object.freeze({ ...env }),
+    },
+  )
+  assertModelExecutionOwner(owner)
+  const pricing = owner.pricing ?? benchmarkModelPricing(model)
+  const maxOutputTokens = positiveFlag(flags, 'max-output-tokens', 16_384)
+  const timeoutMs = positiveFlag(flags, 'timeout-ms', 300_000)
   return {
     dataset,
     analyst,
@@ -537,15 +573,38 @@ function parseCommandConfig(
     revision: immutableRevision(requiredFlag(flags, 'revision')),
     split: requiredFlag(flags, 'split'),
     model: {
-      baseUrl: openAiCompatibleBaseUrl(requiredFlag(flags, 'base-url')),
-      apiKey,
-      model: requiredFlag(flags, 'model'),
-      maxOutputTokens: positiveFlag(flags, 'max-output-tokens', 16_384),
-      timeoutMs: positiveFlag(flags, 'timeout-ms', 300_000),
+      call: owner.call,
+      callRef: owner.callRef,
+      recordExecution: owner.recordExecution,
+      model,
+      maxOutputTokens,
+      timeoutMs,
+      maxReasoningTokens: nonNegativeFlag(flags, 'max-reasoning-tokens', maxOutputTokens * 4),
+      maxModelRequestBytes: positiveFlag(flags, 'max-model-request-bytes', 16 * 1024 * 1024),
+      maxModelResponseBytes: positiveFlag(flags, 'max-model-response-bytes', 4 * 1024 * 1024),
+      modelRequestTimeoutMs: positiveFlag(flags, 'model-request-timeout-ms', timeoutMs),
+      pricing,
       maxCostUsdPerAnalysis: maxCostUsd,
       ...(instructionsOverride ? { instructionsOverride } : {}),
       dspyRlm: {
-        ...(python ? { runner: { command: python } } : {}),
+        runner: {
+          ...(python ? { command: python } : {}),
+          limits: {
+            maxInputBytes: positiveFlag(flags, 'max-process-input-bytes', 64 * 1024 * 1024),
+            maxResultBytes: positiveFlag(flags, 'max-process-result-bytes', 4 * 1024 * 1024),
+            maxOutputChars: positiveFlag(flags, 'max-process-output-chars', 64_000),
+          },
+        },
+        maxIterations: positiveFlag(flags, 'max-iterations', 14),
+        maxLlmCalls: positiveFlag(flags, 'max-llm-calls', 8),
+        maxToolCalls: positiveFlag(flags, 'max-tool-calls', 80),
+        maxOutputChars: positiveFlag(flags, 'max-analysis-output-chars', 8_000),
+        ...(flags.has('max-model-requests')
+          ? { maxModelRequests: positiveFlag(flags, 'max-model-requests') }
+          : {}),
+        traceToolRequestBytes: positiveFlag(flags, 'trace-tool-request-bytes', 1_000_000),
+        traceToolResponseBytes: positiveFlag(flags, 'trace-tool-response-bytes', 4_000_000),
+        traceToolTimeoutMs: positiveFlag(flags, 'trace-tool-timeout-ms', 60_000),
         samples: rlmSamples,
       },
     },
@@ -560,7 +619,7 @@ function parseCommandConfig(
       'max-artifact-bytes',
       DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
     ),
-    apiKeyEnv,
+    modelOwnerModule,
     command: `agent-eval analyst-benchmark ${argv
       .filter((argument) => argument !== '--resume')
       .map(shellQuote)
@@ -601,8 +660,7 @@ const KNOWN_FLAGS = new Set([
   'out',
   'revision',
   'split',
-  'base-url',
-  'api-key-env',
+  'model-owner-module',
   'model',
   'limit',
   'seed',
@@ -611,6 +669,21 @@ const KNOWN_FLAGS = new Set([
   'rlm-samples',
   'instructions-file',
   'max-output-tokens',
+  'max-reasoning-tokens',
+  'max-model-requests',
+  'max-model-request-bytes',
+  'max-model-response-bytes',
+  'model-request-timeout-ms',
+  'max-iterations',
+  'max-llm-calls',
+  'max-tool-calls',
+  'max-analysis-output-chars',
+  'trace-tool-request-bytes',
+  'trace-tool-response-bytes',
+  'trace-tool-timeout-ms',
+  'max-process-input-bytes',
+  'max-process-result-bytes',
+  'max-process-output-chars',
   'python',
   'timeout-ms',
   'max-cost-usd',
@@ -658,6 +731,20 @@ function integerFlag(
   return value
 }
 
+function nonNegativeFlag(
+  flags: ReadonlyMap<string, string>,
+  name: string,
+  defaultValue: number,
+): number {
+  const raw = flags.get(name)
+  if (raw === undefined) return defaultValue
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`--${name} must be a non-negative safe integer`)
+  }
+  return value
+}
+
 function positiveFiniteFlag(
   flags: ReadonlyMap<string, string>,
   name: string,
@@ -672,36 +759,56 @@ function positiveFiniteFlag(
   return value
 }
 
-function openAiCompatibleBaseUrl(value: string): string {
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error('--base-url must be an absolute HTTP or HTTPS URL')
+async function loadModelExecutionOwner(
+  moduleRef: string,
+  context: { model: string; environment: Readonly<NodeJS.ProcessEnv> },
+): Promise<PublicAnalystBenchmarkModelOwner> {
+  const specifier =
+    moduleRef.startsWith('.') || moduleRef.startsWith('/')
+      ? pathToFileURL(resolve(moduleRef)).href
+      : moduleRef
+  const imported = (await import(specifier)) as {
+    createModelExecutionOwner?: (value: {
+      model: string
+      environment: Readonly<NodeJS.ProcessEnv>
+    }) => PublicAnalystBenchmarkModelOwner | Promise<PublicAnalystBenchmarkModelOwner>
   }
-  if (
-    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash
-  ) {
-    throw new Error('--base-url must use HTTP or HTTPS without credentials, query, or fragment')
+  if (typeof imported.createModelExecutionOwner !== 'function') {
+    throw new Error(`${moduleRef} must export createModelExecutionOwner({ model, environment })`)
   }
-  if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
-    throw new Error('--base-url must use HTTPS unless the endpoint is on the local machine')
-  }
-  return value
+  return imported.createModelExecutionOwner(context)
 }
 
-function isLoopbackHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase()
-  return (
-    normalized === 'localhost' ||
-    normalized === '[::1]' ||
-    normalized === '::1' ||
-    /^127(?:\.\d{1,3}){3}$/.test(normalized)
-  )
+function assertModelExecutionOwner(value: PublicAnalystBenchmarkModelOwner): void {
+  if (!value || typeof value !== 'object') {
+    throw new Error('createModelExecutionOwner must return an object')
+  }
+  if (typeof value.call !== 'function') {
+    throw new Error('model execution owner call must be a function')
+  }
+  if (
+    typeof value.callRef !== 'string' ||
+    !value.callRef.trim() ||
+    value.callRef !== value.callRef.trim()
+  ) {
+    throw new Error('model execution owner callRef must be trimmed and non-empty')
+  }
+  if (typeof value.recordExecution !== 'function') {
+    throw new Error('model execution owner recordExecution must be a function')
+  }
+}
+
+function benchmarkModelPricing(
+  model: string,
+): NonNullable<PublicAnalystBenchmarkModelConfig['pricing']> {
+  const pricing = resolveModelPricing(model)
+  if (!pricing) {
+    throw new Error(`model execution owner must supply pricing for uncatalogued model '${model}'`)
+  }
+  return {
+    inputUsdPerMillion: pricing.input * 1_000,
+    outputUsdPerMillion: pricing.output * 1_000,
+  }
 }
 
 function immutableRevision(value: string): string {

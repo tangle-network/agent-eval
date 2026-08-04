@@ -1,6 +1,7 @@
 import {
   type ExternalOptimizerRunnerCommand,
   removeCredentialEnvironment,
+  resolveExternalOptimizerProcessLimits,
 } from './external-optimizer-process'
 
 export function externalOptimizerRunnerIdentity(
@@ -10,11 +11,13 @@ export function externalOptimizerRunnerIdentity(
   command: string
   args: readonly string[]
   environment: Readonly<Record<string, string>>
+  limits: ReturnType<typeof resolveExternalOptimizerProcessLimits>
 } {
   return {
     command: runner?.command ?? 'python',
     args: [...(runner?.args ?? ['-m', module])],
     environment: removeCredentialEnvironment(runner?.env ?? {}),
+    limits: resolveExternalOptimizerProcessLimits(runner?.limits),
   }
 }
 
@@ -26,6 +29,7 @@ export function snapshotExternalOptimizerRunner(
     ...runner,
     ...(runner.args ? { args: [...runner.args] } : {}),
     ...(runner.env ? { env: { ...runner.env } } : {}),
+    ...(runner.limits ? { limits: { ...runner.limits } } : {}),
   }
 }
 
