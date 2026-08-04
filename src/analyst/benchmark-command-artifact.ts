@@ -36,15 +36,16 @@ export interface AnalystBenchmarkArtifact {
       /** Absent on artifacts produced before consensus sampling existed. */
       rlmSamples?: number
       model: string
-      modelOwnerCallRef: string
+      /** These fields are absent only on immutable evidence produced before model owners existed. */
+      modelOwnerCallRef?: string
       maxOutputTokens: number
-      maxReasoningTokens: number
-      maxModelRequestBytes: number
-      maxModelResponseBytes: number
-      modelRequestTimeoutMs: number
+      maxReasoningTokens?: number
+      maxModelRequestBytes?: number
+      maxModelResponseBytes?: number
+      modelRequestTimeoutMs?: number
       timeoutMs: number
-      pricing: CustomTokenPricing
-      recursiveLimits: {
+      pricing?: CustomTokenPricing
+      recursiveLimits?: {
         maxIterations: number
         maxLlmCalls: number
         maxToolCalls: number
@@ -54,7 +55,7 @@ export interface AnalystBenchmarkArtifact {
         traceToolResponseBytes: number
         traceToolTimeoutMs: number
       }
-      processLimits: {
+      processLimits?: {
         maxInputBytes: number
         maxResultBytes: number
         maxOutputChars: number

@@ -3,7 +3,7 @@ import {
   startExternalOptimizerCallback,
   startExternalOptimizerModelProxy,
 } from '../../src/campaign/external-optimizer-process'
-import { CostLedger } from '../../src/cost-ledger'
+import { CostLedger, costForTokenPricing } from '../../src/cost-ledger'
 
 describe('external optimizer server lifecycle', () => {
   it('waits for active callback evaluation work and rejects new work during close', async () => {
@@ -107,7 +107,7 @@ describe('external optimizer server lifecycle', () => {
     await closing
     await request
     expect(activeProviderCalls).toBe(0)
-    expect(ledger.summary()).toMatchObject({
+    expect(ledger.summary(), proxy.failures().map((error) => error.message).join('\n')).toMatchObject({
       totalCalls: 1,
       pendingCalls: 0,
       accountingComplete: true,
@@ -134,7 +134,8 @@ describe('external optimizer server lifecycle', () => {
 
     try {
       expect((await postModel(proxy, validModelRequest())).status).not.toBe(200)
-      expect((await postModel(proxy, validModelRequest())).status).toBe(200)
+      const successful = await postModel(proxy, validModelRequest())
+      expect(successful.status, await successful.clone().text()).toBe(200)
       expect(proxy.requestAttempts()).toBe(2)
       expect(proxy.requestAttempts()).toBe(2)
       expect(proxy.successfulCompletions()).toBe(1)
@@ -238,7 +239,12 @@ function modelSource(ownerCall: typeof fetch) {
               totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
               ...(usageKnown ? {} : { captured: false }),
             },
-            costUsd: null,
+            costUsd: usageKnown
+              ? costForTokenPricing(
+                  { inputUsdPerMillion: 1, outputUsdPerMillion: 1 },
+                  { inputTokens, outputTokens },
+                )
+              : null,
             model: request.request.model,
             durationMs: 0,
             finishReason: value.choices?.[0]?.finish_reason ?? null,
