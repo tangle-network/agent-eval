@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.1] - 2026-08-03 - runtime-owned optimizer model calls
+
+### Fixed
+
+- Official GEPA, SkillOpt, and DSPy child requests now cross one OpenAI-compatible loopback boundary and invoke the caller-owned canonical model callback exactly once.
+  Provider URLs, credentials, retries, and raw HTTP responses no longer cross Agent Eval's public callback.
+- Each invoked optimizer-model call carries a stable call ID, a deeply immutable canonical chat request, the original abort signal, and its endpoint format.
+  The owner must return a canonical chat response, an exact cost receipt, and finite JSON execution evidence.
+- Response and receipt validation now preserves cached-input, cache-write, reasoning, output, actual, estimated, and unknown cost semantics without counting cached input twice.
+- The public analyst benchmark records the model-owner callback identity and loads it from an explicit owner module instead of accepting provider credentials.
+- Pinned official GEPA and SkillOpt request fixtures now cover the real library payloads, including SkillOpt's dynamic system-role task message.
+
 ## [0.144.0] - 2026-08-03 - caller-owned optimizer execution
 
 ### Changed
