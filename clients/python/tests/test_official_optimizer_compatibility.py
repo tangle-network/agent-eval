@@ -40,6 +40,11 @@ REQUIRED_SKILLOPT_PROMPTS = {
     "rewrite_skill.md",
     "slow_update.md",
 }
+REQUEST_FIXTURES = Path(__file__).with_name("fixtures")
+
+
+def _request_fixture(name: str) -> dict[str, Any]:
+    return json.loads((REQUEST_FIXTURES / name).read_text())
 
 
 def _assert_installed_git_package(
@@ -493,6 +498,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
     assert result.best_score == 1.0
     assert result.total_evals == 4
     assert len(model_requests) == 1
+    assert model_requests[0]["body"] == _request_fixture("gepa-chat-request.json")
     assert model_requests[0]["authorization"] == "Bearer local-test-key"
     assert model_requests[0]["path"] == "/v1/chat/completions"
     assert model_requests[0]["body"]["model"] == "local-model"
@@ -762,6 +768,7 @@ def test_installed_skillopt_runs_reflact_with_packaged_prompts(
 
     assert len(model_requests) == 1
     request = model_requests[0]
+    assert request["body"] == _request_fixture("skillopt-chat-request.json")
     assert request["path"] == "/v1/chat/completions"
     assert request["authorization"] == "Bearer local-test-key"
     assert request["body"]["model"] == "local-model"
