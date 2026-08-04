@@ -584,9 +584,11 @@ export interface CampaignCellResult<TArtifact> {
   /** Agent-call token usage committed by `ctx.cost.runPaidCall`.
    *  `{ input: 0, output: 0 }` when no paid agent call was recorded. */
   tokenUsage: CampaignTokenUsage
-  /** Concrete model from the latest committed agent receipt. Consumed by
-   *  `buildRunRecord` to pin the model when the declared profile uses a
-   *  runtime-resolved sentinel. */
+  /** Every distinct concrete model reported by committed agent receipts, in
+   *  first-seen order. Multiple entries mean the cell used mixed models. */
+  resolvedModels?: string[]
+  /** Concrete model when every committed agent receipt agrees. Omitted when
+   *  the cell used multiple models. */
   resolvedModel?: string
   durationMs: number
   seed: number

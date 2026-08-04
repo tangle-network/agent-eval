@@ -614,19 +614,46 @@ function validateJudgeScores(value: unknown, path: string): void {
 }
 
 /**
- * Heuristic snapshot check. Accepts:
- *   - `name@YYYY-MM-DD` (Anthropic style: `claude-sonnet-4-6@2025-04-15`)
- *   - `name-YYYYMMDD`   (OpenAI style: `gpt-4o-2024-11-20`)
- *   - `name@<arbitrary-token>` (allow opaque snapshots like `@v3`)
- *   - explicit `:date-...` Vertex-style tags
- *
- * Rejects bare aliases like `claude-sonnet-4` or `gpt-4o` that remap
- * silently as providers ship new snapshots.
+ * Snapshot check for provider model identifiers. Accepts ISO and compact
+ * dates, Router's `-MMDD` snapshots, one opaque `@token`, and Vertex-style
+ * `:date-token` suffixes. Routing selectors such as `@preset/name` are not
+ * immutable model identities.
  */
 export function modelHasSnapshot(model: string): boolean {
-  if (model.includes('@')) return true
-  if (/-\d{8}$/.test(model)) return true
-  if (/-\d{4}-\d{2}-\d{2}$/.test(model)) return true
-  if (/:date-/.test(model)) return true
-  return false
+  if (model.length === 0 || model.trim() !== model) return false
+
+  const opaqueAt = model.lastIndexOf('@')
+  if (opaqueAt > 0) {
+    const base = model.slice(0, opaqueAt)
+    const token = model.slice(opaqueAt + 1)
+    if (!base.includes('@') && /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(token)) {
+      return true
+    }
+  }
+
+  const isoDate = model.match(/-(\d{4})-(\d{2})-(\d{2})$/u)
+  if (isoDate && validSnapshotDate(isoDate[1]!, isoDate[2]!, isoDate[3]!)) return true
+
+  const compactDate = model.match(/-(\d{4})(\d{2})(\d{2})$/u)
+  if (compactDate && validSnapshotDate(compactDate[1]!, compactDate[2]!, compactDate[3]!)) {
+    return true
+  }
+
+  const routerDate = model.match(/-(\d{2})(\d{2})$/u)
+  if (routerDate && validSnapshotDate(undefined, routerDate[1]!, routerDate[2]!)) return true
+
+  return /:date-[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u.test(model)
+}
+
+function validSnapshotDate(year: string | undefined, month: string, day: string): boolean {
+  const monthNumber = Number(month)
+  const dayNumber = Number(day)
+  if (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return false
+
+  const yearNumber = year === undefined ? undefined : Number(year)
+  const leapYear =
+    yearNumber === undefined ||
+    (yearNumber % 4 === 0 && (yearNumber % 100 !== 0 || yearNumber % 400 === 0))
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  return Number.isInteger(dayNumber) && dayNumber >= 1 && dayNumber <= daysInMonth[monthNumber - 1]!
 }

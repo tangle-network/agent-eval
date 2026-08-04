@@ -129,6 +129,42 @@ describe('runCampaign — core primitive', () => {
     )
   })
 
+  it('records every distinct agent receipt model instead of labeling mixed calls as the last one', async () => {
+    const models = ['model-a@2026-08-01', 'model-b@2026-08-02']
+    const storage = inMemoryCampaignStorage()
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
+      for (const model of models) {
+        const paid = await ctx.cost.runPaidCall({
+          actor: 'worker',
+          model,
+          execute: async () => ({ text: model, intent: scenario.intent }),
+          receipt: () => ({
+            model,
+            inputTokens: 10,
+            outputTokens: 2,
+            actualCostUsd: 0.001,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+      }
+      return { text: 'done', intent: scenario.intent }
+    }
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch,
+      runDir,
+      storage,
+    }
+    const result = await runCampaign(options)
+    const resumed = await runCampaign(options)
+
+    expect(result.cells[0]!.resolvedModels).toEqual(models)
+    expect(result.cells[0]!.resolvedModel).toBeUndefined()
+    expect(resumed.cells[0]!.cached).toBe(true)
+    expect(resumed.cells[0]!.resolvedModels).toEqual(models)
+    expect(resumed.cells[0]!.resolvedModel).toBeUndefined()
+  })
+
   it('uses common random seeds for scenario variants in the same seed group', async () => {
     const observed = new Map<string, number>()
     const scenarios: FakeScenario[] = [

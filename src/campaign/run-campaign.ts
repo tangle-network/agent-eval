@@ -14,6 +14,7 @@ import {
   CostAccountingIncompleteError,
   type CostLedgerHandle,
   type CostLedgerSummary,
+  type CostReceipt,
 } from '../cost-ledger'
 import { BackendIntegrityError, type BackendIntegrityReport } from '../integrity/backend-integrity'
 import { confidenceInterval } from '../statistics'
@@ -419,8 +420,9 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     if (cached.status === 'hit') {
       const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
       if (receiptProblem === undefined) {
-        enforceDispatchUsage(cached.cell, args.opts.expectUsage ?? 'warn')
-        return { cell: { ...cached.cell, cached: true }, artifactsByPath: {} }
+        const cell = withCurrentAgentModelEvidence(cached.cell, args.costLedger, stableCostTags)
+        enforceDispatchUsage(cell, args.opts.expectUsage ?? 'warn')
+        return { cell: { ...cell, cached: true }, artifactsByPath: {} }
       }
       if (!args.opts.rerunInvalidCachedCells) {
         throw invalidCachedCellsError([
@@ -588,7 +590,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
       ? { cacheWrite: agentCost.cacheWriteTokens }
       : {}),
   }
-  const resolvedModel = agentReceipts.at(-1)?.model
+  const agentModelEvidence = modelEvidenceFromReceipts(agentReceipts)
   const dispatchResult = {
     cellId: args.slot.cellId,
     artifact,
@@ -654,7 +656,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
     costProvenance: agentCost.costProvenance,
     costCallIds,
     tokenUsage,
-    ...(resolvedModel ? { resolvedModel } : {}),
+    ...agentModelEvidence,
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
     cached: false,
@@ -1094,6 +1096,32 @@ function assertScheduleCachesReusable<TScenario extends Scenario>(args: {
     }
   }
   if (blocked.length > 0) throw invalidCachedCellsError(blocked)
+}
+
+function modelEvidenceFromReceipts(
+  receipts: ReadonlyArray<Pick<CostReceipt, 'model'>>,
+): Pick<CampaignCellResult<unknown>, 'resolvedModels' | 'resolvedModel'> {
+  const models = [...new Set(receipts.map((receipt) => receipt.model))]
+  if (models.length === 0) return {}
+  return {
+    resolvedModels: models,
+    ...(models.length === 1 ? { resolvedModel: models[0] } : {}),
+  }
+}
+
+function withCurrentAgentModelEvidence<TArtifact>(
+  cached: CampaignCellResult<TArtifact>,
+  costLedger: CostLedgerHandle,
+  stableCostTags: Record<string, string>,
+): CampaignCellResult<TArtifact> {
+  const cachedCallIds = new Set(cached.costCallIds ?? [])
+  const receipts = costLedger
+    .list({ channel: 'agent', tags: stableCostTags })
+    .filter((receipt) => cachedCallIds.has(receipt.callId))
+  const cell = { ...cached }
+  delete cell.resolvedModel
+  delete cell.resolvedModels
+  return Object.assign(cell, modelEvidenceFromReceipts(receipts))
 }
 
 function cachedCellReceiptProblem(

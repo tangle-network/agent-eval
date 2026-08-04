@@ -1024,7 +1024,13 @@ function cellsToRunRecords<TArtifact>(
   const promptHash = surfaceContentHash(surface)
   const configHash = surfaceContentHash(candidateId)
   return cells.map((cell) => {
-    const model = cell.resolvedModel ?? fallbackModel
+    const receiptModels = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
+    if (receiptModels.length > 1) {
+      throw new ValidationError(
+        `selfImprove cell ${cell.cellId} used multiple agent models: ${receiptModels.join(', ')}`,
+      )
+    }
+    const model = receiptModels[0] ?? fallbackModel
     if (!model) {
       throw new ValidationError(
         `selfImprove.model is required when cell ${cell.cellId} has no paid-call model receipt`,

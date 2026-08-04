@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildAgentProfileCell } from '../src/agent-profile-cell'
 import {
   isRunRecord,
+  modelHasSnapshot,
   parseRunRecordSafe,
   type RunRecord,
   RunRecordValidationError,
@@ -192,6 +193,13 @@ describe('validateRunRecord — mandatory field enforcement', () => {
 
   it('accepts compact YYYYMMDD suffix (claude-x-20250415)', () => {
     expect(() => validateRunRecord(makeRecord({ model: 'claude-x-20250415' }))).not.toThrow()
+  })
+
+  it('accepts Router MMDD snapshots without mistaking routing presets for snapshots', () => {
+    expect(modelHasSnapshot('deepseek-v4-flash-0731')).toBe(true)
+    expect(modelHasSnapshot('moonshotai/kimi-k2-0905')).toBe(true)
+    expect(modelHasSnapshot('deepseek-v4-flash@preset/default')).toBe(false)
+    expect(modelHasSnapshot('deepseek-v4-flash-1332')).toBe(false)
   })
 
   it('throws on non-numeric raw entry', () => {
