@@ -55,6 +55,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-real-model.ts',
   'src/analyst/benchmark-report.ts',
   'src/analyst/benchmark-response-cache.ts',
+  'src/analyst/benchmark-runner-prime.ts',
   'src/analyst/benchmark-scoring.ts',
   'src/analyst/benchmark-summary.ts',
   'src/analyst/benchmark-verification-artifacts.ts',
@@ -117,7 +118,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '67cd83aaaa158d44a9fa32e172cbe68fa97f01ae673ccb117469688b628bb9b1'
+  '33d32e6ad8cf5984803f57be7ef6e7df352f9d2b2e64338ac53f1220664c67a1'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

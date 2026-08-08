@@ -227,7 +227,7 @@ Cross-run and pooled comparisons use `benchmarks/trace-analysis/tools/compare-an
 `agent-eval analyst-benchmark` runs the public AgentRx or CodeTraceBench adapters with:
 
 1. an empty-finding baseline,
-2. the actual DSPy RLM trace analyst.
+2. the scored analyst `--analyst` selects: the recursive DSPy RLM engine (`dspy-rlm`, default), the one-shot `direct` baseline, or the `prime` RLM coding agent behind an OpenAI-compatible cli-bridge (CodeTraceBench only; see [prime-analyst.md](./prime-analyst.md) for bridge prerequisites and the prime-vs-dspy reproduce commands).
 
 ```sh
 agent-eval analyst-benchmark \

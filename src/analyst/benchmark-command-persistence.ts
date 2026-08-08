@@ -32,7 +32,7 @@ import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-overrid
 import type {
   PreparedPublicAnalystBenchmark,
   PublicAnalystBenchmarkDataset,
-  PublicAnalystBenchmarkModelConfig,
+  PublicAnalystBenchmarkModelSettings,
 } from './benchmark-real-model'
 
 export interface AnalystBenchmarkOutputPaths {
@@ -63,7 +63,7 @@ interface AnalystBenchmarkPersistenceConfig {
   artifactDir?: string
   revision: string
   split: string
-  model: PublicAnalystBenchmarkModelConfig
+  model: PublicAnalystBenchmarkModelSettings
   limit: number
   seed: number
   concurrency: number
@@ -71,7 +71,8 @@ interface AnalystBenchmarkPersistenceConfig {
   rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
-  modelOwnerModule: string
+  /** Absent when the analyst owns its own transport (`prime`). */
+  modelOwnerModule?: string
   command: string
 }
 
@@ -176,7 +177,7 @@ export function createRunIdentity(
   }
 }
 
-function commandModelIdentity(config: PublicAnalystBenchmarkModelConfig) {
+function commandModelIdentity(config: PublicAnalystBenchmarkModelSettings) {
   const catalogPricing = resolveModelPricing(config.model)
   const pricing =
     config.pricing ??
@@ -224,7 +225,9 @@ export function createLocalRunReceipt(
       traceDir: resolve(config.traceDir),
       ...(config.artifactDir ? { artifactDir: resolve(config.artifactDir) } : {}),
       outputDir: paths.directory,
-      modelOwnerModule: config.modelOwnerModule,
+      ...(config.modelOwnerModule === undefined
+        ? {}
+        : { modelOwnerModule: config.modelOwnerModule }),
     },
     command: config.command,
     environment: {

@@ -28,7 +28,17 @@ export type {
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
   PublicAnalystBenchmarkModelOwner,
+  PublicAnalystBenchmarkModelSettings,
   PublicBenchmarkDistributions,
   PublicBenchmarkSelectionReport,
   PublicBenchmarkValueDistribution,
 } from './benchmark-public-types'
+export {
+  createPrimeBenchmarkRunner,
+  nodeHttpPrimeBridgeTransport,
+  type PrimeBenchmarkRunnerOptions,
+  type PrimeBridgeTransport,
+  type PrimeBridgeTransportRequest,
+  type PrimeBridgeTransportResult,
+  primeAnalystProtocolSha256,
+} from './benchmark-runner-prime'
