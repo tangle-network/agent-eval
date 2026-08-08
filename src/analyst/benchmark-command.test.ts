@@ -22,6 +22,7 @@ import {
 } from './benchmark-command.test-support'
 import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
 import { publicBenchmarkProtocolSha256 } from './benchmark-public-prompt'
+import { createPrimeBenchmarkRunner, type PrimeBridgeTransport } from './benchmark-runner-prime'
 import { sha256Digest } from './benchmark-verification-artifacts'
 import type { AnalystRunInputs } from './types'
 import { makeFinding } from './types'
@@ -890,7 +891,175 @@ describe('runAnalystBenchmarkCommand', () => {
     ).rejects.toThrow(missingPath)
     expect(createAnalystRunner).not.toHaveBeenCalled()
   })
+
+  it('runs the prime analyst end-to-end through an injected bridge transport', async () => {
+    const fixture = await codeTraceFixture()
+    await writeFile(
+      join(fixture.traceDir, 'trace.otlp.jsonl'),
+      `${[
+        primeTraceSpan('step-1', 'Read the repository.'),
+        primeTraceSpan('step-2', 'Changed the wrong file.'),
+      ].join('\n')}\n`,
+    )
+    const bridgeRequests: string[] = []
+    const transport: PrimeBridgeTransport = async (request) => {
+      bridgeRequests.push(request.body.messages[0]!.content)
+      return {
+        status: 200,
+        text: JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: `\`\`\`json\n${JSON.stringify({
+                  answer: 'Traced from the failing hidden assertion.',
+                  blocks: [
+                    {
+                      first_step: 2,
+                      last_step: 2,
+                      consequence_step: 2,
+                      escape_status: 'unescaped',
+                      severity: 'high',
+                      claim: 'Changed the wrong file.',
+                      confidence: 0.9,
+                    },
+                  ],
+                })}\n\`\`\``,
+              },
+            },
+          ],
+          usage: { prompt_tokens: 500, completion_tokens: 50 },
+        }),
+      }
+    }
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const code = await runAnalystBenchmarkCommand(
+      primeCommandArgs(fixture),
+      {},
+      {
+        createAnalystRunner: (_dataset, model) =>
+          createPrimeBenchmarkRunner({
+            baseUrl: 'http://bridge.test:4181',
+            model: model.model,
+            timeoutMs: model.timeoutMs,
+            repair: true,
+            transport,
+          }),
+      },
+    )
+    stdout.mockRestore()
+
+    expect(code).toBe(0)
+    expect(bridgeRequests).toHaveLength(1)
+    expect(bridgeRequests[0]).toContain('TRAJECTORY (trace_id trace-1')
+    const artifact = (await readAnalystBenchmarkArtifact(
+      join(fixture.outDir, 'result.json'),
+    )) as unknown as Record<string, any>
+    expect(artifact.result.provenance.runnerIds).toEqual(['empty', 'prime'])
+    expect(artifact.comparisons[0]).toMatchObject({
+      baselineRunnerId: 'empty',
+      candidateRunnerId: 'prime',
+    })
+    const primeObservation = artifact.result.observations.find(
+      (observation: { runnerId: string }) => observation.runnerId === 'prime',
+    )
+    expect(primeObservation.error).toBeUndefined()
+    expect(primeObservation).toMatchObject({
+      findings: [expect.objectContaining({ subject: 'incorrect-step-2', analyst_id: 'prime' })],
+      usage: {
+        calls: null,
+        tokens: { input: 500, output: 50 },
+        cost: { kind: 'estimated', usd: expect.closeTo((500 * 0.6 + 50 * 2.2) / 1_000_000, 12) },
+      },
+      score: expect.objectContaining({ issueRecall: 1, findingPrecision: 1 }),
+    })
+    const manifest = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_MANIFEST_FILE), 'utf8'),
+    )
+    expect(manifest.identity.config.model.ownerCallRef).toBe('cli-bridge:http://bridge.test:4181')
+    expect(manifest.identity.config.runnerIds).toEqual(['empty', 'prime'])
+    const localReceipt = JSON.parse(
+      await readFile(join(fixture.outDir, ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE), 'utf8'),
+    )
+    expect(localReceipt.local).not.toHaveProperty('modelOwnerModule')
+  })
+
+  it('rejects --bridge-url and --no-repair outside --analyst prime', async () => {
+    const fixture = await codeTraceFixture()
+    await expect(
+      runAnalystBenchmarkCommand(
+        [...commandArgs(fixture), '--bridge-url', 'http://bridge.test:4181'],
+        {},
+        {},
+      ),
+    ).rejects.toThrow(/--bridge-url requires --analyst prime/)
+    await expect(
+      runAnalystBenchmarkCommand([...commandArgs(fixture), '--no-repair'], {}, {}),
+    ).rejects.toThrow(/--no-repair requires --analyst prime/)
+  })
+
+  it('rejects --analyst prime outside codetracebench', async () => {
+    const fixture = await agentRxFixture()
+    await expect(
+      runAnalystBenchmarkCommand([...agentRxCommandArgs(fixture), '--analyst', 'prime'], {}, {}),
+    ).rejects.toThrow(/--analyst prime requires --dataset codetracebench/)
+  })
+
+  it('rejects a model-owner module for --analyst prime', async () => {
+    const fixture = await codeTraceFixture()
+    await expect(
+      runAnalystBenchmarkCommand([...commandArgs(fixture), '--analyst', 'prime'], {}, {}),
+    ).rejects.toThrow(/--model-owner-module is not used by --analyst prime/)
+  })
 })
+
+function primeCommandArgs(fixture: {
+  labelsPath: string
+  traceDir: string
+  artifactDir: string
+  outDir: string
+}): string[] {
+  return [
+    '--dataset',
+    'codetracebench',
+    '--analyst',
+    'prime',
+    '--bridge-url',
+    'http://bridge.test:4181',
+    '--labels',
+    fixture.labelsPath,
+    '--trace-dir',
+    fixture.traceDir,
+    '--artifact-dir',
+    fixture.artifactDir,
+    '--out',
+    fixture.outDir,
+    '--revision',
+    'ae5926b496f2f7f4c3f6337c0ad6150311d3650c5f3bd00660556b3e41739505',
+    '--split',
+    'verified',
+    '--model',
+    'prime/zai/glm-5.2',
+    '--limit',
+    '1',
+    '--seed',
+    '7',
+  ]
+}
+
+function primeTraceSpan(spanId: string, content: string): string {
+  return JSON.stringify({
+    trace_id: 'trace-1',
+    span_id: spanId,
+    parent_span_id: null,
+    name: `assistant ${spanId}`,
+    kind: 'LLM',
+    start_time: '2026-07-30T00:00:00.000Z',
+    end_time: '2026-07-30T00:00:01.000Z',
+    status: 'OK',
+    attributes: { content, 'openinference.span.kind': 'LLM' },
+  })
+}
 
 function stockFindingRunner(): AnalystBenchmarkRunner<AnalystRunInputs> {
   return {

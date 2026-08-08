@@ -46,6 +46,7 @@ const EXPECTED_FILES = [
   'src/analyst/benchmark-real-model.ts',
   'src/analyst/benchmark-report.ts',
   'src/analyst/benchmark-response-cache.ts',
+  'src/analyst/benchmark-runner-prime.ts',
   'src/analyst/benchmark-scoring.ts',
   'src/analyst/benchmark-summary.ts',
   'src/analyst/benchmark-verification-artifacts.ts',

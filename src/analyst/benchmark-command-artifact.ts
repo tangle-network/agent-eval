@@ -159,7 +159,8 @@ export interface AnalystBenchmarkLocalRunReceipt {
     traceDir: string
     artifactDir?: string
     outputDir: string
-    modelOwnerModule: string
+    /** Absent when the analyst owns its own transport (`prime`). */
+    modelOwnerModule?: string
   }
   command: string
   environment: {

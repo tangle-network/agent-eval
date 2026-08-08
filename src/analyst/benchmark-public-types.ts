@@ -81,6 +81,18 @@ export interface PublicAnalystBenchmarkModelConfig {
   }
 }
 
+/**
+ * Model settings the benchmark command records in the run identity. The
+ * owner-call pair is present exactly when a model-owner module executes the
+ * provider calls (`dspy-rlm` and `direct`); the `prime` analyst owns its own
+ * cli-bridge transport and never receives an owner call path.
+ */
+export type PublicAnalystBenchmarkModelSettings = Omit<
+  PublicAnalystBenchmarkModelConfig,
+  'call' | 'recordExecution'
+> &
+  Partial<Pick<PublicAnalystBenchmarkModelConfig, 'call' | 'recordExecution'>>
+
 export interface PreparedPublicAnalystBenchmark {
   cases: AnalystBenchmarkCase<AnalystRunInputs>[]
   sourceRowCount: number

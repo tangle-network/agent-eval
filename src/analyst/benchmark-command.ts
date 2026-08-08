@@ -60,10 +60,12 @@ import {
 import { createPublicBenchmarkDirectRunner } from './benchmark-public-model'
 import { createPublicBenchmarkRlmRunner } from './benchmark-public-rlm'
 import {
+  createPrimeBenchmarkRunner,
   emptyPublicBenchmarkRunner,
   type PublicAnalystBenchmarkDataset,
   type PublicAnalystBenchmarkModelConfig,
   type PublicAnalystBenchmarkModelOwner,
+  type PublicAnalystBenchmarkModelSettings,
   type PublicBenchmarkSelectionReport,
   preparePublicAnalystBenchmark,
 } from './benchmark-real-model'
@@ -91,7 +93,7 @@ export { readAnalystBenchmarkArtifact } from './benchmark-command-result'
 export interface AnalystBenchmarkCommandDependencies {
   createAnalystRunner?: (
     dataset: PublicAnalystBenchmarkDataset,
-    config: PublicAnalystBenchmarkModelConfig,
+    config: PublicAnalystBenchmarkModelSettings,
   ) => AnalystBenchmarkRunner<AnalystRunInputs>
   loadModelExecutionOwner?: (
     moduleRef: string,
@@ -106,8 +108,16 @@ export interface AnalystBenchmarkCommandDependencies {
  * Which analyst produces the scored arm.
  *
  * `dspy-rlm` is the recursive engine. `direct` is the one-shot comparison arm.
+ * `prime` is the RLM coding agent reached through an OpenAI-compatible
+ * cli-bridge (CodeTraceBench only; see docs/prime-analyst.md).
  */
-export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct'
+export type AnalystBenchmarkRunnerKind = 'dspy-rlm' | 'direct' | 'prime'
+
+/** Bridge execution settings, present exactly when the analyst is `prime`. */
+export interface PrimeAnalystBridgeConfig {
+  bridgeUrl: string
+  repair: boolean
+}
 
 export interface AnalystBenchmarkCommandConfig {
   dataset: PublicAnalystBenchmarkDataset
@@ -118,7 +128,7 @@ export interface AnalystBenchmarkCommandConfig {
   outDir: string
   revision: string
   split: string
-  model: PublicAnalystBenchmarkModelConfig
+  model: PublicAnalystBenchmarkModelSettings
   limit: number
   seed: number
   concurrency: number
@@ -127,7 +137,10 @@ export interface AnalystBenchmarkCommandConfig {
   rlmSamples: number
   maxCostUsd: number
   maxArtifactBytes: number
-  modelOwnerModule: string
+  /** Absent exactly when the analyst is `prime`: the cli-bridge owns execution. */
+  modelOwnerModule?: string
+  /** Present exactly when the analyst is `prime`. */
+  prime?: PrimeAnalystBridgeConfig
   command: string
   resume: boolean
 }
@@ -212,10 +225,22 @@ async function executeAnalystBenchmarkCommand(
 
   const createAnalystRunner =
     dependencies.createAnalystRunner ??
-    ((dataset: PublicAnalystBenchmarkDataset, model: PublicAnalystBenchmarkModelConfig) =>
-      config.analyst === 'direct'
-        ? createPublicBenchmarkDirectRunner(dataset, model)
-        : createPublicBenchmarkRlmRunner(dataset, model))
+    ((dataset: PublicAnalystBenchmarkDataset, model: PublicAnalystBenchmarkModelSettings) => {
+      if (config.analyst === 'prime') {
+        if (!config.prime) throw new Error("analyst 'prime' is missing its bridge configuration")
+        return createPrimeBenchmarkRunner({
+          baseUrl: config.prime.bridgeUrl,
+          model: model.model,
+          timeoutMs: model.timeoutMs,
+          repair: config.prime.repair,
+          ...(model.pricing ? { pricing: model.pricing } : {}),
+        })
+      }
+      const ownerModel = requireModelOwnerSettings(model)
+      return config.analyst === 'direct'
+        ? createPublicBenchmarkDirectRunner(dataset, ownerModel)
+        : createPublicBenchmarkRlmRunner(dataset, ownerModel)
+    })
   const runners = [
     emptyPublicBenchmarkRunner(),
     createAnalystRunner(config.dataset, {
@@ -458,21 +483,31 @@ Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench la
 
 Required:
   --dataset agentrx|codetracebench
-  --analyst dspy-rlm|direct        Scored analyst. Default: dspy-rlm.
+  --analyst dspy-rlm|direct|prime  Scored analyst. Default: dspy-rlm.
                                    'direct' is the one-shot comparison arm.
+                                   'prime' is the RLM coding agent behind an
+                                   OpenAI-compatible cli-bridge (codetracebench
+                                   only; see docs/prime-analyst.md)
   --labels <dataset.json|dataset.jsonl>
   --trace-dir <one-trace-per-file OTLP JSONL directory>
   --artifact-dir <extracted artifact root>  Required for CodeTraceBench
   --out <new output directory>
   --revision <full 40- or 64-character hex digest>
   --split <dataset split>
-  --model-owner-module <module>   Module exporting createModelExecutionOwner;
-                                   the owner keeps provider credentials and policy
-  --model <provider model id>
+  --model-owner-module <module>   dspy-rlm|direct only. Module exporting
+                                   createModelExecutionOwner; the owner keeps
+                                   provider credentials and policy
+  --model <provider model id>      For prime, the bridge model id in
+                                   <backend>/<provider>/<model> form, e.g.
+                                   prime/zai/glm-5.2
   --limit <positive case count>
 
 Controls:
   --resume                         Continue an interrupted run in --out
+  --bridge-url <url>               prime only. OpenAI-compatible cli-bridge
+                                   base URL. Default: http://localhost:4181
+  --no-repair                      prime only. Disable the bounded repair turn
+                                   for a structurally malformed reply
   --seed <integer>                 Case-selection and comparison seed. Default: 0
   --concurrency <positive integer> Parallel benchmark jobs. Default: 1
   --repetitions <positive integer> Runs per case and runner. Default: 1
@@ -531,9 +566,31 @@ async function parseCommandConfig(
   const maxCostUsd = positiveFiniteFlag(flags, 'max-cost-usd', 5)
   const python = flags.get('python')?.trim()
   const analyst = flags.get('analyst')?.trim() ?? 'dspy-rlm'
-  if (analyst !== 'dspy-rlm' && analyst !== 'direct') {
-    throw new Error("--analyst must be 'dspy-rlm' or 'direct'")
+  if (analyst !== 'dspy-rlm' && analyst !== 'direct' && analyst !== 'prime') {
+    throw new Error("--analyst must be 'dspy-rlm', 'direct', or 'prime'")
   }
+  const bridgeUrl = flags.get('bridge-url')?.trim()
+  if (bridgeUrl !== undefined && analyst !== 'prime') {
+    throw new Error('--bridge-url requires --analyst prime')
+  }
+  if (bridgeUrl === '') throw new Error('--bridge-url must not be blank')
+  if (flags.has('no-repair') && analyst !== 'prime') {
+    throw new Error('--no-repair requires --analyst prime')
+  }
+  if (analyst === 'prime' && dataset !== 'codetracebench') {
+    throw new Error(
+      '--analyst prime requires --dataset codetracebench; the prime runner speaks the CodeTraceBench failure-block contract',
+    )
+  }
+  if (analyst === 'prime' && flags.has('model-owner-module')) {
+    throw new Error(
+      '--model-owner-module is not used by --analyst prime; the cli-bridge owns model execution',
+    )
+  }
+  const prime =
+    analyst === 'prime'
+      ? { bridgeUrl: bridgeUrl ?? 'http://localhost:4181', repair: !flags.has('no-repair') }
+      : undefined
   const rlmSamples = positiveFlag(flags, 'rlm-samples', 1)
   if (rlmSamples > 1 && analyst !== 'dspy-rlm') {
     throw new Error('--rlm-samples above 1 requires --analyst dspy-rlm')
@@ -551,16 +608,16 @@ async function parseCommandConfig(
     )
   }
   const model = requiredFlag(flags, 'model')
-  const modelOwnerModule = requiredFlag(flags, 'model-owner-module')
-  const owner = await (dependencies.loadModelExecutionOwner ?? loadModelExecutionOwner)(
-    modelOwnerModule,
-    {
-      model,
-      environment: Object.freeze({ ...env }),
-    },
-  )
-  assertModelExecutionOwner(owner)
-  const pricing = owner.pricing ?? benchmarkModelPricing(model)
+  const modelOwnerModule =
+    analyst === 'prime' ? undefined : requiredFlag(flags, 'model-owner-module')
+  const owner = modelOwnerModule
+    ? await (dependencies.loadModelExecutionOwner ?? loadModelExecutionOwner)(modelOwnerModule, {
+        model,
+        environment: Object.freeze({ ...env }),
+      })
+    : undefined
+  if (owner) assertModelExecutionOwner(owner)
+  const pricing = owner?.pricing ?? benchmarkModelPricing(model)
   const maxOutputTokens = positiveFlag(flags, 'max-output-tokens', 16_384)
   const timeoutMs = positiveFlag(flags, 'timeout-ms', 300_000)
   return {
@@ -573,9 +630,9 @@ async function parseCommandConfig(
     revision: immutableRevision(requiredFlag(flags, 'revision')),
     split: requiredFlag(flags, 'split'),
     model: {
-      call: owner.call,
-      callRef: owner.callRef,
-      recordExecution: owner.recordExecution,
+      ...(owner
+        ? { call: owner.call, callRef: owner.callRef, recordExecution: owner.recordExecution }
+        : { callRef: `cli-bridge:${prime!.bridgeUrl}` }),
       model,
       maxOutputTokens,
       timeoutMs,
@@ -619,13 +676,25 @@ async function parseCommandConfig(
       'max-artifact-bytes',
       DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
     ),
-    modelOwnerModule,
+    ...(modelOwnerModule === undefined ? {} : { modelOwnerModule }),
+    ...(prime === undefined ? {} : { prime }),
     command: `agent-eval analyst-benchmark ${argv
       .filter((argument) => argument !== '--resume')
       .map(shellQuote)
       .join(' ')}`,
     resume: flags.has('resume'),
   }
+}
+
+/** Fail-loud narrowing: the dspy-rlm and direct analysts require an owner call path. */
+function requireModelOwnerSettings(
+  model: PublicAnalystBenchmarkModelSettings,
+): PublicAnalystBenchmarkModelConfig {
+  const { call, recordExecution } = model
+  if (typeof call !== 'function' || typeof recordExecution !== 'function') {
+    throw new Error('model-owner execution is required for the dspy-rlm and direct analysts')
+  }
+  return { ...model, call, recordExecution }
 }
 
 function parseFlags(argv: readonly string[]): Map<string, string> {
@@ -654,6 +723,8 @@ const KNOWN_FLAGS = new Set([
   'resume',
   'dataset',
   'analyst',
+  'bridge-url',
+  'no-repair',
   'labels',
   'trace-dir',
   'artifact-dir',
@@ -690,7 +761,7 @@ const KNOWN_FLAGS = new Set([
   'max-artifact-bytes',
 ])
 
-const BOOLEAN_FLAGS = new Set(['resume'])
+const BOOLEAN_FLAGS = new Set(['resume', 'no-repair'])
 
 function assertKnownFlags(flags: ReadonlyMap<string, string>): void {
   for (const flag of flags.keys()) {
