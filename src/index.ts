@@ -318,6 +318,7 @@ export {
 // served by the router BEFORE spending tokens, so a dead default surfaces as a
 // config error instead of a stub run.
 export {
+  type AssertModelsServedOptions,
   assertModelsServed,
   type ModelPreflight,
   ModelsUnreachableError,
@@ -325,6 +326,23 @@ export {
   type PreflightOutcome,
   preflightModels,
 } from './integrity/preflight'
+// Served-model identity: the requested id is intent, the echoed id is
+// evidence. Every per-model / per-family claim needs the second one, because a
+// gateway can accept one id and answer from another.
+export {
+  type AssertCrossFamilyServedOptions,
+  type AssertServedModelOptions,
+  assertCrossFamilyServed,
+  assertServedModel,
+  assertServedModels,
+  checkServedModel,
+  ModelSubstitutionError,
+  normalizeModelId,
+  ServedCrossFamilyError,
+  type ServedModelCheck,
+  type ServedModelVerdict,
+  servedModelAcceptable,
+} from './integrity/served-model'
 export {
   type AssertSingleBackendOptions,
   assertSingleBackend,

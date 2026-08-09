@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ConfigError, ValidationError } from './errors'
+import { assertCrossFamilyServed } from './integrity/served-model'
 import { assertCrossFamily } from './judge-families'
 import { isModelPriced } from './metrics'
 import { type ModelSeats, resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
@@ -67,11 +68,24 @@ describe('resolveSeat', () => {
 describe('seatPresets', () => {
   it('economy fills every seat with the fleet-policy ids', () => {
     const economy = seatPresets.economy
-    expect(economy.worker).toBe('kimi-k2.6')
-    expect(economy.judges).toEqual(['kimi-k2.6', 'deepseek-v4-pro', 'gpt-4.1-mini'])
-    expect(economy.analyst).toBe('gpt-4.1-mini')
-    expect(economy.reflection).toBe('gpt-4.1-mini')
+    expect(economy.worker).toBe('zai/glm-5.2')
+    expect(economy.judges).toEqual(['deepseek-v4-pro', 'zai/glm-5.2', 'google/gemini-2.5-flash'])
+    expect(economy.analyst).toBe('zai/glm-5.2')
+    expect(economy.reflection).toBe('zai/glm-5.2')
     expect(economy.verifier).toBe('deepseek-v4-pro')
+  })
+
+  // The preset's family claim has to survive the check that reads served ids,
+  // not just the one that reads requested ids: an id whose name implies one
+  // provider and whose answer comes from another would satisfy the latter and
+  // silently collapse the panel.
+  it('economy judges stay cross-family when each id is served by its own name', () => {
+    const models = resolveSeat(seatPresets.economy, 'judges')
+    const families = assertCrossFamilyServed(
+      models.map((model) => ({ requested: model, served: model })),
+      { minFamilies: 3 },
+    )
+    expect(families).toEqual(['deepseek', 'google', 'zhipu'])
   })
 
   it('economy judges pass assertCrossFamily as-is', () => {

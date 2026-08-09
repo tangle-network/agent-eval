@@ -8,6 +8,21 @@ Every hard-coded model id or endpoint default is verifiable against the live rou
 
 Enforced by: `preflightModels` (membership + optional probe) and `assertModelsServed` (gate that names every unreachable id with status + detail).
 
+## 1a. Reachable is not the same as identified
+
+A 200 proves something answered, never that the requested model answered.
+A routing gateway can accept one id and reply from another, and the swap is silent: same status, same shape, only the response's `model` field betrays it.
+Every claim that names a model — a leaderboard row, a per-model cost, a cross-family judge panel, a non-self-judging exclusion — must be built from the id the provider echoed, not the id we sent.
+Requested is intent; served is evidence.
+
+Two failure shapes, and only one is a defect.
+Snapshot resolution (`gpt-4o-mini` → `gpt-4o-mini-2024-07-18`) pins a floating alias to a reproducible build and is the behaviour we want.
+Substitution (`gpt-4.1-mini` → `gemini-2.5-flash-lite`) mislabels every number the call produces.
+A response that echoes no model id at all is unproven, which fails closed rather than defaulting to agreement.
+
+Enforced by: `assertServedModel` / `assertServedModels` per call, `assertCrossFamilyServed` for panel diversity computed over the ids that answered, `LlmClientOptions.assertServedModel` to enforce it at the transport, and `assertModelsServed` (probe mode), which now fails a substituted id exactly as it fails a dead one.
+`assertCrossFamily` reads requested ids and therefore proves configuration only — reach for the served-side check wherever the diversity claim is load-bearing.
+
 ## 2. Probe the platform before peeling client layers
 
 When a request fails, one direct call against the live endpoint bisects platform-versus-client before any code-level debugging begins. A 401 from the router on a `model_not_found` is the platform telling you the default is dead; a connection refused is the platform being unreachable. Establish which side is at fault with a probe first, then debug only the side that is actually broken.

@@ -28,6 +28,11 @@ import {
 } from './cost-ledger'
 import { AgentEvalError, CaptureIntegrityError } from './errors'
 import {
+  type AssertServedModelOptions,
+  assertServedModel as assertServedModelIdentity,
+  checkServedModel,
+} from './integrity/served-model'
+import {
   defaultProviderRedactor,
   type ProviderRedactor,
   providerFromBaseUrl,
@@ -128,8 +133,27 @@ export interface LlmCallResult {
    * caller-supplied token pricing. `null` when neither is available.
    */
   costUsd: number | null
-  /** Model name actually used (echoed from response). */
+  /**
+   * Model id used for attribution (cost, pricing, log lines). The response's
+   * echoed id when the provider sent one, else the requested id.
+   *
+   * NOT evidence of which model answered — read `servedModel` for that. A
+   * provider that omits `model` makes this equal to the request, which is
+   * exactly the case an identity check must be able to distinguish.
+   */
   model: string
+  /**
+   * The model id the provider echoed on the response, verbatim; `null` when
+   * the body carried none. This is the only field that can witness a gateway
+   * substituting a different model for the one requested — compare it with
+   * `assertServedModel` / `checkServedModel` (src/integrity/served-model.ts).
+   *
+   * Optional so hand-built results (mock/custom transports) still typecheck,
+   * but omitting it is not a pass: the identity checks read `undefined` as
+   * `unreported` and reject it by default. A transport that knows which model
+   * answered should say so.
+   */
+  servedModel?: string | null
   /** Wall-clock duration of the HTTP call (last attempt, if retried). */
   durationMs: number
   /**
@@ -283,6 +307,16 @@ export interface LlmClientOptions {
   traceContext?: { runId?: string; spanId?: string }
   /** Override the redaction strategy for this call. Defaults to `defaultProviderRedactor`. */
   redactor?: ProviderRedactor
+  /**
+   * Reject a response whose echoed model is not the model that was requested.
+   * A routing gateway can accept one id and answer from another, which
+   * silently invalidates every per-model and per-family claim downstream.
+   * `true` uses the strict default (aliases pass, substitutions and
+   * unidentified responses throw `ModelSubstitutionError`); pass an options
+   * object to relax a specific case. Off by default — turning it on for a
+   * measurement run is the point.
+   */
+  assertServedModel?: boolean | AssertServedModelOptions
 }
 
 // ─── Internals ──────────────────────────────────────────────────────────
@@ -790,6 +824,18 @@ export async function callLlm(
             })
           : undefined
 
+      // The echoed id, kept separate from the attribution id: a provider that
+      // omits it must read as "unproven", never as "the model I asked for".
+      const servedModel =
+        typeof json.model === 'string' && json.model.trim() !== '' ? json.model : null
+      if (opts.assertServedModel) {
+        assertServedModelIdentity(
+          req.model,
+          servedModel,
+          opts.assertServedModel === true ? {} : opts.assertServedModel,
+        )
+      }
+
       return {
         content,
         finishReason: choice?.finish_reason ?? null,
@@ -803,7 +849,8 @@ export async function callLlm(
           cachedPromptTokens,
         },
         costUsd: typeof costFromProxy === 'number' ? costFromProxy : (configuredCost ?? null),
-        model: (json.model as string) ?? req.model,
+        model: servedModel ?? req.model,
+        servedModel,
         durationMs: Date.now() - started,
         raw: json,
       }
@@ -1082,15 +1129,28 @@ function describePattern(p: string | RegExp): string {
  * Sends a tiny `ping` message with `maxTokens=64`. Reasoning models
  * (glm-5.1, deepseek-v4) can burn the entire budget on internal reasoning
  * for short prompts, so don't tighten this further. We don't validate
- * content; HTTP 200 means reachable.
+ * content.
+ *
+ * Reachability and identity are separate answers: `ok` means the route
+ * answered, `servedModel` / `substituted` say WHICH model answered. A gateway
+ * that serves another provider's model returns `ok: true` with
+ * `substituted: true` — inspect both before treating the id as measured.
  */
 export async function probeLlm(
   model: string,
   opts: LlmClientOptions & { timeoutMs?: number } = {},
-): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
+): Promise<{
+  ok: boolean
+  latencyMs: number
+  error: string | null
+  /** Id echoed by the provider; `null` when it sent none or the probe failed. */
+  servedModel: string | null
+  /** True when the echoed id is a different model than `model` (or absent). */
+  substituted: boolean
+}> {
   const start = Date.now()
   try {
-    await callLlm(
+    const result = await callLlm(
       {
         model,
         messages: [{ role: 'user', content: 'ping' }],
@@ -1099,12 +1159,20 @@ export async function probeLlm(
       },
       opts,
     )
-    return { ok: true, latencyMs: Date.now() - start, error: null }
+    return {
+      ok: true,
+      latencyMs: Date.now() - start,
+      error: null,
+      servedModel: result.servedModel ?? null,
+      substituted: checkServedModel(model, result.servedModel).substituted,
+    }
   } catch (err) {
     return {
       ok: false,
       latencyMs: Date.now() - start,
       error: err instanceof Error ? err.message : String(err),
+      servedModel: null,
+      substituted: false,
     }
   }
 }

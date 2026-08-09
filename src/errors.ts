@@ -23,6 +23,7 @@ export type AgentEvalErrorCode =
   | 'verification'
   | 'replay'
   | 'backend_integrity'
+  | 'model_substitution'
   | 'profile_matrix'
 
 /**

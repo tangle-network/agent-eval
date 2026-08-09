@@ -63,7 +63,12 @@ export interface EnsembleJudgeOptions<D extends string> {
   retry?: JudgeRetryPolicy
   /** Enforce `assertCrossFamily` over `models` at construction. Default true.
    *  Opt out only for deliberate single-family panels (e.g. self-consistency
-   *  sampling of one model). */
+   *  sampling of one model).
+   *
+   *  Construction-time only, over the REQUESTED ids: it cannot see a gateway
+   *  that answers several ids from one provider. `scoreWith` owns the served
+   *  side — check the id the provider echoed with `assertServedModel`
+   *  (./integrity/served-model) inside your judge call. */
   crossFamily?: boolean
   /** Composite weights forwarded to `aggregateJudgeVerdicts`: a partial map
    *  selects AND weights exactly the named dimensions. Omit for uniform. */

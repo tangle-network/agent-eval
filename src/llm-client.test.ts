@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CostLedger } from './cost-ledger'
+import { ModelSubstitutionError } from './integrity/served-model'
 import {
   callLlm,
   callLlmJson,
@@ -436,6 +437,101 @@ describe('llm-client — extractJsonPayload', () => {
     const truncated = '[{"claim":"complete nested item"}'
     expect(extractJsonPayload(truncated)).toBe(truncated)
     expect(() => JSON.parse(extractJsonPayload(truncated))).toThrow()
+  })
+})
+
+describe('llm-client — served-model identity', () => {
+  it('records the echoed id separately from the attribution id', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          model: 'gemini-2.5-flash-lite',
+          choices: [{ message: { content: 'hi' } }],
+          usage: {},
+        }),
+    ])
+    const r = await callLlm(
+      { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'x' }] },
+      { fetch, baseUrl: 'https://example.test/v1' },
+    )
+    expect(r.servedModel).toBe('gemini-2.5-flash-lite')
+    expect(r.model).toBe('gemini-2.5-flash-lite')
+  })
+
+  it('reports servedModel null — not the requested id — when the body omits it', async () => {
+    const fetch = mockFetch([
+      async () => mkOkResponse({ choices: [{ message: { content: 'hi' } }], usage: {} }),
+    ])
+    const r = await callLlm(
+      { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'x' }] },
+      { fetch, baseUrl: 'https://example.test/v1' },
+    )
+    expect(r.servedModel).toBeNull()
+    // attribution still needs a name; identity does not borrow one
+    expect(r.model).toBe('gpt-4.1-mini')
+  })
+
+  it('throws when assertServedModel is on and another model answered', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({
+          model: 'gemini-2.5-flash-lite',
+          choices: [{ message: { content: 'hi' } }],
+          usage: {},
+        }),
+    ])
+    await expect(
+      callLlm(
+        { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'x' }] },
+        { fetch, baseUrl: 'https://example.test/v1', assertServedModel: true },
+      ),
+    ).rejects.toThrow(ModelSubstitutionError)
+  })
+
+  it('does not retry a substitution — it is a verdict, not a transient fault', async () => {
+    const fetch = vi.fn(async () =>
+      mkOkResponse({
+        model: 'gemini-2.5-flash-lite',
+        choices: [{ message: { content: 'hi' } }],
+        usage: {},
+      }),
+    )
+    await expect(
+      callLlm(
+        { model: 'gpt-4.1-mini', messages: [{ role: 'user', content: 'x' }] },
+        {
+          fetch: fetch as unknown as typeof globalThis.fetch,
+          baseUrl: 'https://example.test/v1',
+          assertServedModel: true,
+          maximumAttempts: 3,
+        },
+      ),
+    ).rejects.toThrow(ModelSubstitutionError)
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it('passes when the router answers with the bare form of a prefixed id', async () => {
+    const fetch = mockFetch([
+      async () =>
+        mkOkResponse({ model: 'glm-5.2', choices: [{ message: { content: 'hi' } }], usage: {} }),
+    ])
+    const r = await callLlm(
+      { model: 'zai/glm-5.2', messages: [{ role: 'user', content: 'x' }] },
+      { fetch, baseUrl: 'https://example.test/v1', assertServedModel: true },
+    )
+    expect(r.servedModel).toBe('glm-5.2')
+  })
+
+  it('rejects an unidentified response under assertServedModel', async () => {
+    const fetch = mockFetch([
+      async () => mkOkResponse({ choices: [{ message: { content: 'hi' } }], usage: {} }),
+    ])
+    await expect(
+      callLlm(
+        { model: 'glm-5.2', messages: [{ role: 'user', content: 'x' }] },
+        { fetch, baseUrl: 'https://example.test/v1', assertServedModel: true },
+      ),
+    ).rejects.toThrow(/identity unproven/)
   })
 })
 

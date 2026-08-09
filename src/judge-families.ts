@@ -113,6 +113,14 @@ export class CrossFamilyError extends Error {
  * Throw unless the judge models span at least `minFamilies` distinct provider
  * families. Pass the model ids backing your judge ensemble. Fail-loud by
  * design — a correlated single-family ensemble silently inflates agreement.
+ *
+ * Scope: this reads the ids you REQUEST. It proves the panel was configured
+ * across families; it cannot prove the panel RAN across families, because a
+ * routing gateway may answer several different ids from one provider. Where
+ * the diversity claim is load-bearing (a published leaderboard, a
+ * certification, a non-self-judging exclusion), assert on the ids the
+ * provider echoed instead: `assertCrossFamilyServed` in
+ * ./integrity/served-model.
  */
 export function assertCrossFamily(
   models: string[],
