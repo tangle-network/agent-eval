@@ -99,6 +99,16 @@ const usageSchema = z.strictObject({
   tokens: tokenUsageSchema.nullable(),
   cost: costSchema,
   knownCostUsd: nonNegativeNumber.optional(),
+  // A provider that reports one side only: the count is kept here rather than
+  // zero-filled into `tokens`, so this gate must accept it or a paid run is
+  // rejected at journal-write time, after the model call is spent.
+  partialTokens: z
+    .strictObject({
+      input: nonNegativeInteger.nullable(),
+      output: nonNegativeInteger.nullable(),
+    })
+    .optional(),
+  tokensEstimated: z.boolean().optional(),
 })
 
 const findingScoreSchema = z.strictObject({
