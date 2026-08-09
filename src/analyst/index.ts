@@ -301,6 +301,34 @@ export {
   SkillUsageAnalyst,
 } from './kinds/skill-usage'
 export { coerceJson, coerceToFindingRows, stripCodeFences } from './parse-tolerant'
+export {
+  analystUsageReceiptFromPrimeUsage,
+  buildPrimePrompt,
+  buildPrimeRepairPrompt,
+  emptyPrimeRawUsage,
+  extractPrimeJsonObject,
+  mergePrimeRawUsage,
+  normalizePrimeUsage,
+  type PrimeExchangeOptions,
+  type PrimeExchangeOutcome,
+  type PrimeFailure,
+  type PrimeProjectionDelivery,
+  type PrimeProjectionOutcome,
+  type PrimeProjectionSource,
+  type PrimePromptSpec,
+  type PrimeProtocolIdentity,
+  type PrimeRawUsage,
+  type PrimeRejectedRow,
+  type PrimeRepairPromptSpec,
+  type PrimeRepairState,
+  type PrimeReplyContract,
+  type PrimeRowDecoded,
+  type PrimeTurnRecord,
+  primeProtocolSha256,
+  primeReplyDefect,
+  projectPrimeTrajectory,
+  runPrimeExchange,
+} from './prime-protocol'
 export { assertProposalFindings, isProposalFinding } from './proposal-findings'
 export type {
   AnalystHooks,

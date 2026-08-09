@@ -35,10 +35,12 @@ export type {
 } from './benchmark-public-types'
 export {
   createPrimeBenchmarkRunner,
-  nodeHttpPrimeBridgeTransport,
   type PrimeBenchmarkRunnerOptions,
+  primeAnalystProtocolSha256,
+} from './benchmark-runner-prime'
+export {
+  nodeHttpPrimeBridgeTransport,
   type PrimeBridgeTransport,
   type PrimeBridgeTransportRequest,
   type PrimeBridgeTransportResult,
-  primeAnalystProtocolSha256,
-} from './benchmark-runner-prime'
+} from './prime-bridge-transport'

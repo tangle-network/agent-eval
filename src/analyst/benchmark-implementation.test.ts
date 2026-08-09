@@ -59,6 +59,8 @@ const EXPECTED_FILES = [
   'src/analyst/finding-subject.ts',
   'src/analyst/kind-factory.ts',
   'src/analyst/parse-tolerant.ts',
+  'src/analyst/prime-bridge-transport.ts',
+  'src/analyst/prime-protocol.ts',
   'src/analyst/tool-groups.ts',
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',

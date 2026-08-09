@@ -104,6 +104,17 @@ export function assertValidAnalystUsageReceipt(
   if (receipt.knownCostUsd !== undefined) {
     assertNonNegativeFinite(receipt.knownCostUsd, 'knownCostUsd', context)
   }
+  if (receipt.partialTokens) {
+    const { input, output } = receipt.partialTokens
+    if (receipt.tokens) {
+      throw new Error(`${context}: partialTokens must be absent when tokens is complete`)
+    }
+    if (input === null && output === null) {
+      throw new Error(`${context}: partialTokens must carry at least one reported side`)
+    }
+    if (input !== null) assertNonNegativeSafeInteger(input, 'partialTokens.input', context)
+    if (output !== null) assertNonNegativeSafeInteger(output, 'partialTokens.output', context)
+  }
 }
 
 function assertNonNegativeSafeInteger(value: number, field: string, context: string): void {

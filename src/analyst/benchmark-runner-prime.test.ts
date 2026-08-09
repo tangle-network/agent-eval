@@ -3,10 +3,9 @@ import { otlpTextToTraceAnalysisStore } from '../trace-analyst/store-otlp'
 import {
   createPrimeBenchmarkRunner,
   type PrimeBenchmarkRunnerOptions,
-  type PrimeBridgeTransport,
-  type PrimeBridgeTransportRequest,
   primeAnalystProtocolSha256,
 } from './benchmark-runner-prime'
+import type { PrimeBridgeTransport, PrimeBridgeTransportRequest } from './prime-bridge-transport'
 import type { AnalystRunInputs } from './types'
 
 const TRACE_ID = 'traj-7'

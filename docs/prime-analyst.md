@@ -4,7 +4,7 @@ The `prime` analyst runs an RLM coding agent as a trace analyst through an OpenA
 It is the third scored arm of `agent-eval analyst-benchmark`, beside the recursive `dspy-rlm` engine and the one-shot `direct` baseline, and it exists so the prime-vs-dspy comparison is reproducible from this repository alone.
 It speaks the CodeTraceBench failure-block contract only; `--analyst prime` with `--dataset agentrx` is rejected.
 
-Implementation: `src/analyst/benchmark-runner-prime.ts` (`createPrimeBenchmarkRunner`).
+Implementation: `src/analyst/benchmark-runner-prime.ts` (`createPrimeBenchmarkRunner`) binds the CodeTraceBench block grammar to the shared protocol in `src/analyst/prime-protocol.ts` and `src/analyst/prime-bridge-transport.ts`.
 Wiring: `--analyst prime` in `src/analyst/benchmark-command.ts`.
 
 ## What the runner does
@@ -95,9 +95,24 @@ Provider credentials live in the bridge process, never in this command: for `--a
   When the full `viewTrace` response is oversized, or the rendered JSON exceeds the 360k-char inline budget, the runner re-projects every span through chunked `viewSpans` at a 1200-byte per-attribute cap, in store order, and fails loud if any span drops or the result is still oversized.
 - **Usage receipts.**
   Token counts are the bridge's exact reported counts; USD is a rate-based estimate from the model's catalog rates (for `prime/zai/glm-5.2`, the z.ai coding-plan list rates: 0.6/2.2 USD per million input/output tokens).
-  A reply without usage stays uncaptured — never a silent zero — and a repair turn's usage merges into the case's receipt.
+  A reply without usage stays uncaptured — never a silent zero — and a repair turn's usage merges into the case's receipt, poisoning each side independently so a measured count survives a missing partner.
+  A reply that reports only one side lands in `AnalystUsageReceipt.partialTokens` with `tokens: null`, `cost` uncaptured, and the reported side priced into `knownCostUsd` as a lower bound: `RunTokenUsage` has no nullable side, so carrying a one-sided count in `tokens` would mean writing a zero nobody measured.
+  When the bridge reports `estimated: true` — it derived the counts from character lengths because the backend CLI reported none — the receipt carries `tokensEstimated: true`, which is what separates a rate estimate over exact tokens from one over derived tokens.
 - **Per-observation protocol digest.**
   Every prime observation records `primeAnalystProtocolSha256()` in its runner metadata, hashing the question, task prompt, output contract, repair contract, and projection limits that actually ran.
+
+## Reusing the protocol outside this benchmark
+
+`src/analyst/prime-protocol.ts` is the consumer-agnostic core, exported from `@tangle-network/agent-eval/analyst`.
+It speaks raw rows and names no finding type, so an analyzer with a different row grammar — span-grounded findings against its own artifact, say — binds it without importing CodeTraceBench types:
+
+- `PrimeReplyContract<TRow>` supplies the rows field name, the contract lines spliced into both prompts, a single-pass `decodeRow`, and an optional `maxRows` cap applied to ACCEPTED rows so malformed rows never consume a slot.
+- `buildPrimePrompt` / `buildPrimeRepairPrompt` compose the prompts; the repair prompt never carries the trajectory.
+- `runPrimeExchange` runs the call, the bounded repair turn, and row decoding, returning one typed outcome whose `PrimeFailure.kind` separates `transport`, `http-status`, `unparseable-json`, `no-content`, `deadline`, `malformed-reply`, and `aborted`.
+  A cancelled run is never recorded as an analyzer verdict.
+- `projectPrimeTrajectory` runs the render → measure → fall back → re-measure → fail-loud ladder over a caller-supplied `PrimeProjectionSource`, so the source of the projection stays the consumer's choice.
+- `normalizePrimeUsage` / `mergePrimeRawUsage` keep the bridge's report lossless; `analystUsageReceiptFromPrimeUsage` is the agent-eval-only binding to the typed receipt, so a consumer with no pricing table simply does not call it.
+- `primeProtocolSha256` hashes the ACTUALLY composed contract, so two consumers that both stamp `analyst_id: 'prime'` while asking different questions get different digests by construction.
 
 ## Status
 
