@@ -11,7 +11,12 @@ function listResponse(ids: string[]): Response {
   })
 }
 
-/** Build a fetch fake whose chat-completions responses are keyed by model id. */
+/**
+ * Build a fetch fake whose chat-completions responses are keyed by model id.
+ * A 200 with no explicit body echoes the requested model, matching what an
+ * OpenAI-compatible provider sends; pass a body with a different `model` to
+ * simulate a gateway substituting one.
+ */
 function makeFetch(
   listedIds: string[],
   probeByModel: Record<string, { status: number; body?: unknown }> = {},
@@ -22,7 +27,8 @@ function makeFetch(
     if (url.endsWith('/chat/completions')) {
       const model = JSON.parse(String(init?.body)).model as string
       const spec = probeByModel[model] ?? { status: 200 }
-      return new Response(spec.body === undefined ? '{}' : JSON.stringify(spec.body), {
+      const body = spec.body === undefined && spec.status === 200 ? { model } : (spec.body ?? {})
+      return new Response(JSON.stringify(body), {
         status: spec.status,
         headers: { 'content-type': 'application/json' },
       })
@@ -42,13 +48,21 @@ describe('preflightModels — membership only', () => {
     expect(out.succeeded).toBe(true)
     expect(out.error).toBeNull()
     expect(out.value).toEqual([
-      { model: 'claude-sonnet-4-6', listed: true, served: null, status: null, detail: null },
+      {
+        model: 'claude-sonnet-4-6',
+        listed: true,
+        served: null,
+        status: null,
+        detail: null,
+        substitution: null,
+      },
       {
         model: 'opencode/zai-coding-plan/glm-5.1',
         listed: false,
         served: null,
         status: null,
         detail: null,
+        substitution: null,
       },
     ])
   })
@@ -74,7 +88,21 @@ describe('preflightModels — probe', () => {
       fetchImpl: makeFetch(['claude-sonnet-4-6'], { 'claude-sonnet-4-6': { status: 200 } }),
     })
     expect(out.value).toEqual([
-      { model: 'claude-sonnet-4-6', listed: true, served: true, status: 200, detail: null },
+      {
+        model: 'claude-sonnet-4-6',
+        listed: true,
+        served: true,
+        status: 200,
+        detail: null,
+        substitution: {
+          requested: 'claude-sonnet-4-6',
+          served: 'claude-sonnet-4-6',
+          requestedFamily: 'anthropic',
+          servedFamily: 'anthropic',
+          verdict: 'exact',
+          substituted: false,
+        },
+      },
     ])
   })
 
@@ -101,6 +129,7 @@ describe('preflightModels — probe', () => {
         served: false,
         status: 401,
         detail: 'No API key configured for model opencode/zai-coding-plan/glm-5.1',
+        substitution: null,
       },
     ])
   })
@@ -114,7 +143,14 @@ describe('preflightModels — probe', () => {
       fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
     })
     expect(out.value).toEqual([
-      { model: 'deepseek-v4-pro', listed: true, served: false, status: 503, detail: null },
+      {
+        model: 'deepseek-v4-pro',
+        listed: true,
+        served: false,
+        status: 503,
+        detail: null,
+        substitution: null,
+      },
     ])
   })
 
@@ -241,6 +277,102 @@ describe('assertModelsServed', () => {
         fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
       }),
     ).rejects.toThrow(ModelsUnreachableError)
+  })
+
+  // A 200 from the wrong model is the failure a reachability-only gate waves
+  // through: the id is listed, the probe succeeds, and the campaign then
+  // reports numbers for a model it never called.
+  it('fails an id the router answers from a different family', async () => {
+    let thrown: unknown
+    try {
+      await assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['gpt-4.1-mini'],
+        probe: true,
+        fetchImpl: makeFetch(['gpt-4.1-mini'], {
+          'gpt-4.1-mini': { status: 200, body: { model: 'gemini-2.5-flash-lite' } },
+        }),
+      })
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(ModelsUnreachableError)
+    const msg = (thrown as Error).message
+    expect(msg).toContain('gpt-4.1-mini')
+    expect(msg).toContain('gemini-2.5-flash-lite')
+    expect(msg).toContain('substituted-cross-family')
+    const results = (thrown as ModelsUnreachableError).results
+    expect(results[0]?.served).toBe(true)
+    expect(results[0]?.substitution?.substituted).toBe(true)
+  })
+
+  it('fails a 200 that echoes no model id — reachable is not identified', async () => {
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek-v4-pro'],
+        probe: true,
+        fetchImpl: makeFetch(['deepseek-v4-pro'], {
+          'deepseek-v4-pro': { status: 200, body: {} },
+        }),
+      }),
+    ).rejects.toThrow(/identity unproven/)
+  })
+
+  it('accepts an unreported id only when the caller opts in', async () => {
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek-v4-pro'],
+        probe: true,
+        allowUnreported: true,
+        fetchImpl: makeFetch(['deepseek-v4-pro'], {
+          'deepseek-v4-pro': { status: 200, body: {} },
+        }),
+      }),
+    ).resolves.toHaveLength(1)
+  })
+
+  it('accepts a same-family swap only when the caller opts in', async () => {
+    const fetchImpl = makeFetch(['deepseek/deepseek-v3.2'], {
+      'deepseek/deepseek-v3.2': { status: 200, body: { model: 'deepseek-v4-flash' } },
+    })
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek/deepseek-v3.2'],
+        probe: true,
+        fetchImpl,
+      }),
+    ).rejects.toThrow(ModelsUnreachableError)
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek/deepseek-v3.2'],
+        probe: true,
+        allowWithinFamily: true,
+        fetchImpl,
+      }),
+    ).resolves.toHaveLength(1)
+  })
+
+  it('treats a provider-prefixed request answered by the bare id as the same model', async () => {
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['zai/glm-5.2'],
+        probe: true,
+        fetchImpl: makeFetch(['zai/glm-5.2'], {
+          'zai/glm-5.2': { status: 200, body: { model: 'glm-5.2' } },
+        }),
+      }),
+    ).resolves.toHaveLength(1)
   })
 
   it('rethrows a network failure rather than reporting a partial pass', async () => {

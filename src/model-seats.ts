@@ -46,10 +46,14 @@ export type SeatPresetName = keyof typeof seatPresets
 /**
  * Tier presets — plain data, swap or spread freely.
  *
- * `economy` uses the fleet-policy ids: every id resolves through the
- * substrate's family pricing (no costUnknown axis) and the judge trio spans
- * three provider families (moonshot / deepseek / openai), so it passes
- * `assertCrossFamily` as-is.
+ * `economy` names ids that a live router probe answered from the provider
+ * their name implies, so the judge trio spans three provider families
+ * (deepseek / zhipu / google) both as configured AND as served. A preset is
+ * only as good as its last probe: an id can go dead or start resolving
+ * elsewhere at any time, so gate a real run on `assertModelsServed({ probe:
+ * true })` and assert `assertServedModel` per call rather than trusting this
+ * list. `assertCrossFamily` over these ids proves configuration; only
+ * `assertCrossFamilyServed` over the echoed ids proves the run.
  *
  * `frontier` is deliberately EMPTY: entitled frontier ids vary per router
  * account, and a hardcoded claude/gpt-5 id 401s on keys that lack it. Supply
@@ -58,10 +62,10 @@ export type SeatPresetName = keyof typeof seatPresets
  */
 export const seatPresets: Record<'economy' | 'frontier', ModelSeats> = {
   economy: {
-    worker: 'kimi-k2.6',
-    judges: ['kimi-k2.6', 'deepseek-v4-pro', 'gpt-4.1-mini'],
-    analyst: 'gpt-4.1-mini',
-    reflection: 'gpt-4.1-mini',
+    worker: 'zai/glm-5.2',
+    judges: ['deepseek-v4-pro', 'zai/glm-5.2', 'google/gemini-2.5-flash'],
+    analyst: 'zai/glm-5.2',
+    reflection: 'zai/glm-5.2',
     verifier: 'deepseek-v4-pro',
   },
   frontier: {},

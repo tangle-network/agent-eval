@@ -88,7 +88,9 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/concurrency.ts',
   'src/cost-ledger.ts',
   'src/errors.ts',
+  'src/integrity/served-model.ts',
   'src/judge-calibration.ts',
+  'src/judge-families.ts',
   'src/ledger-core/atomic-file-lock.ts',
   'src/ledger-core/canonical.ts',
   'src/ledger-core/deep-freeze.ts',
@@ -120,7 +122,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '46af7a98d6df73d845394827283390bac7a2fb9712f418b14b1093f19a21faea'
+  '933d233564b3e3d20e5406066abcb6cbff6aa5ca7b3350053822648e2f2313ca'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
