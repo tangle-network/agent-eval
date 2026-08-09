@@ -67,6 +67,35 @@ function makeFetchStub(
 }
 
 describe('runMultishot', () => {
+  it('sends the profile append prompt after the base system prompt', async () => {
+    const agentRequests: MultishotTransportRequest[] = []
+    await runMultishot({
+      profile: {
+        ...PROFILE,
+        prompt: {
+          ...PROFILE.prompt,
+          appendSystemPrompt: 'Always cite the research artifact in your answer.',
+        },
+      },
+      persona: PERSONA,
+      shape: SHAPE,
+      maxTurns: 1,
+      agentTransport: async (request) => {
+        agentRequests.push(request)
+        return { message: { content: 'done' }, costUsd: 0 }
+      },
+      apiKey: 'test-key',
+      baseUrl: 'http://localhost:0',
+    })
+
+    expect(agentRequests[0]?.messages[0]).toEqual({
+      role: 'system',
+      content:
+        'You are a test agent. Always call delegate_research before answering.\n\n' +
+        'Always cite the research artifact in your answer.',
+    })
+  })
+
   it('runs N turns, captures transcript + tool calls + cost', async () => {
     const originalFetch = global.fetch
     // Sequence per turn (maxTurns=2):

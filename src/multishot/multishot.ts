@@ -111,7 +111,9 @@ export async function runMultishot<TPersona extends MultishotPersona>(
   const opener = shape.buildOpener(opts.persona)
   transcript.push({ role: 'user', content: opener })
 
-  const systemPrompt = opts.profile.prompt?.systemPrompt ?? ''
+  const systemPrompt = [opts.profile.prompt?.systemPrompt, opts.profile.prompt?.appendSystemPrompt]
+    .filter((value): value is string => Boolean(value))
+    .join('\n\n')
   const agentMessages: Array<Record<string, unknown>> = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: opener },

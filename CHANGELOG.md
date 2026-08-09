@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.5] - 2026-08-09 - structured profile and prime cohort alignment
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.5.3` and `0.46.0`.
+- Preserve the shared profile contract's structured system-prompt capabilities and `prime` harness through Eval's profile matrix without adding a local profile schema or capability copy.
+- Multishot agent requests now preserve the profile's ordered `systemPrompt` and `appendSystemPrompt` values.
+
 ## [0.144.4] - 2026-08-04 - prompt-cache cohort alignment
 
 ### Changed

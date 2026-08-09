@@ -84,6 +84,23 @@ describe('agentProfileHash', () => {
     ).not.toBe(agentProfileHash(base))
   })
 
+  it('keeps structured system-prompt additions in profile identity', () => {
+    const replacement = {
+      ...base,
+      prompt: {
+        systemPrompt: 'Replace the harness prompt.',
+        appendSystemPrompt: 'Append this instruction too.',
+      },
+    } satisfies AgentProfile
+    const changedAppend = {
+      ...replacement,
+      prompt: { ...replacement.prompt, appendSystemPrompt: 'A different addition.' },
+    } satisfies AgentProfile
+
+    expect(agentProfileHash(replacement)).not.toBe(agentProfileHash(base))
+    expect(agentProfileHash(changedAppend)).not.toBe(agentProfileHash(replacement))
+  })
+
   it('changes when the profile version changes', () => {
     expect(agentProfileHash({ ...base, version: 'v4' })).not.toBe(agentProfileHash(base))
   })
@@ -191,6 +208,23 @@ describe('expandProfileAxes', () => {
     })
     expect(profiles).toHaveLength(4)
     expect(new Set(profiles.map((p) => agentProfileId(p))).size).toBe(4)
+  })
+
+  it('accepts the prime harness added to the shared profile contract', () => {
+    const [profile] = expandProfileAxes({
+      base: axisBase,
+      harnesses: ['prime'],
+      models: ['deepseek/deepseek-v4-flash'],
+    })
+
+    expect(profile).toMatchObject({
+      harness: 'prime',
+      model: { default: 'deepseek/deepseek-v4-flash' },
+    })
+    expect(harnessAxisOf(profile as AgentProfile)).toEqual({
+      harness: 'prime',
+      model: 'deepseek/deepseek-v4-flash',
+    })
   })
 
   it('drops (harness, model) pairs a vendor-locked harness cannot run', () => {
