@@ -340,8 +340,8 @@ export {
   normalizeModelId,
   ServedCrossFamilyError,
   type ServedModelCheck,
-  servedModelAcceptable,
   type ServedModelVerdict,
+  servedModelAcceptable,
 } from './integrity/served-model'
 export {
   type AssertSingleBackendOptions,

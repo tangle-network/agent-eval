@@ -51,10 +51,18 @@ export interface ServedModelCheck {
 
 /**
  * Reduce a model id to its comparable core: lowercase, no surrounding space,
- * no `provider/` prefix, no `@snapshot` / `:batch` / `:free` style suffix.
+ * no `provider/` prefix, no `@snapshot` / `:batch` / `:free` tier suffix, no
+ * trailing build date, and `.`/`_` folded to `-` so one version is spelled one
+ * way.
  *
- * Only routing decoration is stripped. Version digits are load-bearing —
- * `deepseek-v3.2` and `deepseek-v4-flash` stay distinct.
+ * Dropping the build date is what makes snapshot resolution legible as the
+ * non-event it is: a router answering `gpt-4o-mini` with
+ * `gpt-4o-mini-2024-07-18` pinned a floating alias to a reproducible build —
+ * the same model, which is the behaviour we want. Only routing decoration is
+ * stripped; version digits are load-bearing, so `deepseek-v3.2` and
+ * `deepseek-v4-flash` stay distinct, and comparison is EXACT equality rather
+ * than a prefix test (a prefix rule would accept `gpt-5` → `gpt-5-mini`, a
+ * silent downgrade wearing the right vendor name).
  */
 export function normalizeModelId(modelId: string): string {
   let id = modelId.trim().toLowerCase()
@@ -64,7 +72,12 @@ export function normalizeModelId(modelId: string): string {
   if (colon > 0) id = id.slice(0, colon)
   const slash = id.lastIndexOf('/')
   if (slash >= 0) id = id.slice(slash + 1)
-  return id.trim()
+  return id
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/[._]/g, '-')
+    .replace(/-+$/, '')
+    .trim()
 }
 
 /**
