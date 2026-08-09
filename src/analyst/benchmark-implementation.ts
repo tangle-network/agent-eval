@@ -68,6 +68,8 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/finding-subject.ts',
   'src/analyst/kind-factory.ts',
   'src/analyst/parse-tolerant.ts',
+  'src/analyst/prime-bridge-transport.ts',
+  'src/analyst/prime-protocol.ts',
   'src/analyst/tool-groups.ts',
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
@@ -118,7 +120,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '33d32e6ad8cf5984803f57be7ef6e7df352f9d2b2e64338ac53f1220664c67a1'
+  'b2cb476a39e0c8aef8ae0909e6de5515b78157ad840740b0739d1d01a2829d59'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

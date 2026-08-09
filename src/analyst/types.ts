@@ -212,6 +212,21 @@ export interface AnalystUsageReceipt {
   cost: RunCostProvenance
   /** Known lower bound when one or more calls have uncaptured cost. */
   knownCostUsd?: number
+  /**
+   * Token counts the provider reported on only one side. Present exactly when
+   * `tokens` is null and at least one side WAS reported: `RunTokenUsage` has no
+   * nullable side, so a one-sided count cannot live in `tokens` without writing
+   * a zero nobody measured. Read it as a lower bound, never as a total — the
+   * field exists so a null `tokens` cannot hide a real count.
+   */
+  partialTokens?: { input: number | null; output: number | null }
+  /**
+   * True when the token counts were DERIVED by the transport (from character
+   * lengths, say) rather than measured by the model provider. `cost.kind` is
+   * `estimated` both for a rate estimate over exact tokens and for one over
+   * derived tokens; this is the field that separates them.
+   */
+  tokensEstimated?: boolean
 }
 
 // ── finding_id stability ─────────────────────────────────────────────

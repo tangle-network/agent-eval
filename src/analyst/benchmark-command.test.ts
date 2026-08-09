@@ -22,8 +22,9 @@ import {
 } from './benchmark-command.test-support'
 import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
 import { publicBenchmarkProtocolSha256 } from './benchmark-public-prompt'
-import { createPrimeBenchmarkRunner, type PrimeBridgeTransport } from './benchmark-runner-prime'
+import { createPrimeBenchmarkRunner } from './benchmark-runner-prime'
 import { sha256Digest } from './benchmark-verification-artifacts'
+import type { PrimeBridgeTransport } from './prime-bridge-transport'
 import type { AnalystRunInputs } from './types'
 import { makeFinding } from './types'
 

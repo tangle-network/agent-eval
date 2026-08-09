@@ -1,4 +1,3 @@
-import { request } from 'node:http'
 import type { CustomTokenPricing } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisStore, TraceAnalysisStoreContext } from '../trace-analyst/store'
@@ -15,7 +14,19 @@ import {
   MAX_INCORRECT_BLOCKS,
 } from './benchmark-public-prompt'
 import { positiveSafeInteger, requiredString } from './benchmark-public-types'
-import { sha256Digest } from './benchmark-verification-artifacts'
+import { nodeHttpPrimeBridgeTransport, type PrimeBridgeTransport } from './prime-bridge-transport'
+import {
+  analystUsageReceiptFromPrimeUsage,
+  buildPrimePrompt,
+  type PrimeFailure,
+  type PrimeProjectionSource,
+  type PrimeProtocolIdentity,
+  type PrimeReplyContract,
+  type PrimeTurnRecord,
+  primeProtocolSha256,
+  projectPrimeTrajectory,
+  runPrimeExchange,
+} from './prime-protocol'
 import type { AnalystRunInputs, AnalystSeverity, AnalystUsageReceipt } from './types'
 
 /**
@@ -28,6 +39,12 @@ import type { AnalystRunInputs, AnalystSeverity, AnalystUsageReceipt } from './t
  * spans — and produces findings through the same published block expansion, so
  * a prime observation and a dspy-rlm observation differ only in which analyst
  * produced the blocks.
+ *
+ * The protocol itself — prompt composition, the bounded repair turn, reply
+ * extraction, the projection ladder, usage normalization — lives in
+ * `./prime-protocol`, which knows nothing about CodeTraceBench. This file is
+ * the benchmark's binding to it: the block row grammar, the store-backed
+ * projection source, and the benchmark observation shape.
  *
  * Trajectory delivery is inline JSON in the prompt. The dspy typed path binds
  * the viewTrace span projection as a REPL variable; prime has no REPL, so the
@@ -57,27 +74,6 @@ const SPAN_ID_ENUMERATION_ATTRIBUTE_BYTE_CAP = 64
 const VIEW_SPANS_CHUNK_SIZE = 40
 const PRIME_SEVERITIES: ReadonlySet<string> = new Set(['critical', 'high', 'medium', 'low', 'info'])
 
-export interface PrimeBridgeTransportRequest {
-  url: string
-  body: {
-    model: string
-    messages: Array<{ role: 'user'; content: string }>
-  }
-  /** Deadline the runner also enforces through `signal`. */
-  timeoutMs: number
-  signal?: AbortSignal
-}
-
-export interface PrimeBridgeTransportResult {
-  status: number
-  text: string
-}
-
-/** One POST to the bridge's /v1/chat/completions. Injectable for tests. */
-export type PrimeBridgeTransport = (
-  request: PrimeBridgeTransportRequest,
-) => Promise<PrimeBridgeTransportResult>
-
 export interface PrimeBenchmarkRunnerOptions {
   /** OpenAI-compatible cli-bridge base URL, e.g. `http://localhost:4181`. */
   baseUrl: string
@@ -105,25 +101,71 @@ export class PrimeMalformedReplyError extends Error {}
 export class PrimeTraceProjectionError extends Error {}
 
 /**
+ * Short-strings rule: long reply strings get corrupted when the bridge splices
+ * its backend's stream, so the contract forbids a rationale field and caps
+ * every string the model must emit.
+ */
+const PRIME_OUTPUT_CONTRACT_LINES: readonly string[] = [
+  'OUTPUT CONTRACT (supersedes any transport wording above — you have no trace tools and no REPL):',
+  'You are a one-shot analyst. Every fact you need is in the TRAJECTORY JSON below.',
+  'Do not run shell commands, do not read or write files, do not use any tools.',
+  'Reply with EXACTLY one fenced ```json code block and no other fenced block. The JSON object has exactly two fields:',
+  '  "answer": string — ONE short sentence (max 300 chars) naming the latest failure evidence you traced from.',
+  '  "blocks": array (possibly empty) of failure blocks, each exactly:',
+  '    {"first_step": int, "last_step": int, "consequence_step": int,',
+  '     "escape_status": "escaped"|"unescaped",',
+  '     "severity": "critical"|"high"|"medium"|"low"|"info",',
+  '     "claim": string (ONE short sentence, max 200 chars),',
+  '     "confidence": number 0..1}',
+  'Do NOT include a rationale field. Keep every string SHORT — long strings get corrupted in transport and void your work.',
+  `Report at most ${MAX_INCORRECT_BLOCKS} blocks; a block spans at most ${MAX_INCORRECT_BLOCK_STEPS} steps.`,
+  'Every step number must be the n of an existing assistant span with span_id "step-<n>" and kind "LLM" in the trajectory below; never cite TOOL, CHAIN, or AGENT spans.',
+  '"blocks" is [] only for a clean trajectory.',
+]
+
+const PRIME_REPAIR_CONTRACT_LINES: readonly string[] = [
+  '  "answer": string (ONE short sentence, max 300 chars)',
+  '  "blocks": array (possibly empty) of {"first_step": int, "last_step": int, "consequence_step": int,',
+  '   "escape_status": "escaped"|"unescaped", "severity": "critical"|"high"|"medium"|"low"|"info",',
+  '   "claim": string (max 200 chars), "confidence": number 0..1}',
+  'No rationale field. Keep every string SHORT. Preserve the step numbers and verdicts of your previous reply exactly; shorten prose freely.',
+]
+
+const PRIME_PROTOCOL_IDENTITY: PrimeProtocolIdentity = {
+  question: PRIME_QUESTION,
+  taskDefinition: CODE_TRACE_BENCH_ANALYST_PROMPT,
+  contractLines: PRIME_OUTPUT_CONTRACT_LINES,
+  repairContractLines: PRIME_REPAIR_CONTRACT_LINES,
+  limits: {
+    maxBlocks: MAX_INCORRECT_BLOCKS,
+    maxBlockSteps: MAX_INCORRECT_BLOCK_STEPS,
+    maxInlineTrajectoryChars: MAX_INLINE_TRAJECTORY_CHARS,
+    chunkedProjectionAttributeByteCap: CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
+  },
+}
+
+/**
+ * The block row grammar. No `maxRows`: the count cap belongs to
+ * `expandCodeTraceFailureBlocks`, which drops the offending block and names it
+ * in `diagnostics.droppedBlocks`, so capping here would erase that record.
+ */
+const PRIME_BLOCK_CONTRACT: PrimeReplyContract<CodeTraceFailureBlock> = {
+  rowsField: 'blocks',
+  contractLines: PRIME_OUTPUT_CONTRACT_LINES,
+  repairContractLines: PRIME_REPAIR_CONTRACT_LINES,
+  decodeRow(row) {
+    const reason = blockRowDefect(row)
+    if (reason !== null) return { ok: false, reason }
+    return { ok: true, row: blockFromRow(row as PrimeBlockRow) }
+  },
+}
+
+/**
  * Digest of everything this runner can send to the bridge, recorded per
  * observation so a prime result names the exact contract that produced it.
  */
 export function primeAnalystProtocolSha256(): string {
-  return sha256Digest(
-    JSON.stringify({
-      kind: 'prime-analyst-protocol',
-      question: PRIME_QUESTION,
-      taskPrompt: CODE_TRACE_BENCH_ANALYST_PROMPT,
-      outputContract: primeOutputContractLines(),
-      repairContract: primeRepairPrompt('<defect>', '<previous-reply>'),
-      limits: {
-        maxBlocks: MAX_INCORRECT_BLOCKS,
-        maxBlockSteps: MAX_INCORRECT_BLOCK_STEPS,
-        maxInlineTrajectoryChars: MAX_INLINE_TRAJECTORY_CHARS,
-        chunkedProjectionAttributeByteCap: CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
-      },
-    }),
-  )
+  return primeProtocolSha256(PRIME_PROTOCOL_IDENTITY)
 }
 
 /** CodeTraceBench-only: the prompt and output contract speak its block grammar. */
@@ -138,52 +180,6 @@ export function createPrimeBenchmarkRunner(
   const pricing = options.pricing ?? pricingForModel(model)
   const transport = options.transport ?? nodeHttpPrimeBridgeTransport()
   const url = `${baseUrl}/v1/chat/completions`
-
-  async function bridgeCall(
-    content: string,
-    signal: AbortSignal | undefined,
-  ): Promise<{ content: string; usage: unknown }> {
-    const controller = new AbortController()
-    const forwardAbort = () => controller.abort(signal?.reason)
-    if (signal?.aborted) controller.abort(signal.reason)
-    else signal?.addEventListener('abort', forwardAbort, { once: true })
-    const deadline = setTimeout(() => controller.abort(), timeoutMs)
-    let result: PrimeBridgeTransportResult
-    try {
-      result = await transport({
-        url,
-        body: { model, messages: [{ role: 'user', content }] },
-        timeoutMs,
-        signal: controller.signal,
-      })
-    } catch (error) {
-      if (signal?.aborted) throw error
-      if (controller.signal.aborted) {
-        throw new PrimeBridgeTransportError(`bridge call exceeded ${timeoutMs}ms`)
-      }
-      throw new PrimeBridgeTransportError(
-        `bridge transport failure: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      clearTimeout(deadline)
-      signal?.removeEventListener('abort', forwardAbort)
-    }
-    if (result.status !== 200) {
-      throw new PrimeBridgeHttpError(result.status, result.text.slice(0, 500))
-    }
-    let response: unknown
-    try {
-      response = JSON.parse(result.text)
-    } catch {
-      throw new PrimeBridgeTransportError(
-        `bridge returned unparseable JSON (${result.text.length} bytes)`,
-      )
-    }
-    const reply = extractReplyContent(response)
-    if (reply === null)
-      throw new PrimeBridgeTransportError('bridge reply carries no message content')
-    return { content: reply, usage: extractRawUsage(response) }
-  }
 
   return {
     id: PRIME_ANALYST_ID,
@@ -200,69 +196,64 @@ export function createPrimeBenchmarkRunner(
       try {
         const store = input.traceStore
         if (!store) throw new Error('codetracebench prime runner requires a trace store')
-        const projected = await projectInlineTrajectory(store, trajectoryId, context.signal)
-        metadata = { ...metadata, delivery: projected.delivery }
-        const prompt = buildPrimePrompt(trajectoryId, projected.spans, projected.rendered)
+        const storeContext: TraceAnalysisStoreContext | undefined = context.signal
+          ? { signal: context.signal }
+          : undefined
+        const projection = await projectPrimeTrajectory(
+          codeTraceProjectionSource(store, trajectoryId, storeContext),
+          { maxInlineChars: MAX_INLINE_TRAJECTORY_CHARS },
+        )
+        if (!projection.ok) throw new PrimeTraceProjectionError(projection.reason)
+        const delivery: PrimeTrajectoryDelivery = {
+          mode: projection.delivery.mode,
+          fetch: projection.delivery.fetch === 'full' ? 'view-trace' : 'view-spans-chunked',
+          perAttributeByteCap:
+            projection.delivery.fetch === 'full' ? null : CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
+          renderedChars: projection.delivery.renderedChars,
+        }
+        metadata = { ...metadata, delivery }
+        const prompt = buildCodeTracePrompt(trajectoryId, projection.items, projection.rendered)
         metadata = { ...metadata, promptChars: prompt.length }
 
-        const first = await bridgeCall(prompt, context.signal)
-        usage = usageFromBridgeUsage(first.usage, pricing)
-        metadata = { ...metadata, bridgeUsage: { first: first.usage ?? null, repair: null } }
-        let reply = first.content
-        let parsed = extractJsonObject(reply)
-        let defect = replyDefect(parsed)
-        const repairState: { attempted: boolean; succeeded: boolean | null } = {
-          attempted: false,
-          succeeded: null,
+        const outcome = await runPrimeExchange({
+          contract: PRIME_BLOCK_CONTRACT,
+          prompt,
+          transport,
+          url,
+          model,
+          timeoutMs,
+          repair,
+          ...(context.signal ? { signal: context.signal } : {}),
+        })
+        if (!outcome.ok && outcome.failure.kind === 'aborted') throw abortCause(outcome.failure)
+        if (outcome.turns.length > 0) {
+          usage = analystUsageReceiptFromPrimeUsage(outcome.usage, pricing)
+          metadata = { ...metadata, bridgeUsage: bridgeUsageFromTurns(outcome.turns) }
         }
-        if (defect !== null && repair) {
-          repairState.attempted = true
-          const second = await bridgeCall(primeRepairPrompt(defect, reply), context.signal)
-          usage = mergePrimeUsage(usage, usageFromBridgeUsage(second.usage, pricing), pricing)
-          metadata = {
-            ...metadata,
-            bridgeUsage: { first: first.usage ?? null, repair: second.usage ?? null },
-          }
-          reply = second.content
-          parsed = extractJsonObject(reply)
-          defect = replyDefect(parsed)
-          repairState.succeeded = defect === null
-        }
-        metadata = { ...metadata, repair: repairState }
-        if (defect !== null) {
+        metadata = { ...metadata, repair: outcome.repair }
+        if (!outcome.ok) {
           // The raw reply is the diagnostic artifact for a malformed case.
-          metadata = { ...metadata, reply: reply.slice(0, 4_000) }
-          throw new PrimeMalformedReplyError(
-            `${defect} in prime reply${repairState.attempted ? ' even after the bounded repair turn' : ''}`,
-          )
+          if (outcome.reply !== undefined) {
+            metadata = { ...metadata, reply: outcome.reply.slice(0, 4_000) }
+          }
+          throw primeFailureError(outcome.failure)
         }
 
-        const rows = (parsed as { blocks: unknown[] }).blocks
-        const rejectedRows: Array<{ index: number; reason: string }> = []
-        const blocks: CodeTraceFailureBlock[] = []
-        rows.forEach((row, index) => {
-          const reason = blockRowDefect(row)
-          if (reason !== null) {
-            rejectedRows.push({ index, reason })
-            return
-          }
-          blocks.push(blockFromRow(row as PrimeBlockRow))
-        })
         const expanded = await expandCodeTraceFailureBlocks({
           trajectoryId,
-          blocks,
+          blocks: outcome.rows,
           store,
           analystId: PRIME_ANALYST_ID,
           ...(context.signal ? { signal: context.signal } : {}),
         })
-        const answer = (parsed as { answer?: unknown }).answer
         return {
           findings: expanded.findings,
           usage,
           metadata: {
             ...metadata,
-            answer: typeof answer === 'string' ? answer : null,
-            rejectedRows,
+            answer: outcome.answer,
+            reportedRows: outcome.reportedRows,
+            rejectedRows: outcome.rejected,
             blockDiagnostics: expanded.diagnostics,
           },
         }
@@ -279,48 +270,6 @@ export function createPrimeBenchmarkRunner(
   }
 }
 
-/**
- * Default bridge transport on node:http rather than fetch: undici's default
- * response-header timeout kills prime analyses that legitimately run past five
- * minutes, so the caller's AbortSignal is the only deadline.
- */
-export function nodeHttpPrimeBridgeTransport(): PrimeBridgeTransport {
-  return ({ url, body, signal }) =>
-    new Promise((resolvePromise, rejectPromise) => {
-      const target = new URL(url)
-      if (target.protocol !== 'http:') {
-        throw new TypeError(`bridge URL must be http:, got ${target.protocol}`)
-      }
-      const encoded = JSON.stringify(body)
-      const req = request(
-        {
-          hostname: target.hostname,
-          port: target.port,
-          path: target.pathname,
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'content-length': Buffer.byteLength(encoded),
-          },
-          ...(signal ? { signal } : {}),
-        },
-        (res) => {
-          const chunks: Buffer[] = []
-          res.on('data', (chunk: Buffer) => chunks.push(chunk))
-          res.on('end', () =>
-            resolvePromise({
-              status: res.statusCode ?? 0,
-              text: Buffer.concat(chunks).toString('utf8'),
-            }),
-          )
-          res.on('error', rejectPromise)
-        },
-      )
-      req.on('error', rejectPromise)
-      req.end(encoded)
-    })
-}
-
 interface PrimeTrajectoryDelivery {
   mode: 'inline-json'
   fetch: 'view-trace' | 'view-spans-chunked'
@@ -328,39 +277,23 @@ interface PrimeTrajectoryDelivery {
   renderedChars: number
 }
 
-async function projectInlineTrajectory(
+/**
+ * The trace store, seen through the protocol's two-move projection contract:
+ * the full viewTrace projection, or the chunked viewSpans projection at a
+ * per-attribute byte cap.
+ */
+function codeTraceProjectionSource(
   store: TraceAnalysisStore,
   trajectoryId: string,
-  signal: AbortSignal | undefined,
-): Promise<{ spans: TraceAnalystSpan[]; rendered: string; delivery: PrimeTrajectoryDelivery }> {
-  const context: TraceAnalysisStoreContext | undefined = signal ? { signal } : undefined
-  let fetch: PrimeTrajectoryDelivery['fetch'] = 'view-trace'
-  const view = await store.viewTrace({ trace_id: trajectoryId }, context)
-  let spans = view.spans ?? null
-  if (spans === null) {
-    fetch = 'view-spans-chunked'
-    spans = await projectSpansChunked(store, trajectoryId, context)
-  }
-  let rendered = JSON.stringify(spans)
-  if (rendered.length > MAX_INLINE_TRAJECTORY_CHARS && fetch === 'view-trace') {
-    fetch = 'view-spans-chunked'
-    spans = await projectSpansChunked(store, trajectoryId, context)
-    rendered = JSON.stringify(spans)
-  }
-  if (rendered.length > MAX_INLINE_TRAJECTORY_CHARS) {
-    throw new PrimeTraceProjectionError(
-      `trajectory renders to ${rendered.length} chars even at per-attribute cap ${CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP}; inline delivery impossible`,
-    )
-  }
+  context: TraceAnalysisStoreContext | undefined,
+): PrimeProjectionSource<TraceAnalystSpan> {
   return {
-    spans,
-    rendered,
-    delivery: {
-      mode: 'inline-json',
-      fetch,
-      perAttributeByteCap: fetch === 'view-trace' ? null : CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
-      renderedChars: rendered.length,
+    async full() {
+      const view = await store.viewTrace({ trace_id: trajectoryId }, context)
+      return view.spans ?? null
     },
+    capped: () => projectSpansChunked(store, trajectoryId, context),
+    cappedDescription: `per-attribute cap ${CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP}`,
   }
 }
 
@@ -420,7 +353,7 @@ async function projectSpansChunked(
   return projected
 }
 
-function buildPrimePrompt(
+function buildCodeTracePrompt(
   trajectoryId: string,
   spans: readonly TraceAnalystSpan[],
   renderedSpans: string,
@@ -430,63 +363,41 @@ function buildPrimePrompt(
     throw new PrimeTraceProjectionError(`no step-<n> spans in trace '${trajectoryId}'`)
   }
   const finalVerification = spans.filter(isFinalVerificationSpan)
-  return [
-    `QUESTION: ${PRIME_QUESTION}`,
-    '',
-    'TASK DEFINITION:',
-    CODE_TRACE_BENCH_ANALYST_PROMPT,
-    '',
-    ...primeOutputContractLines(),
-    '',
-    `TRAJECTORY (trace_id ${trajectoryId}; ${stepSpans.length} assistant step spans; full span projection as JSON):`,
-    renderedSpans,
-    '',
-    finalVerification.length > 0
-      ? `FINAL VERIFICATION SPANS:\n${JSON.stringify(finalVerification)}`
-      : 'FINAL VERIFICATION: unavailable for this trajectory — trace backward from the latest failure evidence inside the trajectory itself.',
-  ].join('\n')
+  return buildPrimePrompt({
+    question: PRIME_QUESTION,
+    taskDefinition: CODE_TRACE_BENCH_ANALYST_PROMPT,
+    contractLines: PRIME_OUTPUT_CONTRACT_LINES,
+    trajectoryHeader: `TRAJECTORY (trace_id ${trajectoryId}; ${stepSpans.length} assistant step spans; full span projection as JSON):`,
+    renderedTrajectory: renderedSpans,
+    trailer:
+      finalVerification.length > 0
+        ? `FINAL VERIFICATION SPANS:\n${JSON.stringify(finalVerification)}`
+        : 'FINAL VERIFICATION: unavailable for this trajectory — trace backward from the latest failure evidence inside the trajectory itself.',
+  })
 }
 
-/**
- * Short-strings rule: long reply strings get corrupted when the bridge splices
- * its backend's stream, so the contract forbids a rationale field and caps
- * every string the model must emit.
- */
-function primeOutputContractLines(): string[] {
-  return [
-    'OUTPUT CONTRACT (supersedes any transport wording above — you have no trace tools and no REPL):',
-    'You are a one-shot analyst. Every fact you need is in the TRAJECTORY JSON below.',
-    'Do not run shell commands, do not read or write files, do not use any tools.',
-    'Reply with EXACTLY one fenced ```json code block and no other fenced block. The JSON object has exactly two fields:',
-    '  "answer": string — ONE short sentence (max 300 chars) naming the latest failure evidence you traced from.',
-    '  "blocks": array (possibly empty) of failure blocks, each exactly:',
-    '    {"first_step": int, "last_step": int, "consequence_step": int,',
-    '     "escape_status": "escaped"|"unescaped",',
-    '     "severity": "critical"|"high"|"medium"|"low"|"info",',
-    '     "claim": string (ONE short sentence, max 200 chars),',
-    '     "confidence": number 0..1}',
-    'Do NOT include a rationale field. Keep every string SHORT — long strings get corrupted in transport and void your work.',
-    `Report at most ${MAX_INCORRECT_BLOCKS} blocks; a block spans at most ${MAX_INCORRECT_BLOCK_STEPS} steps.`,
-    'Every step number must be the n of an existing assistant span with span_id "step-<n>" and kind "LLM" in the trajectory below; never cite TOOL, CHAIN, or AGENT spans.',
-    '"blocks" is [] only for a clean trajectory.',
-  ]
+/** Map the protocol's terminal reason onto this benchmark's typed error classes. */
+function primeFailureError(failure: PrimeFailure): Error {
+  switch (failure.kind) {
+    case 'http-status':
+      return new PrimeBridgeHttpError(failure.status, failure.bodySnippet)
+    case 'malformed-reply':
+      return new PrimeMalformedReplyError(failure.message)
+    default:
+      return new PrimeBridgeTransportError(failure.message)
+  }
 }
 
-/** Carries the malformed reply and the contract — never the trajectory. */
-function primeRepairPrompt(defect: string, previousReply: string): string {
-  return [
-    'Your previous reply to a trace-analysis task was structurally malformed and could not be parsed',
-    `(${defect}). Below is your previous reply verbatim. Re-emit ONLY the corrected JSON — one`,
-    'fenced ```json block, no other text, no tools. The JSON object has exactly two fields:',
-    '  "answer": string (ONE short sentence, max 300 chars)',
-    '  "blocks": array (possibly empty) of {"first_step": int, "last_step": int, "consequence_step": int,',
-    '   "escape_status": "escaped"|"unescaped", "severity": "critical"|"high"|"medium"|"low"|"info",',
-    '   "claim": string (max 200 chars), "confidence": number 0..1}',
-    'No rationale field. Keep every string SHORT. Preserve the step numbers and verdicts of your previous reply exactly; shorten prose freely.',
-    '',
-    'PREVIOUS REPLY:',
-    previousReply,
-  ].join('\n')
+/** A cancelled run is not a result: the caller's error propagates unchanged. */
+function abortCause(failure: Extract<PrimeFailure, { kind: 'aborted' }>): unknown {
+  return failure.cause instanceof Error ? failure.cause : new Error(failure.message)
+}
+
+function bridgeUsageFromTurns(turns: readonly PrimeTurnRecord[]): Record<string, unknown> {
+  return {
+    first: turns.find((turn) => turn.turn === 'first')?.rawUsage ?? null,
+    repair: turns.find((turn) => turn.turn === 'repair')?.rawUsage ?? null,
+  }
 }
 
 function isFinalVerificationSpan(span: TraceAnalystSpan): boolean {
@@ -501,55 +412,6 @@ function trajectoryIdFromCaseId(caseId: string): string {
     throw new Error(`unexpected codetracebench benchmark case id '${caseId}'`)
   }
   return caseId.slice(prefix.length)
-}
-
-function extractReplyContent(response: unknown): string | null {
-  if (typeof response !== 'object' || response === null) return null
-  const choices = (response as { choices?: unknown }).choices
-  if (!Array.isArray(choices) || choices.length === 0) return null
-  const message = (choices[0] as { message?: unknown })?.message
-  if (typeof message !== 'object' || message === null) return null
-  const content = (message as { content?: unknown }).content
-  return typeof content === 'string' && content.length > 0 ? content : null
-}
-
-function extractRawUsage(response: unknown): unknown {
-  if (typeof response !== 'object' || response === null) return undefined
-  return (response as { usage?: unknown }).usage
-}
-
-function replyDefect(parsed: Record<string, unknown> | null): string | null {
-  if (parsed === null) return 'no parseable JSON object'
-  if (!Array.isArray(parsed.blocks)) return 'JSON has no "blocks" array'
-  return null
-}
-
-function extractJsonObject(text: string): Record<string, unknown> | null {
-  const direct = tryParseObject(text)
-  if (direct) return direct
-  const fenced = [...text.matchAll(/```(?:json)?\s*\n?([\s\S]*?)```/g)]
-  for (let index = fenced.length - 1; index >= 0; index -= 1) {
-    const candidate = tryParseObject(fenced[index]![1]!)
-    if (candidate) return candidate
-  }
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start >= 0 && end > start) {
-    const candidate = tryParseObject(text.slice(start, end + 1))
-    if (candidate) return candidate
-  }
-  return null
-}
-
-function tryParseObject(text: string): Record<string, unknown> | null {
-  try {
-    const value: unknown = JSON.parse(text.trim())
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
 }
 
 interface PrimeBlockRow {
@@ -605,6 +467,9 @@ function blockRowDefect(row: unknown): string | null {
 }
 
 function blockFromRow(row: PrimeBlockRow): CodeTraceFailureBlock {
+  // The contract asks the model not to send a rationale, but a volunteered one
+  // is model-produced evidence: discarding it is unrecoverable, while carrying
+  // a bounded string costs nothing and the destination field exists.
   const rationale =
     typeof row.rationale === 'string' && row.rationale.trim().length > 0
       ? row.rationale.trim().slice(0, 4_000)
@@ -619,58 +484,6 @@ function blockFromRow(row: PrimeBlockRow): CodeTraceFailureBlock {
     confidence: row.confidence,
     ...(rationale === undefined ? {} : { rationale }),
   }
-}
-
-/**
- * Receipt from the bridge's OpenAI-shaped usage object. Token counts are the
- * bridge's exact reported counts; USD is a rate-based estimate. A side the
- * bridge did not report stays null/uncaptured — never a silent zero.
- */
-function usageFromBridgeUsage(raw: unknown, pricing: CustomTokenPricing): AnalystUsageReceipt {
-  if (typeof raw !== 'object' || raw === null) {
-    return { calls: null, tokens: null, cost: { kind: 'uncaptured', usd: null } }
-  }
-  const record = raw as Record<string, unknown>
-  const input = nonNegativeSafeIntegerOrNull(record.prompt_tokens)
-  const output = nonNegativeSafeIntegerOrNull(record.completion_tokens)
-  const tokens = input !== null && output !== null ? { input, output } : null
-  return {
-    calls: nonNegativeSafeIntegerOrNull(record.model_requests),
-    tokens,
-    cost: estimatedCost(tokens, pricing),
-  }
-}
-
-/** Sum two receipts; an uncaptured side poisons the sum to uncaptured rather
- *  than silently under-reporting. */
-function mergePrimeUsage(
-  a: AnalystUsageReceipt,
-  b: AnalystUsageReceipt,
-  pricing: CustomTokenPricing,
-): AnalystUsageReceipt {
-  const calls = a.calls !== null && b.calls !== null ? a.calls + b.calls : null
-  const tokens =
-    a.tokens !== null && b.tokens !== null
-      ? { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output }
-      : null
-  return { calls, tokens, cost: estimatedCost(tokens, pricing) }
-}
-
-function estimatedCost(
-  tokens: { input: number; output: number } | null,
-  pricing: CustomTokenPricing,
-): AnalystUsageReceipt['cost'] {
-  if (tokens === null) return { kind: 'uncaptured', usd: null }
-  return {
-    kind: 'estimated',
-    usd:
-      (tokens.input * pricing.inputUsdPerMillion + tokens.output * pricing.outputUsdPerMillion) /
-      1_000_000,
-  }
-}
-
-function nonNegativeSafeIntegerOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
 function pricingForModel(model: string): CustomTokenPricing {
