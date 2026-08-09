@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.144.6] - 2026-08-09 - interaction binding cohort alignment
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.5.4` and `0.46.1`, so consumers share the canonical provider interaction binding without nested contract copies.
+
 ## [0.144.5] - 2026-08-09 - structured profile and prime cohort alignment
 
 ### Changed
