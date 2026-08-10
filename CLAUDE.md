@@ -3,6 +3,7 @@
 Two docs, two audiences:
 
 - **Humans onboarding** → [`docs/concepts.md`](./docs/concepts.md) (mental model, 5 min) and [`README.md`](./README.md) (entry points + quickstart).
+- **Why this package exists and where it is going** → [`docs/charter.md`](./docs/charter.md) (the honesty-layer charter, end-states, build order).
 - **Agents maintaining this package** → [`.claude/skills/agent-eval/SKILL.md`](./.claude/skills/agent-eval/SKILL.md). It defines the maintainer workflow and points to current source; it does not duplicate the API reference.
 
 Wire-protocol consumers (any language other than TypeScript) → [`docs/wire-protocol.md`](./docs/wire-protocol.md) and [`clients/python/README.md`](./clients/python/README.md).
