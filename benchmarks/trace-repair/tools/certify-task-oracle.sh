@@ -95,9 +95,14 @@ done
 case "$DETERMINISM" in ''|*[!0-9]*) echo "--determinism must be a whole number" >&2; exit 2 ;; esac
 case "$DETERMINISM_LOAD" in ''|*[!0-9]*) echo "--determinism-load must be a whole number" >&2; exit 2 ;; esac
 # One re-grade cannot disagree with anything, so a replicate count of 1 measures no flip
-# and must not be mistaken for a clean phase C.
+# and must not be mistaken for a clean phase C. The rule downstream rejects such a group
+# too; refusing at the flag names the actual mistake instead of failing three phases later.
 if [ "$DETERMINISM" -eq 1 ]; then
   echo "--determinism 1 measures no flip; use 0 to skip phase C or 2 or more to run it" >&2
+  exit 2
+fi
+if [ "$DETERMINISM_LOAD" -eq 1 ]; then
+  echo "--determinism-load 1 measures no flip; use 0 to skip the contended group or 2 or more" >&2
   exit 2
 fi
 

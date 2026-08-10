@@ -32,6 +32,9 @@ describe('certify-task-oracle.sh', () => {
     const result = run(['--determinism', '1', 'any-task'])
     expect(result.status).toBe(2)
     expect(result.stderr).toMatch(/measures no flip/)
+    const load = run(['--determinism-load', '1', 'any-task'])
+    expect(load.status).toBe(2)
+    expect(load.stderr).toMatch(/measures no flip/)
   })
 
   it('refuses a non-numeric replicate count instead of grading zero times', () => {
