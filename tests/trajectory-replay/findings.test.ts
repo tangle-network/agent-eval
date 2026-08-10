@@ -180,8 +180,13 @@ describe('resolveFindingReplayability', () => {
 })
 
 describe('classifyVerdict', () => {
-  const verdict = (armAMatch: boolean, armB: { failureVanished: boolean } | null): ReplayVerdict =>
+  const verdict = (
+    armAMatch: boolean,
+    armB: { failureVanished: boolean } | null,
+    prefixWithinTolerance = true,
+  ): ReplayVerdict =>
     ({
+      prefixWithinTolerance,
       armA: { failureSignatureMatch: armAMatch },
       armB,
     }) as unknown as ReplayVerdict
@@ -192,6 +197,11 @@ describe('classifyVerdict', () => {
     expect(classifyVerdict(verdict(true, { failureVanished: false }))).toBe('reproduced')
     expect(classifyVerdict(verdict(false, null))).toBe('divergent')
     expect(classifyVerdict(verdict(false, { failureVanished: true }))).toBe('divergent')
+  })
+
+  it('calls a proof on an unconfirmed prefix divergent whatever the arms did', () => {
+    expect(classifyVerdict(verdict(true, null, false))).toBe('divergent')
+    expect(classifyVerdict(verdict(true, { failureVanished: true }, false))).toBe('divergent')
   })
 })
 

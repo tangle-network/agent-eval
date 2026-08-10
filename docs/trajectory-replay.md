@@ -77,6 +77,9 @@ An `unknown-expectation` step is never agreement.
 Counting it as agreement lets a replay that fails on every step report a perfect prefix, which makes every verdict built on that prefix meaningless.
 
 `runReplayBatch` reports the same split per case and across the corpus, under `headline.prefixFidelity`.
+Its `replayed` predicate requires `prefixWithinTolerance`, so an unconfirmed prefix is never admitted.
+`verifyFindings` applies the same rule: a proof whose prefix fell outside the tolerance is `divergent`, whatever its arms did.
+
 Prefix divergence is reported, never hidden.
 A high divergence rate is a finding about replay fidelity, not a harness error.
 
