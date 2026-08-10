@@ -26,6 +26,17 @@ export interface TraceAnalysisEngineRequest {
   question: string
   instructions: string
   tools: readonly TraceAnalysisToolDescriptor[]
+  /**
+   * Task material delivered as structured input instead of fetched through
+   * tools, for a subject that lives outside any trace store.
+   *
+   * An engine with a code environment binds these as variables, which is what
+   * lets a typed program read the subject with code rather than parse it back
+   * out of prompt text. An engine that cannot honour them must throw: dropping
+   * them silently would answer a question about material the caller never
+   * delivered.
+   */
+  taskInputs?: Readonly<Record<string, unknown>>
   limits: TraceAnalystLimits
   costLedger: CostLedgerHandle
   costPhase: string

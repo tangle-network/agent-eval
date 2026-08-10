@@ -221,6 +221,9 @@ export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): Tr
                 maxLlmCalls: request.limits.maxLlmCalls,
                 maxOutputChars: request.limits.maxOutputChars,
               },
+              // Omitted entirely when the caller supplied none, so a request
+              // without structured inputs sends the payload it always sent.
+              ...(request.taskInputs ? { taskInputs: request.taskInputs } : {}),
             },
             ...(runner ? { runner } : {}),
             additionalArgs: ['--max-input-bytes', String(processLimits.maxInputBytes)],
