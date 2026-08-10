@@ -134,6 +134,11 @@
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
     },
+    "./trace-repair": {
+      "types": "./dist/trace-repair/index.d.ts",
+      "import": "./dist/trace-repair/index.js",
+      "default": "./dist/trace-repair/index.js"
+    },
     "./trajectory-replay": {
       "types": "./dist/trajectory-replay/index.d.ts",
       "import": "./dist/trajectory-replay/index.js",

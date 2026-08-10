@@ -31,6 +31,7 @@ Useful starting points:
 | Benchmark adapters | `src/benchmarks/index.ts` |
 | Training-data exports | `src/rl/index.ts` |
 | Recorded-trajectory replay and executed proofs | `src/trajectory-replay/index.ts` |
+| Repair grading: five-tier funnel, action budget, Delta-repair | `src/trace-repair/index.ts` |
 
 Treat source as authoritative when prose disagrees, then correct the nearest stale document in the same change.
 
