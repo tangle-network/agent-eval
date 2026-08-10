@@ -33,6 +33,7 @@ import {
   SCAFFOLD_INTERVENTION_BUDGET,
 } from './action-budget'
 import type { AdmittedRow } from './admission-contract'
+import { isRecordedTimeout } from './mini-swe-scaffold'
 import type { AnalystResponse, RepairFinding } from './analyst-response'
 import {
   type InterventionExecution,
@@ -69,6 +70,14 @@ export interface GradeRepairOptions {
   readonly budget?: InterventionBudget
   /** Wall-clock limit for one replayed or injected action. */
   readonly stepTimeoutMs?: number
+  /**
+   * Wall-clock limit for replaying a step the recording itself killed.
+   *
+   * Such a step carries no returncode, so the replay agrees with the recording
+   * no matter how long it waits. Bounding it separately cuts what a prefix
+   * costs without changing what it counts. Defaults to `stepTimeoutMs`.
+   */
+  readonly recordedTimeoutStepMs?: number
   readonly onProgress?: (message: string) => void
 }
 
@@ -428,11 +437,13 @@ async function replayPrefix(
 ): Promise<PrefixReplayEvidence> {
   const { row } = options
   const timeoutMs = options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS
+  const recordedTimeoutMs = options.recordedTimeoutStepMs ?? timeoutMs
   const startedMs = Date.now()
   let divergences = 0
   let stepsReplayed = 0
   for (const step of row.steps.slice(0, k - 1)) {
-    const result = await session.exec(wrapActionForExec(step.action, row.cwd), timeoutMs)
+    const bound = isRecordedTimeout(step.observation) ? recordedTimeoutMs : timeoutMs
+    const result = await session.exec(wrapActionForExec(step.action, row.cwd), bound)
     stepsReplayed += 1
     const recorded = parseRecordedReturncode(step.observation)
     if (recorded !== null && recorded !== result.exitCode) divergences += 1

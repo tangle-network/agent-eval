@@ -137,6 +137,7 @@ export {
 
 export {
   type CommandOutput,
+  isRecordedTimeout,
   MINI_SWE_SYSTEM_MESSAGE,
   OUTPUT_ELISION_THRESHOLD,
   OUTPUT_ELISION_WINDOW,

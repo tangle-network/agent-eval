@@ -187,6 +187,21 @@ export function renderTimeoutObservation(command: string, partialOutput: string)
   )
 }
 
+/** Substring `renderTimeoutObservation` always writes, whatever the command was. */
+const TIMEOUT_OBSERVATION_MARKER = 'timed out and has been killed'
+
+/**
+ * True when the recording shows the environment killed this step at its
+ * wall-clock bound.
+ *
+ * Such a step carries no returncode, so no replay can confirm or contradict
+ * it. Callers use this to bound the replay of that step cheaply rather than to
+ * decide agreement.
+ */
+export function isRecordedTimeout(observation: string | null): boolean {
+  return observation !== null && observation.includes(TIMEOUT_OBSERVATION_MARKER)
+}
+
 /** The observation after a turn that did not contain exactly one bash block. */
 export function renderFormatErrorObservation(actionCount: number): string {
   return (
