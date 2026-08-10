@@ -14,6 +14,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `analystDefinitionProtocolSha256` (equals `primeAnalystProtocolSha256()` for the inline arm) and `analystDefinitionAsymmetries` (refuses unequal repair turns, renders declared differences).
 - `ExecutionProbe` — the optional live-execution port on `AnalystContext` (`context.probe`); a runtime fills it later, this package defines only the port.
 - Definition parity kill test (`src/analyst/definition-parity.test.ts`): each compiled arm and its entry point must send byte-identical request bodies and record equal protocol digests, so expression loss fails CI by construction.
+- Verification-strategy family (`VerificationStrategySource`, `VERIFICATION_STRATEGIES`): the reward-source union opens with `proof-kernel`, `invariant`, `replication`, and `agreement`, each carrying its documented failure mode (the formalization gap, uncalibrated invariants, method self-replication, the shared blind spot). The answer-key members and the deterministic/probabilistic axis are unchanged.
+- Verdict epistemics: `DefaultVerdict` gains an optional `certification` (`VerdictCertification`) — strategy, exact checker identity with content pins, assumption list, evidence digest. Additive: consumers that do not read the field are unaffected.
+- Checker port (`StrategyChecker`, `CheckerIdentity`, `CheckerOutcome`): a checker is an injected executable boundary returning a typed outcome; the package ships no checker implementation, so a consumer binds its own kernel.
+- Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
+- `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
 
 ## [0.144.6] - 2026-08-09 - interaction binding cohort alignment
 

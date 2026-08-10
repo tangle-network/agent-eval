@@ -179,6 +179,12 @@ try {
         type RunTerminalOutcome,
         type Scenario,
         runTaskScore,
+        buildEquivalenceRecord,
+        defineEquivalenceCheck,
+        VERIFICATION_STRATEGIES,
+        type DefaultVerdict,
+        type EquivalenceRecord,
+        type VerdictCertification,
       } from '@tangle-network/agent-eval'
       import {
         CONTROL_INTEGRITY_ANALYST,
@@ -252,6 +258,7 @@ try {
         extractPreferences,
         toGrpoRows,
         toSftRows,
+        type VerifiableRewardSource,
       } from '@tangle-network/agent-eval/rl'
       import {
         analyzeSupervisorRunIntegrity,
@@ -418,6 +425,56 @@ try {
         code: 'journal-unavailable',
         message: 'not captured',
       }
+      // Verdict certification is additive: the bare pre-certification shape
+      // must stay assignable, and the certified shape must round-trip its
+      // strategy so a consumer can tell a kernel from a judge.
+      const packedUncertifiedVerdict: DefaultVerdict = { valid: true, score: 0.5 }
+      const packedCertification: VerdictCertification = {
+        strategy: 'proof-kernel',
+        checker: { name: 'lean4', version: '4.33.0', pins: { mathlib: 'db584cd6d46c' } },
+        assumptions: ['diagonal embedding argued in prose'],
+        evidenceDigest: 'sha256:package-check',
+      }
+      const packedCertifiedVerdict: DefaultVerdict = {
+        ...packedUncertifiedVerdict,
+        certification: packedCertification,
+      }
+      const packedKernelFailureMode: string =
+        VERIFICATION_STRATEGIES[packedCertification.strategy].failureMode
+      const packedOpenRewardSources: VerifiableRewardSource[] = [
+        'test',
+        'proof-kernel',
+        'invariant',
+        'replication',
+        'agreement',
+      ]
+      const packedEquivalenceRecord: EquivalenceRecord = buildEquivalenceRecord(
+        defineEquivalenceCheck({
+          source: 'proof-kernel',
+          artifact: 'artifact://package-check',
+          arms: 2,
+          blind: true,
+        }),
+        [
+          {
+            armId: 'A',
+            statement: 'S_A',
+            derivedFrom: 'paper',
+            blindness: { toOtherArms: true, toOutcome: true },
+          },
+          {
+            armId: 'B',
+            statement: 'S_B',
+            derivedFrom: 'campaign',
+            blindness: { toOtherArms: true, toOutcome: true },
+          },
+        ],
+        {
+          status: 'proved',
+          checker: { name: 'lean4', version: '4.33.0' },
+          evidenceDigest: 'sha256:package-check',
+        },
+      )
       const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'current',

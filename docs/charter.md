@@ -68,7 +68,8 @@ The audit refuted "built four times": traces imports this package's whole analys
    One declarative unit — AgentProfile + evidence projection + reply contract + budget declaration — compiled to any engine, guarded by a byte-identity kill test against the bespoke arms.
 6. **Verification without an answer key.**
    A strategy family where the held-out suite is one member: proof kernels, invariant and metamorphic checks, independent derivation agreement, replication.
-   The reward-source union is closed today; nothing grades the formalization gap.
+   The type layer now exists (`docs/verification-strategies.md`): the reward-source union is open, verdicts carry certifications, and the blind statement-equivalence protocol grades the formalization gap.
+   What remains is execution: a real kernel checker bound through the port, and the certified records flowing from live runs.
 7. **Session forking as one primitive.**
    Both halves exist unjoined: agent-runtime's `SandboxLineage.fork` (live checkpoint) and this package's trajectory replay (recorded prefix).
    Braid branches are metadata pointers; the provider session is always new.
@@ -98,6 +99,7 @@ Wave 5 — science.
 The verification-strategy family, proof kernels first.
 Its pilot is live: two independent Lean formalizations of the BCWW (4.6) inequality — one from the paper, one from the campaign's artifacts — with a kernel-checked equivalence verdict and the campaign's counterexample checked against both.
 A statement mismatch is a successful outcome; it is the formalization gap made visible.
+The contract layer is shipped: the family and checker port (`src/verification-strategy.ts`), verdict certifications (`src/verdict.ts`), and the blind two-arm equivalence protocol (`src/equivalence-check.ts`) — see `docs/verification-strategies.md` for the family, each member's failure mode, and the pilot as the worked example.
 
 ## Standing principles (each earned by a measured burn)
 
