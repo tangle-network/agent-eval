@@ -176,7 +176,7 @@ function measure(cfg) {
     `SELECT agent, count(*) AS n, count(DISTINCT model) AS models, count(DISTINCT task_name) AS tasks,
             round(avg(reward),4) AS solve_rate,
             count(*) FILTER (json_array_length(steps)=0) AS no_steps
-     FROM all_rows GROUP BY agent ORDER BY n DESC;`,
+     FROM all_rows GROUP BY agent ORDER BY n DESC, agent;`,
   )
 
   const funnel = one(
@@ -239,7 +239,7 @@ function measure(cfg) {
 
   const finalRc = q(
     `SELECT regexp_extract(last_obs,'${RETURNCODE_CAPTURE}',1) AS returncode, count(*) AS n
-     FROM tier_b GROUP BY 1 ORDER BY n DESC;`,
+     FROM tier_b GROUP BY 1 ORDER BY n DESC, returncode;`,
   )
 
   // A returncode that sits anywhere but position 0 could be clipped by the 5,000-char cap.
@@ -274,7 +274,7 @@ function measure(cfg) {
      FROM all_rows
      WHERE agent='${SCAFFOLD}' AND json_array_length(steps)>1
        AND regexp_matches(json_extract_string(steps,'$[1].msg'),'${PLACEHOLDER_RE}')
-     GROUP BY 1 ORDER BY n DESC;`,
+     GROUP BY 1 ORDER BY n DESC, id;`,
   )
 
   const multiTool = one(
