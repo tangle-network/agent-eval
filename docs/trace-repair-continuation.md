@@ -7,6 +7,7 @@ It only measures the intervention when all three arms run forward under the same
 This module makes that symmetry structural rather than promised.
 
 Source: [`src/trace-repair/`](../src/trace-repair/).
+The pre-pass that decides which rows the arms run on is in [trace-repair-admission.md](./trace-repair-admission.md).
 
 ## What runs
 
