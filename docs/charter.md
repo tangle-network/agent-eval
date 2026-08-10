@@ -81,9 +81,10 @@ The audit refuted "built four times": traces imports this package's whole analys
 Wave 1 — in flight now.
 The analyst definition contract with its byte-identity CI kill test; prime as a HarnessType in agent-interface; the three-arm review fixes.
 
-Wave 2 — the experiment subpath.
+Wave 2 — the experiment subpath. **Shipped: [docs/experiment.md](./experiment.md).**
 `./experiment`: compose the exported statistics into `defineExperiment` / `sealExperiment` with cluster-aware power refusal, pre-registration as executable decision rules, the funnel object, and matched-budget verification.
 Kill test first: re-derive this week's three hand-written PREREG.md files as decision-rule objects; any rule that needs an opaque escape hatch kills or extends the design.
+The kill test extended the design — ten node families beyond the seed AST, no opaque node — and the three preregistrations are the subpath's acceptance suite.
 
 Wave 3 — runtime wiring (blocked until agent-runtime's supervision merge resolves).
 The executable checker bound as a validator at the live-sandbox seam; a stop policy that consumes executable verdicts; then the supervisor budget-allocation experiment at equal compute.
