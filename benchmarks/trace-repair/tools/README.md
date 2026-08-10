@@ -122,3 +122,56 @@ Per-task evidence lands under `--out`, outside the repo because it holds contain
 
 A reward of `NO_REWARD_FILE` means the task's `test.sh` wrote nothing.
 That is reported as-is and never folded into 0, because a missing reward and a zero reward are different failures.
+
+## tb-images.mjs
+
+Pinned task-image store.
+A replay is only valid against the exact image bytes the recorded trajectory ran on, and a campaign must not stall because a third-party registry became unreachable mid-run.
+This tool supplies both properties.
+
+`tb-images.lock.json` pins all 89 terminal-bench-2 task images by registry manifest digest, beside the terminal-bench-2 commit the references were read from.
+A republished tag then fails `verify` loudly instead of swapping the bits under a recorded trajectory.
+
+```bash
+node benchmarks/trace-repair/tools/tb-images.mjs <lock|warm|archive|verify|status> [options]
+
+  --lock PATH        lockfile                   (default: benchmarks/trace-repair/tb-images.lock.json)
+  --tb2 DIR          terminal-bench-2 clone     (default: ~/bench-cache/terminal-bench-2)
+  --store DIR        local image store          (default: ~/bench-cache/tb-images)
+  --tasks LIST       comma-separated task names, or `all`
+  --tasks-file PATH  one task name per line
+  --reserve N        pull budget held back      (default: 10)
+  --archive          also `docker save` each warmed image
+  --accept-moved     rewrite a pin whose tag moved, instead of failing
+  --quota            report the remaining Docker Hub budget
+```
+
+`lock`, `warm` and `archive` write, so they take an exclusive lock on the store.
+Two campaigns cannot corrupt one store.
+
+### Which commands touch the network
+
+| command | network | spends pull quota |
+| --- | --- | --- |
+| `lock` | manifest `HEAD` per task | no |
+| `warm` | layer fetch for cold images only | yes, under `--reserve` |
+| `archive` | none | no |
+| `verify` | none | no |
+| `status` | only with `--quota` | no |
+
+Run `verify` at campaign start.
+It is local-only, so an exhausted quota cannot throttle a run already under way.
+`warm` defers rather than exceeding its budget: it stops while the reserve is intact and reports what is still cold.
+
+### Two identities per image
+
+Each image records both, because they survive different things.
+
+- `digest` — the registry manifest digest. What we pull by. Immune to tag movement.
+- `imageId` — the local image config id. What we verify by.
+
+`docker save` followed by `docker load` preserves the config id and the tag but drops `RepoDigests`, so a restored archive can no longer be checked against its manifest digest.
+Verification keys off the config id for that reason.
+
+Measured Docker Hub anonymous limits that shape the budget logic (2026-08-09, one IP): 100 manifest `GET`s per 3600 s, and a manifest `HEAD` costs 0.
+Resolving all 89 digests is therefore free; only a cold layer fetch spends quota.
