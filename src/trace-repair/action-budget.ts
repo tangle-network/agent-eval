@@ -362,7 +362,6 @@ export type BudgetViolation =
   | 'over-byte-cap'
   | 'multiple-statements'
   | 'multiple-heredocs'
-  | 'payload-kind-mismatch'
   | 'no-op-action'
   | 'submit-instead-of-repair'
 
@@ -370,7 +369,10 @@ export interface BudgetMeasurement {
   bytes: number
   statements: number
   heredocs: number
+  /** What the action IS, measured from its text. */
   payload: ActionPayloadKind
+  /** What the analyst SAID it was. Recorded, never a rejection. */
+  declared: ActionPayloadKind
 }
 
 export type BudgetCheck =
@@ -390,9 +392,15 @@ export { SUBMIT_SENTINEL } from './mini-swe-scaffold'
 /**
  * Measure an action against the budget.
  *
- * `declaredKind` is what the analyst said it was submitting. A mismatch is a
- * rejection rather than a silent correction: an answer that calls a file
- * rewrite a shell command is not describing its own intervention.
+ * The budget bounds what the scaffold can execute: one top-level statement,
+ * one authored file, a byte cap, and neither a no-op nor a submit. Every
+ * rejection here is one of those.
+ *
+ * `declaredKind` is what the analyst called its own action. It is recorded
+ * beside the measured payload and never rejected on, because the scaffold runs
+ * the action identically either way — so rejecting the label scores an arm on
+ * how it described a repair rather than on the repair. A reader who wants the
+ * mismatch counts `declared` against `payload`.
  */
 export function checkInterventionBudget(
   action: string,
@@ -407,6 +415,7 @@ export function checkInterventionBudget(
     statements: scan.statements.length,
     heredocs: scan.heredocs,
     payload,
+    declared: declaredKind,
   }
   const reject = (violation: BudgetViolation, detail: string): BudgetCheck => ({
     admissible: false,
@@ -432,12 +441,6 @@ export function checkInterventionBudget(
     return reject(
       'multiple-heredocs',
       `${measurement.heredocs} heredocs exceeds the ${budget.maxHeredocs} one edit may author`,
-    )
-  }
-  if (payload !== declaredKind) {
-    return reject(
-      'payload-kind-mismatch',
-      `declared "${declaredKind}" but the action is a ${payload} action`,
     )
   }
   if (action.includes(SUBMIT_SENTINEL)) {
