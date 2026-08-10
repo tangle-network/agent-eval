@@ -168,6 +168,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc -p tsconfig.examples.json",
+    "typecheck:scripts": "tsc -p tsconfig.script.json",
     "lint": "biome check src",
     "format": "biome format --write src",
     "check:skill": "node scripts/check-skill.mjs",
