@@ -24,6 +24,7 @@ export const buildEntries = {
   'supervisor-run/index': 'src/supervisor-run/index.ts',
   'trajectory-replay/index': 'src/trajectory-replay/index.ts',
   'trace-repair/index': 'src/trace-repair/index.ts',
+  'experiment/index': 'src/experiment/index.ts',
   'hosted/index': 'src/hosted/index.ts',
   cli: 'src/cli.ts',
 }

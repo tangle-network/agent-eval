@@ -139,6 +139,11 @@
       "import": "./dist/trace-repair/index.js",
       "default": "./dist/trace-repair/index.js"
     },
+    "./experiment": {
+      "types": "./dist/experiment/index.d.ts",
+      "import": "./dist/experiment/index.js",
+      "default": "./dist/experiment/index.js"
+    },
     "./trajectory-replay": {
       "types": "./dist/trajectory-replay/index.d.ts",
       "import": "./dist/trajectory-replay/index.js",
