@@ -12,6 +12,11 @@
  *   oracle-determinism    whether the task's own suite answers about the state
  *   action-budget         one action, one payload, at most 4 KB
  *   analyst-response      the answer grammar, including the honest decline
+ *   repair-prompt         the one question every arm answers, and its digest
+ *   analyst-arm           what an arm is: one budget, one repair turn, and
+ *                         every remaining difference declared and reported
+ *   arm-completion        the arms that answer over a chat completion
+ *   arm-dspy              the DSPy program arm, certified by nothing here
  *   funnel                t0 parsed, t1 reproduced, t2 executes, t3 local
  *                         flip, t4 repair flip — and the credit vector with
  *                         no term for reproduction
@@ -110,6 +115,25 @@ export {
   renderAdmissionReport,
 } from './admission-report'
 export {
+  type AskRepairArmOptions,
+  askRepairArm,
+  type RepairArm as RepairAnalystArm,
+  type RepairArmAffordance,
+  type RepairArmAnswer,
+  type RepairArmAsymmetry,
+  type RepairArmAsymmetryReport,
+  type RepairArmBudgetRecord,
+  type RepairArmCertification,
+  type RepairArmDeclaration,
+  type RepairArmRejectedRow,
+  type RepairArmRepairTurn,
+  type RepairArmReply,
+  type RepairArmRequest,
+  type RepairArmUsage,
+  repairArmAsymmetries,
+  repairArmResponse,
+} from './analyst-arm'
+export {
   type AnalystResponse,
   NO_DECISIVE_FAILURE,
   type ParseAnalystResponseOutcome,
@@ -120,6 +144,21 @@ export {
   type ResponseParseFailure,
   repairFinding,
 } from './analyst-response'
+export {
+  type CompletionRepairArmOptions,
+  createCompletionRepairArm,
+} from './arm-completion'
+export {
+  assertDspyRepairEngine,
+  createDspyRepairArm,
+  DSPY_REPAIR_SIGNATURE,
+  DSPY_REPAIR_TASK_TOKEN,
+  DSPY_REPAIR_TRAJECTORY_INPUT,
+  type DspyRepairArmOptions,
+  dspyRepairInstructions,
+  type ReadRepairPayloadOptions,
+  readRepairPayload,
+} from './arm-dspy'
 export {
   BLINDED_FIELDS,
   type BlindedStep,
@@ -274,6 +313,17 @@ export type {
   TestOracleContext,
   TestOracleOutcome,
 } from './ports'
+export {
+  REPAIR_CONTRACT_LINES,
+  REPAIR_QUESTION,
+  REPAIR_REPAIR_CONTRACT_LINES,
+  renderRepairTrajectory,
+  repairArmPromptSha256,
+  repairQuestionSha256,
+  repairTaskDefinition,
+  repairTaskPolicy,
+  repairTrajectoryHeader,
+} from './repair-prompt'
 export {
   type InjectedTestOracleOptions,
   injectedTestOracle,
