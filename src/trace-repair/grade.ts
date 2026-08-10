@@ -33,7 +33,6 @@ import {
   SCAFFOLD_INTERVENTION_BUDGET,
 } from './action-budget'
 import type { AdmittedRow } from './admission-contract'
-import { isRecordedTimeout } from './mini-swe-scaffold'
 import type { AnalystResponse, RepairFinding } from './analyst-response'
 import {
   type InterventionExecution,
@@ -46,6 +45,7 @@ import {
   repairCredit,
   type TestRunEvidence,
 } from './funnel'
+import { isRecordedTimeout } from './mini-swe-scaffold'
 import type {
   RepairArm,
   RepairContinuationOutcome,

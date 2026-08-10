@@ -89,11 +89,11 @@ export function parseAnalystResponse(reply: string): ParseAnalystResponseOutcome
   }
 
   const body = json.value
-  if (body['no_decisive_failure'] === true || body['finding'] === NO_DECISIVE_FAILURE) {
+  if (body.no_decisive_failure === true || body.finding === NO_DECISIVE_FAILURE) {
     return { succeeded: true, value: { kind: 'no-decisive-failure' } }
   }
 
-  const k = body['k']
+  const k = body.k
   if (typeof k !== 'number' || !Number.isInteger(k)) {
     return {
       succeeded: false,
@@ -101,7 +101,7 @@ export function parseAnalystResponse(reply: string): ParseAnalystResponseOutcome
       detail: `k must be an integer, got ${describe(k)}`,
     }
   }
-  const failureClaim = body['failure_claim'] ?? body['failureClaim']
+  const failureClaim = body.failure_claim ?? body.failureClaim
   if (typeof failureClaim !== 'string' || failureClaim.trim().length === 0) {
     return {
       succeeded: false,
@@ -109,7 +109,7 @@ export function parseAnalystResponse(reply: string): ParseAnalystResponseOutcome
       detail: 'failure_claim must be a non-empty string',
     }
   }
-  const raw = body['intervention']
+  const raw = body.intervention
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return {
       succeeded: false,
@@ -118,7 +118,7 @@ export function parseAnalystResponse(reply: string): ParseAnalystResponseOutcome
     }
   }
   const intervention = raw as Record<string, unknown>
-  const action = intervention['action']
+  const action = intervention.action
   if (typeof action !== 'string') {
     return {
       succeeded: false,
@@ -126,7 +126,7 @@ export function parseAnalystResponse(reply: string): ParseAnalystResponseOutcome
       detail: 'intervention.action must be a string',
     }
   }
-  const kind = intervention['kind']
+  const kind = intervention.kind
   if (kind !== 'shell' && kind !== 'edit') {
     return {
       succeeded: false,

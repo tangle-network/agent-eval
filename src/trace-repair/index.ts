@@ -29,6 +29,19 @@
  */
 
 export {
+  type ActionPayloadKind,
+  type BudgetCheck,
+  type BudgetMeasurement,
+  type BudgetViolation,
+  checkInterventionBudget,
+  classifyActionPayload,
+  type InterventionBudget,
+  NO_OP_ACTIONS,
+  normalizeActionForComparison,
+  SCAFFOLD_INTERVENTION_BUDGET,
+  scanShellAction,
+} from './action-budget'
+export {
   ADMISSION_CONFIG_DEFAULTS,
   type AdmissionConfig,
   type AdmissionConfigInput,
@@ -52,7 +65,17 @@ export {
   resolveAdmissionConfig,
   runAdmission,
 } from './admission'
-
+export {
+  type AdmissionCriteria,
+  type AdmissionDecision,
+  type AdmissionEvidence,
+  type AdmissionRejection,
+  type AdmittedRow,
+  admitRow,
+  type ControlArmEvidence,
+  type PrefixFidelityEvidence,
+  TB_REPAIR_ADMISSION_CRITERIA,
+} from './admission-contract'
 export {
   ADMISSION_EXCLUSION_MEANING,
   ADMISSION_EXCLUSION_ORDER,
@@ -77,14 +100,30 @@ export {
   isPreStratumReason,
   stratumOf,
 } from './admission-records'
-
 export {
   type AdmissionArtifact,
   admissionArtifact,
   type RenderAdmissionOptions,
   renderAdmissionReport,
 } from './admission-report'
-
+export {
+  type AnalystResponse,
+  NO_DECISIVE_FAILURE,
+  type ParseAnalystResponseOutcome,
+  parseAnalystResponse,
+  type RepairDeclined,
+  type RepairFinding,
+  type RepairIntervention,
+  type ResponseParseFailure,
+  repairFinding,
+} from './analyst-response'
+export {
+  BLINDED_FIELDS,
+  type BlindedStep,
+  type BlindedTrajectoryPrefix,
+  type BlindTrajectoryOptions,
+  blindTrajectory,
+} from './blinding'
 export {
   assertArmSymmetry,
   CONTINUATION_POLICY_DEFAULTS,
@@ -107,7 +146,6 @@ export {
   totalCost,
   totalUsage,
 } from './continuation-policy'
-
 export {
   type ContinuationArm,
   type ContinuationEnvironmentDescription,
@@ -124,75 +162,6 @@ export {
   rolloutRecordedSteps,
   toRecordedSteps,
 } from './continuation-records'
-
-export {
-  createDockerContinuationEnvironment,
-  type DockerContinuationEnvironmentOptions,
-  dockerRunArgs,
-  nodeProcessRunner,
-  type ProcessRequest,
-  type ProcessResult,
-  type ProcessRunner,
-} from './docker-environment'
-
-export {
-  type CommandOutput,
-  isRecordedTimeout,
-  MINI_SWE_SYSTEM_MESSAGE,
-  OUTPUT_ELISION_THRESHOLD,
-  OUTPUT_ELISION_WINDOW,
-  type ParsedAction,
-  parseAction,
-  renderFormatErrorObservation,
-  renderInstanceMessage,
-  renderObservation,
-  renderTimeoutObservation,
-  SUBMIT_SENTINEL,
-  submissionOf,
-} from './mini-swe-scaffold'
-
-export {
-  type ActionPayloadKind,
-  type BudgetCheck,
-  type BudgetMeasurement,
-  type BudgetViolation,
-  checkInterventionBudget,
-  classifyActionPayload,
-  type InterventionBudget,
-  NO_OP_ACTIONS,
-  normalizeActionForComparison,
-  SCAFFOLD_INTERVENTION_BUDGET,
-  scanShellAction,
-} from './action-budget'
-export {
-  type AdmissionCriteria,
-  type AdmissionDecision,
-  type AdmissionEvidence,
-  type AdmissionRejection,
-  type AdmittedRow,
-  admitRow,
-  type ControlArmEvidence,
-  type PrefixFidelityEvidence,
-  TB_REPAIR_ADMISSION_CRITERIA,
-} from './admission-contract'
-export {
-  type AnalystResponse,
-  NO_DECISIVE_FAILURE,
-  type ParseAnalystResponseOutcome,
-  parseAnalystResponse,
-  type RepairDeclined,
-  type RepairFinding,
-  type RepairIntervention,
-  type ResponseParseFailure,
-  repairFinding,
-} from './analyst-response'
-export {
-  BLINDED_FIELDS,
-  type BlindedStep,
-  type BlindedTrajectoryPrefix,
-  type BlindTrajectoryOptions,
-  blindTrajectory,
-} from './blinding'
 export {
   DEGENERATE_STRATEGIES,
   type DegenerateDefeatKind,
@@ -209,6 +178,15 @@ export {
   type RepairThreatId,
   renderDeltaRepairReport,
 } from './delta-repair'
+export {
+  createDockerContinuationEnvironment,
+  type DockerContinuationEnvironmentOptions,
+  dockerRunArgs,
+  nodeProcessRunner,
+  type ProcessRequest,
+  type ProcessResult,
+  type ProcessRunner,
+} from './docker-environment'
 export {
   CREDIT_TERMS,
   countFunnel,
@@ -233,6 +211,21 @@ export {
   RepairArmSymmetryError,
   type RepairRowResult,
 } from './grade'
+export {
+  type CommandOutput,
+  isRecordedTimeout,
+  MINI_SWE_SYSTEM_MESSAGE,
+  OUTPUT_ELISION_THRESHOLD,
+  OUTPUT_ELISION_WINDOW,
+  type ParsedAction,
+  parseAction,
+  renderFormatErrorObservation,
+  renderInstanceMessage,
+  renderObservation,
+  renderTimeoutObservation,
+  SUBMIT_SENTINEL,
+  submissionOf,
+} from './mini-swe-scaffold'
 export type {
   InjectedAction,
   RepairArm,

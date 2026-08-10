@@ -199,7 +199,7 @@ const TIMEOUT_OBSERVATION_MARKER = 'timed out and has been killed'
  * decide agreement.
  */
 export function isRecordedTimeout(observation: string | null): boolean {
-  return observation !== null && observation.includes(TIMEOUT_OBSERVATION_MARKER)
+  return observation?.includes(TIMEOUT_OBSERVATION_MARKER) === true
 }
 
 /** The observation after a turn that did not contain exactly one bash block. */
