@@ -338,6 +338,7 @@ export {
   checkServedModel,
   ModelSubstitutionError,
   normalizeModelId,
+  PROBE_MAX_TOKENS,
   ServedCrossFamilyError,
   type ServedModelCheck,
   type ServedModelVerdict,

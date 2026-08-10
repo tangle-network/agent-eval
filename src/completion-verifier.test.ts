@@ -23,6 +23,7 @@ import {
   verifyCompletion,
 } from './completion-verifier'
 import { CostLedger } from './cost-ledger'
+import { ModelSubstitutionError } from './integrity/served-model'
 import { JudgeParseError } from './judges'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 
@@ -735,5 +736,45 @@ describe('completionVerdict — spine derivation', () => {
     expect(v.score).toBe(v.completionRate)
     expect(v.valid).toBe(false)
     expect(v.score).toBe(0)
+  })
+})
+
+describe('createLlmCorrectnessChecker — served-model identity', () => {
+  it('rejects a verdict produced by a different model than requested', async () => {
+    const chat = mockChat(() =>
+      chatResponse('{"correct": true, "reason": "ok"}', { servedModel: 'gemini-2.5-flash-lite' }),
+    )
+    const check = createLlmCorrectnessChecker(chat, { model: 'gpt-4.1-mini' })
+    await expect(check(DISPUTE_REQ, LONG)).rejects.toBeInstanceOf(ModelSubstitutionError)
+  })
+
+  // Another attempt reaches the same wrong model and spends more tokens, so a
+  // substitution must leave the retry loop immediately.
+  it('does not retry a substitution', async () => {
+    let calls = 0
+    const chat = mockChat(() => {
+      calls++
+      return chatResponse('{"correct": true, "reason": "ok"}', {
+        servedModel: 'gemini-2.5-flash-lite',
+      })
+    })
+    const check = createLlmCorrectnessChecker(chat, { model: 'gpt-4.1-mini', maxAttempts: 3 })
+    await expect(check(DISPUTE_REQ, LONG)).rejects.toBeInstanceOf(ModelSubstitutionError)
+    expect(calls).toBe(1)
+  })
+
+  it('accepts the same model spelled with a provider prefix', async () => {
+    const chat = mockChat(() =>
+      chatResponse('{"correct": true, "reason": "ok"}', { servedModel: 'zai/glm-5.2' }),
+    )
+    const check = createLlmCorrectnessChecker(chat, { model: 'glm-5.2' })
+    await expect(check(DISPUTE_REQ, LONG)).resolves.toEqual({ correct: true, reason: 'ok' })
+  })
+
+  it('proceeds when the transport echoes no model id', async () => {
+    const check = createLlmCorrectnessChecker(mockChat('{"correct": true, "reason": "ok"}'), {
+      model: 'glm-5.2',
+    })
+    await expect(check(DISPUTE_REQ, LONG)).resolves.toEqual({ correct: true, reason: 'ok' })
   })
 })

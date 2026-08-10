@@ -31,6 +31,7 @@ import {
   type AssertServedModelOptions,
   assertServedModel as assertServedModelIdentity,
   checkServedModel,
+  PROBE_MAX_TOKENS,
 } from './integrity/served-model'
 import {
   defaultProviderRedactor,
@@ -1126,10 +1127,11 @@ function describePattern(p: string | RegExp): string {
  * network, parse). Designed for sweep preflights — fail loud at the
  * boundary before burning a 30-leaf run on a misconfigured router.
  *
- * Sends a tiny `ping` message with `maxTokens=64`. Reasoning models
- * (glm-5.1, deepseek-v4) can burn the entire budget on internal reasoning
- * for short prompts, so don't tighten this further. We don't validate
- * content.
+ * Sends a tiny `ping` message with `maxTokens = PROBE_MAX_TOKENS`. Reasoning
+ * models (glm-5.1, deepseek-v4) can burn the entire budget on internal
+ * reasoning for short prompts, so don't tighten this further — the shared
+ * constant keeps this probe and `preflightModels` on one answer. We don't
+ * validate content.
  *
  * Reachability and identity are separate answers: `ok` means the route
  * answered, `servedModel` / `substituted` say WHICH model answered. A gateway
@@ -1154,7 +1156,7 @@ export async function probeLlm(
       {
         model,
         messages: [{ role: 'user', content: 'ping' }],
-        maxTokens: 64,
+        maxTokens: PROBE_MAX_TOKENS,
         timeoutMs: opts.timeoutMs ?? 30_000,
       },
       opts,

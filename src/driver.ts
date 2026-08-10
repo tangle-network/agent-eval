@@ -3,6 +3,7 @@ import type { ProductClient } from './client'
 import { ConvergenceTracker } from './convergence'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { warnDeprecatedOnce } from './deprecation'
+import { assertServedModel } from './integrity/served-model'
 import {
   costReceiptFromLlm,
   costReceiptFromLlmError,
@@ -368,5 +369,13 @@ export async function decideNextUserTurn(
     receiptFromError: costReceiptFromLlmError,
   })
   if (!paid.succeeded) throw paid.error
+  // Hold the transport to its own word: a persona turn written by a different
+  // model is not this driver model's behaviour. A transport that echoes no id
+  // cannot be made to prove identity here — callers needing that proof enable
+  // it at the client (`LlmClientOptions.assertServedModel`).
+  assertServedModel(model, paid.value.servedModel, {
+    allowUnreported: true,
+    context: 'decideNextUserTurn',
+  })
   return paid.value.content.trim()
 }

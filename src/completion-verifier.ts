@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto'
 import type { ChatClient, ChatRequest } from './analyst/chat-client'
 import type { Artifact } from './artifact-validator'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
+import { assertServedModel, ModelSubstitutionError } from './integrity/served-model'
 import { recoverTruncatedJson } from './json-recovery'
 import { JudgeParseError } from './judges'
 import {
@@ -568,6 +569,15 @@ export function createLlmCorrectnessChecker(
         })
         if (!paid.succeeded) throw paid.error
         const resp = paid.value
+        // Hold the transport to its own word: a verdict produced by a model
+        // other than the one requested is not this model's verdict. A
+        // transport that echoes no id cannot be made to prove identity here —
+        // callers needing that proof enable it at the client
+        // (`LlmClientOptions.assertServedModel`) or gate on `assertModelsServed`.
+        assertServedModel(model, resp.servedModel, {
+          allowUnreported: true,
+          context: `correctness checker for requirement ${requirement.reqId}`,
+        })
         const raw = resp.content
         await record({
           eventId: randomUUID(),
@@ -598,6 +608,9 @@ export function createLlmCorrectnessChecker(
           errorMessage: err instanceof Error ? err.message : String(err),
           redactedFields: [],
         })
+        // Substitution is a verdict about identity, not a transient fault:
+        // another attempt reaches the same wrong model and spends more tokens.
+        if (err instanceof ModelSubstitutionError) throw err
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))

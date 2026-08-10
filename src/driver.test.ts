@@ -14,6 +14,7 @@ import {
 } from './analyst/chat-client'
 import { CostLedger } from './cost-ledger'
 import { buildDriverSystemPrompt, decideNextUserTurn } from './driver'
+import { ModelSubstitutionError } from './integrity/served-model'
 import type { DriverState, PersonaConfig } from './types'
 
 const STATE: DriverState = {
@@ -285,5 +286,44 @@ describe('decideNextUserTurn', () => {
     ).rejects.toThrow(/hard maximumCharge/)
     expect(calls).toBe(1)
     expect(opaqueCalls).toBe(0)
+  })
+})
+
+describe('decideNextUserTurn — served-model identity', () => {
+  function servingChat(servedModel: string | null): ChatClient {
+    return createChatClient({
+      transport: 'mock',
+      defaultModel: 'mock-model',
+      handler: async () => ({
+        content: 'What is your authority for that?',
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        costUsd: null,
+        model: 'mock-model',
+        servedModel,
+        durationMs: 0,
+        raw: {},
+      }),
+    })
+  }
+
+  const turn = (chat: ChatClient, model: string) =>
+    decideNextUserTurn(chat, { persona: persona(), state: STATE, history: [], model })
+
+  it('rejects a persona turn written by a different model than requested', async () => {
+    await expect(turn(servingChat('gemini-2.5-flash-lite'), 'gpt-4.1-mini')).rejects.toBeInstanceOf(
+      ModelSubstitutionError,
+    )
+  })
+
+  it('accepts the same model spelled with a provider prefix', async () => {
+    await expect(turn(servingChat('zai/glm-5.2'), 'glm-5.2')).resolves.toBe(
+      'What is your authority for that?',
+    )
+  })
+
+  it('proceeds when the transport echoes no model id', async () => {
+    await expect(turn(servingChat(null), 'glm-5.2')).resolves.toBe(
+      'What is your authority for that?',
+    )
   })
 })

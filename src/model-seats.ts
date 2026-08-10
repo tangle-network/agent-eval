@@ -46,14 +46,20 @@ export type SeatPresetName = keyof typeof seatPresets
 /**
  * Tier presets — plain data, swap or spread freely.
  *
- * `economy` names ids that a live router probe answered from the provider
- * their name implies, so the judge trio spans three provider families
- * (deepseek / zhipu / google) both as configured AND as served. A preset is
- * only as good as its last probe: an id can go dead or start resolving
- * elsewhere at any time, so gate a real run on `assertModelsServed({ probe:
- * true })` and assert `assertServedModel` per call rather than trusting this
- * list. `assertCrossFamily` over these ids proves configuration; only
- * `assertCrossFamilyServed` over the echoed ids proves the run.
+ * A preset names REQUESTED ids, and a requested id is NOT a guarantee of
+ * family, of provider, or of liveness. A routing gateway can accept any id
+ * below and answer from a different model on HTTP 200, with only the response
+ * body's `model` field betraying the swap. The served assertion is the
+ * guarantee: gate a run on `assertModelsServed({ probe: true })` and assert
+ * `assertServedModel` per call. `assertCrossFamily` over these ids proves the
+ * configuration is diverse; only `assertCrossFamilyServed` over the ids that
+ * ANSWERED proves the run was.
+ *
+ * `economy` names ids a live router probe answered from the provider their
+ * name implies, so the judge trio spanned three provider families (deepseek /
+ * zhipu / google) as configured and, at that probe, as served. A preset is
+ * only as good as its last probe: ids go dead and start resolving elsewhere
+ * without notice, so re-probe rather than trusting this list.
  *
  * `frontier` is deliberately EMPTY: entitled frontier ids vary per router
  * account, and a hardcoded claude/gpt-5 id 401s on keys that lack it. Supply

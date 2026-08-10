@@ -23,6 +23,24 @@
 import { AgentEvalError } from '../errors'
 import { type JudgeFamily, judgeFamily } from '../judge-families'
 
+/**
+ * Output-token budget a liveness probe must grant a model.
+ *
+ * Identity is only readable off a response the provider actually produced. A
+ * reasoning model spends budget on hidden reasoning tokens before it emits a
+ * single visible one, so a cap of a few tokens makes a HEALTHY deepseek/glm
+ * model fail with `reasoning_budget_exhausted` — it names no model, its
+ * identity reads as `unreported`, and a preflight scores it DEAD. 64 clears
+ * that floor. Every probe in this package reads this constant, so two probes
+ * cannot reach two different answers about the same router.
+ *
+ * Cost: a probe spends at most `PROBE_MAX_TOKENS` output tokens per model,
+ * plus whatever reasoning tokens a reasoning model bills — roughly 400 output
+ * tokens for a six-model preflight. That is fractions of a cent, and far
+ * cheaper than a campaign that runs on a model nobody proved was alive.
+ */
+export const PROBE_MAX_TOKENS = 64
+
 /** How a served id relates to the id that was requested. */
 export type ServedModelVerdict =
   /** Byte-identical after normalisation — the requested model answered. */

@@ -1,6 +1,7 @@
 import type { ChatClient, ChatRequest } from './analyst/chat-client'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
+import { assertServedModel } from './integrity/served-model'
 import { JudgeParseError } from './judges'
 import {
   costReceiptFromLlm,
@@ -124,6 +125,17 @@ export async function executeScenario(
       receiptFromError: costReceiptFromLlmError,
     })
     if (!paid.succeeded) throw paid.error
+    // Hold the transport to its own word: when it names the model that
+    // answered, that name must be the model this scenario requested, or every
+    // per-model number below is about a model we never called. A transport that
+    // names nothing (mock, CLI bridge) cannot be made to prove identity from
+    // here — callers needing that proof enable it at the client
+    // (`LlmClientOptions.assertServedModel`) or gate the run on
+    // `assertModelsServed`.
+    assertServedModel(model, (paid.value as { servedModel?: string | null }).servedModel, {
+      allowUnreported: true,
+      context: `executeScenario "${scenario.id}" turn ${i}`,
+    })
     const rawContent = (paid.value as { content?: unknown }).content
     if (typeof rawContent !== 'string') {
       throw new CaptureIntegrityError(
