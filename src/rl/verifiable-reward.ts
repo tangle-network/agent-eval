@@ -30,14 +30,38 @@
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
 import { isRealnessGated, observedScore, trainingScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
+import type { VerificationStrategySource } from '../verification-strategy'
 
-export type VerifiableRewardSource =
-  | 'compile' // typecheck / build / lint passed
-  | 'test' // unit / integration test pass-rate
-  | 'schema' // structured output validates
-  | 'sandbox' // sandbox exec exit code
-  | 'judge' // LLM judge — probabilistic, included for completeness
-  | 'composite' // weighted blend across multiple of the above
+/**
+ * What produced a reward. This is the verification-strategy family
+ * (`src/verification-strategy.ts`) — one open vocabulary shared by rewards
+ * and verdict certifications, so an RL consumer and a certification reader
+ * mean the same thing by `'proof-kernel'`.
+ *
+ * Beyond the classic answer-key members (`compile`, `test`, `schema`,
+ * `sandbox`, `judge`, `composite`) the family carries four members for
+ * tasks with no held-out suite, each with a documented failure mode:
+ *
+ * - `'proof-kernel'` — kernel-checked formal proof. Failure mode: the
+ *   formalization gap — the kernel never certifies that the formal
+ *   statement matches the informal claim (`src/equivalence-check.ts`
+ *   is the discharge protocol).
+ * - `'invariant'` — invariant / metamorphic properties held. Failure
+ *   mode: weak invariants pass everything; the set needs seeded-bug
+ *   calibration before its pass carries weight.
+ * - `'replication'` — independent re-execution from pinned inputs.
+ *   Failure mode: re-runs the method, so it never catches an error the
+ *   method itself carries.
+ * - `'agreement'` — independently-derived results agree. Failure mode:
+ *   the shared blind spot — derivers with common training corpora or
+ *   priors agree for the same wrong reason. Probabilistic: the check may
+ *   be mechanical, but the independence it certifies is not.
+ *
+ * The deterministic/probabilistic axis stays on `VerifiableReward` —
+ * the producer declares it per reward, and `VERIFICATION_STRATEGIES`
+ * documents each member's default class.
+ */
+export type VerifiableRewardSource = VerificationStrategySource
 
 export interface VerifiableReward {
   /** Scalar in [0, 1]. The RL training signal. */
@@ -137,6 +161,10 @@ export interface VerifiableRewardExtractionOptions {
   applyRealnessGate?: boolean
 }
 
+// 'agreement' is deliberately absent: agreement between fixed artifacts is
+// mechanical, but the independent derivation it certifies is stochastic, so
+// a producer that wants a deterministic agreement reward must declare it
+// (via `deterministicLayers` or by constructing the reward directly).
 const DEFAULT_DETERMINISTIC_LAYERS = new Set([
   'install',
   'typecheck',
@@ -148,6 +176,11 @@ const DEFAULT_DETERMINISTIC_LAYERS = new Set([
   'sandbox',
   'unit_tests',
   'integration_tests',
+  'proof_kernel',
+  'proof-kernel',
+  'invariant',
+  'metamorphic',
+  'replication',
 ])
 
 const DEFAULT_SOURCE_FOR = (name: string): VerifiableRewardSource => {
@@ -163,6 +196,15 @@ const DEFAULT_SOURCE_FOR = (name: string): VerifiableRewardSource => {
   if (lower.includes('schema')) return 'schema'
   if (lower.includes('sandbox')) return 'sandbox'
   if (lower.includes('judge') || lower.includes('semantic')) return 'judge'
+  // Answer-key names above take precedence: a name like 'proof_test' maps
+  // to 'test'; only names with no answer-key match reach the open-family
+  // members.
+  if (lower.includes('proof') || lower.includes('kernel') || lower.includes('lean')) {
+    return 'proof-kernel'
+  }
+  if (lower.includes('invariant') || lower.includes('metamorphic')) return 'invariant'
+  if (lower.includes('replicat')) return 'replication'
+  if (lower.includes('agreement') || lower.includes('consensus')) return 'agreement'
   return 'composite'
 }
 

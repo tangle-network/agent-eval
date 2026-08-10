@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord } from '../run-record'
+import type { VerifiableRewardSource } from './verifiable-reward'
 import {
   extractVerifiableRewardsFromRecords,
   filterDeterministicallyRewarded,
@@ -128,5 +129,69 @@ describe('applyRealnessGate: false — the detection opt-out', () => {
     const run = rec({ runId: 'gamed', score: 1, layers: { test: 1 }, gated: true })
     expect(extractVerifiableRewardsFromRecords([run])[0]?.reward?.value).toBe(0)
     expect(extractVerifiableRewardsFromRecords([run], {})[0]?.reward?.value).toBe(0)
+  })
+})
+
+describe('open strategy family — reward sources beyond the answer key', () => {
+  it('maps proof-kernel, invariant, and replication layer names to their members, deterministic', () => {
+    const [signal] = extractVerifiableRewardsFromRecords([
+      rec({ runId: 'kernel', score: 1, layers: { proof_kernel: 1 } }),
+    ])
+    expect(signal?.reward?.source).toBe('proof-kernel')
+    expect(signal?.reward?.determinism).toBe('deterministic')
+    expect(signal?.reward?.confidence).toBe(1)
+
+    const [invariant] = extractVerifiableRewardsFromRecords([
+      rec({ runId: 'inv', score: 1, layers: { invariant: 0.75 } }),
+    ])
+    expect(invariant?.reward?.source).toBe('invariant')
+    expect(invariant?.reward?.value).toBe(0.75)
+
+    const [replication] = extractVerifiableRewardsFromRecords([
+      rec({ runId: 'rep', score: 1, layers: { replication: 1 } }),
+    ])
+    expect(replication?.reward?.source).toBe('replication')
+  })
+
+  it('keeps answer-key precedence: a layer named metamorphic_test maps to test, not invariant', () => {
+    const [signal] = extractVerifiableRewardsFromRecords(
+      [rec({ runId: 'mt', score: 1, layers: { metamorphic_test: 1 } })],
+      { deterministicLayers: ['metamorphic_test'] },
+    )
+    expect(signal?.reward?.source).toBe('test')
+  })
+
+  it('the realness gate applies to a proof-kernel layer exactly as to a test layer', () => {
+    const [signal] = extractVerifiableRewardsFromRecords([
+      rec({ runId: 'gamed-kernel', score: 1, layers: { proof_kernel: 1 }, gated: true }),
+    ])
+    expect(signal?.reward?.value).toBe(0)
+    expect(signal?.reward?.realnessGated).toBe(true)
+  })
+
+  it("an 'agreement' layer is NOT deterministic by default — the derivation it certifies is stochastic", () => {
+    const [signal] = extractVerifiableRewardsFromRecords(
+      [rec({ runId: 'agree', score: 1, layers: { agreement: 1 } })],
+      { fallbackToJudge: false },
+    )
+    expect(signal?.reward).toBeNull()
+  })
+
+  it('every family member is assignable as a reward source; the answer-key literals still compile', () => {
+    const closedEra: VerifiableRewardSource[] = [
+      'compile',
+      'test',
+      'schema',
+      'sandbox',
+      'judge',
+      'composite',
+    ]
+    const openEra: VerifiableRewardSource[] = [
+      'proof-kernel',
+      'invariant',
+      'replication',
+      'agreement',
+    ]
+    expect([...closedEra, ...openEra]).toHaveLength(10)
   })
 })

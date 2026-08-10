@@ -1112,6 +1112,23 @@ export {
 // Validator-output primitive. Substrate-level type; agent-runtime's
 // Validator<Output, Verdict> defaults to this. See src/verdict.ts.
 
+export type {
+  EquivalenceArm,
+  EquivalenceCheckDefinition,
+  EquivalenceChecker,
+  EquivalenceCheckerInput,
+  EquivalenceCheckerResult,
+  EquivalenceCheckSpec,
+  EquivalenceObligation,
+  EquivalenceObligationStatus,
+  EquivalenceRecord,
+} from './equivalence-check'
+export {
+  buildEquivalenceRecord,
+  defineEquivalenceCheck,
+  EquivalenceProtocolError,
+  runEquivalenceCheck,
+} from './equivalence-check'
 // ── UI audit finding ─────────────────────────────────────────────────
 // Substrate primitive for UI auditor outputs. Consumers (agent-runtime's
 // ui-auditor profile, ship gates, dashboards) read findings from here.
@@ -1123,7 +1140,19 @@ export type {
   UiLens,
 } from './ui-finding'
 export { UI_FINDING_SEVERITIES, UI_LENSES } from './ui-finding'
-export type { DefaultVerdict } from './verdict'
+export type { DefaultVerdict, VerdictCertification } from './verdict'
+// ── Verification strategies ──────────────────────────────────────────
+// The strategy family (what certified a result), the injected-checker
+// port, and the blind statement-equivalence protocol. Taxonomy + port
+// only; consumers bind their own kernels. See docs/verification-strategies.md.
+export type {
+  CheckerIdentity,
+  CheckerOutcome,
+  StrategyChecker,
+  VerificationStrategyProfile,
+  VerificationStrategySource,
+} from './verification-strategy'
+export { VERIFICATION_STRATEGIES, VERIFICATION_STRATEGY_SOURCES } from './verification-strategy'
 
 // ── Trust surface ────────────────────────────────────────────────────
 
