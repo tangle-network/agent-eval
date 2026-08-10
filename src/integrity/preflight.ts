@@ -8,9 +8,10 @@
  *   - membership (free): GET `{baseUrl}/models` once; a model is `listed` when
  *     its id is in the served set.
  *   - probe (spends a tiny number of tokens): POST `{baseUrl}/chat/completions`
- *     per model with a 1-message, 5-token request; `served` is whether the
- *     router returns 2xx, with the HTTP `status` and the body's `error.message`
- *     captured in `detail`, and `servedModel` recording WHICH model answered.
+ *     per model with a 1-message, `PROBE_MAX_TOKENS`-token request; `served` is
+ *     whether the router reached a provider, with the HTTP `status` and the
+ *     body's `error.message` captured in `detail`, and `servedModel` recording
+ *     WHICH model answered.
  *
  * A 2xx is not proof the requested model answered — a gateway can accept one
  * id and route to another. The probe therefore compares the echoed id against
@@ -25,19 +26,41 @@
  */
 
 import { AgentEvalError, ConfigError } from '../errors'
-import { checkServedModel, type ServedModelCheck, servedModelAcceptable } from './served-model'
+import {
+  checkServedModel,
+  PROBE_MAX_TOKENS,
+  type ServedModelCheck,
+  servedModelAcceptable,
+} from './served-model'
+
+/**
+ * Provider signature for "the budget ran out before an answer". The model is
+ * alive — a provider took the request and consumed the budget — so this must
+ * never be scored as a dead id.
+ */
+const REASONING_BUDGET_EXHAUSTED = /reasoning[\s_-]?budget[\s_-]?exhausted/i
 
 export interface ModelPreflight {
   /** The model id as supplied by the caller. */
   model: string
   /** Membership in the `{baseUrl}/models` served set. */
   listed: boolean
-  /** 2xx on a 1-token chat probe. `null` when `probe` was not requested. */
+  /**
+   * The router reached a provider for this model. `null` when `probe` was not
+   * requested. True on a 2xx, and also when the provider answered by
+   * exhausting its reasoning budget — that proves reachability while leaving
+   * identity unproven (see `budgetExhausted`).
+   */
   served: boolean | null
   /** HTTP status of the probe. `null` when not probed. */
   status: number | null
   /** Probe body's `error.message` when present, else `null`. */
   detail: string | null
+  /**
+   * The probe died on the token budget rather than on the model. Identity is
+   * unproven, not refuted: raise `probeMaxTokens` to resolve it.
+   */
+  budgetExhausted: boolean
   /**
    * Identity of the model that answered the probe, compared against `model`.
    * `null` when the model was not probed or the probe failed.
@@ -52,8 +75,14 @@ export interface PreflightModelsOptions {
   apiKey: string
   /** Model ids to check. */
   models: string[]
-  /** When true, additionally spend a 1-token chat probe per model. Default false. */
+  /** When true, additionally spend a small chat probe per model. Default false. */
   probe?: boolean
+  /**
+   * Output-token budget per probe. Default `PROBE_MAX_TOKENS`. Lowering it
+   * below the reasoning floor makes healthy reasoning models report
+   * `budgetExhausted` instead of proving their identity.
+   */
+  probeMaxTokens?: number
   /** Injectable fetch for tests; defaults to the global. */
   fetchImpl?: typeof fetch
 }
@@ -97,13 +126,21 @@ function errorMessage(body: unknown): string | null {
  * fallbacks.
  *
  * The membership check (one GET) always runs. When `probe` is true, each model
- * additionally gets a 1-token chat probe so a model that is listed but
+ * additionally gets a small chat probe so a model that is listed but
  * unconfigured (a 401 `model_not_found` from the router) is caught.
  */
 export async function preflightModels(opts: PreflightModelsOptions): Promise<PreflightOutcome> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const baseUrl = stripSlash(opts.baseUrl)
   const authHeaders = { authorization: `Bearer ${opts.apiKey}` }
+  const maxTokens = opts.probeMaxTokens ?? PROBE_MAX_TOKENS
+  if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
+    return {
+      succeeded: false,
+      value: null,
+      error: `preflightModels: probeMaxTokens must be a positive integer, got ${maxTokens}`,
+    }
+  }
 
   let served: Set<string>
   try {
@@ -131,7 +168,15 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
   for (const model of opts.models) {
     const listed = served.has(model)
     if (!opts.probe) {
-      results.push({ model, listed, served: null, status: null, detail: null, substitution: null })
+      results.push({
+        model,
+        listed,
+        served: null,
+        status: null,
+        detail: null,
+        budgetExhausted: false,
+        substitution: null,
+      })
       continue
     }
     try {
@@ -141,11 +186,12 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 5,
+          max_tokens: maxTokens,
         }),
       })
       let detail: string | null = null
       let substitution: ServedModelCheck | null = null
+      let budgetExhausted = false
       const body = await res.json().catch(() => null)
       if (res.ok) {
         const echoed = (body as ChatProbeBody | null)?.model
@@ -155,8 +201,21 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
         )
       } else {
         detail = errorMessage(body)
+        budgetExhausted = detail !== null && REASONING_BUDGET_EXHAUSTED.test(detail)
+        // The provider took the request and burned the budget, so the id is
+        // live. It echoed no model, so identity stays unproven and the default
+        // `allowUnreported: false` still refuses the run.
+        if (budgetExhausted) substitution = checkServedModel(model, null)
       }
-      results.push({ model, listed, served: res.ok, status: res.status, detail, substitution })
+      results.push({
+        model,
+        listed,
+        served: res.ok || budgetExhausted,
+        status: res.status,
+        detail,
+        budgetExhausted,
+        substitution,
+      })
     } catch (err) {
       return {
         succeeded: false,
@@ -187,6 +246,13 @@ function describeFailure(r: ModelPreflight): string {
   }
   if (r.served === false) {
     return `${r.model}: listed but probe ${r.status}${r.detail ? ` — ${r.detail}` : ''}`
+  }
+  if (r.budgetExhausted) {
+    return (
+      `${r.model}: alive but the probe ran out of reasoning budget (status ${r.status}` +
+      `${r.detail ? `: ${r.detail}` : ''}) — it echoed no model id, so identity is unproven. ` +
+      'Raise probeMaxTokens, or pass allowUnreported to accept reachability without identity.'
+    )
   }
   // listed, probe 2xx — but a different model answered
   const s = r.substitution

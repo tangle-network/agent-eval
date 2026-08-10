@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { ConfigError, ValidationError } from './errors'
-import { assertCrossFamilyServed } from './integrity/served-model'
+import { assertCrossFamilyServed, normalizeModelId } from './integrity/served-model'
 import { assertCrossFamily } from './judge-families'
 import { isModelPriced } from './metrics'
 import { type ModelSeats, resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
@@ -106,6 +107,53 @@ describe('seatPresets', () => {
       expect(id).toBeDefined()
       expect(isModelPriced(id as string)).toBe(true)
     }
+  })
+
+  /**
+   * Ids this router was measured answering from a different model, or not
+   * answering at all. A preset that names one produces numbers about a model
+   * nobody asked for, or a run that dies on the first call.
+   */
+  const NOT_USABLE = [
+    'gpt-4.1-mini',
+    'openai/gpt-4.1-mini',
+    'gpt-4o-mini',
+    'openai/gpt-4o-mini',
+    'openai/gpt-5-mini',
+    'openai/gpt-5.5',
+    'gpt-4o',
+    'openai/gpt-4o',
+    'openai/gpt-5.4',
+    'kimi-k2.6',
+    'moonshotai/kimi-k2.6',
+  ]
+
+  it('names no id measured dead or silently substituted on the router', () => {
+    const unusable = new Set(NOT_USABLE.map(normalizeModelId))
+    const economy = seatPresets.economy
+    const ids = [
+      economy.worker,
+      economy.analyst,
+      economy.reflection,
+      economy.verifier,
+      ...(economy.judges ?? []),
+    ]
+    for (const id of ids) {
+      expect(unusable.has(normalizeModelId(id as string))).toBe(false)
+    }
+  })
+
+  // The presets are the first thing a caller copies, so the caveat has to
+  // travel with them rather than living only in the guard's own module.
+  it('documents that a requested id is not a family guarantee', () => {
+    const source = readFileSync(new URL('./model-seats.ts', import.meta.url), 'utf8')
+    const doc = source
+      .slice(0, source.indexOf('export const seatPresets'))
+      .replace(/^\s*\*/gm, ' ')
+      .replace(/\s+/g, ' ')
+    expect(doc).toContain('a requested id is NOT a guarantee of family')
+    expect(doc).toContain('assertModelsServed')
+    expect(doc).toContain('assertCrossFamilyServed')
   })
 
   it('frontier is deliberately empty — every seat fails loud until the caller supplies entitled ids', () => {

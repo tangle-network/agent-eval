@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assertModelsServed, ModelsUnreachableError, preflightModels } from './preflight'
+import { PROBE_MAX_TOKENS } from './served-model'
 
 const BASE = 'https://router.tangle.tools/v1'
 const KEY = 'test-key'
@@ -54,6 +55,7 @@ describe('preflightModels — membership only', () => {
         served: null,
         status: null,
         detail: null,
+        budgetExhausted: false,
         substitution: null,
       },
       {
@@ -62,6 +64,7 @@ describe('preflightModels — membership only', () => {
         served: null,
         status: null,
         detail: null,
+        budgetExhausted: false,
         substitution: null,
       },
     ])
@@ -94,6 +97,7 @@ describe('preflightModels — probe', () => {
         served: true,
         status: 200,
         detail: null,
+        budgetExhausted: false,
         substitution: {
           requested: 'claude-sonnet-4-6',
           served: 'claude-sonnet-4-6',
@@ -129,6 +133,7 @@ describe('preflightModels — probe', () => {
         served: false,
         status: 401,
         detail: 'No API key configured for model opencode/zai-coding-plan/glm-5.1',
+        budgetExhausted: false,
         substitution: null,
       },
     ])
@@ -149,6 +154,7 @@ describe('preflightModels — probe', () => {
         served: false,
         status: 503,
         detail: null,
+        budgetExhausted: false,
         substitution: null,
       },
     ])
@@ -382,5 +388,158 @@ describe('assertModelsServed', () => {
     await expect(
       assertModelsServed({ baseUrl: BASE, apiKey: KEY, models: ['claude-sonnet-4-6'], fetchImpl }),
     ).rejects.toThrow(/ECONNREFUSED/)
+  })
+})
+
+describe('preflightModels — probe budget', () => {
+  /** Capture the max_tokens each probe requested. */
+  function recordingFetch(
+    sent: number[],
+    spec: Record<string, { status: number; body?: unknown }>,
+  ) {
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/models')) return listResponse(Object.keys(spec))
+      const request = JSON.parse(String(init?.body))
+      sent.push(request.max_tokens)
+      const outcome = spec[request.model as string] ?? { status: 200 }
+      const body =
+        outcome.body === undefined && outcome.status === 200
+          ? { model: request.model }
+          : (outcome.body ?? {})
+      return new Response(JSON.stringify(body), {
+        status: outcome.status,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+  }
+
+  it('spends the shared probe budget, not a budget a reasoning model cannot answer within', async () => {
+    const sent: number[] = []
+    await preflightModels({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['deepseek-v4-pro'],
+      probe: true,
+      fetchImpl: recordingFetch(sent, { 'deepseek-v4-pro': { status: 200 } }),
+    })
+    expect(sent).toEqual([PROBE_MAX_TOKENS])
+    expect(PROBE_MAX_TOKENS).toBeGreaterThanOrEqual(64)
+  })
+
+  it('honours an explicit probeMaxTokens', async () => {
+    const sent: number[] = []
+    await preflightModels({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['deepseek-v4-pro'],
+      probe: true,
+      probeMaxTokens: 512,
+      fetchImpl: recordingFetch(sent, { 'deepseek-v4-pro': { status: 200 } }),
+    })
+    expect(sent).toEqual([512])
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    'refuses probeMaxTokens %s instead of probing with a nonsense budget',
+    async (probeMaxTokens) => {
+      const out = await preflightModels({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek-v4-pro'],
+        probe: true,
+        probeMaxTokens,
+        fetchImpl: makeFetch(['deepseek-v4-pro']),
+      })
+      expect(out.succeeded).toBe(false)
+      expect(out.error).toMatch(/probeMaxTokens must be a positive integer/)
+    },
+  )
+
+  const exhausted = {
+    status: 503,
+    body: { error: { message: 'reasoning_budget_exhausted', code: 'reasoning_budget_exhausted' } },
+  }
+
+  it('reports a reasoning model that ran out of budget as alive, not dead', async () => {
+    const out = await preflightModels({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['deepseek-v4-pro'],
+      probe: true,
+      probeMaxTokens: 5,
+      fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+    })
+    expect(out.value?.[0]).toMatchObject({
+      model: 'deepseek-v4-pro',
+      listed: true,
+      served: true,
+      status: 503,
+      budgetExhausted: true,
+    })
+    // The provider echoed no model id, so identity stays unproven.
+    expect(out.value?.[0]?.substitution?.verdict).toBe('unreported')
+  })
+
+  it.each([
+    'reasoning budget exhausted',
+    'Reasoning-Budget-Exhausted for this request',
+    'upstream error: reasoning_budget_exhausted',
+  ])('recognises the budget signature in %j', async (message) => {
+    const out = await preflightModels({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['deepseek-v4-pro'],
+      probe: true,
+      fetchImpl: makeFetch(['deepseek-v4-pro'], {
+        'deepseek-v4-pro': { status: 503, body: { error: { message } } },
+      }),
+    })
+    expect(out.value?.[0]?.budgetExhausted).toBe(true)
+    expect(out.value?.[0]?.served).toBe(true)
+  })
+
+  it('leaves an ordinary 503 scored as dead', async () => {
+    const out = await preflightModels({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['kimi-k2.6'],
+      probe: true,
+      fetchImpl: makeFetch(['kimi-k2.6'], {
+        'kimi-k2.6': { status: 503, body: { error: { message: 'No provider configured' } } },
+      }),
+    })
+    expect(out.value?.[0]).toMatchObject({ served: false, budgetExhausted: false })
+  })
+
+  it('still blocks the run, naming the budget rather than declaring the model dead', async () => {
+    const failure = await assertModelsServed({
+      baseUrl: BASE,
+      apiKey: KEY,
+      models: ['deepseek-v4-pro'],
+      probe: true,
+      probeMaxTokens: 5,
+      fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+    }).catch((err: unknown) => err)
+
+    expect(failure).toBeInstanceOf(ModelsUnreachableError)
+    const message = (failure as Error).message
+    expect(message).toMatch(/ran out of reasoning budget/)
+    expect(message).toMatch(/Raise probeMaxTokens/)
+    expect(message).not.toMatch(/not in \/models/)
+  })
+
+  it('accepts a budget-exhausted probe when the caller allows unproven identity', async () => {
+    await expect(
+      assertModelsServed({
+        baseUrl: BASE,
+        apiKey: KEY,
+        models: ['deepseek-v4-pro'],
+        probe: true,
+        probeMaxTokens: 5,
+        allowUnreported: true,
+        fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+      }),
+    ).resolves.toHaveLength(1)
   })
 })

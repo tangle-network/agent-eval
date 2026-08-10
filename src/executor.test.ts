@@ -13,6 +13,7 @@ import { type ChatClient, type ChatResponse, createChatClient } from './analyst/
 import { CostLedger } from './cost-ledger'
 import { CaptureIntegrityError } from './errors'
 import { type ExecutorConfig, executeScenario, type JudgeFailure } from './executor'
+import { ModelSubstitutionError } from './integrity/served-model'
 import { JudgeParseError } from './judges'
 import type { JudgeFn, Scenario, ScenarioResult } from './types'
 
@@ -262,5 +263,39 @@ describe('executeScenario — judge retry policy records the reason and gates on
     expect((judge as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
     expect(result.judgeErrors).toBe(1)
     expect(result.judgeFailures![0]!.reason).toContain('unparseable')
+  })
+})
+
+describe('executeScenario — served-model identity', () => {
+  it('rejects a turn answered by a different model than the scenario requested', async () => {
+    const chat = chatStub(response('swapped', { servedModel: 'gemini-2.5-flash-lite' }))
+    await expect(
+      executeScenario(chat, scenario(), config({ model: 'gpt-4.1-mini' })),
+    ).rejects.toBeInstanceOf(ModelSubstitutionError)
+  })
+
+  it('names the requested and the served id so the swap is legible', async () => {
+    const chat = chatStub(response('swapped', { servedModel: 'gemini-2.5-flash-lite' }))
+    const error = await executeScenario(chat, scenario(), config({ model: 'gpt-4.1-mini' })).then(
+      () => null,
+      (err: unknown) => err as Error,
+    )
+    expect(error?.message).toContain('gpt-4.1-mini')
+    expect(error?.message).toContain('gemini-2.5-flash-lite')
+  })
+
+  it('accepts the same model spelled with a provider prefix', async () => {
+    const chat = chatStub(response('fine', { servedModel: 'zai/glm-5.2' }))
+    const result = await executeScenario(chat, scenario(), config({ model: 'glm-5.2' }))
+    expect(result.turns).toHaveLength(1)
+  })
+
+  // A mock or CLI transport names no model. The library cannot manufacture
+  // identity for it, so the run proceeds and the caller proves identity at the
+  // client or in preflight.
+  it('proceeds when the transport echoes no model id', async () => {
+    const chat = chatStub(response('fine'))
+    const result = await executeScenario(chat, scenario(), config({ model: 'glm-5.2' }))
+    expect(result.turns).toHaveLength(1)
   })
 })

@@ -34,6 +34,9 @@ jobs:
       - name: Lint (biome)
         run: pnpm lint
 
+      - name: Model id request gate
+        run: pnpm run check:model-ids
+
       - name: Typecheck
         run: pnpm typecheck
 
