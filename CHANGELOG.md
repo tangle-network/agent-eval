@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.
+- `bindAnalyst(definition, transports)` compiles a definition into a runnable `AnalystBenchmarkRunner`; a projection × transport pair with no strategy fails loud with `AnalystExpressivenessError`.
+- The three benchmark arms are re-expressed as exported definitions (`publicDirectAnalystDefinition`, `publicRlmAnalystDefinition`, `primeCodeTraceAnalystDefinition`); `createPublicBenchmarkDirectRunner`, `createPublicBenchmarkRlmRunner`, and `createPrimeBenchmarkRunner` are thin shells over them, so no consumer changes.
+- `analystDefinitionProtocolSha256` (equals `primeAnalystProtocolSha256()` for the inline arm) and `analystDefinitionAsymmetries` (refuses unequal repair turns, renders declared differences).
+- `ExecutionProbe` — the optional live-execution port on `AnalystContext` (`context.probe`); a runtime fills it later, this package defines only the port.
+- Definition parity kill test (`src/analyst/definition-parity.test.ts`): each compiled arm and its entry point must send byte-identical request bodies and record equal protocol digests, so expression loss fails CI by construction.
+
 ## [0.144.6] - 2026-08-09 - interaction binding cohort alignment
 
 ### Changed

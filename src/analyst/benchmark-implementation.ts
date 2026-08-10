@@ -61,8 +61,10 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/benchmark-verification-artifacts.ts',
   'src/analyst/benchmark-verification-outcome.ts',
   'src/analyst/benchmark.ts',
+  'src/analyst/definition.ts',
   'src/analyst/dspy-rlm-engine.ts',
   'src/analyst/engine.ts',
+  'src/analyst/equal-terms.ts',
   'src/analyst/exact-types.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',
@@ -70,6 +72,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/parse-tolerant.ts',
   'src/analyst/prime-bridge-transport.ts',
   'src/analyst/prime-protocol.ts',
+  'src/analyst/reply-contract.ts',
   'src/analyst/tool-groups.ts',
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
@@ -122,7 +125,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'b0d94943004cb56719fa7c641e3bfe249322ca3ed7aa2744b96e21e4b9bcf067'
+  'cc354effd79c8dfc8669c230706c67c63a06e3aff013f540806361263bae8860'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

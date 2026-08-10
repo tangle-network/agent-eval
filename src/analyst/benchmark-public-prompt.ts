@@ -113,19 +113,26 @@ Give the rationale as the concrete downstream evidence visible at the consequenc
 Submit as soon as every candidate failure block has a supported verdict.
 Return no finding for a clean trajectory.`
 
-/** One-shot JSON transport prompt for the direct runner. */
-export function publicBenchmarkSystemPrompt(dataset: PublicAnalystBenchmarkDataset): string {
-  const fieldContract = dataset === 'agentrx' ? AGENT_RX_JSON_CONTRACT : CODE_TRACE_JSON_CONTRACT
-  return `${publicBenchmarkTaskPrompt(dataset)}
-
-${fieldContract}
-
-Return exactly one JSON object with:
+/** Reply-envelope contract shared by both one-shot datasets. */
+export const PUBLIC_BENCHMARK_ENVELOPE_CONTRACT = `Return exactly one JSON object with:
 - "report": a concise evidence-based explanation, at most 4000 characters
 - "findings": the strict finding array
 Use an empty findings array when the trace does not support a finding.
 Do not return a bare array, markdown, trace URIs, copied excerpts, or fields not listed above.
 The runner constructs exact trace URIs and action previews from each selected step.`
+
+/** Per-dataset field grammar for the one-shot JSON reply. */
+export function publicBenchmarkFieldContract(dataset: PublicAnalystBenchmarkDataset): string {
+  return dataset === 'agentrx' ? AGENT_RX_JSON_CONTRACT : CODE_TRACE_JSON_CONTRACT
+}
+
+/** One-shot JSON transport prompt for the direct runner. */
+export function publicBenchmarkSystemPrompt(dataset: PublicAnalystBenchmarkDataset): string {
+  return [
+    publicBenchmarkTaskPrompt(dataset),
+    publicBenchmarkFieldContract(dataset),
+    PUBLIC_BENCHMARK_ENVELOPE_CONTRACT,
+  ].join('\n\n')
 }
 
 /** Tool-loop prompt for the recursive runner. Same task, subject-encoded block. */
@@ -135,7 +142,8 @@ export function publicBenchmarkRlmInstructions(dataset: PublicAnalystBenchmarkDa
 ${outputContract}`
 }
 
-function publicBenchmarkTaskPrompt(dataset: PublicAnalystBenchmarkDataset): string {
+/** Task text shared by every runner shape on one dataset. */
+export function publicBenchmarkTaskPrompt(dataset: PublicAnalystBenchmarkDataset): string {
   return dataset === 'agentrx' ? AGENT_RX_PROMPT : CODE_TRACE_BENCH_ANALYST_PROMPT
 }
 

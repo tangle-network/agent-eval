@@ -181,6 +181,56 @@ export interface AnalystContext {
   log?: (msg: string, fields?: Record<string, unknown>) => void
   /** Optional abort signal. Analysts SHOULD pass it through to LLM calls. */
   signal?: AbortSignal
+  /**
+   * Optional live-execution port. A runtime that owns a sandbox or checkout
+   * fills it so an analyst can execute a bounded probe against the run's
+   * produced state instead of reasoning about it from the trace alone. This
+   * package defines only the port: no field here reaches for an agent loop,
+   * and an absent probe means the analyst works from recorded evidence.
+   */
+  probe?: ExecutionProbe
+}
+
+// ── Live-execution port ─────────────────────────────────────────────
+
+/** One bounded command an analyst asks the probe to run. */
+export interface ExecutionProbeRequest {
+  command: string
+  /** Working directory inside the probed environment. */
+  cwd?: string
+  /** Hard wall-clock deadline for this one execution. */
+  timeoutMs: number
+  /** Bytes of combined output retained; the prober truncates beyond it. */
+  maxOutputBytes?: number
+  signal?: AbortSignal
+}
+
+/**
+ * Typed outcome of one probe execution. `succeeded: false` is a PROBE failure
+ * (the environment could not run the command); a command that ran and exited
+ * non-zero is a successful observation with a non-zero `exitCode`.
+ */
+export type ExecutionProbeOutcome =
+  | {
+      succeeded: true
+      exitCode: number
+      stdout: string
+      stderr: string
+      durationMs: number
+      /** True when output was cut at `maxOutputBytes`. */
+      truncated: boolean
+    }
+  | { succeeded: false; error: { class: string; message: string } }
+
+/**
+ * The seam a runtime fills to let analysts observe produced state live.
+ * Implementations own sandboxing, credentials, and cleanup; analysts only
+ * submit bounded requests and read typed outcomes.
+ */
+export interface ExecutionProbe {
+  /** One plain sentence naming what is being probed (e.g. a sandbox id). */
+  readonly description: string
+  execute(request: ExecutionProbeRequest): Promise<ExecutionProbeOutcome>
 }
 
 /**

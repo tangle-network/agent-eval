@@ -135,6 +135,16 @@ export {
   renderCodeTraceCalibrationMarkdown,
   summarizeCodeTraceCalibration,
 } from './benchmark-public-calibration'
+export {
+  type PublicBenchmarkModelPrediction,
+  type PublicDirectDefinitionArgs,
+  publicDirectAnalystDefinition,
+} from './benchmark-public-model'
+export {
+  type PublicRlmDefinitionArgs,
+  publicRlmAnalystDefinition,
+  rlmEngineLimits,
+} from './benchmark-public-rlm'
 export type {
   AnalystInstructionsOverride,
   PreparedPublicAnalystBenchmark,
@@ -174,6 +184,10 @@ export {
   selectPublicBenchmarkRows,
 } from './benchmark-real-model'
 export { renderAnalystBenchmarkMarkdown } from './benchmark-report'
+export {
+  type PrimeCodeTraceDefinitionArgs,
+  primeCodeTraceAnalystDefinition,
+} from './benchmark-runner-prime'
 export { summarizeAnalystBenchmarkRunner } from './benchmark-summary'
 export type {
   LoadedVerificationArtifacts,
@@ -193,6 +207,7 @@ export type {
   VerificationResultFile,
 } from './benchmark-verification-outcome'
 export { parseVerificationOutcome } from './benchmark-verification-outcome'
+export { type AnalystTransportBinding, bindAnalyst } from './bind'
 export type {
   ChatCallOpts,
   ChatClient,
@@ -217,6 +232,27 @@ export type {
   DefineExactCustomAnalystOptions,
 } from './define'
 export { defineCustomAnalyst, defineTraceAnalyst } from './define'
+export type {
+  AnalystBudgetDeclaration,
+  AnalystDefinition,
+  AnalystDefinitionAsymmetry,
+  AnalystDefinitionAsymmetryReport,
+  AnalystEvidenceBinding,
+  AnalystProfileFragment,
+  AnalystRepairDeclaration,
+  AnalystRowExpansion,
+  ChunkedEvidenceBinding,
+  EvidenceProjection,
+  ExpandRowsArgs,
+  InlineEvidenceBinding,
+  ReplVariableConsensusPort,
+  ReplVariableEvidenceBinding,
+} from './definition'
+export {
+  AnalystExpressivenessError,
+  analystDefinitionAsymmetries,
+  analystDefinitionProtocolSha256,
+} from './definition'
 export type { DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './dspy-rlm-engine'
 export type {
@@ -343,6 +379,14 @@ export {
   assertExactRegistryRunOpts,
   ExactAnalystRunExecutionError,
 } from './registry'
+export type {
+  DecodedReply,
+  ReplyContract,
+  ReplyEnvelope,
+  ReplyRowDecoded,
+  ReplyRowRejection,
+} from './reply-contract'
+export { decodeReplyRows } from './reply-contract'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {
@@ -359,6 +403,9 @@ export type {
   AnalystSeverity,
   AnalystUsageReceipt,
   EvidenceRef,
+  ExecutionProbe,
+  ExecutionProbeOutcome,
+  ExecutionProbeRequest,
   ProposalFinding,
   ProposalFindingOrigin,
 } from './types'

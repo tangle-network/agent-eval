@@ -28,6 +28,7 @@
  * to infer them from two runners' source.
  */
 
+import { assertEqualDeclarativeTerms } from '../analyst/equal-terms'
 import { ValidationError } from '../errors'
 import {
   type BudgetMeasurement,
@@ -317,11 +318,13 @@ export function repairArmAsymmetries(
   const declarations = arms.map((arm) => arm.declaration)
   for (const declaration of declarations) assertDeclaration(declaration)
 
-  const ids = declarations.map((declaration) => declaration.id)
-  const duplicate = ids.find((id, index) => ids.indexOf(id) !== index)
-  if (duplicate !== undefined) {
-    throw new ValidationError(`repair arm id '${duplicate}' is declared twice`)
-  }
+  const { ids, repairTurns } = assertEqualDeclarativeTerms(
+    'repair arm',
+    declarations.map((declaration) => ({
+      id: declaration.id,
+      repairTurns: declaration.repairTurns,
+    })),
+  )
 
   const budget = options.budget ?? declarations[0]!.budget
   const mismatched = declarations.find((declaration) => !sameBudget(declaration.budget, budget))
@@ -330,16 +333,6 @@ export function repairArmAsymmetries(
       `arm '${mismatched.id}' measures actions against ${JSON.stringify(mismatched.budget)}, ` +
         `the comparison runs ${JSON.stringify(budget)}; one arm buying a bigger action than ` +
         'another is a difference in what was asked, not in what answered',
-    )
-  }
-
-  const repairTurns = declarations[0]!.repairTurns
-  const unequalRepair = declarations.find((declaration) => declaration.repairTurns !== repairTurns)
-  if (unequalRepair) {
-    throw new ValidationError(
-      `arm '${unequalRepair.id}' gets ${unequalRepair.repairTurns} bounded repair turns and ` +
-        `arm '${declarations[0]!.id}' gets ${repairTurns}; a retry is a second sample the ` +
-        'other arms never got',
     )
   }
 
