@@ -2,9 +2,12 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { analyzeSupervisorRunSources } from './analyze'
+import { analyzeSupervisorRunIntegrity } from './integrity'
 import { analyzeSupervisorRun, findSupervisorRunDirs } from './loops-reader'
 import { supervisorRunRolloutLines } from './rollout-nodes'
 import { readRuntimeSupervisorRun } from './runtime-reader'
+import { parseSupervisorTree } from './source-facts'
 import { isUnavailable } from './types'
 
 const T0 = Date.parse('2026-07-30T00:00:00.000Z')
@@ -12,6 +15,272 @@ const at = (seconds: number): string => new Date(T0 + seconds * 1_000).toISOStri
 const ROOT_PROFILE = `sha256:${'a'.repeat(64)}`
 const CHILD_PROFILE = `sha256:${'b'.repeat(64)}`
 const LEAF_PROFILE = `sha256:${'c'.repeat(64)}`
+
+const FULL1_ROOT = 'arena-full1-ramsey-bundle-a'
+const FULL1_CHILD_IDS = [`${FULL1_ROOT}:s0`, `${FULL1_ROOT}:s1`, `${FULL1_ROOT}:s2`]
+
+function runtimeEvent(root: string, event: Record<string, unknown>): Record<string, unknown> {
+  return { kind: 'event', root, event }
+}
+
+const REAL_RUNTIME_FULL1_JOURNAL = [
+  { kind: 'begin', root: FULL1_ROOT, at: '2026-08-10T19:07:11.161Z' },
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'spawned',
+    id: FULL1_ROOT,
+    label: 'root',
+    budget: { maxIterations: 30, maxTokens: 2_000_000, deadlineMs: 2_700_000 },
+    runtime: 'cli',
+    identity: { profileDigest: ROOT_PROFILE, taskDigest: `sha256:${'d'.repeat(64)}` },
+    seq: 0,
+    at: '2026-08-10T19:07:11.161Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'spawned',
+    id: FULL1_CHILD_IDS[0],
+    parent: FULL1_ROOT,
+    label: 'worker',
+    assignmentId: 'ordinal:2',
+    budget: { maxIterations: 15, maxTokens: 1_000_000 },
+    runtime: 'cli',
+    identity: { profileDigest: CHILD_PROFILE, taskDigest: `sha256:${'e'.repeat(64)}` },
+    seq: 0,
+    at: '2026-08-10T19:09:06.660Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'trace-unpropagated',
+    id: FULL1_CHILD_IDS[0],
+    expectedTraceId: 'd90b039d6ff6650f88e9059456a3f27a',
+    backend: 'bridge',
+    reason: 'no-env-channel',
+    seq: 0,
+    at: '2026-08-10T19:09:06.665Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'spawned',
+    id: FULL1_CHILD_IDS[1],
+    parent: FULL1_ROOT,
+    label: 'worker',
+    assignmentId: 'key:clause-counts-all',
+    budget: { maxIterations: 15, maxTokens: 1_000_000 },
+    runtime: 'cli',
+    identity: { profileDigest: LEAF_PROFILE, taskDigest: `sha256:${'f'.repeat(64)}` },
+    seq: 1,
+    at: '2026-08-10T19:09:20.079Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'trace-unpropagated',
+    id: FULL1_CHILD_IDS[1],
+    expectedTraceId: 'd90b039d6ff6650f88e9059456a3f27a',
+    backend: 'bridge',
+    reason: 'no-env-channel',
+    seq: 1,
+    at: '2026-08-10T19:09:20.084Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'materialized',
+    id: FULL1_CHILD_IDS[1],
+    receipt: {
+      status: 'known',
+      authoredProfileDigest: LEAF_PROFILE,
+      effectiveProfileDigest: LEAF_PROFILE,
+      materializationPlanDigest: `sha256:${'1'.repeat(64)}`,
+      runtime: 'cli',
+      backend: 'bridge',
+      model: { status: 'known', id: 'pi/tangle-router/deepseek-v4-pro' },
+      execution: { kind: 'session', id: 'supervised-worker-s1' },
+      materializer: 'cli-bridge-agent-profile',
+    },
+    seq: 1,
+    at: '2026-08-10T19:10:33.216Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'execution-bound',
+    id: FULL1_CHILD_IDS[1],
+    binding: {
+      status: 'known',
+      attemptId: `${FULL1_CHILD_IDS[1]}:attempt:1`,
+      materializationReceiptDigest: `sha256:${'2'.repeat(64)}`,
+      bindingDigest: `sha256:${'3'.repeat(64)}`,
+      descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
+    },
+    seq: 1,
+    at: '2026-08-10T19:10:33.216Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'materialized',
+    id: FULL1_CHILD_IDS[0],
+    receipt: {
+      status: 'known',
+      authoredProfileDigest: CHILD_PROFILE,
+      effectiveProfileDigest: CHILD_PROFILE,
+      materializationPlanDigest: `sha256:${'4'.repeat(64)}`,
+      runtime: 'cli',
+      backend: 'bridge',
+      model: { status: 'known', id: 'pi/tangle-router/deepseek-v4-pro' },
+      execution: { kind: 'session', id: 'supervised-worker-s0' },
+      materializer: 'cli-bridge-agent-profile',
+    },
+    seq: 0,
+    at: '2026-08-10T19:10:52.307Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'execution-bound',
+    id: FULL1_CHILD_IDS[0],
+    binding: {
+      status: 'known',
+      attemptId: `${FULL1_CHILD_IDS[0]}:attempt:1`,
+      materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+      bindingDigest: `sha256:${'6'.repeat(64)}`,
+      descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
+    },
+    seq: 0,
+    at: '2026-08-10T19:10:52.307Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'settled',
+    id: FULL1_CHILD_IDS[0],
+    status: 'done',
+    verdict: { valid: true, score: 1 },
+    spent: {
+      iterations: 1,
+      tokens: { input: 139_740, output: 7_317 },
+      usd: 0,
+      usdKnown: false,
+      ms: 105_635,
+    },
+    seq: 0,
+    at: '2026-08-10T19:12:23.205Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'spawned',
+    id: FULL1_CHILD_IDS[2],
+    parent: FULL1_ROOT,
+    label: 'worker',
+    assignmentId: 'key:graph6-conversion',
+    budget: { maxIterations: 15, maxTokens: 1_000_000 },
+    runtime: 'cli',
+    identity: { profileDigest: `sha256:${'c'.repeat(64)}`, taskDigest: `sha256:${'7'.repeat(64)}` },
+    seq: 2,
+    at: '2026-08-10T19:13:09.873Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'trace-unpropagated',
+    id: FULL1_CHILD_IDS[2],
+    expectedTraceId: 'd90b039d6ff6650f88e9059456a3f27a',
+    backend: 'bridge',
+    reason: 'no-env-channel',
+    seq: 2,
+    at: '2026-08-10T19:13:09.880Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'materialized',
+    id: FULL1_CHILD_IDS[2],
+    receipt: {
+      status: 'known',
+      authoredProfileDigest: `sha256:${'c'.repeat(64)}`,
+      effectiveProfileDigest: `sha256:${'c'.repeat(64)}`,
+      materializationPlanDigest: `sha256:${'8'.repeat(64)}`,
+      runtime: 'cli',
+      backend: 'bridge',
+      model: { status: 'known', id: 'pi/tangle-router/deepseek-v4-pro' },
+      execution: { kind: 'session', id: 'supervised-worker-s2' },
+      materializer: 'cli-bridge-agent-profile',
+    },
+    seq: 2,
+    at: '2026-08-10T19:13:55.682Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'execution-bound',
+    id: FULL1_CHILD_IDS[2],
+    binding: {
+      status: 'known',
+      attemptId: `${FULL1_CHILD_IDS[2]}:attempt:1`,
+      materializationReceiptDigest: `sha256:${'9'.repeat(64)}`,
+      bindingDigest: `sha256:${'0'.repeat(64)}`,
+      descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
+    },
+    seq: 2,
+    at: '2026-08-10T19:13:55.682Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'metered',
+    id: FULL1_ROOT,
+    spend: { iterations: 0, tokens: { input: 4_237_990, output: 31_903 }, usd: 0, ms: 0 },
+    seq: 0,
+    at: '2026-08-10T19:16:49.882Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'metered',
+    id: FULL1_ROOT,
+    spend: {
+      iterations: 0,
+      tokens: { input: 0, output: 0 },
+      tokensKnown: false,
+      usd: 0,
+      usdKnown: false,
+      ms: 0,
+    },
+    seq: 1,
+    at: '2026-08-10T19:16:49.887Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'settled',
+    id: FULL1_CHILD_IDS[1],
+    status: 'done',
+    verdict: { valid: true, score: 1 },
+    spent: {
+      iterations: 1,
+      tokens: { input: 87_773, output: 4_595 },
+      usd: 0,
+      usdKnown: false,
+      ms: 73_126,
+    },
+    seq: 1,
+    at: '2026-08-10T19:16:49.892Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'settled',
+    id: FULL1_CHILD_IDS[2],
+    status: 'done',
+    verdict: { valid: true, score: 1 },
+    spent: {
+      iterations: 1,
+      tokens: { input: 44_312, output: 3_081 },
+      usd: 0,
+      usdKnown: false,
+      ms: 45_796,
+    },
+    seq: 2,
+    at: '2026-08-10T19:16:49.897Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'materialized',
+    id: FULL1_ROOT,
+    receipt: {
+      status: 'unknown',
+      authoredProfileDigest: ROOT_PROFILE,
+      runtime: 'cli',
+      reason: 'root-agent-did-not-report',
+    },
+    seq: 0,
+    at: '2026-08-10T19:16:49.902Z',
+  }),
+  runtimeEvent(FULL1_ROOT, {
+    kind: 'execution-bound',
+    id: FULL1_ROOT,
+    binding: {
+      status: 'unknown',
+      attemptId: `${FULL1_ROOT}:attempt:1`,
+      materializationReceiptDigest: `sha256:${'a'.repeat(64)}`,
+      reason: 'root-agent-did-not-report',
+    },
+    seq: 0,
+    at: '2026-08-10T19:16:49.907Z',
+  }),
+]
+  .map((row) => JSON.stringify(row))
+  .join('\n')
 
 function begin(root: string, seconds: number): Record<string, unknown> {
   return { kind: 'begin', root, at: at(seconds) }
@@ -174,7 +443,7 @@ describe('Runtime FileRunContext supervisor reader', () => {
     const source = await readRuntimeSupervisorRun(runDir)
     const report = await analyzeSupervisorRun(runDir)
 
-    expect(source.journal).not.toContain('"kind":"event"')
+    expect(source.journal).toContain('"kind":"event"')
     expect(report.instanceId).toBe('run-root')
     expect(report.supervisorId).toBe('run-root')
     expect(report.supervisorProfileDigest).toBe(ROOT_PROFILE)
@@ -195,7 +464,7 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(report.economics.perWorker).toEqual([
       expect.objectContaining({
         workerId: 'run-root:s0',
-        role: null,
+        role: 'supervisor',
         runtime: 'driver',
         profileDigest: CHILD_PROFILE,
         status: 'down',
@@ -207,7 +476,7 @@ describe('Runtime FileRunContext supervisor reader', () => {
       }),
       expect.objectContaining({
         workerId: 'run-root:s0:s0',
-        role: null,
+        role: 'worker',
         runtime: 'cli',
         profileDigest: LEAF_PROFILE,
         status: 'done',
@@ -220,9 +489,62 @@ describe('Runtime FileRunContext supervisor reader', () => {
     ])
 
     const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
-    expect(tree.nodes).toHaveLength(1)
+    expect(tree.nodes).toHaveLength(3)
     expect(tree.nodes[0]?.policy.agent_profile_cell_id).toBe(ROOT_PROFILE)
-    expect(tree.gaps.filter((gap) => gap.code === 'node-role-unavailable')).toHaveLength(2)
+    expect(tree.gaps.filter((gap) => gap.code === 'node-role-unavailable')).toHaveLength(0)
+  })
+
+  it('retains a current Runtime tree and classifies transport rows as unavailable only', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'arena-full1-ramsey-bundle-a')
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, 'spawn-journal.jsonl'), `${REAL_RUNTIME_FULL1_JOURNAL}\n`)
+
+    const source = await readRuntimeSupervisorRun(runDir)
+    const facts = parseSupervisorTree(source)
+    const fromSources = analyzeSupervisorRunSources(source, () => T0)
+    const fromDirectory = await analyzeSupervisorRun(runDir)
+    const integrity = analyzeSupervisorRunIntegrity(source, { capturedAt: at(10) })
+    const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
+
+    expect(source.journal?.split('\n').filter(Boolean)).toHaveLength(20)
+    expect(facts.journalRows).toBe(20)
+    expect(facts.journalInvalidRows).toBe(0)
+    expect(facts.journalIgnoredRowsByKind).toEqual({
+      'trace-unpropagated': 3,
+      materialized: 4,
+      'execution-bound': 4,
+    })
+    expect(facts.journalDialect).toBe('runtime-envelope')
+    expect(facts.spawns).toHaveLength(4)
+    expect(facts.closes).toHaveLength(3)
+    expect(facts.brain.tokensIn).toBe(4_237_990)
+    expect(facts.brain.tokensOut).toBe(31_903)
+
+    for (const report of [fromSources, fromDirectory]) {
+      expect(report.orchestration.workersSpawned).toBe(3)
+      expect(report.orchestration.workersSettled).toBe(3)
+      expect(report.economics.workers.tokensIn).toBe(271_825)
+      expect(report.economics.workers.tokensOut).toBe(14_993)
+      expect(isUnavailable(report.economics.totalUsd)).toBe(true)
+      expect(isUnavailable(report.economics.brain.usd)).toBe(true)
+      expect(report.supervisorProfileDigest).toBe(ROOT_PROFILE)
+      if (isUnavailable(report.economics.perWorker)) {
+        throw new Error(report.economics.perWorker.unavailable)
+      }
+      expect(report.economics.perWorker.map((worker) => worker.profileDigest)).toEqual([
+        CHILD_PROFILE,
+        LEAF_PROFILE,
+        LEAF_PROFILE,
+      ])
+    }
+
+    expect(integrity.tree.nodes).toHaveLength(4)
+    expect(integrity.issues.some((issue) => issue.code === 'source-row-malformed')).toBe(false)
+    expect(tree.nodes).toHaveLength(4)
+    expect(tree.nodes[0]?.role).toBe('supervisor')
+    expect(tree.nodes.filter((node) => node.role === 'worker')).toHaveLength(3)
+    expect(tree.gaps.filter((gap) => gap.code === 'node-role-unavailable')).toHaveLength(0)
   })
 
   it('leaves root outcome and terminal wall time unavailable without terminal evidence', async () => {

@@ -20,6 +20,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
 
+### Fixed
+
+- Runtime recursive supervisor journals now retain every event envelope at the Eval reader boundary.
+  Transport events such as `materialized`, `execution-bound`, and `trace-unpropagated` remain readable as unavailable evidence instead of becoming malformed rows.
+  The reader also projects Runtime's nested profile identity and structural tree roles, so recursive trees retain their nodes, settlements, token spend, and unknown-cost fields.
+
 ## [0.144.6] - 2026-08-09 - interaction binding cohort alignment
 
 ### Changed
