@@ -20,6 +20,17 @@
  * Continuation is pinned to zero model steps. Every arm therefore stops after
  * its own action, `t4` collapses onto `t3`, and the run reports `t4` as
  * unmeasured rather than reporting `t3` twice.
+ *
+ * That control is declared, not implied. A rollout that makes no model call
+ * executes no command, so both control arms grade the bytes the end-state
+ * check already graded as failing, and admission is told so: the criteria run
+ * `controlScreening: 'declared-inert'`, which reads a control pass as the
+ * task's grader disagreeing with itself rather than as a rescue. Under the
+ * default `enforced` criteria this configuration is refused outright.
+ *
+ * Task oracles are read from the checked-in certification file. A task with no
+ * certification, or one whose suite returned different verdicts on identical
+ * bytes, does not run: every check below reads that suite.
  */
 
 import { execFile } from 'node:child_process'
@@ -28,14 +39,19 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'n
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
+  type AdmissionCriteria,
   type AdmissionEvidence,
+  type AdmissionScreeningRecord,
   admitRow,
   classifyActionPayload,
   type AdmittedRow,
   type AnalystResponse,
+  defineControlPolicy,
   deltaRepair,
   gradeRepairRow,
   injectedTestOracle,
+  type OracleDeterminismVerdict,
+  parseTaskOracleRegistry,
   type RepairContinuationOutcome,
   type RepairContinuationRunner,
   type RepairRowResult,
@@ -43,6 +59,8 @@ import {
   type RepairSessionFactory,
   type RepairSessionRequest,
   repairFinding,
+  type TaskOracleRegistry,
+  TB_REPAIR_ADMISSION_CRITERIA,
   type TestOracle,
   type TestSuiteFile,
   testSuiteDigest,
@@ -92,11 +110,23 @@ function stepTimeoutMs(observation: string | null): number {
 /**
  * Zero model steps. The rollout stops where its own action left the container,
  * so every arm is compared at the same depth and no arm buys extra turns.
+ *
+ * The declaration is hashed rather than labelled, so the step budget travels
+ * with the digest onto every admission decision this run publishes.
  */
-const ZERO_STEP_CONTINUATION_POLICY = {
+const ZERO_STEP_CONTINUATION_POLICY = defineControlPolicy({
   id: 'zero-step-continuation',
-  digest: 'zero-step-continuation@v1',
-} as const
+  stepBudget: 0,
+  scaffold: 'mini-swe-agent',
+  model: null,
+  commandTimeoutSeconds: Math.ceil(STEP_TIMEOUT_MS / 1000),
+})
+
+const INERT_CONTROL_CRITERIA: AdmissionCriteria = {
+  ...TB_REPAIR_ADMISSION_CRITERIA,
+  controlRollouts: CONTROL_ROLLOUTS,
+  controlScreening: 'declared-inert',
+}
 
 const zeroStepContinuation: RepairContinuationRunner = async (): Promise<
   RepairContinuationOutcome
@@ -107,6 +137,18 @@ const zeroStepContinuation: RepairContinuationRunner = async (): Promise<
   exitStatus: 'zero-step-policy',
   submitted: false,
 })
+
+const TASK_ORACLES_PATH = join(
+  import.meta.dirname,
+  '..',
+  'benchmarks',
+  'trace-repair',
+  'task-oracles.json',
+)
+
+function loadTaskOracles(): TaskOracleRegistry {
+  return parseTaskOracleRegistry(JSON.parse(readFileSync(TASK_ORACLES_PATH, 'utf8')))
+}
 
 interface FeasibleRow {
   rowId: string
@@ -340,6 +382,8 @@ interface RowOutcome {
   stratum: string
   recordedCommands: number
   admitted: boolean
+  /** The control that screened this row, recorded whether it was admitted or not. */
+  screening: AdmissionScreeningRecord | null
   rejection: string | null
   detail: string | null
   prefixDivergenceRatio: number | null
@@ -354,6 +398,7 @@ interface RowOutcome {
 async function processRow(
   row: FeasibleRow,
   task: TaskFixture,
+  certification: OracleDeterminismVerdict,
   log: (message: string) => void,
 ): Promise<RowOutcome> {
   const sessions = dockerSessions(task.image, task.cwd)
@@ -375,6 +420,7 @@ async function processRow(
     stratum,
     recordedCommands: row.recordedCommands,
     admitted: false,
+    screening: null,
     rejection: null,
     detail: null,
     prefixDivergenceRatio: null,
@@ -426,10 +472,13 @@ async function processRow(
 
   const evidence: AdmissionEvidence = {
     rowId: row.rowId,
+    taskName: row.taskName,
     image: task.image,
     cwd: task.cwd,
     taskStatement: task.instruction,
     steps,
+    oracleDeterminism: certification,
+    controlPolicy: ZERO_STEP_CONTINUATION_POLICY,
     prefixFidelity: { stepsReplayed: replayed, divergences },
     endStatePassed: noFix[0]?.passed ?? true,
     suiteDigest: task.suiteDigest,
@@ -444,7 +493,8 @@ async function processRow(
       policyDigest: ZERO_STEP_CONTINUATION_POLICY.digest,
     },
   }
-  const decision = admitRow(evidence)
+  const decision = admitRow(evidence, INERT_CONTROL_CRITERIA)
+  base.screening = decision.screening
   if (!decision.admitted) {
     base.rejection = decision.rejection
     base.detail = decision.detail
@@ -523,6 +573,17 @@ async function main(): Promise<void> {
   const concurrency = Number(process.env.TBR_CONCURRENCY ?? '6')
   const rows: FeasibleRow[] = JSON.parse(readFileSync(join(WORK, 'rows-sample.json'), 'utf8'))
   const taskNames = [...new Set(rows.map((r) => r.taskName))]
+  // Before a container opens: every check this run makes reads the task's own
+  // suite, so a task whose suite has not been shown to answer about the state
+  // stops the run rather than contributing rows nobody can read.
+  const taskOracles = loadTaskOracles()
+  const uncertified = taskNames.filter((name) => !taskOracles.has(name))
+  if (uncertified.length > 0) {
+    throw new Error(
+      `no oracle-determinism certification for ${uncertified.join(', ')} in ${TASK_ORACLES_PATH}; ` +
+        'run benchmarks/trace-repair/tools/certify-task-oracle.sh for those tasks first',
+    )
+  }
   const tasks = new Map<string, TaskFixture>()
   for (const name of taskNames) tasks.set(name, await loadTask(name))
   mkdirSync(join(WORK, 'out'), { recursive: true })
@@ -538,7 +599,7 @@ async function main(): Promise<void> {
   log(`rows=${rows.length} tasks=${taskNames.join(',')} concurrency=${concurrency}`)
   const startedMs = Date.now()
   const outcomes = await mapLimit(rows, concurrency, (row) =>
-    processRow(row, tasks.get(row.taskName)!, log),
+    processRow(row, tasks.get(row.taskName)!, taskOracles.get(row.taskName)!, log),
   )
   const wallMs = Date.now() - startedMs
 
@@ -546,7 +607,14 @@ async function main(): Promise<void> {
     generatedAt: new Date().toISOString(),
     wallMs,
     concurrency,
-    policy: ZERO_STEP_CONTINUATION_POLICY,
+    controlPolicy: ZERO_STEP_CONTINUATION_POLICY,
+    criteria: INERT_CONTROL_CRITERIA,
+    taskOracles: Object.fromEntries(
+      [...taskOracles].map(([name, verdict]) => [
+        name,
+        { stable: verdict.stable, flipRate: verdict.flipRate, replicates: verdict.replicates },
+      ]),
+    ),
     images: Object.fromEntries([...tasks].map(([n, t]) => [n, t.image])),
     suiteDigests: Object.fromEntries([...tasks].map(([n, t]) => [n, t.suiteDigest])),
     outcomes,

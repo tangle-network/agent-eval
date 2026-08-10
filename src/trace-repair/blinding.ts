@@ -73,8 +73,10 @@ export function blindTrajectory(
  */
 export const BLINDED_FIELDS: readonly string[] = Object.freeze([
   'criteria',
+  'controlPolicy',
   'controlRate',
   'controlRollouts',
+  'controlScreening',
   'suiteDigest',
   'policyDigest',
   'prefixDivergenceRatio',

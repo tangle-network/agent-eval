@@ -49,6 +49,7 @@ export interface DeltaRepairInterval {
 
 export type RepairThreatId =
   | 'control-position-asymmetry'
+  | 'control-cannot-rescue'
   | 'admission-conditions-on-control-failure'
   | 'bootstrap-below-min-n'
   | 'prefix-divergence-present'
@@ -172,7 +173,15 @@ function collectThreats(
       direction: 'understates',
     },
   ]
-  if (rowResults.every((row) => row.controlRate === 0)) {
+  const inert = rowResults.filter((row) => row.controlScreening === 'declared-inert')
+  if (inert.length > 0) {
+    threats.push({
+      id: 'control-cannot-rescue',
+      statement: `${inert.length}/${rowResults.length} rows were screened under a control that makes no model call, so its rollouts graded the same bytes the end-state check graded as failing. A control rate of zero on those rows is a restatement of the end-state check, not a measurement of what continuing alone can repair.`,
+      direction: 'unknown',
+    })
+  }
+  if (inert.length === 0 && rowResults.every((row) => row.controlRate === 0)) {
     threats.push({
       id: 'admission-conditions-on-control-failure',
       statement:

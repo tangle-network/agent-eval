@@ -24,6 +24,10 @@ The pre-pass that decides which rows the arms run on is in [trace-repair-admissi
 `definePinnedContinuationPolicy({ model, seed })` freezes a policy and validates it.
 `continuationPolicyDigest(policy)` hashes the policy together with the scaffold text it renders, so an edited template produces a different digest and cannot be pooled with earlier rollouts.
 
+The step budget is what lets this policy serve as a control at all.
+A rollout changes the graded state by executing commands, and it executes only what a model call asks for, so at a budget of zero a control arm grades the bytes the end-state check already graded as failing.
+`runAdmission` checks that with `assertControlCalibrated` before it opens a container; the reading of a control pass is in [trace-repair-admission.md](./trace-repair-admission.md).
+
 ## Why the arms cannot drift apart
 
 Three arms share one code path, and the arm is a label on the record:

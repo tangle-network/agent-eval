@@ -10,6 +10,7 @@
 
 import { CaptureIntegrityError } from '../errors'
 import type { ContinuationRollout } from './continuation-records'
+import type { ControlScreening } from './control-policy'
 
 /** A campaign scored rows the pre-pass did not admit, or dropped rows it did. */
 export class AdmissionDenominatorError extends CaptureIntegrityError {}
@@ -114,6 +115,8 @@ export type AdmissionExclusionReason =
   | 'no-recorded-commands'
   | 'unparseable-final-returncode'
   | 'stratum-not-admitted'
+  | 'task-oracle-uncertified'
+  | 'task-oracle-nondeterministic'
   | 'prefix-replay-error'
   | 'prefix-replay-empty'
   | 'prefix-replay-truncated'
@@ -129,6 +132,8 @@ export const ADMISSION_EXCLUSION_ORDER: readonly AdmissionExclusionReason[] = [
   'no-recorded-commands',
   'unparseable-final-returncode',
   'stratum-not-admitted',
+  'task-oracle-uncertified',
+  'task-oracle-nondeterministic',
   'prefix-replay-error',
   'prefix-replay-empty',
   'prefix-replay-truncated',
@@ -157,6 +162,9 @@ export const ADMISSION_EXCLUSION_MEANING: Readonly<Record<AdmissionExclusionReas
     'no-recorded-commands': 'the recording holds no command to substitute',
     'unparseable-final-returncode': 'the last observation carries no return code',
     'stratum-not-admitted': 'the row belongs to a population this campaign excluded',
+    'task-oracle-uncertified': 'the task grader has no determinism certification on file',
+    'task-oracle-nondeterministic':
+      'the task grader returns different verdicts on byte-identical state',
     'prefix-replay-error': 'the replay boundary failed, so divergence is unmeasured',
     'prefix-replay-empty': 'the replay executed no recorded step',
     'prefix-replay-truncated': 'the replay stopped short of the recorded end state',
@@ -188,6 +196,7 @@ export type AdmissionCheckRecord =
       divergences: number
       divergenceRatio: number
     }
+  | { check: 'task-oracle'; stable: boolean; flipRate: number; replicates: number }
   | { check: 'end-state-tests'; passed: boolean; reward: number | null }
   | {
       check: 'control'
@@ -217,6 +226,15 @@ export interface AdmissionRowVerdict {
   finalReturncode: number | null
   /** `null` only together with a pre-stratum exclusion reason. */
   stratum: AdmissionStratum | null
+  /** The control this row was screened under, and how a control pass reads.
+   *  Recorded on every verdict, including rows excluded before a control ran,
+   *  so a reader never has to open the runner's source to learn what screened
+   *  the row. */
+  controlPolicyDigest: string
+  controlScreening: ControlScreening
+  /** The task's certified oracle flip rate. Zero on a certified-stable task,
+   *  `null` when the task carried no certification. */
+  oracleFlipRate: number | null
   admitted: boolean
   /** `null` when the row is admitted. */
   excludedBy: AdmissionExclusionReason | null

@@ -55,6 +55,12 @@ import {
   type PinnedContinuationPolicy,
 } from './continuation-policy'
 import type { ContinuationRollout } from './continuation-records'
+import {
+  assertControlCalibrated,
+  CONTROL_SCREENING_MODES,
+  type ControlScreening,
+} from './control-policy'
+import type { TaskOracleRegistry } from './oracle-determinism'
 
 // ── Injected boundaries ──────────────────────────────────────────────
 
@@ -139,6 +145,11 @@ export interface AdmissionConfigInput {
   admitStrata?: readonly AdmissionStratum[]
   /** Shell action the no-op control substitutes. Default `true`. */
   inertAction?: string
+  /**
+   * How a control pass is read. Default `enforced`, which requires a control
+   * that can act; `resolveAdmissionConfig` refuses the pairing that cannot.
+   */
+  controlScreening?: ControlScreening
   /** Rows processed at once. Output order always follows input order. Default 1. */
   concurrency?: number
 }
@@ -148,6 +159,7 @@ export interface AdmissionConfig {
   readonly controlRollouts: number
   readonly admitStrata: readonly AdmissionStratum[]
   readonly inertAction: string
+  readonly controlScreening: ControlScreening
   readonly concurrency: number
 }
 
@@ -156,6 +168,7 @@ export const ADMISSION_CONFIG_DEFAULTS: AdmissionConfig = Object.freeze({
   controlRollouts: 3,
   admitStrata: Object.freeze(['clean-exit', 'command-error']) as readonly AdmissionStratum[],
   inertAction: 'true',
+  controlScreening: 'enforced' as ControlScreening,
   concurrency: 1,
 })
 
@@ -183,6 +196,11 @@ export function resolveAdmissionConfig(input: AdmissionConfigInput = {}): Admiss
   }
   if (config.inertAction.trim().length === 0) {
     throw new ValidationError('admission inertAction must be a non-empty command')
+  }
+  if (!CONTROL_SCREENING_MODES.includes(config.controlScreening)) {
+    throw new ValidationError(
+      `admission controlScreening must be one of ${CONTROL_SCREENING_MODES.join(', ')}, got ${config.controlScreening}`,
+    )
   }
   return Object.freeze({ ...config, admitStrata: Object.freeze([...config.admitStrata]) })
 }
@@ -225,6 +243,13 @@ export interface AdmissionProvenance {
   policyModel: string
   policySeed: number
   policyDigest: string
+  /** Model calls a control rollout may make. Zero cannot screen anything, and
+   *  `resolveAdmissionConfig` refuses that pairing before a container opens. */
+  policyStepBudget: number
+  controlScreening: ControlScreening
+  /** Tasks whose oracle carried a determinism certification, and their
+   *  measured flip rates. */
+  certifiedTasks: Readonly<Record<string, number>>
 }
 
 export interface AdmissionReport {
@@ -249,6 +274,13 @@ export interface RunAdmissionOptions {
   replayer: AdmissionPrefixReplayer
   oracle: AdmissionEndStateOracle
   controls: AdmissionControlRunner
+  /**
+   * Determinism certifications by task name. Required: every check below reads
+   * the task's own suite, so a suite whose verdict is not a function of the
+   * state makes each of them a coin flip. A task with no entry is excluded as
+   * uncertified rather than assumed stable.
+   */
+  taskOracles: TaskOracleRegistry
   config?: AdmissionConfigInput
   /** Epoch milliseconds. Injected so a report can be compared exactly in a test. */
   clock?: () => number
@@ -262,14 +294,22 @@ export interface RunAdmissionOptions {
  * `assertDenominatorIntact`.
  */
 export async function runAdmission(options: RunAdmissionOptions): Promise<AdmissionReport> {
-  const { rows, policy, replayer, oracle, controls } = options
+  const { rows, policy, replayer, oracle, controls, taskOracles } = options
   const config = resolveAdmissionConfig(options.config)
   const clock = options.clock ?? Date.now
   assertAnalystIndependent(rows)
   assertUniqueRowIds(rows)
+  const policyDigest = continuationPolicyDigest(policy)
+  // Both admission paths check the same rule against the same shape, so the
+  // pure contract and this pre-pass cannot drift about what a control that can
+  // screen looks like.
+  assertControlCalibrated(
+    { id: policy.id, digest: policyDigest, stepBudget: policy.stepBudget },
+    config.controlScreening,
+  )
 
   const verdicts = await mapOrdered(rows, config.concurrency, (row) =>
-    admitRow({ row, policy, replayer, oracle, controls, config }),
+    admitRow({ row, policy, policyDigest, replayer, oracle, controls, taskOracles, config }),
   )
 
   const strata = groupAdmittedByStratum(verdicts)
@@ -280,7 +320,12 @@ export async function runAdmission(options: RunAdmissionOptions): Promise<Admiss
     policyId: policy.id,
     policyModel: policy.model,
     policySeed: policy.seed,
-    policyDigest: continuationPolicyDigest(policy),
+    policyDigest,
+    policyStepBudget: policy.stepBudget,
+    controlScreening: config.controlScreening,
+    certifiedTasks: Object.freeze(
+      Object.fromEntries([...taskOracles].map(([task, verdict]) => [task, verdict.flipRate])),
+    ),
   }
   return Object.freeze({
     config,
@@ -314,9 +359,11 @@ function assertUniqueRowIds(rows: readonly AdmissionRow[]): void {
 interface AdmitRowInput {
   row: AdmissionRow
   policy: PinnedContinuationPolicy
+  policyDigest: string
   replayer: AdmissionPrefixReplayer
   oracle: AdmissionEndStateOracle
   controls: AdmissionControlRunner
+  taskOracles: TaskOracleRegistry
   config: AdmissionConfig
 }
 
@@ -325,12 +372,16 @@ async function admitRow(input: AdmitRowInput): Promise<AdmissionRowVerdict> {
   const checks: AdmissionCheckRecord[] = []
   const rollouts: ContinuationRollout[] = []
   const summaries: AdmissionRolloutSummary[] = []
+  const certification = input.taskOracles.get(row.taskName) ?? null
   const base = {
     rowId: row.rowId,
     taskName: row.taskName,
     recordedModel: row.recordedModel,
     recordedCommands: row.recordedCommands,
     finalReturncode: row.finalReturncode,
+    controlPolicyDigest: input.policyDigest,
+    controlScreening: config.controlScreening,
+    oracleFlipRate: certification === null ? null : certification.flipRate,
   }
   const finish = (
     stratum: AdmissionStratum | null,
@@ -353,6 +404,21 @@ async function admitRow(input: AdmitRowInput): Promise<AdmissionRowVerdict> {
   if (stratum === null) return finish(null, 'unparseable-final-returncode')
   checks.push({ check: 'stratum', stratum })
   if (!config.admitStrata.includes(stratum)) return finish(stratum, 'stratum-not-admitted')
+
+  // Ahead of the first container: every check below reads this task's suite, so
+  // a suite that answers differently about identical bytes turns each of them
+  // into a draw. An absent certification is its own reason — the check has not
+  // run, which is not the same as having run and failed.
+  if (certification === null) return finish(stratum, 'task-oracle-uncertified')
+  checks.push({
+    check: 'task-oracle',
+    stable: certification.stable,
+    flipRate: certification.flipRate,
+    replicates: certification.replicates,
+  })
+  if (!certification.stable) {
+    return finish(stratum, 'task-oracle-nondeterministic', certification.detail)
+  }
 
   const replay = await input.replayer.replay(row)
   if (!replay.succeeded) return finish(stratum, 'prefix-replay-error', replay.error)

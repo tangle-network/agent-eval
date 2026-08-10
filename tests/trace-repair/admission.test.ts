@@ -101,15 +101,18 @@ describe('the four pre-registered checks', () => {
   it('reads no finding, no k and no label — the evidence has no field for one', () => {
     const evidence = admissionEvidence({ steps: STEPS })
     expect(Object.keys(evidence).sort()).toEqual([
+      'controlPolicy',
       'cwd',
       'endStatePassed',
       'image',
       'noFixControl',
       'noOpControl',
+      'oracleDeterminism',
       'prefixFidelity',
       'rowId',
       'steps',
       'suiteDigest',
+      'taskName',
       'taskStatement',
     ])
   })
