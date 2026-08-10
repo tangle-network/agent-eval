@@ -17,7 +17,6 @@ import {
   type CostReceiptInput,
   CostReservationExceededError,
 } from '../cost-ledger'
-import { ValidationError } from '../errors'
 import { callLlmJson, type LlmCallRequest, type LlmClientOptions } from '../llm-client'
 import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
@@ -36,8 +35,10 @@ import { publicBenchmarkError } from './benchmark-public-errors'
 import {
   MAX_INCORRECT_BLOCK_STEPS,
   MAX_INCORRECT_BLOCKS,
+  PUBLIC_BENCHMARK_ENVELOPE_CONTRACT,
+  publicBenchmarkFieldContract,
   publicBenchmarkProtocolSha256,
-  publicBenchmarkSystemPrompt,
+  publicBenchmarkTaskPrompt,
   TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS,
 } from './benchmark-public-prompt'
 import {
@@ -52,6 +53,8 @@ import {
   readPublicBenchmarkResponseCache,
   writePublicBenchmarkResponseCache,
 } from './benchmark-response-cache'
+import { type AnalystDefinition, AnalystExpressivenessError } from './definition'
+import { decodeReplyRows, type ReplyContract } from './reply-contract'
 import type { AnalystFinding, AnalystRunInputs } from './types'
 import { usageReceiptFromCostLedger } from './usage-receipt'
 
@@ -60,7 +63,100 @@ export {
   publicBenchmarkProtocolSha256,
 } from './benchmark-public-prompt'
 
-/** One-shot JSON baseline. This is not a recursive trace analyst. */
+/**
+ * One-shot JSON baseline arm. Not a recursive trace analyst.
+ *
+ * The arm is expressed as an `AnalystDefinition`
+ * (`publicDirectAnalystDefinition`): the task text, field and envelope
+ * contracts, the descending projection ladder, and the zero-repair declaration
+ * are definition content, and `createPublicBenchmarkDirectRunner` is a thin
+ * shell that builds the definition and runs it through the chunked strategy
+ * below — the same strategy `bindAnalyst` (./bind) dispatches to.
+ */
+
+export interface PublicDirectDefinitionArgs {
+  /** Whole-analysis deadline (`config.timeoutMs`). */
+  timeoutMs: number
+  /** Completion-token cap per call (`config.maxOutputTokens`). */
+  maxOutputTokens: number
+  /** Per-case provider spend ceiling (`config.maxCostUsdPerAnalysis`). */
+  maxCostUsd: number
+}
+
+/** The direct arm as a declarative unit for one public dataset. */
+export function publicDirectAnalystDefinition(
+  dataset: PublicAnalystBenchmarkDataset,
+  args: PublicDirectDefinitionArgs,
+): AnalystDefinition<PublicBenchmarkModelPrediction> {
+  const actor =
+    dataset === 'agentrx' ? 'agentrx-root-cause-localizer' : 'codetracebench-step-localizer'
+  const outputAdapter =
+    dataset === 'agentrx' ? 'agentrx-taxonomy-and-root-step' : 'codetracebench-incorrect-block'
+  return {
+    id: 'direct',
+    description: 'One-shot JSON baseline over the caller-owned model path.',
+    version: '1.0.0',
+    area: dataset === 'agentrx' ? 'root-cause' : 'incorrect',
+    // One-shot JSON transport runs with thinking disabled.
+    profile: { model: { reasoningEffort: 'none' } },
+    // The task text is the whole ask: the one-shot prompt carries no question line.
+    question: '',
+    taskDefinition: publicBenchmarkTaskPrompt(dataset),
+    projection: { mode: 'chunked', attributeByteCaps: TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS },
+    replyContract: directReplyContract(dataset),
+    contractLimits:
+      dataset === 'agentrx'
+        ? { maxFindings: 1 }
+        : { maxBlocks: MAX_INCORRECT_BLOCKS, maxBlockSteps: MAX_INCORRECT_BLOCK_STEPS },
+    budget: {
+      timeoutMs: args.timeoutMs,
+      maxCostUsd: args.maxCostUsd,
+      maxOutputTokens: args.maxOutputTokens,
+    },
+    repair: { turns: 0 },
+    protocolSha256: publicBenchmarkProtocolSha256(dataset),
+    binding: {
+      kind: 'chunked',
+      subjectFromCaseId: (caseId) => trajectoryIdFromCaseId(dataset, caseId),
+      baseMetadata: { analysisMode: 'direct-baseline', outputAdapter },
+      costActor: actor,
+      costPhase: 'analyst.public-benchmark',
+      userMessage: (rendered) => `TRACE DATA:\n${rendered}\n\nReturn the analysis JSON object.`,
+      async expandRows({ subject, rows, store, analystId, producedAt, providerModel, signal }) {
+        const converted = await publicBenchmarkPredictionsToFindings({
+          dataset,
+          trajectoryId: subject,
+          predictions: rows,
+          store,
+          analystId,
+          providerModel: requiredString(providerModel ?? '', 'finding providerModel'),
+          producedAt: requiredString(producedAt ?? '', 'finding producedAt'),
+          ...(signal ? { signal } : {}),
+        })
+        return { findings: converted.findings, diagnostics: converted.diagnostics }
+      },
+      ...(dataset === 'codetracebench'
+        ? {
+            verifyFindings: async (args: {
+              subject: string
+              findings: readonly AnalystFinding[]
+              store: TraceAnalysisStore
+              signal?: AbortSignal
+            }) => {
+              await validateCodeTraceFindingEvidence({
+                trajectoryId: args.subject,
+                findings: [...args.findings],
+                store: args.store,
+                ...(args.signal ? { signal: args.signal } : {}),
+              })
+            },
+          }
+        : {}),
+    },
+  }
+}
+
+/** Thin shell: validate config, declare the definition, run the chunked strategy. */
 export function createPublicBenchmarkDirectRunner(
   dataset: PublicAnalystBenchmarkDataset,
   config: PublicAnalystBenchmarkModelConfig,
@@ -68,6 +164,67 @@ export function createPublicBenchmarkDirectRunner(
   if (config.instructionsOverride) {
     throw new Error(
       'the direct runner executes only the stock protocol; an instructions override requires the dspy-rlm runner',
+    )
+  }
+  const maxOutputTokens = positiveSafeInteger(config.maxOutputTokens, 'maxOutputTokens')
+  const timeoutMs = positiveSafeInteger(config.timeoutMs, 'timeoutMs')
+  return runChunkedAnalystDefinition(
+    publicDirectAnalystDefinition(dataset, {
+      timeoutMs,
+      maxOutputTokens,
+      maxCostUsd: config.maxCostUsdPerAnalysis ?? 1,
+    }),
+    config,
+  )
+}
+
+// ── Chunked one-shot execution strategy ─────────────────────────────
+
+/**
+ * Compile a chunked-projection definition into a runnable one-shot JSON arm
+ * over the caller-owned model path. Prompt content, the projection ladder,
+ * the reply grammar, and the budget declaration come from the definition;
+ * caching, cost settlement, and the model proxy are transport machinery.
+ */
+export function runChunkedAnalystDefinition<TRow>(
+  definition: AnalystDefinition<TRow>,
+  config: PublicAnalystBenchmarkModelConfig,
+): AnalystBenchmarkRunner<AnalystRunInputs> {
+  const { projection, binding, replyContract } = definition
+  if (projection.mode !== 'chunked' || binding.kind !== 'chunked') {
+    throw new AnalystExpressivenessError(
+      `the chunked one-shot strategy compiles only chunked projections; definition ` +
+        `'${definition.id}' declares projection '${projection.mode}' with a '${binding.kind}' binding`,
+    )
+  }
+  if (config.instructionsOverride) {
+    throw new Error(
+      'the direct runner executes only the stock protocol; an instructions override requires the dspy-rlm runner',
+    )
+  }
+  if (definition.repair.turns !== 0) {
+    throw new AnalystExpressivenessError(
+      `the one-shot JSON exchange grants no repair turn; definition '${definition.id}' ` +
+        `declares ${definition.repair.turns}`,
+    )
+  }
+  const reasoningEffort = definition.profile.model?.reasoningEffort
+  if (reasoningEffort !== 'none') {
+    throw new AnalystExpressivenessError(
+      `the one-shot JSON strategy runs with thinking disabled and can express only reasoning ` +
+        `effort 'none'; definition '${definition.id}' declares '${reasoningEffort}'`,
+    )
+  }
+  if (!replyContract.parseEnvelope) {
+    throw new AnalystExpressivenessError(
+      `the one-shot JSON strategy needs a strict reply envelope; definition ` +
+        `'${definition.id}' declares no parseEnvelope`,
+    )
+  }
+  if (definition.taskDefinition === undefined) {
+    throw new AnalystExpressivenessError(
+      `the one-shot JSON strategy composes its system prompt from the task definition; ` +
+        `definition '${definition.id}' declares none`,
     )
   }
   const model = requiredString(config.model, 'model')
@@ -78,12 +235,13 @@ export function createPublicBenchmarkDirectRunner(
   }
   const maxOutputTokens = positiveSafeInteger(config.maxOutputTokens, 'maxOutputTokens')
   const timeoutMs = positiveSafeInteger(config.timeoutMs, 'timeoutMs')
+  const maxCostUsd = config.maxCostUsdPerAnalysis ?? 1
+  assertDeclaredBudget(definition, { timeoutMs, maxOutputTokens, maxCostUsd })
   const maxReasoningTokens = config.maxReasoningTokens ?? maxOutputTokens * 4
   const maxModelRequestBytes = config.maxModelRequestBytes ?? 16 * 1024 * 1024
   const maxModelResponseBytes = config.maxModelResponseBytes ?? 4 * 1024 * 1024
   const modelRequestTimeoutMs = config.modelRequestTimeoutMs ?? timeoutMs
   const pricing = config.pricing ?? pricingForModel(model)
-  const maxCostUsd = config.maxCostUsdPerAnalysis ?? 1
   const costLedger = config.costLedger ?? new CostLedger()
   const durability = config.durability
     ? {
@@ -97,48 +255,49 @@ export function createPublicBenchmarkDirectRunner(
         ),
       }
     : undefined
-  const actor =
-    dataset === 'agentrx' ? 'agentrx-root-cause-localizer' : 'codetracebench-step-localizer'
-  const outputAdapter =
-    dataset === 'agentrx' ? 'agentrx-taxonomy-and-root-step' : 'codetracebench-incorrect-block'
+  // The composed system prompt is definition content, sealed at bind time.
+  const systemPrompt = [definition.taskDefinition, ...replyContract.contractLines].join('\n\n')
   return {
-    id: 'direct',
+    id: definition.id,
     async analyze(input, context) {
-      const trajectoryId = trajectoryIdFromCaseId(dataset, context.caseId)
+      const trajectoryId = binding.subjectFromCaseId(context.caseId)
       const costTags = {
-        analystId: actor,
+        analystId: binding.costActor,
         benchmarkCaseId: context.caseId,
         benchmarkRepetition: String(context.repetition),
       }
-      let rawPredictions: PublicBenchmarkModelPrediction[] = []
-      let rejectedBlocks: string[] = []
+      let rawPredictions: TRow[] = []
+      let rejectedRows: string[] = []
       let modelFindings: AnalystFinding[] = []
       let providerModel = model
       let producedAt: string | undefined
       let modelMetadata: Record<string, unknown> = {
-        analysisMode: 'direct-baseline',
-        outputAdapter,
-        protocolSha256: publicBenchmarkProtocolSha256(dataset),
+        ...binding.baseMetadata,
+        protocolSha256: definition.protocolSha256,
         callRef,
       }
       try {
         if (!input.traceStore) {
-          throw new Error(`${dataset} model runner requires a trace store`)
+          throw new Error(`chunked analyst '${definition.id}' requires a trace store`)
         }
-        const preparedContext = await prepareSingleTraceContext(input.traceStore, context)
+        const preparedContext = await prepareSingleTraceContext(
+          input.traceStore,
+          context,
+          projection.attributeByteCaps,
+        )
         if (preparedContext === undefined) {
-          throw new Error(`${dataset} trace '${trajectoryId}' has no readable spans`)
+          throw new Error(`trace '${trajectoryId}' has no readable spans`)
         }
         const request: LlmCallRequest = {
           model,
           messages: [
             {
               role: 'system',
-              content: publicBenchmarkSystemPrompt(dataset),
+              content: systemPrompt,
             },
             {
               role: 'user',
-              content: `TRACE DATA:\n${preparedContext}\n\nReturn the analysis JSON object.`,
+              content: binding.userMessage(preparedContext),
             },
           ],
           jsonMode: true,
@@ -175,14 +334,14 @@ export function createPublicBenchmarkDirectRunner(
               metadata: modelMetadata,
             }
           }
-          const response = parsePublicBenchmarkModelResponse(dataset, cached.response)
-          rawPredictions = response.findings
-          rejectedBlocks = response.rejectedBlocks
+          const response = decodeReplyRows(replyContract, cached.response)
+          rawPredictions = response.rows
+          rejectedRows = response.rejected.map((entry) => entry.reason)
           providerModel = cached.metadata.providerModel
           producedAt = cached.metadata.producedAt
           modelMetadata = {
             ...modelMetadata,
-            report: response.report,
+            ...response.extras,
             providerModel: cached.metadata.providerModel,
             providerDurationMs: cached.metadata.providerDurationMs,
             finishReason: cached.metadata.finishReason,
@@ -211,8 +370,8 @@ export function createPublicBenchmarkDirectRunner(
                 },
                 costLedger,
                 channel: 'analyst',
-                phase: 'analyst.public-benchmark',
-                actor,
+                phase: binding.costPhase,
+                actor: binding.costActor,
                 tags: costTags,
                 callId: providerCallId,
                 ...(context.signal ? { signal: context.signal } : {}),
@@ -231,7 +390,7 @@ export function createPublicBenchmarkDirectRunner(
                   ...(context.signal ? { signal: context.signal } : {}),
                   idempotencyKey: providerCallId,
                 })
-                const response = parsePublicBenchmarkModelResponse(dataset, completed.value)
+                const response = decodeReplyRows(replyContract, completed.value)
                 const responseProducedAt = new Date().toISOString()
                 const receipt = requiredSettledReceipt(costLedger, providerCallId)
                 if (cacheIdentity) {
@@ -279,14 +438,14 @@ export function createPublicBenchmarkDirectRunner(
             },
           })
           const response = completed.response
-          rawPredictions = response.findings
-          rejectedBlocks = response.rejectedBlocks
+          rawPredictions = response.rows
+          rejectedRows = response.rejected.map((entry) => entry.reason)
           providerModel = completed.result.model
           producedAt = completed.producedAt
           modelMetadata = {
             ...modelMetadata,
             responseSource: 'provider',
-            report: response.report,
+            ...response.extras,
             providerModel: completed.result.model,
             providerDurationMs: completed.result.durationMs,
             finishReason: completed.result.finishReason ?? null,
@@ -294,12 +453,11 @@ export function createPublicBenchmarkDirectRunner(
           }
         }
 
-        const converted = await publicBenchmarkPredictionsToFindings({
-          dataset,
-          trajectoryId,
-          predictions: rawPredictions,
+        const converted = await binding.expandRows({
+          subject: trajectoryId,
+          rows: rawPredictions,
           store: input.traceStore,
-          analystId: 'direct',
+          analystId: definition.id,
           providerModel,
           producedAt: requiredString(producedAt ?? '', 'finding producedAt'),
           ...(context.signal ? { signal: context.signal } : {}),
@@ -308,12 +466,15 @@ export function createPublicBenchmarkDirectRunner(
         if (converted.diagnostics) {
           modelMetadata = {
             ...modelMetadata,
-            blockDiagnostics: { ...converted.diagnostics, rejectedBlocks },
+            blockDiagnostics: {
+              ...(converted.diagnostics as Record<string, unknown>),
+              rejectedBlocks: rejectedRows,
+            },
           }
         }
-        if (dataset === 'codetracebench') {
-          await validateCodeTraceFindingEvidence({
-            trajectoryId,
+        if (binding.verifyFindings) {
+          await binding.verifyFindings({
+            subject: trajectoryId,
             findings: modelFindings,
             store: input.traceStore,
             ...(context.signal ? { signal: context.signal } : {}),
@@ -345,6 +506,24 @@ export function createPublicBenchmarkDirectRunner(
         }
       }
     },
+  }
+}
+
+/** A definition that declares one budget while the transport runs another is refused. */
+function assertDeclaredBudget<TRow>(
+  definition: AnalystDefinition<TRow>,
+  effective: { timeoutMs: number; maxOutputTokens: number; maxCostUsd: number },
+): void {
+  const declared = definition.budget
+  if (
+    declared.timeoutMs !== effective.timeoutMs ||
+    declared.maxOutputTokens !== effective.maxOutputTokens ||
+    declared.maxCostUsd !== effective.maxCostUsd
+  ) {
+    throw new AnalystExpressivenessError(
+      `definition '${definition.id}' declares budget ${JSON.stringify(declared)} but the bound ` +
+        `transport runs ${JSON.stringify(effective)}; the declaration must state what executes`,
+    )
   }
 }
 
@@ -592,40 +771,57 @@ type AgentRxModelPrediction = z.infer<typeof AgentRxPredictionSchema> & {
   category?: z.infer<typeof AgentRxCategorySchema>
 }
 type CodeTraceModelPrediction = z.infer<typeof CodeTraceBlockPredictionSchema>
-type PublicBenchmarkModelPrediction = AgentRxModelPrediction | CodeTraceModelPrediction
+export type PublicBenchmarkModelPrediction = AgentRxModelPrediction | CodeTraceModelPrediction
 
-function parsePublicBenchmarkModelResponse(
+/**
+ * The one-shot reply grammar per dataset. The envelope is the contract and
+ * stays strict. Individual CodeTraceBench blocks are model output: one
+ * malformed block must not void a case whose remaining blocks are usable and
+ * whose provider call is already paid for, so rows decode individually and
+ * every rejection is reported.
+ */
+function directReplyContract(
   dataset: PublicAnalystBenchmarkDataset,
-  value: unknown,
-): { report: string; findings: PublicBenchmarkModelPrediction[]; rejectedBlocks: string[] } {
+): ReplyContract<PublicBenchmarkModelPrediction> {
   if (dataset === 'agentrx') {
-    return { ...AgentRxModelResponseSchema.parse(value), rejectedBlocks: [] }
-  }
-  // The envelope is the contract and stays strict. Individual blocks are model
-  // output: one malformed block must not void a case whose remaining blocks are
-  // usable and whose provider call is already paid for. Every rejection is
-  // reported so a run cannot silently lose predictions.
-  const envelope = CodeTraceModelResponseEnvelopeSchema.parse(value)
-  const findings: CodeTraceModelPrediction[] = []
-  const rejectedBlocks: string[] = []
-  for (const [index, block] of envelope.findings.entries()) {
-    const parsed = CodeTraceBlockPredictionSchema.safeParse(block)
-    if (parsed.success) {
-      findings.push(parsed.data)
-      continue
+    return {
+      rowsField: 'findings',
+      contractLines: [publicBenchmarkFieldContract('agentrx'), PUBLIC_BENCHMARK_ENVELOPE_CONTRACT],
+      repairContractLines: [],
+      parseEnvelope(value) {
+        const parsed = AgentRxModelResponseSchema.parse(value)
+        return { rows: parsed.findings, extras: { report: parsed.report } }
+      },
+      decodeRow(row) {
+        // The strict envelope already validated every row.
+        return { ok: true, row: row as AgentRxModelPrediction }
+      },
     }
-    rejectedBlocks.push(
-      `block ${index}: ${parsed.error.issues
-        .map((issue) => `${issue.path.join('.') || '<root>'} ${issue.message}`)
-        .join('; ')}`,
-    )
   }
-  if (findings.length === 0 && envelope.findings.length > 0) {
-    throw new ValidationError(
-      `every reported failure block was malformed: ${rejectedBlocks.join(' | ')}`,
-    )
+  return {
+    rowsField: 'findings',
+    contractLines: [
+      publicBenchmarkFieldContract('codetracebench'),
+      PUBLIC_BENCHMARK_ENVELOPE_CONTRACT,
+    ],
+    repairContractLines: [],
+    parseEnvelope(value) {
+      const envelope = CodeTraceModelResponseEnvelopeSchema.parse(value)
+      return { rows: envelope.findings, extras: { report: envelope.report } }
+    },
+    decodeRow(row, index) {
+      const parsed = CodeTraceBlockPredictionSchema.safeParse(row)
+      if (parsed.success) return { ok: true, row: parsed.data }
+      return {
+        ok: false,
+        reason: `block ${index}: ${parsed.error.issues
+          .map((issue) => `${issue.path.join('.') || '<root>'} ${issue.message}`)
+          .join('; ')}`,
+      }
+    },
+    whenAllRowsRejected: 'fail',
+    allRejectedMessage: 'every reported failure block was malformed',
   }
-  return { report: envelope.report, findings, rejectedBlocks }
 }
 
 async function publicBenchmarkPredictionsToFindings(options: {
@@ -718,6 +914,7 @@ async function publicBenchmarkPredictionsToFindings(options: {
 async function prepareSingleTraceContext(
   store: TraceAnalysisStore,
   context: { signal?: AbortSignal },
+  attributeByteCaps: readonly number[],
 ): Promise<string | undefined> {
   const storeContext = context.signal ? { signal: context.signal } : undefined
   const overview = await store.getOverview(undefined, storeContext)
@@ -727,7 +924,7 @@ async function prepareSingleTraceContext(
     )
   }
   const traceId = overview.sample_trace_ids[0]!
-  for (const perAttributeByteCap of TRACE_PROJECTION_ATTRIBUTE_BYTE_CAPS) {
+  for (const perAttributeByteCap of attributeByteCaps) {
     const viewed = await store.viewTrace(
       {
         trace_id: traceId,

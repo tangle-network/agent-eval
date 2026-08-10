@@ -13,6 +13,7 @@ import type { AnalystBenchmarkOutput, AnalystBenchmarkRunner } from './benchmark
 import { effectiveAnalystProtocolSha256 } from './benchmark-instructions-override'
 import {
   adaptPublicBenchmarkFindings,
+  type CodeTraceFailureBlock,
   type CodeTraceStepAssignment,
   codeTraceBlockMetadataFromSubject,
   expandCodeTraceFailureBlocks,
@@ -25,19 +26,169 @@ import type {
   PublicAnalystBenchmarkDataset,
   PublicAnalystBenchmarkModelConfig,
 } from './benchmark-public-types'
+import {
+  type AnalystDefinition,
+  AnalystExpressivenessError,
+  type ReplVariableConsensusPort,
+} from './definition'
 import { createDspyRlmTraceEngine, type DspyRlmTraceEngineOptions } from './dspy-rlm-engine'
-import { evidenceRefsFromRawFinding } from './finding-signature'
+import type { TraceAnalystLimits } from './engine'
+import {
+  evidenceRefsFromRawFinding,
+  RAW_FINDING_SCHEMA_PROMPT,
+  type RawAnalystFinding,
+  RawAnalystFindingSchema,
+} from './finding-signature'
 import { runTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
 import type { AnalystFinding, AnalystRunInputs, AnalystUsageReceipt } from './types'
 import { makeFinding } from './types'
 import { usageReceiptFromCostLedger } from './usage-receipt'
 
-/** Public benchmark candidate that runs the actual recursive trace analyst. */
+/**
+ * Public benchmark candidate that runs the actual recursive trace analyst.
+ *
+ * The arm is expressed as an `AnalystDefinition` (`publicRlmAnalystDefinition`):
+ * the question, the recursive instructions (stock or override), the tool group,
+ * the engine iteration limits, and the budget are definition content, and
+ * `createPublicBenchmarkRlmRunner` is a thin shell that builds the definition
+ * and runs it through the repl-variable strategy below — the same strategy
+ * `bindAnalyst` (./bind) dispatches to.
+ */
+
+export interface PublicRlmDefinitionArgs {
+  /** Effective recursive instructions: the override text or the stock prompt. */
+  instructions: string
+  /** Digest the arm records: the stock digest, bound to any override. */
+  protocolSha256: string
+  /** Whole-analysis deadline (`config.timeoutMs`). */
+  timeoutMs: number
+  /** Controller completion-token cap (`config.maxOutputTokens`). */
+  maxOutputTokens: number
+  /** Per-case engine spend ceiling (`config.maxCostUsdPerAnalysis`). */
+  maxCostUsd: number
+  /** Resolved recursive-engine iteration limits. */
+  engineLimits: TraceAnalystLimits
+}
+
+/** The dspy-rlm arm as a declarative unit for one public dataset. */
+export function publicRlmAnalystDefinition(
+  dataset: PublicAnalystBenchmarkDataset,
+  args: PublicRlmDefinitionArgs,
+): AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment> {
+  return {
+    id: 'dspy-rlm',
+    description:
+      dataset === 'agentrx'
+        ? 'Localizes the first unrecoverable root-cause step.'
+        : 'Localizes every incorrect state-changing assistant step.',
+    version: '1.0.0',
+    area: dataset === 'agentrx' ? 'root-cause' : 'incorrect',
+    // The caller-owned model path selects the model; the engine owns reasoning.
+    profile: {},
+    question:
+      dataset === 'agentrx'
+        ? 'What is the first unrecoverable root cause in this failed trajectory?'
+        : 'Which assistant steps are incorrect under the CodeTraceBench definition?',
+    taskDefinition: args.instructions,
+    projection: { mode: 'repl-variable', toolGroup: 'singleTrace' },
+    // Declarative restatement of the engine's row grammar: the engine enforces
+    // the same `RawAnalystFindingSchema` on every submitted row, and the
+    // schema prompt below is what `runTraceAnalyst` splices into the
+    // instructions. The bounded typed repair lives inside the engine's control
+    // adapter, so no repair grammar restatement exists.
+    replyContract: {
+      rowsField: 'findings',
+      contractLines: [RAW_FINDING_SCHEMA_PROMPT],
+      repairContractLines: [],
+      decodeRow(row) {
+        const parsed = RawAnalystFindingSchema.safeParse(row)
+        if (parsed.success) return { ok: true, row: parsed.data }
+        return {
+          ok: false,
+          reason: parsed.error.issues
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; '),
+        }
+      },
+    },
+    contractLimits: {
+      maxIterations: args.engineLimits.maxIterations,
+      maxLlmCalls: args.engineLimits.maxLlmCalls,
+      maxToolCalls: args.engineLimits.maxToolCalls,
+      maxOutputChars: args.engineLimits.maxOutputChars,
+    },
+    budget: {
+      timeoutMs: args.timeoutMs,
+      maxCostUsd: args.maxCostUsd,
+      maxOutputTokens: args.maxOutputTokens,
+      engineLimits: args.engineLimits,
+    },
+    // One bounded typed-extraction repair inside the engine's control adapter,
+    // mirroring the prime arm's single repair turn.
+    repair: { turns: 1 },
+    protocolSha256: args.protocolSha256,
+    binding: {
+      kind: 'repl-variable',
+      traceAnalystId: dataset === 'agentrx' ? 'agentrx-dspy-rlm' : 'codetracebench-dspy-rlm',
+      subjectFromCaseId: (caseId) => trajectoryIdFromCaseId(dataset, caseId),
+      baseMetadata: { analysisMode: 'recursive', engine: 'dspy-rlm' },
+      findingBaseMetadata: { analysis_mode: 'recursive', engine: 'dspy-rlm' },
+      costPhase: 'analyst.public-benchmark.dspy-rlm',
+      ...(dataset === 'codetracebench'
+        ? { metadataFromSubject: codeTraceBlockMetadataFromSubject }
+        : {}),
+      async adapt({ subject, findings, analystId, store, signal }) {
+        return adaptPublicBenchmarkFindings({
+          dataset,
+          trajectoryId: subject,
+          findings: [...findings],
+          analystId,
+          store,
+          ...(signal ? { signal } : {}),
+        })
+      },
+      ...(dataset === 'codetracebench' ? { consensus: codeTraceConsensusPort() } : {}),
+      abstentionFallback: (fallbackConfig) =>
+        createPublicBenchmarkDirectRunner(dataset, fallbackConfig),
+    },
+  }
+}
+
+/** Step-level majority consensus on the CodeTraceBench block grammar. */
+function codeTraceConsensusPort(): ReplVariableConsensusPort<
+  CodeTraceStepAssignment,
+  CodeTraceFailureBlock
+> {
+  return {
+    vote(samples) {
+      const consensus = consensusCodeTraceBlocks(samples.map((sample) => [...sample]))
+      return { blocks: consensus.blocks, decision: consensus.decision }
+    },
+    async expand({ subject, blocks, store, analystId, producedAt, signal }) {
+      const expanded = await expandCodeTraceFailureBlocks({
+        trajectoryId: subject,
+        blocks,
+        store,
+        analystId,
+        producedAt,
+        ...(signal ? { signal } : {}),
+      })
+      return { findings: expanded.findings, diagnostics: expanded.diagnostics }
+    },
+    sampleRecord(assignments) {
+      return {
+        blocks: sampleBlockRecords(assignments),
+        steps: assignments.map((assignment) => assignment.step),
+      }
+    },
+  }
+}
+
+/** Thin shell: validate config, declare the definition, run the repl-variable strategy. */
 export function createPublicBenchmarkRlmRunner(
   dataset: PublicAnalystBenchmarkDataset,
   config: PublicAnalystBenchmarkModelConfig,
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
-  const costLedger = config.costLedger ?? new CostLedger()
   const samples = config.dspyRlm?.samples ?? 1
   if (!Number.isSafeInteger(samples) || samples < 1) {
     throw new RangeError('dspyRlm.samples must be a positive safe integer')
@@ -47,11 +198,99 @@ export function createPublicBenchmarkRlmRunner(
       'dspyRlm.samples > 1 requires the codetracebench dataset; step-level consensus is defined on its block grammar',
     )
   }
-  const limits = {
+  return runReplVariableAnalystDefinition(
+    publicRlmAnalystDefinition(dataset, {
+      instructions: config.instructionsOverride?.text ?? publicBenchmarkRlmInstructions(dataset),
+      protocolSha256: effectiveAnalystProtocolSha256(dataset, config.instructionsOverride),
+      timeoutMs: config.timeoutMs,
+      maxOutputTokens: config.maxOutputTokens,
+      maxCostUsd: config.maxCostUsdPerAnalysis ?? 1,
+      engineLimits: rlmEngineLimits(config),
+    }),
+    config,
+  )
+}
+
+/** Engine iteration limits with this arm's defaults applied. */
+export function rlmEngineLimits(config: PublicAnalystBenchmarkModelConfig): TraceAnalystLimits {
+  return {
     maxIterations: config.dspyRlm?.maxIterations ?? 14,
     maxLlmCalls: config.dspyRlm?.maxLlmCalls ?? 8,
     maxToolCalls: config.dspyRlm?.maxToolCalls ?? 80,
     maxOutputChars: config.dspyRlm?.maxOutputChars ?? 8_000,
+  }
+}
+
+// ── Repl-variable execution strategy ────────────────────────────────
+
+/**
+ * Compile a repl-variable definition into a runnable recursive-engine arm over
+ * the caller-owned model path. The question, instructions, tool group, and
+ * iteration limits come from the definition; the engine, model proxy, sampling
+ * loop, and abstention floor are transport machinery.
+ */
+export function runReplVariableAnalystDefinition(
+  definition: AnalystDefinition<RawAnalystFinding, CodeTraceStepAssignment>,
+  config: PublicAnalystBenchmarkModelConfig,
+): AnalystBenchmarkRunner<AnalystRunInputs> {
+  const { projection, binding } = definition
+  if (projection.mode !== 'repl-variable' || binding.kind !== 'repl-variable') {
+    throw new AnalystExpressivenessError(
+      `the repl-variable strategy compiles only repl-variable projections; definition ` +
+        `'${definition.id}' declares projection '${projection.mode}' with a '${binding.kind}' binding`,
+    )
+  }
+  const instructions = definition.taskDefinition
+  if (instructions === undefined) {
+    throw new AnalystExpressivenessError(
+      `the repl-variable strategy runs the definition's task text as engine instructions; ` +
+        `definition '${definition.id}' declares none`,
+    )
+  }
+  if (
+    config.instructionsOverride !== undefined &&
+    config.instructionsOverride.text !== instructions
+  ) {
+    throw new AnalystExpressivenessError(
+      `definition '${definition.id}' declares instructions that differ from the transport's ` +
+        'instructionsOverride; one text must execute',
+    )
+  }
+  const area = definition.area
+  if (area === undefined) {
+    throw new AnalystExpressivenessError(
+      `the repl-variable strategy stamps the definition's area on every finding; definition ` +
+        `'${definition.id}' declares none`,
+    )
+  }
+  const limits = definition.budget.engineLimits
+  if (limits === undefined) {
+    throw new AnalystExpressivenessError(
+      `the repl-variable strategy needs declared engine limits; definition ` +
+        `'${definition.id}' declares none`,
+    )
+  }
+  const effectiveLimits = rlmEngineLimits(config)
+  if (
+    limits.maxIterations !== effectiveLimits.maxIterations ||
+    limits.maxLlmCalls !== effectiveLimits.maxLlmCalls ||
+    limits.maxToolCalls !== effectiveLimits.maxToolCalls ||
+    limits.maxOutputChars !== effectiveLimits.maxOutputChars
+  ) {
+    throw new AnalystExpressivenessError(
+      `definition '${definition.id}' declares engine limits ${JSON.stringify(limits)} but the ` +
+        `bound transport runs ${JSON.stringify(effectiveLimits)}; the declaration must state what executes`,
+    )
+  }
+  const costLedger = config.costLedger ?? new CostLedger()
+  const samples = config.dspyRlm?.samples ?? 1
+  if (!Number.isSafeInteger(samples) || samples < 1) {
+    throw new RangeError('dspyRlm.samples must be a positive safe integer')
+  }
+  if (samples > 1 && binding.consensus === undefined) {
+    throw new AnalystExpressivenessError(
+      `samples > 1 needs a consensus port; definition '${definition.id}' declares none`,
+    )
   }
   const pricing = config.pricing ?? pricingForModel(config.model)
   const engine = createDspyRlmTraceEngine({
@@ -96,25 +335,30 @@ export function createPublicBenchmarkRlmRunner(
       : { traceToolTimeoutMs: config.dspyRlm.traceToolTimeoutMs }),
     ...(config.dspyRlm?.runner ? { runner: config.dspyRlm.runner } : {}),
   } satisfies DspyRlmTraceEngineOptions)
-  const instructions = config.instructionsOverride?.text ?? publicBenchmarkRlmInstructions(dataset)
-  const protocolSha256 = effectiveAnalystProtocolSha256(dataset, config.instructionsOverride)
-  const definition = publicBenchmarkDefinition(dataset, limits, instructions)
-  // Abstention floor: shares this runner's cost ledger so a fallback call's
-  // spend lands under the same case and repetition tags as the engine's calls.
-  // The fallback always runs the stock direct prompt — an instructions override
+  const protocolSha256 = definition.protocolSha256
+  const traceDefinition: TraceAnalystDefinition = {
+    id: binding.traceAnalystId,
+    description: definition.description,
+    area,
+    version: definition.version,
+    question: definition.question,
+    instructions,
+    toolGroup: projection.toolGroup,
+    limits,
+  }
+  // Abstention floor: shares this arm's cost ledger so a fallback call's spend
+  // lands under the same case and repetition tags as the engine's calls. The
+  // fallback always runs the stock direct prompt — an instructions override
   // replaces only the recursive instructions, and the effective protocol digest
   // binds the stock digest (covering this fallback prompt) to the override.
   const { instructionsOverride: _rlmOnlyOverride, ...directConfig } = config
   void _rlmOnlyOverride
-  const abstentionFallbackRunner = createPublicBenchmarkDirectRunner(dataset, {
-    ...directConfig,
-    costLedger,
-  })
+  const abstentionFallbackRunner = binding.abstentionFallback({ ...directConfig, costLedger })
 
   return {
-    id: 'dspy-rlm',
+    id: definition.id,
     async analyze(input, context) {
-      const trajectoryId = trajectoryIdFromCaseId(dataset, context.caseId)
+      const trajectoryId = binding.subjectFromCaseId(context.caseId)
       const tags = {
         benchmarkCaseId: context.caseId,
         benchmarkRepetition: String(context.repetition),
@@ -123,7 +367,7 @@ export function createPublicBenchmarkRlmRunner(
       let rawFindings: AnalystFinding[] = []
       try {
         if (!input.traceStore) {
-          throw new Error(`${dataset} DSPy RLM runner requires a trace store`)
+          throw new Error(`repl-variable analyst '${definition.id}' requires a trace store`)
         }
         if (samples > 1) {
           const store = input.traceStore
@@ -135,7 +379,7 @@ export function createPublicBenchmarkRlmRunner(
           for (let sample = 0; sample < samples; sample += 1) {
             let sampleUsage: AnalystUsageReceipt | undefined
             const completed = await runTraceAnalyst({
-              definition,
+              definition: traceDefinition,
               engine,
               store,
               context: {
@@ -146,7 +390,7 @@ export function createPublicBenchmarkRlmRunner(
                 // fallback's — on this one case.
                 correlationId: `${context.caseId}:${context.repetition}:sample-${sample}`,
                 costLedger,
-                costPhase: 'analyst.public-benchmark.dspy-rlm',
+                costPhase: binding.costPhase,
                 tags,
                 recordUsage: (receipt) => {
                   sampleUsage = receipt
@@ -158,8 +402,8 @@ export function createPublicBenchmarkRlmRunner(
             const producedAt = new Date().toISOString()
             const sampleFindings = completed.findings.map((finding) =>
               makeFinding({
-                analyst_id: 'dspy-rlm',
-                area: 'incorrect',
+                analyst_id: definition.id,
+                area,
                 subject: finding.subject,
                 claim: finding.claim,
                 rationale: finding.rationale,
@@ -168,21 +412,19 @@ export function createPublicBenchmarkRlmRunner(
                 evidence_refs: evidenceRefsFromRawFinding(finding),
                 recommended_action: finding.recommended_action,
                 metadata: {
-                  analysis_mode: 'recursive',
-                  engine: 'dspy-rlm',
+                  ...binding.findingBaseMetadata,
                   model: config.model,
                   sample,
-                  ...(codeTraceBlockMetadataFromSubject(finding.subject) ?? {}),
+                  ...(binding.metadataFromSubject?.(finding.subject) ?? {}),
                 },
                 produced_at: producedAt,
               }),
             )
             rawFindings = [...rawFindings, ...sampleFindings]
-            const adapted = await adaptPublicBenchmarkFindings({
-              dataset,
-              trajectoryId,
+            const adapted = await binding.adapt({
+              subject: trajectoryId,
               findings: sampleFindings,
-              analystId: 'dspy-rlm',
+              analystId: definition.id,
               store,
               ...(context.signal ? { signal: context.signal } : {}),
             })
@@ -197,18 +439,17 @@ export function createPublicBenchmarkRlmRunner(
               modelCalls: completed.modelCalls,
               toolCalls: completed.toolCalls,
               runtime: completed.runtime,
-              blocks: sampleBlockRecords(assignments),
-              steps: assignments.map((assignment) => assignment.step),
+              ...binding.consensus!.sampleRecord(assignments),
               ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
               ...(sampleUsage ? { usage: sampleUsage } : {}),
             })
           }
-          const consensus = consensusCodeTraceBlocks(sampleAssignments)
-          const expanded = await expandCodeTraceFailureBlocks({
-            trajectoryId,
+          const consensus = binding.consensus!.vote(sampleAssignments)
+          const expanded = await binding.consensus!.expand({
+            subject: trajectoryId,
             blocks: consensus.blocks,
             store,
-            analystId: 'dspy-rlm',
+            analystId: definition.id,
             producedAt: new Date().toISOString(),
             ...(context.signal ? { signal: context.signal } : {}),
           })
@@ -225,8 +466,7 @@ export function createPublicBenchmarkRlmRunner(
             findings: fallback && !fallback.error ? fallback.findings : expanded.findings,
             usage,
             metadata: {
-              analysisMode: 'recursive',
-              engine: 'dspy-rlm',
+              ...binding.baseMetadata,
               protocolSha256,
               samples,
               sampleRuns,
@@ -245,14 +485,14 @@ export function createPublicBenchmarkRlmRunner(
           }
         }
         const completed = await runTraceAnalyst({
-          definition,
+          definition: traceDefinition,
           engine,
           store: input.traceStore,
           context: {
             runId: context.caseId,
             correlationId: `${context.caseId}:${context.repetition}`,
             costLedger,
-            costPhase: 'analyst.public-benchmark.dspy-rlm',
+            costPhase: binding.costPhase,
             tags,
             recordUsage: (receipt) => {
               usage = receipt
@@ -263,8 +503,8 @@ export function createPublicBenchmarkRlmRunner(
         const producedAt = new Date().toISOString()
         rawFindings = completed.findings.map((finding) =>
           makeFinding({
-            analyst_id: 'dspy-rlm',
-            area: dataset === 'agentrx' ? 'root-cause' : 'incorrect',
+            analyst_id: definition.id,
+            area,
             subject: finding.subject,
             claim: finding.claim,
             rationale: finding.rationale,
@@ -273,23 +513,19 @@ export function createPublicBenchmarkRlmRunner(
             evidence_refs: evidenceRefsFromRawFinding(finding),
             recommended_action: finding.recommended_action,
             metadata: {
-              analysis_mode: 'recursive',
-              engine: 'dspy-rlm',
+              ...binding.findingBaseMetadata,
               model: config.model,
               // Block coordinates from the subject grammar, so a row retained
               // by a failed or empty case still carries its block metadata.
-              ...(dataset === 'codetracebench'
-                ? codeTraceBlockMetadataFromSubject(finding.subject)
-                : {}),
+              ...(binding.metadataFromSubject?.(finding.subject) ?? {}),
             },
             produced_at: producedAt,
           }),
         )
-        const adapted = await adaptPublicBenchmarkFindings({
-          dataset,
-          trajectoryId,
+        const adapted = await binding.adapt({
+          subject: trajectoryId,
           findings: rawFindings,
-          analystId: 'dspy-rlm',
+          analystId: definition.id,
           store: input.traceStore,
           ...(context.signal ? { signal: context.signal } : {}),
         })
@@ -313,8 +549,7 @@ export function createPublicBenchmarkRlmRunner(
           findings: fallback && !fallback.error ? fallback.findings : adapted.findings,
           usage,
           metadata: {
-            analysisMode: 'recursive',
-            engine: 'dspy-rlm',
+            ...binding.baseMetadata,
             protocolSha256,
             ...(adapted.diagnostics ? { blockDiagnostics: adapted.diagnostics } : {}),
             answer: completed.answer,
@@ -339,8 +574,7 @@ export function createPublicBenchmarkRlmRunner(
           usage,
           error: publicBenchmarkError(error, []),
           metadata: {
-            analysisMode: 'recursive',
-            engine: 'dspy-rlm',
+            ...binding.baseMetadata,
             ...(samples > 1 ? { samples } : {}),
             rawFindings,
           },
@@ -370,34 +604,6 @@ function sampleBlockRecords(
     claim: block.claim,
     acceptedSteps,
   }))
-}
-
-function publicBenchmarkDefinition(
-  dataset: PublicAnalystBenchmarkDataset,
-  limits: {
-    maxIterations: number
-    maxLlmCalls: number
-    maxToolCalls: number
-    maxOutputChars: number
-  },
-  instructions: string,
-): TraceAnalystDefinition {
-  return {
-    id: dataset === 'agentrx' ? 'agentrx-dspy-rlm' : 'codetracebench-dspy-rlm',
-    description:
-      dataset === 'agentrx'
-        ? 'Localizes the first unrecoverable root-cause step.'
-        : 'Localizes every incorrect state-changing assistant step.',
-    area: dataset === 'agentrx' ? 'root-cause' : 'incorrect',
-    version: '1.0.0',
-    question:
-      dataset === 'agentrx'
-        ? 'What is the first unrecoverable root cause in this failed trajectory?'
-        : 'Which assistant steps are incorrect under the CodeTraceBench definition?',
-    instructions,
-    toolGroup: 'singleTrace',
-    limits,
-  }
 }
 
 function pricingForModel(model: string): CustomTokenPricing {

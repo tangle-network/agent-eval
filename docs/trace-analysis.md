@@ -215,6 +215,32 @@ Unknown, transformed, or fabricated identifiers are rejected.
 An empty findings array means no submitted claim passed the evidence rules.
 It does not prove the run was correct.
 
+## Analyst Definitions
+
+`AnalystDefinition` (`src/analyst/definition.ts`, exported from `@tangle-network/agent-eval/analyst`) is the declarative unit behind an analyst arm.
+One definition value declares everything the arm can say to a model: the question, the task text, the `ReplyContract` row grammar, the `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a profile fragment (pinned model and reasoning-effort hints), the budget, and the repair-turn count.
+`bindAnalyst(definition, transports)` compiles a definition plus a transport binding (`prime-bridge` or `model-owner`) into a runnable `AnalystBenchmarkRunner`.
+
+The three benchmark arms are expressed this way:
+
+| Arm | Definition builder | Projection | Repair turns |
+|---|---|---|---|
+| `direct` | `publicDirectAnalystDefinition(dataset, args)` | `chunked` (descending per-attribute byte caps) | 0 |
+| `dspy-rlm` | `publicRlmAnalystDefinition(dataset, args)` | `repl-variable` (store bound as an engine REPL variable) | 1 (engine-internal typed repair) |
+| `prime` | `primeCodeTraceAnalystDefinition(args)` | `inline` (serialized JSON with a capped refetch) | 0 or 1 |
+
+`createPublicBenchmarkDirectRunner`, `createPublicBenchmarkRlmRunner`, and `createPrimeBenchmarkRunner` are thin shells over those builders, so no consumer changes.
+The parity suite (`src/analyst/definition-parity.test.ts`) runs each compiled definition and its entry point over the same fixture rows with a fake transport and asserts byte-identical request bodies plus equal protocol digests.
+A mismatch fails CI: expression loss between the declarative layer and the executing arm is caught by construction.
+Do not loosen those assertions; report the construct that cannot be expressed and extend the definition slots instead.
+
+`analystDefinitionProtocolSha256(definition)` digests the definition's protocol content; for an inline definition it equals the digest the prime arm records (`primeAnalystProtocolSha256()`).
+`analystDefinitionAsymmetries(definitions)` compares arms on equal terms: it refuses a set whose definitions declare unequal repair turns (a retry is a second sample) and renders the declared differences — projection mode, reasoning effort, budget — beside each arm.
+A definition a strategy cannot compile fails loud with `AnalystExpressivenessError` naming the construct.
+
+`AnalystContext.probe` (`ExecutionProbe`) is the optional live-execution port: a runtime that owns a sandbox or checkout fills it so an analyst can run a bounded command against the run's produced state and read a typed outcome.
+This package defines only the port; an absent probe means the analyst works from recorded evidence.
+
 ## Measure Analyst Quality
 
 Measure the analyst on labeled traces before using its findings for automated changes.

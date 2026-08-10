@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { CustomTokenPricing } from '../cost-ledger'
 import type { PrimeBridgeTransport, PrimeBridgeTransportResult } from './prime-bridge-transport'
+import type { ReplyContract, ReplyRowDecoded } from './reply-contract'
 import type { AnalystUsageReceipt } from './types'
 
 /**
@@ -24,28 +25,16 @@ import type { AnalystUsageReceipt } from './types'
 
 // ── Reply contract ───────────────────────────────────────────────────
 
-export type PrimeRowDecoded<TRow> = { ok: true; row: TRow } | { ok: false; reason: string }
+/**
+ * The prime reply grammar is the general analyst reply contract: these aliases
+ * keep every prime-protocol consumer compiling against the shared type in
+ * ./reply-contract. The exchange below reads the base fields (`rowsField`,
+ * contract lines, `decodeRow`, `maxRows`); the strict-envelope knobs serve
+ * one-shot JSON arms and are inert here.
+ */
+export type PrimeRowDecoded<TRow> = ReplyRowDecoded<TRow>
 
-export interface PrimeReplyContract<TRow> {
-  /** Name of the reply's row array, e.g. `blocks` or `findings`. */
-  rowsField: string
-  /** Row-grammar lines spliced into the first-turn prompt. */
-  contractLines: readonly string[]
-  /** The same grammar restated for the repair turn, which never carries the trajectory. */
-  repairContractLines: readonly string[]
-  /**
-   * Validate and convert one raw row in a single pass. One function rather than
-   * a separate validator and constructor, so the two can never disagree about
-   * what a valid row is.
-   */
-  decodeRow(row: unknown, index: number): PrimeRowDecoded<TRow>
-  /**
-   * Cap on ACCEPTED rows. The cap is applied after decoding, so malformed rows
-   * never consume an accepted slot; the surplus is reported as `overflow`.
-   * Omit when the consumer's own expansion owns the cap and records the drop.
-   */
-  maxRows?: number
-}
+export type PrimeReplyContract<TRow> = ReplyContract<TRow>
 
 // ── Prompt composition ───────────────────────────────────────────────
 

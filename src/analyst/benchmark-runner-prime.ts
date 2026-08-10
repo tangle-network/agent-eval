@@ -14,6 +14,7 @@ import {
   MAX_INCORRECT_BLOCKS,
 } from './benchmark-public-prompt'
 import { positiveSafeInteger, requiredString } from './benchmark-public-types'
+import { type AnalystDefinition, AnalystExpressivenessError } from './definition'
 import { nodeHttpPrimeBridgeTransport, type PrimeBridgeTransport } from './prime-bridge-transport'
 import {
   analystUsageReceiptFromPrimeUsage,
@@ -34,22 +35,25 @@ import type { AnalystRunInputs, AnalystSeverity, AnalystUsageReceipt } from './t
  * cli-bridge solves the CodeTraceBench incorrect-step task as a one-shot trace
  * analyst.
  *
- * The runner consumes the same prepared benchmark cases every other runner
- * receives — the trace store already carries the appended final-verification
- * spans — and produces findings through the same published block expansion, so
- * a prime observation and a dspy-rlm observation differ only in which analyst
- * produced the blocks.
+ * The arm is expressed as an `AnalystDefinition`
+ * (`primeCodeTraceAnalystDefinition`): the question, task text, output
+ * contract, inline projection budget, and repair-turn declaration are all
+ * definition content, and `createPrimeBenchmarkRunner` is a thin shell that
+ * builds the definition and runs it through the inline strategy below. The
+ * same strategy is what `bindAnalyst` (./bind) dispatches to, so a compiled
+ * definition and this entry point send byte-identical requests — the parity
+ * suite asserts exactly that.
  *
- * The protocol itself — prompt composition, the bounded repair turn, reply
+ * The protocol machinery — prompt composition, the bounded repair turn, reply
  * extraction, the projection ladder, usage normalization — lives in
- * `./prime-protocol`, which knows nothing about CodeTraceBench. This file is
- * the benchmark's binding to it: the block row grammar, the store-backed
- * projection source, and the benchmark observation shape.
+ * `./prime-protocol`, which knows nothing about CodeTraceBench. This file adds
+ * the benchmark's binding to it (block row grammar, store-backed projection,
+ * observation shape) plus the projection-generic inline execution strategy.
  *
  * Trajectory delivery is inline JSON in the prompt. The dspy typed path binds
  * the viewTrace span projection as a REPL variable; prime has no REPL, so the
  * same projection is serialized into the prompt. When the full projection is
- * oversized the runner falls back to chunked viewSpans over the same
+ * oversized the strategy falls back to chunked viewSpans over the same
  * projection surface with a per-attribute byte cap, and fails loud if the
  * result still exceeds the inline budget.
  *
@@ -161,62 +165,188 @@ const PRIME_BLOCK_CONTRACT: PrimeReplyContract<CodeTraceFailureBlock> = {
 }
 
 /**
- * Digest of everything this runner can send to the bridge, recorded per
+ * Digest of everything this arm can send to the bridge, recorded per
  * observation so a prime result names the exact contract that produced it.
  */
 export function primeAnalystProtocolSha256(): string {
   return primeProtocolSha256(PRIME_PROTOCOL_IDENTITY)
 }
 
-/** CodeTraceBench-only: the prompt and output contract speak its block grammar. */
+export interface PrimeCodeTraceDefinitionArgs {
+  /** Deadline for one bridge call. */
+  timeoutMs: number
+  /** 1 grants the bounded repair turn; 0 disables it. */
+  repairTurns: number
+}
+
+/**
+ * The prime arm as a declarative unit. CodeTraceBench-only: the question,
+ * task text, and block grammar speak its incorrect-step definition.
+ */
+export function primeCodeTraceAnalystDefinition(
+  args: PrimeCodeTraceDefinitionArgs,
+): AnalystDefinition<CodeTraceFailureBlock> {
+  return {
+    id: PRIME_ANALYST_ID,
+    description:
+      'One-shot RLM over an OpenAI-compatible bridge answering the CodeTraceBench incorrect-step task.',
+    version: '1.0.0',
+    area: 'incorrect',
+    // The bridge owns model selection and reasoning control; the fragment pins nothing.
+    profile: {},
+    question: PRIME_QUESTION,
+    taskDefinition: CODE_TRACE_BENCH_ANALYST_PROMPT,
+    projection: {
+      mode: 'inline',
+      maxInlineChars: MAX_INLINE_TRAJECTORY_CHARS,
+      cappedAttributeBytes: CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
+    },
+    replyContract: PRIME_BLOCK_CONTRACT,
+    // Insertion order is digest-bearing: it mirrors PRIME_PROTOCOL_IDENTITY.limits.
+    contractLimits: {
+      maxBlocks: MAX_INCORRECT_BLOCKS,
+      maxBlockSteps: MAX_INCORRECT_BLOCK_STEPS,
+    },
+    budget: { timeoutMs: args.timeoutMs },
+    repair: { turns: args.repairTurns },
+    protocolSha256: primeAnalystProtocolSha256(),
+    binding: {
+      kind: 'inline',
+      subjectFromCaseId: trajectoryIdFromCaseId,
+      baseMetadata: { analysisMode: 'prime-rlm', engine: 'prime' },
+      header(subject, spans) {
+        const stepSpans = spans.filter((span) => /^step-\d+$/.test(String(span.span_id)))
+        if (stepSpans.length === 0) {
+          throw new PrimeTraceProjectionError(`no step-<n> spans in trace '${subject}'`)
+        }
+        return `TRAJECTORY (trace_id ${subject}; ${stepSpans.length} assistant step spans; full span projection as JSON):`
+      },
+      trailer(_subject, spans) {
+        const finalVerification = spans.filter(isFinalVerificationSpan)
+        return finalVerification.length > 0
+          ? `FINAL VERIFICATION SPANS:\n${JSON.stringify(finalVerification)}`
+          : 'FINAL VERIFICATION: unavailable for this trajectory — trace backward from the latest failure evidence inside the trajectory itself.'
+      },
+      async expandRows({ subject, rows, store, analystId, signal }) {
+        const expanded = await expandCodeTraceFailureBlocks({
+          trajectoryId: subject,
+          blocks: rows,
+          store,
+          analystId,
+          ...(signal ? { signal } : {}),
+        })
+        return { findings: expanded.findings, diagnostics: expanded.diagnostics }
+      },
+    },
+  }
+}
+
+/** Thin shell: validate options, declare the definition, run the inline strategy. */
 export function createPrimeBenchmarkRunner(
   options: PrimeBenchmarkRunnerOptions,
 ): AnalystBenchmarkRunner<AnalystRunInputs> {
-  const baseUrl = requiredString(options.baseUrl, 'baseUrl').replace(/\/+$/, '')
-  const model = requiredString(options.model, 'model')
   const timeoutMs = positiveSafeInteger(options.timeoutMs, 'timeoutMs')
   const repair = options.repair
   if (typeof repair !== 'boolean') throw new TypeError('repair must be a boolean')
-  const pricing = options.pricing ?? pricingForModel(model)
-  const transport = options.transport ?? nodeHttpPrimeBridgeTransport()
+  return runInlineAnalystDefinition(
+    primeCodeTraceAnalystDefinition({ timeoutMs, repairTurns: repair ? 1 : 0 }),
+    {
+      baseUrl: options.baseUrl,
+      model: options.model,
+      ...(options.transport ? { transport: options.transport } : {}),
+      ...(options.pricing ? { pricing: options.pricing } : {}),
+    },
+  )
+}
+
+// ── Inline execution strategy ───────────────────────────────────────
+
+/** The transport half of an inline-projection binding: the bridge endpoint. */
+export interface InlineBridgeTransports {
+  /** OpenAI-compatible bridge base URL. */
+  baseUrl: string
+  /** Bridge model id. */
+  model: string
+  /** Bridge transport. Default: node:http POST. */
+  transport?: PrimeBridgeTransport
+  /** Exact token rates. Default: the agent-eval catalog rates for `model`. */
+  pricing?: CustomTokenPricing
+}
+
+/**
+ * Compile an inline-projection definition into a runnable arm. Projection,
+ * prompt composition, the bounded repair turn, and usage accounting are all
+ * driven by the definition; nothing in this strategy names a benchmark.
+ */
+export function runInlineAnalystDefinition<TRow>(
+  definition: AnalystDefinition<TRow>,
+  transports: InlineBridgeTransports,
+): AnalystBenchmarkRunner<AnalystRunInputs> {
+  const { projection, binding } = definition
+  if (projection.mode !== 'inline' || binding.kind !== 'inline') {
+    throw new AnalystExpressivenessError(
+      `the inline strategy compiles only inline projections; definition '${definition.id}' ` +
+        `declares projection '${projection.mode}' with a '${binding.kind}' binding`,
+    )
+  }
+  if (definition.repair.turns > 1) {
+    throw new AnalystExpressivenessError(
+      `the inline exchange grants at most one bounded repair turn; definition ` +
+        `'${definition.id}' declares ${definition.repair.turns}`,
+    )
+  }
+  const baseUrl = requiredString(transports.baseUrl, 'baseUrl').replace(/\/+$/, '')
+  const model = requiredString(transports.model, 'model')
+  const timeoutMs = positiveSafeInteger(definition.budget.timeoutMs, 'timeoutMs')
+  const repair = definition.repair.turns === 1
+  const pricing = transports.pricing ?? pricingForModel(model)
+  const transport = transports.transport ?? nodeHttpPrimeBridgeTransport()
   const url = `${baseUrl}/v1/chat/completions`
 
   return {
-    id: PRIME_ANALYST_ID,
+    id: definition.id,
     async analyze(input, context) {
-      const trajectoryId = trajectoryIdFromCaseId(context.caseId)
+      const subject = binding.subjectFromCaseId(context.caseId)
       let usage: AnalystUsageReceipt | undefined
       let metadata: Record<string, unknown> = {
-        analysisMode: 'prime-rlm',
-        engine: 'prime',
+        ...binding.baseMetadata,
         bridgeUrl: baseUrl,
         model,
-        protocolSha256: primeAnalystProtocolSha256(),
+        protocolSha256: definition.protocolSha256,
       }
       try {
         const store = input.traceStore
-        if (!store) throw new Error('codetracebench prime runner requires a trace store')
+        if (!store) throw new Error(`inline analyst '${definition.id}' requires a trace store`)
         const storeContext: TraceAnalysisStoreContext | undefined = context.signal
           ? { signal: context.signal }
           : undefined
-        const projection = await projectPrimeTrajectory(
-          codeTraceProjectionSource(store, trajectoryId, storeContext),
-          { maxInlineChars: MAX_INLINE_TRAJECTORY_CHARS },
+        const projected = await projectPrimeTrajectory(
+          inlineProjectionSource(store, subject, projection.cappedAttributeBytes, storeContext),
+          { maxInlineChars: projection.maxInlineChars },
         )
-        if (!projection.ok) throw new PrimeTraceProjectionError(projection.reason)
-        const delivery: PrimeTrajectoryDelivery = {
-          mode: projection.delivery.mode,
-          fetch: projection.delivery.fetch === 'full' ? 'view-trace' : 'view-spans-chunked',
+        if (!projected.ok) throw new PrimeTraceProjectionError(projected.reason)
+        const delivery: InlineTrajectoryDelivery = {
+          mode: projected.delivery.mode,
+          fetch: projected.delivery.fetch === 'full' ? 'view-trace' : 'view-spans-chunked',
           perAttributeByteCap:
-            projection.delivery.fetch === 'full' ? null : CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
-          renderedChars: projection.delivery.renderedChars,
+            projected.delivery.fetch === 'full' ? null : projection.cappedAttributeBytes,
+          renderedChars: projected.delivery.renderedChars,
         }
         metadata = { ...metadata, delivery }
-        const prompt = buildCodeTracePrompt(trajectoryId, projection.items, projection.rendered)
+        const prompt = buildPrimePrompt({
+          question: definition.question,
+          ...(definition.taskDefinition === undefined
+            ? {}
+            : { taskDefinition: definition.taskDefinition }),
+          contractLines: definition.replyContract.contractLines,
+          trajectoryHeader: binding.header(subject, projected.items),
+          renderedTrajectory: projected.rendered,
+          trailer: binding.trailer(subject, projected.items),
+        })
         metadata = { ...metadata, promptChars: prompt.length }
 
         const outcome = await runPrimeExchange({
-          contract: PRIME_BLOCK_CONTRACT,
+          contract: definition.replyContract,
           prompt,
           transport,
           url,
@@ -239,11 +369,11 @@ export function createPrimeBenchmarkRunner(
           throw primeFailureError(outcome.failure)
         }
 
-        const expanded = await expandCodeTraceFailureBlocks({
-          trajectoryId,
-          blocks: outcome.rows,
+        const expanded = await binding.expandRows({
+          subject,
+          rows: outcome.rows,
           store,
-          analystId: PRIME_ANALYST_ID,
+          analystId: definition.id,
           ...(context.signal ? { signal: context.signal } : {}),
         })
         return {
@@ -270,7 +400,7 @@ export function createPrimeBenchmarkRunner(
   }
 }
 
-interface PrimeTrajectoryDelivery {
+interface InlineTrajectoryDelivery {
   mode: 'inline-json'
   fetch: 'view-trace' | 'view-spans-chunked'
   perAttributeByteCap: number | null
@@ -282,9 +412,10 @@ interface PrimeTrajectoryDelivery {
  * the full viewTrace projection, or the chunked viewSpans projection at a
  * per-attribute byte cap.
  */
-function codeTraceProjectionSource(
+function inlineProjectionSource(
   store: TraceAnalysisStore,
   trajectoryId: string,
+  cappedAttributeBytes: number,
   context: TraceAnalysisStoreContext | undefined,
 ): PrimeProjectionSource<TraceAnalystSpan> {
   return {
@@ -292,8 +423,8 @@ function codeTraceProjectionSource(
       const view = await store.viewTrace({ trace_id: trajectoryId }, context)
       return view.spans ?? null
     },
-    capped: () => projectSpansChunked(store, trajectoryId, context),
-    cappedDescription: `per-attribute cap ${CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP}`,
+    capped: () => projectSpansChunked(store, trajectoryId, cappedAttributeBytes, context),
+    cappedDescription: `per-attribute cap ${cappedAttributeBytes}`,
   }
 }
 
@@ -306,6 +437,7 @@ function codeTraceProjectionSource(
 async function projectSpansChunked(
   store: TraceAnalysisStore,
   trajectoryId: string,
+  cappedAttributeBytes: number,
   context: TraceAnalysisStoreContext | undefined,
 ): Promise<TraceAnalystSpan[]> {
   const enumeration = await store.viewTrace(
@@ -335,7 +467,7 @@ async function projectSpansChunked(
       {
         trace_id: trajectoryId,
         span_ids: chunk,
-        per_attribute_byte_cap: CHUNKED_PROJECTION_ATTRIBUTE_BYTE_CAP,
+        per_attribute_byte_cap: cappedAttributeBytes,
       },
       context,
     )
@@ -351,29 +483,6 @@ async function projectSpansChunked(
     projected.push(...result.spans)
   }
   return projected
-}
-
-function buildCodeTracePrompt(
-  trajectoryId: string,
-  spans: readonly TraceAnalystSpan[],
-  renderedSpans: string,
-): string {
-  const stepSpans = spans.filter((span) => /^step-\d+$/.test(String(span.span_id)))
-  if (stepSpans.length === 0) {
-    throw new PrimeTraceProjectionError(`no step-<n> spans in trace '${trajectoryId}'`)
-  }
-  const finalVerification = spans.filter(isFinalVerificationSpan)
-  return buildPrimePrompt({
-    question: PRIME_QUESTION,
-    taskDefinition: CODE_TRACE_BENCH_ANALYST_PROMPT,
-    contractLines: PRIME_OUTPUT_CONTRACT_LINES,
-    trajectoryHeader: `TRAJECTORY (trace_id ${trajectoryId}; ${stepSpans.length} assistant step spans; full span projection as JSON):`,
-    renderedTrajectory: renderedSpans,
-    trailer:
-      finalVerification.length > 0
-        ? `FINAL VERIFICATION SPANS:\n${JSON.stringify(finalVerification)}`
-        : 'FINAL VERIFICATION: unavailable for this trajectory — trace backward from the latest failure evidence inside the trajectory itself.',
-  })
 }
 
 /** Map the protocol's terminal reason onto this benchmark's typed error classes. */

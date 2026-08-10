@@ -5,6 +5,7 @@ It is the third scored arm of `agent-eval analyst-benchmark`, beside the recursi
 It speaks the CodeTraceBench failure-block contract only; `--analyst prime` with `--dataset agentrx` is rejected.
 
 Implementation: `src/analyst/benchmark-runner-prime.ts` (`createPrimeBenchmarkRunner`) binds the CodeTraceBench block grammar to the shared protocol in `src/analyst/prime-protocol.ts` and `src/analyst/prime-bridge-transport.ts`.
+The arm is declared as `primeCodeTraceAnalystDefinition()` and the creator is a thin shell over it; see the Analyst Definitions section in [trace-analysis.md](./trace-analysis.md).
 Wiring: `--analyst prime` in `src/analyst/benchmark-command.ts`.
 
 ## What the runner does
