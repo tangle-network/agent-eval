@@ -193,6 +193,10 @@ export interface ReplayBatchReport {
     readonly failures: number
     readonly promptTokens: number
     readonly completionTokens: number
+    /** Successful calls whose provider reported no usage. Their tokens are
+     *  absent from the two totals above, so a nonzero count here means the
+     *  totals are a lower bound, not a measurement. */
+    readonly callsWithoutUsage: number
   } | null
   readonly excluded: readonly { corpus: string; trajId: string; reason: string; detail?: string }[]
   readonly pullFailures: readonly { corpus: string; trajId: string; image: string; error: string }[]
@@ -460,6 +464,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
     let failures = 0
     let promptTokens = 0
     let completionTokens = 0
+    let callsWithoutUsage = 0
     for (const row of eligible) {
       const index = rows.indexOf(row)
       if (!sampled.has(row)) {
@@ -531,6 +536,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         failures += result.llmFailures
         promptTokens += result.promptTokens
         completionTokens += result.completionTokens
+        callsWithoutUsage += result.callsWithoutUsage
         const usage =
           result.promptTokens + result.completionTokens > 0
             ? { promptTokens: result.promptTokens, completionTokens: result.completionTokens }
@@ -626,6 +632,9 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         onProgress(`${label}: LLM failed — ${generated.error.slice(0, 200)}`)
         continue
       }
+      if (generated.value.usage === null || generated.value.usage === undefined) {
+        callsWithoutUsage += 1
+      }
       promptTokens += generated.value.usage?.promptTokens ?? 0
       completionTokens += generated.value.usage?.completionTokens ?? 0
       onProgress(`${label}: arm B — ${generated.value.command.split('\n')[0]!.slice(0, 120)}`)
@@ -692,6 +701,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
       failures,
       promptTokens,
       completionTokens,
+      callsWithoutUsage,
     }
   }
 

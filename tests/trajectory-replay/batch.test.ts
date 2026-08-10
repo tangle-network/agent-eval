@@ -374,6 +374,7 @@ describe('runReplayBatch', () => {
       failures: 0,
       promptTokens: 100,
       completionTokens: 20,
+      callsWithoutUsage: 0,
     })
 
     const reproduced = report.cases.find((c) => c.trajId === 'traj-reproduces')!
@@ -622,6 +623,7 @@ describe('runReplayBatch', () => {
       failures: 0,
       promptTokens: 500,
       completionTokens: 100,
+      callsWithoutUsage: 0,
     })
 
     // The retry prompt fed back the failed command and its REAL output.

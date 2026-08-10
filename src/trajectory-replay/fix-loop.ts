@@ -79,6 +79,10 @@ export interface FixLoopResult {
   readonly llmFailures: number
   readonly promptTokens: number
   readonly completionTokens: number
+  /** Successful calls whose provider reported no usage. Their tokens are absent
+   *  from the two totals above, so a nonzero count makes those totals a lower
+   *  bound rather than a measurement. */
+  readonly callsWithoutUsage: number
 }
 
 function toFailedAttempt(record: FixLoopAttemptRecord): FailedFixAttempt {
@@ -110,6 +114,7 @@ export async function runFixLoop(
   let llmFailures = 0
   let promptTokens = 0
   let completionTokens = 0
+  let callsWithoutUsage = 0
 
   const unexecuted = (
     attempt: number,
@@ -151,6 +156,7 @@ export async function runFixLoop(
       continue
     }
     const usage = outcome.value.usage
+    if (usage === null || usage === undefined) callsWithoutUsage += 1
     promptTokens += usage?.promptTokens ?? 0
     completionTokens += usage?.completionTokens ?? 0
     const command = extractFixCommand(outcome.value.content)
@@ -207,6 +213,7 @@ export async function runFixLoop(
         llmFailures,
         promptTokens,
         completionTokens,
+        callsWithoutUsage,
       }
     }
     attempts.push({
@@ -238,6 +245,7 @@ export async function runFixLoop(
         llmFailures,
         promptTokens,
         completionTokens,
+        callsWithoutUsage,
       }
     }
   }
@@ -250,5 +258,6 @@ export async function runFixLoop(
     llmFailures,
     promptTokens,
     completionTokens,
+    callsWithoutUsage,
   }
 }

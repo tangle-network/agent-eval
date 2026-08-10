@@ -252,6 +252,32 @@ describe('runFixLoop', () => {
     })
   })
 
+  it('counts a call the provider reported no usage for, rather than charging it zero', async () => {
+    const caller: ChatCompletionCaller = {
+      complete: async () => ({ succeeded: true, value: { content: fenced('fix-v1') } }),
+    }
+    const { executor } = scriptedExecutor(() => true)
+    const result = await runFixLoop(caller, input(), executor, { maxAttempts: 1 })
+    expect(result).toMatchObject({
+      flipped: true,
+      llmCalls: 1,
+      promptTokens: 0,
+      completionTokens: 0,
+      callsWithoutUsage: 1,
+    })
+  })
+
+  it('reports no uncounted calls when every call carries usage', async () => {
+    const { caller } = queuedCaller([{ content: fenced('fix-v1') }])
+    const { executor } = scriptedExecutor(() => true)
+    const result = await runFixLoop(caller, input(), executor, { maxAttempts: 1 })
+    expect(result).toMatchObject({
+      promptTokens: 10,
+      completionTokens: 5,
+      callsWithoutUsage: 0,
+    })
+  })
+
   it('rejects a non-positive attempt budget', async () => {
     const { caller } = queuedCaller([])
     const { executor } = scriptedExecutor(() => true)
