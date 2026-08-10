@@ -26,12 +26,12 @@
 
 import { createHash } from 'node:crypto'
 import type { AgentProfile } from '../agent-profile'
-import { assertEqualDeclarativeTerms } from './equal-terms'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import type { AnalystBenchmarkRunner } from './benchmark'
 import type { PublicAnalystBenchmarkModelConfig } from './benchmark-public-types'
 import type { TraceAnalystLimits } from './engine'
+import { assertEqualDeclarativeTerms } from './equal-terms'
 import { primeProtocolSha256 } from './prime-protocol'
 import type { ReplyContract } from './reply-contract'
 import type { TraceToolGroupName } from './tool-groups'
