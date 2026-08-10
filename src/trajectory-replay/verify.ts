@@ -17,9 +17,16 @@
  *   environment needs external compose peers cannot be replayed this way.
  * - Each arm replays the prefix in its own fresh session, so a backend
  *   without copy-on-write forks pays the prefix twice.
- * - Prefix divergence (recorded vs replayed returncode) is recorded per step
- *   and surfaced in the verdict, never hidden: a high divergence count is a
- *   finding about replayability, not an error of the harness.
+ * - Prefix divergence is recorded per step and surfaced in the verdict, never
+ *   hidden: a high divergence rate is a finding about replayability, not an
+ *   error of the harness.
+ *
+ * Agreement requires positive evidence. A prefix step counts as confirmed only
+ * when the recording carries a returncode AND the replayed exit equals it. A
+ * step the recording cannot adjudicate is a divergence of its own kind
+ * (`unknown-expectation`), never silent agreement — otherwise a replay that
+ * fails on every step reports a perfect prefix and every downstream verdict
+ * built on it is meaningless.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -85,16 +92,86 @@ export async function ingestRecordedTrajectory(
 
 // ── Counterfactual runner over an exec backend ───────────────────────
 
+/** Why a replayed prefix step failed to confirm the recording. */
+export type PrefixDivergenceKind =
+  /** The recording carries a returncode and the replayed exit differs from it. */
+  | 'returncode-mismatch'
+  /** The recording carries no returncode, so agreement cannot be established. */
+  | 'unknown-expectation'
+
 export interface PrefixDivergence {
   step: number
+  kind: PrefixDivergenceKind
+  /** null exactly when `kind` is `unknown-expectation`. */
   expectedReturncode: number | null
   actualExit: number
 }
 
 export interface PrefixReplayResult {
   prefixExecuted: number
+  /** Every step that did not confirm the recording, of both kinds. */
   prefixDivergences: PrefixDivergence[]
+  /** Steps whose recorded returncode equalled the replayed exit. */
+  prefixConfirmed: number
+  prefixReturncodeMismatches: number
+  prefixUnknownExpectations: number
+  /** Divergent steps over executed steps, in percent, one decimal.
+   *  0 for an empty prefix: no step ran, so none diverged. */
+  prefixDivergencePct: number
+  /** `prefixDivergencePct` within `PREFIX_DIVERGENCE_TOLERANCE_PCT`. */
+  prefixWithinTolerance: boolean
   wallMs: number
+}
+
+/** Admission tolerance: a prefix replay is faithful enough to build a verdict
+ *  on when at most this percentage of its executed steps diverged. */
+export const PREFIX_DIVERGENCE_TOLERANCE_PCT = 10
+
+/**
+ * Compare one replayed prefix step against its recording. Returns null only
+ * when the recording positively confirms the replay.
+ */
+export function classifyPrefixStep(
+  step: number,
+  expectedReturncode: number | null,
+  actualExit: number,
+): PrefixDivergence | null {
+  if (expectedReturncode === null) {
+    return { step, kind: 'unknown-expectation', expectedReturncode: null, actualExit }
+  }
+  if (expectedReturncode !== actualExit) {
+    return { step, kind: 'returncode-mismatch', expectedReturncode, actualExit }
+  }
+  return null
+}
+
+/** Roll per-step classifications up into the rate the admission pre-pass gates on. */
+export function summarizePrefixReplay(
+  prefixExecuted: number,
+  prefixDivergences: PrefixDivergence[],
+  wallMs: number,
+): PrefixReplayResult {
+  if (prefixDivergences.length > prefixExecuted) {
+    throw new Error(
+      `trajectory-replay: ${prefixDivergences.length} divergences over ${prefixExecuted} executed prefix steps`,
+    )
+  }
+  const pct =
+    prefixExecuted === 0
+      ? 0
+      : Number(((prefixDivergences.length / prefixExecuted) * 100).toFixed(1))
+  return {
+    prefixExecuted,
+    prefixDivergences,
+    prefixConfirmed: prefixExecuted - prefixDivergences.length,
+    prefixReturncodeMismatches: prefixDivergences.filter((d) => d.kind === 'returncode-mismatch')
+      .length,
+    prefixUnknownExpectations: prefixDivergences.filter((d) => d.kind === 'unknown-expectation')
+      .length,
+    prefixDivergencePct: pct,
+    prefixWithinTolerance: pct <= PREFIX_DIVERGENCE_TOLERANCE_PCT,
+    wallMs,
+  }
 }
 
 export interface ArmExecutionResult {
@@ -164,23 +241,20 @@ export class SandboxCounterfactualRunner implements CounterfactualRunner {
           wallMs: Date.now() - started,
         })
         await handle.end()
-        if (expected !== null && expected !== result.exitCode) {
-          divergences.push({
-            step: step.index + 1,
-            expectedReturncode: expected,
-            actualExit: result.exitCode,
-          })
-        }
+        const divergence = classifyPrefixStep(step.index + 1, expected, result.exitCode)
+        if (divergence) divergences.push(divergence)
         onProgress?.(
           `prefix ${step.span.name}: exit=${result.exitCode}` +
-            (expected !== null && expected !== result.exitCode ? ` (recorded ${expected})` : ''),
+            (divergence
+              ? ` (${divergence.kind}${expected === null ? '' : `, recorded ${expected}`})`
+              : ''),
         )
       }
-      this.lastPrefix = {
-        prefixExecuted: toExecute.length,
-        prefixDivergences: divergences,
-        wallMs: Date.now() - prefixStart,
-      }
+      this.lastPrefix = summarizePrefixReplay(
+        toExecute.length,
+        divergences,
+        Date.now() - prefixStart,
+      )
 
       if (ctx.mutatedStep.span.kind !== 'tool') {
         throw new Error('trajectory-replay: mutation target is not a tool span')
@@ -206,7 +280,9 @@ export class SandboxCounterfactualRunner implements CounterfactualRunner {
       onProgress?.(`candidate step: exit=${armResult.exitCode} in ${armWallMs}ms`)
       await emitter.endRun({
         pass: armResult.exitCode === 0,
-        notes: `prefix ${toExecute.length} steps, ${divergences.length} divergences`,
+        notes:
+          `prefix ${toExecute.length} steps, ${divergences.length} divergences ` +
+          `(${this.lastPrefix.prefixDivergencePct}%)`,
       })
     } finally {
       await session.close()
@@ -255,6 +331,12 @@ export interface ReplayVerdict {
   signatureBasis: 'returncode+output-substring' | 'returncode-only'
   prefixExecuted: number
   prefixDivergences: PrefixDivergence[]
+  /** Arm A's prefix divergence rate — the number admission gates on. */
+  prefixDivergencePct: number
+  prefixConfirmed: number
+  prefixReturncodeMismatches: number
+  prefixUnknownExpectations: number
+  prefixWithinTolerance: boolean
   armA: ReplayArmVerdict & { failureSignatureMatch: boolean }
   armB: (ReplayArmVerdict & { failureVanished: boolean }) | null
   timings: { armAMs: number; armBMs: number | null; totalMs: number }
@@ -346,6 +428,7 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
   }
 
   const armBOutput = armBExec ? `${armBExec.stdout}\n${armBExec.stderr}` : null
+  const armAPrefix = requirePrefix(armARunner, 'arm A')
   const verdict: ReplayVerdict = {
     case: caseId,
     image: options.image,
@@ -355,13 +438,18 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
     recordedReturncode,
     signature,
     signatureBasis,
-    prefixExecuted: armARunner.lastPrefix?.prefixExecuted ?? 0,
-    prefixDivergences: armARunner.lastPrefix?.prefixDivergences ?? [],
+    prefixExecuted: armAPrefix.prefixExecuted,
+    prefixDivergences: armAPrefix.prefixDivergences,
+    prefixDivergencePct: armAPrefix.prefixDivergencePct,
+    prefixConfirmed: armAPrefix.prefixConfirmed,
+    prefixReturncodeMismatches: armAPrefix.prefixReturncodeMismatches,
+    prefixUnknownExpectations: armAPrefix.prefixUnknownExpectations,
+    prefixWithinTolerance: armAPrefix.prefixWithinTolerance,
     armA: {
       command: armAExec.command,
       exitCode: armAExec.exitCode,
       wallMs: armAExec.wallMs,
-      prefix: armARunner.lastPrefix!,
+      prefix: armAPrefix,
       failureSignatureMatch,
     },
     armB:
@@ -370,7 +458,7 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
             command: armBExec.command,
             exitCode: armBExec.exitCode,
             wallMs: armBExec.wallMs,
-            prefix: armBRunner.lastPrefix!,
+            prefix: requirePrefix(armBRunner, 'arm B'),
             failureVanished:
               armBExec.exitCode === 0 &&
               (signature && armBOutput ? !armBOutput.includes(signature) : true),
@@ -397,6 +485,13 @@ function requireExec(runner: SandboxCounterfactualRunner, arm: string): ArmExecu
   return runner.lastArm
 }
 
+function requirePrefix(runner: SandboxCounterfactualRunner, arm: string): PrefixReplayResult {
+  if (!runner.lastPrefix) {
+    throw new Error(`trajectory-replay: ${arm} reported no prefix replay result`)
+  }
+  return runner.lastPrefix
+}
+
 function renderReport(
   verdict: ReplayVerdict,
   target: RecordedTrajectoryStep,
@@ -404,10 +499,6 @@ function renderReport(
   armB: ArmExecutionResult | null,
 ): string {
   const lines: string[] = []
-  const divergencePct =
-    verdict.prefixExecuted > 0
-      ? ((verdict.prefixDivergences.length / verdict.prefixExecuted) * 100).toFixed(1)
-      : '0.0'
   lines.push(`# Replay verification — ${verdict.case}`)
   lines.push('')
   lines.push(`- image: \`${verdict.image}\` (driver: ${verdict.driver})`)
@@ -422,14 +513,23 @@ function renderReport(
   lines.push(`## Prefix replay (steps 1..${verdict.k - 1})`)
   lines.push('')
   lines.push(
-    `Executed ${verdict.prefixExecuted} steps; ${verdict.prefixDivergences.length} returncode divergences (${divergencePct}%).`,
+    `Executed ${verdict.prefixExecuted} steps; ${verdict.prefixConfirmed} confirmed against the ` +
+      `recording, ${verdict.prefixDivergences.length} divergent (${verdict.prefixDivergencePct}%) — ` +
+      `${verdict.prefixReturncodeMismatches} returncode mismatches, ` +
+      `${verdict.prefixUnknownExpectations} with no recorded returncode to check.`,
+  )
+  lines.push('')
+  lines.push(
+    `Within the ${PREFIX_DIVERGENCE_TOLERANCE_PCT}% admission tolerance: **${verdict.prefixWithinTolerance}**.`,
   )
   if (verdict.prefixDivergences.length > 0) {
     lines.push('')
-    lines.push('| step | recorded rc | replayed exit |')
-    lines.push('| --- | --- | --- |')
+    lines.push('| step | kind | recorded rc | replayed exit |')
+    lines.push('| --- | --- | --- | --- |')
     for (const d of verdict.prefixDivergences) {
-      lines.push(`| ${d.step} | ${d.expectedReturncode} | ${d.actualExit} |`)
+      lines.push(
+        `| ${d.step} | ${d.kind} | ${d.expectedReturncode ?? 'none recorded'} | ${d.actualExit} |`,
+      )
     }
   }
   lines.push('')
@@ -465,7 +565,8 @@ function renderReport(
     lines.push(
       `Exit ${armB.exitCode} in ${armB.wallMs}ms — failureVanished: **${verdict.armB.failureVanished}** ` +
         `(prefix re-replayed in a fresh session: ${verdict.armB.prefix.prefixExecuted} steps, ` +
-        `${verdict.armB.prefix.prefixDivergences.length} divergences)`,
+        `${verdict.armB.prefix.prefixDivergences.length} divergences, ` +
+        `${verdict.armB.prefix.prefixDivergencePct}%)`,
     )
     lines.push('')
     lines.push('Replayed stdout+stderr excerpt:')

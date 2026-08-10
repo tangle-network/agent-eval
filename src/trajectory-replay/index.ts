@@ -108,9 +108,12 @@ export {
 } from './steps'
 export {
   type ArmExecutionResult,
+  classifyPrefixStep,
   type IngestedTrajectory,
   ingestRecordedTrajectory,
+  PREFIX_DIVERGENCE_TOLERANCE_PCT,
   type PrefixDivergence,
+  type PrefixDivergenceKind,
   type PrefixReplayResult,
   type ReplayArmVerdict,
   type ReplayVerdict,
@@ -118,6 +121,7 @@ export {
   replayVerify,
   SandboxCounterfactualRunner,
   type SandboxCounterfactualRunnerOptions,
+  summarizePrefixReplay,
 } from './verify'
 export {
   type AnalystReplayFinding,

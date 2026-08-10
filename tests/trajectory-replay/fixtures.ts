@@ -20,6 +20,19 @@ export function fixtureStep(
   }
 }
 
+/**
+ * Step whose observation carries output but no `<returncode>` tag. The
+ * recording cannot adjudicate a replay of this step, so a replay of it is
+ * never agreement.
+ */
+export function fixtureStepUnrecordedReturncode(
+  id: number,
+  action: string,
+  output = '',
+): RecordedTrajectoryStep {
+  return { step_id: id, action, observation: `\n<output>\n${output}\n</output>` }
+}
+
 /** Decodes the base64-piped payload the replay runner sends to a session. */
 export function wrappedPayload(command: string): string {
   const match = /printf %s ([A-Za-z0-9+/=]+) \| base64 -d \| sh$/.exec(command)

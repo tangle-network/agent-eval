@@ -11,7 +11,12 @@ import {
   generateFixCommand,
 } from '../../src/trajectory-replay/fix'
 import { derivedImageTag, type ImagePreparer } from '../../src/trajectory-replay/image-preparer'
-import { fixtureStep, scriptedBackend, writeFixtureCorpus } from './fixtures'
+import {
+  fixtureStep,
+  fixtureStepUnrecordedReturncode,
+  scriptedBackend,
+  writeFixtureCorpus,
+} from './fixtures'
 
 let root: string
 afterEach(() => {
@@ -406,6 +411,72 @@ describe('runReplayBatch', () => {
     const verdictPath = join(out, 'batch--traj-reproduces', 'replay-verdict.json')
     expect(existsSync(verdictPath)).toBe(true)
     expect(existsSync(join(out, 'batch--traj-reproduces', 'armB-result.json'))).toBe(true)
+  })
+
+  it('refuses admission when the prefix replay was never confirmed against the recording', async () => {
+    // The row an admission pre-pass must reject: arm A reproduces the recorded
+    // returncode at k, but every prefix step replayed as 127 against a
+    // recording that carries no returncode to check it against.
+    const dir = makeRoot()
+    const corpus = writeFixtureCorpus(dir, 'unverifiable', [
+      {
+        trajId: 'traj-127-prefix',
+        steps: [
+          fixtureStepUnrecordedReturncode(1, 'ls', 'files'),
+          fixtureStepUnrecordedReturncode(2, 'sed -i broken file.c'),
+          fixtureStepUnrecordedReturncode(3, 'cat file.c'),
+          fixtureStep(4, 'make target', 2, 'file.c:9:2: error: broken build\nstopped'),
+        ],
+        goldIncorrectSteps: [4],
+        raw: { baseImage: 'example/ok:1', runConfigCwd: '/repo' },
+      },
+    ])
+    const out = join(dir, 'out')
+    const report = await runReplayBatch({
+      corpora: [corpus],
+      out,
+      fix: 'none',
+      preparer: fakePreparer(),
+      backendFactory: () =>
+        scriptedBackend((action) =>
+          action === 'make target'
+            ? { exitCode: 2, stdout: 'stopped', stderr: 'file.c:9:2: error: broken build' }
+            : { exitCode: 127, stdout: '', stderr: 'sh: 1: not found' },
+        ),
+    })
+    const row = report.cases.find((c) => c.trajId === 'traj-127-prefix')!
+    expect(row).toMatchObject({
+      status: 'ok',
+      armAExit: 2,
+      armAReturncodeMatch: true,
+      armASignatureMatch: true,
+      prefixExecuted: 3,
+      prefixDivergences: 3,
+      prefixDivergencePct: 100,
+      prefixConfirmed: 0,
+      prefixReturncodeMismatches: 0,
+      prefixUnknownExpectations: 3,
+      replayed: false,
+    })
+    expect(report.headline.replayabilityRate).toEqual({
+      numerator: 0,
+      denominator: 1,
+      value: 0,
+    })
+    expect(report.headline.prefixFidelity).toEqual({
+      executedSteps: 3,
+      divergentSteps: 3,
+      returncodeMismatches: 0,
+      unknownExpectations: 3,
+      divergencePct: 100,
+      tolerancePct: 10,
+      casesWithinTolerance: 0,
+      casesExecuted: 1,
+    })
+    const markdown = readFileSync(join(out, 'batch-report.md'), 'utf8')
+    expect(markdown).toContain('**Prefix divergence: 100%**')
+    expect(markdown).toContain('3 with no recorded returncode to check')
+    expect(markdown).toContain('0/1 executed cases are within the 10% tolerance')
   })
 
   it('caps fix generation with a seeded sample and marks the rest sampled-out', async () => {

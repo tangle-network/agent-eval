@@ -30,6 +30,8 @@ export interface FixArmExecution {
   readonly exitCode: number
   readonly prefixExecuted: number
   readonly prefixDivergences: number
+  /** Divergent prefix steps over executed ones, in percent. */
+  readonly prefixDivergencePct: number
   readonly failureVanished: boolean
   readonly stdout: string
   readonly stderr: string
@@ -57,6 +59,7 @@ export interface FixLoopAttemptRecord {
   readonly exitCode: number | null
   readonly prefixExecuted: number | null
   readonly prefixDivergences: number | null
+  readonly prefixDivergencePct: number | null
   readonly failureVanished: boolean | null
   readonly stdoutTail: string | null
   readonly stderrTail: string | null
@@ -123,6 +126,7 @@ export async function runFixLoop(
     exitCode: null,
     prefixExecuted: null,
     prefixDivergences: null,
+    prefixDivergencePct: null,
     failureVanished: null,
     stdoutTail: null,
     stderrTail: null,
@@ -214,6 +218,7 @@ export async function runFixLoop(
       exitCode: execution.exitCode,
       prefixExecuted: execution.prefixExecuted,
       prefixDivergences: execution.prefixDivergences,
+      prefixDivergencePct: execution.prefixDivergencePct,
       failureVanished: execution.failureVanished,
       stdoutTail: clipText(execution.stdout, tailChars),
       stderrTail: clipText(execution.stderr, tailChars),

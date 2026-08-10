@@ -55,6 +55,8 @@ export interface ReplayBatchCase {
   prefixExecuted: number
   prefixDivergences: number
   prefixDivergencePct: number
+  prefixReturncodeMismatches: number
+  prefixUnknownExpectations: number
   armAExit: number | null
   armAReturncodeMatch: boolean
   armASignatureMatch: boolean
@@ -99,7 +101,11 @@ export interface NormalizedStep {
 
 export interface PrefixDivergence {
   step: number
-  expectedReturncode: number
+  /** `unknown-expectation` marks a step the recording carries no returncode
+   *  for: it could not be confirmed, so it is not agreement. */
+  kind: 'returncode-mismatch' | 'unknown-expectation'
+  /** null exactly when `kind` is `unknown-expectation`. */
+  expectedReturncode: number | null
   actualExit: number
 }
 
@@ -174,6 +180,10 @@ export interface VerifiedFindingRow {
     prefixExecuted: number
     prefixDivergences: number
     prefixDivergencePct: number
+    prefixReturncodeMismatches: number
+    /** Steps the recording carries no returncode for. Nonzero here means part
+     *  of the prefix replay was never confirmed against the recording. */
+    prefixUnknownExpectations: number
     prefixDivergenceDetail: PrefixDivergence[] | null
     armAExit: number | null
     armAReturncodeMatch: boolean
@@ -351,6 +361,19 @@ export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): Veri
         `per-case verdict recordedReturncode=${detail.recordedReturncode} != report ${batchCase.recordedReturncodeAtK}`,
       )
     }
+    if (detail.prefixDivergences.length !== batchCase.prefixDivergences) {
+      fail(
+        caseId,
+        `per-case verdict lists ${detail.prefixDivergences.length} prefix divergences != report ${batchCase.prefixDivergences}`,
+      )
+    }
+    const unknown = detail.prefixDivergences.filter((d) => d.kind === 'unknown-expectation').length
+    if (unknown !== batchCase.prefixUnknownExpectations) {
+      fail(
+        caseId,
+        `per-case verdict lists ${unknown} unknown-expectation steps != report ${batchCase.prefixUnknownExpectations}`,
+      )
+    }
   }
 
   const stepAtK = steps[k - 1]!
@@ -392,6 +415,8 @@ export function buildVerifiedFindingRow(args: BuildVerifiedFindingRowArgs): Veri
       prefixExecuted: batchCase.prefixExecuted,
       prefixDivergences: batchCase.prefixDivergences,
       prefixDivergencePct: batchCase.prefixDivergencePct,
+      prefixReturncodeMismatches: batchCase.prefixReturncodeMismatches,
+      prefixUnknownExpectations: batchCase.prefixUnknownExpectations,
       prefixDivergenceDetail: detail?.prefixDivergences ?? null,
       armAExit: batchCase.armAExit,
       armAReturncodeMatch: batchCase.armAReturncodeMatch,
@@ -508,15 +533,28 @@ interface CaseVerdictFile {
   runIds?: { original?: string | null; armA?: string | null } | null
 }
 
+const PREFIX_DIVERGENCE_KINDS = new Set(['returncode-mismatch', 'unknown-expectation'])
+
 function loadCaseVerdictDetail(runDir: string, batchCase: ReplayBatchCase): CaseVerdictDetail {
   const path = join(runDir, `${batchCase.corpus}--${batchCase.trajId}`, 'replay-verdict.json')
   const parsed = readJson(path, `per-case verdict for ${batchCase.trajId}`).value as CaseVerdictFile
+  const divergences = parsed.prefixDivergences ?? []
+  // A record without a kind came from a comparison that could not tell a
+  // confirmed match from an unverifiable step, so the whole file is unusable.
+  for (const divergence of divergences) {
+    if (!PREFIX_DIVERGENCE_KINDS.has(divergence.kind)) {
+      throw new Error(
+        `verified-findings: ${path} step ${divergence.step} has divergence kind ` +
+          `'${divergence.kind}'; expected one of ${[...PREFIX_DIVERGENCE_KINDS].join(', ')}`,
+      )
+    }
+  }
   return {
     k: parsed.k,
     prefixExecuted: parsed.prefixExecuted,
     recordedReturncode: parsed.recordedReturncode,
     signatureBasis: parsed.signatureBasis ?? null,
-    prefixDivergences: parsed.prefixDivergences ?? [],
+    prefixDivergences: divergences,
     armACommand: parsed.armA?.command ?? null,
     runIds: {
       original: parsed.runIds?.original ?? null,

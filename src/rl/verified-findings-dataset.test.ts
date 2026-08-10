@@ -40,6 +40,8 @@ function makeCase(overrides: Partial<ReplayBatchCase> = {}): ReplayBatchCase {
     prefixExecuted: 1,
     prefixDivergences: 0,
     prefixDivergencePct: 0,
+    prefixReturncodeMismatches: 0,
+    prefixUnknownExpectations: 0,
     armAExit: 127,
     armAReturncodeMatch: true,
     armASignatureMatch: true,
@@ -238,6 +240,71 @@ describe('buildVerifiedFindingRow', () => {
     expect(row.provenance.originalRunId).toBe('o-1')
     expect(row.verification.armACommand).toBe('foo --run')
   })
+
+  it('carries the divergence classes onto the row so an unconfirmed prefix stays visible', () => {
+    const args = baseArgs()
+    args.batchCase = makeCase({
+      prefixExecuted: 3,
+      prefixDivergences: 3,
+      prefixDivergencePct: 100,
+      prefixReturncodeMismatches: 1,
+      prefixUnknownExpectations: 2,
+      replayed: false,
+      fix: null,
+    })
+    const row = buildVerifiedFindingRow(args)
+    expect(row.verification).toMatchObject({
+      reproduced: false,
+      prefixDivergences: 3,
+      prefixDivergencePct: 100,
+      prefixReturncodeMismatches: 1,
+      prefixUnknownExpectations: 2,
+    })
+  })
+
+  it('rejects a verdict detail whose divergence count or classes contradict the report', () => {
+    const args = baseArgs()
+    args.batchCase = makeCase({
+      prefixExecuted: 2,
+      prefixDivergences: 1,
+      prefixDivergencePct: 50,
+      prefixReturncodeMismatches: 0,
+      prefixUnknownExpectations: 1,
+      replayed: false,
+      fix: null,
+    })
+    const detail = {
+      k: 2,
+      prefixExecuted: 2,
+      recordedReturncode: 127,
+      signatureBasis: 'returncode-only',
+      prefixDivergences: [
+        {
+          step: 1,
+          kind: 'unknown-expectation' as const,
+          expectedReturncode: null,
+          actualExit: 127,
+        },
+      ],
+      armACommand: 'foo --run',
+      runIds: { original: 'o-1', armA: 'a-1' },
+    }
+    expect(() => buildVerifiedFindingRow({ ...args, detail })).not.toThrow()
+    expect(() =>
+      buildVerifiedFindingRow({ ...args, detail: { ...detail, prefixDivergences: [] } }),
+    ).toThrow(/lists 0 prefix divergences != report 1/)
+    expect(() =>
+      buildVerifiedFindingRow({
+        ...args,
+        detail: {
+          ...detail,
+          prefixDivergences: [
+            { step: 1, kind: 'returncode-mismatch' as const, expectedReturncode: 0, actualExit: 1 },
+          ],
+        },
+      }),
+    ).toThrow(/lists 0 unknown-expectation steps != report 1/)
+  })
 })
 
 describe('summarizeVerifiedFindings + jsonl', () => {
@@ -343,6 +410,26 @@ describe('loadVerifiedFindingsDataset', () => {
     rmSync(join(DIR, 'prepared', 'normalized', 'traj-2'), { recursive: true })
     expect(() => loadVerifiedFindingsDataset(source())).toThrow(
       /cannot read trajectory steps for traj-2/,
+    )
+  })
+
+  it('throws when a per-case verdict records a divergence with no class', () => {
+    writeFixture()
+    for (const id of ['traj-1', 'traj-2']) {
+      const dir = join(DIR, 'run', `holdout-x--${id}`)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        join(dir, 'replay-verdict.json'),
+        JSON.stringify({
+          k: id === 'traj-1' ? 2 : 3,
+          prefixExecuted: 1,
+          recordedReturncode: 127,
+          prefixDivergences: [{ step: 1, expectedReturncode: 0, actualExit: 127 }],
+        }),
+      )
+    }
+    expect(() => loadVerifiedFindingsDataset({ ...source(), runDir: join(DIR, 'run') })).toThrow(
+      /step 1 has divergence kind 'undefined'; expected one of returncode-mismatch, unknown-expectation/,
     )
   })
 

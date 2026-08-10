@@ -10,8 +10,12 @@
  *
  * Headline metrics:
  *   replayability rate — fraction of replayable cases where the prefix
- *     replays with ≤10% returncode divergence AND arm A reproduces the
+ *     replays within the divergence tolerance AND arm A reproduces the
  *     recorded returncode at k;
+ *   prefix fidelity — executed prefix steps and the share of them that did
+ *     not confirm the recording, split by kind. A corpus whose recordings
+ *     carry no returncodes shows up here as unknown-expectation steps, never
+ *     as a clean replay;
  *   fix-flip rate — fraction of arm-B-executed cases where the failure
  *     vanished (exit 0, signature absent).
  *
@@ -37,6 +41,8 @@ import { type FixLoopAttemptRecord, runFixLoop } from './fix-loop'
 import { dockerImagePreparer, type ImagePreparer } from './image-preparer'
 import {
   ingestRecordedTrajectory,
+  PREFIX_DIVERGENCE_TOLERANCE_PCT,
+  type PrefixReplayResult,
   type ReplayVerdict,
   replayVerify,
   SandboxCounterfactualRunner,
@@ -84,6 +90,7 @@ export interface ReplayBatchFixResult {
   readonly armBExit: number | null
   readonly armBPrefixExecuted: number | null
   readonly armBPrefixDivergences: number | null
+  readonly armBPrefixDivergencePct: number | null
   readonly failureVanished: boolean | null
   readonly armBError: string | null
   /** Loop mode only: the full per-attempt trail. Null in generate mode. */
@@ -114,10 +121,17 @@ export interface ReplayBatchCaseRow {
   readonly prefixExecuted: number | null
   readonly prefixDivergences: number | null
   readonly prefixDivergencePct: number | null
+  /** Prefix steps whose recorded returncode equalled the replayed exit. */
+  readonly prefixConfirmed: number | null
+  readonly prefixReturncodeMismatches: number | null
+  /** Prefix steps the recording carries no returncode for: unverifiable, and
+   *  counted as divergences because agreement was never established. */
+  readonly prefixUnknownExpectations: number | null
   readonly armAExit: number | null
   readonly armAReturncodeMatch: boolean
   readonly armASignatureMatch: boolean
-  /** Headline predicate: divergence ≤10% AND arm A reproduced the returncode. */
+  /** Headline predicate: prefix divergence within tolerance AND arm A
+   *  reproduced the recorded returncode at k. */
   readonly replayed: boolean
   readonly fix: ReplayBatchFixResult | null
   readonly wallMs: number
@@ -141,6 +155,20 @@ export interface ReplayBatchReport {
   readonly headline: {
     readonly replayabilityRate: { numerator: number; denominator: number; value: number | null }
     readonly signatureStrictRate: { numerator: number; denominator: number; value: number | null }
+    /** Corpus-level replay fidelity over every executed prefix step. A corpus
+     *  whose recordings cannot adjudicate the replay lands here as
+     *  `unknownExpectations`, not as a clean replay. */
+    readonly prefixFidelity: {
+      readonly executedSteps: number
+      readonly divergentSteps: number
+      readonly returncodeMismatches: number
+      readonly unknownExpectations: number
+      /** Divergent over executed steps; null when no prefix step ran. */
+      readonly divergencePct: number | null
+      readonly tolerancePct: number
+      readonly casesWithinTolerance: number
+      readonly casesExecuted: number
+    }
     readonly fixFlipRate: { numerator: number; denominator: number; value: number | null } | null
     /** Fix-flip restricted to cases whose recorded returncode at k is nonzero —
      *  real recorded failures, where "the failure vanished" is not vacuous. */
@@ -201,6 +229,7 @@ interface ArmBExecution {
   readonly exitCode: number
   readonly prefixExecuted: number
   readonly prefixDivergences: number
+  readonly prefixDivergencePct: number
   readonly failureVanished: boolean
   readonly stdout: string
   readonly stderr: string
@@ -243,11 +272,14 @@ async function executeArmB(
   )
   const exec = runner.lastArm
   if (!exec) throw new Error('arm B finished without executing the corrected step')
+  const prefix: PrefixReplayResult | null = runner.lastPrefix
+  if (!prefix) throw new Error('arm B reported no prefix replay result')
   const output = `${exec.stdout}\n${exec.stderr}`
   return {
     exitCode: exec.exitCode,
-    prefixExecuted: runner.lastPrefix?.prefixExecuted ?? 0,
-    prefixDivergences: runner.lastPrefix?.prefixDivergences.length ?? 0,
+    prefixExecuted: prefix.prefixExecuted,
+    prefixDivergences: prefix.prefixDivergences.length,
+    prefixDivergencePct: prefix.prefixDivergencePct,
     failureVanished: exec.exitCode === 0 && (signature ? !output.includes(signature) : true),
     stdout: exec.stdout,
     stderr: exec.stderr,
@@ -316,6 +348,9 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         prefixExecuted: null,
         prefixDivergences: null,
         prefixDivergencePct: null,
+        prefixConfirmed: null,
+        prefixReturncodeMismatches: null,
+        prefixUnknownExpectations: null,
         armAExit: null,
         armAReturncodeMatch: false,
         armASignatureMatch: false,
@@ -346,10 +381,6 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         onProgress: (message) => onProgress(`${label}: ${message}`),
       })
       verdictByTraj.set(replayCase.trajId, verdict)
-      const divergencePct =
-        verdict.prefixExecuted > 0
-          ? (verdict.prefixDivergences.length / verdict.prefixExecuted) * 100
-          : 0
       const returncodeMatch =
         verdict.recordedReturncode !== null && verdict.armA.exitCode === verdict.recordedReturncode
       const row: ReplayBatchCaseRow = {
@@ -362,11 +393,14 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         imageBuilt: built,
         prefixExecuted: verdict.prefixExecuted,
         prefixDivergences: verdict.prefixDivergences.length,
-        prefixDivergencePct: Number(divergencePct.toFixed(1)),
+        prefixDivergencePct: verdict.prefixDivergencePct,
+        prefixConfirmed: verdict.prefixConfirmed,
+        prefixReturncodeMismatches: verdict.prefixReturncodeMismatches,
+        prefixUnknownExpectations: verdict.prefixUnknownExpectations,
         armAExit: verdict.armA.exitCode,
         armAReturncodeMatch: returncodeMatch,
         armASignatureMatch: verdict.armA.failureSignatureMatch,
-        replayed: divergencePct <= 10 && returncodeMatch,
+        replayed: verdict.prefixWithinTolerance && returncodeMatch,
         fix: null,
         wallMs: Date.now() - caseStart,
       }
@@ -374,7 +408,8 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
       appendFileSync(progressPath, `${JSON.stringify(row)}\n`)
       onProgress(
         `${label}: armA exit=${verdict.armA.exitCode} rcMatch=${returncodeMatch} ` +
-          `divergences=${verdict.prefixDivergences.length}/${verdict.prefixExecuted}`,
+          `divergences=${verdict.prefixDivergences.length}/${verdict.prefixExecuted} ` +
+          `(${verdict.prefixDivergencePct}%, ${verdict.prefixUnknownExpectations} unknown-expectation)`,
       )
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -389,6 +424,9 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         prefixExecuted: null,
         prefixDivergences: null,
         prefixDivergencePct: null,
+        prefixConfirmed: null,
+        prefixReturncodeMismatches: null,
+        prefixUnknownExpectations: null,
         armAExit: null,
         armAReturncodeMatch: false,
         armASignatureMatch: false,
@@ -436,6 +474,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
             armBExit: null,
             armBPrefixExecuted: null,
             armBPrefixDivergences: null,
+            armBPrefixDivergencePct: null,
             failureVanished: null,
             armBError: null,
             attempts: null,
@@ -515,6 +554,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
                 armBExit: summary.exitCode,
                 armBPrefixExecuted: summary.prefixExecuted,
                 armBPrefixDivergences: summary.prefixDivergences,
+                armBPrefixDivergencePct: summary.prefixDivergencePct,
                 failureVanished: summary.failureVanished,
                 armBError: null,
                 attempts: result.attempts,
@@ -530,6 +570,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
                   armBExit: null,
                   armBPrefixExecuted: null,
                   armBPrefixDivergences: null,
+                  armBPrefixDivergencePct: null,
                   failureVanished: null,
                   armBError: lastRecord?.armBError ?? 'sandbox error',
                   attempts: result.attempts,
@@ -544,6 +585,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
                   armBExit: null,
                   armBPrefixExecuted: null,
                   armBPrefixDivergences: null,
+                  armBPrefixDivergencePct: null,
                   failureVanished: null,
                   armBError: null,
                   attempts: result.attempts,
@@ -574,6 +616,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
             armBExit: null,
             armBPrefixExecuted: null,
             armBPrefixDivergences: null,
+            armBPrefixDivergencePct: null,
             failureVanished: null,
             armBError: null,
             attempts: null,
@@ -607,6 +650,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
             armBExit: armB.exitCode,
             armBPrefixExecuted: armB.prefixExecuted,
             armBPrefixDivergences: armB.prefixDivergences,
+            armBPrefixDivergencePct: armB.prefixDivergencePct,
             failureVanished: armB.failureVanished,
             armBError: null,
             attempts: null,
@@ -632,6 +676,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
             armBExit: null,
             armBPrefixExecuted: null,
             armBPrefixDivergences: null,
+            armBPrefixDivergencePct: null,
             failureVanished: null,
             armBError: message.slice(0, 500),
             attempts: null,
@@ -652,6 +697,24 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
 
   const executedRows = rows.filter((r) => r.status === 'ok')
   const replayed = executedRows.filter((r) => r.replayed)
+  const sumOver = (pick: (row: ReplayBatchCaseRow) => number | null): number =>
+    executedRows.reduce((total, row) => total + (pick(row) ?? 0), 0)
+  const executedSteps = sumOver((r) => r.prefixExecuted)
+  const divergentSteps = sumOver((r) => r.prefixDivergences)
+  const prefixFidelity = {
+    executedSteps,
+    divergentSteps,
+    returncodeMismatches: sumOver((r) => r.prefixReturncodeMismatches),
+    unknownExpectations: sumOver((r) => r.prefixUnknownExpectations),
+    divergencePct:
+      executedSteps > 0 ? Number(((divergentSteps / executedSteps) * 100).toFixed(1)) : null,
+    tolerancePct: PREFIX_DIVERGENCE_TOLERANCE_PCT,
+    casesWithinTolerance: executedRows.filter(
+      (r) =>
+        r.prefixDivergencePct !== null && r.prefixDivergencePct <= PREFIX_DIVERGENCE_TOLERANCE_PCT,
+    ).length,
+    casesExecuted: executedRows.length,
+  }
   const signatureStrict = executedRows.filter((r) => r.replayed && r.armASignatureMatch)
   const armBExecuted = rows.filter((r) => r.fix?.attempted && r.fix.failureVanished !== null)
   const flipped = armBExecuted.filter((r) => r.fix!.failureVanished === true)
@@ -713,6 +776,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         denominator: selected.length,
         value: rate(signatureStrict.length, selected.length),
       },
+      prefixFidelity,
       fixFlipRate:
         options.fix !== 'none'
           ? {
@@ -764,14 +828,21 @@ export function renderBatchReport(report: ReplayBatchReport): string {
   lines.push('')
   lines.push('## Headline')
   lines.push('')
+  const fidelity = headline.prefixFidelity
   lines.push(
     `- **Replayability rate: ${pct(headline.replayabilityRate.value)}** ` +
       `(${headline.replayabilityRate.numerator}/${headline.replayabilityRate.denominator} replayable cases ` +
-      'where the prefix replayed with ≤10% returncode divergence AND arm A reproduced the recorded returncode at the gold step k).',
+      `where the prefix replayed within ${fidelity.tolerancePct}% divergence AND arm A reproduced the recorded returncode at the gold step k).`,
   )
   lines.push(
     `- Signature-strict rate: ${pct(headline.signatureStrictRate.value)} ` +
       `(${headline.signatureStrictRate.numerator}/${headline.signatureStrictRate.denominator}; additionally requires the recorded error substring in arm A output).`,
+  )
+  lines.push(
+    `- **Prefix divergence: ${fidelity.divergencePct === null ? '—' : `${fidelity.divergencePct}%`}** ` +
+      `(${fidelity.divergentSteps}/${fidelity.executedSteps} executed prefix steps did not confirm the recording: ` +
+      `${fidelity.returncodeMismatches} returncode mismatches, ${fidelity.unknownExpectations} with no recorded returncode to check). ` +
+      `${fidelity.casesWithinTolerance}/${fidelity.casesExecuted} executed cases are within the ${fidelity.tolerancePct}% tolerance.`,
   )
   if (headline.fixFlipRate) {
     lines.push(
@@ -844,11 +915,9 @@ export function renderBatchReport(report: ReplayBatchReport): string {
   lines.push('## Per-case results')
   lines.push('')
   lines.push(
-    '| corpus | trajectory | k | rc@k | prefix | div | div% | armA exit | rc match | sig match | replayed | fix | armB exit | vanished | wall s |',
+    '| corpus | trajectory | k | rc@k | prefix | confirmed | rc mismatch | unknown rc | div | div% | armA exit | rc match | sig match | replayed | fix | armB exit | armB div% | vanished | wall s |',
   )
-  lines.push(
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
-  )
+  lines.push(`| ${Array(19).fill('---').join(' | ')} |`)
   for (const row of report.cases) {
     const fix = row.fix
     const fixCell = !fix
@@ -871,6 +940,9 @@ export function renderBatchReport(report: ReplayBatchReport): string {
         row.k,
         row.recordedReturncodeAtK ?? 'null',
         row.prefixExecuted ?? '—',
+        row.prefixConfirmed ?? '—',
+        row.prefixReturncodeMismatches ?? '—',
+        row.prefixUnknownExpectations ?? '—',
         row.prefixDivergences ?? '—',
         row.prefixDivergencePct ?? '—',
         row.status === 'ok' ? row.armAExit : row.status,
@@ -879,6 +951,7 @@ export function renderBatchReport(report: ReplayBatchReport): string {
         row.replayed ? '**yes**' : 'no',
         fixCell,
         fix?.armBExit ?? '—',
+        fix?.armBPrefixDivergencePct ?? '—',
         fix?.failureVanished === null || fix === null
           ? '—'
           : fix.failureVanished

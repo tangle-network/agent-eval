@@ -56,11 +56,29 @@ Those are `runReplayBatch`, `replayVerifyFinding`, and `verifyFindings`.
 |---|---|
 | `armA.failureSignatureMatch` | The recorded returncode came back, and the recorded error substring appeared. |
 | `armB.failureVanished` | A corrected command exited 0 and the error substring was gone. |
-| `prefixDivergences` | Prefix steps whose replayed exit code differs from the recording. |
+| `prefixDivergences` | Prefix steps that did not confirm the recording, each with its `kind`. |
+| `prefixDivergencePct` | Divergent steps over executed steps. This is the number an admission pre-pass gates on. |
+| `prefixWithinTolerance` | `prefixDivergencePct` is at most `PREFIX_DIVERGENCE_TOLERANCE_PCT` (10). |
 | `signatureBasis` | `returncode+output-substring`, or `returncode-only` when the recording carries no error line. |
 
+## Prefix fidelity
+
+A verdict is only as good as the state the prefix rebuilt.
+Agreement therefore requires positive evidence: a prefix step counts as confirmed only when the recording carries a returncode AND the replayed exit equals it.
+
+Every other step is a divergence of one of two kinds.
+
+| Kind | Meaning |
+|---|---|
+| `returncode-mismatch` | The recording carries a returncode and the replayed exit differs. |
+| `unknown-expectation` | The recording carries no returncode, so the replay was never checked. |
+
+An `unknown-expectation` step is never agreement.
+Counting it as agreement lets a replay that fails on every step report a perfect prefix, which makes every verdict built on that prefix meaningless.
+
+`runReplayBatch` reports the same split per case and across the corpus, under `headline.prefixFidelity`.
 Prefix divergence is reported, never hidden.
-A high divergence count is a finding about replay fidelity, not a harness error.
+A high divergence rate is a finding about replay fidelity, not a harness error.
 
 ## Layers
 
