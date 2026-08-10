@@ -26,7 +26,7 @@
 
 import { createHash } from 'node:crypto'
 import type { AgentProfile } from '../agent-profile'
-import { ValidationError } from '../errors'
+import { assertEqualDeclarativeTerms } from './equal-terms'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import type { AnalystBenchmarkRunner } from './benchmark'
@@ -336,23 +336,10 @@ export interface AnalystDefinitionAsymmetryReport {
 export function analystDefinitionAsymmetries(
   definitions: ReadonlyArray<AnalystDefinition<unknown, unknown, unknown>>,
 ): AnalystDefinitionAsymmetryReport {
-  if (definitions.length === 0) {
-    throw new ValidationError('an analyst-definition comparison needs at least one definition')
-  }
-  const ids = definitions.map((definition) => definition.id)
-  const duplicate = ids.find((id, index) => ids.indexOf(id) !== index)
-  if (duplicate !== undefined) {
-    throw new ValidationError(`analyst definition '${duplicate}' is declared twice`)
-  }
-  const repairTurns = definitions[0]!.repair.turns
-  const unequal = definitions.find((definition) => definition.repair.turns !== repairTurns)
-  if (unequal) {
-    throw new ValidationError(
-      `definition '${unequal.id}' earns ${unequal.repair.turns} bounded repair turns and ` +
-        `definition '${definitions[0]!.id}' earns ${repairTurns}; a retry is a second sample ` +
-        'the other arms never got',
-    )
-  }
+  const { ids, repairTurns } = assertEqualDeclarativeTerms(
+    'analyst definition',
+    definitions.map((definition) => ({ id: definition.id, repairTurns: definition.repair.turns })),
+  )
   const firstMode = definitions[0]!.projection.mode
   const sharedProjectionMode = definitions.every(
     (definition) => definition.projection.mode === firstMode,

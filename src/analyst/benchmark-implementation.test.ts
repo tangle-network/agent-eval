@@ -55,6 +55,7 @@ const EXPECTED_FILES = [
   'src/analyst/definition.ts',
   'src/analyst/dspy-rlm-engine.ts',
   'src/analyst/engine.ts',
+  'src/analyst/equal-terms.ts',
   'src/analyst/exact-types.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',

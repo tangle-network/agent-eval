@@ -64,6 +64,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/analyst/definition.ts',
   'src/analyst/dspy-rlm-engine.ts',
   'src/analyst/engine.ts',
+  'src/analyst/equal-terms.ts',
   'src/analyst/exact-types.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',
@@ -124,7 +125,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'd4efa035d1ca816779f90e835308a46fd2316f27c6c3151e178c97780bffb5a6'
+  '48380d8df537024580dceb1aa030889cd38f8afe83c372a0d5872f9e267a2871'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
