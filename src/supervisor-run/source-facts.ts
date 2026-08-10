@@ -11,6 +11,7 @@ interface JournalEvent {
   label?: unknown
   role?: unknown
   profileDigest?: unknown
+  identity?: unknown
   runtime?: unknown
   status?: unknown
   verdict?: unknown
@@ -42,6 +43,17 @@ export function asRecord(v: unknown): Record<string, unknown> {
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
+function nonEmptyString(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null
+}
+
+function profileDigest(event: JournalEvent): string | null {
+  const direct = nonEmptyString(event.profileDigest)
+  if (direct !== null) return direct
+  const identity = asRecord(event.identity)
+  return nonEmptyString(identity.profileDigest)
 }
 
 function readSpend(v: unknown): SpendLike {
@@ -453,10 +465,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         parent,
         label,
         role,
-        profileDigest:
-          typeof ev.profileDigest === 'string' && ev.profileDigest.length > 0
-            ? ev.profileDigest
-            : null,
+        profileDigest: profileDigest(ev),
         runtime: typeof ev.runtime === 'string' && ev.runtime.length > 0 ? ev.runtime : null,
         at: ms(ev.at),
         valid,

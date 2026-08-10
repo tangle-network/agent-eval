@@ -5,8 +5,10 @@
  * Each line is an envelope whose `root` identifies the local tree. A nested
  * driver is represented twice: once as a child spawn in its parent's tree and
  * once as the parentless root marker of its own tree. This reader removes only
- * that duplicate root marker and passes the remaining events to the existing
- * supervisor-run analyzer.
+ * that duplicate root marker and preserves the remaining envelopes for the
+ * supervisor-run analyzer. Runtime stores profile identity below `identity`
+ * and does not emit Eval's role field, so this boundary projects those fields
+ * without changing Runtime's journal dialect.
  */
 
 import { readFile, stat } from 'node:fs/promises'
@@ -63,6 +65,13 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function profileDigest(event: Record<string, unknown>): string | null {
+  const direct = nonEmptyString(event.profileDigest)
+  if (direct !== null) return direct
+  const identity = record(event.identity)
+  return identity === null ? null : nonEmptyString(identity.profileDigest)
 }
 
 function formatError(path: string, line: number, detail: string): Error {
@@ -182,8 +191,8 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
         `nested tree ${JSON.stringify(nestedRoot)} has no parent spawn`,
       )
     }
-    const markerDigest = nonEmptyString(marker[0]?.event.profileDigest)
-    const parentDigest = nonEmptyString(parentSpawn.event.profileDigest)
+    const markerDigest = profileDigest(marker[0]?.event ?? {})
+    const parentDigest = profileDigest(parentSpawn.event)
     if (markerDigest !== null && parentDigest !== null && markerDigest !== parentDigest) {
       throw formatError(
         path,
@@ -196,6 +205,9 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
     }
   }
 
+  // Runtime's recursive atom has no supervisor/worker role field. A tree root
+  // is a supervisor; a child without its own tree is a worker.
+  const supervisorIds = new Set([top.root, ...nestedRoots])
   const normalized = events
     .filter(
       (entry) =>
@@ -206,7 +218,13 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
           entry.event.parent === undefined
         ),
     )
-    .map((entry) => entry.event)
+    .map((entry) => {
+      const event = { ...entry.event }
+      if (event.kind === 'spawned' && event.role === undefined) {
+        event.role = supervisorIds.has(nonEmptyString(event.id) ?? '') ? 'supervisor' : 'worker'
+      }
+      return { root: entry.root, event }
+    })
 
   const rootMarkers = rootMarkersByTree.get(top.root) ?? []
   if (rootMarkers.length !== 1) {
@@ -220,8 +238,12 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
   return {
     root: top.root,
     startedAt: top.at,
-    journal: `${normalized.map((event) => JSON.stringify(event)).join('\n')}\n`,
-    events: normalized,
+    // Keep Runtime's event envelope intact. The pure source parser uses the envelope to
+    // distinguish an understood-but-unmodeled Runtime event from an unreadable flat record.
+    journal: `${normalized
+      .map((entry) => JSON.stringify({ kind: 'event', root: entry.root, event: entry.event }))
+      .join('\n')}\n`,
+    events: normalized.map((entry) => entry.event),
   }
 }
 
