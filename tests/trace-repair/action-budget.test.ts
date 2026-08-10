@@ -100,9 +100,14 @@ describe('the budget rejects what the scaffold could not have done', () => {
     expect(['multiple-statements', 'multiple-heredocs']).toContain(check.violation)
   })
 
-  it('rejects an answer that misdescribes its own action', () => {
+  it('admits an action that misdescribes itself, and records both kinds', () => {
+    // The scaffold runs the text either way, so the label cannot decide
+    // admissibility; it is measured so a report can count the mismatch.
     const check = checkInterventionBudget("cat > /app/f <<'EOF'\nx\nEOF", 'shell')
-    expect(check).toMatchObject({ admissible: false, violation: 'payload-kind-mismatch' })
+    expect(check).toMatchObject({
+      admissible: true,
+      measurement: { payload: 'edit', declared: 'shell', heredocs: 1 },
+    })
   })
 
   it('rejects the literal no-ops', () => {
