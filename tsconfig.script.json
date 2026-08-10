@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "include": ["scripts/tb-repair-milestone1.ts", "src"],
+  "exclude": ["node_modules", "dist", "tests"]
+}

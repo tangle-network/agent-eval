@@ -134,6 +134,16 @@
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
     },
+    "./trace-repair": {
+      "types": "./dist/trace-repair/index.d.ts",
+      "import": "./dist/trace-repair/index.js",
+      "default": "./dist/trace-repair/index.js"
+    },
+    "./trajectory-replay": {
+      "types": "./dist/trajectory-replay/index.d.ts",
+      "import": "./dist/trajectory-replay/index.js",
+      "default": "./dist/trajectory-replay/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }
@@ -158,6 +168,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc -p tsconfig.examples.json",
+    "typecheck:scripts": "tsc -p tsconfig.script.json",
     "lint": "biome check src",
     "format": "biome format --write src",
     "check:skill": "node scripts/check-skill.mjs",
