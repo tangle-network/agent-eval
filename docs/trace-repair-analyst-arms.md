@@ -22,14 +22,20 @@ So every arm is authored fresh for the repair task, and every arm is uncertified
 
 | Property | Where it is enforced |
 |---|---|
-| One question, one reply grammar | `repair-prompt.ts`; `askRepairArm` builds the prompt, an arm never composes its own |
+| One question, one task policy | `repair-prompt.ts` holds them; each arm composes its prompt from those shared constants and declares its own reply grammar as `promptContract` |
 | One action budget (4096 bytes, one top-level statement, one heredoc) | `askRepairArm` measures it; `gradeRepairRow` refuses a violation |
 | One bounded repair turn on a malformed reply | declared per arm as `repairTurns`; `repairArmAsymmetries` refuses a set that disagrees |
-| No arm sees a grading field | an arm is handed a `BlindedTrajectoryPrefix`, never the admitted row |
+| No arm sees a grading field | `RepairArmRequest` carries only a `BlindedTrajectoryPrefix`; the admitted row is not in the type, so a grading field is unreachable rather than merely unread |
 | A row an arm could not answer is a typed failure | `RepairArmReply` has no shape for a silent null |
+| A k the recording does not hold is a declined reply | both arms drop the row with its reason; the same model mistake lands in the same funnel cell on every execution path |
 
 The budget is **recorded** at answer time and **enforced** at grade time.
 One authority refuses; measuring early is what lets a report say what an arm spent its bytes on without paying for a rollout to find out.
+
+Prompt identity is recorded at two grains.
+`repairQuestionSha256` digests what every arm shares: the question, the task policy, the budget the caps are read from.
+Each answer additionally stamps `repairArmPromptSha256`, which folds in the arm's own declared contract text — so the chat arms, which ask the identical composed question, share one digest, and the DSPy arm, whose typed SUBMIT grammar is a materially different question, stamps another.
+A contract change, including a `DSPY_REPAIR_SIGNATURE` version bump, changes the per-arm digest.
 
 ## What is allowed to differ, and is recorded
 
@@ -76,14 +82,14 @@ Running it produces certified instruction text for one arm.
 The comparison rule above — an optimisation applies to every arm or to none — is now enforced in code, so an Omni-tuned arm beside three untuned ones is a set `repairArmAsymmetries` refuses.
 
 **There is no leakage-free split to train on.**
-The corpus admits 43 rows drawn from exactly four Terminal-Bench-2 tasks: `sanitize-git-repo` 16, `count-dataset-tokens` 12, `password-recovery` 11, `largest-eigenval` 4.
+The corpus records 48 rows from exactly four Terminal-Bench-2 tasks, and admission passes 43: `sanitize-git-repo` 16, `count-dataset-tokens` 12, `password-recovery` 11, `largest-eigenval` 4.
 The 20 pre-registered measurement rows draw from all four.
 The binding constraint on the existing result is the four task clusters, not the 20 rows, so any training split shares clusters with the measurement set at exactly the level that binds.
 
 The usable set is smaller still.
-`largest-eigenval` grades speedup with a wall-clock assertion and its suite is certified nondeterministic — 8 of 16 units flip on byte-identical state, flip rate 0.375 — so admission refuses its rows.
-All five `password-recovery` rows score zero on the oracle-fix ceiling arm because the reference solution is bash and the scaffold runs dash, which makes their ceiling unmeasured rather than zero.
-That leaves 11 rows in two clusters with a measured ceiling.
+`largest-eigenval` grades speedup with a wall-clock assertion and its suite is certified nondeterministic — 8 of its 27 assertion units flip on byte-identical state, worst-unit flip rate 0.375 — so the oracle-determinism gate refuses every one of its rows, and 16 of the 20 pre-registered rows survive, in three clusters.
+All five `password-recovery` rows among those 16 score zero on the oracle-fix ceiling arm because the reference solution is bash and the scaffold runs dash, which makes their ceiling unmeasured rather than zero.
+That leaves 11 measurement rows in two clusters with a measured ceiling.
 
 Omni unblocks when the corpus carries enough independent task clusters to hold out a measurement set that shares none with the training split — not when the grader improves.
 

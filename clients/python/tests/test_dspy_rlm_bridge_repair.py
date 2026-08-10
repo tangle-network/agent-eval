@@ -285,12 +285,42 @@ def test_a_typed_field_returned_as_text_earns_exactly_one_structured_reread(
     assert repair["kept"] == 1
 
 
-def test_a_typed_field_still_unreadable_after_the_reread_fails_loud(
+def test_a_typed_field_still_unreadable_after_the_reread_is_a_typed_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(RuntimeError, match="not a JSON array after one repair attempt"):
-        _run_bridge(monkeypatch, tmp_path, repairs="I could not find a repair.")
+    _calls, output_path = _run_bridge(
+        monkeypatch, tmp_path, repairs="I could not find a repair."
+    )
+
+    output = json.loads(output_path.read_text())
+    repair = output["runtime"]["repair"]
+    assert repair["repair"] == "unparseable-repairs-string"
+    assert "not a JSON array" in repair["failure"]
+    assert repair["rows"] == []
+    # The analysis completed: the prose answer survives beside the failure.
+    assert output["answer"] == "Step 2 wrote the wrong path."
+
+
+def test_a_prose_only_decline_is_a_typed_failure_not_a_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    # The tolerant adapter recovers a missing repairs field to "": the model
+    # answered in prose and never submitted typed repairs.
+    _calls, output_path = _run_bridge(monkeypatch, tmp_path, repairs="")
+
+    output = json.loads(output_path.read_text())
+    repair = output["runtime"]["repair"]
+    assert repair["repair"] is None
+    assert "no typed repairs field" in repair["failure"]
+    assert repair["rows"] == []
+    assert output["answer"] == "Step 2 wrote the wrong path."
+
+
+def test_a_whitespace_only_action_is_rejected_at_the_source() -> None:
+    with pytest.raises(pydantic.ValidationError):
+        dspy_rlm_bridge.RepairProposal.model_validate(dict(VALID_REPAIR, action="   "))
 
 
 def test_a_malformed_row_is_dropped_and_the_rest_of_the_analysis_survives(
@@ -300,14 +330,58 @@ def test_a_malformed_row_is_dropped_and_the_rest_of_the_analysis_survives(
     _calls, output_path = _run_bridge(
         monkeypatch,
         tmp_path,
-        repairs=[{"k": 2, "failure_claim": "", "intervention_kind": "shell", "action": "ls"}],
+        repairs=[
+            {"k": 2, "failure_claim": "", "intervention_kind": "shell", "action": "ls"},
+            dict(VALID_REPAIR),
+        ],
     )
 
     repair = json.loads(output_path.read_text())["runtime"]["repair"]
-    assert repair["reported"] == 1
-    assert repair["rows"] == []
+    assert repair["reported"] == 2
+    assert repair["kept"] == 1
+    assert repair["rows"][0]["k"] == 2
     assert len(repair["dropped"]) == 1
     assert repair["dropped"][0]["index"] == 0
+
+
+def test_a_malformed_trajectory_entry_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match=r"trajectory\[0\]\.step_id must be an integer"):
+        _run_bridge(
+            monkeypatch,
+            tmp_path,
+            repairs=[dict(VALID_REPAIR)],
+            task_inputs={
+                "trajectory": [{"action": "ls"}],
+                "taskStatement": "Solve the task.",
+            },
+        )
+    # bool is an int subclass; True must not alias to step_id=1.
+    with pytest.raises(ValueError, match=r"trajectory\[0\]\.step_id must be an integer"):
+        _run_bridge(
+            monkeypatch,
+            tmp_path,
+            repairs=[dict(VALID_REPAIR)],
+            task_inputs={
+                "trajectory": [{"step_id": True, "action": "ls", "observation": None}],
+                "taskStatement": "Solve the task.",
+            },
+        )
+
+
+def test_a_non_string_task_statement_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="taskStatement must be a string"):
+        _run_bridge(
+            monkeypatch,
+            tmp_path,
+            repairs=[dict(VALID_REPAIR)],
+            task_inputs={"trajectory": TRAJECTORY, "taskStatement": 12345},
+        )
 
 
 def test_the_repair_task_refuses_to_run_without_the_trajectory(

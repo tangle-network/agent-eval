@@ -38,7 +38,7 @@ import {
 import type { AdmittedRow } from './admission-contract'
 import type { AnalystResponse, RepairFinding, RepairIntervention } from './analyst-response'
 import { type BlindedTrajectoryPrefix, blindTrajectory } from './blinding'
-import { repairPromptSha256 } from './repair-prompt'
+import { repairArmPromptSha256, repairQuestionSha256 } from './repair-prompt'
 
 /**
  * Something an arm can do that another arm cannot.
@@ -90,12 +90,17 @@ export interface RepairArmDeclaration {
   /** Bounded retries a structurally malformed reply earns. */
   readonly repairTurns: number
   readonly affordances: readonly RepairArmAffordance[]
+  /** The arm's own instruction and output-grammar text, exactly as the arm
+   *  composes it into the question. It enters the per-arm prompt digest, so a
+   *  contract change — a reworded grammar, a new signature version — changes
+   *  the digest of every answer the arm stamps. */
+  readonly promptContract: readonly string[]
 }
 
+/** What an arm is handed. The type carries only the blinded prefix, so a
+ *  grading field is unreachable rather than merely unread: the admitted row
+ *  stays with `askRepairArm`, which does the blinding and the bookkeeping. */
 export interface RepairArmRequest {
-  readonly row: AdmittedRow
-  /** The row as the arm may see it. Built by `askRepairArm`; an arm never
-   *  reads the admitted row directly, so no arm can reach a grading field. */
   readonly prefix: BlindedTrajectoryPrefix
   readonly signal?: AbortSignal
 }
@@ -217,7 +222,6 @@ export async function askRepairArm(options: AskRepairArmOptions): Promise<Repair
     options.throughStep === undefined ? {} : { throughStep: options.throughStep },
   )
   const reply = await arm.ask({
-    row,
     prefix,
     ...(options.signal ? { signal: options.signal } : {}),
   })
@@ -233,7 +237,7 @@ export async function askRepairArm(options: AskRepairArmOptions): Promise<Repair
   return {
     rowId: row.rowId,
     armId: arm.declaration.id,
-    promptSha256: repairPromptSha256(arm.declaration.budget),
+    promptSha256: repairArmPromptSha256(arm.declaration.budget, arm.declaration.promptContract),
     reply,
     budget,
     wallMs: now() - startedMs,
@@ -268,6 +272,10 @@ export interface RepairArmAsymmetry {
   /** Affordances at least one other arm has and this one lacks. */
   readonly missingAffordances: readonly RepairArmAffordance[]
   readonly certification: RepairArmCertification
+  /** Digest of the composed question this arm answers: the shared question
+   *  plus the arm's own contract text. Two arms with the same digest asked the
+   *  identical composed question; two arms with different digests did not. */
+  readonly promptSha256: string
 }
 
 export interface RepairArmAsymmetryReport {
@@ -281,7 +289,9 @@ export interface RepairArmAsymmetryReport {
   readonly noArmCertified: boolean
   readonly budget: InterventionBudget
   readonly repairTurns: number
-  readonly promptSha256: string
+  /** Digest of the question and task policy every arm shares. Per-arm
+   *  composed-question digests live on each asymmetry entry. */
+  readonly questionSha256: string
 }
 
 /**
@@ -360,6 +370,7 @@ export function repairArmAsymmetries(
         declarations.some((other) => other.affordances.includes(affordance)),
     ),
     certification: declaration.certification,
+    promptSha256: repairArmPromptSha256(declaration.budget, declaration.promptContract),
   }))
   return {
     armIds: ids,
@@ -368,7 +379,7 @@ export function repairArmAsymmetries(
     noArmCertified: certified.length === 0,
     budget,
     repairTurns,
-    promptSha256: repairPromptSha256(budget),
+    questionSha256: repairQuestionSha256(budget),
   }
 }
 
@@ -403,9 +414,23 @@ function assertDeclaration(declaration: RepairArmDeclaration): void {
       `arm '${declaration.id}' repairTurns must be a non-negative integer, got ${declaration.repairTurns}`,
     )
   }
-  if (declaration.certification.kind === 'none' && !declaration.certification.reason.trim()) {
+  if (
+    declaration.certification.kind === 'none' &&
+    (typeof declaration.certification.reason !== 'string' ||
+      !declaration.certification.reason.trim())
+  ) {
     throw new ValidationError(
       `arm '${declaration.id}' carries no certification and must say why in one sentence`,
+    )
+  }
+  if (
+    !Array.isArray(declaration.promptContract) ||
+    declaration.promptContract.length === 0 ||
+    declaration.promptContract.some((line) => typeof line !== 'string')
+  ) {
+    throw new ValidationError(
+      `arm '${declaration.id}' must declare its contract text as a non-empty array of strings; ` +
+        'the per-arm prompt digest is computed from it',
     )
   }
   for (const affordance of declaration.affordances) {

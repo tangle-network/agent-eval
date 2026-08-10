@@ -106,14 +106,39 @@ export function repairTaskDefinition(
 }
 
 /**
- * Digest of the composed question every arm answered.
+ * Digest of the question and task policy every arm shares.
  *
- * Recorded per answer so a result names the exact contract that produced it:
- * two runs that both stamp an arm id while asking materially different
- * questions get different digests by construction.
+ * This is the part of the prompt that is equal by construction across arms:
+ * the question, the execution rules, and the budget the caps are read from.
+ * An arm's own contract text — its output grammar, its typed-signature
+ * instructions — is deliberately outside it, because arms differ there.
  */
-export function repairPromptSha256(
+export function repairQuestionSha256(
   budget: InterventionBudget = SCAFFOLD_INTERVENTION_BUDGET,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        kind: 'tb-repair-analyst-question',
+        question: REPAIR_QUESTION,
+        taskPolicy: repairTaskPolicy(budget),
+        budget,
+      }),
+    )
+    .digest('hex')
+}
+
+/**
+ * Digest of the composed question one arm answered.
+ *
+ * Covers the shared question and the arm's own declared contract text, so two
+ * arms that ask materially different composed questions — a JSON grammar
+ * versus a typed SUBMIT signature — stamp different digests, and two arms
+ * that ask the identical composed question share one.
+ */
+export function repairArmPromptSha256(
+  budget: InterventionBudget,
+  contract: readonly string[],
 ): string {
   return createHash('sha256')
     .update(
@@ -121,9 +146,8 @@ export function repairPromptSha256(
         kind: 'tb-repair-analyst-prompt',
         question: REPAIR_QUESTION,
         taskPolicy: repairTaskPolicy(budget),
-        outputContract: REPAIR_CONTRACT_LINES,
-        repairContract: REPAIR_REPAIR_CONTRACT_LINES,
         budget,
+        contract,
       }),
     )
     .digest('hex')

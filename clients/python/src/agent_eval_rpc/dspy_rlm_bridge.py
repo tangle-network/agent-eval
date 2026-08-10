@@ -168,7 +168,7 @@ class IncorrectBlock(pydantic.BaseModel):
     )
 
     @pydantic.model_validator(mode="after")
-    def _enforce_block_shape(self) -> "IncorrectBlock":
+    def _enforce_block_shape(self) -> IncorrectBlock:
         if self.last_step < self.first_step:
             raise ValueError(
                 f"last_step {self.last_step} precedes first_step {self.first_step}"
@@ -229,7 +229,11 @@ class RepairProposal(pydantic.BaseModel):
     )
     action: Annotated[
         str,
-        pydantic.StringConstraints(min_length=1),
+        # strip_whitespace so a whitespace-only action fails min_length here
+        # instead of surviving to the grader, which trims before measuring; the
+        # byte budget below is measured on the same stripped text the grader
+        # measures.
+        pydantic.StringConstraints(strip_whitespace=True, min_length=1),
     ] = pydantic.Field(
         description=(
             "The exact shell text executed in place of step k. Not a description, "
@@ -239,7 +243,7 @@ class RepairProposal(pydantic.BaseModel):
     )
 
     @pydantic.model_validator(mode="after")
-    def _enforce_action_budget(self) -> "RepairProposal":
+    def _enforce_action_budget(self) -> RepairProposal:
         measured = len(self.action.encode("utf-8"))
         if measured > _REPAIR_ACTION_MAX_BYTES:
             raise ValueError(
@@ -436,6 +440,13 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(
                 "the repair task requires taskInputs.trajectory, the recorded steps the "
                 "program reads; the analyst never fetches them from a trace store"
+            )
+        _validate_repair_trajectory(task_inputs["trajectory"])
+        statement = task_inputs.get("taskStatement", "")
+        if not isinstance(statement, str):
+            raise ValueError(
+                "taskInputs.taskStatement must be a string, got "
+                f"{type(statement).__name__}"
             )
     with _probed_interpreter(dspy) as (interpreter, deno_command):
         runtime = _runtime_identity(deno_command)
@@ -650,6 +661,39 @@ def _build_repair_signature(dspy: Any) -> Any:
     )
 
 
+def _validate_repair_trajectory(trajectory: list[Any]) -> None:
+    """Refuse a malformed trajectory before the program runs.
+
+    A silently skipped entry would empty the recorded step-id set and drop
+    every proposal as "not a recorded step_id" — an error that names the
+    symptom and hides the malformed input that caused it.
+    """
+    for index, entry in enumerate(trajectory):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"taskInputs.trajectory[{index}] must be an object, got "
+                f"{type(entry).__name__}"
+            )
+        step_id = entry.get("step_id")
+        # bool is an int subclass; True aliasing to step_id=1 must not pass.
+        if not isinstance(step_id, int) or isinstance(step_id, bool):
+            raise ValueError(
+                f"taskInputs.trajectory[{index}].step_id must be an integer, got "
+                f"{step_id!r}"
+            )
+        if not isinstance(entry.get("action"), str):
+            raise ValueError(
+                f"taskInputs.trajectory[{index}].action must be a string, got "
+                f"{type(entry.get('action')).__name__}"
+            )
+        observation = entry.get("observation")
+        if observation is not None and not isinstance(observation, str):
+            raise ValueError(
+                f"taskInputs.trajectory[{index}].observation must be a string or "
+                f"null, got {type(observation).__name__}"
+            )
+
+
 def _typed_prediction_to_repairs(
     prediction: Any,
     trajectory: list[Any],
@@ -659,13 +703,18 @@ def _typed_prediction_to_repairs(
     Every row is validated against the recorded step ids. A row naming a step
     the recording does not hold is dropped with its reason rather than clamped:
     an analyst that names a step outside the trajectory has localized nothing.
+    A `repairs` value that stays unreadable after the bounded structured
+    re-read travels as `failure` beside the answer instead of aborting the
+    analysis the model already paid for.
     """
     raw_repairs = _prediction_field(prediction, "repairs")
-    proposals, repair, dropped, reported = _coerce_typed_repairs(raw_repairs)
+    proposals, repair, dropped, reported, failure = _coerce_typed_repairs(raw_repairs)
     step_ids = {
-        entry.get("step_id")
+        entry["step_id"]
         for entry in trajectory
-        if isinstance(entry, dict) and isinstance(entry.get("step_id"), int)
+        if isinstance(entry, dict)
+        and isinstance(entry.get("step_id"), int)
+        and not isinstance(entry.get("step_id"), bool)
     }
     rows: list[dict[str, Any]] = []
     for index, proposal in enumerate(proposals):
@@ -699,24 +748,44 @@ def _typed_prediction_to_repairs(
         "dropped": dropped,
         "repair": repair,
         "rows": rows,
+        "failure": failure,
     }
 
 
 def _coerce_typed_repairs(
     raw_repairs: Any,
-) -> tuple[list[RepairProposal], str | None, list[dict[str, Any]], int]:
+) -> tuple[list[RepairProposal], str | None, list[dict[str, Any]], int, str | None]:
     repair: str | None = None
     if isinstance(raw_repairs, str):
+        stripped = raw_repairs.strip()
+        if not stripped:
+            # The tolerant adapter's recovered default for a missing field. The
+            # model wrote no typed repairs at all — prose only — so there is
+            # nothing to re-read: a typed failure that keeps the prose answer,
+            # not a decline the model never submitted and not an aborted run.
+            return (
+                [],
+                None,
+                [],
+                0,
+                "the model returned no typed repairs field; a decline is SUBMIT "
+                "repairs=[], not prose",
+            )
         # The max-iterations extract fallback under a marker-tolerant adapter can
         # hand the typed field back as text. EXACTLY one bounded structured-repair
         # attempt runs here — the same single retry the chat-completion arms get
-        # for a malformed reply. An unparseable value fails loudly, because the
-        # investigation produced an answer and a silent [] would erase it.
-        parsed = _extract_json_array(raw_repairs)
+        # for a malformed reply. A value that stays unreadable is a typed failure
+        # beside the answer, because the investigation produced one and a silent
+        # [] would erase it.
+        parsed = _extract_json_array(stripped)
         if parsed is None:
-            raise RuntimeError(
-                "DSPy RLM typed repairs output is not a JSON array after one repair "
-                f"attempt: {' '.join(raw_repairs.split())[:200]!r}"
+            return (
+                [],
+                "unparseable-repairs-string",
+                [],
+                0,
+                "DSPy RLM typed repairs output is not a JSON array after the bounded "
+                f"structured re-read: {' '.join(stripped.split())[:200]!r}",
             )
         repair = "parsed-repairs-from-string"
         raw_repairs = parsed
@@ -734,7 +803,7 @@ def _coerce_typed_repairs(
             proposals.append(RepairProposal.model_validate(entry))
         except pydantic.ValidationError as error:
             dropped.append({"index": index, "reason": " ".join(str(error).split())[:300]})
-    return proposals, repair, dropped, len(raw_repairs)
+    return proposals, repair, dropped, len(raw_repairs), None
 
 
 def _build_signature(dspy: Any) -> Any:

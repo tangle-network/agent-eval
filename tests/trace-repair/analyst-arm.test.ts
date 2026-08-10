@@ -16,7 +16,7 @@ import {
   type RepairArmReply,
   repairArmAsymmetries,
 } from '../../src/trace-repair/analyst-arm'
-import { repairPromptSha256 } from '../../src/trace-repair/repair-prompt'
+import { repairArmPromptSha256, repairQuestionSha256 } from '../../src/trace-repair/repair-prompt'
 import { admitted, step } from './fixtures'
 
 const ROW = admitted({
@@ -40,6 +40,8 @@ const UNCERTIFIED: RepairArmCertification = {
   reason: 'authored for the repair contract, certified by nothing',
 }
 
+const STUB_CONTRACT: readonly string[] = ['reply with one fenced JSON object']
+
 function stubArm(
   id: string,
   overrides: {
@@ -48,6 +50,7 @@ function stubArm(
     affordances?: readonly RepairArmAffordance[]
     certification?: RepairArmCertification
     budget?: typeof SCAFFOLD_INTERVENTION_BUDGET
+    promptContract?: readonly string[]
   } = {},
 ): RepairArm {
   return {
@@ -58,6 +61,7 @@ function stubArm(
       budget: overrides.budget ?? SCAFFOLD_INTERVENTION_BUDGET,
       repairTurns: overrides.repairTurns ?? 1,
       affordances: overrides.affordances ?? ['inline-trajectory'],
+      promptContract: overrides.promptContract ?? STUB_CONTRACT,
     },
     async ask() {
       return overrides.reply ?? FINDING
@@ -66,32 +70,49 @@ function stubArm(
 }
 
 describe('repair arm contract', () => {
-  it('measures every finding against the declared budget and stamps the prompt digest', async () => {
+  it('measures every finding against the declared budget and stamps the per-arm prompt digest', async () => {
     const answer = await askRepairArm({ arm: stubArm('a'), row: ROW, now: counter() })
 
-    expect(answer.promptSha256).toBe(repairPromptSha256())
+    expect(answer.promptSha256).toBe(
+      repairArmPromptSha256(SCAFFOLD_INTERVENTION_BUDGET, STUB_CONTRACT),
+    )
     expect(answer.budget).toMatchObject({ admissible: true, measurement: { statements: 1 } })
     expect(answer.wallMs).toBe(1)
   })
 
-  it('shows an arm a blinded prefix and never the admitted row it came from', async () => {
+  it('stamps different digests on arms with different contract text, and one digest on arms with the same', () => {
+    const json = repairArmPromptSha256(SCAFFOLD_INTERVENTION_BUDGET, ['fenced JSON grammar'])
+    const jsonAgain = repairArmPromptSha256(SCAFFOLD_INTERVENTION_BUDGET, ['fenced JSON grammar'])
+    const typed = repairArmPromptSha256(SCAFFOLD_INTERVENTION_BUDGET, ['typed SUBMIT grammar'])
+
+    expect(jsonAgain).toBe(json)
+    expect(typed).not.toBe(json)
+    expect(repairQuestionSha256()).not.toBe(json)
+  })
+
+  it('hands an arm a request that carries only the blinded prefix', async () => {
     let seen: unknown
     const arm: RepairArm = {
       declaration: stubArm('a').declaration,
       async ask(request) {
-        seen = request.prefix
+        seen = request
         return FINDING
       },
     }
 
     await askRepairArm({ arm, row: ROW })
 
+    // The admitted row is not in the request type, so a grading field is
+    // structurally unreachable from an arm.
+    expect(Object.keys(seen as object)).toEqual(['prefix'])
     expect(seen).toEqual({
-      rowId: ROW.rowId,
-      taskStatement: 'make the suite pass',
-      steps: [{ step_id: 1, action: 'ls -la', observation: expect.any(String) }],
-      recordedSteps: 1,
-      maxK: 1,
+      prefix: {
+        rowId: ROW.rowId,
+        taskStatement: 'make the suite pass',
+        steps: [{ step_id: 1, action: 'ls -la', observation: expect.any(String) }],
+        recordedSteps: 1,
+        maxK: 1,
+      },
     })
   })
 
@@ -163,9 +184,11 @@ describe('repair arm contract', () => {
       }),
     ])
 
+    const stubDigest = repairArmPromptSha256(SCAFFOLD_INTERVENTION_BUDGET, STUB_CONTRACT)
     expect(report.noArmCertified).toBe(true)
     expect(report.repairTurns).toBe(1)
     expect(report.budget).toEqual(SCAFFOLD_INTERVENTION_BUDGET)
+    expect(report.questionSha256).toBe(repairQuestionSha256())
     expect(report.sharedAffordances).toEqual(['inline-trajectory'])
     expect(report.asymmetries).toEqual([
       {
@@ -173,18 +196,21 @@ describe('repair arm contract', () => {
         extraAffordances: [],
         missingAffordances: ['code-interpreter', 'agent-loop'],
         certification: UNCERTIFIED,
+        promptSha256: stubDigest,
       },
       {
         armId: 'prime',
         extraAffordances: ['agent-loop'],
         missingAffordances: ['code-interpreter'],
         certification: UNCERTIFIED,
+        promptSha256: stubDigest,
       },
       {
         armId: 'dspy-rlm',
         extraAffordances: ['code-interpreter', 'agent-loop'],
         missingAffordances: [],
         certification: UNCERTIFIED,
+        promptSha256: stubDigest,
       },
     ])
   })

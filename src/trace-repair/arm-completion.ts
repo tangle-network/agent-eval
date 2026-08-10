@@ -33,6 +33,7 @@ import type {
   RepairArmRequest,
   RepairArmUsage,
 } from './analyst-arm'
+import type { BlindedTrajectoryPrefix } from './blinding'
 import {
   REPAIR_CONTRACT_LINES,
   REPAIR_QUESTION,
@@ -85,6 +86,9 @@ export function createCompletionRepairArm(options: CompletionRepairArmOptions): 
       // `runPrimeExchange` takes exactly one repair turn on a malformed reply.
       repairTurns: 1,
       affordances: options.affordances,
+      // The JSON reply grammar and its repair-turn restatement are this arm's
+      // whole contract text; both enter the per-arm prompt digest.
+      promptContract: [...REPAIR_CONTRACT_LINES, ...REPAIR_REPAIR_CONTRACT_LINES],
     },
     async ask(request: RepairArmRequest): Promise<RepairArmReply> {
       const prompt = buildPrimePrompt({
@@ -95,7 +99,7 @@ export function createCompletionRepairArm(options: CompletionRepairArmOptions): 
         renderedTrajectory: renderRepairTrajectory(request.prefix),
       })
       const outcome = await runPrimeExchange<CompletionRepairRow>({
-        contract: replyContract(request),
+        contract: replyContract(request.prefix),
         prompt,
         transport: options.transport,
         url: options.url,
@@ -148,8 +152,8 @@ export function createCompletionRepairArm(options: CompletionRepairArmOptions): 
  * step ids is a rejected row rather than a clamped one, because an arm that
  * names a step the recording does not hold has not localized anything.
  */
-function replyContract(request: RepairArmRequest): PrimeReplyContract<CompletionRepairRow> {
-  const validSteps = request.prefix.steps.map((step) => step.step_id)
+function replyContract(prefix: BlindedTrajectoryPrefix): PrimeReplyContract<CompletionRepairRow> {
+  const validSteps = prefix.steps.map((step) => step.step_id)
   return {
     rowsField: 'findings',
     contractLines: REPAIR_CONTRACT_LINES,
@@ -164,7 +168,7 @@ function replyContract(request: RepairArmRequest): PrimeReplyContract<Completion
       if (!Number.isInteger(k) || !validSteps.includes(k as number)) {
         return {
           ok: false,
-          reason: `k must be a recorded step_id in [${validSteps[0] ?? 1}, ${request.prefix.maxK}], got ${describe(k)}`,
+          reason: `k must be a recorded step_id in [${validSteps[0] ?? 1}, ${prefix.maxK}], got ${describe(k)}`,
         }
       }
       const claim = record.failure_claim ?? record.failureClaim

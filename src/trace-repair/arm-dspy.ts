@@ -106,6 +106,7 @@ export interface DspyRepairArmOptions {
 }
 
 export function createDspyRepairArm(options: DspyRepairArmOptions): RepairArm {
+  assertDspyRepairEngine(options.engine)
   const budget = options.budget ?? SCAFFOLD_INTERVENTION_BUDGET
   const instructions = dspyRepairInstructions(budget)
   return {
@@ -125,6 +126,9 @@ export function createDspyRepairArm(options: DspyRepairArmOptions): RepairArm {
       // chat-completion arms get for a malformed reply.
       repairTurns: 1,
       affordances: ['inline-trajectory', 'code-interpreter', 'agent-loop'],
+      // The instruction text names the signature version, so bumping
+      // DSPY_REPAIR_SIGNATURE changes the per-arm prompt digest.
+      promptContract: [instructions],
     },
     async ask(request: RepairArmRequest): Promise<RepairArmReply> {
       const steps = request.prefix.steps.map((step) => ({
@@ -166,7 +170,9 @@ export function createDspyRepairArm(options: DspyRepairArmOptions): RepairArm {
           usage: engineUsage(null),
         }
       }
-      const payload = readRepairPayload(result.runtime)
+      const payload = readRepairPayload(result.runtime, {
+        validSteps: steps.map((step) => step.step_id),
+      })
       const usage = engineUsage(result.modelCalls)
       if (!payload.ok) {
         // The engine answered, but not under the repair contract. That is a
@@ -181,10 +187,23 @@ export function createDspyRepairArm(options: DspyRepairArmOptions): RepairArm {
           usage,
         }
       }
-      const { rows, dropped, repair, reported } = payload.value
+      const { rows, dropped, repair, reported, failure } = payload.value
+      // Succeeded means the re-read produced a well-formed reply — the same
+      // definition the chat-completion arms record — so a recovered empty
+      // list, an honest decline, is a repair turn that succeeded.
       const repairTurn = {
         attempted: repair !== null,
-        succeeded: repair === null ? null : rows.length > 0 || dropped.length > 0,
+        succeeded: repair === null ? null : failure === null,
+      }
+      if (failure !== null) {
+        return {
+          status: 'failed',
+          failure,
+          answer: result.answer,
+          rejectedRows: dropped,
+          repair: repairTurn,
+          usage,
+        }
       }
       const row = rows[0]
       if (row === undefined) {
@@ -227,21 +246,38 @@ interface DspyRepairPayload {
   /** How the bounded structured re-read recovered the typed field, or null
    *  when the field arrived typed and no re-read was needed. */
   readonly repair: string | null
+  /** The bridge's own account of a typed field it could not read — a reply
+   *  that stayed malformed after the bounded re-read. The analysis completed,
+   *  so the answer text survives beside it; null on a readable reply. */
+  readonly failure: string | null
 }
 
 type ReadRepairPayload =
   | { readonly ok: true; readonly value: DspyRepairPayload }
   | { readonly ok: false; readonly reason: string }
 
+export interface ReadRepairPayloadOptions {
+  /** The step ids the blinded prefix holds. A row naming any other k is the
+   *  model's mistake, not the bridge's, so it lands in `dropped` — the same
+   *  rejected-row path the chat-completion arms take — never in a finding the
+   *  grader would refuse as out of range. */
+  readonly validSteps: readonly number[]
+}
+
 /**
  * Read the bridge's typed repair block.
  *
- * Everything is checked. A missing block, a wrong signature, or a row that
- * does not carry an integer k and a non-empty action is a failure with a
- * reason — never a default, and never an empty list that would grade as a
- * decline the program did not make.
+ * Structure is checked and fails loud: a missing block, a wrong signature, or
+ * a row that does not carry an integer k and a non-empty action is a wiring
+ * fault with a reason — never a default, and never an empty list that would
+ * grade as a decline the program did not make. A structurally sound row whose
+ * k is not a recorded step id is the model's mistake, and it is dropped with
+ * its reason instead.
  */
-export function readRepairPayload(runtime: Record<string, unknown>): ReadRepairPayload {
+export function readRepairPayload(
+  runtime: Record<string, unknown>,
+  options: ReadRepairPayloadOptions,
+): ReadRepairPayload {
   const block = runtime.repair
   if (!isRecord(block)) {
     return {
@@ -272,14 +308,14 @@ export function readRepairPayload(runtime: Record<string, unknown>): ReadRepairP
       reason: `runtime.repair.repair must be a string or null, got ${describe(repair)}`,
     }
   }
-  const rows: DspyRepairRow[] = []
-  for (const [index, raw] of block.rows.entries()) {
-    const decoded = decodeRepairRow(raw)
-    if (!decoded.ok) {
-      return { ok: false, reason: `runtime.repair.rows[${index}]: ${decoded.reason}` }
+  const rawFailure = block.failure
+  if (rawFailure !== undefined && rawFailure !== null && typeof rawFailure !== 'string') {
+    return {
+      ok: false,
+      reason: `runtime.repair.failure must be a string or null, got ${describe(rawFailure)}`,
     }
-    rows.push(decoded.row)
   }
+  const failure = typeof rawFailure === 'string' ? rawFailure : null
   const dropped: RepairArmRejectedRow[] = []
   if (block.dropped !== undefined) {
     if (!Array.isArray(block.dropped)) {
@@ -298,6 +334,27 @@ export function readRepairPayload(runtime: Record<string, unknown>): ReadRepairP
       })
     }
   }
+  const rows: DspyRepairRow[] = []
+  for (const [index, raw] of block.rows.entries()) {
+    const decoded = decodeRepairRow(raw)
+    if (!decoded.ok) {
+      return { ok: false, reason: `runtime.repair.rows[${index}]: ${decoded.reason}` }
+    }
+    if (!options.validSteps.includes(decoded.row.k)) {
+      dropped.push({
+        index,
+        reason: `k must be a recorded step_id in [${options.validSteps[0] ?? 1}, ${options.validSteps[options.validSteps.length - 1] ?? 1}], got ${decoded.row.k}`,
+      })
+      continue
+    }
+    if (rows.length >= 1) {
+      // The bridge caps at one repair; a second valid row here means the cap
+      // regressed, and the surplus is recorded rather than silently discarded.
+      dropped.push({ index, reason: 'exceeds the one-repair cap' })
+      continue
+    }
+    rows.push(decoded.row)
+  }
   return {
     ok: true,
     value: {
@@ -306,6 +363,7 @@ export function readRepairPayload(runtime: Record<string, unknown>): ReadRepairP
       rows,
       dropped,
       repair: repair ?? null,
+      failure,
     },
   }
 }

@@ -157,6 +157,7 @@ export {
   type DspyRepairArmOptions,
   dspyRepairInstructions,
   readRepairPayload,
+  type ReadRepairPayloadOptions,
 } from './arm-dspy'
 export {
   BLINDED_FIELDS,
@@ -317,7 +318,8 @@ export {
   REPAIR_QUESTION,
   REPAIR_REPAIR_CONTRACT_LINES,
   renderRepairTrajectory,
-  repairPromptSha256,
+  repairArmPromptSha256,
+  repairQuestionSha256,
   repairTaskDefinition,
   repairTaskPolicy,
   repairTrajectoryHeader,
