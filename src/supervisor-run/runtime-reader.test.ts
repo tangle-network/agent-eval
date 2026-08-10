@@ -528,8 +528,15 @@ describe('Runtime FileRunContext supervisor reader', () => {
       expect(report.economics.workers.tokensOut).toBe(14_993)
       expect(isUnavailable(report.economics.totalUsd)).toBe(true)
       expect(isUnavailable(report.economics.brain.usd)).toBe(true)
-      expect(report.economics.perWorker).toHaveLength(3)
       expect(report.supervisorProfileDigest).toBe(ROOT_PROFILE)
+      if (isUnavailable(report.economics.perWorker)) {
+        throw new Error(report.economics.perWorker.unavailable)
+      }
+      expect(report.economics.perWorker.map((worker) => worker.profileDigest)).toEqual([
+        CHILD_PROFILE,
+        LEAF_PROFILE,
+        LEAF_PROFILE,
+      ])
     }
 
     expect(integrity.tree.nodes).toHaveLength(4)

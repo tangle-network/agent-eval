@@ -220,8 +220,14 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
     )
     .map((entry) => {
       const event = { ...entry.event }
-      if (event.kind === 'spawned' && event.role === undefined) {
-        event.role = supervisorIds.has(nonEmptyString(event.id) ?? '') ? 'supervisor' : 'worker'
+      if (event.kind === 'spawned') {
+        const digest = profileDigest(event)
+        if (event.profileDigest === undefined && digest !== null) {
+          event.profileDigest = digest
+        }
+        if (event.role === undefined) {
+          event.role = supervisorIds.has(nonEmptyString(event.id) ?? '') ? 'supervisor' : 'worker'
+        }
       }
       return { root: entry.root, event }
     })
