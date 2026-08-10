@@ -134,6 +134,11 @@
       "import": "./dist/hosted/index.js",
       "default": "./dist/hosted/index.js"
     },
+    "./trajectory-replay": {
+      "types": "./dist/trajectory-replay/index.d.ts",
+      "import": "./dist/trajectory-replay/index.js",
+      "default": "./dist/trajectory-replay/index.js"
+    },
     "./openapi.json": {
       "default": "./dist/openapi.json"
     }

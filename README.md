@@ -440,6 +440,7 @@ See [concepts](./docs/concepts.md), [customer paths](./docs/customer-journeys.md
 | `@tangle-network/agent-eval/analyst` | Built-in and custom trace analysts, labeled comparison, costs, and reports. |
 | `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
 | `@tangle-network/agent-eval/supervisor-run` | Read loops or agent-runtime recursive run directories without collapsing missing measurements to zero. |
+| `@tangle-network/agent-eval/trajectory-replay` | Re-execute a recorded shell trajectory in its own image and check whether the recorded failure reproduces. |
 | `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
 | `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |

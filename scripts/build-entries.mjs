@@ -22,6 +22,7 @@ export const buildEntries = {
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',
   'supervisor-run/index': 'src/supervisor-run/index.ts',
+  'trajectory-replay/index': 'src/trajectory-replay/index.ts',
   'hosted/index': 'src/hosted/index.ts',
   cli: 'src/cli.ts',
 }
