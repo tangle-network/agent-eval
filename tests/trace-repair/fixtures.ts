@@ -13,6 +13,13 @@ import {
   admitRow,
   type AdmittedRow,
 } from '../../src/trace-repair/admission-contract'
+import { type ControlPolicy, defineControlPolicy } from '../../src/trace-repair/control-policy'
+import {
+  type OracleDeterminismVerdict,
+  type OracleLoad,
+  type OracleStateLabel,
+  oracleDeterminism,
+} from '../../src/trace-repair/oracle-determinism'
 import type { RepairRowResult } from '../../src/trace-repair/grade'
 import { testSuiteDigest } from '../../src/trace-repair/test-oracle'
 import type { RecordedTrajectoryStep } from '../../src/trajectory-replay/steps'
@@ -30,7 +37,79 @@ import type {
 export const CWD = '/app'
 export const SUITE_PATH = '/tests/run-tests.sh'
 export const SUITE_COMMAND = 'bash /tests/run-tests.sh'
-export const POLICY_DIGEST = 'policy-digest-abc'
+
+/** A control that can act, which is what admission screening requires. */
+export const CONTROL_POLICY: ControlPolicy = defineControlPolicy({
+  id: 'test-control-v1',
+  stepBudget: 20,
+  scaffold: 'mini-swe-agent',
+  model: 'pinned/model-id',
+  commandTimeoutSeconds: 30,
+})
+
+/** A control pinned to zero model calls: it grades the bytes it was handed. */
+export const INERT_CONTROL_POLICY: ControlPolicy = defineControlPolicy({
+  id: 'zero-step-control-v1',
+  stepBudget: 0,
+  scaffold: 'mini-swe-agent',
+  model: null,
+  commandTimeoutSeconds: 30,
+})
+
+export const POLICY_DIGEST = CONTROL_POLICY.digest
+
+/** Replicates that all agreed, on both states and both loads. */
+export function stableOracle(taskName = 'test-task'): OracleDeterminismVerdict {
+  return oracleDeterminism({
+    taskName,
+    image: 'registry.example/task@sha256:pinned',
+    suiteDigest: SUITE_DIGEST,
+    measuredAt: '2026-08-10T00:00:00.000Z',
+    groups: (['idle', 'contended'] as OracleLoad[]).flatMap((load) =>
+      (['unsolved', 'solved'] as OracleStateLabel[]).map((state) => ({
+        state,
+        load,
+        replicates: Array.from({ length: 3 }, (_, index) => ({
+          index,
+          reward: state === 'solved' ? '1' : '0',
+          passed: state === 'solved',
+          wallMs: 100,
+          assertions: [{ id: 'suite.py::test_it', passed: state === 'solved' }],
+        })),
+      })),
+    ),
+  })
+}
+
+/**
+ * Replicates whose whole-suite reward never moved while one assertion did —
+ * the shape a suite with a wall-clock assertion produces at a state that sits
+ * far from its threshold.
+ */
+export function flakyOracle(taskName = 'flaky-task'): OracleDeterminismVerdict {
+  return oracleDeterminism({
+    taskName,
+    image: 'registry.example/task@sha256:pinned',
+    suiteDigest: SUITE_DIGEST,
+    measuredAt: '2026-08-10T00:00:00.000Z',
+    groups: [
+      {
+        state: 'unsolved',
+        load: 'idle',
+        replicates: Array.from({ length: 3 }, (_, index) => ({
+          index,
+          reward: '0',
+          passed: false,
+          wallMs: 100,
+          assertions: [
+            { id: 'suite.py::test_correct', passed: true },
+            { id: 'suite.py::test_speedup[6]', passed: index === 0 },
+          ],
+        })),
+      },
+    ],
+  })
+}
 
 /** Held-out suite: passes only when the repair marker exists. */
 export const HELD_OUT_SUITE = JSON.stringify({ passIf: { exists: '/app/fixed' } })
@@ -253,19 +332,26 @@ export function admissionEvidence(
   const steps = overrides.steps
   return {
     rowId: overrides.rowId ?? 'row-1',
+    taskName: overrides.taskName ?? overrides.oracleDeterminism?.taskName ?? 'test-task',
     image: overrides.image ?? 'registry.example/task@sha256:pinned',
     cwd: overrides.cwd ?? CWD,
     taskStatement: overrides.taskStatement ?? 'make the suite pass',
     steps,
+    oracleDeterminism: overrides.oracleDeterminism ?? stableOracle(),
+    controlPolicy: overrides.controlPolicy ?? CONTROL_POLICY,
     prefixFidelity: overrides.prefixFidelity ?? { stepsReplayed: steps.length, divergences: 0 },
     endStatePassed: overrides.endStatePassed ?? false,
     suiteDigest: overrides.suiteDigest ?? SUITE_DIGEST,
     noFixControl: overrides.noFixControl ?? {
       rollouts: 3,
       passes: 0,
-      policyDigest: POLICY_DIGEST,
+      policyDigest: overrides.controlPolicy?.digest ?? POLICY_DIGEST,
     },
-    noOpControl: overrides.noOpControl ?? { rollouts: 3, passes: 0, policyDigest: POLICY_DIGEST },
+    noOpControl: overrides.noOpControl ?? {
+      rollouts: 3,
+      passes: 0,
+      policyDigest: overrides.controlPolicy?.digest ?? POLICY_DIGEST,
+    },
   }
 }
 
@@ -314,6 +400,8 @@ export function measuredRowResult(rowId: string, repairRate: number): RepairRowR
     interventionRate: repairRate,
     controlRate: 0,
     controlRollouts: 3,
+    controlScreening: 'enforced',
+    controlPolicyDigest: POLICY_DIGEST,
     repairRollouts: 3,
     delta: repairRate,
     wallMs: 1,
@@ -328,6 +416,8 @@ export function declinedRowResult(rowId: string): RepairRowResult {
     interventionRate: 0,
     controlRate: 0,
     controlRollouts: 3,
+    controlScreening: 'enforced',
+    controlPolicyDigest: POLICY_DIGEST,
     repairRollouts: 0,
     delta: 0,
     wallMs: 1,
@@ -345,6 +435,8 @@ export function rejectedRowResult(rowId: string): RepairRowResult {
     interventionRate: 0,
     controlRate: 0,
     controlRollouts: 3,
+    controlScreening: 'enforced',
+    controlPolicyDigest: POLICY_DIGEST,
     repairRollouts: 0,
     delta: 0,
     wallMs: 1,

@@ -1,0 +1,2757 @@
+{
+  "version": 1,
+  "measurements": [
+    {
+      "taskName": "count-dataset-tokens",
+      "image": "alexgshaw/count-dataset-tokens@sha256:9c513c4ba342bd95be501f6f5eadd4806a2b18749c87c251615825100130232d",
+      "suiteDigest": "eed5b7b48f94274d1d0cba596f9e84bffaee546b0824bc2fd6be991d94e49fa8",
+      "measuredAt": "2026-08-10T08:45:54Z",
+      "groups": [
+        {
+          "state": "unsolved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3397,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3047,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3094,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3015,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 2504,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "unsolved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 5364,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 4418,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 5589,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 5009,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4579,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4074,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4399,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4291,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 10309,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 10315,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 10541,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_command_output_content_example",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskName": "largest-eigenval",
+      "image": "alexgshaw/largest-eigenval@sha256:cb9e3e3b09d0783f3bbcfeec8d77bc32d3791204fb2be6650b19be4fbc082b2e",
+      "suiteDigest": "188d38c6b9852948b8a194fab2a1ba2ab27ae0b3f757e03bdaf8621a2a431108",
+      "measuredAt": "2026-08-10T08:46:49Z",
+      "groups": [
+        {
+          "state": "unsolved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 687,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 673,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 668,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 624,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 671,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "unsolved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 1649,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 1913,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 1602,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1334,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1184,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1275,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1063,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 984,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1890,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 1641,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 2148,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_dominance_eigenvalue[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_eigen_pair[9]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[10]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[2]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[3]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[4]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[5]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[6]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[7]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[8]",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_speedup[9]",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskName": "password-recovery",
+      "image": "alexgshaw/password-recovery@sha256:15fcd84bf3b06270ee148211cc6da6599b13ec2f41ac1d0894cf75c2225872ee",
+      "suiteDigest": "b02b01db35bfbdaeaacbeba69d6c20acd3bf6f8c8f4f5129833593fa32e35cc9",
+      "measuredAt": "2026-08-10T08:39:35Z",
+      "groups": [
+        {
+          "state": "unsolved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 4743,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 5433,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 4567,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 4153,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3903,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "unsolved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 6843,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 8244,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 7036,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4954,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 5587,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 5471,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 5527,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 5098,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 8838,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 9358,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 12358,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_password_match",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_recovery_file_exists",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskName": "sanitize-git-repo",
+      "image": "alexgshaw/sanitize-git-repo@sha256:4b5234da5bb0d67f3b0bf8db40a2883c07a5219f62b64c2bf9ff1ac84cd0f672",
+      "suiteDigest": "23c7165e774a1e230003ddf9ba47fc7e186fdf3cfbc041c2e908f5a3be8b0614",
+      "measuredAt": "2026-08-10T08:41:48Z",
+      "groups": [
+        {
+          "state": "unsolved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 2692,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3007,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 2818,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 2767,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 3019,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "unsolved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 7435,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 5268,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "0",
+              "passed": false,
+              "wallMs": 5541,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": false
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "idle",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4534,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4549,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4579,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 3,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 6162,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 4,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 4442,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "state": "solved",
+          "load": "contended",
+          "replicates": [
+            {
+              "index": 0,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 8760,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 1,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 20480,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            },
+            {
+              "index": 2,
+              "reward": "1",
+              "passed": true,
+              "wallMs": 9583,
+              "assertions": [
+                {
+                  "id": "test_outputs.py::test_correct_replacement_of_secret_information",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_no_other_files_changed",
+                  "passed": true
+                },
+                {
+                  "id": "test_outputs.py::test_removal_of_secret_information",
+                  "passed": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

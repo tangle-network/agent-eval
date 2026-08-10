@@ -101,6 +101,9 @@ function provenanceSection(artifact: AdmissionArtifact): string[] {
     `| policy model | \`${provenance.policyModel}\` |`,
     `| policy seed | ${provenance.policySeed} |`,
     `| policy digest | \`${provenance.policyDigest}\` |`,
+    `| policy step budget | ${provenance.policyStepBudget} model call(s) per control rollout |`,
+    `| control screening | \`${provenance.controlScreening}\` |`,
+    `| certified task oracles | ${formatCertifiedTasks(provenance.certifiedTasks)} |`,
     `| max prefix divergence | ${formatShare(config.maxPrefixDivergence)} |`,
     `| control rollouts per arm | ${config.controlRollouts} |`,
     `| inert action | \`${config.inertAction}\` |`,
@@ -108,6 +111,12 @@ function provenanceSection(artifact: AdmissionArtifact): string[] {
     `| control model cost | ${cost} (${controlCost.kind}) |`,
     '',
   ]
+}
+
+function formatCertifiedTasks(certified: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(certified).sort(([a], [b]) => a.localeCompare(b))
+  if (entries.length === 0) return 'none'
+  return entries.map(([task, flipRate]) => `${task} (flip ${formatShare(flipRate)})`).join(', ')
 }
 
 function chainSection(chain: DenominatorChain, heading: string): string[] {

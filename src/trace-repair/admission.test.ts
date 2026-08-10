@@ -26,11 +26,42 @@ import {
   buildDenominatorChain,
   stratumOf,
 } from './admission-records'
-import { definePinnedContinuationPolicy } from './continuation-policy'
+import { continuationPolicyDigest, definePinnedContinuationPolicy } from './continuation-policy'
 import type { ContinuationRollout } from './continuation-records'
+import { UncalibratedControlError } from './control-policy'
+import {
+  type OracleDeterminismVerdict,
+  oracleDeterminism,
+  taskOracleRegistry,
+} from './oracle-determinism'
 
 const POLICY = definePinnedContinuationPolicy({ model: 'pinned/model', seed: 20260808 })
 const POLICY_DIGEST = 'digest-under-test'
+
+function certification(taskName: string, flips = 0): OracleDeterminismVerdict {
+  return oracleDeterminism({
+    taskName,
+    image: 'registry.example/task@sha256:pinned',
+    suiteDigest: 'suite-digest',
+    measuredAt: '2026-08-10T00:00:00.000Z',
+    groups: [
+      {
+        state: 'solved',
+        load: 'idle',
+        // No per-assertion summary, so the rule counts the whole-suite reward.
+        replicates: Array.from({ length: 4 }, (_, index) => ({
+          index,
+          reward: index < flips ? '0' : '1',
+          passed: index >= flips,
+          wallMs: 10,
+          assertions: null,
+        })),
+      },
+    ],
+  })
+}
+
+const TASK_ORACLES = taskOracleRegistry([certification('gcode-to-text')])
 
 function row(overrides: Partial<AdmissionRow> = {}): AdmissionRow {
   return {
@@ -129,6 +160,7 @@ async function admit(
   rows: readonly AdmissionRow[],
   options: FakeOptions = {},
   config: Parameters<typeof runAdmission>[0]['config'] = {},
+  taskOracles = TASK_ORACLES,
 ): Promise<{ report: AdmissionReport; fakes: Fakes }> {
   const built = fakes(options)
   const report = await runAdmission({
@@ -137,6 +169,7 @@ async function admit(
     replayer: built.replayer,
     oracle: built.oracle,
     controls: built.controls,
+    taskOracles,
     config,
     clock: () => Date.parse('2026-08-08T12:00:00.000Z'),
   })
@@ -432,6 +465,82 @@ describe('runAdmission — boundary failures never read as verdicts', () => {
   })
 })
 
+describe('runAdmission — the control and the oracle are declared, not assumed', () => {
+  it('refuses to screen under a control that makes no model call', async () => {
+    const zeroStep = { ...POLICY, stepBudget: 0 }
+    const built = fakes()
+    await expect(
+      runAdmission({
+        rows: [row()],
+        policy: zeroStep,
+        replayer: built.replayer,
+        oracle: built.oracle,
+        controls: built.controls,
+        taskOracles: TASK_ORACLES,
+        clock: () => 0,
+      }),
+    ).rejects.toThrow(UncalibratedControlError)
+    expect(built.controlCalls).toHaveLength(0)
+  })
+
+  it('refuses a screening mode it does not know', () => {
+    expect(() => resolveAdmissionConfig({ controlScreening: 'off' as never })).toThrow(
+      ValidationError,
+    )
+  })
+
+  it('records the control and the certification on every verdict, admitted or not', async () => {
+    const { report } = await admit([row(), row({ rowId: 'kill:1', finalReturncode: -15 })])
+    for (const verdict of report.rows) {
+      expect(verdict.controlPolicyDigest).toBe(continuationPolicyDigest(POLICY))
+      expect(verdict.controlScreening).toBe('enforced')
+    }
+    expect(verdictOf(report, 'kill:1').excludedBy).toBe('stratum-not-admitted')
+    expect(report.provenance.policyStepBudget).toBe(POLICY.stepBudget)
+    expect(report.provenance.controlScreening).toBe('enforced')
+    expect(report.provenance.certifiedTasks).toEqual({ 'gcode-to-text': 0 })
+  })
+
+  it('excludes a task with no certification before it opens a container', async () => {
+    const { report, fakes: built } = await admit(
+      [row()],
+      {},
+      {},
+      taskOracleRegistry([certification('some-other-task')]),
+    )
+    expect(verdictOf(report, 'gcode-to-text:1')).toMatchObject({
+      admitted: false,
+      excludedBy: 'task-oracle-uncertified',
+      oracleFlipRate: null,
+    })
+    expect(built.replayCalls).toHaveLength(0)
+    expect(built.controlCalls).toHaveLength(0)
+  })
+
+  it('excludes a task whose grader flips on identical bytes, and names the flip rate', async () => {
+    const { report, fakes: built } = await admit(
+      [row()],
+      {},
+      {},
+      taskOracleRegistry([certification('gcode-to-text', 1)]),
+    )
+    const verdict = verdictOf(report, 'gcode-to-text:1')
+    expect(verdict).toMatchObject({
+      admitted: false,
+      excludedBy: 'task-oracle-nondeterministic',
+      oracleFlipRate: 0.25,
+    })
+    expect(verdict.checks).toContainEqual({
+      check: 'task-oracle',
+      stable: false,
+      flipRate: 0.25,
+      replicates: 4,
+    })
+    expect(built.replayCalls).toHaveLength(0)
+    expect(built.controlCalls).toHaveLength(0)
+  })
+})
+
 describe('runAdmission — stratification before sampling', () => {
   const population: AdmissionRow[] = [
     row({ rowId: 'clean:1', finalReturncode: 0 }),
@@ -581,6 +690,9 @@ describe('denominator chain', () => {
         recordedCommands: 1,
         finalReturncode: 0,
         stratum: 'clean-exit',
+        controlPolicyDigest: POLICY_DIGEST,
+        controlScreening: 'enforced',
+        oracleFlipRate: 0,
         admitted: true,
         excludedBy: null,
         errorDetail: null,

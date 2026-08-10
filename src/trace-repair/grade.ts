@@ -34,6 +34,7 @@ import {
 } from './action-budget'
 import type { AdmittedRow } from './admission-contract'
 import type { AnalystResponse, RepairFinding } from './analyst-response'
+import type { ControlScreening } from './control-policy'
 import {
   type InterventionExecution,
   type PrefixReplayEvidence,
@@ -90,6 +91,10 @@ export interface RepairRowResult {
   readonly interventionRate: number
   readonly controlRate: number
   readonly controlRollouts: number
+  /** How the row's control pass was read. Travels with the result so a report
+   *  can say whether a control rate of zero was screened or merely inert. */
+  readonly controlScreening: ControlScreening
+  readonly controlPolicyDigest: string
   readonly repairRollouts: number
   /** The row's paired contribution to Delta-repair. */
   readonly delta: number
@@ -115,6 +120,8 @@ function finish(row: AdmittedRow, grade: RepairGrade, startedMs: number): Repair
     interventionRate,
     controlRate: row.controlRate,
     controlRollouts: row.controlRollouts,
+    controlScreening: row.controlScreening,
+    controlPolicyDigest: row.policyDigest,
     repairRollouts: grade.outcome === 'measured' ? grade.repair.rollouts : 0,
     delta: interventionRate - row.controlRate,
     wallMs: Date.now() - startedMs,

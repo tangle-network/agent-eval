@@ -53,15 +53,20 @@ The declared kind must match the action: an answer that calls a file rewrite a s
 
 ## Admission
 
-Four executed checks, none of which reads a finding, a `k`, or a label.
-All four are anchored at the recorded end state, so the same evidence admits a row whatever an analyst later blames.
+Five checks, none of which reads a finding, a `k`, or a label.
+Four are anchored at the recorded end state, so the same evidence admits a row whatever an analyst later blames; the fifth is about the task rather than the row.
 
 | Check | Criterion |
 |---|---|
+| oracle determinism | the task's own suite returned one verdict per assertion on byte-identical state |
 | prefix fidelity | at most 10 % of replayed steps diverge from their recorded returncode |
 | end state fails | the held-out suite fails on the recorded end state |
 | no-fix control | 3 of 3 continuations from the end state fail |
 | no-op control | 3 of 3 continuations from the end state, after an action that changes nothing, fail |
+
+The two controls only screen under a control that can act.
+A control with a step budget of zero executes no command, so it grades the bytes the end-state check already read as failing, and a pass there is the task's grader disagreeing with itself.
+`admitRow` refuses that pairing at the call rather than admitting every row through a check that cannot fire; see [trace-repair-admission.md](./trace-repair-admission.md).
 
 `admitRow` is pure: a campaign runner executes the checks against real containers and hands it the measured evidence.
 Splitting it that way keeps every admission re-derivable from the recorded numbers without re-running a container.
@@ -141,6 +146,13 @@ That asymmetry biases against the intervention, and it travels with the number a
 
 Every admitted row has a control rate of zero by admission, so Delta-repair equals the intervention rate on an admitted corpus.
 The estimate is conditional on that admission and says nothing about rows the control can already repair.
+
+Under `controlScreening: 'declared-inert'` that zero is weaker still: the control made no model call, so a control rate of zero restates the end-state check instead of measuring what continuing alone can repair.
+Rows screened that way carry the `control-cannot-rescue` threat into the report, so the caveat travels with the number.
+
+Oracle determinism is certified per task, not per row, and it is certified at the two states certification can construct: the published image and that image after the reference solution ran.
+Those are anchors, and a suite can be steady at an anchor while flipping near its threshold.
+Per-assertion counting is what makes the anchor informative — a suite whose per-parameter timing assertions flip shows it there even when the whole-suite reward does not — but the certification is still a measurement at two states and not a proof about every state a campaign will grade.
 
 A command-level repair cannot address a run the harness killed at a timeout.
 Split that class out before sampling; the grader measures actions, not wall clock.

@@ -69,7 +69,7 @@ Exclude `make-doom-for-mips`: it has a 0.0% pass rate across all 52,104 rows.
 
 ## certify-task-oracle.sh
 
-Certifies that a task can still separate a solved state from an unsolved one.
+Certifies that a task can separate a solved state from an unsolved one, **and** that it answers about the state at all.
 It runs the harbor grading loop by hand against the published image, in batch, across as many tasks as you name.
 
 `assay-tbench-corpus.mjs --verify-task` proves the same loop for one task and folds the result into the assay report.
@@ -78,11 +78,14 @@ This script is the recurring operation: certify the task set a campaign is about
 ```bash
 benchmarks/trace-repair/tools/certify-task-oracle.sh [options] TASK [TASK...]
 
-  --tb2 DIR          terminal-bench-2 clone      (default: $TB2_DIR or ~/bench-cache/terminal-bench-2)
-  --out DIR          per-task evidence root      (default: $TB_OUT_DIR or ~/bench-cache/bringup-results)
-  --image-tag TAG    published image tag         (default: $TB_IMAGE_TAG or 20251031)
-  --image-repo REPO  published image repo prefix (default: $TB_IMAGE_REPO or alexgshaw)
-  --pull             pull the published image when it is absent
+  --tb2 DIR              terminal-bench-2 clone       (default: $TB2_DIR or ~/bench-cache/terminal-bench-2)
+  --out DIR              per-task evidence root       (default: $TB_OUT_DIR or ~/bench-cache/bringup-results)
+  --image-tag TAG        published image tag          (default: $TB_IMAGE_TAG or 20251031)
+  --image-repo REPO      published image repo prefix  (default: $TB_IMAGE_REPO or alexgshaw)
+  --pull                 pull the published image when it is absent
+  --determinism N        idle re-grades per state     (default: 3; 0 skips phase C)
+  --determinism-load M   contended re-grades per state (default: 2)
+  --self-test            check the verdict rules against a fixed table and exit
 ```
 
 Exit status is 0 only when every named task certified.
@@ -91,20 +94,43 @@ Exit status is 0 only when every named task certified.
 
 Phase A grades the untouched image and must score 0.
 Phase B applies the reference `solution/solve.sh`, re-grades, and must score 1.
+Phase C re-grades both containers with nothing written between the runs and must measure no flip.
 
 | verdict | meaning |
 | --- | --- |
-| `CERTIFIED` | phase A scored 0 and phase B scored 1 |
+| `CERTIFIED` | phase A scored 0, phase B scored 1, phase C measured no flip |
+| `NONDETERMINISTIC_ORACLE(flip=X%,n=N)` | phase C measured a unit that returned different verdicts on byte-identical state |
+| `CERTIFIED_UNCHECKED_DETERMINISM` | phases A and B passed and phase C was skipped; the task is unexamined, not certified |
 | `BROKEN_ORACLE_passes_unsolved` | phase A scored 1; the tests do not detect the unsolved state, so the task can measure nothing |
 | `NOT_CERTIFIED(...)` | any other pair, with both rewards named |
+| `DETERMINISM_RULE_UNAVAILABLE` | phase C ran but the substrate rule could not be applied; no verdict is invented |
 | `IMAGE_MISSING` / `NO_TASK_DIR` / `TEST_INJECT_FAILED` | a precondition failed; nothing was graded |
 
-`BROKEN_ORACLE_passes_unsolved` is checked before the certified case.
-A task whose tests pass on an untouched image cannot measure a repair, whatever phase B reports.
+`BROKEN_ORACLE_passes_unsolved` and `NONDETERMINISTIC_ORACLE` are both checked before the certified case.
+A task whose tests pass on an untouched image cannot measure a repair whatever phase B reports, and a task whose verdict moves on identical bytes cannot measure one however cleanly it separated the two states.
 
 Both phases record whether `/tests` existed before the agent phase.
 `ABSENT` is the ungameability precondition: the solution ran to completion with no test directory present, so it could not have passed by writing its own reward.
 The verifier's upload overwrites `/tests` at grade time.
+
+### Phase C: what "byte-identical" buys, and what it does not
+
+Phase C counts flips per **assertion**, read from pytest's own `-rA` summary, not per suite.
+A suite reward is a conjunction over many assertions.
+A suite whose per-parameter timing assertions each flip independently still returns the same reward on every replicate of a state that sits far from the threshold, and returns a coin flip on the states a campaign actually grades, which sit near it.
+Counting the conjunction hides exactly the failure the phase exists to find; counting the terms shows it.
+
+The parameter is kept, so `test_speedup[6]` is its own unit.
+The CTRF report the suites also write collapses a parametrised test to its base name, so it is not used.
+A suite that prints no summary falls back to reward counting and the verdict records `granularity: "reward"` — a coarser measurement, marked as coarser rather than passed off as equivalent.
+
+Replicates also run under CPU contention, and replicates on one state pool across both loads.
+Contention is not decisive on its own: a suite that times a candidate against a reference measured in the same run is self-normalising, so uniform load moves both terms together.
+It is cheap and it catches the cases that are not self-normalising.
+
+The verdict itself is applied by `oracleDeterminism` in `src/trace-repair/oracle-determinism.ts` through `scripts/tb-oracle-determinism.ts`.
+The rule lives in one place, so a certification run and a campaign cannot disagree about what a stable oracle is.
+No node available means no verdict, not a weaker one.
 
 ### Evidence layout
 
@@ -112,16 +138,26 @@ Per-task evidence lands under `--out`, outside the repo because it holds contain
 
 ```
 <out>/
-  summary.psv          one header row, then one row per certification, appended
-  <task>.log           full console transcript for the task
+  summary.psv               one header row, then one row per certification, appended
+  <task>.log                full console transcript for the task
   <task>/
-    unsolved-tests.txt phase A verifier stdout
-    oracle.txt         reference solution stdout
-    solved-tests.txt   phase B verifier stdout
+    unsolved-tests.txt      phase A verifier stdout
+    oracle.txt              reference solution stdout
+    solved-tests.txt        phase B verifier stdout
+    determinism.json        every phase C replicate, in `OracleDeterminismEvidence` shape
+    determinism-verdict.json the verdict the substrate rule derived from it
 ```
 
 A reward of `NO_REWARD_FILE` means the task's `test.sh` wrote nothing.
 That is reported as-is and never folded into 0, because a missing reward and a zero reward are different failures.
+
+## task-oracles.json
+
+The checked-in certification a campaign reads.
+It holds the measured replicates, not the verdicts they imply: the verdict is re-derived on read by `parseTaskOracleRegistry`, so the file cannot declare a task stable — only its replicates can, and a reviewer can recount them.
+
+Copy a task's `determinism.json` into the `measurements` array to certify it.
+A task missing from the file is excluded as `task-oracle-uncertified`, which stops a campaign rather than silently assuming the task is fine.
 
 ## tb-images.mjs
 

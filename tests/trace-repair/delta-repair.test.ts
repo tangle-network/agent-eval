@@ -98,6 +98,22 @@ describe('threats travel with the number', () => {
     )
   })
 
+  it('says when the control that produced that zero could not have rescued anything', () => {
+    const inert = (rowId: string, rate: number) => ({
+      ...measuredRowResult(rowId, rate),
+      controlScreening: 'declared-inert' as const,
+    })
+    const report = deltaRepair([inert('a', 1), inert('b', 0)])
+    const ids = report.threats.map((t) => t.id)
+    expect(ids).toContain('control-cannot-rescue')
+    // The stronger claim is not made alongside the weaker one: a control that
+    // makes no model call did not screen the rows it left at zero.
+    expect(ids).not.toContain('admission-conditions-on-control-failure')
+    expect(report.threats.find((t) => t.id === 'control-cannot-rescue')?.statement).toMatch(
+      /2\/2 rows/,
+    )
+  })
+
   it('names a denominator carried by rows where nothing ran', () => {
     const report = deltaRepair([
       measuredRowResult('a', 1),

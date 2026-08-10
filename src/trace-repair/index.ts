@@ -7,7 +7,9 @@
  * or the literal `no-decisive-failure`. Everything else in this module exists
  * to make that answer cost what it should:
  *
- *   admission             four executed checks, none of which reads a finding
+ *   admission             five checks, none of which reads a finding
+ *   control-policy        what the control is allowed to do, declared and hashed
+ *   oracle-determinism    whether the task's own suite answers about the state
  *   action-budget         one action, one payload, at most 4 KB
  *   analyst-response      the answer grammar, including the honest decline
  *   funnel                t0 parsed, t1 reproduced, t2 executes, t3 local
@@ -70,6 +72,7 @@ export {
   type AdmissionDecision,
   type AdmissionEvidence,
   type AdmissionRejection,
+  type AdmissionScreeningRecord,
   type AdmittedRow,
   admitRow,
   type ControlArmEvidence,
@@ -163,6 +166,17 @@ export {
   toRecordedSteps,
 } from './continuation-records'
 export {
+  assertControlCalibrated,
+  CONTROL_SCREENING_MODES,
+  type ControlCapability,
+  type ControlPolicy,
+  type ControlPolicyInput,
+  type ControlScreening,
+  controlCanRescue,
+  defineControlPolicy,
+  UncalibratedControlError,
+} from './control-policy'
+export {
   DEGENERATE_STRATEGIES,
   type DegenerateDefeatKind,
   type DegenerateStrategy,
@@ -226,6 +240,26 @@ export {
   SUBMIT_SENTINEL,
   submissionOf,
 } from './mini-swe-scaffold'
+export {
+  assertDeterministicOracle,
+  MIN_ORACLE_REPLICATES,
+  NondeterministicOracleError,
+  type OracleAssertionResult,
+  type OracleDeterminismEvidence,
+  type OracleDeterminismVerdict,
+  type OracleFlippedUnit,
+  type OracleLoad,
+  type OracleReplicate,
+  type OracleReplicateGroup,
+  type OracleStateLabel,
+  type OracleStateVerdict,
+  oracleDeterminism,
+  parseTaskOracleRegistry,
+  SUITE_REWARD_UNIT,
+  type TaskOracleRegistry,
+  type TaskOracleRegistryDocument,
+  taskOracleRegistry,
+} from './oracle-determinism'
 export type {
   InjectedAction,
   RepairArm,

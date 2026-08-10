@@ -4,8 +4,30 @@ import { AdmissionDenominatorError, type AdmissionRow } from './admission-record
 import { admissionArtifact, renderAdmissionReport } from './admission-report'
 import { definePinnedContinuationPolicy } from './continuation-policy'
 import type { ContinuationRollout } from './continuation-records'
+import { oracleDeterminism, taskOracleRegistry } from './oracle-determinism'
 
 const POLICY = definePinnedContinuationPolicy({ model: 'pinned/model', seed: 20260808 })
+
+const TASK_ORACLES = taskOracleRegistry(
+  ['gcode-to-text', 'regex-log'].map((taskName) =>
+    oracleDeterminism({
+      taskName,
+      image: 'registry.example/task@sha256:pinned',
+      suiteDigest: 'suite-digest',
+      measuredAt: '2026-08-10T00:00:00.000Z',
+      groups: [
+        {
+          state: 'solved',
+          load: 'idle',
+          replicates: [
+            { index: 0, reward: '1', passed: true, wallMs: 10, assertions: null },
+            { index: 1, reward: '1', passed: true, wallMs: 10, assertions: null },
+          ],
+        },
+      ],
+    }),
+  ),
+)
 
 function row(
   rowId: string,
@@ -79,6 +101,7 @@ async function sampleReport(): Promise<AdmissionReport> {
         }
       },
     },
+    taskOracles: TASK_ORACLES,
     clock: () => Date.parse('2026-08-08T12:00:00.000Z'),
   })
 }
@@ -131,7 +154,7 @@ describe('renderAdmissionReport', () => {
     expect(markdown).toContain('## Denominator chain — clean-exit')
     expect(markdown).toContain('## Denominator chain — signal-kill')
     expect(markdown).toContain('| 3 | `stratum-not-admitted` | 4 | 1 | 3 |')
-    expect(markdown).toContain('| 7 | `prefix-divergence-above-threshold` | 3 | 1 | 2 |')
+    expect(markdown).toContain('| 9 | `prefix-divergence-above-threshold` | 3 | 1 | 2 |')
     expect(markdown).toContain('Input 5 = admitted 2 + excluded 3.')
     expect(markdown).toContain('| signal-kill | 0 | no |')
     expect(markdown).toContain('| clean-exit | 1 | yes |')

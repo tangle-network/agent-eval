@@ -404,6 +404,51 @@ async function checkImages(tasks) {
 // go fail -> pass when a correct intervention is applied, with tests mounted from outside
 // the container at grade time. Without this, "admitted rows" is a number about a corpus
 // rather than evidence the repair loop can ever be scored.
+/** Re-grades of the repaired container. Enough to see a flip, cheap enough to always run. */
+const REGRADE_REPLICATES = 3
+
+/**
+ * Per-test verdicts from pytest's own `-rA` summary, or null when the suite printed none.
+ * The parameter is kept, because a base name is a conjunction over its parameters and a
+ * conjunction hides a term that flips.
+ */
+function readAssertionSummary(sh, cid) {
+  let stdout = ''
+  try {
+    stdout = sh(['exec', cid, 'cat', '/logs/verifier/test-stdout.txt'])
+  } catch {
+    return null
+  }
+  const rows = []
+  for (const line of stdout.split('\n')) {
+    const match = /^(PASSED|FAILED|ERROR|XPASS|XFAIL|SKIPPED) (\S+::\S+)/.exec(line)
+    if (match) rows.push({ id: match[2].replace(/^.*\//, ''), passed: match[1] === 'PASSED' })
+  }
+  return rows.length === 0 ? null : rows.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** Units that did not agree with themselves across the re-grades. */
+function countRegradeFlips(replicates) {
+  const perAssertion = replicates.every((r) => r.assertions !== null)
+  if (!perAssertion) {
+    const passes = replicates.filter((r) => r.reward === '1').length
+    const minority = Math.min(passes, replicates.length - passes)
+    return { granularity: 'reward', replicates: replicates.length, flipped: minority > 0 ? ['suite-reward'] : [] }
+  }
+  const outcomes = new Map()
+  for (const replicate of replicates) {
+    for (const assertion of replicate.assertions) {
+      if (!outcomes.has(assertion.id)) outcomes.set(assertion.id, [])
+      outcomes.get(assertion.id).push(assertion.passed)
+    }
+  }
+  const flipped = []
+  for (const [id, results] of outcomes) {
+    if (results.length !== replicates.length || new Set(results).size > 1) flipped.push(id)
+  }
+  return { granularity: 'per-assertion', replicates: replicates.length, flipped: flipped.sort() }
+}
+
 function verifyFailToPass(tb2Dir, task) {
   const taskDir = join(tb2Dir, task)
   const toml = readFileSync(join(taskDir, 'task.toml'), 'utf8')
@@ -470,6 +515,29 @@ function verifyFailToPass(tb2Dir, task) {
     const after = timed(() => sh(['exec', cid, 'bash', '/tests/test.sh'], { stdio: 'ignore' }))
     result.regradeSeconds = after.seconds
     result.repairedReward = readReward()
+
+    // A fail -> pass loop proves the suite can separate two states. It says nothing about
+    // whether the suite answers about the state at all, so re-grade the repaired container
+    // with nothing written between the runs and count the units that disagreed. A task
+    // whose verdict moves on identical bytes cannot price an intervention.
+    const replicates = []
+    for (let index = 0; index < REGRADE_REPLICATES; index++) {
+      // Captured to a file rather than discarded, because pytest's `-rA` summary is where
+      // the per-parameter verdicts are and a base name is a conjunction over them.
+      const run = timed(() =>
+        sh(['exec', cid, 'bash', '-c', '(/tests/test.sh) > /logs/verifier/test-stdout.txt 2>&1'], {
+          stdio: 'ignore',
+        }),
+      )
+      replicates.push({
+        index,
+        reward: readReward(),
+        seconds: run.seconds,
+        assertions: readAssertionSummary(sh, cid),
+      })
+    }
+    result.replicates = replicates
+    result.regradeFlips = countRegradeFlips(replicates)
   } finally {
     try {
       sh(['stop', cid], { stdio: 'ignore' })
@@ -705,6 +773,15 @@ function render(m, up, images, meta, cfg, proof) {
     L.push('')
     L.push(`Grading is cheap (${proof.baselineSeconds}s + ${proof.regradeSeconds}s); the intervention dominates (${proof.solutionSeconds}s here, because that solution installs system packages). Tests are injected at \`/tests\` at grade time, so a candidate fix cannot pass by deleting or editing the test suite.`)
     L.push('')
+    if (proof.regradeFlips) {
+      const f = proof.regradeFlips
+      L.push(
+        f.flipped.length === 0
+          ? `Re-graded the repaired container ${f.replicates} more times with nothing written between the runs (${f.granularity} counting): every unit returned the same verdict. Separating two states is not the same property as answering about one, and this is the second one.`
+          : `Re-graded the repaired container ${f.replicates} more times with nothing written between the runs (${f.granularity} counting) and **${f.flipped.length} unit(s) returned different verdicts on identical bytes**: ${f.flipped.slice(0, 8).map((id) => `\`${id}\``).join(', ')}. This task cannot carry ground truth for a repair: the same bytes pass or fail by chance. Certify with \`certify-task-oracle.sh\` before sampling it.`,
+      )
+      L.push('')
+    }
   }
   L.push('## 6. Ranked task list (Tier B)')
   L.push('')
