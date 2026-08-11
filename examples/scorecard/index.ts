@@ -26,13 +26,13 @@ import { join } from 'node:path'
 import {
   type AgentProfile,
   agentProfileHash,
-  agentProfileModelId,
   diffScorecard,
   formatScorecardDiff,
   loadScorecard,
   type RunRecord,
   recordRunsToScorecard,
 } from '../../src/index'
+import { agentProfileModelId } from '../../src/agent-profile'
 
 // ── Two profiles you might benchmark side-by-side ────────────────────────
 const sonnet: AgentProfile = {

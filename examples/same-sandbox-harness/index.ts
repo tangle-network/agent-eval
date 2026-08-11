@@ -1,9 +1,5 @@
-import {
-  InMemoryTraceStore,
-  SandboxHarness,
-  SubprocessSandboxDriver,
-  TraceEmitter,
-} from '../../src/index'
+import { InMemoryTraceStore, TraceEmitter } from '../../src/index'
+import { SandboxHarness, SubprocessSandboxDriver } from '../../src/sandbox-harness'
 
 /**
  * Same-sandbox pattern:
