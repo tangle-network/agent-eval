@@ -16,6 +16,10 @@ export interface GepaCandidatePopulationSummary {
   readonly runId: string
   readonly candidates: number
   readonly bestIndex: number
+  readonly maxCandidates: number
+  readonly maxCandidateChars: number
+  readonly scenarioIds: readonly string[]
+  readonly surfaceKind: 'text' | 'components'
 }
 
 export interface GepaCandidateSelectionScore {
@@ -54,16 +58,10 @@ export interface GepaCandidatePopulationArtifact {
  */
 export function readGepaCandidatePopulationArtifact(input: {
   summary: GepaCandidatePopulationSummary
-  maxCandidates: number
-  maxCandidateChars: number
-  scenarioIds: readonly string[]
-  expectsComponents: boolean
   storage?: CampaignStorage
 }): GepaCandidatePopulationArtifact {
   assertGepaCandidatePopulationSummary(input.summary)
-  assertPositiveSafeInteger(input.maxCandidates, 'maxCandidates')
-  assertPositiveSafeInteger(input.maxCandidateChars, 'maxCandidateChars')
-  const scenarioIds = scenarioIdSet(input.scenarioIds)
+  const scenarioIds = scenarioIdSet(input.summary.scenarioIds)
   const storage = input.storage ?? fsCampaignStorage()
   const contents = storage.read(input.summary.path)
   if (contents === undefined) {
@@ -77,7 +75,8 @@ export function readGepaCandidatePopulationArtifact(input: {
     )
   }
   if (
-    BigInt(bytes) > maximumArtifactBytes(input.maxCandidates, input.maxCandidateChars, scenarioIds)
+    BigInt(bytes) >
+    maximumArtifactBytes(input.summary.maxCandidates, input.summary.maxCandidateChars, scenarioIds)
   ) {
     throw new Error(
       `GEPA candidate population exceeds its configured bounds at '${input.summary.path}'`,
@@ -110,7 +109,7 @@ export function readGepaCandidatePopulationArtifact(input: {
   }
   if (
     raw.candidates.length !== input.summary.candidates ||
-    raw.candidates.length > input.maxCandidates
+    raw.candidates.length > input.summary.maxCandidates
   ) {
     throw new Error('GEPA candidate population count differs from its summary or configured bound')
   }
@@ -129,9 +128,9 @@ export function readGepaCandidatePopulationArtifact(input: {
     parseCandidate({
       candidate,
       index,
-      maxCandidateChars: input.maxCandidateChars,
+      maxCandidateChars: input.summary.maxCandidateChars,
       scenarioIds,
-      expectsComponents: input.expectsComponents,
+      expectsComponents: input.summary.surfaceKind === 'components',
     }),
   )
   return deepFreezeCanonicalJson({
@@ -147,7 +146,19 @@ export function assertGepaCandidatePopulationSummary(
 ): asserts value is GepaCandidatePopulationSummary {
   assertExactKeys(
     value,
-    ['bestIndex', 'bytes', 'candidates', 'path', 'runId', 'scope', 'sha256'],
+    [
+      'bestIndex',
+      'bytes',
+      'candidates',
+      'maxCandidateChars',
+      'maxCandidates',
+      'path',
+      'runId',
+      'scenarioIds',
+      'scope',
+      'sha256',
+      'surfaceKind',
+    ],
     'summary',
   )
   if (value.scope !== 'gepa-candidate-population') {
@@ -164,8 +175,19 @@ export function assertGepaCandidatePopulationSummary(
   }
   const bytes = value.bytes
   const candidates = value.candidates
+  const maxCandidates = value.maxCandidates
+  const maxCandidateChars = value.maxCandidateChars
   assertPositiveSafeInteger(bytes, 'summary.bytes')
   assertPositiveSafeInteger(candidates, 'summary.candidates')
+  assertPositiveSafeInteger(maxCandidates, 'summary.maxCandidates')
+  assertPositiveSafeInteger(maxCandidateChars, 'summary.maxCandidateChars')
+  if (candidates > maxCandidates) {
+    throw new Error('GEPA candidate population summary exceeds its configured candidate bound')
+  }
+  scenarioIdSet(value.scenarioIds)
+  if (value.surfaceKind !== 'text' && value.surfaceKind !== 'components') {
+    throw new Error('GEPA candidate population summary has an invalid surface kind')
+  }
   const bestIndex = value.bestIndex
   if (
     typeof bestIndex !== 'number' ||
@@ -310,7 +332,7 @@ function candidateChars(candidate: ExternalTextCandidate): number {
   return typeof candidate === 'string' ? candidate.length : JSON.stringify(candidate).length
 }
 
-function scenarioIdSet(values: readonly string[]): ReadonlySet<string> {
+function scenarioIdSet(values: unknown): ReadonlySet<string> {
   if (!Array.isArray(values)) throw new Error('scenarioIds must be an array')
   const result = new Set<string>()
   for (const value of values) {

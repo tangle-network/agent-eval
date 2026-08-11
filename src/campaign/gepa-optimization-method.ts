@@ -256,6 +256,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         input.selectionScenarios.length,
       )
       const maxPopulationCandidates = Math.min(Number.MAX_SAFE_INTEGER, evaluationLimit + 1)
+      const populationScenarioIds = (selectionSet.length > 0 ? selectionSet : trainSet).map(
+        (scenario) => scenario.id,
+      )
       const runMaterial = {
         optimizer: 'gepa',
         runtime: runtimeIdentity,
@@ -434,6 +437,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         config.recipe.kind,
         evaluationLimit,
         maxPopulationCandidates,
+        populationScenarioIds,
         expectsComponents,
         config.recipe.kind === 'engine' && config.recipe.run.engine === 'gepa',
       )
@@ -455,10 +459,6 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
       if (result.candidatePopulation) {
         const population = readGepaCandidatePopulationArtifact({
           summary: result.candidatePopulation,
-          maxCandidates: maxPopulationCandidates,
-          maxCandidateChars,
-          scenarioIds: [...trainSet, ...selectionSet].map((scenario) => scenario.id),
-          expectsComponents,
         })
         const selected = population.candidates[population.bestIndex]
         const selectedHash = contentHash({

@@ -32,6 +32,7 @@ export function assertGepaBridgeOutput(
   recipeKind: GepaOptimizationRecipe['kind'],
   maxEvaluations: number,
   maxPopulationCandidates: number,
+  scenarioIds: readonly string[],
   expectsComponents: boolean,
   requiresCandidatePopulation: boolean,
 ): asserts result is GepaBridgeOutput {
@@ -93,8 +94,16 @@ export function assertGepaBridgeOutput(
     if (result.candidatePopulation.runId !== result.runId) {
       throw new Error(`${name}: GEPA candidate population has a different run ID`)
     }
-    if (result.candidatePopulation.candidates > maxPopulationCandidates) {
-      throw new Error(`${name}: GEPA candidate population exceeds its configured bound`)
+    if (
+      result.candidatePopulation.maxCandidates !== maxPopulationCandidates ||
+      result.candidatePopulation.maxCandidateChars !== maxCandidateChars ||
+      result.candidatePopulation.surfaceKind !== (expectsComponents ? 'components' : 'text') ||
+      result.candidatePopulation.scenarioIds.length !== scenarioIds.length ||
+      result.candidatePopulation.scenarioIds.some(
+        (scenarioId, index) => scenarioId !== scenarioIds[index],
+      )
+    ) {
+      throw new Error(`${name}: GEPA candidate population differs from its configured bounds`)
     }
   } else if (requiresCandidatePopulation) {
     throw new Error(`${name}: GEPA bridge omitted the official candidate population`)

@@ -187,6 +187,34 @@ def test_candidate_population_preserves_official_lineage_and_scores() -> None:
     }
 
 
+def test_candidate_population_reads_the_source_api_result_wrapper() -> None:
+    official_result = SimpleNamespace(
+        candidates=[{"current_candidate": "baseline"}],
+        parents=[[None]],
+        val_aggregate_scores=[0.25],
+        val_subscores=[{0: 0.25}],
+        discovery_eval_counts=[1],
+        best_idx=0,
+        _str_candidate_key="current_candidate",
+    )
+    wrapper = SimpleNamespace(metadata={"gepa_result": official_result})
+
+    artifact = gepa_bridge._candidate_population_artifact(
+        result=wrapper,
+        seed_candidate="baseline",
+        run_id="run-one",
+        max_candidates=1,
+        max_candidate_chars=100,
+        selection_scenario_ids=["selection"],
+    )
+
+    assert artifact is not None
+    assert artifact["candidates"][0]["candidate"] == "baseline"
+    assert artifact["candidates"][0]["selectionScores"] == [
+        {"scenarioId": "selection", "score": 0.25}
+    ]
+
+
 def test_candidate_population_rejects_future_parents_and_false_scores() -> None:
     result = SimpleNamespace(
         candidates=[{"__text__": "baseline"}, {"__text__": "candidate"}],

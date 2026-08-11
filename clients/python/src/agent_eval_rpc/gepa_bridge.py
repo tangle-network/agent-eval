@@ -489,6 +489,10 @@ def _write_candidate_population_artifact(
         "runId": run_id,
         "candidates": len(artifact["candidates"]),
         "bestIndex": artifact["bestIndex"],
+        "maxCandidates": max_candidates,
+        "maxCandidateChars": max_candidate_chars,
+        "scenarioIds": list(selection_scenario_ids),
+        "surfaceKind": "components" if isinstance(seed_candidate, dict) else "text",
     }
 
 
@@ -501,6 +505,11 @@ def _candidate_population_artifact(
     max_candidate_chars: int,
     selection_scenario_ids: list[str],
 ) -> dict[str, Any] | None:
+    # GEPA 0.1.4 returns GEPAResult directly. The pinned source API returns its
+    # public Result wrapper and preserves the exact GEPAResult in metadata.
+    official_result = _result_metadata(result).get("gepa_result")
+    if official_result is not None:
+        result = official_result
     field_names = (
         "candidates",
         "parents",
@@ -521,9 +530,7 @@ def _candidate_population_artifact(
     discovery_counts = fields["discovery_eval_counts"]
     count = len(candidates)
     if count == 0 or count > max_candidates:
-        raise RuntimeError(
-            f"GEPA candidate population must contain 1..{max_candidates} candidates"
-        )
+        raise RuntimeError(f"GEPA candidate population must contain 1..{max_candidates} candidates")
     population_fields = (parents, aggregate_scores, subscores, discovery_counts)
     if any(len(values) != count for values in population_fields):
         raise RuntimeError("GEPA candidate population fields have different lengths")
@@ -557,9 +564,7 @@ def _candidate_population_artifact(
             or not isinstance(discovery_count, int)
             or discovery_count < 0
         ):
-            raise RuntimeError(
-                f"GEPA candidate {index} has an invalid discovery evaluation count"
-            )
+            raise RuntimeError(f"GEPA candidate {index} has an invalid discovery evaluation count")
         rows.append(
             {
                 "index": index,
@@ -650,9 +655,7 @@ def _candidate_selection_scores(
         ):
             raise RuntimeError(f"GEPA candidate {candidate_index} has an invalid selection score")
         if scenario_id in seen:
-            raise RuntimeError(
-                f"GEPA candidate {candidate_index} repeats a selection scenario"
-            )
+            raise RuntimeError(f"GEPA candidate {candidate_index} repeats a selection scenario")
         seen.add(scenario_id)
         rows.append({"scenarioId": scenario_id, "score": float(raw_score)})
     return sorted(rows, key=lambda row: row["scenarioId"])
@@ -669,11 +672,7 @@ def _candidate_aggregate_score(
                 f"GEPA candidate {candidate_index} has a score without selection evidence"
             )
         return None
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (float, int))
-        or not math.isfinite(value)
-    ):
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
         raise RuntimeError(f"GEPA candidate {candidate_index} has an invalid aggregate score")
     score = float(value)
     mean = sum(row["score"] for row in selection_scores) / len(selection_scores)

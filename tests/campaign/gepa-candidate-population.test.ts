@@ -41,10 +41,6 @@ describe('GEPA candidate population artifacts', () => {
 
     const result = readGepaCandidatePopulationArtifact({
       summary,
-      maxCandidates: 2,
-      maxCandidateChars: 100,
-      scenarioIds: ['train', 'selection'],
-      expectsComponents: false,
       storage,
     })
 
@@ -102,10 +98,6 @@ describe('GEPA candidate population artifacts', () => {
     const read = (overrides: Partial<Parameters<typeof readGepaCandidatePopulationArtifact>[0]>) =>
       readGepaCandidatePopulationArtifact({
         summary,
-        maxCandidates: 1,
-        maxCandidateChars: 100,
-        scenarioIds: ['selection'],
-        expectsComponents: false,
         storage,
         ...overrides,
       })
@@ -113,7 +105,9 @@ describe('GEPA candidate population artifacts', () => {
     storage.write(path, `${contents} `)
     expect(() => read({})).toThrow(/byte count mismatch/u)
     storage.write(path, contents)
-    expect(() => read({ maxCandidates: 0 })).toThrow(/positive safe integer/u)
+    expect(() =>
+      read({ summary: { ...summary, maxCandidates: 0 } as GepaCandidatePopulationSummary }),
+    ).toThrow(/positive safe integer/u)
 
     const badParent = structuredClone(artifact)
     badParent.candidates[0]!.parentIndices = [0]
@@ -146,5 +140,9 @@ function candidateSummary(
     runId: 'run-one',
     candidates,
     bestIndex,
+    maxCandidates: candidates,
+    maxCandidateChars: 100,
+    scenarioIds: ['selection'],
+    surfaceKind: 'text',
   }
 }
