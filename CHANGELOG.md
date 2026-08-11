@@ -20,6 +20,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
 
+## [0.144.8] - 2026-08-10 - Duplicate candidate admission
+
 ### Fixed
 
 - `runOptimization()` rejects duplicate candidate surface identities before candidate dispatch, including repeated entries in one population and surfaces admitted by an earlier generation.
