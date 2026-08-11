@@ -180,6 +180,13 @@ export {
   type PairedHoldout,
   pairHoldout,
 } from './gates/statistical-heldout'
+export type {
+  GepaCandidatePopulationArtifact,
+  GepaCandidatePopulationCandidate,
+  GepaCandidatePopulationSummary,
+  GepaCandidateSelectionScore,
+} from './gepa-candidate-population'
+export { readGepaCandidatePopulationArtifact } from './gepa-candidate-population'
 export {
   type GepaAdaptiveEngineRun,
   type GepaEngineOptions,

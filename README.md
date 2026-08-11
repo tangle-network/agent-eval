@@ -340,6 +340,9 @@ Each official method score records the optimizer and bridge package versions, so
 Call `readExternalOptimizerObservationArtifact()` with `provenance.observations` to read every distinct callback-submitted candidate.
 The reader verifies the artifact digest, canonical rows, sequence, candidate identities, and summary counts before returning candidates.
 This verification proves that the bytes match the supplied summary; use a summary from trusted method provenance when authenticity matters.
+For a direct standard GEPA run, call `readGepaCandidatePopulationArtifact()` with `provenance.gepaCandidatePopulation`.
+It returns GEPA's accepted candidates with exact parent indices, aggregate scores, per-case selection scores, and discovery evaluation counts.
+The callback artifact remains the complete source for rejected or refused proposals that GEPA did not add to its accepted population.
 
 The [optimizer guide](./docs/campaign-proposers.md) covers recipes, budgets, resuming, and data separation.
 The [runnable comparison](./examples/compare-optimization-methods/) can run GEPA, SkillOpt, or both.

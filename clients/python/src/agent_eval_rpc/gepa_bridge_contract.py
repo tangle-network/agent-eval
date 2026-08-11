@@ -69,6 +69,12 @@ def _validate_input(value: dict[str, Any]) -> None:
         _validate_model_proxy(value["modelProxy"], recipe)
     if not isinstance(value.get("maxCandidateChars"), int) or value["maxCandidateChars"] <= 0:
         raise ValueError("GEPA bridge input maxCandidateChars must be a positive integer")
+    if (
+        isinstance(value.get("maxPopulationCandidates"), bool)
+        or not isinstance(value.get("maxPopulationCandidates"), int)
+        or value["maxPopulationCandidates"] <= 0
+    ):
+        raise ValueError("GEPA bridge input maxPopulationCandidates must be a positive integer")
     if not isinstance(value.get("maxEvidenceChars"), int) or value["maxEvidenceChars"] <= 0:
         raise ValueError("GEPA bridge input maxEvidenceChars must be a positive integer")
     if _candidate_chars(value["seedCandidate"]) > value["maxCandidateChars"]:

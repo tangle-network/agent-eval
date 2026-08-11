@@ -20,6 +20,10 @@ import type {
   ExternalOptimizerExecutionSummary,
   ExternalOptimizerObservationSummary,
 } from '../external-optimizer-observations'
+import {
+  assertGepaCandidatePopulationSummary,
+  type GepaCandidatePopulationSummary,
+} from '../gepa-candidate-population'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
@@ -107,6 +111,8 @@ export interface OptimizationMethodProvenance {
   tokenUsage?: OptimizationTokenUsage
   /** Candidates submitted to the callback, per-case scores, and refusals. */
   observations?: ExternalOptimizerObservationSummary
+  /** Exact accepted GEPA candidates, parent indices, and selection scores. */
+  gepaCandidatePopulation?: GepaCandidatePopulationSummary
   /** Opaque Runtime execution evidence for every invoked optimizer-model call. */
   modelExecutions?: ExternalOptimizerExecutionSummary
 }
@@ -658,6 +664,16 @@ function assertOptimizationProvenance(
       if (!Number.isSafeInteger(value.observations[field]) || value.observations[field] < 0) {
         fail(`observations.${field}`)
       }
+    }
+  }
+  if (value.gepaCandidatePopulation !== undefined) {
+    try {
+      assertGepaCandidatePopulationSummary(value.gepaCandidatePopulation)
+    } catch {
+      fail('gepaCandidatePopulation')
+    }
+    if (value.gepaCandidatePopulation.runId !== value.runId) {
+      fail('gepaCandidatePopulation.runId')
     }
   }
   if (value.modelExecutions !== undefined) {

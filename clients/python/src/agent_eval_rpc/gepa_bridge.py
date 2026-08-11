@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -245,6 +246,25 @@ def _main() -> None:
                     f"but the model proxy measured {proxy_cost!r}"
                 )
         run_id = run.run_dir.name
+        candidate_population = _write_candidate_population_artifact(
+            result=result,
+            seed_candidate=input_value["seedCandidate"],
+            run_id=run_id,
+            attempt_id=input_value["attemptId"],
+            output_root=output_root,
+            max_candidates=input_value["maxPopulationCandidates"],
+            max_candidate_chars=input_value["maxCandidateChars"],
+            selection_scenario_ids=[
+                example["id"]
+                for example in (input_value["selectionSet"] or input_value["trainSet"])
+            ],
+        )
+        if (
+            recipe["kind"] == "engine"
+            and recipe["run"]["engine"] == "gepa"
+            and candidate_population is None
+        ):
+            raise RuntimeError("GEPA result omitted its candidate population")
 
     atomic_write_json(output_root / "upstream.json", upstream)
     output = {
@@ -264,6 +284,8 @@ def _main() -> None:
         "runId": run_id,
         "resumed": resumed,
     }
+    if candidate_population is not None:
+        output["candidatePopulation"] = candidate_population
     if proxy_snapshot is not None:
         output["proposerCostUsd"] = proxy_snapshot["costUsd"]
         output["tokenUsage"] = {
@@ -433,6 +455,233 @@ def _selected_score(result: Any, recipe_kind: str) -> Any:
     if isinstance(scores, list) and isinstance(best_index, int) and 0 <= best_index < len(scores):
         return scores[best_index]
     return None
+
+
+def _write_candidate_population_artifact(
+    *,
+    result: Any,
+    seed_candidate: str | dict[str, str],
+    run_id: str,
+    attempt_id: str,
+    output_root: Path,
+    max_candidates: int,
+    max_candidate_chars: int,
+    selection_scenario_ids: list[str],
+) -> dict[str, Any] | None:
+    artifact = _candidate_population_artifact(
+        result=result,
+        seed_candidate=seed_candidate,
+        run_id=run_id,
+        max_candidates=max_candidates,
+        max_candidate_chars=max_candidate_chars,
+        selection_scenario_ids=selection_scenario_ids,
+    )
+    if artifact is None:
+        return None
+    path = output_root / f"candidate-population-{attempt_id}.json"
+    atomic_write_json(path, artifact)
+    contents = path.read_bytes()
+    return {
+        "scope": "gepa-candidate-population",
+        "path": str(path),
+        "sha256": f"sha256:{hashlib.sha256(contents).hexdigest()}",
+        "bytes": len(contents),
+        "runId": run_id,
+        "candidates": len(artifact["candidates"]),
+        "bestIndex": artifact["bestIndex"],
+    }
+
+
+def _candidate_population_artifact(
+    *,
+    result: Any,
+    seed_candidate: str | dict[str, str],
+    run_id: str,
+    max_candidates: int,
+    max_candidate_chars: int,
+    selection_scenario_ids: list[str],
+) -> dict[str, Any] | None:
+    field_names = (
+        "candidates",
+        "parents",
+        "val_aggregate_scores",
+        "val_subscores",
+        "discovery_eval_counts",
+    )
+    fields = {name: getattr(result, name, None) for name in field_names}
+    if all(value is None for value in fields.values()):
+        return None
+    if any(not isinstance(value, list) for value in fields.values()):
+        raise RuntimeError("GEPA produced an incomplete candidate population")
+
+    candidates = fields["candidates"]
+    parents = fields["parents"]
+    aggregate_scores = fields["val_aggregate_scores"]
+    subscores = fields["val_subscores"]
+    discovery_counts = fields["discovery_eval_counts"]
+    count = len(candidates)
+    if count == 0 or count > max_candidates:
+        raise RuntimeError(
+            f"GEPA candidate population must contain 1..{max_candidates} candidates"
+        )
+    population_fields = (parents, aggregate_scores, subscores, discovery_counts)
+    if any(len(values) != count for values in population_fields):
+        raise RuntimeError("GEPA candidate population fields have different lengths")
+
+    best_index = getattr(result, "best_idx", None)
+    if (
+        isinstance(best_index, bool)
+        or not isinstance(best_index, int)
+        or not 0 <= best_index < count
+    ):
+        raise RuntimeError("GEPA candidate population has an invalid best index")
+    string_key = getattr(result, "_str_candidate_key", None)
+    rows: list[dict[str, Any]] = []
+    for index in range(count):
+        candidate = _external_population_candidate(
+            candidates[index],
+            seed_candidate=seed_candidate,
+            string_key=string_key,
+        )
+        _validate_selected_candidate(candidate, seed_candidate, max_candidate_chars)
+        parent_indices = _candidate_parent_indices(parents[index], index)
+        selection_scores = _candidate_selection_scores(
+            subscores[index], selection_scenario_ids, index
+        )
+        aggregate_score = _candidate_aggregate_score(
+            aggregate_scores[index], selection_scores, index
+        )
+        discovery_count = discovery_counts[index]
+        if (
+            isinstance(discovery_count, bool)
+            or not isinstance(discovery_count, int)
+            or discovery_count < 0
+        ):
+            raise RuntimeError(
+                f"GEPA candidate {index} has an invalid discovery evaluation count"
+            )
+        rows.append(
+            {
+                "index": index,
+                "candidate": candidate,
+                "parentIndices": parent_indices,
+                "aggregateScore": aggregate_score,
+                "selectionScores": selection_scores,
+                "discoveryEvaluationCount": discovery_count,
+            }
+        )
+
+    return {
+        "schemaVersion": 1,
+        "scope": "gepa-candidate-population",
+        "runId": run_id,
+        "bestIndex": best_index,
+        "candidates": rows,
+    }
+
+
+def _external_population_candidate(
+    candidate: Any,
+    *,
+    seed_candidate: str | dict[str, str],
+    string_key: Any,
+) -> Any:
+    if isinstance(seed_candidate, str):
+        if isinstance(candidate, str):
+            return candidate
+        if (
+            not isinstance(candidate, dict)
+            or not isinstance(string_key, str)
+            or not isinstance(candidate.get(string_key), str)
+        ):
+            raise RuntimeError("GEPA changed a text candidate's population shape")
+        return candidate[string_key]
+    if not isinstance(candidate, dict):
+        raise RuntimeError("GEPA changed a component candidate's population shape")
+    return candidate
+
+
+def _candidate_parent_indices(value: Any, index: int) -> list[int | None]:
+    if not isinstance(value, list) or not value:
+        raise RuntimeError(f"GEPA candidate {index} has invalid parents")
+    parents: list[int | None] = []
+    seen: set[int | None] = set()
+    for parent in value:
+        if parent is None:
+            if index != 0:
+                raise RuntimeError(f"GEPA candidate {index} has a null parent")
+        elif isinstance(parent, bool) or not isinstance(parent, int) or not 0 <= parent < index:
+            raise RuntimeError(f"GEPA candidate {index} has an invalid parent index")
+        if parent in seen:
+            raise RuntimeError(f"GEPA candidate {index} repeats a parent index")
+        seen.add(parent)
+        parents.append(parent)
+    if index == 0 and parents != [None]:
+        raise RuntimeError("GEPA root candidate must have one null parent")
+    return parents
+
+
+def _candidate_selection_scores(
+    value: Any,
+    selection_scenario_ids: list[str],
+    candidate_index: int,
+) -> list[dict[str, Any]]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"GEPA candidate {candidate_index} has invalid selection scores")
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_scenario_id, raw_score in value.items():
+        if (
+            isinstance(raw_scenario_id, int)
+            and not isinstance(raw_scenario_id, bool)
+            and 0 <= raw_scenario_id < len(selection_scenario_ids)
+        ):
+            scenario_id = selection_scenario_ids[raw_scenario_id]
+        elif isinstance(raw_scenario_id, str) and raw_scenario_id in selection_scenario_ids:
+            scenario_id = raw_scenario_id
+        else:
+            raise RuntimeError(
+                f"GEPA candidate {candidate_index} has an unknown selection scenario"
+            )
+        if (
+            isinstance(raw_score, bool)
+            or not isinstance(raw_score, (float, int))
+            or not math.isfinite(raw_score)
+        ):
+            raise RuntimeError(f"GEPA candidate {candidate_index} has an invalid selection score")
+        if scenario_id in seen:
+            raise RuntimeError(
+                f"GEPA candidate {candidate_index} repeats a selection scenario"
+            )
+        seen.add(scenario_id)
+        rows.append({"scenarioId": scenario_id, "score": float(raw_score)})
+    return sorted(rows, key=lambda row: row["scenarioId"])
+
+
+def _candidate_aggregate_score(
+    value: Any,
+    selection_scores: list[dict[str, Any]],
+    candidate_index: int,
+) -> float | None:
+    if not selection_scores:
+        if value != float("-inf"):
+            raise RuntimeError(
+                f"GEPA candidate {candidate_index} has a score without selection evidence"
+            )
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (float, int))
+        or not math.isfinite(value)
+    ):
+        raise RuntimeError(f"GEPA candidate {candidate_index} has an invalid aggregate score")
+    score = float(value)
+    mean = sum(row["score"] for row in selection_scores) / len(selection_scores)
+    if not math.isclose(score, mean, rel_tol=1e-9, abs_tol=1e-12):
+        raise RuntimeError(
+            f"GEPA candidate {candidate_index} aggregate score differs from its selection scores"
+        )
+    return score
 
 
 def _missing_composition(kind: str) -> RuntimeError:

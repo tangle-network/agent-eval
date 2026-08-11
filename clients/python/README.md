@@ -172,6 +172,9 @@ The bridge calls GEPA's official engine and composition functions.
 It supports direct engine, sequential, adaptive sequential, best-of, vote, and Omni recipes.
 GEPA receives only the serialized train and selection cases supplied by the caller.
 `compareOptimizationMethods()` keeps final cases in TypeScript and evaluates them only after GEPA exits.
+For a direct standard engine, the bridge writes a digest-addressed candidate population artifact.
+The artifact preserves GEPA's candidate indices, parent indices, selection scores, and discovery evaluation counts.
+It does not include final cases or large rollout outputs.
 
 Every engine run requires an evaluation limit and an optimizer-model dollar limit.
 Agent Eval enforces callback counts before executing an agent or judge.
