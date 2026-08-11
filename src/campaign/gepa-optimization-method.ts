@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
+import { contentHash } from '../verdict-cache'
 import {
   assertExternalOptimizerCompletionCount,
   assertPriorExternalOptimizerUsage,
@@ -39,6 +40,7 @@ import {
   encodeExternalTextCandidate,
   mapExternalScenarios,
 } from './external-text-optimization'
+import { readGepaCandidatePopulationArtifact } from './gepa-candidate-population'
 import {
   assertGepaComponentRecipe,
   assertGepaOptimizationConfig,
@@ -253,6 +255,10 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         config.recipe,
         input.selectionScenarios.length,
       )
+      const maxPopulationCandidates = Math.min(Number.MAX_SAFE_INTEGER, evaluationLimit + 1)
+      const populationScenarioIds = (selectionSet.length > 0 ? selectionSet : trainSet).map(
+        (scenario) => scenario.id,
+      )
       const runMaterial = {
         optimizer: 'gepa',
         runtime: runtimeIdentity,
@@ -268,6 +274,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         trainSet,
         selectionSet,
         maxCandidateChars,
+        maxPopulationCandidates,
         maxEvidenceChars,
         evaluationCallbackLimits: resolveExternalOptimizerCallbackLimits(
           config.evaluationCallbackLimits,
@@ -394,6 +401,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               trainSet,
               selectionSet,
               maxCandidateChars,
+              maxPopulationCandidates,
               maxEvidenceChars,
               outputDir,
               ...(modelProxy && config.optimizer
@@ -428,7 +436,10 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         maxCandidateChars,
         config.recipe.kind,
         evaluationLimit,
+        maxPopulationCandidates,
+        populationScenarioIds,
         expectsComponents,
+        config.recipe.kind === 'engine' && config.recipe.run.engine === 'gepa',
       )
       assertExternalOptimizerRunBinding({
         label: name,
@@ -444,6 +455,19 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         throw new Error(
           `${name}: GEPA reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
         )
+      }
+      if (result.candidatePopulation) {
+        const population = readGepaCandidatePopulationArtifact({
+          summary: result.candidatePopulation,
+        })
+        const selected = population.candidates[population.bestIndex]
+        const selectedHash = contentHash({
+          kind: 'external-text-candidate',
+          candidate: result.bestCandidate,
+        })
+        if (selected?.candidateHash !== selectedHash) {
+          throw new Error(`${name}: GEPA candidate population identifies a different winner`)
+        }
       }
 
       const evaluationCost = costFromLedgerSummary(
@@ -521,6 +545,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           artifactDir: outputDir,
           ...(tokenUsage ? { tokenUsage } : {}),
           observations: observationLog.summary(),
+          ...(result.candidatePopulation
+            ? { gepaCandidatePopulation: result.candidatePopulation }
+            : {}),
           ...(executionLog ? { modelExecutions: executionLog.summary() } : {}),
         },
       }

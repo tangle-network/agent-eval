@@ -5,6 +5,10 @@ import {
   assertExternalOptimizerPackageSource,
   type ExternalOptimizerPackageSource,
 } from './external-optimizer-source'
+import {
+  assertGepaCandidatePopulationSummary,
+  type GepaCandidatePopulationSummary,
+} from './gepa-candidate-population'
 import type { GepaOptimizationRecipe } from './gepa-optimization-method'
 
 export interface GepaBridgeOutput {
@@ -18,6 +22,7 @@ export interface GepaBridgeOutput {
   upstream: ExternalOptimizerPackageSource<'gepa'>
   runId: string
   resumed: boolean
+  candidatePopulation?: GepaCandidatePopulationSummary
 }
 
 export function assertGepaBridgeOutput(
@@ -26,7 +31,10 @@ export function assertGepaBridgeOutput(
   maxCandidateChars: number,
   recipeKind: GepaOptimizationRecipe['kind'],
   maxEvaluations: number,
+  maxPopulationCandidates: number,
+  scenarioIds: readonly string[],
   expectsComponents: boolean,
+  requiresCandidatePopulation: boolean,
 ): asserts result is GepaBridgeOutput {
   if (result.recipeKind !== recipeKind) {
     throw new Error(`${name}: GEPA bridge reported recipe '${String(result.recipeKind)}'`)
@@ -80,6 +88,25 @@ export function assertGepaBridgeOutput(
   }
   if (typeof result.resumed !== 'boolean') {
     throw new Error(`${name}: GEPA bridge returned an invalid resumed flag`)
+  }
+  if (result.candidatePopulation !== undefined) {
+    assertGepaCandidatePopulationSummary(result.candidatePopulation)
+    if (result.candidatePopulation.runId !== result.runId) {
+      throw new Error(`${name}: GEPA candidate population has a different run ID`)
+    }
+    if (
+      result.candidatePopulation.maxCandidates !== maxPopulationCandidates ||
+      result.candidatePopulation.maxCandidateChars !== maxCandidateChars ||
+      result.candidatePopulation.surfaceKind !== (expectsComponents ? 'components' : 'text') ||
+      result.candidatePopulation.scenarioIds.length !== scenarioIds.length ||
+      result.candidatePopulation.scenarioIds.some(
+        (scenarioId, index) => scenarioId !== scenarioIds[index],
+      )
+    ) {
+      throw new Error(`${name}: GEPA candidate population differs from its configured bounds`)
+    }
+  } else if (requiresCandidatePopulation) {
+    throw new Error(`${name}: GEPA bridge omitted the official candidate population`)
   }
 }
 

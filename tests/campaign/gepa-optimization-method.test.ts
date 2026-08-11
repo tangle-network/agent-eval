@@ -289,6 +289,12 @@ describe('gepaOptimizationMethod', () => {
         evaluations: 1,
         refusals: 0,
       },
+      gepaCandidatePopulation: {
+        scope: 'gepa-candidate-population',
+        sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        candidates: 1,
+        bestIndex: 0,
+      },
       modelExecutions: {
         scope: 'runtime-model-calls',
         sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
@@ -581,6 +587,7 @@ function fakeGepaRunner(
   const serializedCandidate = JSON.stringify(candidate)
   const source = [
     "const fs = require('node:fs')",
+    "const crypto = require('node:crypto')",
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
@@ -598,6 +605,11 @@ function fakeGepaRunner(
     '  })',
     '  if (!response.ok) throw new Error("callback failed: " + response.status)',
     '  const scored = await response.json()',
+    '  fs.mkdirSync(input.outputDir, { recursive: true })',
+    '  const populationPath = input.outputDir + "/candidate-population-test.json"',
+    `  const populationContents = JSON.stringify({ schemaVersion: 1, scope: "gepa-candidate-population", runId: input.runId, bestIndex: 0, candidates: [{ index: 0, candidate: ${serializedCandidate}, parentIndices: [null], aggregateScore: scored.score, selectionScores: [{ scenarioId: (input.selectionSet[0] || input.trainSet[0]).id, score: scored.score }], discoveryEvaluationCount: 1 }] }, null, 2) + "\\n"`,
+    '  fs.writeFileSync(populationPath, populationContents)',
+    '  const candidatePopulation = { scope: "gepa-candidate-population", path: populationPath, sha256: "sha256:" + crypto.createHash("sha256").update(populationContents).digest("hex"), bytes: Buffer.byteLength(populationContents), runId: input.runId, candidates: 1, bestIndex: 0, maxCandidates: input.maxPopulationCandidates, maxCandidateChars: input.maxCandidateChars, scenarioIds: (input.selectionSet.length ? input.selectionSet : input.trainSet).map((scenario) => scenario.id), surfaceKind: typeof input.seedCandidate === "string" ? "text" : "components" }',
     '  fs.writeFileSync(outputPath, JSON.stringify({',
     `    bestCandidate: ${serializedCandidate},`,
     '    bestScore: scored.score,',
@@ -607,6 +619,7 @@ function fakeGepaRunner(
     '    upstream: runtime.optimizer,',
     '    runId: input.runId,',
     '    resumed: false,',
+    '    candidatePopulation,',
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
   ].join('\n')
@@ -616,6 +629,7 @@ function fakeGepaRunner(
 function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
   const source = [
     "const fs = require('node:fs')",
+    "const crypto = require('node:crypto')",
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
@@ -650,6 +664,11 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
     '  })',
     '  if (!response.ok) throw new Error("callback failed: " + response.status)',
     '  const scored = await response.json()',
+    '  fs.mkdirSync(input.outputDir, { recursive: true })',
+    '  const populationPath = input.outputDir + "/candidate-population-test.json"',
+    '  const populationContents = JSON.stringify({ schemaVersion: 1, scope: "gepa-candidate-population", runId: input.runId, bestIndex: 0, candidates: [{ index: 0, candidate: "better", parentIndices: [null], aggregateScore: scored.score, selectionScores: [{ scenarioId: (input.selectionSet[0] || input.trainSet[0]).id, score: scored.score }], discoveryEvaluationCount: 1 }] }, null, 2) + "\\n"',
+    '  fs.writeFileSync(populationPath, populationContents)',
+    '  const candidatePopulation = { scope: "gepa-candidate-population", path: populationPath, sha256: "sha256:" + crypto.createHash("sha256").update(populationContents).digest("hex"), bytes: Buffer.byteLength(populationContents), runId: input.runId, candidates: 1, bestIndex: 0, maxCandidates: input.maxPopulationCandidates, maxCandidateChars: input.maxCandidateChars, scenarioIds: (input.selectionSet.length ? input.selectionSet : input.trainSet).map((scenario) => scenario.id), surfaceKind: typeof input.seedCandidate === "string" ? "text" : "components" }',
     '  fs.writeFileSync(outputPath, JSON.stringify({',
     '    bestCandidate: "better",',
     '    bestScore: scored.score,',
@@ -661,6 +680,7 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
     '    upstream: runtime.optimizer,',
     '    runId: input.runId,',
     '    resumed,',
+    '    candidatePopulation,',
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
   ].join('\n')

@@ -141,6 +141,106 @@ def test_published_gepa_config_maps_budgets_and_result_fields(
     assert gepa_bridge._reported_proposer_cost([result]) is None
 
 
+def test_candidate_population_preserves_official_lineage_and_scores() -> None:
+    result = SimpleNamespace(
+        candidates=[{"__text__": "baseline"}, {"__text__": "candidate"}],
+        parents=[[None], [0]],
+        val_aggregate_scores=[0.25, 0.75],
+        val_subscores=[{"selection": 0.25}, {"selection": 0.75}],
+        discovery_eval_counts=[0, 1],
+        best_idx=1,
+        _str_candidate_key="__text__",
+    )
+
+    artifact = gepa_bridge._candidate_population_artifact(
+        result=result,
+        seed_candidate="baseline",
+        run_id="run-one",
+        max_candidates=2,
+        max_candidate_chars=100,
+        selection_scenario_ids=["selection"],
+    )
+
+    assert artifact == {
+        "schemaVersion": 1,
+        "scope": "gepa-candidate-population",
+        "runId": "run-one",
+        "bestIndex": 1,
+        "candidates": [
+            {
+                "index": 0,
+                "candidate": "baseline",
+                "parentIndices": [None],
+                "aggregateScore": 0.25,
+                "selectionScores": [{"scenarioId": "selection", "score": 0.25}],
+                "discoveryEvaluationCount": 0,
+            },
+            {
+                "index": 1,
+                "candidate": "candidate",
+                "parentIndices": [0],
+                "aggregateScore": 0.75,
+                "selectionScores": [{"scenarioId": "selection", "score": 0.75}],
+                "discoveryEvaluationCount": 1,
+            },
+        ],
+    }
+
+
+def test_candidate_population_reads_the_source_api_result_wrapper() -> None:
+    official_result = SimpleNamespace(
+        candidates=[{"current_candidate": "baseline"}],
+        parents=[[None]],
+        val_aggregate_scores=[0.25],
+        val_subscores=[{0: 0.25}],
+        discovery_eval_counts=[1],
+        best_idx=0,
+        _str_candidate_key="current_candidate",
+    )
+    wrapper = SimpleNamespace(metadata={"gepa_result": official_result})
+
+    artifact = gepa_bridge._candidate_population_artifact(
+        result=wrapper,
+        seed_candidate="baseline",
+        run_id="run-one",
+        max_candidates=1,
+        max_candidate_chars=100,
+        selection_scenario_ids=["selection"],
+    )
+
+    assert artifact is not None
+    assert artifact["candidates"][0]["candidate"] == "baseline"
+    assert artifact["candidates"][0]["selectionScores"] == [
+        {"scenarioId": "selection", "score": 0.25}
+    ]
+
+
+def test_candidate_population_rejects_future_parents_and_false_scores() -> None:
+    result = SimpleNamespace(
+        candidates=[{"__text__": "baseline"}, {"__text__": "candidate"}],
+        parents=[[None], [1]],
+        val_aggregate_scores=[0.25, 0.9],
+        val_subscores=[{"selection": 0.25}, {"selection": 0.75}],
+        discovery_eval_counts=[0, 1],
+        best_idx=1,
+        _str_candidate_key="__text__",
+    )
+    arguments = {
+        "result": result,
+        "seed_candidate": "baseline",
+        "run_id": "run-one",
+        "max_candidates": 2,
+        "max_candidate_chars": 100,
+        "selection_scenario_ids": ["selection"],
+    }
+
+    with pytest.raises(RuntimeError, match="invalid parent index"):
+        gepa_bridge._candidate_population_artifact(**arguments)
+    result.parents[1] = [0]
+    with pytest.raises(RuntimeError, match="aggregate score differs"):
+        gepa_bridge._candidate_population_artifact(**arguments)
+
+
 def test_published_gepa_rejects_source_only_engines(tmp_path: Path) -> None:
     api = GepaApi(
         module=types.ModuleType("gepa.optimize_anything"),
@@ -205,6 +305,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
                 "trainSet": [{"id": "train", "data": {"prompt": "visible"}}],
                 "selectionSet": [],
                 "maxCandidateChars": 100,
+                "maxPopulationCandidates": 3,
                 "maxEvidenceChars": 1_000,
                 "outputDir": str(tmp_path / "external"),
             }
@@ -339,6 +440,7 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
                 "trainSet": [{"id": "train", "data": {"prompt": "visible"}}],
                 "selectionSet": [{"id": "selection", "data": {"prompt": "also-visible"}}],
                 "maxCandidateChars": 100,
+                "maxPopulationCandidates": 14,
                 "maxEvidenceChars": 1_000,
                 "outputDir": str(tmp_path / "external"),
             }
@@ -461,6 +563,7 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
                 "trainSet": [{"id": "train", "data": {}}],
                 "selectionSet": [{"id": "selection", "data": {}}],
                 "maxCandidateChars": 100,
+                "maxPopulationCandidates": 3,
                 "maxEvidenceChars": 1_000,
                 "outputDir": str(tmp_path / "external"),
             }
@@ -1090,6 +1193,7 @@ def _valid_input(tmp_path: Path) -> dict[str, Any]:
         "trainSet": [{"id": "train", "data": {}}],
         "selectionSet": [{"id": "selection", "data": {}}],
         "maxCandidateChars": 100,
+        "maxPopulationCandidates": 1,
         "maxEvidenceChars": 1_000,
         "outputDir": str(tmp_path / "external"),
     }

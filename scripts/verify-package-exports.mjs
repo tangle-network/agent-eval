@@ -217,10 +217,12 @@ try {
         type CompareOptimizationMethodsOptions,
         decodeExternalTextCandidate,
         type ExternalOptimizerSubmittedCandidate,
+        type GepaCandidatePopulationArtifact,
         type LlmJudgeOptions as CampaignLlmJudgeOptions,
         type OptimizationMethodProvenance,
         type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
         readExternalOptimizerObservationArtifact,
+        readGepaCandidatePopulationArtifact,
         type SurfaceProposer as CampaignSurfaceProposer,
       } from '@tangle-network/agent-eval/campaign'
       import {
@@ -606,6 +608,7 @@ try {
         artifactDir: '/tmp/optimizer',
       }
       const submittedCandidate = null as unknown as ExternalOptimizerSubmittedCandidate
+      const gepaPopulation = null as unknown as GepaCandidatePopulationArtifact
       const hostedInsight: HostedInsightReport = null as unknown as HostedInsightReport
       const hostedEventValid = EvalRunEventSchema.safeParse({
         runId: 'packed-run',
@@ -709,8 +712,10 @@ try {
         contractCostLedger,
         optimizationProvenance,
         submittedCandidate,
+        gepaPopulation,
         decodeExternalTextCandidate,
         readExternalOptimizerObservationArtifact,
+        readGepaCandidatePopulationArtifact,
         hostedInsight,
         hostedEventValid,
         LLM_INPUT_TOKENS,
@@ -909,6 +914,7 @@ try {
           'skillOptOptimizationMethod',
           'decodeExternalTextCandidate',
           'readExternalOptimizerObservationArtifact',
+          'readGepaCandidatePopulationArtifact',
           'openSearchLedger',
           'FileSearchLedger',
           'SearchLedgerIntegrityError',

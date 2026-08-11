@@ -324,6 +324,10 @@ Do not place credentials in `engineConfig` because run settings are persisted.
 `describeArtifact()` controls the execution evidence returned after a candidate is scored.
 Neither callback can receive a final test case.
 
+A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
+Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.
+Use `readExternalOptimizerObservationArtifact()` for every distinct callback submission, including proposals that GEPA rejected or the callback refused.
+
 ## Install Official SkillOpt
 
 Install the SkillOpt source revision tested by this release:

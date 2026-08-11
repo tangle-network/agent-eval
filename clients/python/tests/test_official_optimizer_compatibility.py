@@ -592,6 +592,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
             "trainSet": [{"id": "train", "data": {"prompt": "Return READY."}}],
             "selectionSet": [{"id": "selection", "data": {"prompt": "Return READY."}}],
             "maxCandidateChars": 1_000,
+            "maxPopulationCandidates": 4,
             "maxEvidenceChars": 10_000,
             "modelProxy": {
                 "apiKey": "local-model-token",
