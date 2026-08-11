@@ -79,6 +79,7 @@ export function campaignCellToRunRecord<TArtifact>(
     cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
     tokens_input: cell.tokenUsage.input,
     tokens_output: cell.tokenUsage.output,
+    tokens_known: cell.tokenUsage.tokensKnown === false ? 0 : 1,
     latency_ms: cell.durationMs,
     ...(execution.executionErrorCount === undefined
       ? {}
@@ -96,7 +97,7 @@ export function campaignCellToRunRecord<TArtifact>(
   if (cell.tokenUsage.cacheWrite !== undefined) {
     raw.tokens_cache_write = cell.tokenUsage.cacheWrite
   }
-  if (costUsd !== null && costUsd > 0) {
+  if (cell.tokenUsage.tokensKnown !== false && costUsd !== null && costUsd > 0) {
     raw.tokens_per_dollar = (cell.tokenUsage.input + cell.tokenUsage.output) / costUsd
   }
   if (costUsd !== null && quality.score !== undefined && quality.score > 0.01) {

@@ -843,7 +843,7 @@ function penalizeErrors(base: number, metrics: CodeAgentSessionMetrics): number 
   return clamp01(base * (1 - 0.5 * errorRate))
 }
 
-type TokenTotals = Required<RunTokenUsage>
+type TokenTotals = Required<Omit<RunTokenUsage, 'tokensKnown'>>
 
 function emptyTokenTotals(): TokenTotals {
   return { input: 0, output: 0, reasoning: 0, cached: 0, cacheWrite: 0 }

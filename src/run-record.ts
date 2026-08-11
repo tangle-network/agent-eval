@@ -50,6 +50,9 @@ export interface RunTokenUsage {
   input: number
   /** All generated tokens charged as output, including reasoning tokens. */
   output: number
+  /** Present only when one or more paid calls did not report token usage.
+   *  In that case, every numeric field is a known subtotal, not a measured total. */
+  tokensKnown?: false
   /** Reasoning-token subset of `output`, when the provider reports it. */
   reasoning?: number
   /** Prompt tokens served from a provider cache. */
@@ -325,6 +328,12 @@ export function validateRunRecord(input: unknown): RunRecord {
   const tuRec = tu as Record<string, unknown>
   expectNonNegativeNumber(tuRec.input, 'tokenUsage.input')
   expectNonNegativeNumber(tuRec.output, 'tokenUsage.output')
+  if (tuRec.tokensKnown !== undefined && tuRec.tokensKnown !== false) {
+    throw new RunRecordValidationError(
+      'tokensKnown must be false when present; omit it when token usage is complete',
+      'tokenUsage.tokensKnown',
+    )
+  }
   if (tuRec.reasoning !== undefined) {
     expectNonNegativeNumber(tuRec.reasoning, 'tokenUsage.reasoning')
     if ((tuRec.reasoning as number) > (tuRec.output as number)) {

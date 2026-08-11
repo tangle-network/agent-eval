@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Fixed
+
+- Campaign cells and run records preserve incomplete token usage as `tokensKnown: false`; their numeric counts remain known subtotals and no token-efficiency ratio is reported.
+
 ### Added
 
 - `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.

@@ -176,6 +176,7 @@ try {
         type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
         type RunRecord,
+        type RunTokenUsage,
         type RunTerminalOutcome,
         type Scenario,
         runTaskScore,
@@ -559,6 +560,11 @@ try {
         experimentId: 'consumer',
         candidateId: 'candidate',
       })
+      const incompleteTokenUsage: RunTokenUsage = {
+        input: 7,
+        output: 3,
+        tokensKnown: false,
+      }
       const report: ExecutionReport = summarizeExecution({ runs })
       const terminalOutcome: RunTerminalOutcome = 'succeeded'
       const taskScore: number | undefined = runs[0] ? runTaskScore(runs[0]) : undefined
@@ -682,6 +688,7 @@ try {
         codeTraceFindings,
         evidenceResolver,
         report,
+        incompleteTokenUsage,
         terminalOutcome,
         taskScore,
         failedTerminalRuns,

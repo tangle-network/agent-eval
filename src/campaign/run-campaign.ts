@@ -582,6 +582,7 @@ async function executeCell<TScenario extends Scenario, TArtifact>(
   const tokenUsage: CampaignTokenUsage = {
     input: agentCost.inputTokens,
     output: agentCost.outputTokens,
+    ...(agentCost.usageComplete ? {} : { tokensKnown: false as const }),
     ...(agentCost.reasoningTokens !== undefined && agentCost.reasoningTokens > 0
       ? { reasoning: agentCost.reasoningTokens }
       : {}),

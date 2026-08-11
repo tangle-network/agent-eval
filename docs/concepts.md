@@ -38,6 +38,7 @@ Use the profile improvement functions from `/contract` when a host owns immutabl
 `sealAgentProfileImprovementExperiment()` freezes the exact baseline, candidate diff, held-out tasks, model, limits, and policy.
 `runAgentProfileImprovementExperiment()` asks the host to execute every frozen baseline/candidate cell and requires one complete receipt per execution.
 `measuredComparisonFromAgentProfileImprovementExperiment()` recomputes scores, uncertainty, cost, latency, and the release decision from those receipts.
+`RunTokenUsage.tokensKnown: false` marks incomplete provider usage; its counts are known subtotals, and token-efficiency ratios stay absent.
 
 This API never activates a candidate or runs an agent itself.
 The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
