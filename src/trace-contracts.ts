@@ -11,8 +11,7 @@
  * dual-use:
  *
  *   - recorded eval traces — `evaluateTraceContract(contract, await
- *     store.spans({ runId }))`, or via the behavior DSL:
- *     `expectAgent(store, runId).toSatisfyContract(contract)`.
+ *     store.spans({ runId }))`.
  *   - the production OTLP stream — `ExportableSpan`s flattened by
  *     `trace/otel-bridge` satisfy `ContractSpan` structurally. A production
  *     monitor implements `OtelExporter`, buffers `exportSpan` payloads per
@@ -41,7 +40,8 @@
 
 import type { JudgeConfig, JudgeDimension, Scenario } from './campaign/types'
 import { ValidationError } from './errors'
-import type { DefaultVerdict } from './verdict'
+import { packageVersion } from './package-version'
+import { certificationEvidenceDigest, type DefaultVerdict } from './verdict'
 
 // ── Span surface ──────────────────────────────────────────────────────
 
@@ -527,6 +527,19 @@ export function evaluateTraceContract(
   }
   const ruleCount = contract.rules.length
   const passCount = Object.values(scores).filter((s) => s === 1).length
+  // Steps the certificate rests on unverified: array ordering when no span
+  // carries a timestamp, and any rule whose truth depends on a custom
+  // predicate function that is not part of the serialized contract.
+  const assumptions: string[] = []
+  if (spans.length > 0 && ordered.every((s) => typeof s.startedAt !== 'number')) {
+    assumptions.push('spans ordered by array position — no startedAt timestamps to order by')
+  }
+  for (const rule of contract.rules) {
+    const predicates = [rule.p, rule.a, rule.b, rule.prior]
+    if (predicates.some((p) => p !== undefined && typeof p.custom === 'function')) {
+      assumptions.push(`rule '${rule.label}' rests on a custom predicate function`)
+    }
+  }
   return {
     contract: contract.name,
     valid: passCount === ruleCount,
@@ -534,6 +547,16 @@ export function evaluateTraceContract(
     scores,
     violations,
     notes: `${passCount}/${ruleCount} rules passed`,
+    certification: {
+      strategy: 'invariant',
+      checker: { name: 'agent-eval:trace-contracts', version: packageVersion() },
+      assumptions,
+      evidenceDigest: certificationEvidenceDigest({
+        contract: contract.name,
+        scores,
+        violations,
+      }),
+    },
   }
 }
 

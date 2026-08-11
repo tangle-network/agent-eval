@@ -93,9 +93,7 @@ describe('threats travel with the number', () => {
 
   it('names that admission conditioned the control to zero everywhere', () => {
     const report = deltaRepair([measuredRowResult('a', 1), measuredRowResult('b', 0)])
-    expect(report.threats.map((t) => t.id)).toContain(
-      'admission-conditions-on-control-failure',
-    )
+    expect(report.threats.map((t) => t.id)).toContain('admission-conditions-on-control-failure')
   })
 
   it('says when the control that produced that zero could not have rescued anything', () => {

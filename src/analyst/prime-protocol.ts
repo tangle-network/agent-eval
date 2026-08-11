@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { CustomTokenPricing } from '../cost-ledger'
 import type { PrimeBridgeTransport, PrimeBridgeTransportResult } from './prime-bridge-transport'
-import type { ReplyContract, ReplyRowDecoded } from './reply-contract'
+import { decodeContractRows, type ReplyContract, type ReplyRowDecoded } from './reply-contract'
 import type { AnalystUsageReceipt } from './types'
 
 /**
@@ -373,22 +373,7 @@ export async function runPrimeExchange<TRow>(
   }
 
   const rawRows = parsed![contract.rowsField] as unknown[]
-  const rows: TRow[] = []
-  const rejected: PrimeRejectedRow[] = []
-  let overflow = 0
-  rawRows.forEach((row, index) => {
-    const decoded = contract.decodeRow(row, index)
-    if (!decoded.ok) {
-      rejected.push({ index, reason: decoded.reason })
-      return
-    }
-    // Shape before count: a malformed row must never consume an accepted slot.
-    if (contract.maxRows !== undefined && rows.length >= contract.maxRows) {
-      overflow += 1
-      return
-    }
-    rows.push(decoded.row)
-  })
+  const { rows, rejected, overflow } = decodeContractRows(contract, rawRows)
   const answer = parsed!.answer
   return {
     ok: true,

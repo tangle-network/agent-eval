@@ -34,7 +34,12 @@ const PERSONA: TestPersona = { id: 'alice', name: 'Alice', filingStatus: 'single
 
 describe('shape defaults — pure functions of profile + persona', () => {
   it('renderPersonaFacts serializes the whole payload except id, dropping nothing', () => {
-    const facts = renderPersonaFacts({ id: 'x', name: 'Bo', dependents: 2, w2: { employer: 'ACME' } })
+    const facts = renderPersonaFacts({
+      id: 'x',
+      name: 'Bo',
+      dependents: 2,
+      w2: { employer: 'ACME' },
+    })
     expect(facts).toContain('- name: Bo')
     expect(facts).toContain('- dependents: 2')
     expect(facts).toContain('- w2: {"employer":"ACME"}')

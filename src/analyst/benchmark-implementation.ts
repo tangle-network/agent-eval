@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '259ec25d5963107902659db8954d435b5e9f771411d48826e8c8d0122169ae81'
+  '597d6c27bbcebcbce19d1a2dde06ef1eb9fe6699b3eaa6e279f109d7762c59e7'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
@@ -106,7 +106,18 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/math/special-functions.ts',
   'src/math/student-t.ts',
   'src/metrics.ts',
-  'src/statistics.ts',
+  'src/statistics/agreement-irr.ts',
+  'src/statistics/descriptive.ts',
+  'src/statistics/effect-sizes.ts',
+  'src/statistics/index.ts',
+  'src/statistics/internal.ts',
+  'src/statistics/multiplicity.ts',
+  'src/statistics/paired-binary.ts',
+  'src/statistics/paired-tests.ts',
+  'src/statistics/power-and-mde.ts',
+  'src/statistics/random.ts',
+  'src/statistics/rank-tests.ts',
+  'src/statistics/sequential-eprocess.ts',
   'src/trace-analyst/errors.ts',
   'src/trace-analyst/otlp-span.ts',
   'src/trace-analyst/shared-abortable-task.ts',
@@ -125,7 +136,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  'cc354effd79c8dfc8669c230706c67c63a06e3aff013f540806361263bae8860'
+  '81709d08fb59b31296fed615bddcc1fa5cef1dc2c09579f5002d39e29d8c0315'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

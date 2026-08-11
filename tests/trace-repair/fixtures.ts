@@ -10,19 +10,17 @@
 import { expect } from 'vitest'
 import {
   type AdmissionEvidence,
-  admitRow,
   type AdmittedRow,
+  admitRow,
 } from '../../src/trace-repair/admission-contract'
 import { type ControlPolicy, defineControlPolicy } from '../../src/trace-repair/control-policy'
+import type { RepairRowResult } from '../../src/trace-repair/grade'
 import {
   type OracleDeterminismVerdict,
   type OracleLoad,
   type OracleStateLabel,
   oracleDeterminism,
 } from '../../src/trace-repair/oracle-determinism'
-import type { RepairRowResult } from '../../src/trace-repair/grade'
-import { testSuiteDigest } from '../../src/trace-repair/test-oracle'
-import type { RecordedTrajectoryStep } from '../../src/trajectory-replay/steps'
 import type {
   RepairArm,
   RepairContinuationOutcome,
@@ -33,6 +31,8 @@ import type {
   RepairSessionFactory,
   RepairSessionRequest,
 } from '../../src/trace-repair/ports'
+import { testSuiteDigest } from '../../src/trace-repair/test-oracle'
+import type { RecordedTrajectoryStep } from '../../src/trajectory-replay/steps'
 
 export const CWD = '/app'
 export const SUITE_PATH = '/tests/run-tests.sh'
@@ -212,9 +212,7 @@ export class FakeBox {
     if (contents === undefined) return fail(2, '', 'no suite on disk')
     const directive = JSON.parse(contents) as { passIf: 'always' | { exists: string } }
     if (directive.passIf === 'always') return ok('suite: pass')
-    return this.files.has(directive.passIf.exists)
-      ? ok('suite: pass')
-      : fail(1, 'suite: fail', '')
+    return this.files.has(directive.passIf.exists) ? ok('suite: pass') : fail(1, 'suite: fail', '')
   }
 
   private runAction(action: string): RepairExecResult {
@@ -256,7 +254,8 @@ export class FakeSessionFactory implements RepairSessionFactory {
   constructor(private readonly world: FakeWorldOptions) {}
 
   async open(request: RepairSessionRequest): Promise<RepairSession> {
-    const box = new FakeBox(`box-${(this.counter += 1)}`, this.world)
+    this.counter += 1
+    const box = new FakeBox(`box-${this.counter}`, this.world)
     this.opened.push({ request, box })
     return {
       ref: box.ref,
@@ -283,9 +282,7 @@ export function fakeContinuation(
   options: FakeContinuationOptions = {},
 ): RepairContinuationRunner & { calls: RepairContinuationRequest[] } {
   const calls: RepairContinuationRequest[] = []
-  const runner = async (
-    request: RepairContinuationRequest,
-  ): Promise<RepairContinuationOutcome> => {
+  const runner = async (request: RepairContinuationRequest): Promise<RepairContinuationOutcome> => {
     calls.push(request)
     const actions = options.actionsByRollout?.[request.rolloutIndex] ?? []
     for (const action of actions) {
@@ -327,7 +324,10 @@ export const SUITE_FILES = [{ path: SUITE_PATH, contents: HELD_OUT_SUITE, mode: 
 export const SUITE_DIGEST = testSuiteDigest(SUITE_FILES)
 
 export function admissionEvidence(
-  overrides: Partial<AdmissionEvidence> & { rowId?: string; steps: readonly RecordedTrajectoryStep[] },
+  overrides: Partial<AdmissionEvidence> & {
+    rowId?: string
+    steps: readonly RecordedTrajectoryStep[]
+  },
 ): AdmissionEvidence {
   const steps = overrides.steps
   return {

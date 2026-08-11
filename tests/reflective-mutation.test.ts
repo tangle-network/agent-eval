@@ -3,7 +3,7 @@ import {
   buildReflectionPrompt,
   DEFAULT_MUTATION_PRIMITIVES,
   parseReflectionResponse,
-} from '../src/index'
+} from '../src/reflective-mutation'
 
 describe('buildReflectionPrompt', () => {
   it('quotes the parent payload as JSON', () => {

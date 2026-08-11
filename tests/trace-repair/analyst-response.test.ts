@@ -31,7 +31,11 @@ describe('the analyst may say exactly two things', () => {
     const reply = [
       'Looking at the trace, step 7 is where it goes wrong.',
       '```json',
-      JSON.stringify({ k: 7, failure_claim: 'wrong path', intervention: { kind: 'edit', action: 'x' } }),
+      JSON.stringify({
+        k: 7,
+        failure_claim: 'wrong path',
+        intervention: { kind: 'edit', action: 'x' },
+      }),
       '```',
     ].join('\n')
     expect(parseAnalystResponse(reply)).toMatchObject({ succeeded: true, value: { k: 7 } })

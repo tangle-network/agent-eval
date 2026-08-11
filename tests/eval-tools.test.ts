@@ -9,8 +9,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { CompletionVerdict, InsightReport, JudgeConfig } from '../src/index'
-import { makeEvalTools, toOpenAiTool } from '../src/index'
+import type { JudgeConfig } from '../src/campaign/types'
+import type { InsightReport } from '../src/contract/insight-report'
+import { makeEvalTools, toOpenAiTool } from '../src/eval-tools'
+import type { CompletionVerdict } from '../src/index'
 import type { RunRecord } from '../src/run-record'
 
 const qualityJudge: JudgeConfig<unknown> = {

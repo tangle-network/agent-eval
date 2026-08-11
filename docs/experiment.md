@@ -85,7 +85,6 @@ The statistical machinery underneath is re-exported from its existing homes; thi
 | family | home |
 | --- | --- |
 | `pairedBootstrap`, `mcnemar`/`mcnemarPower`/`mcnemarRequiredN`, `pairedRiskDifference*`, `holm`, `benjaminiHochberg`, `eProcess`, `wilson`, `mulberry32`, sample-size helpers | `src/statistics.ts` |
-| `clusteredPairedBinary` (cluster bootstrap + sign flip) | `src/clustered-paired-binary.ts` |
 | `pairedEvalueSequence` (anytime-valid) | `src/sequential.ts` |
 | `powerPreflight` (variance-based MDE refusal) | `src/campaign/gates/power-preflight.ts` |
 | `sequentialPairedGate`, `sequentialDecide` (manifest-bound) | `src/campaign/gates/sequential.ts` |

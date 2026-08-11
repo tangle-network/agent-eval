@@ -98,3 +98,93 @@ describe('public normal-approximation callers', () => {
     expect(result.p).toBeCloseTo(0.05137106281388464, 9)
   })
 })
+
+describe('normalCdf — standard normal against published reference values', () => {
+  // Abramowitz & Stegun 7.1.26 bounds erf to |ε| ≤ 1.5e-7. Φ(x) = ½(1 + erf(z))
+  // halves that to 7.5e-8; a two-sided p = 2(1 − Φ) doubles it back to 1.5e-7.
+  const PHI_TOL = 7.5e-8
+  const P_TOL = 1.5e-7
+
+  const twoSidedP = (z: number): number => 2 * (1 - normalCdf(z))
+
+  // Quantiles carried to full double precision. Rounding z to 1.96 moves the
+  // true p by ~4e-6 — thirty times the tolerance being asserted — so a test
+  // written against rounded z cannot state a bound this tight.
+  const CRITICAL: Array<{ label: string; z: number; phi: number; p: number }> = [
+    { label: '80% two-sided', z: 1.2815515655446004, phi: 0.9, p: 0.2 },
+    { label: '90% two-sided', z: 1.6448536269514722, phi: 0.95, p: 0.1 },
+    { label: '95% two-sided', z: 1.959963984540054, phi: 0.975, p: 0.05 },
+    { label: '99% two-sided', z: 2.5758293035489004, phi: 0.995, p: 0.01 },
+    { label: '99.9% two-sided', z: 3.2905267314919255, phi: 0.9995, p: 0.001 },
+    { label: '99.99% two-sided', z: 3.890591886413094, phi: 0.99995, p: 0.0001 },
+  ]
+
+  for (const { label, z, phi, p } of CRITICAL) {
+    it(`reproduces the ${label} critical value at z=${z.toFixed(6)}`, () => {
+      expect(Math.abs(normalCdf(z) - phi)).toBeLessThanOrEqual(PHI_TOL)
+      expect(Math.abs(twoSidedP(z) - p)).toBeLessThanOrEqual(P_TOL)
+    })
+  }
+
+  it('matches the reference CDF at the rounded z-scores quoted in tables', () => {
+    // Reference values from the exact standard normal, not from this function.
+    const table: Array<[z: number, p: number]> = [
+      [1.645, 0.09996981147155819],
+      [1.96, 0.04999579029644087],
+      [2.576, 0.009995064584707569],
+      [3.059, 0.002220771493670643],
+    ]
+    for (const [z, p] of table) {
+      expect(Math.abs(twoSidedP(z) - p)).toBeLessThanOrEqual(P_TOL)
+    }
+  })
+
+  it('is symmetric: Φ(−x) = 1 − Φ(x)', () => {
+    for (let z = 0; z <= 6.0001; z += 0.25) {
+      expect(Math.abs(normalCdf(-z) - (1 - normalCdf(z)))).toBeLessThanOrEqual(P_TOL)
+    }
+  })
+
+  it('centres at Φ(0) = 0.5', () => {
+    expect(Math.abs(normalCdf(0) - 0.5)).toBeLessThanOrEqual(PHI_TOL)
+  })
+
+  it('stays inside [0,1] and strictly increases across the sampled range', () => {
+    let prev = -Infinity
+    for (let z = -6; z <= 6.0001; z += 0.05) {
+      const phi = normalCdf(z)
+      expect(phi).toBeGreaterThanOrEqual(0)
+      expect(phi).toBeLessThanOrEqual(1)
+      expect(phi).toBeGreaterThan(prev)
+      prev = phi
+    }
+  })
+
+  it('never lets a two-sided p exceed 1 for a non-negative z', () => {
+    for (let z = 0; z <= 4.0001; z += 0.01) {
+      expect(twoSidedP(z)).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('covers the tails and the infinities', () => {
+    expect(Math.abs(normalCdf(-8) - 6.106226635438361e-16)).toBeLessThanOrEqual(PHI_TOL)
+    expect(normalCdf(-40)).toBe(0)
+    expect(normalCdf(40)).toBe(1)
+    expect(normalCdf(-Infinity)).toBe(0)
+    expect(normalCdf(Infinity)).toBe(1)
+  })
+
+  it('agrees with the mid-range reference away from the critical points', () => {
+    const table: Array<[x: number, phi: number]> = [
+      [0.25, 0.5987063256829237],
+      [0.5, 0.6914624612740131],
+      [1, 0.8413447460685429],
+      [2, 0.9772498680518208],
+      [3, 0.9986501019683699],
+      [4, 0.9999683287581669],
+    ]
+    for (const [x, phi] of table) {
+      expect(Math.abs(normalCdf(x) - phi)).toBeLessThanOrEqual(PHI_TOL)
+    }
+  })
+})

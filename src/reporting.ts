@@ -27,8 +27,6 @@ export type {
   ReleaseTraceEvidence,
 } from './release-confidence'
 export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
-export type { RenderReleaseReportOptions } from './release-report'
-export { renderReleaseReport } from './release-report'
 export type {
   InterimReleaseConfidence,
   InterimReleaseConfidenceInput,

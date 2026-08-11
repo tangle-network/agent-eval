@@ -27,7 +27,7 @@ Evaluation measures whether the result met its requirements, whether another att
 | “Did this single answer/draft pass?” | Judge or rubric | Fast quality signal for one artifact. |
 | “Does generated code work?” | `BuilderSession`, `MultiLayerVerifier` | Build, test, and runtime checks catch failures judges miss. |
 | “Should the agent keep trying?” | `runAgentControlLoop` | Budgeted `observe -> validate -> decide -> act` runtime. |
-| “The agent should propose, verify, review, and revise.” | `runProposeReviewAsControlLoop` | Reusable preset over the generic control loop. |
+| “The agent should propose, verify, review, and revise.” | `runProposeReview` | Iterative propose/verify/review loop. |
 | “Human feedback should become reusable eval data.” | `FeedbackTrajectory` | Captures approvals, rejections, edits, choices, metrics, and policy blocks. |
 | “I want Vercel-style eval folders agents can add quickly.” | `loadEvalFixtureScenarios`, `planEvalFixtureRun`, `runCampaign` | Folder-per-eval DX with campaign scoring and cache-safe dry runs. |
 | “Can this action run, or does it need approval?” | `evaluateActionPolicy` | Generic preflight for side effects, budgets, and required evidence. |
@@ -154,7 +154,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Judging | `llmJudge`, semantic judges, anti-slop, wire rubrics | Content, voice, semantic quality | Pair with objective checks when possible. |
 | Verification | `MultiLayerVerifier`, `JudgeRunner`, sandbox harness | Code and multi-step gates | Do not let semantic judges override failed builds. |
 | Control | `runAgentControlLoop`, `objectiveEval`, `subjectiveEval` | Long-running agent tasks | Supports budgets, cost, stop policies, trace spans. |
-| Propose/review | `runProposeReview`, `runProposeReviewAsControlLoop` | Iterative artifact repair | Good for code, docs, plans, briefs. |
+| Propose/review | `runProposeReview` | Iterative artifact repair | Good for code, docs, plans, briefs. |
 | Feedback data | `FeedbackTrajectory`, stores, converters | Human/environment labels | Domain adapters live in downstream repos. |
 | Action policy | `evaluateActionPolicy` | Approval/budget preflight | Blocks or labels actions before `act()`. |
 | Datasets | `Dataset`, holdout tools, canaries | Train/dev/test/holdout corpora | Keeps optimization honest. |

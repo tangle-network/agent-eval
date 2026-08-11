@@ -29,11 +29,6 @@
       "import": "./dist/analyst/index.js",
       "default": "./dist/analyst/index.js"
     },
-    "./control": {
-      "types": "./dist/control.d.ts",
-      "import": "./dist/control.js",
-      "default": "./dist/control.js"
-    },
     "./reporting": {
       "types": "./dist/reporting.d.ts",
       "import": "./dist/reporting.js",
@@ -104,11 +99,6 @@
       "import": "./dist/ledger-core/index.js",
       "default": "./dist/ledger-core/index.js"
     },
-    "./storyboard": {
-      "types": "./dist/storyboard/index.d.ts",
-      "import": "./dist/storyboard/index.js",
-      "default": "./dist/storyboard/index.js"
-    },
     "./authenticity": {
       "types": "./dist/authenticity/index.d.ts",
       "import": "./dist/authenticity/index.js",
@@ -151,6 +141,11 @@
     },
     "./openapi.json": {
       "default": "./dist/openapi.json"
+    },
+    "./storyboard": {
+      "types": "./dist/storyboard/index.d.ts",
+      "import": "./dist/storyboard/index.js",
+      "default": "./dist/storyboard/index.js"
     }
   },
   "bin": {

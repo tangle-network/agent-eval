@@ -1,6 +1,7 @@
 # Verification strategies: certifying without an answer key
 
-This document covers the verification-strategy family (`src/verification-strategy.ts`), verdict epistemics (`src/verdict.ts`), and the blind statement-equivalence protocol (`src/equivalence-check.ts`).
+This document covers the verification-strategy family and the blind statement-equivalence protocol (both `src/verification-strategy.ts`), and verdict epistemics (`src/verdict.ts`).
+How every executed verifier in this package lands its result in `DefaultVerdict` with a produced certification: [docs/verdicts.md](./verdicts.md).
 It is the Wave 5 surface of the charter (`docs/charter.md`): an unsolved problem has no held-out test suite by definition, so the held-out suite must be one member of a strategy family, not the family itself.
 
 The package ships the taxonomy, the record types, and the refusals.
@@ -62,7 +63,7 @@ The reward-source union `VerifiableRewardSource` (`src/rl/verifiable-reward.ts`)
 
 ## The statement-equivalence protocol
 
-The proof-kernel failure mode gets its own discharge protocol, `defineEquivalenceCheck` (`src/equivalence-check.ts`): the blind two-arm design as a typed primitive.
+The proof-kernel failure mode gets its own discharge protocol, `defineEquivalenceCheck` (`src/verification-strategy.ts`): the blind two-arm design as a typed primitive.
 
 Two arms derive the formal statement independently, blind to each other and to the outcome.
 A bound checker then discharges the obligation that the two statements are equivalent:

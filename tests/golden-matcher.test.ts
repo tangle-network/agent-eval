@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { GoldenSpec } from '../src/index'
+import type { GoldenSpec } from '../src/golden-matcher'
 import {
   DEFAULT_SEVERITY_WEIGHTS,
-  goldenPrecision,
+  precision as goldenPrecision,
   matchGoldens,
   weightedRecall,
-} from '../src/index'
+} from '../src/golden-matcher'
 
 const goldens: GoldenSpec[] = [
   { id: 'a', severity: 'critical', any: ['primary action', 'no clear primary'], hint: '' },

@@ -1,6 +1,7 @@
 # Trajectory replay
 
 `@tangle-network/agent-eval/trajectory-replay` re-executes a recorded shell trajectory and produces a verdict about what really happened.
+Every verdict here lands in the shared `DefaultVerdict` spine with a `replication`-strategy certification — see [docs/verdicts.md](./verdicts.md) for the vocabulary.
 
 The primitive is one question: replay steps `1..k-1` of a recording inside the image it ran in, execute step `k`, and does the recorded failure come back?
 That question needs a recording, an image, and a way to run a command.

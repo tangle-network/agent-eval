@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bootstrapCi, judgeReplayGate } from '../src/index'
+import { bootstrapCi, judgeReplayGate } from '../src/promotion-gate'
 
 describe('bootstrapCi', () => {
   it('returns INCONCLUSIVE when sample count is below threshold', () => {

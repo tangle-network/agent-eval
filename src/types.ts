@@ -40,12 +40,6 @@ export interface ArtifactCheck {
 
 // ── Judge Configuration ──
 
-export interface JudgeConfig {
-  model: string
-  temperature: number
-  rubric: JudgeRubric
-}
-
 export interface JudgeRubric {
   name: string
   description: string
@@ -105,24 +99,6 @@ export interface CollectedArtifacts {
   blocksExtracted: { type: string; fields: Record<string, string> }[]
   codeBlocks: { language: string; code: string }[]
   toolCalls: string[]
-}
-
-// ── Benchmark Report ──
-
-export interface BenchmarkReport {
-  timestamp: string
-  generation: number
-  promptVersion: string
-  scenarioCount: number
-  results: ScenarioResult[]
-  cost?: CostLedgerSummary
-  summary: {
-    overallAvg: number
-    byPersona: Record<string, { avg: number; passed: number; total: number }>
-    byDimension: Record<string, { avg: number; scores: number[] }>
-    weakest: { scenario: string; score: number; reason: string }[]
-    strongest: { scenario: string; score: number; reason: string }[]
-  }
 }
 
 // ── Product Client ──
@@ -271,21 +247,6 @@ export interface DriverResult {
   finalQualityScore: number | null
 }
 
-// ── Benchmark Runner Config ──
-
-export interface BenchmarkRunnerConfig {
-  scenarios: Scenario[]
-  judges: JudgeFn[]
-  systemPrompt: string
-  model?: string
-  judgeModel?: string
-  passThreshold?: number
-  generation?: number
-  promptVersion?: string
-  /** Shared ledger for agent and judge calls made by the benchmark. */
-  costLedger?: CostLedgerHandle
-}
-
 export interface JudgeInput {
   scenario: Scenario
   turns: TurnResult[]
@@ -314,12 +275,4 @@ export interface CheckResult {
   passed: boolean
   expected: string
   actual: string
-}
-
-export interface EvalResult {
-  scenario: string
-  status: 'pass' | 'fail' | 'skip'
-  duration: number
-  detail?: string
-  artifact?: string
 }
