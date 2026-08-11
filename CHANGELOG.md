@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Fixed
+
+- Number callback evaluations from one for each optimizer attempt so resumed artifact files remain independently verifiable while cumulative budgets stay intact.
+
 ### Added
 
 - `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.

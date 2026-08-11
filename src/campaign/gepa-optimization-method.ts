@@ -330,10 +330,16 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         maxEvidenceChars,
         describeArtifact: config.describeArtifact,
       })
+      let attemptEvaluationCount = 0
       const callback = await startExternalOptimizerCallback({
         token: randomBytes(32).toString('hex'),
         maxEvaluations: evaluationLimit,
-        acceptEvaluation: () => runBudget.acceptEvaluation(),
+        acceptEvaluation: () => {
+          const accepted = runBudget.acceptEvaluation()
+          if (accepted === undefined) return undefined
+          attemptEvaluationCount += 1
+          return attemptEvaluationCount
+        },
         evaluate,
         observe: observationLog.observe,
         ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
