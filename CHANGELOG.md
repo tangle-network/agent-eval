@@ -8,7 +8,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
-- `readExternalOptimizerObservationArtifact()` returns every distinct callback-submitted optimizer candidate after it verifies the addressed artifact's digest, canonical rows, sequence, candidate identities, and counts.
 - `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.
 - `bindAnalyst(definition, transports)` compiles a definition into a runnable `AnalystBenchmarkRunner`; a projection × transport pair with no strategy fails loud with `AnalystExpressivenessError`.
 - The three benchmark arms are re-expressed as exported definitions (`publicDirectAnalystDefinition`, `publicRlmAnalystDefinition`, `primeCodeTraceAnalystDefinition`); `createPublicBenchmarkDirectRunner`, `createPublicBenchmarkRlmRunner`, and `createPrimeBenchmarkRunner` are thin shells over them, so no consumer changes.
@@ -20,6 +19,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Checker port (`StrategyChecker`, `CheckerIdentity`, `CheckerOutcome`): a checker is an injected executable boundary returning a typed outcome; the package ships no checker implementation, so a consumer binds its own kernel.
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
+
+## [0.144.10] - 2026-08-10 - Optimizer candidate population
+
+### Added
+
+- `readExternalOptimizerObservationArtifact()` returns every distinct callback-submitted optimizer candidate after it verifies the addressed artifact's digest, canonical rows, sequence, candidate identities, and counts.
+- `decodeExternalTextCandidate()` exposes Eval's existing canonical conversion from external text or named components to a mutable optimization surface.
 
 ## [0.144.9] - 2026-08-10 - Token usage completeness
 
