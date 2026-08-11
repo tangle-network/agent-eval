@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `readExternalOptimizerObservationArtifact()` returns every distinct callback-submitted optimizer candidate after it verifies the addressed artifact's digest, canonical rows, sequence, candidate identities, and counts.
 - `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.
 - `bindAnalyst(definition, transports)` compiles a definition into a runnable `AnalystBenchmarkRunner`; a projection × transport pair with no strategy fails loud with `AnalystExpressivenessError`.
 - The three benchmark arms are re-expressed as exported definitions (`publicDirectAnalystDefinition`, `publicRlmAnalystDefinition`, `primeCodeTraceAnalystDefinition`); `createPublicBenchmarkDirectRunner`, `createPublicBenchmarkRlmRunner`, and `createPrimeBenchmarkRunner` are thin shells over them, so no consumer changes.

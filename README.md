@@ -337,6 +337,9 @@ Read `scores` for final-case lift and intervals.
 Read `pairwise` before claiming one method beat another.
 Read `totalCost.accountingComplete` before using the reported dollars as a complete total.
 Each official method score records the optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, configured optimizer model when present, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage in `provenance`.
+Call `readExternalOptimizerObservationArtifact()` with `provenance.observations` to read every distinct callback-submitted candidate.
+The reader verifies the artifact digest, canonical rows, sequence, candidate identities, and summary counts before returning candidates.
+This verification proves that the bytes match the supplied summary; use a summary from trusted method provenance when authenticity matters.
 
 The [optimizer guide](./docs/campaign-proposers.md) covers recipes, budgets, resuming, and data separation.
 The [runnable comparison](./examples/compare-optimization-methods/) can run GEPA, SkillOpt, or both.
