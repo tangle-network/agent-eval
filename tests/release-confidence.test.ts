@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  assertReleaseConfidence,
-  type DatasetManifest,
-  evaluateReleaseConfidence,
-  type ReleaseTraceEvidence,
-  type RunRecord,
-} from '../src/index'
+import type { DatasetManifest } from '../src/dataset'
+import { evaluateReleaseConfidence, type RunRecord } from '../src/index'
+import { assertReleaseConfidence, type ReleaseTraceEvidence } from '../src/release-confidence'
 
 const manifest: DatasetManifest = {
   name: 'company-agent-corpus',

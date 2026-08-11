@@ -1,877 +1,74 @@
 /**
  * @packageDocumentation
  *
- * Root barrel for the broad public API.
- *
- * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
- * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
- * `/wire`, and `/testing`.
+ * Root barrel, tiered: it re-exports only the symbols external consumers
+ * import from the root specifier, the documented front doors, and the types
+ * those symbols need. Everything else is reachable via its subpath only
+ * (`/contract`, `/campaign`, `/analyst`, `/traces`, `/reporting`, `/rl`,
+ * `/prm`, `/meta-eval`, `/wire`, `/testing`, ...).
  */
 
-// ── Core types ───────────────────────────────────────────────────────
-
-export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
-export { evaluateActionPolicy } from './action-policy'
-export type {
-  AgentInterfaceProfileLike,
-  AgentProfileCell,
-  AgentProfileCellInput,
-  AgentProfileCellSchemaVersion,
-  AgentProfileDimensionValue,
-  AgentProfileHarness,
-  AgentProfileJson,
-  AgentProfileJsonObject,
-  AgentProfileKind,
-  AgentProfileSource,
-  AgentProfileSourceInput,
-} from './agent-profile-cell'
-export {
-  AGENT_PROFILE_KINDS,
-  AgentProfileCellValidationError,
-  agentProfileCellHashMaterial,
-  agentProfileCellKey,
-  assertRunAgentProfileCell,
-  buildAgentInterfaceProfileCell,
-  buildAgentProfileCell,
-  groupRunsByAgentProfileCell,
-  requireAgentProfileCell,
-  toAgentProfileJson,
-  validateAgentProfileCell,
-  verifyAgentProfileCell,
-} from './agent-profile-cell'
-// ── Analyst (registry + findings) ─────────────────────────────────────
-// Consumer-facing happy path only: build a registry (or take the default
-// kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore, or bind a ChatClient for package LLM calls. Deeper
-// machinery like finding-signature/subject parsers, tolerant JSON coercion, tool
-// groups, prose recovery, and judge/verifier adapters live on the `/analyst`
-// subpath (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
-export type {
-  ChatCallOpts,
-  ChatClient,
-  ChatRequest,
-  ChatResponse,
-  ChatTransport,
-  CliBridgeTransportOpts,
-  CreateChatClientOpts,
-  CustomTransportOpts,
-  DirectProviderTransportOpts,
-  MockTransportOpts,
-  RouterTransportOpts,
-  SandboxSdkTransportOpts,
-} from './analyst/chat-client'
-export { createChatClient } from './analyst/chat-client'
-export {
-  buildDefaultAnalystRegistry,
-  type DefaultAnalystRegistryOptions,
-} from './analyst/default-registry'
-export { defineTraceAnalyst } from './analyst/define'
-export {
-  createDspyRlmTraceEngine,
-  type DspyRlmTraceEngineOptions,
-} from './analyst/dspy-rlm-engine'
-export {
-  DEFAULT_TRACE_ANALYST_LIMITS,
-  resolveTraceAnalystLimits,
-  type TraceAnalysisEngine,
-  type TraceAnalysisEngineRequest,
-  type TraceAnalysisEngineResult,
-  type TraceAnalystLimits,
-} from './analyst/engine'
-export type {
-  ExactAnalystBudgetSnapshot,
-  ExactAnalystExecutionPlanSnapshot,
-  ExactAnalystRunCompletion,
-  ExactAnalystRunEvent,
-  ExactAnalystRunPolicySnapshot,
-  ExactAnalystRunResult,
-  ExactAnalystRunSummary,
-  ExactAnalystSnapshot,
-  ExactCapableAnalyst,
-  ExactExecutionComponentIdentity,
-  ExactExecutionComponentSnapshot,
-} from './analyst/exact-types'
-export type {
-  RawAnalystEvidence,
-  RawAnalystFinding,
-} from './analyst/finding-signature'
-export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
-export {
-  type DiffPolicy,
-  defaultIsMaterial,
-  diffFindings,
-  type FindingsDiff,
-  FindingsStore,
-  type PersistedFinding,
-} from './analyst/findings-store'
-export {
-  type CreateTraceAnalystOptions,
-  createTraceAnalyst,
-  renderPriorFindings,
-  renderUpstreamFindings,
-  runTraceAnalyst,
-  type TraceAnalystDefinition,
-} from './analyst/kind-factory'
-export {
-  DEFAULT_TRACE_ANALYST_KINDS,
-  FAILURE_MODE_KIND_SPEC,
-  IMPROVEMENT_KIND_SPEC,
-  KNOWLEDGE_GAP_KIND_SPEC,
-  KNOWLEDGE_POISONING_KIND_SPEC,
-} from './analyst/kinds'
-export {
-  CONTROL_INTEGRITY_ANALYST,
-  ControlIntegrityAnalyst,
-  emitControlIntegrityFindings,
-} from './analyst/kinds/control-integrity'
-export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
-export {
-  type AnalystHooks,
-  AnalystRegistry,
-  type AnalystRegistryOptions,
-  assertExactRegistryRunOpts,
-  type BudgetPolicy,
-  type ExactAnalystBudgetPolicy,
-  ExactAnalystRunExecutionError,
-  type ExactRegistryRunOpts,
-  type RegistryRunOpts,
-} from './analyst/registry'
-export {
-  type Analyst,
-  type AnalystContext,
-  type AnalystCost,
-  type AnalystFinding,
-  type AnalystInputKind,
-  type AnalystRequirements,
-  type AnalystRunEvent,
-  type AnalystRunInputs,
-  type AnalystRunResult,
-  type AnalystRunSummary,
-  type AnalystSeverity,
-  type AnalystUsageReceipt,
-  computeFindingId,
-  type EvidenceRef,
-  type ExecutionProbe,
-  type ExecutionProbeOutcome,
-  type ExecutionProbeRequest,
-  makeFinding,
-  makeProposalFinding,
-  type ProposalFinding,
-  type ProposalFindingOrigin,
-} from './analyst/types'
-export type {
-  AutoPrClient,
-  FileChange,
-  GhCliClientOptions,
-  HttpGithubClientOptions,
-  ProposeAutomatedPullRequestInput,
-  ProposeAutomatedPullRequestResult,
-  RepoRef,
-} from './auto-pr'
-export { ghCliClient, httpGithubClient } from './auto-pr'
-export type {
-  AssertCapabilityHeadroomOptions,
-  CapabilityHeadroomOptions,
-  CapabilityHeadroomResult,
-  HeadroomClass,
-  HeadroomInput,
-  TaskHeadroom,
-} from './capability-headroom'
-// ── Capability-headroom gate (calibrate-before-measure) ─────────────
-// A capability A/B can only detect the capability on tasks the
-// capability-absent baseline FAILS. Classifies per-task headroom from
-// baseline outcomes (fail-closed on unknowns) and guards the comparison
-// behind a minimum-gap assert.
-export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
-// ── Client / driver / judges / executor / benchmark / registry / reporter ─
-export { ProductClient, runE2EWorkflow } from './client'
-export type {
-  ControlActionFailureMode,
-  ControlActionOutcome,
-  ControlBudget,
-  ControlContext,
-  ControlDecision,
-  ControlEvalResult,
-  ControlRunResult,
-  ControlRuntimeConfig,
-  ControlRuntimeError,
-  ControlSeverity,
-  ControlStep,
-  ControlStopPolicies,
-  StopDecision,
-} from './control-runtime'
-export {
-  allCriticalPassed,
-  objectiveEval,
-  runAgentControlLoop,
-  stopOnNoProgress,
-  stopOnRepeatedAction,
-  subjectiveEval,
-} from './control-runtime'
-export { resetDeprecationWarnings, warnDeprecatedOnce } from './deprecation'
-export type {
-  DetectorEvent,
-  DetectorSeverity,
-  DetectorSignal,
-  ErrorStreakOptions,
-  NoProgressOptions,
-  RepeatedActionOptions,
-  StreamingDetector,
-} from './detectors'
-export {
-  errorStreakDetector,
-  noProgressDetector,
-  observeAll,
-  repeatedActionDetector,
-} from './detectors'
-export type { AgentDriverConfig, DecideNextUserTurnOpts } from './driver'
-export { AgentDriver, buildDriverSystemPrompt, decideNextUserTurn } from './driver'
-export type { AgentEvalErrorCode } from './errors'
-// Error taxonomy — every error this package throws as part of its public
-// contract extends AgentEvalError. Pattern-match by `instanceof` or by the
-// stable string `code` on the base.
-export {
-  AgentEvalError,
-  CaptureIntegrityError,
-  ConfigError,
-  JudgeError,
-  LimitExceededError,
-  NotFoundError,
-  ReplayError,
-  ValidationError,
-  VerificationError,
-} from './errors'
-export type {
-  AnalystFeedbackTrajectoryOptions,
-  AnalystFindingDigest,
-  AnalystMissedIssue,
-  AnalystReviewCounts,
-  AnalystReviewDecision,
-  AnalystReviewQuality,
-  AnalystReviewRequest,
-  AnalystReviewSource,
-  AnalystRunDigest,
-  FeedbackArtifactType,
-  FeedbackAttempt,
-  FeedbackLabel,
-  FeedbackLabelKind,
-  FeedbackLabelSource,
-  FeedbackOptimizerRow,
-  FeedbackOutcome,
-  FeedbackReplayAdapter,
-  FeedbackReplayResult,
-  FeedbackSeverity,
-  FeedbackSplitPolicy,
-  FeedbackTask,
-  FeedbackTrajectory,
-  FeedbackTrajectoryFilter,
-  FeedbackTrajectoryStore,
-  PreferenceMemoryEntry,
-  ProposedSideEffect,
-} from './feedback-trajectory'
-export {
-  analystFindingDigest,
-  analystRunDigest,
-  analystRunToFeedbackTrajectory,
-  analystRunToReviewRequests,
-  assignFeedbackSplit,
-  controlRunToFeedbackTrajectory,
-  createFeedbackTrajectory,
-  FileSystemFeedbackTrajectoryStore,
-  feedbackTrajectoriesToDatasetScenarios,
-  feedbackTrajectoriesToOptimizerRows,
-  feedbackTrajectoryToDatasetScenario,
-  feedbackTrajectoryToOptimizerRow,
-  InMemoryFeedbackTrajectoryStore,
-  parseFeedbackTrajectoriesJsonl,
-  renderPreferenceMemoryMarkdown,
-  replayFeedbackTrajectories,
-  replayFeedbackTrajectory,
-  serializeFeedbackTrajectoriesJsonl,
-  summarizePreferenceMemory,
-  withAssignedFeedbackSplit,
-} from './feedback-trajectory'
-// ── Backend-integrity guard ───────────────────────────────────────────
-// Distinguish "agent failed" from "eval ran blind against a stub or
-// unconfigured backend." Required after every canonical eval so a 0/N
-// pass-rate never silently masks a misconfigured runtime.
-export type { BackendIntegrityReport } from './integrity/backend-integrity'
-export {
-  assertRealAgentReceipts,
-  assertRealBackend,
-  BackendIntegrityError,
-  summarizeAgentReceiptIntegrity,
-  summarizeBackendIntegrity,
-} from './integrity/backend-integrity'
-// Pre-hoc complement to assertRealBackend: verify the campaign's models are
-// served by the router BEFORE spending tokens, so a dead default surfaces as a
-// config error instead of a stub run.
-export {
-  type AssertModelsServedOptions,
-  assertModelsServed,
-  type ModelPreflight,
-  ModelsUnreachableError,
-  type PreflightModelsOptions,
-  type PreflightOutcome,
-  preflightModels,
-} from './integrity/preflight'
-// Served-model identity: the requested id is intent, the echoed id is
-// evidence. Every per-model / per-family claim needs the second one, because a
-// gateway can accept one id and answer from another.
-export {
-  type AssertCrossFamilyServedOptions,
-  type AssertServedModelOptions,
-  assertCrossFamilyServed,
-  assertServedModel,
-  assertServedModels,
-  checkServedModel,
-  ModelSubstitutionError,
-  normalizeModelId,
-  PROBE_MAX_TOKENS,
-  ServedCrossFamilyError,
-  type ServedModelCheck,
-  type ServedModelVerdict,
-  servedModelAcceptable,
-} from './integrity/served-model'
-export {
-  type AssertSingleBackendOptions,
-  assertSingleBackend,
-  type BackendDescriptor,
-  type SingleBackendDivergence,
-  SingleBackendError,
-  type SingleBackendField,
-  type SingleBackendReport,
-} from './integrity/single-backend'
-// ── Judge families (cross-family enforcement) ────────────────────────
-export {
-  type AssertCrossFamilyOptions,
-  assertCrossFamily,
-  CrossFamilyError,
-  type JudgeFamily,
-  judgeFamily,
-} from './judge-families'
-export { JudgeParseError } from './judges'
-export * from './knowledge'
-// ── Statistics ───────────────────────────────────────────────────────
-// `normalCdf` and `studentTCdf` are public because `baseline.ts` and
-// `contract/analyze-runs.ts` consume them instead of holding their own copies,
-// and because each owes callers a stated accuracy bound: `normalCdf` is
-// Abramowitz & Stegun 7.1.26, accurate to 7.5e-8 absolute; `studentTCdf` uses
-// the regularized incomplete beta at every finite degree of freedom.
-export { normalCdf } from './math/normal'
-export { studentTCdf } from './math/student-t'
-export {
-  estimateCost,
-  estimateTokens,
-  isModelPriced,
-  MetricsCollector,
-  MODEL_PRICING,
-  resolveModelPricing,
-  TokenCounter,
-} from './metrics'
-export type {
-  ComparePairedArmsOptions,
-  MatchedPair,
-  MatchedRunRecordPair,
-  PairArmsOptions,
-  PairArmsResult,
-  PairedArmRow,
-  PairedArmsComparison,
-  PairedCorrectness,
-  PairedMetricDelta,
-  PairRunRecordsResult,
-} from './paired-arms'
-// ── Matched-pair arm comparison ──────────────────────────────────────
-// Pairs run-record-like rows across two arms by pairKey (multi-rep items
-// match on repKey identity, leftovers reported) and composes the paired
-// estimators from `statistics` (mcnemar + pairedRiskDifference for
-// pass/fail, pairedBootstrap + wilcoxonSignedRank per metric). Arm names
-// are parameters — no domain literal ships here.
-export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
-export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-delta-test'
-export {
-  minimumPairsForPairedDeltaTest,
-  pairedDeltaTest,
-} from './paired-delta-test'
-// ── The one paired promotion rule ────────────────────────────────────
-// `interval.low > threshold` is not a promotion rule on its own: a pass/fail
-// outcome needs an interval valid at a nonzero margin (Tango's score interval,
-// not a percentile bootstrap), McNemar's exact test must be able to veto, and a
-// zero-width interval must be refused rather than read as certainty. Every gate
-// in this package decides through this function so the rule cannot drift
-// between them — it did once, and the copy that was not fixed promoted at
-// 14.60 % against a nominal 5 %.
-export type {
-  PairedDecisionMethod,
-  PairedDecisionShape,
-  PairedDecisionStatistic,
-  PairedMcNemarEvidence,
-  PairedPromotionDecision,
-  PairedPromotionDecisionOptions,
-} from './paired-promotion-decision'
-export { decidePairedPromotion, pairedDecisionShape } from './paired-promotion-decision'
-export { ScenarioRegistry } from './registry'
-// ── Rollout — `tangle.rollout.v1` ────────────────────────────────────
-// THE canonical rollout serialization: schema + ledger + minting from
-// RunRecord × trace (joined on runId, realness-gate carried into the
-// reward), harness-store readers, exporters, Harbor ATIF interchange, and
-// the release pipeline.
-// Full surface on the `@tangle-network/agent-eval/rollout` subpath.
-export {
-  ATIF_SCHEMA_VERSION,
-  assertMinted,
-  assertMintedLines,
-  assertRolloutLine,
-  type ChatMessage,
-  type ChatToolCall,
-  type FromHarborOptions,
-  fromHarborTrajectory,
-  HARBOR_IMPORT_GAP,
-  type HarborAgent,
-  type HarborContentPart,
-  type HarborFinalMetrics,
-  type HarborImageSource,
-  type HarborMetrics,
-  type HarborObservation,
-  type HarborObservationResult,
-  type HarborStep,
-  type HarborStepSource,
-  type HarborSubagentTrajectoryRef,
-  type HarborToolCall,
-  type HarborTrajectory,
-  isRealnessGated,
-  isRolloutLine,
-  isTrainableSplit,
-  type MintedRolloutLine,
-  type MintedRolloutOutcome,
-  type MintRolloutOptions,
-  type MintRolloutResult,
-  mintRolloutRows,
-  observedScore,
-  observedSplitScore,
-  type RewardRow,
-  ROLLOUT_SCHEMA,
-  type RolloutCapture,
-  type RolloutLine,
-  type RolloutRole,
-  type RolloutScrubber,
-  type RolloutSplit,
-  type RolloutStep,
-  relabelImportedSplit,
-  type ScoreOrigin,
-  type ScorePreference,
-  type SftExportOptions,
-  type SftRow,
-  scoreOrigin,
-  type ToolDef,
-  toHarborTrajectories,
-  toHarborTrajectory,
-  toJsonl,
-  toRewardRows,
-  toSftRows,
-  trainingReward,
-  trainingScore,
-  unmintableReasons,
-  validateRolloutLine,
-} from './rollout/index'
-export type {
-  CliffsMagnitude,
-  CorpusAgreementOptions,
-  CorpusAgreementPerDimension,
-  CorpusAgreementReport,
-  CorpusScoreRecord,
-  ExactRiskDifferenceResult,
-  MannWhitneyResult,
-  McNemarResult,
-  PairedBootstrapOptions,
-  PairedBootstrapResult,
-  PairedSignTestResult,
-  PairedTTestResult,
-  ProportionInterval,
-  RankTestMethod,
-  RankTestMethodRequest,
-  RankTestOptions,
-  RiskDifferenceResult,
-  ScoreRiskDifferenceResult,
-  SignTestAlternative,
-  WeightedCompositeInput,
-  WeightedCompositeResult,
-  WilcoxonSignedRankResult,
-} from './statistics'
-export {
-  BOOTSTRAP_GATE_MIN_N,
-  benjaminiHochberg,
-  bonferroni,
-  cliffsDelta,
-  cohensD,
-  confidenceInterval,
-  corpusInterRaterAgreement,
-  corpusInterRaterAgreementFromJudgeScores,
-  DECISION_PAIRED_DELTA_STATISTIC,
-  DEFAULT_PERMUTATIONS,
-  holm,
-  interpretCliffs,
-  interRaterReliability,
-  isBinaryOutcomeVector,
-  MANN_WHITNEY_EXACT_MAX_STATES,
-  MANN_WHITNEY_EXACT_MAX_WORK,
-  mannWhitneyU,
-  mcnemar,
-  mcnemarPower,
-  mcnemarRequiredN,
-  pairedBinaryScale,
-  pairedBootstrap,
-  pairedCohensDz,
-  pairedDeltaTieFraction,
-  pairedMde,
-  pairedRiskDifference,
-  pairedRiskDifferenceExact,
-  pairedRiskDifferenceScore,
-  pairedSignTest,
-  pairedTTest,
-  partialCredit,
-  passAtK,
-  pearsonR,
-  ranks,
-  requiredPairedSampleSize,
-  requiredSampleSize,
-  spearmanR,
-  WILCOXON_EXACT_MAX_N,
-  weightedComposite,
-  weightedMean,
-  wilcoxonSignedRank,
-  wilson,
-} from './statistics'
-// ── Supervisor-run analysis ──────────────────────────────────────────
-// Single-rollout trace analysis, one dimension up: a supervision tree's
-// steer count, spawn waves, concurrency, idle wall, cost by role and
-// accepted-vs-rejected accounting, with `Measured<T>` keeping a missing
-// artifact distinct from a measured zero. Nodes are `tangle.rollout.v1`
-// rows joined by `parent_rollout_id` — not a parallel shape.
-// Full surface on the `@tangle-network/agent-eval/supervisor-run` subpath.
-export {
-  analyzeSupervisorRun,
-  analyzeSupervisorRunIntegrity,
-  analyzeSupervisorRunSources,
-  claudeCodeSupervisorRunReader,
-  isRuntimeSupervisorRunDir,
-  isUnavailable,
-  type Measured,
-  readClaudeCodeSupervisorRun,
-  readRuntimeSupervisorRun,
-  renderSupervisorRunHeadline,
-  renderSupervisorRunMarkdown,
-  rollupSupervisorRuns,
-  runtimeSupervisorRunReader,
-  type SourceLimits,
-  SUPERVISOR_RUN_INTEGRITY_SCHEMA,
-  SUPERVISOR_RUN_SCHEMA,
-  type SupervisorRunIntegrityEvidence,
-  type SupervisorRunIntegrityIssue,
-  type SupervisorRunIntegrityIssueCode,
-  type SupervisorRunIntegrityOptions,
-  type SupervisorRunIntegrityReport,
-  type SupervisorRunIntegritySeverity,
-  type SupervisorRunNodeRole,
-  type SupervisorRunReader,
-  type SupervisorRunReport,
-  type SupervisorRunRollup,
-  type SupervisorRunSourceOnlyCheckCode,
-  type SupervisorRunSources,
-  type SupervisorRunTree,
-  type SupervisorRunTreeGap,
-  type SupervisorRunTreeGapCode,
-  showMeasured,
-  supervisorRunRolloutLines,
-  type Unavailable,
-  writeSupervisorRunReport,
-} from './supervisor-run/index'
-// Trace analyst surface (recursive engines over OTLP-JSONL).
-// Direct re-export of the trace-analyst submodule so consumers don't have
-// to reach into subpaths. Used by agent canonical evals via the
-// `autoresearch` block (analyzeTraces + OtlpFileTraceStore).
-export * from './trace-analyst'
-export type {
-  BehavioralMetrics,
-  BehavioralTokenSequence,
-  SuboptimalCode,
-  SuboptimalSignal,
-} from './trace-analyst/behavioral-metrics'
-export { computeTraceMetrics } from './trace-analyst/behavioral-metrics'
-export type {
-  ToolMatcher,
-  TreatmentClass,
-  TreatmentGate,
-  TreatmentGateInput,
-  TreatmentGateOptions,
-} from './treatment-gate'
-// ── Treatment-applied gate (manipulation/validity precondition) ──────
-// Generalized from a benchmark's search-fired check: did a tool-treatment's
-// tool actually fire this run? Mirrors `gateRealness`'s pure-predicate shape;
-// consumes `computeTraceMetrics(spans).toolHistogram`. The tool matcher is a
-// parameter — no domain literal. Excluded runs partition onto the existing
-// objective-exclusion pattern, not a new classification enum.
-export {
-  classifyTreatment,
-  gateTreatmentApplied,
-  gateTreatmentFromMetrics,
-  gateTreatmentFromSpans,
-  gateTreatmentFromToolSpans,
-} from './treatment-gate'
-export type {
-  ArtifactCheck,
-  ArtifactResult,
-  CheckResult,
-  CollectedArtifacts,
-  CompletionCriterion,
-  DriverResult,
-  DriverState,
-  FeedbackPattern,
-  JudgeFn,
-  JudgeInput,
-  JudgeRubric,
-  JudgeScore,
-  PersonaConfig,
-  PersonaRigor,
-  ProductClientConfig,
-  RouteMap,
-  RubricDimension,
-  Scenario,
-  ScenarioFile,
-  ScenarioResult,
-  TestResult,
-  Turn,
-  TurnMetrics,
-  TurnResult,
-} from './types'
-// Worker-driver knowledge as SEED DATA (the deleted buildWorkerDriverSystemPrompt,
-// re-expressed so a driver profile can seed from it and an optimizer can improve it).
-export { HARNESS_BRIEFS, WORKER_DRIVER_DOCTRINE } from './worker-driver-seed'
-
-// ── Core primitives ──────────────────────────────────────────────────
-
-export type { AntiSlopConfig, AntiSlopIssue, AntiSlopReport, SlopCategory } from './anti-slop'
-export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'
-export type {
-  Artifact as ArtifactCheckArtifact,
-  ArtifactValidator,
-  ValidationContext,
-  ValidationIssue,
-  ValidationResult,
-} from './artifact-validator'
-export {
-  byteLengthRange,
-  composeValidators,
-  containsAll,
-  jsonHasKeys,
-  regexMatch,
-} from './artifact-validator'
-export type {
-  CompletionRequirement,
-  CompletionVerdict,
-  CorrectnessChecker,
-  LlmCorrectnessCheckerOpts,
-  ProducedProposal,
-  ProducedState,
-  RequirementCheck,
-  SatisfiedBy,
-  TaskGold,
-} from './completion-verifier'
-export {
-  completionVerdict,
-  createLlmCorrectnessChecker,
-  createTokenRecallChecker,
-  parseCorrectnessResponse,
-  verifyCompletion,
-} from './completion-verifier'
-export { ConvergenceTracker } from './convergence'
-export type {
-  DualAgentBenchConfig,
-  DualAgentReport,
-  DualAgentRound,
-  DualAgentScenario,
-  DualAgentScenarioResult,
-} from './dual-agent-bench'
-export { DualAgentBench } from './dual-agent-bench'
-export type { EvalToolDef, MakeEvalToolsConfig } from './eval-tools'
-export { makeEvalTools, toOpenAiTool } from './eval-tools'
-export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
-export { aggregateJudgeVerdicts } from './judge-ensemble'
-export type { EnsembleJudgeOptions } from './judge-panel'
-export { ensembleJudge } from './judge-panel'
-export type {
-  JudgeFleetOptions,
-  SandboxJudgeKind,
-  SandboxJudgeResult,
-  SandboxJudgeSpec,
-} from './judge-runner'
-export {
-  compilerJudge,
-  JudgeRunner,
-  linterJudge,
-  runJudgeFleet,
-  securityJudge,
-  testJudge,
-} from './judge-runner'
-export type { LlmJudgeDimension, LlmJudgeOptions } from './llm-judge'
-export { llmJudge } from './llm-judge'
-export type {
-  ArtifactEventLike,
-  ProposalEventLike,
-  RuntimeEventLike,
-  ToolCallEventLike,
-} from './produced-state'
-export { extractProducedState } from './produced-state'
-export type { PromptHandle } from './prompt-registry'
-export { hashContent, PromptRegistry } from './prompt-registry'
-export type {
-  LlmJsonCall,
-  LlmReviewerConfig,
-  ProposeFn,
-  ProposeInput,
-  ProposeOutput,
-  ProposeReviewConfig,
-  ProposeReviewReport,
-  ProposeReviewShot,
-  Review,
-  ReviewFn,
-  ReviewInput,
-  ReviewMemoryEntry,
-  ReviewMemoryStore,
-  Verification,
-  VerifyFn,
-} from './propose-review'
-export {
-  createLlmReviewer,
-  inMemoryReviewStore,
-  jsonlReviewStore,
-  runProposeReview,
-} from './propose-review'
-export type { RunCriticOptions, RunTrace } from './run-critic'
-export { RunCritic } from './run-critic'
-export type { RunScore, RunScoreWeights } from './run-score'
-export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-score'
-export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
-export { mergeSteeringBundle, renderSteeringText } from './steering'
-export type {
-  SteeringOptimizationResult,
-  SteeringOptimizationRow,
-  SteeringOptimizationSelector,
-  SteeringOptimizerBackend,
-  SteeringOptimizerConfig,
-} from './steering-optimizer'
-export { PairwiseSteeringOptimizer } from './steering-optimizer'
-export type {
-  InspectorContext,
-  WorkspaceAssertion,
-  WorkspaceAssertionResult,
-  WorkspaceInspector,
-  WorkspaceSnapshot,
-} from './workspace-inspector'
-export {
-  fileContains,
-  fileExists,
-  InMemoryWorkspaceInspector,
-  rowCount,
-  rowWhere,
-  runAssertions,
-} from './workspace-inspector'
-
-// ── Trace-first chassis ──────────────────────────────────────────────
-
-export * from './trace'
-
-// `knowledge` and `trace` remain re-exported at root because
-// they're load-bearing for the capture-integrity story documented in the
-// README. Every other module is reachable only through its subpath
-// (`/rl`, `/pipelines`, `/meta-eval`, `/prm`, `/builder-eval`, `/traces`).
-
-// ── Producers ────────────────────────────────────────────────────────
-
-export { BudgetBreachError, BudgetGuard } from './budget-guard'
-export type {
-  FailureClass,
-  FailureClassification,
-  FailureContext,
-  FailureRule,
-} from './failure-taxonomy'
-export {
-  classifyFailure,
-  DEFAULT_RULES as DEFAULT_FAILURE_RULES,
-  FAILURE_CLASSES,
-} from './failure-taxonomy'
-export type {
-  BlendWeights,
-  FieldDestination,
-  HiddenCriteriaGrader,
-  HiddenGradeResult,
-  HiddenLeak,
-  JudgeScoreInput,
-  NoLeakOptions,
-  RoutedField,
-} from './hidden-criteria-grading'
-export {
-  agentVisibleFields,
-  assertNoHiddenLeak,
-  blendHeldout,
-  defaultBlendWeights,
-  gradeOnHidden,
-  hiddenGrade,
-  isHiddenDestination,
-  routeFields,
-  withHeldoutBlend,
-} from './hidden-criteria-grading'
-export type {
-  HarnessConfig,
-  SandboxDriver,
-  SandboxHarnessResult,
-  SandboxResult,
-  SubprocessSandboxDriverOptions,
-  TestOutputParser,
-} from './sandbox-harness'
-export {
-  composeParsers,
-  DockerSandboxDriver,
-  jestTestParser,
-  pytestTestParser,
-  SandboxHarness,
-  SubprocessSandboxDriver,
-  vitestTestParser,
-} from './sandbox-harness'
-export type {
-  TestGradedRunOptions,
-  TestGradedRunResult,
-  TestGradedScenario,
-} from './test-graded-scenario'
-export { runTestGradedScenario } from './test-graded-scenario'
-export type { ToolStats, ToolUseMetrics, ToolUseOptions } from './tool-use-metrics'
-export { computeToolUseMetrics } from './tool-use-metrics'
-export type { Trajectory, TrajectoryStep } from './trajectory'
-export { buildTrajectory } from './trajectory'
-
-// ── Canned pipelines (views over the trace corpus) — subpath: /pipelines ─
-
-// ── Auxiliary statistical + decision modules ─────────────────────────
+// ── contract ──────────────────────────────────────────────────────────
+// Defining an eval: scenarios, judges, profiles, verdicts, and the
+// defineAgentEval / selfImprove / analyzeRuns front doors.
 
 export type { AgentProfile, HarnessType, ProfileAxisSpec } from './agent-profile'
 export {
   agentProfileHash,
   agentProfileId,
-  agentProfileModelId,
   CODING_HARNESSES,
   expandProfileAxes,
   HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
+
 export type {
-  BaselineOptions,
-  BaselineReport,
-  MetricSamples,
-  MetricVerdict,
-  WelchTestResult,
-  WelchTestStatus,
-} from './baseline'
-export { compareToBaseline, iqr, welchsTTest } from './baseline'
+  AgentProfileCell,
+  AgentProfileCellInput,
+  AgentProfileDimensionValue,
+  AgentProfileJson,
+  AgentProfileSourceInput,
+} from './agent-profile-cell'
+export {
+  AGENT_PROFILE_KINDS,
+  agentProfileCellHashMaterial,
+  agentProfileCellKey,
+  buildAgentProfileCell,
+  groupRunsByAgentProfileCell,
+  toAgentProfileJson,
+  verifyAgentProfileCell,
+} from './agent-profile-cell'
+
+export type { AnalyzeRunsOptions } from './contract/analyze-runs'
+export { analyzeRuns } from './contract/analyze-runs'
+
+export type { DefineAgentEvalOptions, DefinedAgentEval } from './contract/define-agent-eval'
+export { defineAgentEval } from './contract/define-agent-eval'
+
+export type { InsightReport } from './contract/insight-report'
+
+export type { SelfImproveOptions, SelfImproveResult } from './contract/self-improve'
+export { selfImprove } from './contract/self-improve'
+
+export type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
+export * as profile from './profile/index'
+export type {
+  CheckResult,
+  CompletionCriterion,
+  DriverState,
+  JudgeRubric,
+  JudgeScore,
+  PersonaConfig,
+  ProductClientConfig,
+  RouteMap,
+  Scenario,
+} from './types'
+export type { DefaultVerdict } from './verdict'
+
+// ── formats ───────────────────────────────────────────────────────────
+// Persisted data shapes: run records, cost ledger, scorecards,
+// trajectories, and the trace corpus (schema, stores, capture, OTLP).
+
 export type {
   ChannelRollup,
   CostChannel,
@@ -904,506 +101,45 @@ export {
   costForUsage,
   modelPriceKey,
 } from './cost-ledger'
-export type { CostEntry, CostSummary, ScenarioCost, TokenSpec } from './cost-tracker'
-export { CostTracker } from './cost-tracker'
-export type {
-  CandidateComparison,
-  RunRecordBackend,
-  RunRecordFilter,
-} from './eval-trace-store'
-export {
-  EvalTraceStore,
-  inMemoryRunRecordBackend,
-  jsonlRunRecordBackend,
-  runScore,
-} from './eval-trace-store'
-export type {
-  CreateExperimentInput,
-  Experiment,
-  ExperimentProvenance,
-  ExperimentRep,
-  ExperimentStats,
-  ExperimentStore,
-  ExperimentTrackerOptions,
-  ExperimentVerdict,
-  ImprovementThresholds,
-  ImprovementVerdictResult,
-  ProvenanceReader,
-} from './experiment-tracker'
-export {
-  computeExperimentStats,
-  ExperimentTracker,
-  fileExperimentStore,
-  gitProvenanceReader,
-  improvementVerdict,
-  inMemoryExperimentStore,
-} from './experiment-tracker'
-export { type LeaderboardOptions, type LeaderboardRow, leaderboard } from './leaderboard'
-export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
-export {
-  evaluateOracles,
-  jsonShape,
-  notBlocked,
-  regexMatches,
-  textInSnapshot,
-  urlContains,
-} from './oracle'
-export type { Direction, Objective, ParetoResult } from './pareto'
-export { dominates, paretoFrontier } from './pareto'
-export type {
-  HeldOutPartition,
-  PartitionHeldOutOptions,
-} from './partition-held-out'
-export {
-  assignHeldOutTag,
-  fnv1a32,
-  hashToUnit,
-  partitionHeldOut,
-} from './partition-held-out'
-// ── Eval scorecard — (persona × profile) score timeline ──────────────
-export type {
-  CellVerdict,
-  DiffScorecardOptions,
-  RecordRunsOptions,
-  Scorecard,
-  ScorecardCell,
-  ScorecardCellDiff,
-  ScorecardDiff,
-  ScorecardEntry,
-  ScorecardLogLine,
-} from './scorecard'
-export {
-  appendScorecard,
-  diffScorecard,
-  formatScorecardDiff,
-  loadScorecard,
-  recordRuns,
-  recordRunsToScorecard,
-} from './scorecard'
-export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
-export { analyzeSeries } from './series-convergence'
-export type { Slo, SloCheckResult, SloComparator, SloReport, SloSeverity } from './slo'
-export { checkSlos, DEFAULT_AGENT_SLOS } from './slo'
-
-// ── Verdict ──────────────────────────────────────────────────────────
-// Validator-output primitive. Substrate-level type; agent-runtime's
-// Validator<Output, Verdict> defaults to this. See src/verdict.ts.
 
 export type {
-  EquivalenceArm,
-  EquivalenceCheckDefinition,
-  EquivalenceChecker,
-  EquivalenceCheckerInput,
-  EquivalenceCheckerResult,
-  EquivalenceCheckSpec,
-  EquivalenceObligation,
-  EquivalenceObligationStatus,
-  EquivalenceRecord,
-} from './equivalence-check'
+  AnalystFeedbackTrajectoryOptions,
+  AnalystFindingDigest,
+  AnalystReviewDecision,
+  AnalystReviewRequest,
+  AnalystRunDigest,
+  FeedbackArtifactType,
+  FeedbackAttempt,
+  FeedbackLabel,
+  FeedbackLabelKind,
+  FeedbackLabelSource,
+  FeedbackOptimizerRow,
+  FeedbackOutcome,
+  FeedbackSplitPolicy,
+  FeedbackTask,
+  FeedbackTrajectory,
+  FeedbackTrajectoryFilter,
+  FeedbackTrajectoryStore,
+  PreferenceMemoryEntry,
+  ProposedSideEffect,
+} from './feedback-trajectory'
 export {
-  buildEquivalenceRecord,
-  defineEquivalenceCheck,
-  EquivalenceProtocolError,
-  runEquivalenceCheck,
-} from './equivalence-check'
-// ── UI audit finding ─────────────────────────────────────────────────
-// Substrate primitive for UI auditor outputs. Consumers (agent-runtime's
-// ui-auditor profile, ship gates, dashboards) read findings from here.
-// See src/ui-finding.ts.
-export type {
-  UiFinding,
-  UiFindingScreenshot,
-  UiFindingSeverity,
-  UiLens,
-} from './ui-finding'
-export { UI_FINDING_SEVERITIES, UI_LENSES } from './ui-finding'
-export type { DefaultVerdict, VerdictCertification } from './verdict'
-// ── Verification strategies ──────────────────────────────────────────
-// The strategy family (what certified a result), the injected-checker
-// port, and the blind statement-equivalence protocol. Taxonomy + port
-// only; consumers bind their own kernels. See docs/verification-strategies.md.
-export type {
-  CheckerIdentity,
-  CheckerOutcome,
-  StrategyChecker,
-  VerificationStrategyProfile,
-  VerificationStrategySource,
-} from './verification-strategy'
-export { VERIFICATION_STRATEGIES, VERIFICATION_STRATEGY_SOURCES } from './verification-strategy'
+  analystFindingDigest,
+  analystRunDigest,
+  analystRunToFeedbackTrajectory,
+  analystRunToReviewRequests,
+  controlRunToFeedbackTrajectory,
+  createFeedbackTrajectory,
+  FileSystemFeedbackTrajectoryStore,
+  feedbackTrajectoriesToDatasetScenarios,
+  feedbackTrajectoriesToOptimizerRows,
+  feedbackTrajectoryToOptimizerRow,
+  InMemoryFeedbackTrajectoryStore,
+  renderPreferenceMemoryMarkdown,
+  summarizePreferenceMemory,
+  withAssignedFeedbackSplit,
+} from './feedback-trajectory'
 
-// ── Trust surface ────────────────────────────────────────────────────
-
-export type { CanaryLeak } from './contamination-guard'
-export {
-  canaryLeakView,
-  checkBehavioralCanary,
-  checkCanaries,
-  HoldoutAuditor,
-  runBehavioralCanaries,
-} from './contamination-guard'
-export type {
-  DatasetDifficulty,
-  DatasetManifest,
-  DatasetProvenance,
-  DatasetScenario,
-  DatasetSplit,
-  SliceOptions,
-} from './dataset'
-export { Dataset, HoldoutLockedError, hashScenarios } from './dataset'
-export type {
-  CalibrationResult,
-  CandidateScore,
-  ContinuousAgreement,
-  ContinuousAgreementOptions,
-  ContinuousCalibrationResult,
-  GoldenItem,
-  PositionalBiasResult,
-  SelfPreferenceResult,
-  VerbosityBiasResult,
-} from './judge-calibration'
-
-export {
-  calibrateJudge,
-  calibrateJudgeContinuous,
-  continuousAgreement,
-  positionalBias,
-  selfPreference,
-  verbosityBias,
-} from './judge-calibration'
-export type {
-  RedTeamCase,
-  RedTeamCategory,
-  RedTeamFinding,
-  RedTeamPayload,
-  RedTeamReport,
-} from './red-team'
-export {
-  DEFAULT_RED_TEAM_CORPUS,
-  redTeamDataset,
-  redTeamReport,
-  scoreRedTeamOutput,
-  toolNamesForRun,
-} from './red-team'
-
-// ── builder-of-builders eval — subpath: /builder-eval ───────────────────
-
-// ── Tier 1 — meta-eval correlation, PRM, bisector ────────────────────
-
-// meta-eval and prm are reachable through their subpaths: /meta-eval, /prm
-
-// ── Tier 2 — counterfactual + cross-trace diff + pre-registration ────
-
-export type {
-  CounterfactualContext,
-  CounterfactualMutation,
-  CounterfactualResult,
-  CounterfactualRunner,
-} from './counterfactual'
-export { attributeCounterfactuals, runCounterfactual } from './counterfactual'
-export type {
-  HypothesisManifest,
-  HypothesisResult,
-  SignedManifest,
-  SignedManifestAlgo,
-} from './pre-registration'
-export {
-  canonicalize,
-  evaluateHypothesis,
-  hashJson,
-  signManifest,
-  verifyManifest,
-} from './pre-registration'
-
-// ── Tier 3 — self-play + causal + active learning + RM export ───────
-
-export type { ActiveLearningOptions, SynthesisReason, SynthesisTarget } from './active-learning'
-export { proposeSynthesisTargets } from './active-learning'
-
-// ── LLM client, multi-layer verifier, semantic concept judge, error-count ─
-
-export type {
-  CommandRunner,
-  DirEntry,
-  RunCommandInput,
-  RunCommandResult,
-} from './command-runner'
-export { localCommandRunner } from './command-runner'
-export type {
-  DeployFamily,
-  DeployGateLayerInput,
-  DeployRunner,
-  DeployRunResult,
-  ViteDeployRunnerInput,
-  WranglerDeployRunnerInput,
-} from './deploy-gate-layer'
-export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
-export type {
-  ErrorCountPattern,
-  ExtractOptions,
-  ExtractResult,
-} from './error-count-extractor'
-export {
-  ERROR_COUNT_PATTERNS,
-  extractErrorCount,
-} from './error-count-extractor'
-export type {
-  IntentMatchInput,
-  IntentMatchOptions,
-  IntentMatchResult,
-} from './intent-match-judge'
-export {
-  createIntentMatchJudge,
-  INTENT_MATCH_JUDGE_VERSION,
-  runIntentMatchJudge,
-} from './intent-match-judge'
-export type {
-  KeywordConceptSpec,
-  KeywordCoverageFinding,
-  KeywordCoverageOptions,
-  KeywordCoverageResult,
-} from './keyword-coverage-judge'
-export {
-  extractAssetUrls,
-  htmlContainsElement,
-  runKeywordCoverageJudge,
-  runKeywordCoverageJudgeUrl,
-} from './keyword-coverage-judge'
-export type {
-  LlmCallMetadata,
-  LlmCallRequest,
-  LlmCallResult,
-  LlmClientOptions,
-  LlmMessage,
-  LlmRouteRequirements,
-  LlmUsage,
-} from './llm-client'
-export {
-  assertLlmRoute,
-  backoffMs,
-  callLlm,
-  callLlmJson,
-  costReceiptFromLlm,
-  costReceiptFromLlmError,
-  isTransientLlmError,
-  LlmCallError,
-  LlmClient,
-  LlmResponseError,
-  LlmRouteAssertionError,
-  maximumChargeForLlmRequest,
-  probeLlm,
-  stripFencedJson,
-} from './llm-client'
-export type {
-  Finding,
-  Layer,
-  LayerResult,
-  LayerStatus,
-  Severity,
-  VerificationReport,
-  VerifyContext,
-  VerifyOptions,
-} from './multi-layer-verifier'
-export {
-  gradeSemanticStatus,
-  MultiLayerVerifier,
-} from './multi-layer-verifier'
-export type {
-  AdapterRun,
-  MergeOptions,
-  MultiToolchainLayerConfig,
-} from './multi-toolchain-layer'
-export { mergeLayerResults, multiToolchainLayer } from './multi-toolchain-layer'
-export type {
-  ReferenceEquivalenceJudgeInput,
-  ReferenceEquivalenceJudgeOptions,
-  ReferenceEquivalenceJudgeResult,
-  ReferenceEquivalenceScenario,
-} from './reference-equivalence-judge'
-export {
-  createReferenceEquivalenceJudge,
-  REFERENCE_EQUIVALENCE_INPUT_LIMITS,
-  REFERENCE_EQUIVALENCE_JUDGE_VERSION,
-  runReferenceEquivalenceJudge,
-} from './reference-equivalence-judge'
-// ── Reference replay ─────────────────────────────────────────────────
-export {
-  compareReferenceReplay,
-  decideReferenceReplayPromotion,
-  decideReferenceReplayRunPromotion,
-  defaultReferenceReplayMatcher,
-  inMemoryReferenceReplayStore,
-  jsonlReferenceReplayStore,
-  runReferenceReplay,
-  scoreReferenceReplay,
-} from './reference-replay'
-export type {
-  CreateDefaultReviewerOptions,
-  ReviewerMemoryEntry,
-  ReviewerOutput,
-  ReviewerPromptInput,
-  ReviewerSoftFailDefaults,
-  ReviewerVerificationSummary,
-} from './reviewer'
-export { buildReviewerPrompt, createDefaultReviewer } from './reviewer'
-export type {
-  ConceptComplexity,
-  ConceptFinding,
-  ConceptSpec,
-  ConceptWeightStrategy,
-  SemanticConceptJudgeInput,
-  SemanticConceptJudgeOptions,
-  SemanticConceptJudgeResult,
-} from './semantic-concept-judge'
-export {
-  createSemanticConceptJudge,
-  DEFAULT_COMPLEXITY_WEIGHTS,
-  runSemanticConceptJudge,
-  SEMANTIC_CONCEPT_JUDGE_VERSION,
-} from './semantic-concept-judge'
-
-// ── Paper-grade primitives ───────────────────────────────────────────
-
-export * as benchmarks from './benchmarks/index'
-export type {
-  BenchmarkAdapter,
-  BenchmarkDatasetItem,
-  BenchmarkEvaluation,
-  BenchmarkFamily,
-  BenchmarkResponder,
-  BenchmarkScenario,
-  BenchmarkSource,
-  BenchmarkTaskKind,
-} from './benchmarks/types'
-export {
-  BENCHMARK_SPLIT_SEED,
-  deterministicSplit as benchmarkDeterministicSplit,
-} from './benchmarks/types'
-export type {
-  CanaryAlert,
-  CanaryEvaluation,
-  CanaryKind,
-  CanaryOptions,
-  CanaryReport,
-  CanarySeverity,
-} from './canary'
-export { runCanaries } from './canary'
-// ── Concurrency + persistence + telemetry primitives for evolution loops ──
-export { Mutex, mapConcurrent } from './concurrency'
-export type {
-  DiscoveredPersona,
-  DiscoverPersonasOptions,
-} from './discover-personas'
-export { discoverPersonas } from './discover-personas'
-export type {
-  CampaignFactoryParams,
-  CampaignIntegrityPolicy,
-  CampaignRunContext,
-  CampaignRunner,
-  CampaignRunOutcome,
-  CampaignScenario,
-  CampaignVariant,
-  EvalCampaignOptions,
-  EvalCampaignResult,
-  FailedRun,
-} from './eval-campaign'
-export { runEvalCampaign } from './eval-campaign'
-export type {
-  GoldenSeverity,
-  GoldenSpec,
-  MatchResult,
-} from './golden-matcher'
-export {
-  DEFAULT_SEVERITY_WEIGHTS,
-  matchGoldens,
-  precision as goldenPrecision,
-  weightedRecall,
-} from './golden-matcher'
-export type {
-  DeltaStatistic,
-  GateDecision,
-  GateEvidence,
-  HeldOutGateConfig,
-  HeldOutGateRejectionCode,
-  SplitCoverage,
-} from './held-out-gate'
-export { HeldOutGate } from './held-out-gate'
-export type {
-  JudgeRetryOutcome,
-  JudgeRetryPolicy,
-} from './judge-retry'
-export { withJudgeRetry } from './judge-retry'
-export { LockedJsonlAppender } from './locked-jsonl-appender'
-// Pareto extensions (paretoFrontier + dominates already exported above)
-export { crowdingDistance, paretoFrontierWithCrowding, scalarScore } from './pareto'
-export type {
-  BootstrapOptions,
-  BootstrapResult,
-  JudgeReplayGateArgs,
-  Verdict,
-} from './promotion-gate'
-export { bootstrapCi, judgeReplayGate } from './promotion-gate'
-// ── Prompt evolution + golden matcher + orthogonality + promotion-gate ──
-export type {
-  ReferenceMatchResult,
-  ReferenceReplayAdapter,
-  ReferenceReplayAdapterFn,
-  ReferenceReplayAdapterLike,
-  ReferenceReplayAggregate,
-  ReferenceReplayCandidate,
-  ReferenceReplayCase,
-  ReferenceReplayCaseRun,
-  ReferenceReplayExecutionScenario,
-  ReferenceReplayItem,
-  ReferenceReplayMatch,
-  ReferenceReplayMatcher,
-  ReferenceReplayMatchStrategy,
-  ReferenceReplayPromotionDecision,
-  ReferenceReplayPromotionPolicy,
-  ReferenceReplayRun,
-  ReferenceReplayRunContext,
-  ReferenceReplayRunOptions,
-  ReferenceReplayRunStore,
-  ReferenceReplayScenario,
-  ReferenceReplayScenarioScore,
-  ReferenceReplayScore,
-  ReferenceReplayScoreOptions,
-  ReferenceReplaySplit,
-  ReferenceReplaySplitComparison,
-} from './reference-replay'
-export type {
-  ReflectionContext,
-  ReflectionProposal,
-  TrialTrace,
-} from './reflective-mutation'
-export {
-  buildReflectionPrompt,
-  DEFAULT_MUTATION_PRIMITIVES,
-  parseReflectionResponse,
-} from './reflective-mutation'
-export type {
-  ActionableSideInfo,
-  AsiSeverity,
-  ReleaseConfidenceAxis,
-  ReleaseConfidenceAxisName,
-  ReleaseConfidenceInput,
-  ReleaseConfidenceIssue,
-  ReleaseConfidenceMetrics,
-  ReleaseConfidenceScorecard,
-  ReleaseConfidenceStatus,
-  ReleaseConfidenceThresholds,
-  ReleaseTraceEvidence,
-} from './release-confidence'
-export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
-export type {
-  CallbackResearcherOptions,
-  ExperimentPlan,
-  ExperimentResult,
-  FailureMode,
-  Researcher,
-  SteeringChange,
-} from './researcher'
-export { CallbackResearcher, NoopResearcher } from './researcher'
-// RL/data bridge primitives live on @tangle-network/agent-eval/rl.
 export type {
   JudgeScoresRecord,
   RunCostProvenance,
@@ -1424,6 +160,148 @@ export {
   runTaskScore,
   validateRunRecord,
 } from './run-record'
+
+export type { RunScore, RunScoreWeights } from './run-score'
+export { aggregateRunScore, clamp01 } from './run-score'
+
+export type {
+  CellVerdict,
+  DiffScorecardOptions,
+  RecordRunsOptions,
+  Scorecard,
+  ScorecardCell,
+  ScorecardCellDiff,
+  ScorecardDiff,
+  ScorecardEntry,
+  ScorecardLogLine,
+} from './scorecard'
+export {
+  diffScorecard,
+  formatScorecardDiff,
+  loadScorecard,
+  recordRuns,
+  recordRunsToScorecard,
+} from './scorecard'
+export { captureFetchToRawSink } from './trace/capture-fetch'
+export type { SpanHandle } from './trace/emitter'
+export { TraceEmitter } from './trace/emitter'
+export type { ExtractedUsage } from './trace/extract-usage'
+export { extractUsage, extractUsageFromSse } from './trace/extract-usage'
+export type { RunIntegrityReport } from './trace/integrity'
+export { assertRunCaptured, RunIntegrityError } from './trace/integrity'
+export type { OtlpExport } from './trace/otel'
+export { exportRunAsOtlp } from './trace/otel'
+export type { OtlpFlatLine } from './trace/otlp-flat'
+export { argHash, judgeSpans, runsForScenario } from './trace/query'
+export type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
+export { FileSystemRawProviderSink, NoopRawProviderSink } from './trace/raw-provider-sink'
+export type { RedactionRule } from './trace/redact'
+export { DEFAULT_REDACTION_RULES, REDACTION_VERSION, redactString } from './trace/redact'
+export type {
+  Artifact,
+  BudgetLedgerEntry,
+  LlmSpan,
+  Run,
+  Span,
+  ToolSpan,
+  TraceEvent,
+} from './trace/schema'
+export { isJudgeSpan, isLlmSpan } from './trace/schema'
+export type { EventFilter, RunFilter, SpanFilter, TraceStore } from './trace/store'
+export { FileSystemTraceStore, InMemoryTraceStore } from './trace/store'
+export type {
+  ContractCheckResult,
+  ContractSpan,
+  ContractVerdict,
+  TraceContract,
+} from './trace-contracts'
+export { checkTraceContracts, traceContract } from './trace-contracts'
+
+export type { Trajectory, TrajectoryStep } from './trajectory'
+export { buildTrajectory } from './trajectory'
+
+// ── engine ────────────────────────────────────────────────────────────
+// Running evals: the campaign engine, rollout minting, execution
+// drivers, and experiment bookkeeping.
+
+export type { ActiveLearningOptions, SynthesisTarget } from './active-learning'
+export { proposeSynthesisTargets } from './active-learning'
+
+export type { CampaignCellFailureReceipt, RunCampaignOptions } from './campaign/run-campaign'
+export { runCampaign } from './campaign/run-campaign'
+
+export type { CampaignResult } from './campaign/types'
+
+export { ProductClient } from './client'
+
+export type { CommandRunner, DirEntry, RunCommandInput, RunCommandResult } from './command-runner'
+export { localCommandRunner } from './command-runner'
+
+export type {
+  ControlActionOutcome,
+  ControlBudget,
+  ControlContext,
+  ControlDecision,
+  ControlEvalResult,
+  ControlRunResult,
+  ControlRuntimeConfig,
+  ControlRuntimeError,
+  ControlStep,
+  StopDecision,
+} from './control-runtime'
+export { objectiveEval, runAgentControlLoop, subjectiveEval } from './control-runtime'
+
+export type { DiscoveredPersona, DiscoverPersonasOptions } from './discover-personas'
+export { discoverPersonas } from './discover-personas'
+
+export type { DecideNextUserTurnOpts } from './driver'
+export { decideNextUserTurn } from './driver'
+
+export type {
+  CampaignFactoryParams,
+  CampaignIntegrityPolicy,
+  CampaignRunContext,
+  CampaignRunOutcome,
+  CampaignScenario,
+  CampaignVariant,
+  EvalCampaignOptions,
+  EvalCampaignResult,
+  FailedRun,
+} from './eval-campaign'
+export { runEvalCampaign } from './eval-campaign'
+
+export type {
+  ExperimentRep,
+  ExperimentStats,
+  ImprovementThresholds,
+  ImprovementVerdictResult,
+} from './experiment-tracker'
+export { computeExperimentStats, improvementVerdict } from './experiment-tracker'
+
+export { canonicalize, hashJson } from './pre-registration'
+
+export type { ProposeReviewConfig, ProposeReviewReport } from './propose-review'
+export { runProposeReview } from './propose-review'
+
+export type { ReflectionContext, ReflectionProposal, TrialTrace } from './reflective-mutation'
+export { buildReflectionPrompt, parseReflectionResponse } from './reflective-mutation'
+
+export type {
+  ExperimentPlan,
+  ExperimentResult,
+  FailureMode,
+  Researcher,
+  SteeringChange,
+} from './researcher'
+
+export type {
+  MintedRolloutLine,
+  MintRolloutOptions,
+  MintRolloutResult,
+  ScorePreference,
+} from './rollout/index'
+export { mintRolloutRows } from './rollout/index'
+
 export type {
   InterimReleaseConfidence,
   InterimReleaseConfidenceInput,
@@ -1432,139 +310,519 @@ export type {
   PairedEvalueStep,
   SequentialDecision,
 } from './sequential'
+export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequential'
+
+// ── analysis ──────────────────────────────────────────────────────────
+// Reading results: core statistics, paired comparisons, insight
+// reports, trace analysts, canned pipeline views, and knowledge readiness.
+
+export type { DefaultAnalystRegistryOptions } from './analyst/default-registry'
+export { buildDefaultAnalystRegistry } from './analyst/default-registry'
+
+export type { DspyRlmTraceEngineOptions } from './analyst/dspy-rlm-engine'
+export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'
+
+export type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './analyst/engine'
+
+export type {
+  ExactAnalystRunEvent,
+  ExactAnalystRunResult,
+  ExactCapableAnalyst,
+} from './analyst/exact-types'
+
+export type { RawAnalystFinding } from './analyst/finding-signature'
+
+export type { FindingSubject, FindingSubjectKind } from './analyst/finding-subject'
+
+export type { DiffPolicy, FindingsDiff, PersistedFinding } from './analyst/findings-store'
+export { diffFindings, FindingsStore } from './analyst/findings-store'
+
+export type { CreateTraceAnalystOptions, TraceAnalystDefinition } from './analyst/kind-factory'
+export { createTraceAnalyst } from './analyst/kind-factory'
+
+export { DEFAULT_TRACE_ANALYST_KINDS, FAILURE_MODE_KIND_SPEC } from './analyst/kinds'
+
+export type {
+  AnalystRegistryOptions,
+  BudgetPolicy,
+  ExactRegistryRunOpts,
+  RegistryRunOpts,
+} from './analyst/registry'
+export { AnalystRegistry } from './analyst/registry'
+
+export type {
+  Analyst,
+  AnalystContext,
+  AnalystFinding,
+  AnalystRunEvent,
+  AnalystRunInputs,
+  AnalystRunResult,
+  AnalystRunSummary,
+  AnalystSeverity,
+  AnalystUsageReceipt,
+  EvidenceRef,
+  ProposalFinding,
+} from './analyst/types'
+export { computeFindingId, makeFinding } from './analyst/types'
+
+export { iqr } from './baseline'
+
+export type { BenchmarkEvaluation } from './benchmarks/types'
+
+export type {
+  AssertCapabilityHeadroomOptions,
+  CapabilityHeadroomOptions,
+  CapabilityHeadroomResult,
+  HeadroomInput,
+  TaskHeadroom,
+} from './capability-headroom'
+export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
+
+export type { CostEntry, CostSummary, ScenarioCost } from './cost-tracker'
+export { CostTracker } from './cost-tracker'
+
+export type {
+  DetectorEvent,
+  DetectorSignal,
+  ErrorStreakOptions,
+  RepeatedActionOptions,
+  StreamingDetector,
+} from './detectors'
+export { errorStreakDetector, observeAll, repeatedActionDetector } from './detectors'
+
+export type { ErrorCountPattern, ExtractOptions, ExtractResult } from './error-count-extractor'
+export { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
+
+export type {
+  FailureClass,
+  FailureClassification,
+  FailureContext,
+  FailureRule,
+} from './failure-taxonomy'
+export { classifyFailure, FAILURE_CLASSES } from './failure-taxonomy'
+
 export {
-  evaluateInterimReleaseConfidence,
-  pairedEvalueSequence,
-} from './sequential'
+  acquisitionPlansForKnowledgeGaps,
+  blockingKnowledgeEval,
+  scoreKnowledgeReadiness,
+  userQuestionsForKnowledgeGaps,
+} from './knowledge/readiness'
+
+export type {
+  DataAcquisitionPlan,
+  KnowledgeAcquisitionMode,
+  KnowledgeFreshness,
+  KnowledgeImportance,
+  KnowledgeReadinessReport,
+  KnowledgeRequirement,
+  KnowledgeRequirementCategory,
+  KnowledgeSensitivity,
+  UserQuestion,
+} from './knowledge/types'
+
+export type { LeaderboardOptions, LeaderboardRow } from './leaderboard'
+export { leaderboard } from './leaderboard'
+
+export {
+  estimateCost,
+  estimateTokens,
+  isModelPriced,
+  MODEL_PRICING,
+  resolveModelPricing,
+} from './metrics'
+
+export type {
+  ComparePairedArmsOptions,
+  PairedArmRow,
+  PairedArmsComparison,
+  PairedCorrectness,
+  PairedMetricDelta,
+} from './paired-arms'
+export { comparePairedArms } from './paired-arms'
+
+export { minimumPairsForPairedDeltaTest } from './paired-delta-test'
+
+export type { Objective, ParetoResult } from './pareto'
+export { dominates, paretoFrontier } from './pareto'
+
+export type { HeldOutPartition, PartitionHeldOutOptions } from './partition-held-out'
+export { partitionHeldOut } from './partition-held-out'
+
+export { budgetBreachView } from './pipelines/budget-breach'
+
+export { failureClusterView } from './pipelines/failure-cluster'
+
+export { judgeAgreementView } from './pipelines/judge-agreement'
+
+export { toolWasteView } from './pipelines/tool-waste'
+
+export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
+export { analyzeSeries } from './series-convergence'
+
+export type {
+  CliffsMagnitude,
+  CorpusAgreementOptions,
+  CorpusAgreementPerDimension,
+  CorpusAgreementReport,
+  CorpusScoreRecord,
+  EProcess,
+  EProcessOptions,
+  EProcessState,
+  EProcessStep,
+  ExactRiskDifferenceResult,
+  MannWhitneyResult,
+  McNemarResult,
+  PairedBootstrapOptions,
+  PairedBootstrapResult,
+  PairedSignTestResult,
+  PairedTTestResult,
+  ProportionInterval,
+  RankTestMethod,
+  RankTestMethodRequest,
+  RankTestOptions,
+  RiskDifferenceResult,
+  ScoreRiskDifferenceResult,
+  SignTestAlternative,
+  WeightedCompositeInput,
+  WeightedCompositeResult,
+  WilcoxonSignedRankResult,
+} from './statistics'
+export {
+  BOOTSTRAP_GATE_MIN_N,
+  benjaminiHochberg,
+  bonferroni,
+  cliffsDelta,
+  cohensD,
+  confidenceInterval,
+  corpusInterRaterAgreement,
+  corpusInterRaterAgreementFromJudgeScores,
+  DECISION_PAIRED_DELTA_STATISTIC,
+  DEFAULT_PERMUTATIONS,
+  eProcess,
+  holm,
+  interpretCliffs,
+  interRaterReliability,
+  isBinaryOutcomeVector,
+  MANN_WHITNEY_EXACT_MAX_STATES,
+  MANN_WHITNEY_EXACT_MAX_WORK,
+  mannWhitneyU,
+  mcnemar,
+  mcnemarPower,
+  mcnemarRequiredN,
+  mulberry32,
+  pairedBinaryScale,
+  pairedBootstrap,
+  pairedCohensDz,
+  pairedDeltaTieFraction,
+  pairedMde,
+  pairedRiskDifference,
+  pairedRiskDifferenceExact,
+  pairedRiskDifferenceScore,
+  pairedSignTest,
+  pairedTTest,
+  partialCredit,
+  passAtK,
+  pearsonR,
+  ranks,
+  requiredPairedSampleSize,
+  requiredSampleSize,
+  spearmanR,
+  WILCOXON_EXACT_MAX_N,
+  weightedComposite,
+  weightedMean,
+  wilcoxonSignedRank,
+  wilson,
+} from './statistics'
+
 export type {
   GainDistributionBin,
   GainDistributionFigureSpec,
   GainDistributionOptions,
-  ParetoFigureSpec,
   ParetoPoint,
   ResearchReport,
-  ResearchReportCandidate,
-  ResearchReportDecision,
-  ResearchReportMethodology,
   ResearchReportOptions,
-  ResearchReportRecommendation,
   SummaryTable,
   SummaryTableOptions,
   SummaryTableRow,
 } from './summary-report'
+export { gainHistogram, summaryTable } from './summary-report'
+
+export type { ToolStats, ToolUseMetrics, ToolUseOptions } from './tool-use-metrics'
+export { computeToolUseMetrics } from './tool-use-metrics'
+
+export type { AnalyzeTracesResult } from './trace-analyst/analyst'
+export { analyzeTraces } from './trace-analyst/analyst'
+
+export type { TraceInsightReadiness, TraceInsightSuite } from './trace-analyst/insights'
 export {
-  gainHistogram,
-  paretoChart,
-  RESEARCH_REPORT_HARD_PAIR_FLOOR,
-  researchReport,
-  summaryTable,
-} from './summary-report'
+  buildTraceInsightContext,
+  buildTraceInsightPrompt,
+  describeTraceInsightScope,
+  domainEvidencePattern,
+  inferDomainKeywords,
+  scoreTraceInsightReadiness,
+  tokenizeDomainWords,
+} from './trace-analyst/insights'
 
-// ── OTEL pipeline + traced wrappers ─────────────────────────────────
+export type { TraceAnalysisStore } from './trace-analyst/store-contract'
 
-// Prompt-profile builder utilities are namespaced under `profile`. The
-// canonical public `AgentProfile` type is exported above from
-// `@tangle-network/agent-interface` via `./agent-profile`.
-export * as profile from './profile/index'
+export { OtlpFileTraceStore } from './trace-analyst/store-otlp'
 
-// ── Cost governance — model seating chart + program cost report ─────────
-
-export type { CostReport, ModelCostRollup } from './cost-report'
-export { attachCostToReport, costReport } from './cost-report'
-export type { ModelSeats, SeatName, SeatPresetName } from './model-seats'
-export { resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
-
-// Recursive trace analyst, also exported from the /traces subpath.
+export { toolSpansToTraceAnalysisStore } from './trace-analyst/store-tool-spans'
 
 export type {
-  AttestationProvenance,
-  AttestationVerification,
-  AttestedReport,
-} from './attestation'
-export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
-// ── Perf — infra-performance benchmarking substrate ──────────────────
-// Journeys × axes scenario matrix, record-integrity contracts, and the
-// percentile ratchet (summarize → baseline → gate). Scores LATENCY /
-// RELIABILITY over flat metric records; judge-based scoring covers
-// QUALITY. Also on the `/perf` subpath.
-// Product-owned benchmark bundles: portable product runs for agent-lab research.
-export type {
-  AgentProfileRuntimeReceipt,
-  ProductBenchmarkArm,
-  ProductBenchmarkArtifactPaths,
-  ProductBenchmarkBudgets,
-  ProductBenchmarkExportOptions,
-  ProductBenchmarkExportResult,
-  ProductBenchmarkManifest,
-  ProductBenchmarkProfileRef,
-  ProductBenchmarkRecord,
-  ProductBenchmarkRepoRef,
-  ProductBenchmarkRunInput,
-  ProductBenchmarkScenario,
-  ProductBenchmarkSingleRunExportOptions,
-  ProductBenchmarkSplit,
-  ProductBenchmarkSubstrateVersions,
-  ProductBenchmarkValidationReport,
-  RuntimeResolution,
-} from './product-benchmark'
+  DatasetOverview,
+  QueryTracesPage,
+  SearchSpanResult,
+  SearchTraceResult,
+  SpanMatchRecord,
+  TraceAnalystByteBudgets,
+  TraceAnalystFilters,
+  TraceAnalystSpan,
+  TraceAnalystSpanKind,
+  TraceAnalystSpanStatus,
+  TraceAnalystTraceSummary,
+  ViewSpansResult,
+  ViewTraceOversized,
+  ViewTraceResult,
+} from './trace-analyst/types'
 export {
-  assertProductBenchmarkRun,
-  buildProductBenchmarkManifest,
-  exportProductBenchmark,
-  exportProductBenchmarkRuns,
-  findProductBenchmarkArtifacts,
-  productBenchmarkIntegrityFailures,
-  productBenchmarkMutableSurfaces,
-  productBenchmarkRepoIdentity,
-  productBenchmarkSplits,
-  readProductBenchmarkManifest,
-  readProductBenchmarkRecords,
-  runRecordToProductBenchmarkRecord,
-  validateProductBenchmarkManifest,
-  validateProductBenchmarkRecord,
-  validateProductBenchmarkRun,
-} from './product-benchmark'
-// ── Anytime-valid sequential testing (e-process core) ────────────────
-// The betting test-martingale behind the sequential gates. Gate-level
-// machinery (sequentialPairedGate, sequentialDecide) lives on the /campaign
-// subpath alongside the other gates.
-export type { EProcess, EProcessOptions, EProcessState, EProcessStep } from './statistics'
-export { eProcess, mulberry32 } from './statistics'
-// ── Trace contracts — finite-trace temporal assertions over spans ────
-// Dual-use: one serializable contract checks recorded eval traces AND the
-// OTLP-flattened production stream. Evaluators are `evaluateTraceContract` /
-// `checkTraceContracts` because ci-gate owns the root `evaluateContract` name.
+  DEFAULT_TRACE_ANALYST_BUDGETS,
+  TRACE_ANALYST_TRUNCATION_MARKER_PREFIX,
+} from './trace-analyst/types'
+
+// ── verification ──────────────────────────────────────────────────────
+// Grading and gating: judges, completion verifiers,
+// promotion/release gates, and capture-integrity checks.
+
+export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-policy'
+export { evaluateActionPolicy } from './action-policy'
+
 export type {
-  ContractCheckResult,
-  ContractJudgeOptions,
-  ContractRule,
-  ContractRuleKind,
-  ContractSpan,
-  ContractVerdict,
-  ContractViolation,
-  SerializedRegex,
-  SpanPredicate,
-  TextMatcher,
-  TraceContract,
-} from './trace-contracts'
-export {
-  checkTraceContracts,
-  contractJudge,
-  evaluateTraceContract,
-  matchSpan,
-  TraceContractBuilder,
-  traceContract,
-} from './trace-contracts'
+  CanaryAlert,
+  CanaryEvaluation,
+  CanaryKind,
+  CanaryOptions,
+  CanaryReport,
+} from './canary'
+export { runCanaries } from './canary'
+
 export type {
-  CachedJudge,
-  CachedJudgeOptions,
-  VerdictCacheStats,
-  VerdictCacheStore,
-} from './verdict-cache'
+  CompletionRequirement,
+  CompletionVerdict,
+  CorrectnessChecker,
+  LlmCorrectnessCheckerOpts,
+  ProducedProposal,
+  ProducedState,
+  RequirementCheck,
+  SatisfiedBy,
+  TaskGold,
+} from './completion-verifier'
 export {
-  cachedJudge,
-  canonicalJson,
-  contentHash,
-  fileVerdictCache,
-  inMemoryVerdictCache,
-} from './verdict-cache'
+  completionVerdict,
+  createLlmCorrectnessChecker,
+  verifyCompletion,
+} from './completion-verifier'
+
+export type { CanaryLeak } from './contamination-guard'
+export { checkCanaries } from './contamination-guard'
+
+export type {
+  DeployGateLayerInput,
+  DeployRunner,
+  DeployRunResult,
+  ViteDeployRunnerInput,
+  WranglerDeployRunnerInput,
+} from './deploy-gate-layer'
+export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
+
+export type {
+  GateDecision,
+  GateEvidence,
+  HeldOutGateConfig,
+  HeldOutGateRejectionCode,
+  SplitCoverage,
+} from './held-out-gate'
+export { HeldOutGate } from './held-out-gate'
+
+export type {
+  BlendWeights,
+  FieldDestination,
+  HiddenCriteriaGrader,
+  HiddenGradeResult,
+  HiddenLeak,
+  JudgeScoreInput,
+  NoLeakOptions,
+  RoutedField,
+} from './hidden-criteria-grading'
+export {
+  assertNoHiddenLeak,
+  blendHeldout,
+  defaultBlendWeights,
+  gradeOnHidden,
+  hiddenGrade,
+  routeFields,
+  withHeldoutBlend,
+} from './hidden-criteria-grading'
+
+export type { BackendIntegrityReport } from './integrity/backend-integrity'
+export {
+  assertRealBackend,
+  BackendIntegrityError,
+  summarizeBackendIntegrity,
+} from './integrity/backend-integrity'
+
+export type {
+  AssertSingleBackendOptions,
+  BackendDescriptor,
+  SingleBackendDivergence,
+  SingleBackendReport,
+} from './integrity/single-backend'
+export { assertSingleBackend } from './integrity/single-backend'
+
+export type { IntentMatchInput, IntentMatchOptions, IntentMatchResult } from './intent-match-judge'
+export { runIntentMatchJudge } from './intent-match-judge'
+
+export type {
+  CalibrationResult,
+  CandidateScore,
+  ContinuousAgreement,
+  ContinuousAgreementOptions,
+  ContinuousCalibrationResult,
+  GoldenItem,
+  VerbosityBiasResult,
+} from './judge-calibration'
+export {
+  calibrateJudge,
+  calibrateJudgeContinuous,
+  continuousAgreement,
+  verbosityBias,
+} from './judge-calibration'
+
+export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
+export { aggregateJudgeVerdicts } from './judge-ensemble'
+
+export type { AssertCrossFamilyOptions, JudgeFamily } from './judge-families'
+export { assertCrossFamily, CrossFamilyError, judgeFamily } from './judge-families'
+
+export type { EnsembleJudgeOptions } from './judge-panel'
+export { ensembleJudge } from './judge-panel'
+
+export type { JudgeRetryOutcome, JudgeRetryPolicy } from './judge-retry'
+export { withJudgeRetry } from './judge-retry'
+
+export type {
+  KeywordConceptSpec,
+  KeywordCoverageFinding,
+  KeywordCoverageOptions,
+  KeywordCoverageResult,
+} from './keyword-coverage-judge'
+export { runKeywordCoverageJudge, runKeywordCoverageJudgeUrl } from './keyword-coverage-judge'
+
+export type { LlmJudgeOptions } from './llm-judge'
+export { llmJudge } from './llm-judge'
+
+export type {
+  Layer,
+  LayerResult,
+  LayerStatus,
+  Severity,
+  VerificationReport,
+  VerifyOptions,
+} from './multi-layer-verifier'
+export { gradeSemanticStatus, MultiLayerVerifier } from './multi-layer-verifier'
+
+export type {
+  PairedDecisionMethod,
+  PairedDecisionShape,
+  PairedDecisionStatistic,
+  PairedMcNemarEvidence,
+  PairedPromotionDecision,
+  PairedPromotionDecisionOptions,
+} from './paired-promotion-decision'
+export { decidePairedPromotion } from './paired-promotion-decision'
+
+export type {
+  ArtifactEventLike,
+  ProposalEventLike,
+  RuntimeEventLike,
+  ToolCallEventLike,
+} from './produced-state'
+export { extractProducedState } from './produced-state'
+
+export type { BootstrapOptions, BootstrapResult, Verdict } from './promotion-gate'
+export { bootstrapCi } from './promotion-gate'
+
+export type { RedTeamCase, RedTeamCategory, RedTeamFinding, RedTeamReport } from './red-team'
+export {
+  DEFAULT_RED_TEAM_CORPUS,
+  redTeamDataset,
+  redTeamReport,
+  scoreRedTeamOutput,
+} from './red-team'
+
+export type {
+  ReleaseConfidenceInput,
+  ReleaseConfidenceIssue,
+  ReleaseConfidenceMetrics,
+  ReleaseConfidenceScorecard,
+  ReleaseTraceEvidence,
+} from './release-confidence'
+export { evaluateReleaseConfidence } from './release-confidence'
+
+export type {
+  ConceptFinding,
+  ConceptSpec,
+  SemanticConceptJudgeInput,
+  SemanticConceptJudgeOptions,
+  SemanticConceptJudgeResult,
+} from './semantic-concept-judge'
+export { runSemanticConceptJudge, SEMANTIC_CONCEPT_JUDGE_VERSION } from './semantic-concept-judge'
+
+export type { TreatmentGate, TreatmentGateInput, TreatmentGateOptions } from './treatment-gate'
+export { gateTreatmentApplied } from './treatment-gate'
+
+export type { VerdictCacheStore } from './verdict-cache'
+export { canonicalJson, contentHash, fileVerdictCache } from './verdict-cache'
+
+// ── utilities ─────────────────────────────────────────────────────────
+// Provider-neutral LLM clients and shared error types.
+
+export type {
+  ChatClient,
+  ChatRequest,
+  ChatResponse,
+  CreateChatClientOpts,
+} from './analyst/chat-client'
+export { createChatClient } from './analyst/chat-client'
+
+export type { AgentEvalErrorCode } from './errors'
+export { AgentEvalError, ConfigError, JudgeError, NotFoundError, ValidationError } from './errors'
+
+export type {
+  LlmCallMetadata,
+  LlmCallRequest,
+  LlmCallResult,
+  LlmClientOptions,
+  LlmMessage,
+  LlmRouteRequirements,
+} from './llm-client'
+export {
+  assertLlmRoute,
+  callLlm,
+  callLlmJson,
+  costReceiptFromLlm,
+  costReceiptFromLlmError,
+  isTransientLlmError,
+  LlmCallError,
+  LlmResponseError,
+  maximumChargeForLlmRequest,
+  probeLlm,
+  stripFencedJson,
+} from './llm-client'
+
+export type { ModelSeats } from './model-seats'
+export { resolveSeat, seatPresets } from './model-seats'
+
+export type { PromptHandle } from './prompt-registry'
+export { hashContent, PromptRegistry } from './prompt-registry'

@@ -787,19 +787,17 @@ describe('schema back-compatibility for the ATIF-lifted optional fields', () => 
 })
 
 describe('package surface', () => {
-  // The generous budget is the root barrel's transform cost (it pulls the whole
-  // package), not a flaky assertion: the body is six symbol lookups.
-  it('exports the interchange from the package ROOT, not only the subpath', async () => {
-    // `import { toHarborTrajectory } from '@tangle-network/agent-eval'` — the
-    // import every other rollout symbol already supports.
-    const root = await import('../../index')
-    expect(typeof root.toHarborTrajectory).toBe('function')
-    expect(typeof root.toHarborTrajectories).toBe('function')
-    expect(typeof root.fromHarborTrajectory).toBe('function')
-    expect(typeof root.relabelImportedSplit).toBe('function')
-    expect(root.ATIF_SCHEMA_VERSION).toBe(ATIF_SCHEMA_VERSION)
-    expect(root.HARBOR_IMPORT_GAP).toBe(HARBOR_IMPORT_GAP)
-    // Same function object as the subpath's, not a re-implementation.
-    expect(root.toHarborTrajectory).toBe(toHarborTrajectory)
+  it('exports the interchange from the published /rollout subpath', async () => {
+    // `import { toHarborTrajectory } from '@tangle-network/agent-eval/rollout'`
+    // — the specifier external consumers use for every rollout symbol.
+    const rollout = await import('../index')
+    expect(typeof rollout.toHarborTrajectory).toBe('function')
+    expect(typeof rollout.toHarborTrajectories).toBe('function')
+    expect(typeof rollout.fromHarborTrajectory).toBe('function')
+    expect(typeof rollout.relabelImportedSplit).toBe('function')
+    expect(rollout.ATIF_SCHEMA_VERSION).toBe(ATIF_SCHEMA_VERSION)
+    expect(rollout.HARBOR_IMPORT_GAP).toBe(HARBOR_IMPORT_GAP)
+    // Same function object as the module's, not a re-implementation.
+    expect(rollout.toHarborTrajectory).toBe(toHarborTrajectory)
   }, 60_000)
 })

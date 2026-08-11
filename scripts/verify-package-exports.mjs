@@ -153,39 +153,22 @@ try {
     `
       import {
         CostLedger,
-        CONTROL_INTEGRITY_ANALYST as ROOT_CONTROL_INTEGRITY_ANALYST,
         AnalystRegistry as RootAnalystRegistry,
-        analyzeSupervisorRunIntegrity as ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
-        analystFindingDigest,
-        analystRunDigest,
-        analystRunToReviewRequests,
         InMemoryTraceStore,
         makeFinding,
-        type AnalystReviewDecision,
-        type AnalystRunDigest,
         type AnalystRunResult,
-        type BenchmarkRunnerConfig,
         type ChatClient,
         type CostLedgerHandle as RootCostLedgerHandle,
-        type ExecutorConfig,
-        type ExactExecutionComponentIdentity as RootExactExecutionComponentIdentity,
         type ExactRegistryRunOpts as RootExactRegistryRunOpts,
-        type JudgeFn,
         type LlmJudgeOptions as RootLlmJudgeOptions,
         type LlmClientOptions,
-        type ReferenceEquivalenceJudgeOptions as RootReferenceEquivalenceJudgeOptions,
         type Run,
         type RunRecord,
         type RunTokenUsage,
         type RunTerminalOutcome,
         type Scenario,
         runTaskScore,
-        buildEquivalenceRecord,
-        defineEquivalenceCheck,
-        VERIFICATION_STRATEGIES,
         type DefaultVerdict,
-        type EquivalenceRecord,
-        type VerdictCertification,
       } from '@tangle-network/agent-eval'
       import {
         CONTROL_INTEGRITY_ANALYST,
@@ -311,10 +294,6 @@ try {
       // @ts-expect-error provider SDK types are not part of the public API
       type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
       const removedProviderSdk: RemovedProviderSdk = {}
-      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
-      const removedBenchmarkRetry: BenchmarkRunnerConfig[${JSON.stringify(removedRetryField)}] = 1
-      // @ts-expect-error retry count belongs to ChatClient.maximumAttempts
-      const removedExecutorRetry: ExecutorConfig[${JSON.stringify(removedRetryField)}] = 1
       // @ts-expect-error LlmClientOptions uses total maximumAttempts
       type RemovedLlmMaxRetries = LlmClientOptions['maxRetries']
       // @ts-expect-error CostLedgerEntry was removed from the current-only API
@@ -398,14 +377,11 @@ try {
       // @ts-expect-error dataset packaging accepts only MintedRolloutLine[]
       const removedDatasetRecordInput: Parameters<typeof buildRlDataset>[0] = removedRecordInputs
       const canonicalChat = null as unknown as ChatClient
-      const canonicalJudge = null as unknown as JudgeFn
-      const exactComponentIdentity: RootExactExecutionComponentIdentity = {
+      const exactComponentIdentity: AnalystExactExecutionComponentIdentity = {
         id: 'package-check',
         version: '1.0.0',
         config: { mode: 'compile-check' },
       }
-      const analystExactComponentIdentity: AnalystExactExecutionComponentIdentity =
-        exactComponentIdentity
       const exactRunOptions: RootExactRegistryRunOpts = {
         analystIds: ['package-check'],
         budget: null,
@@ -432,21 +408,18 @@ try {
         message: 'not captured',
       }
       // Verdict certification is additive: the bare pre-certification shape
-      // must stay assignable, and the certified shape must round-trip its
-      // strategy so a consumer can tell a kernel from a judge.
+      // must stay assignable, and the certified shape must keep its
+      // structural certification field.
       const packedUncertifiedVerdict: DefaultVerdict = { valid: true, score: 0.5 }
-      const packedCertification: VerdictCertification = {
-        strategy: 'proof-kernel',
-        checker: { name: 'lean4', version: '4.33.0', pins: { mathlib: 'db584cd6d46c' } },
-        assumptions: ['diagonal embedding argued in prose'],
-        evidenceDigest: 'sha256:package-check',
-      }
       const packedCertifiedVerdict: DefaultVerdict = {
         ...packedUncertifiedVerdict,
-        certification: packedCertification,
+        certification: {
+          strategy: 'proof-kernel',
+          checker: { name: 'lean4', version: '4.33.0', pins: { mathlib: 'db584cd6d46c' } },
+          assumptions: ['diagonal embedding argued in prose'],
+          evidenceDigest: 'sha256:package-check',
+        },
       }
-      const packedKernelFailureMode: string =
-        VERIFICATION_STRATEGIES[packedCertification.strategy].failureMode
       const packedOpenRewardSources: VerifiableRewardSource[] = [
         'test',
         'proof-kernel',
@@ -454,33 +427,6 @@ try {
         'replication',
         'agreement',
       ]
-      const packedEquivalenceRecord: EquivalenceRecord = buildEquivalenceRecord(
-        defineEquivalenceCheck({
-          source: 'proof-kernel',
-          artifact: 'artifact://package-check',
-          arms: 2,
-          blind: true,
-        }),
-        [
-          {
-            armId: 'A',
-            statement: 'S_A',
-            derivedFrom: 'paper',
-            blindness: { toOtherArms: true, toOutcome: true },
-          },
-          {
-            armId: 'B',
-            statement: 'S_B',
-            derivedFrom: 'campaign',
-            blindness: { toOtherArms: true, toOutcome: true },
-          },
-        ],
-        {
-          status: 'proved',
-          checker: { name: 'lean4', version: '4.33.0' },
-          evidenceDigest: 'sha256:package-check',
-        },
-      )
       const rawFinding: RawAnalystFinding = RawAnalystFindingSchema.parse({
         severity: 'info',
         claim: 'current',
@@ -490,13 +436,11 @@ try {
       const reviewedFinding = makeFinding({
         analyst_id: 'package-check',
         area: 'package',
-        claim: 'The digest API is exported.',
+        claim: 'The finding factory is exported.',
         severity: 'info',
         confidence: 1,
         evidence_refs: [{ kind: 'artifact', uri: 'artifact://package-check' }],
       })
-      const reviewedFindingDigest: \`sha256:\${string}\` =
-        analystFindingDigest(reviewedFinding)
       const reviewedRun: AnalystRunResult = {
         run_id: 'package-check-run',
         correlation_id: 'package-check-correlation',
@@ -506,18 +450,6 @@ try {
         per_analyst: [],
         total_cost_usd: 0,
         total_cost_provenance: { kind: 'observed', usd: 0 },
-      }
-      const reviewedRunDigest: AnalystRunDigest = analystRunDigest(reviewedRun)
-      const reviewedRequests = analystRunToReviewRequests(reviewedRun)
-      const completenessDecision: AnalystReviewDecision = {
-        runDigest: reviewedRunDigest,
-        verdict: 'completeness_assessed',
-        missedIssues: [],
-        source: 'environment',
-        reviewerId: 'package-check-reviewer',
-        reviewId: 'package-check-review',
-        reason: 'The package export was checked independently.',
-        decidedAt: '2026-07-29T00:00:00.000Z',
       }
       const analystCase: AnalystBenchmarkCase<string> = {
         id: 'corroborated-failure',
@@ -588,8 +520,7 @@ try {
       const contractLlmOptions: ContractLlmJudgeOptions<unknown> = rootLlmOptions
       const campaignReferenceOptions = null as unknown as CampaignReferenceEquivalenceJudgeOptions
       const contractReferenceOptions: ContractReferenceEquivalenceJudgeOptions = campaignReferenceOptions
-      const rootReferenceOptions: RootReferenceEquivalenceJudgeOptions = contractReferenceOptions
-      const campaignReferenceRoundTrip: CampaignReferenceEquivalenceJudgeOptions = rootReferenceOptions
+      const campaignReferenceRoundTrip: CampaignReferenceEquivalenceJudgeOptions = contractReferenceOptions
       const costLedger = new CostLedger()
       const rootCostLedger: RootCostLedgerHandle = costLedger
       const campaignCostLedger: CampaignCostLedgerHandle = costLedger
@@ -661,16 +592,12 @@ try {
         packedToolStore,
         packedMissingTraceCode,
         removedProviderSdk,
-        removedBenchmarkRetry,
-        removedExecutorRetry,
         removedGrpoRecordInput,
         removedSftRecordInput,
         removedPreferenceRecordInput,
         removedDatasetRecordInput,
         canonicalChat,
-        canonicalJudge,
         exactComponentIdentity,
-        analystExactComponentIdentity,
         exactRunOptions,
         analystExactRunOptions,
         rootExactRegistry,
@@ -680,14 +607,9 @@ try {
         controlIntegrityReport,
         controlTreeGap,
         analyzeSupervisorRunIntegrity,
-        ROOT_ANALYZE_SUPERVISOR_RUN_INTEGRITY,
         emitControlIntegrityFindings,
-        ROOT_CONTROL_INTEGRITY_ANALYST,
         rawFinding,
-        reviewedFindingDigest,
-        reviewedRunDigest,
-        reviewedRequests,
-        completenessDecision,
+        reviewedRun,
         analystCase,
         agentRxCase,
         agentRxFindings,
@@ -777,8 +699,9 @@ try {
         if ('CanonicalRawAnalystFindingSchema' in analyst) {
           throw new Error('obsolete analyst export CanonicalRawAnalystFindingSchema')
         }
+        const supervisorRun = await import('@tangle-network/agent-eval/supervisor-run')
         const integrityInput = { rootId: null, nodes: [], gaps: [] }
-        const integrityReport = root.analyzeSupervisorRunIntegrity(integrityInput)
+        const integrityReport = supervisorRun.analyzeSupervisorRunIntegrity(integrityInput)
         const integrityFindings = analyst.emitControlIntegrityFindings(
           integrityInput,
           '2026-07-29T00:00:00.000Z',

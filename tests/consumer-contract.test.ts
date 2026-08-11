@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import type {
+  ChatCallOpts,
+  ChatTransport,
+  CliBridgeTransportOpts,
+  CustomTransportOpts,
+  DirectProviderTransportOpts,
+  RouterTransportOpts,
+  SandboxSdkTransportOpts,
+} from '../src/analyst/chat-client'
 import * as builderEval from '../src/builder-eval/index'
 import * as campaign from '../src/campaign/index'
 import * as contract from '../src/contract/index'
 import type {
-  ChatCallOpts,
   ChatClient,
   ChatRequest,
   ChatResponse,
-  ChatTransport,
-  CliBridgeTransportOpts,
   CreateChatClientOpts,
-  CustomTransportOpts,
-  DirectProviderTransportOpts,
   JudgeScoresRecord,
   MockTransportOpts,
   ProposalFinding,
-  RouterTransportOpts,
   RunOutcome,
-  SandboxSdkTransportOpts,
 } from '../src/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
@@ -31,21 +33,18 @@ import * as testing from '../src/testing'
  * next version bump — fix the export (preferred) or coordinate the rename across all
  * consumers before changing this list.
  *
- * Sourced by scanning `import ... from '@tangle-network/agent-eval'` across all five
- * consumer repos on 2026-05-17. Update this list when consumers adopt new exports.
+ * Sourced by scanning `import ... from '@tangle-network/agent-eval'` across the
+ * consumer repos on 2026-08-11. Update this list when consumers adopt new exports.
  */
 
 const ROOT_ERROR_CLASSES = [
   // Runtime error constructors. Type-only exports like `AgentEvalErrorCode`
   // (a string-literal union) are validated by the namespace import compiling.
   'AgentEvalError',
-  'CaptureIntegrityError',
   'ConfigError',
   'JudgeError',
   'NotFoundError',
-  'ReplayError',
   'ValidationError',
-  'VerificationError',
 ] as const
 
 const ROOT_RUNTIME_SYMBOLS = [
@@ -54,22 +53,17 @@ const ROOT_RUNTIME_SYMBOLS = [
   'InMemoryTraceStore',
   'isJudgeSpan',
   // LLM client + retry
-  'LlmClient',
   'callLlmJson',
   'withJudgeRetry',
-  'createLlmReviewer',
   'createChatClient',
   // Verifier / review / campaign
   'MultiLayerVerifier',
-  'runProposeReview',
   'runEvalCampaign',
   'HeldOutGate',
   'runCanaries',
   // Substrate primitives
   'discoverPersonas',
   'scoreKnowledgeReadiness',
-  // Privacy
-  'redactValue',
   // Stats helpers
   'estimateCost',
   'estimateTokens',
@@ -213,7 +207,7 @@ describe('public-surface contract for consumers', () => {
       proposal_origin: 'search',
     }
     expect(finding.proposal_origin).toBe('search')
-    expect(campaign.makeProposalFinding).toBe(agentEval.makeProposalFinding)
-    expect(contract.makeProposalFinding).toBe(agentEval.makeProposalFinding)
+    expect(typeof campaign.makeProposalFinding).toBe('function')
+    expect(campaign.makeProposalFinding).toBe(contract.makeProposalFinding)
   })
 })
