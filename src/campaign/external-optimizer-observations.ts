@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { deepFreezeCanonicalJson } from '../ledger-core/deep-freeze'
-import { canonicalJson } from '../verdict-cache'
+import { canonicalJson, contentHash } from '../verdict-cache'
 import {
   assertJsonValue,
   type ExternalOptimizerEvaluationObservation,
@@ -401,9 +401,7 @@ function assertCandidateIdentity(
   candidateHash: string,
   sequence: number,
 ): void {
-  const expected = createHash('sha256')
-    .update(canonicalJson({ kind: 'external-text-candidate', candidate }))
-    .digest('hex')
+  const expected = contentHash({ kind: 'external-text-candidate', candidate })
   if (candidateHash !== expected) {
     throw new Error(
       `external optimizer observation artifact candidate hash mismatch at sequence ${sequence}`,
