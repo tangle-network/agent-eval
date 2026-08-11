@@ -105,6 +105,7 @@ export {
   resolveExternalOptimizerCallbackLimits,
   resolveExternalOptimizerProcessLimits,
 } from './external-optimizer-process'
+export { decodeExternalTextCandidate } from './external-text-evaluation'
 export {
   type ExternalOptimizationExample,
   type ExternalTextEvaluationResponse,
