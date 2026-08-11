@@ -37,6 +37,7 @@ async function paidArtifact<T>(
     inputTokens: number
     outputTokens: number
     actualCostUsd?: number
+    usageUnknown?: boolean
   },
 ): Promise<T> {
   const paid = await ctx.cost.runPaidCall({
@@ -158,6 +159,37 @@ describe('runProfileMatrix', () => {
     expect(raw.cost_per_quality).toBeCloseTo(0.001 / composite, 5)
     // The composite stays the JUDGE objective — guardrails are RAW-ONLY, never folded in.
     expect(raw.composite).toBe(composite)
+  })
+
+  it('preserves unknown token usage and refuses to compute token efficiency', async () => {
+    const unknownUsageDispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) =>
+      paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'test-model@2025-01-01',
+          inputTokens: 12,
+          outputTokens: 4,
+          usageUnknown: true,
+          actualCostUsd: 0.001,
+        },
+      )
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: PROFILES.slice(0, 1),
+      scenarios: SCENARIOS.slice(0, 1),
+      reps: 1,
+      dispatch: unknownUsageDispatch,
+    })
+    const record = result.records[0]!
+
+    expect(record.tokenUsage).toEqual({ input: 12, output: 4, tokensKnown: false })
+    expect(record.outcome.raw.tokens_known).toBe(0)
+    expect(record.outcome.raw.tokens_per_dollar).toBeUndefined()
   })
 
   it('corpus-by-default: stamps prompt/completion onto records via corpusText (no side-channel)', async () => {

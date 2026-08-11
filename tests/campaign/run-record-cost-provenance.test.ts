@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  campaignCellCostProvenance,
-  campaignCellToRunRecord,
-} from '../../src/campaign/run-record'
+import { campaignCellCostProvenance, campaignCellToRunRecord } from '../../src/campaign/run-record'
 import type { CampaignCellResult } from '../../src/campaign/types'
 
 function cell(
@@ -25,6 +22,30 @@ function cell(
 }
 
 describe('campaign cost provenance', () => {
+  it('marks an incomplete token subtotal and omits a misleading efficiency ratio', () => {
+    const record = campaignCellToRunRecord(
+      cell({
+        costUsd: 2,
+        costProvenance: { kind: 'observed', usd: 2 },
+        tokenUsage: { input: 7, output: 3, tokensKnown: false },
+      }),
+      {
+        runId: 'run',
+        experimentId: 'experiment',
+        candidateId: 'candidate',
+        model: 'test-model@2026-08-03',
+        promptHash: 'prompt',
+        configHash: 'config',
+        commitSha: 'a'.repeat(40),
+        splitTag: 'search',
+      },
+    )
+
+    expect(record.tokenUsage).toEqual({ input: 7, output: 3, tokensKnown: false })
+    expect(record.outcome.raw.tokens_known).toBe(0)
+    expect(record.outcome.raw.tokens_per_dollar).toBeUndefined()
+  })
+
   it('retains an observed subtotal beside a caller-supplied estimated total', () => {
     const record = campaignCellToRunRecord(
       cell({

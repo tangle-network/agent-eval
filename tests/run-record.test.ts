@@ -59,6 +59,15 @@ describe('validateRunRecord — happy path', () => {
     expect(out).toEqual(r)
   })
 
+  it('round-trips an incomplete token subtotal without turning it into zero usage', () => {
+    const r = makeRecord({ tokenUsage: { input: 7, output: 3, tokensKnown: false } })
+    expect(roundTripRunRecord(r).tokenUsage).toEqual({
+      input: 7,
+      output: 3,
+      tokensKnown: false,
+    })
+  })
+
   it('accepts an agentProfile cell that matches model and promptHash', async () => {
     const agentProfile = await buildAgentProfileCell({
       profileId: 'gtm-founder-v1',
@@ -258,6 +267,11 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     expect(() =>
       validateRunRecord(makeRecord({ tokenUsage: { input: 1, output: 2, reasoning: 3 } })),
     ).toThrow(/subset of output/)
+    expect(() =>
+      validateRunRecord(
+        makeRecord({ tokenUsage: { input: 1, output: 2, tokensKnown: true } as never }),
+      ),
+    ).toThrow(/omit it when token usage is complete/)
   })
 
   it('rejects unknown splitTag', () => {

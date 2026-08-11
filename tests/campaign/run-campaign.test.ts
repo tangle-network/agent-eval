@@ -1469,6 +1469,47 @@ describe('runCampaign — expectUsage stub guard', () => {
     expect(result.cells[0]!.error).toBeUndefined()
   })
 
+  it('preserves an incomplete token subtotal through durable reuse', async () => {
+    const storage = inMemoryCampaignStorage()
+    let dispatchCount = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'llm',
+        model: 'fake-model',
+        execute: async () => {
+          dispatchCount += 1
+          return { text: scenario.id, intent: scenario.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 7,
+          outputTokens: 3,
+          usageUnknown: true,
+          actualCostUsd: 0.002,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
+    }
+    const options = {
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch,
+      expectUsage: 'off' as const,
+      runDir: mkdtempSync(join(tmpdir(), 'run-campaign-unknown-usage-')),
+      storage,
+    }
+
+    const result = await runCampaign(options)
+    const resumed = await runCampaign(options)
+
+    expect(dispatchCount).toBe(1)
+    expect(result.cells[0]!.tokenUsage).toEqual({ input: 7, output: 3, tokensKnown: false })
+    expect(resumed.cells[0]).toMatchObject({
+      cached: true,
+      tokenUsage: { input: 7, output: 3, tokensKnown: false },
+    })
+  })
+
   it('expectUsage=off lets a stub cell through (replay/offline)', async () => {
     const result = await runCampaign({
       scenarios: SCENARIOS.slice(0, 1),
