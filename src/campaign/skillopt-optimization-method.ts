@@ -224,10 +224,16 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         maxEvidenceChars,
         describeArtifact: config.describeArtifact,
       })
+      let attemptEvaluationCount = 0
       const callback = await startExternalOptimizerCallback({
         token: randomBytes(32).toString('hex'),
         maxEvaluations: config.maxEvaluations,
-        acceptEvaluation: () => runBudget.acceptEvaluation(),
+        acceptEvaluation: () => {
+          const accepted = runBudget.acceptEvaluation()
+          if (accepted === undefined) return undefined
+          attemptEvaluationCount += 1
+          return attemptEvaluationCount
+        },
         evaluate,
         observe: observationLog.observe,
         ...(config.evaluationCallbackLimits ? { limits: config.evaluationCallbackLimits } : {}),
