@@ -237,6 +237,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     ((campaign: CampaignResult<TArtifact, TScenario>) => [campaignMeanComposite(campaign)])
   let winnerSurface = baselineSurface
   let winnerSurfaceHash = surfaceHash(baselineSurface)
+  // A surface identity may enter the population only once. Keep the
+  // incumbent in this set so a proposer cannot spend a candidate cell on a
+  // no-op or repeat a surface from an earlier generation.
+  const admittedCandidateHashes = new Set([winnerSurfaceHash])
   let winnerComposite = campaignMeanComposite(baselineCampaign)
   let winnerRankKey = selectionRankKey(baselineCampaign)
   assertFiniteRankKey(winnerRankKey, 'selectionRankKey for baseline')
@@ -330,6 +334,21 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const candidates: ProposedCandidate[] = proposalSnapshot.map((p) =>
       isProposedCandidate(p) ? p : { surface: p, label: '', rationale: '' },
     )
+
+    // Validate the complete proposal before dispatching any candidate. This
+    // keeps duplicate population entries from becoming separate records or
+    // consuming a candidate cell. Use `reps` when measuring one surface again.
+    const generationHashes = new Set<string>()
+    for (const { surface } of candidates) {
+      const hash = surfaceHash(surface)
+      if (admittedCandidateHashes.has(hash) || generationHashes.has(hash)) {
+        throw new Error(
+          `runOptimization: duplicate candidate surface hash "${hash}" in generation ${gen}; candidate surfaces must be unique`,
+        )
+      }
+      generationHashes.add(hash)
+    }
+    for (const hash of generationHashes) admittedCandidateHashes.add(hash)
 
     // Run each candidate as its own campaign.
     type SurfaceResult = {

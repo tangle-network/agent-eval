@@ -52,18 +52,18 @@ async function stubAgent(
   return paid.value
 }
 
-function codeSurface(worktreeRef: string): CodeSurface {
+function codeSurface(worktreeRef: string, candidateDigit = '3'): CodeSurface {
   return {
     kind: 'code',
     worktreeRef,
     baseRef: 'main',
     baseCommit: '1'.repeat(40),
     baseTree: '2'.repeat(40),
-    candidateCommit: '3'.repeat(40),
+    candidateCommit: candidateDigit.repeat(40),
     candidateTree: '4'.repeat(40),
     patch: {
       format: 'git-diff-binary',
-      sha256: `sha256:${'5'.repeat(64)}`,
+      sha256: `sha256:${candidateDigit.repeat(64)}`,
       byteLength: 1,
     },
   }
@@ -343,7 +343,8 @@ describe('selfImprove — complete optimization methods', () => {
 describe('selfImprove — hosted code-surface identity', () => {
   it('uses the content identity in snapshots instead of the mutable worktree path', async () => {
     const baseline = codeSurface('/tmp/candidate-a')
-    const sameBytesElsewhere = codeSurface('/tmp/candidate-b')
+    const candidateAtPathB = codeSurface('/tmp/candidate-b', '6')
+    const sameBytesElsewhere = codeSurface('/tmp/candidate-c', '6')
     const payloads: Array<{
       events?: Array<{
         baseline?: {
@@ -365,7 +366,7 @@ describe('selfImprove — hosted code-surface identity', () => {
     }
     const proposer: SurfaceProposer = {
       kind: 'code-candidate',
-      propose: async () => [sameBytesElsewhere],
+      propose: async () => [candidateAtPathB],
     }
 
     await selfImprove({
@@ -389,15 +390,17 @@ describe('selfImprove — hosted code-surface identity', () => {
       .find((candidate) => candidate.baseline?.surfaceHash === expected)
     expect(event).toBeDefined()
     expect(event?.generations[0]?.surfaceHash).toBe(expected)
+    expect(event?.generations[1]?.surfaceHash).toBe(surfaceHash(candidateAtPathB))
     expect(event?.baseline?.cells[0]).toMatchObject({
       terminalOutcome: 'succeeded',
       executionErrorCount: 0,
     })
-    expect(event?.generations[0]?.cells[0]).toMatchObject({
+    expect(event?.generations[1]?.cells[0]).toMatchObject({
       terminalOutcome: 'succeeded',
       executionErrorCount: 0,
     })
-    expect(surfaceHash(sameBytesElsewhere)).toBe(expected)
+    expect(surfaceHash(sameBytesElsewhere)).toBe(surfaceHash(candidateAtPathB))
+    expect(surfaceHash(candidateAtPathB)).not.toBe(expected)
   })
 })
 
