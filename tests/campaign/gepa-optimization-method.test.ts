@@ -349,6 +349,18 @@ describe('gepaOptimizationMethod', () => {
       evaluationCount: 2,
       tokenUsage: { inputTokens: 20, outputTokens: 10, totalTokens: 30, calls: 2 },
     })
+    const resumedObservations = readFileSync(
+      second.scores[0]!.provenance!.observations!.path,
+      'utf8',
+    ).trim().split('\n').map((line) => JSON.parse(line)) as {
+      kind: string
+      evaluationNumber?: number
+    }[]
+    expect(
+      resumedObservations
+        .filter((observation) => observation.kind === 'evaluation')
+        .map((observation) => observation.evaluationNumber),
+    ).toEqual([1])
     expect(first.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
     expect(second.scores[0]!.provenance?.runId).toBe(first.scores[0]!.provenance?.compatibleRunId)
     const changedExecution = await compareOptimizationMethods(
