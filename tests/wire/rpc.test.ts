@@ -67,7 +67,8 @@ describe('dispatchRpc', () => {
     const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body)) as { model: string }
       expect(request.model).toBe('configured-model')
-      expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer provider-key')
+      const headers = init?.headers as Record<string, string> | undefined
+      expect(headers?.Authorization).toBe('Bearer provider-key')
       return new Response(
         JSON.stringify({
           model: 'configured-model',

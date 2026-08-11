@@ -79,9 +79,36 @@ export interface DecodedReply<TRow> {
 }
 
 /**
+ * The per-row half of a decode: validate each raw row under the contract's
+ * grammar and cap ACCEPTED rows. Shape before count — a malformed row never
+ * consumes an accepted slot. Shared by every consumer of a `ReplyContract`
+ * row array, whatever envelope handling surrounds it.
+ */
+export function decodeContractRows<TRow>(
+  contract: Pick<ReplyContract<TRow>, 'decodeRow' | 'maxRows'>,
+  rawRows: readonly unknown[],
+): { rows: TRow[]; rejected: ReplyRowRejection[]; overflow: number } {
+  const rows: TRow[] = []
+  const rejected: ReplyRowRejection[] = []
+  let overflow = 0
+  rawRows.forEach((row, index) => {
+    const decoded = contract.decodeRow(row, index)
+    if (!decoded.ok) {
+      rejected.push({ index, reason: decoded.reason })
+      return
+    }
+    if (contract.maxRows !== undefined && rows.length >= contract.maxRows) {
+      overflow += 1
+      return
+    }
+    rows.push(decoded.row)
+  })
+  return { rows, rejected, overflow }
+}
+
+/**
  * Decode a parsed reply value under a contract: strict envelope when declared,
- * then per-row decoding, then the all-rejected policy. Shape before count: a
- * malformed row never consumes an accepted slot.
+ * then per-row decoding, then the all-rejected policy.
  */
 export function decodeReplyRows<TRow>(
   contract: ReplyContract<TRow>,
@@ -104,21 +131,7 @@ export function decodeReplyRows<TRow>(
     }
     rawRows = field
   }
-  const rows: TRow[] = []
-  const rejected: ReplyRowRejection[] = []
-  let overflow = 0
-  rawRows.forEach((row, index) => {
-    const decoded = contract.decodeRow(row, index)
-    if (!decoded.ok) {
-      rejected.push({ index, reason: decoded.reason })
-      return
-    }
-    if (contract.maxRows !== undefined && rows.length >= contract.maxRows) {
-      overflow += 1
-      return
-    }
-    rows.push(decoded.row)
-  })
+  const { rows, rejected, overflow } = decodeContractRows(contract, rawRows)
   if (rows.length === 0 && rawRows.length > 0 && contract.whenAllRowsRejected === 'fail') {
     throw new ValidationError(
       `${contract.allRejectedMessage ?? 'every reported row was malformed'}: ${rejected

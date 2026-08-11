@@ -1,11 +1,179 @@
 import { describe, expect, it } from 'vitest'
 import {
   DECISION_PAIRED_DELTA_STATISTIC,
-  isBinaryOutcomeVector,
-  pairedBinaryScale,
   pairedBootstrap,
   pairedDeltaTieFraction,
-} from './statistics'
+  pairedSignTest,
+  pairedTTest,
+} from './index'
+
+describe('pairedTTest', () => {
+  it('rejects unequal sample sizes — regression: silent truncation gives wrong df', () => {
+    expect(() => pairedTTest([1, 2], [3])).toThrow(/unequal/)
+  })
+
+  it('returns p=1 when means are identical', () => {
+    const r = pairedTTest([1, 2, 3, 4, 5], [1, 2, 3, 4, 5])
+    expect(r.p).toBe(1)
+    expect(r.t).toBe(0)
+  })
+
+  it('detects a consistent positive shift as significant', () => {
+    // Add a constant +2 to every sample
+    const before = [0.4, 0.5, 0.6, 0.7, 0.8, 0.5, 0.6, 0.7]
+    const after = before.map((b) => b + 0.2)
+    const r = pairedTTest(before, after)
+    expect(r.t).toBeGreaterThan(0)
+    expect(r.p).toBeLessThan(0.01)
+    expect(r.df).toBe(before.length - 1)
+  })
+
+  it('does not falsely detect random noise', () => {
+    const before = [0.5, 0.6, 0.4, 0.7, 0.5, 0.6]
+    const after = [0.6, 0.5, 0.5, 0.6, 0.5, 0.55]
+    const r = pairedTTest(before, after)
+    expect(r.p).toBeGreaterThan(0.05)
+  })
+})
+
+describe('pairedBootstrap', () => {
+  it('throws on unequal sample sizes — silent truncation hides bugs', () => {
+    expect(() => pairedBootstrap([1, 2], [3])).toThrow(/unequal/)
+  })
+
+  it('returns the singleton on n=1', () => {
+    const r = pairedBootstrap([0.5], [0.7], { seed: 42 })
+    expect(r.n).toBe(1)
+    expect(r.median).toBeCloseTo(0.2, 6)
+    expect(r.low).toBeCloseTo(0.2, 6)
+    expect(r.high).toBeCloseTo(0.2, 6)
+  })
+
+  it('returns zero on empty input rather than NaN', () => {
+    const r = pairedBootstrap([], [])
+    expect(r.n).toBe(0)
+    expect(r.median).toBe(0)
+    expect(r.low).toBe(0)
+    expect(r.high).toBe(0)
+  })
+
+  it('produces a positive lower bound when after >> before', () => {
+    const before = [0.1, 0.2, 0.15, 0.25, 0.18, 0.22, 0.19, 0.21]
+    const after = before.map((b) => b + 0.3)
+    const r = pairedBootstrap(before, after, { seed: 42, resamples: 1000 })
+    expect(r.median).toBeCloseTo(0.3, 4)
+    expect(r.low).toBeGreaterThan(0)
+    expect(r.high).toBeGreaterThan(r.low)
+  })
+
+  it('CI straddles zero when there is no real shift', () => {
+    const before = [0.5, 0.4, 0.6, 0.55, 0.45, 0.5, 0.6, 0.4]
+    const after = [0.5, 0.4, 0.6, 0.55, 0.45, 0.5, 0.6, 0.4]
+    const r = pairedBootstrap(before, after, { seed: 42, resamples: 1000 })
+    expect(r.median).toBe(0)
+    expect(r.low).toBeLessThanOrEqual(0)
+    expect(r.high).toBeGreaterThanOrEqual(0)
+  })
+
+  it('is deterministic given a seed', () => {
+    const before = [0.3, 0.4, 0.5, 0.6, 0.4, 0.5]
+    const after = [0.5, 0.5, 0.6, 0.7, 0.5, 0.55]
+    const a = pairedBootstrap(before, after, { seed: 1234, resamples: 500 })
+    const b = pairedBootstrap(before, after, { seed: 1234, resamples: 500 })
+    expect(a.low).toBe(b.low)
+    expect(a.high).toBe(b.high)
+  })
+
+  it('rejects out-of-range confidence', () => {
+    expect(() => pairedBootstrap([1], [2], { confidence: 0 })).toThrow()
+    expect(() => pairedBootstrap([1], [2], { confidence: 1 })).toThrow()
+  })
+
+  it('mean statistic agrees with arithmetic mean of deltas in expectation', () => {
+    const before = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    const after = before.map((b) => b + 0.25)
+    const r = pairedBootstrap(before, after, { seed: 7, resamples: 2000, statistic: 'mean' })
+    expect(r.mean).toBeCloseTo(0.25, 4)
+    expect(r.low).toBeGreaterThan(0)
+  })
+})
+
+describe('pairedSignTest — exact one-sided paired differences', () => {
+  it('returns p = 0.25 for two positive differences', () => {
+    const result = pairedSignTest([1, 0.5], 'greater')
+    expect(result).toEqual({
+      n: 2,
+      positive: 2,
+      negative: 0,
+      ties: 0,
+      nNonTies: 2,
+      alternative: 'greater',
+      pValue: 0.25,
+    })
+  })
+
+  it('ignores zero ties in the binomial denominator', () => {
+    const result = pairedSignTest([1, 0], 'greater')
+    expect(result.nNonTies).toBe(1)
+    expect(result.ties).toBe(1)
+    expect(result.pValue).toBe(0.5)
+  })
+
+  it('returns p = 1 when every difference is tied', () => {
+    const result = pairedSignTest([0, -0, 0], 'greater')
+    expect(result.nNonTies).toBe(0)
+    expect(result.ties).toBe(3)
+    expect(result.pValue).toBe(1)
+  })
+
+  it('supports the opposite pre-registered direction', () => {
+    expect(pairedSignTest([1, 0.5], 'less').pValue).toBe(1)
+    expect(pairedSignTest([-1, -0.5], 'less').pValue).toBe(0.25)
+  })
+
+  it('matches a multi-term exact binomial tail without combinatorial overflow', () => {
+    const result = pairedSignTest([1, 1, 1, -1], 'greater')
+    expect(result.pValue).toBeCloseTo(5 / 16, 15)
+  })
+
+  it('is symmetric under sign reversal and direction reversal', () => {
+    const differences = [1, -0.5, 0, 2, 3, -4]
+    const greater = pairedSignTest(differences, 'greater')
+    const reflected = pairedSignTest(
+      differences.map((difference) => -difference),
+      'less',
+    )
+    expect(reflected.pValue).toBeCloseTo(greater.pValue, 15)
+    expect(reflected.positive).toBe(greater.negative)
+    expect(reflected.negative).toBe(greater.positive)
+    expect(reflected.ties).toBe(greater.ties)
+  })
+
+  it('rejects non-finite differences and invalid directions', () => {
+    expect(() => pairedSignTest([1, Number.NaN], 'greater')).toThrow(/index 1.*finite/)
+    expect(() => pairedSignTest([Number.POSITIVE_INFINITY], 'less')).toThrow(/finite/)
+    expect(() => pairedSignTest([1], 'two-sided' as 'greater')).toThrow(/alternative/)
+  })
+})
+
+describe('bootstrap intervals declare where they are not a gate', () => {
+  it('marks fewer than 20 pairs as descriptive spread', () => {
+    const before = Array.from({ length: 10 }, (_, i) => i / 10)
+    const after = before.map((v) => v + 0.05)
+    expect(pairedBootstrap(before, after, { seed: 1 }).gateEligible).toBe(false)
+  })
+
+  it('marks 20 or more pairs as gate-eligible', () => {
+    const before = Array.from({ length: 20 }, (_, i) => i / 20)
+    const after = before.map((v) => v + 0.05)
+    expect(pairedBootstrap(before, after, { seed: 1 }).gateEligible).toBe(true)
+  })
+
+  it('reports gateEligible on the degenerate short paths too', () => {
+    expect(pairedBootstrap([], []).gateEligible).toBe(false)
+    expect(pairedBootstrap([1], [2]).gateEligible).toBe(false)
+  })
+})
 
 /**
  * The load-bearing statistical core of the promotion gate: `pairedBootstrap`
@@ -62,63 +230,6 @@ describe('pairedBootstrap — promotion-gate CI core', () => {
     expect(pairedBootstrap(before, after, { seed: 42 })).toEqual(
       pairedBootstrap(before, after, { seed: 42 }),
     )
-  })
-})
-
-describe('isBinaryOutcomeVector — the statistic discriminator', () => {
-  it('accepts only vectors whose every value is exactly 0 or 1', () => {
-    expect(isBinaryOutcomeVector([0, 1, 1, 0, 1])).toBe(true)
-    expect(isBinaryOutcomeVector([1, 1, 1])).toBe(true)
-    expect(isBinaryOutcomeVector([0, 0])).toBe(true)
-    expect(isBinaryOutcomeVector([0, 1, 0.5])).toBe(false)
-    expect(isBinaryOutcomeVector([0, 1, 2])).toBe(false)
-    expect(isBinaryOutcomeVector([0, 1, -0.0])).toBe(true) // -0 === 0
-    expect(isBinaryOutcomeVector([0, Number.NaN])).toBe(false)
-  })
-
-  it('treats an empty vector as NOT binary — no evidence of the outcome shape', () => {
-    expect(isBinaryOutcomeVector([])).toBe(false)
-  })
-
-  it('names the regime where the median paired delta goes blind', () => {
-    // 15 wins, 5 losses, 56 ties: a real +13.2pp shift whose median is 0.
-    const before = [...Array(15).fill(0), ...Array(5).fill(1), ...Array(56).fill(1)]
-    const after = [...Array(15).fill(1), ...Array(5).fill(0), ...Array(56).fill(1)]
-    expect(isBinaryOutcomeVector(before) && isBinaryOutcomeVector(after)).toBe(true)
-    const med = pairedBootstrap(before, after, { statistic: 'median', seed: 1337 })
-    const avg = pairedBootstrap(before, after, { statistic: 'mean', seed: 1337 })
-    expect(med.low).toBe(0)
-    expect(med.high).toBe(0)
-    expect(avg.mean).toBeCloseTo(10 / 76, 6)
-    expect(avg.low).toBeGreaterThan(0)
-  })
-})
-
-/**
- * The DISCRIMINATOR a gate actually needs. `isBinaryOutcomeVector` answers
- * "is this literally {0,1}", which is a strictly narrower question than "can
- * the median see this data" — and every gap between the two was a measured
- * fail-open: a 0-100 pass/fail dimension, one partial-credit score in an
- * otherwise pass/fail vector, block scores averaged from pass/fail leaves, and
- * a pass/fail baseline against a partial-credit candidate all read
- * "not binary" and fell back to the blind median.
- */
-describe('pairedBinaryScale — two-point outcomes on ANY encoding', () => {
-  it('returns the common positive level, whatever the encoding', () => {
-    expect(pairedBinaryScale([0, 1, 1], [1, 1, 0])).toBe(1)
-    expect(pairedBinaryScale([0, 100, 100], [100, 100, 0])).toBe(100)
-    expect(pairedBinaryScale([0, 5], [5, 5])).toBe(5)
-    expect(pairedBinaryScale([0, 0, 0], [0, 1, 0])).toBe(1) // level seen on one arm only
-  })
-
-  it('rejects anything that is not two-point at a COMMON level', () => {
-    expect(pairedBinaryScale([0, 1, 0.5], [1, 1, 1])).toBeNull() // partial credit
-    expect(pairedBinaryScale([0, 1], [0, 0.4])).toBeNull() // arms disagree on the level
-    expect(pairedBinaryScale([2 / 3, 1], [1, 1])).toBeNull() // block scores
-    expect(pairedBinaryScale([0, -1], [0, 0])).toBeNull() // negative
-    expect(pairedBinaryScale([0, Number.NaN], [0, 1])).toBeNull() // unusable
-    expect(pairedBinaryScale([0, 0], [0, 0])).toBeNull() // level not identified
-    expect(pairedBinaryScale([], [])).toBeNull()
   })
 })
 
