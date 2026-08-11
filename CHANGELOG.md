@@ -20,6 +20,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
 
+## [0.144.11] - 2026-08-10 - GEPA candidate graph
+
+### Added
+
+- `readGepaCandidatePopulationArtifact()` returns GEPA's exact accepted candidates, parent indices, selection scores, and discovery counts from a verified artifact.
+- Direct GEPA method provenance addresses the candidate graph and its configured population bounds, selection identities, and candidate surface kind.
+
+### Fixed
+
+- The Python bridge preserves the official GEPA result graph from both published GEPA 0.1.4 and the pinned source API wrapper.
+
 ## [0.144.10] - 2026-08-10 - Optimizer candidate population
 
 ### Added
