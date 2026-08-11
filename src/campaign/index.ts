@@ -79,8 +79,11 @@ export type {
 } from './cross-surface-types'
 export type {
   ExternalOptimizerExecutionSummary,
+  ExternalOptimizerObservationArtifact,
   ExternalOptimizerObservationSummary,
+  ExternalOptimizerSubmittedCandidate,
 } from './external-optimizer-observations'
+export { readExternalOptimizerObservationArtifact } from './external-optimizer-observations'
 export type {
   ExternalOptimizerCallbackLimits,
   ExternalOptimizerChatRequest,
@@ -94,6 +97,7 @@ export type {
   ExternalOptimizerModelExecutionObservation,
   ExternalOptimizerProcessLimits,
   ExternalOptimizerRunnerCommand,
+  ExternalTextCandidate,
 } from './external-optimizer-process'
 export {
   DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS,
