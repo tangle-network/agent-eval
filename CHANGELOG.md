@@ -6,10 +6,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
-### Fixed
-
-- Campaign cells and run records preserve incomplete token usage as `tokensKnown: false`; their numeric counts remain known subtotals and no token-efficiency ratio is reported.
-
 ### Added
 
 - `AnalystDefinition` — the declarative unit behind an analyst arm: a profile fragment, an `EvidenceProjection` (`inline` | `chunked` | `repl-variable` | `agent-tools`), a `ReplyContract` (generalized from `PrimeReplyContract`, which is now a type alias of it), and budget plus repair-turn declarations.
@@ -23,6 +19,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Checker port (`StrategyChecker`, `CheckerIdentity`, `CheckerOutcome`): a checker is an injected executable boundary returning a typed outcome; the package ships no checker implementation, so a consumer binds its own kernel.
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
+
+## [0.144.9] - 2026-08-10 - Token usage completeness
+
+### Fixed
+
+- Campaign cells and run records preserve incomplete token usage as `tokensKnown: false`; their numeric counts remain known subtotals and no token-efficiency ratio is reported.
 
 ## [0.144.8] - 2026-08-10 - Duplicate candidate admission
 
