@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { distillPlaybook, renderPlaybookMarkdown } from '../src/playbook'
 import { RunCritic } from '../src/run-critic'
 import { aggregateRunScore } from '../src/run-score'
 import { mergeSteeringBundle, renderSteeringText } from '../src/steering'
@@ -125,18 +124,5 @@ describe('RunCritic', () => {
     expect(score.repoGroundedness).toBe(0)
     expect(score.driftPenalty).toBe(1)
     expect(score.notes?.some((note) => note.includes('drift'))).toBe(true)
-  })
-})
-
-describe('playbook', () => {
-  it('deduplicates instructions and keeps the strongest entries', () => {
-    const playbook = distillPlaybook([
-      { instruction: 'Stay repo-first', rationale: 'good', weight: 1 },
-      { instruction: 'stay   repo-first', rationale: 'better', weight: 3 },
-      { instruction: 'Summarize turns cleanly', rationale: 'useful', weight: 2 },
-    ])
-    expect(playbook.entries).toHaveLength(2)
-    expect(playbook.entries[0]?.rationale).toBe('better')
-    expect(renderPlaybookMarkdown(playbook)).toContain('Stay repo-first')
   })
 })

@@ -68,9 +68,6 @@ const ROOT_RUNTIME_SYMBOLS = [
   // Substrate primitives
   'discoverPersonas',
   'scoreKnowledgeReadiness',
-  // Muffled-gate scanner
-  'scanForMuffledGates',
-  'DEFAULT_FINDERS',
   // Privacy
   'redactValue',
   // Stats helpers

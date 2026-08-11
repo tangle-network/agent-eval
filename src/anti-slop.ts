@@ -11,7 +11,7 @@
  *   - Length bounds (too short to be useful, too long to be read)
  *
  * Produces a JudgeScore in the same shape as LLM judges so it composes into
- * `BenchmarkRunner`'s judge array transparently.
+ * any `JudgeFn` array transparently.
  */
 
 import type { JudgeFn, JudgeInput, JudgeScore } from './types'

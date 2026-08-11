@@ -3,8 +3,7 @@
  *
  * Generic "score a produced artifact" primitive. Tax uses it for PDF form
  * correctness, research for sourced briefs, browser for task assertions, coding
- * for social posts. One interface, many validators; all plug into
- * `BenchmarkRunner` the same way.
+ * for social posts. One interface, many validators.
  *
  * A validator receives an `Artifact` (file on disk, JSON blob, text, binary)
  * plus a `ValidationContext` (scenario id, the turns that produced it) and

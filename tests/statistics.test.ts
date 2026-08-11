@@ -17,7 +17,6 @@ import {
   mcnemarPower,
   mcnemarRequiredN,
   mulberry32,
-  normalizeScores,
   pairedBootstrap,
   pairedCohensDz,
   pairedMde,
@@ -41,25 +40,6 @@ import type { JudgeScore } from '../src/types'
 function makeScore(dimension: string, score: number): JudgeScore {
   return { judgeName: 'test', dimension, score, reasoning: '' }
 }
-
-describe('normalizeScores', () => {
-  it('passes through inverted dimensions unchanged (already normalized in prompt)', () => {
-    const scores = [
-      makeScore('hallucination', 8),
-      makeScore('false_confidence', 7),
-      makeScore('worst_failure', 9),
-      makeScore('domain_accuracy', 6),
-    ]
-    const normalized = normalizeScores(scores)
-    expect(normalized).toHaveLength(4)
-    expect(normalized.find((s) => s.dimension === 'hallucination')!.score).toBe(8)
-    expect(normalized.find((s) => s.dimension === 'domain_accuracy')!.score).toBe(6)
-  })
-
-  it('handles empty input', () => {
-    expect(normalizeScores([])).toEqual([])
-  })
-})
 
 describe('weightedMean', () => {
   it('computes simple average with no weights', () => {

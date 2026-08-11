@@ -46,16 +46,6 @@ export {
   pairHoldout,
 } from '../campaign/gates/statistical-heldout'
 export {
-  type ClusterBootstrapInterval,
-  type ClusteredBinaryCluster,
-  type ClusteredMatchedPair,
-  type ClusteredPairedBinaryOptions,
-  type ClusteredPairedBinaryResult,
-  type ClusteredPairedBinaryStatistics,
-  type ClusterSignFlipResult,
-  clusteredPairedBinary,
-} from '../clustered-paired-binary'
-export {
   type Experiment,
   type ExperimentRep,
   type ExperimentStats,

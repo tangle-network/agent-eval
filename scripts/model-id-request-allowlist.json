@@ -2,11 +2,6 @@
   "documentation": "Waivers for check-model-id-requests.mjs. Each entry names one model id literal in one file that sits in a request position but never becomes a request, and states why. A waiver is not a way to skip the served-model assertion on a real call: when the literal reaches a provider, assert the served id instead (src/integrity/served-model.ts). Entries are matched by file and literal, not by line, so they survive edits; a waiver that matches nothing fails the gate, so the list cannot rot.",
   "allow": [
     {
-      "file": "src/benchmark.ts",
-      "literal": "gpt-4o",
-      "reason": "Console banner only. The literal mirrors the executeScenario default so the printed line reports the model the run will request; it is never sent to a provider."
-    },
-    {
       "file": "src/metrics.ts",
       "literal": "gpt-4o",
       "reason": "TokenCounter's default price-table key. It selects per-token prices for cost attribution and issues no chat call, so there is no served id to compare it against."

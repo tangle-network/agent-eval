@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { expectAgent } from '../src/behavior-dsl'
 import { ValidationError } from '../src/errors'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { createOtelTracingStore } from '../src/trace/otel-bridge'
@@ -377,50 +376,6 @@ describe('dual-use: otel-bridge flattened spans', () => {
       .always({ attr: { region: /^eu-/ } })
       .build()
     expect(evaluateTraceContract(c, spans).valid).toBe(true)
-  })
-})
-
-// ── behavior-dsl integration ──────────────────────────────────────────
-
-describe('expectAgent(...).toSatisfyContract', () => {
-  async function recordedRun(
-    build: (e: TraceEmitter) => Promise<void>,
-  ): Promise<{ store: InMemoryTraceStore; runId: string }> {
-    const store = new InMemoryTraceStore()
-    let t = 0
-    let n = 0
-    const e = new TraceEmitter(store, { now: () => ++t, id: () => `id-${++n}` })
-    await e.startRun({ scenarioId: 's' })
-    await build(e)
-    await e.endRun({ pass: true })
-    return { store, runId: e.runId }
-  }
-
-  const contract = traceContract('guarded-transfer')
-    .precedes({ tool: 'approval' }, { tool: 'transfer' })
-    .build()
-
-  it('passes over a stored run that approves before transferring', async () => {
-    const { store, runId } = await recordedRun(async (e) => {
-      const a = await e.tool({ name: 'approval', toolName: 'approval', args: {} })
-      await a.end()
-      const tr = await e.tool({ name: 'transfer', toolName: 'transfer', args: {} })
-      await tr.end()
-    })
-    const r = await expectAgent(store, runId).toSatisfyContract(contract).check()
-    expect(r.ok).toBe(true)
-    expect(r.detail).toContain('guarded-transfer')
-  })
-
-  it('fails with the violating spanId as evidence', async () => {
-    const { store, runId } = await recordedRun(async (e) => {
-      const tr = await e.tool({ name: 'transfer', toolName: 'transfer', args: {} })
-      await tr.end()
-    })
-    const r = await expectAgent(store, runId).toSatisfyContract(contract).check()
-    expect(r.ok).toBe(false)
-    expect(r.detail).toMatch(/no earlier/)
-    expect(r.evidence).toBeDefined()
   })
 })
 

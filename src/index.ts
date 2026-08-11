@@ -169,7 +169,6 @@ export type {
   RepoRef,
 } from './auto-pr'
 export { ghCliClient, httpGithubClient } from './auto-pr'
-export { BenchmarkRunner } from './benchmark'
 export type {
   AssertCapabilityHeadroomOptions,
   CapabilityHeadroomOptions,
@@ -186,17 +185,6 @@ export type {
 export { assertCapabilityHeadroom, capabilityHeadroom } from './capability-headroom'
 // ── Client / driver / judges / executor / benchmark / registry / reporter ─
 export { ProductClient, runE2EWorkflow } from './client'
-export type {
-  ClusterBootstrapInterval,
-  ClusteredBinaryCluster,
-  ClusteredMatchedPair,
-  ClusteredPairedBinaryOptions,
-  ClusteredPairedBinaryResult,
-  ClusteredPairedBinaryStatistics,
-  ClusterSignFlipAlternative,
-  ClusterSignFlipResult,
-} from './clustered-paired-binary'
-export { clusteredPairedBinary } from './clustered-paired-binary'
 export type {
   ControlActionFailureMode,
   ControlActionOutcome,
@@ -253,8 +241,6 @@ export {
   ValidationError,
   VerificationError,
 } from './errors'
-export type { ExecutorConfig } from './executor'
-export { executeScenario } from './executor'
 export type {
   AnalystFeedbackTrajectoryOptions,
   AnalystFindingDigest,
@@ -366,13 +352,6 @@ export {
 } from './judge-families'
 export { JudgeParseError } from './judges'
 export * from './knowledge'
-export type {
-  LiveProofArtifact,
-  LiveProofConfig,
-  LiveProofContext,
-  LiveProofResult,
-} from './live-proof'
-export { runLiveProof } from './live-proof'
 // ── Statistics ───────────────────────────────────────────────────────
 // `normalCdf` and `studentTCdf` are public because `baseline.ts` and
 // `contract/analyze-runs.ts` consume them instead of holding their own copies,
@@ -431,28 +410,7 @@ export type {
   PairedPromotionDecisionOptions,
 } from './paired-promotion-decision'
 export { decidePairedPromotion, pairedDecisionShape } from './paired-promotion-decision'
-export type {
-  PrReviewAuditCase,
-  PrReviewBenchmarkSummary,
-  PrReviewComment,
-  PrReviewMatchedFinding,
-  PrReviewOutcome,
-  PrReviewReferenceFinding,
-  PrReviewScore,
-  PrReviewScoreWeights,
-  PrReviewSeverity,
-  PrReviewSource,
-} from './pr-review-benchmark'
-export {
-  aggregatePrReviewScore,
-  commentsForSource,
-  DEFAULT_PR_REVIEW_SCORE_WEIGHTS,
-  scorePrReviewComments,
-  scorePrReviewSource,
-  summarizePrReviewBenchmark,
-} from './pr-review-benchmark'
 export { ScenarioRegistry } from './registry'
-export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
 // ── Rollout — `tangle.rollout.v1` ────────────────────────────────────
 // THE canonical rollout serialization: schema + ledger + minting from
 // RunRecord × trace (joined on runId, realness-gate carried into the
@@ -517,14 +475,6 @@ export {
   validateRolloutLine,
 } from './rollout/index'
 export type {
-  ControlRunToRunRecordOptions,
-  RunEvidenceMetadata,
-} from './run-evidence'
-export {
-  controlRunToRunRecord,
-  scoreFromEvals,
-} from './run-evidence'
-export type {
   CliffsMagnitude,
   CorpusAgreementOptions,
   CorpusAgreementPerDimension,
@@ -569,7 +519,6 @@ export {
   mcnemar,
   mcnemarPower,
   mcnemarRequiredN,
-  normalizeScores,
   pairedBinaryScale,
   pairedBootstrap,
   pairedCohensDz,
@@ -672,16 +621,12 @@ export {
 export type {
   ArtifactCheck,
   ArtifactResult,
-  BenchmarkReport,
-  BenchmarkRunnerConfig,
   CheckResult,
   CollectedArtifacts,
   CompletionCriterion,
   DriverResult,
   DriverState,
-  EvalResult,
   FeedbackPattern,
-  JudgeConfig,
   JudgeFn,
   JudgeInput,
   JudgeRubric,
@@ -750,26 +695,6 @@ export type {
 export { DualAgentBench } from './dual-agent-bench'
 export type { EvalToolDef, MakeEvalToolsConfig } from './eval-tools'
 export { makeEvalTools, toOpenAiTool } from './eval-tools'
-export type {
-  HarnessAdapter,
-  HarnessExperimentConfig,
-  HarnessExperimentResult,
-  HarnessIntervention,
-  HarnessRunRequest,
-  HarnessRunResult,
-  HarnessScenario,
-  HarnessSelection,
-  HarnessVariant,
-  HarnessVariantReport,
-  MeasurementPolicy,
-  WorkflowTopology,
-} from './harness-optimizer'
-export {
-  DEFAULT_HARNESS_OBJECTIVES,
-  runHarnessExperiment,
-  selectHarnessVariant,
-  summarizeHarnessResults,
-} from './harness-optimizer'
 export type { EnsembleAggregate, JudgeVerdict } from './judge-ensemble'
 export { aggregateJudgeVerdicts } from './judge-ensemble'
 export type { EnsembleJudgeOptions } from './judge-panel'
@@ -790,8 +715,6 @@ export {
 } from './judge-runner'
 export type { LlmJudgeDimension, LlmJudgeOptions } from './llm-judge'
 export { llmJudge } from './llm-judge'
-export type { Playbook, PlaybookEntry } from './playbook'
-export { distillPlaybook, renderPlaybookMarkdown } from './playbook'
 export type {
   ArtifactEventLike,
   ProposalEventLike,
@@ -824,16 +747,6 @@ export {
   jsonlReviewStore,
   runProposeReview,
 } from './propose-review'
-export type {
-  ProposeReviewControlAction,
-  ProposeReviewControlConfig,
-  ProposeReviewControlResult,
-  ProposeReviewControlState,
-} from './propose-review-control'
-export {
-  controlFailureClassFromVerification,
-  runProposeReviewAsControlLoop,
-} from './propose-review-control'
 export type { RunCriticOptions, RunTrace } from './run-critic'
 export { RunCritic } from './run-critic'
 export type { RunScore, RunScoreWeights } from './run-score'
@@ -908,18 +821,6 @@ export {
   routeFields,
   withHeldoutBlend,
 } from './hidden-criteria-grading'
-export type {
-  ProjectRuntimeTrajectoryEvidenceOptions,
-  RuntimeTrajectoryEvidenceProjection,
-  RuntimeTrajectoryEvidenceSummary,
-  RuntimeTrajectoryHookEvent,
-  RuntimeTrajectoryRecord,
-  RuntimeTrajectoryRunRecord,
-} from './runtime-trajectory'
-export {
-  parseRuntimeTrajectoryHookEvent,
-  projectRuntimeTrajectoryEvidence,
-} from './runtime-trajectory'
 export type {
   HarnessConfig,
   SandboxDriver,
@@ -1038,18 +939,6 @@ export {
   inMemoryExperimentStore,
 } from './experiment-tracker'
 export { type LeaderboardOptions, type LeaderboardRow, leaderboard } from './leaderboard'
-export type { MuffledFinder, MuffledFinding, ScanOptions } from './muffled-gate-scanner'
-export {
-  DEFAULT_FINDERS,
-  findAutoMatchNoExpectation,
-  findConstructorCwdDropped,
-  findFallbackToPass,
-  findLiteralTruePass,
-  findSkipCountsAsPass,
-  formatFindings,
-  scanForMuffledGates,
-  UNIVERSAL_FINDERS,
-} from './muffled-gate-scanner'
 export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
 export {
   evaluateOracles,
@@ -1095,18 +984,6 @@ export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series
 export { analyzeSeries } from './series-convergence'
 export type { Slo, SloCheckResult, SloComparator, SloReport, SloSeverity } from './slo'
 export { checkSlos, DEFAULT_AGENT_SLOS } from './slo'
-export type {
-  ContinuityCheck,
-  ContinuityCheckResult,
-  ContinuityReport,
-  ContinuitySnapshotPair,
-} from './state-continuity'
-export {
-  collectionPreserved,
-  keyPreserved,
-  scoreContinuity,
-  statusAdvanced,
-} from './state-continuity'
 
 // ── Verdict ──────────────────────────────────────────────────────────
 // Validator-output primitive. Substrate-level type; agent-runtime's
@@ -1156,10 +1033,6 @@ export { VERIFICATION_STRATEGIES, VERIFICATION_STRATEGY_SOURCES } from './verifi
 
 // ── Trust surface ────────────────────────────────────────────────────
 
-export type { BehaviorAssertion, CallExpectation, Expectation, MatcherResult } from './behavior-dsl'
-export { expectAgent, runExpectations } from './behavior-dsl'
-export type { ContractMetric, ContractReport, ThresholdContract } from './ci-gate'
-export { evaluateContract, renderMarkdownReport } from './ci-gate'
 export type { CanaryLeak } from './contamination-guard'
 export {
   canaryLeakView,
@@ -1198,33 +1071,6 @@ export {
   verbosityBias,
 } from './judge-calibration'
 export type {
-  JudgeReplayResult,
-  LangfuseEnvelope,
-  LangfuseGeneration,
-  LangfuseScore,
-} from './observability'
-export {
-  replayTraceThroughJudge,
-  toLangfuseEnvelope,
-  toPrometheusText,
-} from './observability'
-export type {
-  Mutator,
-  ParaphraseRobustnessScenarioInput,
-  ParaphraseRobustnessScenarioResult,
-  RobustnessResult,
-} from './paraphrase'
-export {
-  DEFAULT_MUTATORS,
-  lowercaseMutator,
-  paraphraseRobustness,
-  paraphraseRobustnessScenarios,
-  politenessPrefixMutator,
-  sentenceReorderMutator,
-  typoMutator,
-  whitespaceCollapseMutator,
-} from './paraphrase'
-export type {
   RedTeamCase,
   RedTeamCategory,
   RedTeamFinding,
@@ -1238,19 +1084,11 @@ export {
   scoreRedTeamOutput,
   toolNamesForRun,
 } from './red-team'
-export type { ImageData, VisualDiffOptions, VisualDiffResult } from './visual-diff'
-export { pixelDeltaRatio, visualDiff } from './visual-diff'
 
 // ── builder-of-builders eval — subpath: /builder-eval ───────────────────
 
 // ── Tier 1 — meta-eval correlation, PRM, bisector ────────────────────
 
-export type { BisectOptions, BisectResult, BisectStep } from './bisector'
-export {
-  bisect,
-  commitBisect,
-  promptBisect,
-} from './bisector'
 // meta-eval and prm are reachable through their subpaths: /meta-eval, /prm
 
 // ── Tier 2 — counterfactual + cross-trace diff + pre-registration ────
@@ -1262,13 +1100,6 @@ export type {
   CounterfactualRunner,
 } from './counterfactual'
 export { attributeCounterfactuals, runCounterfactual } from './counterfactual'
-export type {
-  AlignmentOp,
-  CrossTraceDiff,
-  CrossTraceDiffOptions,
-  StepAttribution,
-} from './cross-trace-diff'
-export { crossTraceDiff } from './cross-trace-diff'
 export type {
   HypothesisManifest,
   HypothesisResult,
@@ -1287,28 +1118,6 @@ export {
 
 export type { ActiveLearningOptions, SynthesisReason, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
-export type {
-  CausalAttributionReport,
-  FactorContribution,
-  FactorialCell,
-  InteractionContribution,
-} from './causal-attribution'
-export { causalAttribution } from './causal-attribution'
-export type { ExportedRewardModel, InferenceScorer } from './reward-model-export'
-export {
-  exportRewardModel,
-  loadScorerFromGrader,
-  replayScorerOverCorpus,
-} from './reward-model-export'
-export type {
-  CandidateScenario,
-  EvolutionRound,
-  ScoredTarget,
-  SelfPlayOptions,
-  SelfPlayProposer,
-  SelfPlayScorer,
-} from './self-play'
-export { runSelfPlay } from './self-play'
 
 // ── LLM client, multi-layer verifier, semantic concept judge, error-count ─
 
@@ -1337,16 +1146,6 @@ export {
   ERROR_COUNT_PATTERNS,
   extractErrorCount,
 } from './error-count-extractor'
-export type {
-  FlowAction,
-  FlowLayerEnv,
-  FlowLayerFactoryInput,
-  FlowRunner,
-  FlowRunnerStepResult,
-  FlowSpec,
-  FlowStep,
-} from './flow-layer'
-export { flowLayer } from './flow-layer'
 export type {
   IntentMatchInput,
   IntentMatchOptions,
@@ -1491,18 +1290,6 @@ export { runCanaries } from './canary'
 // ── Concurrency + persistence + telemetry primitives for evolution loops ──
 export { Mutex, mapConcurrent } from './concurrency'
 export type {
-  DescriptionLengthCandidate,
-  DescriptionLengthConfig,
-  DescriptionLengthDecision,
-  DescriptionLengthEvidence,
-  DescriptionLengthRejectionCode,
-} from './description-length-gate'
-export {
-  DescriptionLengthGate,
-  dataDescriptionBits,
-  modelDescriptionBits,
-} from './description-length-gate'
-export type {
   DiscoveredPersona,
   DiscoverPersonasOptions,
 } from './discover-personas'
@@ -1546,8 +1333,6 @@ export type {
 } from './judge-retry'
 export { withJudgeRetry } from './judge-retry'
 export { LockedJsonlAppender } from './locked-jsonl-appender'
-export type { OrthogonalityInput, OrthogonalityResult } from './orthogonality'
-export { passOrthogonality } from './orthogonality'
 // Pareto extensions (paretoFrontier + dominates already exported above)
 export { crowdingDistance, paretoFrontierWithCrowding, scalarScore } from './pareto'
 export type {
@@ -1585,11 +1370,6 @@ export type {
   ReferenceReplaySplit,
   ReferenceReplaySplitComparison,
 } from './reference-replay'
-export type { ReferenceReplaySteeringRowsOptions } from './reference-replay-steering'
-export {
-  referenceReplayRunsToSteeringRows,
-  referenceReplayScenarioToRunScore,
-} from './reference-replay-steering'
 export type {
   ReflectionContext,
   ReflectionProposal,
@@ -1614,19 +1394,6 @@ export type {
   ReleaseTraceEvidence,
 } from './release-confidence'
 export { assertReleaseConfidence, evaluateReleaseConfidence } from './release-confidence'
-export type { RenderReleaseReportOptions } from './release-report'
-export { renderReleaseReport } from './release-report'
-export type {
-  ReplayCacheEntry,
-  ReplayCacheStats,
-  ReplayFetchOptions,
-} from './replay'
-export {
-  createReplayFetch,
-  iterateRawCalls,
-  ReplayCache,
-  ReplayCacheMissError,
-} from './replay'
 export type {
   CallbackResearcherOptions,
   ExperimentPlan,
@@ -1657,13 +1424,6 @@ export {
   runTaskScore,
   validateRunRecord,
 } from './run-record'
-export type {
-  CreateSandboxPoolOpts,
-  PoolSlot,
-  SandboxPool,
-  SlotFactory,
-} from './sandbox-pool'
-export { createSandboxPool } from './sandbox-pool'
 export type {
   InterimReleaseConfidence,
   InterimReleaseConfidenceInput,
@@ -1702,16 +1462,10 @@ export {
 
 // ── OTEL pipeline + traced wrappers ─────────────────────────────────
 
-export type { OtelPipelineHandle, OtelPipelineOptions } from './otel-pipeline'
-export { isOtelConfigured, withOtelPipeline } from './otel-pipeline'
 // Prompt-profile builder utilities are namespaced under `profile`. The
 // canonical public `AgentProfile` type is exported above from
 // `@tangle-network/agent-interface` via `./agent-profile`.
 export * as profile from './profile/index'
-export type { TracedAnalystOptions } from './traced-analyst'
-export { tracedAnalyzeTraces } from './traced-analyst'
-export type { TracedJudgeOptions } from './traced-judges'
-export { traceJudge, traceJudgeEnsemble } from './traced-judges'
 
 // ── Cost governance — model seating chart + program cost report ─────────
 
@@ -1731,8 +1485,8 @@ export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
 // ── Perf — infra-performance benchmarking substrate ──────────────────
 // Journeys × axes scenario matrix, record-integrity contracts, and the
 // percentile ratchet (summarize → baseline → gate). Scores LATENCY /
-// RELIABILITY over flat metric records; the judge-panel BenchmarkRunner
-// (./benchmark) scores QUALITY. Also on the `/perf` subpath.
+// RELIABILITY over flat metric records; judge-based scoring covers
+// QUALITY. Also on the `/perf` subpath.
 // Product-owned benchmark bundles: portable product runs for agent-lab research.
 export type {
   AgentProfileRuntimeReceipt,

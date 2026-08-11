@@ -9,10 +9,6 @@ import { lnGamma, regularizedIncompleteBeta } from './math/special-functions'
 import { studentTCdf } from './math/student-t'
 import type { JudgeScore } from './types'
 
-/** Identity: dimensions already follow "higher = better" by prompt convention
- *  (inverted dims like hallucination are scored 10 = best at the source). */
-export const normalizeScores = (scores: JudgeScore[]): JudgeScore[] => scores
-
 /** Weighted mean — falls back to uniform weights when omitted */
 export function weightedMean(scores: { score: number; weight?: number }[]): number {
   if (scores.length === 0) return 0

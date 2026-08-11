@@ -11,8 +11,7 @@
  * dual-use:
  *
  *   - recorded eval traces — `evaluateTraceContract(contract, await
- *     store.spans({ runId }))`, or via the behavior DSL:
- *     `expectAgent(store, runId).toSatisfyContract(contract)`.
+ *     store.spans({ runId }))`.
  *   - the production OTLP stream — `ExportableSpan`s flattened by
  *     `trace/otel-bridge` satisfy `ContractSpan` structurally. A production
  *     monitor implements `OtelExporter`, buffers `exportSpan` payloads per

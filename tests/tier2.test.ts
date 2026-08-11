@@ -4,7 +4,6 @@ import {
   type CounterfactualRunner,
   runCounterfactual,
 } from '../src/counterfactual'
-import { crossTraceDiff } from '../src/cross-trace-diff'
 import {
   canonicalize,
   evaluateHypothesis,
@@ -122,36 +121,6 @@ describe('runCounterfactual', () => {
     expect(rank[0].mutationKind).toBe('swap-model')
     expect(rank[0].n).toBe(2)
     expect(rank[0].meanAbsDelta).toBeCloseTo(0.25)
-  })
-})
-
-describe('crossTraceDiff', () => {
-  it('aligns matched + replaced steps and emits per-step attributions', async () => {
-    const store = new InMemoryTraceStore()
-    const a = await seed(store, 0.6, [
-      { kind: 'llm', name: 'plan', model: 'claude' },
-      { kind: 'tool', name: 'search' },
-    ])
-    const b = await seed(store, 0.8, [
-      { kind: 'llm', name: 'plan', model: 'gpt' }, // model swap
-      { kind: 'tool', name: 'search' },
-    ])
-    const diff = await crossTraceDiff(store, a, b)
-    expect(diff.totalScoreDelta).toBeCloseTo(0.2)
-    const kinds = diff.alignment.map((o) => o.op)
-    expect(kinds).toContain('replace')
-    expect(kinds).toContain('match')
-  })
-
-  it('inserts/deletes on length mismatch', async () => {
-    const store = new InMemoryTraceStore()
-    const a = await seed(store, 0.5, [{ kind: 'llm', name: 'one' }])
-    const b = await seed(store, 0.5, [
-      { kind: 'llm', name: 'one' },
-      { kind: 'tool', name: 'search' },
-    ])
-    const diff = await crossTraceDiff(store, a, b)
-    expect(diff.alignment.find((o) => o.op === 'insert')).toBeDefined()
   })
 })
 
