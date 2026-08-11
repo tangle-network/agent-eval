@@ -349,16 +349,16 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
     ).rejects.toThrow(/baseline holdout is incomplete \(0\/3 designed cells scorable\)/)
   })
 
-  it('holds when the proposer proposes no improvement (winner == baseline)', async () => {
-    // Proposer returns only the parent surface → deduped to empty → winner stays
-    // baseline → holdout delta 0 → gate holds. Guards the "nothing to ship" path.
+  it('holds when a distinct candidate proposes no improvement (winner == baseline)', async () => {
+    // The candidate is distinct but lacks the schema marker, so it ties the
+    // baseline and cannot promote. The holdout gate must still hold.
     const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
       scenarios: SCENARIOS,
       holdoutScenarios: PROMOTION_HOLDOUT,
       baselineSurface: 'BASE',
       dispatchWithSurface: async (surface) => ({ text: String(surface) }),
       judges: [judge],
-      proposer: candidateProposer('BASE', 'x', 'r'),
+      proposer: candidateProposer('BASE without schema', 'x', 'r'),
       populationSize: 1,
       maxGenerations: 1,
       gate: defaultProductionGate<FakeArtifact, FakeScenario>({
@@ -980,8 +980,10 @@ describe('runOptimization', () => {
   it('runs baseline + N generations and returns a winner', async () => {
     const appendProposer: SurfaceProposer = {
       kind: 'append-letter',
-      async propose({ currentSurface, populationSize }) {
-        return new Array(populationSize).fill(0).map((_, i) => `${currentSurface} +${i}`)
+      async propose({ currentSurface, generation, populationSize }) {
+        return new Array(populationSize)
+          .fill(0)
+          .map((_, i) => `${currentSurface} +${generation}-${i}`)
       },
     }
     const dispatchWithSurface = async (surface: string, s: FakeScenario) => ({
@@ -1091,7 +1093,7 @@ describe('runOptimization', () => {
       kind: 'stop-after-one',
       async propose({ currentSurface, populationSize }) {
         proposeCount += 1
-        return new Array(populationSize).fill(currentSurface)
+        return new Array(populationSize).fill(`${currentSurface} [candidate ${proposeCount}]`)
       },
       decide({ history }: { history: ReadonlyArray<unknown> }) {
         // Stop once one generation has been recorded.
@@ -1135,7 +1137,7 @@ describe('runOptimization', () => {
           hasReport: 'report' in ctx,
           maxImprovementShots: ctx.maxImprovementShots,
         })
-        return new Array(ctx.populationSize).fill(ctx.currentSurface)
+        return new Array(ctx.populationSize).fill(`${ctx.currentSurface} [context probe]`)
       },
     }
 

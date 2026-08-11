@@ -465,6 +465,77 @@ describe('compareRankKeys tie-breaking', () => {
   })
 })
 
+describe('runOptimization candidate admission', () => {
+  it('rejects duplicate candidate surfaces before dispatch', async () => {
+    let candidateDispatches = 0
+    const duplicateProposer: SurfaceProposer = {
+      kind: 'duplicate',
+      async propose() {
+        return ['DUPLICATE', 'DUPLICATE']
+      },
+    }
+
+    await expect(
+      runOptimization({
+        baselineSurface: 'BASELINE',
+        scenarios,
+        dispatchWithSurface: async (surface) => {
+          if (surface !== 'BASELINE') candidateDispatches += 1
+          return { surface: String(surface) }
+        },
+        judges: [qualityJudge],
+        proposer: duplicateProposer,
+        populationSize: 2,
+        maxGenerations: 1,
+        seed: 7,
+        reps: 1,
+        resumable: false,
+        runDir: '/duplicate-candidates',
+        storage: inMemoryCampaignStorage(),
+        tracing: 'off',
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/duplicate candidate surface hash/)
+    expect(candidateDispatches).toBe(0)
+  })
+
+  it('rejects a surface admitted by an earlier generation', async () => {
+    let proposalCalls = 0
+    let candidateDispatches = 0
+    const repeatedProposer: SurfaceProposer = {
+      kind: 'repeated-generation',
+      async propose() {
+        proposalCalls += 1
+        return ['FIRST']
+      },
+    }
+
+    await expect(
+      runOptimization({
+        baselineSurface: 'BASELINE',
+        scenarios,
+        dispatchWithSurface: async (surface) => {
+          if (surface !== 'BASELINE') candidateDispatches += 1
+          return { surface: String(surface) }
+        },
+        judges: [qualityJudge],
+        proposer: repeatedProposer,
+        populationSize: 1,
+        maxGenerations: 2,
+        seed: 7,
+        reps: 1,
+        resumable: false,
+        runDir: '/repeated-generation',
+        storage: inMemoryCampaignStorage(),
+        tracing: 'off',
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/duplicate candidate surface hash/)
+    expect(proposalCalls).toBe(2)
+    expect(candidateDispatches).toBe(1)
+  })
+})
+
 describe('runOptimization candidate concurrency', () => {
   it('runs candidate campaigns in parallel without changing result order', async () => {
     let active = 0

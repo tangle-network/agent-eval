@@ -443,6 +443,11 @@ const proposer: SurfaceProposer = {
 Return a label and rationale when they will help later analysis.
 Candidate creation must not read final test results.
 
+`runOptimization()` rejects a candidate whose `surfaceHash` was already admitted.
+This includes the baseline, an earlier generation, and another candidate in the same proposal.
+The complete proposal is checked before candidate dispatch, so duplicates cannot consume candidate cells.
+Use `reps` when one surface needs repeated measurements.
+
 ## Data And Cost Rules
 
 - Train and selection cases are visible to complete optimization methods.
