@@ -222,6 +222,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
       const started = Date.now()
       const maxCandidateChars = config.maxCandidateChars ?? GEPA_DEFAULT_MAX_CANDIDATE_CHARS
       const maxEvidenceChars = config.maxEvidenceChars ?? GEPA_DEFAULT_MAX_EVIDENCE_CHARS
+      const timeoutMs = config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS
       const storage = input.runOptions.storage ?? fsCampaignStorage()
       const runDir = `${input.runDir}/gepa`
       storage.ensureDir(runDir)
@@ -241,7 +242,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         module: 'agent_eval_rpc.gepa_bridge',
         engineModules: config.engineModules,
         ...(bridgeRunner ? { runner: bridgeRunner } : {}),
-        timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
+        timeoutMs,
         ...(signal ? { signal } : {}),
       })
       const seedCandidate = encodeExternalTextCandidate(input.baselineSurface)
@@ -399,6 +400,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               seed: input.seed,
               callbackUrl: callback.url,
               callbackToken: callback.token,
+              timeoutMs,
               engineModules: config.engineModules ?? [],
               recipe: config.recipe,
               objective: config.objective,
@@ -428,7 +430,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
                     env: removeCredentialEnvironment(runnerEnv),
                   }
                 : bridgeRunner,
-            timeoutMs: config.timeoutMs ?? GEPA_DEFAULT_TIMEOUT_MS,
+            timeoutMs,
             ...(signal ? { signal } : {}),
           })
           return { result, outputDir }

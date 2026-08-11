@@ -566,6 +566,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
             "seed": 7,
             "callbackUrl": "http://127.0.0.1:9/evaluate",
             "callbackToken": "local-callback-token",
+            "timeoutMs": 1_800_000,
             "recipe": {
                 "kind": "engine",
                 "run": {
