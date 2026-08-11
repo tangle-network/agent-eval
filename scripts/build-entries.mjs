@@ -19,6 +19,7 @@ export const buildEntries = {
   'authenticity/index': 'src/authenticity/index.ts',
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',
+  'storyboard/index': 'src/storyboard/index.ts',
   'supervisor-run/index': 'src/supervisor-run/index.ts',
   'trajectory-replay/index': 'src/trajectory-replay/index.ts',
   'trace-repair/index': 'src/trace-repair/index.ts',

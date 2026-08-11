@@ -98,6 +98,7 @@ export {
 // Persisted data shapes: run records, cost ledger, scorecards,
 // trajectories, and the trace corpus (schema, stores, capture, OTLP).
 
+export { BudgetBreachError, BudgetGuard } from './budget-guard'
 export type {
   ChannelRollup,
   CostChannel,
@@ -130,7 +131,13 @@ export {
   costForUsage,
   modelPriceKey,
 } from './cost-ledger'
-
+export type {
+  CounterfactualContext,
+  CounterfactualMutation,
+  CounterfactualResult,
+  CounterfactualRunner,
+} from './counterfactual'
+export { runCounterfactual } from './counterfactual'
 export type {
   AnalystFeedbackTrajectoryOptions,
   AnalystFindingDigest,
@@ -168,7 +175,6 @@ export {
   summarizePreferenceMemory,
   withAssignedFeedbackSplit,
 } from './feedback-trajectory'
-
 export type {
   JudgeScoresRecord,
   RunCostProvenance,
@@ -189,10 +195,8 @@ export {
   runTaskScore,
   validateRunRecord,
 } from './run-record'
-
 export type { RunScore, RunScoreWeights } from './run-score'
 export { aggregateRunScore, clamp01 } from './run-score'
-
 export type {
   CellVerdict,
   DiffScorecardOptions,
@@ -211,6 +215,7 @@ export {
   recordRuns,
   recordRunsToScorecard,
 } from './scorecard'
+export { OUTPUT_VALUE } from './trace/attribute-vocabulary'
 export { captureFetchToRawSink } from './trace/capture-fetch'
 export type { SpanHandle } from './trace/emitter'
 export { TraceEmitter } from './trace/emitter'
@@ -229,13 +234,14 @@ export { DEFAULT_REDACTION_RULES, REDACTION_VERSION, redactString } from './trac
 export type {
   Artifact,
   BudgetLedgerEntry,
+  BudgetSpec,
   LlmSpan,
   Run,
   Span,
   ToolSpan,
   TraceEvent,
 } from './trace/schema'
-export { isJudgeSpan, isLlmSpan } from './trace/schema'
+export { isJudgeSpan, isLlmSpan, isToolSpan } from './trace/schema'
 export type { EventFilter, RunFilter, SpanFilter, TraceStore } from './trace/store'
 export { FileSystemTraceStore, InMemoryTraceStore } from './trace/store'
 export type {
@@ -245,7 +251,6 @@ export type {
   TraceContract,
 } from './trace-contracts'
 export { checkTraceContracts, traceContract } from './trace-contracts'
-
 export type { Trajectory, TrajectoryStep } from './trajectory'
 export { buildTrajectory } from './trajectory'
 
@@ -309,8 +314,34 @@ export { computeExperimentStats, improvementVerdict } from './experiment-tracker
 
 export { canonicalize, hashJson } from './pre-registration'
 
-export type { ProposeReviewConfig, ProposeReviewReport } from './propose-review'
-export { runProposeReview } from './propose-review'
+export type {
+  LlmReviewerConfig,
+  ProposeFn,
+  ProposeInput,
+  ProposeOutput,
+  ProposeReviewConfig,
+  ProposeReviewReport,
+  Review,
+  ReviewFn,
+  ReviewInput,
+  ReviewMemoryEntry,
+  ReviewMemoryStore,
+  Verification,
+  VerifyFn,
+} from './propose-review'
+export {
+  createLlmReviewer,
+  inMemoryReviewStore,
+  jsonlReviewStore,
+  runProposeReview,
+} from './propose-review'
+export type {
+  ProposeReviewControlAction,
+  ProposeReviewControlConfig,
+  ProposeReviewControlResult,
+  ProposeReviewControlState,
+} from './propose-review-control'
+export { runProposeReviewAsControlLoop } from './propose-review-control'
 
 export type { ReflectionContext, ReflectionProposal, TrialTrace } from './reflective-mutation'
 export { buildReflectionPrompt, parseReflectionResponse } from './reflective-mutation'
@@ -392,7 +423,7 @@ export type {
   EvidenceRef,
   ProposalFinding,
 } from './analyst/types'
-export { computeFindingId, makeFinding } from './analyst/types'
+export { computeFindingId, makeFinding, makeProposalFinding } from './analyst/types'
 
 export { iqr } from './baseline'
 
@@ -433,6 +464,7 @@ export { classifyFailure, FAILURE_CLASSES } from './failure-taxonomy'
 export {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
+  knowledgeReadinessTracePayload,
   scoreKnowledgeReadiness,
   userQuestionsForKnowledgeGaps,
 } from './knowledge/readiness'
@@ -467,23 +499,45 @@ export type {
   PairedCorrectness,
   PairedMetricDelta,
 } from './paired-arms'
-export { comparePairedArms } from './paired-arms'
+export { comparePairedArms, pairRunRecords } from './paired-arms'
 
-export { minimumPairsForPairedDeltaTest } from './paired-delta-test'
-
+export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-delta-test'
+export { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'
 export type { Objective, ParetoResult } from './pareto'
 export { dominates, paretoFrontier } from './pareto'
-
 export type { HeldOutPartition, PartitionHeldOutOptions } from './partition-held-out'
 export { partitionHeldOut } from './partition-held-out'
-
 export { budgetBreachView } from './pipelines/budget-breach'
-
 export { failureClusterView } from './pipelines/failure-cluster'
-
 export { judgeAgreementView } from './pipelines/judge-agreement'
-
 export { toolWasteView } from './pipelines/tool-waste'
+export type {
+  ProductBenchmarkExportOptions,
+  ProductBenchmarkExportResult,
+  ProductBenchmarkManifest,
+  ProductBenchmarkSingleRunExportOptions,
+  ProductBenchmarkSplit,
+  ProductBenchmarkValidationReport,
+} from './product-benchmark/index'
+export {
+  assertProductBenchmarkRun,
+  exportProductBenchmark,
+  exportProductBenchmarkRuns,
+  productBenchmarkRepoIdentity,
+  readProductBenchmarkManifest,
+} from './product-benchmark/index'
+export type {
+  ProjectRuntimeTrajectoryEvidenceOptions,
+  RuntimeTrajectoryEvidenceProjection,
+  RuntimeTrajectoryEvidenceSummary,
+  RuntimeTrajectoryHookEvent,
+  RuntimeTrajectoryRecord,
+  RuntimeTrajectoryRunRecord,
+} from './runtime-trajectory'
+export {
+  parseRuntimeTrajectoryHookEvent,
+  projectRuntimeTrajectoryEvidence,
+} from './runtime-trajectory'
 
 export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
 export { analyzeSeries } from './series-convergence'
@@ -594,13 +648,11 @@ export {
 } from './trace-analyst/insights'
 
 export type { TraceAnalysisStore } from './trace-analyst/store-contract'
-
 export { OtlpFileTraceStore } from './trace-analyst/store-otlp'
-
 export { toolSpansToTraceAnalysisStore } from './trace-analyst/store-tool-spans'
-
 export type {
   DatasetOverview,
+  ErrorCluster,
   QueryTracesPage,
   SearchSpanResult,
   SearchTraceResult,
@@ -828,16 +880,21 @@ export { canonicalJson, contentHash, fileVerdictCache } from './verdict-cache'
 // Provider-neutral LLM clients and shared error types.
 
 export type {
+  ChatCallOpts,
   ChatClient,
   ChatRequest,
   ChatResponse,
   CreateChatClientOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
-
+export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'
 export type { AgentEvalErrorCode } from './errors'
 export { AgentEvalError, ConfigError, JudgeError, NotFoundError, ValidationError } from './errors'
-
+export type { RunRecordBackend } from './eval-trace-store'
+export { jsonlRunRecordBackend } from './eval-trace-store'
+export { assignFeedbackSplit } from './feedback-trajectory'
+export { preflightModels } from './integrity/preflight'
+export type { KnowledgeBundle } from './knowledge/types'
 export type {
   LlmCallMetadata,
   LlmCallRequest,
@@ -854,14 +911,30 @@ export {
   costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
+  LlmClient,
   LlmResponseError,
   maximumChargeForLlmRequest,
   probeLlm,
   stripFencedJson,
 } from './llm-client'
-
 export type { ModelSeats } from './model-seats'
 export { resolveSeat, seatPresets } from './model-seats'
-
+export type { Finding } from './multi-layer-verifier'
 export type { PromptHandle } from './prompt-registry'
 export { hashContent, PromptRegistry } from './prompt-registry'
+export type {
+  ReferenceReplayCaseRun,
+  ReferenceReplayRun,
+  ReferenceReplaySplit,
+} from './reference-replay'
+export type { ActionableSideInfo } from './release-confidence'
+export type { SandboxDriver } from './sandbox-harness'
+export type { SteeringBundle } from './steering'
+export type { SteeringOptimizationResult, SteeringOptimizationRow } from './steering-optimizer'
+export { PairwiseSteeringOptimizer } from './steering-optimizer'
+export { paretoChart } from './summary-report'
+export type { OtlpSpan } from './trace/otel'
+export { InMemoryRawProviderSink } from './trace/raw-provider-sink'
+export type { GenericSpan, JudgeSpan, RunStatus } from './trace/schema'
+export { createBoundedTraceAnalysisStore } from './trace-analyst/store'
+export { otlpTextToTraceAnalysisStore } from './trace-analyst/store-otlp'

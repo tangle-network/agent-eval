@@ -141,6 +141,11 @@
     },
     "./openapi.json": {
       "default": "./dist/openapi.json"
+    },
+    "./storyboard": {
+      "types": "./dist/storyboard/index.d.ts",
+      "import": "./dist/storyboard/index.js",
+      "default": "./dist/storyboard/index.js"
     }
   },
   "bin": {

@@ -15,11 +15,15 @@ import type {
   ChatClient,
   ChatRequest,
   ChatResponse,
+  CounterfactualContext,
+  CounterfactualRunner,
   CreateChatClientOpts,
+  ErrorCluster,
   JudgeScoresRecord,
   MockTransportOpts,
   ProposalFinding,
   RunOutcome,
+  RuntimeTrajectoryHookEvent,
 } from '../src/index'
 import * as agentEval from '../src/index'
 import * as rl from '../src/rl/index'
@@ -41,6 +45,7 @@ const ROOT_ERROR_CLASSES = [
   // Runtime error constructors. Type-only exports like `AgentEvalErrorCode`
   // (a string-literal union) are validated by the namespace import compiling.
   'AgentEvalError',
+  'BudgetBreachError',
   'ConfigError',
   'JudgeError',
   'NotFoundError',
@@ -52,6 +57,9 @@ const ROOT_RUNTIME_SYMBOLS = [
   'FileSystemTraceStore',
   'InMemoryTraceStore',
   'isJudgeSpan',
+  // agent-runtime supervise surface imports these from the root
+  'isToolSpan',
+  'OUTPUT_VALUE',
   // LLM client + retry
   'callLlmJson',
   'withJudgeRetry',
@@ -61,6 +69,27 @@ const ROOT_RUNTIME_SYMBOLS = [
   'runEvalCampaign',
   'HeldOutGate',
   'runCanaries',
+  // Counterfactual replay (traces imports these from the root)
+  'runCounterfactual',
+  // Propose/review loop (discovery-lab tools/propose-v9.mjs imports these from the root)
+  'runProposeReviewAsControlLoop',
+  'createLlmReviewer',
+  'jsonlReviewStore',
+  'makeProposalFinding',
+  // Product benchmark packaging (creative-agent eval/research-package.ts)
+  'assertProductBenchmarkRun',
+  'exportProductBenchmark',
+  'exportProductBenchmarkRuns',
+  'productBenchmarkRepoIdentity',
+  'readProductBenchmarkManifest',
+  // Budget guard (creative-agent scripts/evals/run-driver-soak.ts)
+  'BudgetGuard',
+  // Paired statistics (gtm-agent eval/matrix/report.ts, agent-dev-container intelligence)
+  'pairedDeltaTest',
+  'pairRunRecords',
+  // Runtime trajectory + knowledge readiness (agent-dev-container platform/intelligence)
+  'projectRuntimeTrajectoryEvidence',
+  'knowledgeReadinessTracePayload',
   // Substrate primitives
   'discoverPersonas',
   'scoreKnowledgeReadiness',
@@ -141,6 +170,45 @@ describe('public-surface contract for consumers', () => {
     }
     expect(outcome.judgeScores).toBe(judgeScores)
     expect(outcome.judgeScores?.composite).toBe(0.75)
+  })
+
+  it('exposes the trace-analysis types agent-dev-container imports from the root', () => {
+    // Documents the consumed shape; the packed-tarball consumer typecheck is
+    // the compile-time guard (tests/ are outside tsc's include).
+    const cluster: ErrorCluster = {
+      signature: 'timeout',
+      status_message_sample: 'deploy timed out after 30s',
+      span_name: 'tool:deploy',
+      tool_name: 'deploy',
+      trace_count: 2,
+      span_count: 2,
+      prevalence: 0.5,
+      exemplar_trace_ids: ['t1'],
+      exemplar_span_ids: ['s1'],
+    }
+    const hookEvent: RuntimeTrajectoryHookEvent = {
+      id: 'e1',
+      runId: 'r1',
+      target: 'tool:deploy',
+      phase: 'post',
+      timestamp: 1,
+    }
+    expect(cluster.trace_count).toBe(2)
+    expect(hookEvent.runId).toBe('r1')
+  })
+
+  it('exposes the counterfactual replay surface traces imports from the root', () => {
+    expect(typeof agentEval.runCounterfactual).toBe('function')
+    // Type-level pin: traces implements CounterfactualRunner and builds a
+    // CounterfactualContext; a rename or field drop stops compiling here.
+    const runner: CounterfactualRunner = {
+      executeFrom: async (ctx: CounterfactualContext) => {
+        void ctx.originalRunId
+        void ctx.prefix
+        void ctx.mutatedStep
+      },
+    }
+    expect(typeof runner.executeFrom).toBe('function')
   })
 
   it('exposes root ChatClient API types used by consumers', async () => {
