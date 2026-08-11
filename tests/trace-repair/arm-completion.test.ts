@@ -35,7 +35,9 @@ function scriptedTransport(replies: readonly string[]): PrimeBridgeTransport & {
     requests.push(request)
     const content = replies[requests.length - 1]
     if (content === undefined) {
-      throw new Error(`the fake bridge was called ${requests.length} times, scripted for ${replies.length}`)
+      throw new Error(
+        `the fake bridge was called ${requests.length} times, scripted for ${replies.length}`,
+      )
     }
     return {
       status: 200,
@@ -58,7 +60,10 @@ function arm(transport: PrimeBridgeTransport) {
     timeoutMs: 60_000,
     pricing: PRICING,
     affordances: ['inline-trajectory'],
-    certification: { kind: 'none', reason: 'authored for the repair contract, certified by nothing' },
+    certification: {
+      kind: 'none',
+      reason: 'authored for the repair contract, certified by nothing',
+    },
   })
 }
 

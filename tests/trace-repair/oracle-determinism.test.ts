@@ -147,10 +147,7 @@ describe('a verdict that is a function of the state', () => {
   it('throws with the flip rate named', () => {
     const unstable = oracleDeterminism(
       evidence([
-        group([
-          [{ id: 'suite.py::t', passed: true }],
-          [{ id: 'suite.py::t', passed: false }],
-        ]),
+        group([[{ id: 'suite.py::t', passed: true }], [{ id: 'suite.py::t', passed: false }]]),
       ]),
     )
     expect(() => assertDeterministicOracle(unstable)).toThrow(NondeterministicOracleError)

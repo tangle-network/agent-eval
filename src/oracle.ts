@@ -6,9 +6,15 @@
  * don't need an LLM judge — you need a regex. These oracles are
  * composable pass/fail checks over an observation bundle.
  *
- * Each oracle returns { pass, detail, evidence? } and has a short
- * `id` for reporting. `evaluateOracles` runs a batch and aggregates.
+ * Each oracle returns { pass, detail, evidence? } and has a short `id` for
+ * reporting. `evaluateOracles` runs a batch and lands the aggregate in the
+ * shared verdict spine (`DefaultVerdict`, docs/verdicts.md) with a
+ * `'test'`-strategy certification: an oracle set IS a small answer key,
+ * and certifies nothing outside its own coverage.
  */
+
+import { packageVersion } from './package-version'
+import { certificationEvidenceDigest, type DefaultVerdict } from './verdict'
 
 export interface OracleObservation {
   /** Final observable text output from the agent (response, page snapshot, stdout). */
@@ -152,13 +158,13 @@ export function notBlocked(): Oracle {
   }
 }
 
-export interface OracleReport {
+/** Extends the substrate verdict spine: `valid` = every oracle passed (and
+ *  at least one ran); `score` = ratio of oracles passed; `scores` = per-
+ *  oracle 0|1 keyed by oracle id. */
+export interface OracleReport extends DefaultVerdict {
   results: OracleResult[]
-  pass: boolean
   passCount: number
   failCount: number
-  /** 0-1 ratio of oracles passed. */
-  score: number
 }
 
 /** Run all oracles against one observation and aggregate. */
@@ -166,12 +172,22 @@ export function evaluateOracles(obs: OracleObservation, oracles: Oracle[]): Orac
   const results = oracles.map((o) => o.check(obs))
   const passCount = results.filter((r) => r.pass).length
   const failCount = results.length - passCount
+  const scores: Record<string, number> = {}
+  for (const r of results) scores[r.id] = r.pass ? 1 : 0
   return {
     results,
-    pass: failCount === 0 && results.length > 0,
     passCount,
     failCount,
+    valid: failCount === 0 && results.length > 0,
     score: results.length ? passCount / results.length : 0,
+    scores,
+    notes: `${passCount}/${results.length} oracles passed`,
+    certification: {
+      strategy: 'test',
+      checker: { name: 'agent-eval:declarative-oracles', version: packageVersion() },
+      assumptions: [],
+      evidenceDigest: certificationEvidenceDigest(results),
+    },
   }
 }
 

@@ -20,12 +20,14 @@
  */
 
 import { CaptureIntegrityError, ValidationError } from '../errors'
+import { packageVersion } from '../package-version'
 import { wrapActionForExec } from '../trajectory-replay/exec'
 import {
   deriveFailureSignature,
   parseRecordedReturncode,
   type RecordedTrajectoryStep,
 } from '../trajectory-replay/steps'
+import { certificationEvidenceDigest, type DefaultVerdict } from '../verdict'
 import {
   checkInterventionBudget,
   type InterventionBudget,
@@ -82,7 +84,15 @@ export interface GradeRepairOptions {
   readonly onProgress?: (message: string) => void
 }
 
-export interface RepairRowResult {
+/** Extends the substrate verdict spine: `valid` = the intervention flipped
+ *  the held-out suite in at least one measurement (locally or after the
+ *  pinned continuation); `score` = the better of the two flip measurements
+ *  (`localFlip`, `repairRate`), so `valid` ⟺ `score > 0`. The credit
+ *  VECTOR stays authoritative in `credit` and travels in `scores` —
+ *  Delta-repair pairing reads `delta`, never the scalar. Certification is
+ *  present exactly when the suite executed (`outcome: 'measured'`); a
+ *  closed gate certifies nothing. */
+export interface RepairRowResult extends DefaultVerdict {
   readonly rowId: string
   readonly grade: RepairGrade
   readonly credit: RepairCredit
@@ -113,6 +123,7 @@ export async function gradeRepairRow(options: GradeRepairOptions): Promise<Repai
 function finish(row: AdmittedRow, grade: RepairGrade, startedMs: number): RepairRowResult {
   const credit = repairCredit(grade)
   const interventionRate = grade.outcome === 'measured' ? credit.repairRate : row.controlRate
+  const score = Math.max(credit.localFlip, credit.repairRate)
   return {
     rowId: row.rowId,
     grade,
@@ -125,7 +136,40 @@ function finish(row: AdmittedRow, grade: RepairGrade, startedMs: number): Repair
     repairRollouts: grade.outcome === 'measured' ? grade.repair.rollouts : 0,
     delta: interventionRate - row.controlRate,
     wallMs: Date.now() - startedMs,
+    valid: score > 0,
+    score,
+    scores: { ...credit },
+    notes: `outcome: ${grade.outcome}`,
+    ...(grade.outcome === 'measured'
+      ? {
+          certification: {
+            strategy: 'test',
+            checker: {
+              name: 'agent-eval:trace-repair-grader',
+              version: packageVersion(),
+              pins: { suite: row.suiteDigest, policy: row.policyDigest },
+            },
+            assumptions: gradeAssumptions(grade),
+            evidenceDigest: certificationEvidenceDigest(grade),
+          },
+        }
+      : {}),
   }
+}
+
+/** Steps a measured grade rests on that no suite run verified. */
+function gradeAssumptions(grade: Extract<RepairGrade, { outcome: 'measured' }>): string[] {
+  const assumptions: string[] = []
+  if (grade.reproduction.basis === 'no-recorded-observation') {
+    assumptions.push('step k recorded no observation — the reproduction gate passed vacuously')
+  }
+  const prefix = grade.execution.prefix
+  if (prefix.divergences > 0) {
+    assumptions.push(
+      `${prefix.divergences} of ${prefix.stepsReplayed} replayed prefix steps diverged from the recording — the state at k is approximate`,
+    )
+  }
+  return assumptions
 }
 
 async function produceGrade(options: GradeRepairOptions): Promise<RepairGrade> {

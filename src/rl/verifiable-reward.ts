@@ -44,7 +44,7 @@ import type { VerificationStrategySource } from '../verification-strategy'
  *
  * - `'proof-kernel'` — kernel-checked formal proof. Failure mode: the
  *   formalization gap — the kernel never certifies that the formal
- *   statement matches the informal claim (`src/equivalence-check.ts`
+ *   statement matches the informal claim (`src/verification-strategy.ts`
  *   is the discharge protocol).
  * - `'invariant'` — invariant / metamorphic properties held. Failure
  *   mode: weak invariants pass everything; the set needs seeded-bug

@@ -6,17 +6,17 @@ import {
 } from '../../src/trace-repair/degenerate-strategies'
 import { deltaRepair } from '../../src/trace-repair/delta-repair'
 import { CREDIT_TERMS } from '../../src/trace-repair/funnel'
-import { gradeRepairRow, type GradeRepairOptions } from '../../src/trace-repair/grade'
+import { type GradeRepairOptions, gradeRepairRow } from '../../src/trace-repair/grade'
 import { injectedTestOracle } from '../../src/trace-repair/test-oracle'
 import {
   type ActionSpec,
   admitted,
+  declinedRowResult,
   expectZeroCredit,
   FakeSessionFactory,
   fakeContinuation,
-  declinedRowResult,
-  measuredRowResult,
   HELD_OUT_SUITE,
+  measuredRowResult,
   PLANTED_SUITE,
   SUITE_COMMAND,
   SUITE_FILES,

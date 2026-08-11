@@ -4,6 +4,7 @@
 
 An analyst reads a blinded trajectory prefix and answers with exactly one finding — a step `k`, what went wrong there, and one action to run instead — or with the literal `no-decisive-failure`.
 The grader turns that answer into a measured difference.
+Each graded row also lands in the shared `DefaultVerdict` spine, certified `test` against the row's pinned suite and policy digests when — and only when — the suite executed; see [docs/verdicts.md](./verdicts.md).
 
 [The analyst arms](./trace-repair-analyst-arms.md) page covers who produces the answer, and what has to be equal between two analysts before their difference means anything.
 

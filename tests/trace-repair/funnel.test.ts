@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { repairFinding } from '../../src/trace-repair/analyst-response'
 import { CREDIT_TERMS, repairCredit } from '../../src/trace-repair/funnel'
-import { gradeRepairRow, type GradeRepairOptions } from '../../src/trace-repair/grade'
+import { type GradeRepairOptions, gradeRepairRow } from '../../src/trace-repair/grade'
 import { injectedTestOracle } from '../../src/trace-repair/test-oracle'
 import {
   type ActionSpec,
@@ -8,15 +9,14 @@ import {
   CWD,
   expectZeroCredit,
   FakeSessionFactory,
-  fakeContinuation,
   type FakeWorldOptions,
+  fakeContinuation,
   HELD_OUT_SUITE,
   SUITE_COMMAND,
   SUITE_FILES,
   SUITE_PATH,
   step,
 } from './fixtures'
-import { repairFinding } from '../../src/trace-repair/analyst-response'
 
 /**
  * A four-step recording that ends on a clean exit — the dominant shape in the
@@ -165,9 +165,7 @@ describe('t1 — reproduction is a gate that pays nothing', () => {
 
   it('has no reproduction term in the credit vector at all', () => {
     expect(CREDIT_TERMS).toEqual(['executes', 'localFlip', 'repairRate'])
-    expect(
-      CREDIT_TERMS.some((term) => /reproduc|localis|localiz|k\b/i.test(term)),
-    ).toBe(false)
+    expect(CREDIT_TERMS.some((term) => /reproduc|localis|localiz|k\b/i.test(term))).toBe(false)
     expect(repairCredit({ outcome: 'declined' })).toEqual({
       executes: 0,
       localFlip: 0,
@@ -196,9 +194,7 @@ describe('t2 — the intervention executes', () => {
 
 describe('t3 — local flip', () => {
   it('flips immediately when the intervention repairs the task on its own', async () => {
-    const h = harness(
-      world({ 'touch /app/fixed': { writes: { '/app/fixed': '' } } }),
-    )
+    const h = harness(world({ 'touch /app/fixed': { writes: { '/app/fixed': '' } } }))
     const result = await gradeRepairRow(
       h.options({
         response: repairFinding({
@@ -211,6 +207,19 @@ describe('t3 — local flip', () => {
     expect(result.grade).toMatchObject({ outcome: 'measured', localFlip: { passed: true } })
     expect(result.credit).toEqual({ executes: 1, localFlip: 1, repairRate: 1 })
     expect(result.delta).toBe(1)
+    // The row result lands in the shared verdict spine: the credit vector
+    // travels in `scores`, and the executed suite certifies the verdict
+    // with the row's own suite and policy pins.
+    expect(result.valid).toBe(true)
+    expect(result.score).toBe(1)
+    expect(result.scores).toEqual({ executes: 1, localFlip: 1, repairRate: 1 })
+    expect(result.certification?.strategy).toBe('test')
+    expect(result.certification?.checker.name).toBe('agent-eval:trace-repair-grader')
+    expect(result.certification?.checker.pins).toEqual({
+      suite: result.grade.outcome === 'measured' ? result.grade.localFlip.suiteDigest : '',
+      policy: result.controlPolicyDigest,
+    })
+    expect(result.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
   })
 })
 
@@ -314,6 +323,11 @@ describe('no-decisive-failure', () => {
     expectZeroCredit(result.credit)
     expect(result.interventionRate).toBe(result.controlRate)
     expect(result.delta).toBe(0)
+    // No suite ran, so the verdict is invalid AND uncertified — a closed
+    // gate certifies nothing.
+    expect(result.valid).toBe(false)
+    expect(result.score).toBe(0)
+    expect(result.certification).toBeUndefined()
   })
 })
 
@@ -404,6 +418,10 @@ describe('arm integrity', () => {
         Buffer.from(/printf %s ([A-Za-z0-9+/=]+) /.exec(command)![1]!, 'base64').toString('utf8'),
       )
     expect(replayed).toEqual(['ls /app', 'python /app/main.py', 'touch /app/fixed'])
-    expect(localFlipBox?.commands.every((c) => !c.includes('base64 -d | sh') || c.startsWith(`cd '${CWD}'`))).toBe(true)
+    expect(
+      localFlipBox?.commands.every(
+        (c) => !c.includes('base64 -d | sh') || c.startsWith(`cd '${CWD}'`),
+      ),
+    ).toBe(true)
   })
 })

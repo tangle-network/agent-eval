@@ -94,9 +94,7 @@ export function localOptimizerModel(
       return {
         succeeded: true,
         response,
-        receipt: JSON.parse(
-          JSON.stringify(costReceiptFromLlm(response, pricing)),
-        ),
+        receipt: JSON.parse(JSON.stringify(costReceiptFromLlm(response, pricing))),
         execution: {
           kind: 'test-local-model',
           model: request.request.model,

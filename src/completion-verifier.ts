@@ -33,8 +33,14 @@ import {
   costReceiptFromLlmError,
   maximumChargeForLlmRequest,
 } from './llm-client'
+import { packageVersion } from './package-version'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
-import type { DefaultVerdict } from './verdict'
+import {
+  certificationEvidenceDigest,
+  type DefaultVerdict,
+  type VerdictCertification,
+} from './verdict'
+import type { CheckerIdentity, VerificationStrategySource } from './verification-strategy'
 
 /** What kind of produced state can satisfy a requirement structurally. */
 export type SatisfiedBy = 'artifact' | 'proposal' | 'tool-call' | 'any'
@@ -125,6 +131,9 @@ export interface CompletionVerdict extends DefaultVerdict {
 export function completionVerdict(input: {
   taskId: string
   requirements: RequirementCheck[]
+  /** What certified the correctness stage, when anything did. Omitted =
+   *  an uncertified verdict — the honest default for a bare checker. */
+  certification?: VerdictCertification
 }): CompletionVerdict {
   if (input.requirements.length === 0) {
     throw new Error(
@@ -153,18 +162,38 @@ export function completionVerdict(input: {
     unmeasuredCount,
     valid: fullyComplete,
     score: completionRate,
+    ...(input.certification === undefined ? {} : { certification: input.certification }),
   }
+}
+
+/**
+ * What a correctness checker declares about itself so the completion
+ * verdict can carry a certification: which strategy member it discharges,
+ * its exact identity, and the steps its answers rest on unverified.
+ */
+export interface CorrectnessCheckerAttestation {
+  strategy: VerificationStrategySource
+  checker: CheckerIdentity
+  assumptions: string[]
 }
 
 /**
  * Decides whether a produced item's content actually fulfils a requirement.
  * Injected so the structural verifier stays pure and unit-testable; the
  * production implementation is `createLlmCorrectnessChecker`.
+ *
+ * `attestation` is optional metadata on the function value: a checker that
+ * carries one yields certified completion verdicts; a bare function yields
+ * the same verdict uncertified. A plain arrow function remains a valid
+ * checker.
  */
-export type CorrectnessChecker = (
-  requirement: CompletionRequirement,
-  content: string,
-) => Promise<{ correct: boolean; reason: string }>
+export interface CorrectnessChecker {
+  (
+    requirement: CompletionRequirement,
+    content: string,
+  ): Promise<{ correct: boolean; reason: string }>
+  attestation?: CorrectnessCheckerAttestation
+}
 
 const STOPWORDS = new Set([
   'the',
@@ -430,7 +459,28 @@ export async function verifyCompletion(
     })
   }
 
-  return completionVerdict({ taskId: gold.taskId, requirements })
+  // The verdict blends the deterministic structural stage with the injected
+  // correctness stage, so the certification names the checker's own member
+  // and carries the structural stage's lexical nature as an assumption. A
+  // checker without an attestation yields an uncertified verdict.
+  const attestation = checkCorrectness.attestation
+  const certification: VerdictCertification | undefined = attestation
+    ? {
+        strategy: attestation.strategy,
+        checker: attestation.checker,
+        assumptions: [
+          'structural matching is lexical token recall over produced items — the correctness stage only sees items it matched',
+          ...attestation.assumptions,
+        ],
+        evidenceDigest: certificationEvidenceDigest({ taskId: gold.taskId, requirements }),
+      }
+    : undefined
+
+  return completionVerdict({
+    taskId: gold.taskId,
+    requirements,
+    ...(certification === undefined ? {} : { certification }),
+  })
 }
 
 export interface LlmCorrectnessCheckerOpts {
@@ -513,7 +563,7 @@ export function createLlmCorrectnessChecker(
       // Intentionally swallowed.
     }
   }
-  return async (requirement, content) => {
+  const checker: CorrectnessChecker = async (requirement, content) => {
     const request = {
       model,
       messages: [
@@ -615,6 +665,14 @@ export function createLlmCorrectnessChecker(
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
   }
+  checker.attestation = {
+    strategy: 'judge',
+    checker: { name: 'llm-correctness-checker', version: model },
+    assumptions: [
+      'served-model identity is accepted when the transport reports none (assertServedModel allowUnreported)',
+    ],
+  }
+  return checker
 }
 
 /** Stopwords for requirement-title tokenization — drops the imperative verbs
@@ -657,7 +715,7 @@ export function createTokenRecallChecker(
 ): CorrectnessChecker {
   const minRecall = opts.minRecall ?? 0.5
   const minLen = opts.minContentLength ?? 120
-  return async (requirement, content) => {
+  const checker: CorrectnessChecker = async (requirement, content) => {
     const body = content.trim()
     if (body.length < minLen)
       return {
@@ -686,4 +744,13 @@ export function createTokenRecallChecker(
           reason: `content recalls only ${hits}/${titleTokens.length} requirement tokens`,
         }
   }
+  // 'schema': token recall checks shape, not meaning — the member whose
+  // documented failure mode ("a well-formed wrong answer passes") is
+  // exactly this checker's polarity blindness.
+  checker.attestation = {
+    strategy: 'schema',
+    checker: { name: 'token-recall-checker', version: packageVersion() },
+    assumptions: ['polarity-blind: a negation that recalls the requirement tokens passes'],
+  }
+  return checker
 }

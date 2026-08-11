@@ -23,6 +23,7 @@ import {
   type LlmRouteRequirements,
   maximumChargeForLlmRequest,
 } from '../llm-client'
+import { packageVersion } from '../package-version'
 import type { TraceEvent as InternalTraceEvent } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
@@ -294,39 +295,10 @@ export function handleListRubrics(): ListRubricsResponse {
 
 // ── version ─────────────────────────────────────────────────────────
 
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-let CACHED_VERSION: string | undefined
-
-function readPackageVersion(): string {
-  if (CACHED_VERSION) return CACHED_VERSION
-  // Walk up from this file looking for the nearest package.json.
-  // In dist/ this is dist/.., in src/wire/ this is ../../package.json.
-  const here = dirname(fileURLToPath(import.meta.url))
-  const candidates = [
-    resolve(here, '..', '..', 'package.json'), // src/wire → repo root
-    resolve(here, '..', 'package.json'), // dist → repo root
-  ]
-  for (const path of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(path, 'utf-8')) as { version?: string }
-      if (pkg.version) {
-        CACHED_VERSION = pkg.version
-        return pkg.version
-      }
-    } catch {
-      // try next
-    }
-  }
-  return '0.0.0-unknown'
-}
-
 export function handleVersion(): VersionResponse {
   return {
     package: '@tangle-network/agent-eval',
-    version: readPackageVersion(),
+    version: packageVersion(),
     wireVersion: WIRE_VERSION,
     apiSurface: ['judge', 'listRubrics', 'version', 'feedback.ingest', 'traces.ingest'],
   }

@@ -1,0 +1,43 @@
+# One verdict vocabulary
+
+Every verification path in this package lands in one type: `DefaultVerdict` (`src/verdict.ts`).
+`valid` answers "did it pass", `score` answers "how well" in [0, 1], `scores` carries the per-dimension breakdown, and `certification` says WHO certified.
+
+A certification is the epistemics a bare `valid` + `score` pair cannot carry.
+A kernel-checked proof and an LLM judge can produce the same `{ valid: true, score: 1 }`; the certification is what tells them apart:
+
+- `strategy` — which verification-strategy member vouches (the 10-member family with per-member failure modes: [docs/verification-strategies.md](./verification-strategies.md));
+- `checker` — the exact identity that ran, with version and content pins, so the check is re-runnable;
+- `assumptions` — every step the certificate rests on that the checker did NOT verify, named one by one;
+- `evidenceDigest` — sha-256 of the evidence artifact (`certificationEvidenceDigest`).
+
+An absent certification is itself a statement: scored, but nothing vouches.
+No producer fakes one — a closed gate, an unexecuted proof, or an unattested checker yields an uncertified verdict, never an invented certificate.
+
+## Producers
+
+Every verifier below returns a `DefaultVerdict` (usually a richer extension of it) with a produced certification.
+
+| Verifier | Verdict type | Strategy | Certifies | Assumptions it names |
+| --- | --- | --- | --- | --- |
+| `MultiLayerVerifier.run` (`src/multi-layer-verifier.ts`) | `VerificationReport` | `composite` | ordered layer pipeline blend | each skipped / errored / timed-out layer |
+| `verifyCompletion` (`src/completion-verifier.ts`) | `CompletionVerdict` | the checker's own (`judge` for the LLM checker, `schema` for token recall) | task completion over produced state | lexical structural stage + the checker's attestation |
+| `evaluateTraceContract` (`src/trace-contracts.ts`) | `ContractVerdict` | `invariant` | LTLf rules over a span sequence | array ordering without timestamps; custom predicate functions |
+| `evaluateOracles` (`src/oracle.ts`) | `OracleReport` | `test` | declarative expected-outcome assertions | — (the oracle set is its own answer key) |
+| `replayVerify` (`src/trajectory-replay/verify.ts`) | `ReplayVerdict` | `replication` | recorded failure reproduced (and fix vanished) under re-execution | unadjudicated prefix steps; truncated prefix; returncode-only signature |
+| `verifyFindings` (`src/trajectory-replay/findings.ts`) | `VerifyFindingsRun` | `replication` | a batch of analyst findings under executed replay | not-replayable findings leave the denominator |
+| `gradeRepairRow` (`src/trace-repair/grade.ts`) | `RepairRowResult` | `test` | a proposed repair against the row's held-out suite (pins: suite + policy digests) | vacuous reproduction gate; prefix divergence |
+| `runEquivalenceCheck` + `equivalenceVerdict` (`src/verification-strategy.ts`, `src/verdict.ts`) | `DefaultVerdict` | the spec's member (`proof-kernel` in the pilot) | two blind formal statements are equivalent | arms self-declare blindness |
+
+Two producers certify conditionally, on purpose:
+
+- `gradeRepairRow` certifies only a `measured` outcome — a funnel gate that closed before the suite ran has nothing to vouch for.
+- `verifyFindings` certifies only when at least one proof executed — a batch where nothing was replayable measured nothing.
+
+## Consuming a certification
+
+Read `certification.strategy`, then weigh the member's documented failure mode — `VERIFICATION_STRATEGIES[strategy].failureMode` carries it at runtime.
+"Certified" is never one bit: a `judge` certificate is Goodhart-gameable, a `test` certificate covers only its suite, a `composite` certificate can hide which member carried the score.
+The assumptions list is the honest remainder; an empty list is the producer's explicit claim that nothing was left unverified, not a default.
+
+Related docs: [verification-strategies.md](./verification-strategies.md) (the family and the equivalence protocol), [trace-repair-grader.md](./trace-repair-grader.md), [trajectory-replay.md](./trajectory-replay.md).

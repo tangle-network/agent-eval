@@ -431,3 +431,37 @@ describe('contractJudge', () => {
     ).toThrow(/span array/)
   })
 })
+
+describe('contract verdict certification', () => {
+  it('every verdict is certified as an invariant check with the trace-contracts checker identity', () => {
+    const c = traceContract('safety').never({ tool: 'rm' }).build()
+    const v = evaluateTraceContract(c, [tool('ls'), tool('cat')])
+    expect(v.certification?.strategy).toBe('invariant')
+    expect(v.certification?.checker.name).toBe('agent-eval:trace-contracts')
+    expect(v.certification?.checker.version).toMatch(/^\d+\.\d+\.\d+/)
+    expect(v.certification?.assumptions).toEqual([])
+    expect(v.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('names array ordering and custom predicates as assumptions the certificate rests on', () => {
+    const c = traceContract('ordering')
+      .eventually(
+        {
+          custom: function hasErrorAttr(span) {
+            return span.status === 'error'
+          },
+        },
+        'saw-error',
+      )
+      .build()
+    const untimed = [
+      { spanId: 'a', name: 'x', status: 'error' },
+      { spanId: 'b', name: 'y' },
+    ] satisfies ContractSpan[]
+    const v = evaluateTraceContract(c, untimed)
+    expect(v.certification?.assumptions).toEqual([
+      'spans ordered by array position — no startedAt timestamps to order by',
+      "rule 'saw-error' rests on a custom predicate function",
+    ])
+  })
+})

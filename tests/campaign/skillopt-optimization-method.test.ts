@@ -321,7 +321,10 @@ describe('skillOptOptimizationMethod', () => {
     const resumedObservations = readFileSync(
       second.scores[0]!.provenance!.observations!.path,
       'utf8',
-    ).trim().split('\n').map((line) => JSON.parse(line)) as {
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line)) as {
       kind: string
       evaluationNumber?: number
     }[]

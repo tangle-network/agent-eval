@@ -118,7 +118,11 @@ describe('dspy repair arm', () => {
     expect(request.taskInputs).toEqual({
       trajectory: [
         { step_id: 1, action: 'ls -la', observation: expect.stringContaining('returncode') },
-        { step_id: 2, action: 'python solve.py', observation: expect.stringContaining('returncode') },
+        {
+          step_id: 2,
+          action: 'python solve.py',
+          observation: expect.stringContaining('returncode'),
+        },
       ],
       taskStatement: 'make the suite pass',
     })
@@ -163,9 +167,7 @@ describe('dspy repair arm', () => {
     // The completion arms record a repair turn that produced a well-formed
     // `findings: []` as succeeded; the same event here is a recovered empty
     // list, and it must land in the same cell.
-    const engine = fakeEngine(
-      validBlock([], { repair: 'parsed-repairs-from-string', reported: 0 }),
-    )
+    const engine = fakeEngine(validBlock([], { repair: 'parsed-repairs-from-string', reported: 0 }))
 
     const answer = await askRepairArm({ arm: arm(engine), row: ROW })
 
@@ -216,7 +218,9 @@ describe('dspy repair arm', () => {
 
   it('fails loud on a row that carries no executable action', async () => {
     const engine = fakeEngine(
-      validBlock([{ k: 2, failure_claim: 'wrong path', intervention: { kind: 'shell', action: '' } }]),
+      validBlock([
+        { k: 2, failure_claim: 'wrong path', intervention: { kind: 'shell', action: '' } },
+      ]),
     )
 
     const answer = await askRepairArm({ arm: arm(engine), row: ROW })

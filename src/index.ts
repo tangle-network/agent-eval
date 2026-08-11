@@ -63,7 +63,36 @@ export type {
   RouteMap,
   Scenario,
 } from './types'
-export type { DefaultVerdict } from './verdict'
+// One verdict vocabulary (docs/verdicts.md): every verification path lands
+// in DefaultVerdict; `certification` names who certified — the strategy
+// member, the exact checker, the unverified assumptions, and the evidence
+// digest.
+export type { DefaultVerdict, VerdictCertification } from './verdict'
+export { certificationEvidenceDigest, equivalenceVerdict } from './verdict'
+export type {
+  CheckerIdentity,
+  CheckerOutcome,
+  EquivalenceArm,
+  EquivalenceCheckDefinition,
+  EquivalenceChecker,
+  EquivalenceCheckerInput,
+  EquivalenceCheckerResult,
+  EquivalenceCheckSpec,
+  EquivalenceObligation,
+  EquivalenceObligationStatus,
+  EquivalenceRecord,
+  StrategyChecker,
+  VerificationStrategyProfile,
+  VerificationStrategySource,
+} from './verification-strategy'
+export {
+  buildEquivalenceRecord,
+  defineEquivalenceCheck,
+  EquivalenceProtocolError,
+  runEquivalenceCheck,
+  VERIFICATION_STRATEGIES,
+  VERIFICATION_STRATEGY_SOURCES,
+} from './verification-strategy'
 
 // ── formats ───────────────────────────────────────────────────────────
 // Persisted data shapes: run records, cost ledger, scorecards,
@@ -731,6 +760,16 @@ export type {
   VerifyOptions,
 } from './multi-layer-verifier'
 export { gradeSemanticStatus, MultiLayerVerifier } from './multi-layer-verifier'
+
+export type { Oracle, OracleObservation, OracleReport, OracleResult } from './oracle'
+export {
+  evaluateOracles,
+  jsonShape,
+  notBlocked,
+  regexMatches,
+  textInSnapshot,
+  urlContains,
+} from './oracle'
 
 export type {
   PairedDecisionMethod,

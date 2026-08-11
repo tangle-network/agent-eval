@@ -222,6 +222,20 @@ describe('replayVerify', () => {
     expect(verdict.armA.failureSignatureMatch).toBe(true)
     expect(verdict.armB?.exitCode).toBe(0)
     expect(verdict.armB?.failureVanished).toBe(true)
+    // The verdict lands in the shared spine, certified as a replication
+    // from the pinned image with nothing left unverified.
+    expect(verdict.valid).toBe(true)
+    expect(verdict.score).toBe(1)
+    expect(verdict.scores).toEqual({
+      prefixFidelity: 1,
+      armAReproduced: 1,
+      armBFailureVanished: 1,
+    })
+    expect(verdict.certification?.strategy).toBe('replication')
+    expect(verdict.certification?.checker.name).toBe('agent-eval:trajectory-replay')
+    expect(verdict.certification?.checker.pins).toEqual({ image: 'example/image:tag' })
+    expect(verdict.certification?.assumptions).toEqual([])
+    expect(verdict.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
     // Each arm replayed the prefix in its own session: [prefix..., stepK].
     expect(backend.executed).toEqual([
       ['ls', 'sed -i broken file.c', 'make target'],
@@ -259,6 +273,8 @@ describe('replayVerify', () => {
     // Recorded rc=2 but replay exited 0 → the failure did NOT reproduce.
     expect(verdict.armA.failureSignatureMatch).toBe(false)
     expect(verdict.armB).toBeNull()
+    expect(verdict.valid).toBe(false)
+    expect(verdict.score).toBe(0)
   })
 
   it('counts a prefix the recording cannot adjudicate as divergent, not as agreement', async () => {
@@ -298,6 +314,11 @@ describe('replayVerify', () => {
     expect(verdict.prefixWithinTolerance).toBe(false)
     // Arm A reproduced; the verdict is still unusable because its prefix state is not the recorded one.
     expect(verdict.armA.failureSignatureMatch).toBe(true)
+    expect(verdict.valid).toBe(false)
+    // The certificate names the steps the recording could not adjudicate.
+    expect(verdict.certification?.assumptions).toEqual([
+      '3 prefix step(s) carry no recorded returncode — agreement with the recording is unestablished there',
+    ])
     const report = readFileSync(join(outDir, 'out', 'report.md'), 'utf8')
     expect(report).toContain('3 with no recorded returncode to check')
     expect(report).toContain('| 1 | unknown-expectation | none recorded | 127 |')

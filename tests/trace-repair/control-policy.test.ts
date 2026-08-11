@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
-import {
-  admitRow,
-  TB_REPAIR_ADMISSION_CRITERIA,
-} from '../../src/trace-repair/admission-contract'
+import { admitRow, TB_REPAIR_ADMISSION_CRITERIA } from '../../src/trace-repair/admission-contract'
 import {
   assertControlCalibrated,
   controlCanRescue,
@@ -148,9 +145,7 @@ describe('every decision names the control that screened the row', () => {
   })
 
   it('records the policy on a rejected row too', () => {
-    const decision = admitRow(
-      admissionEvidence({ steps: STEPS, endStatePassed: true }),
-    )
+    const decision = admitRow(admissionEvidence({ steps: STEPS, endStatePassed: true }))
     expect(decision.admitted).toBe(false)
     expect(decision.screening).toMatchObject({
       controlPolicyDigest: POLICY_DIGEST,
