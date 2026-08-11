@@ -778,3 +778,81 @@ describe('createLlmCorrectnessChecker — served-model identity', () => {
     await expect(check(DISPUTE_REQ, LONG)).resolves.toEqual({ correct: true, reason: 'ok' })
   })
 })
+
+describe('completion verdict certification', () => {
+  const disputeState: ProducedState = {
+    artifacts: [
+      artifact(
+        'deals/working-capital-adjustment-dispute-notice.md',
+        'Working Capital Adjustment Dispute Notice — peg $4.2M vs closing statement $3.1M; disputed items itemized below. '.repeat(
+          2,
+        ),
+      ),
+    ],
+    proposals: [],
+    toolCalls: [],
+  }
+
+  it('a bare checker function yields the same verdict uncertified', async () => {
+    const v = await verifyCompletion(gold([DISPUTE_REQ]), disputeState, alwaysCorrect)
+    expect(v.fullyComplete).toBe(true)
+    expect(v.certification).toBeUndefined()
+  })
+
+  it('an attested checker certifies the verdict with its own strategy member plus the structural-stage assumption', async () => {
+    const attested: CorrectnessChecker = async () => ({ correct: true, reason: 'fulfils it' })
+    attested.attestation = {
+      strategy: 'judge',
+      checker: { name: 'llm-correctness-checker', version: 'claude-sonnet-4-6' },
+      assumptions: ['served-model identity unproven'],
+    }
+    const v = await verifyCompletion(gold([DISPUTE_REQ]), disputeState, attested)
+    expect(v.certification?.strategy).toBe('judge')
+    expect(v.certification?.checker.name).toBe('llm-correctness-checker')
+    expect(v.certification?.assumptions).toEqual([
+      'structural matching is lexical token recall over produced items — the correctness stage only sees items it matched',
+      'served-model identity unproven',
+    ])
+    expect(v.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('the built-in checkers carry attestations: judge for the LLM checker, schema for token recall', () => {
+    const llm = createLlmCorrectnessChecker(mockChat('{"correct": true, "reason": "ok"}'), {
+      model: 'glm-5.2',
+    })
+    expect(llm.attestation?.strategy).toBe('judge')
+    expect(llm.attestation?.checker).toEqual({
+      name: 'llm-correctness-checker',
+      version: 'glm-5.2',
+    })
+
+    const recall = createTokenRecallChecker()
+    expect(recall.attestation?.strategy).toBe('schema')
+    expect(recall.attestation?.assumptions.join(' ')).toContain('polarity-blind')
+  })
+
+  it('completionVerdict passes an explicit certification through for external assemblers', () => {
+    const checks: RequirementCheck[] = [
+      {
+        reqId: 'r1',
+        title: 'anything',
+        structurallyPresent: true,
+        correct: true,
+        satisfied: true,
+        evidence: [],
+      },
+    ]
+    const v = completionVerdict({
+      taskId: 't',
+      requirements: checks,
+      certification: {
+        strategy: 'test',
+        checker: { name: 'external-suite', version: '1.0.0' },
+        assumptions: [],
+        evidenceDigest: 'a'.repeat(64),
+      },
+    })
+    expect(v.certification?.checker.name).toBe('external-suite')
+    expect(completionVerdict({ taskId: 't', requirements: checks }).certification).toBeUndefined()
+  })
+})

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import * as api from './index'
+import * as api from './worker-driver-seed'
 import { HARNESS_BRIEFS, WORKER_DRIVER_DOCTRINE } from './worker-driver-seed'
 
 describe('WORKER_DRIVER_DOCTRINE — the driving contract as seed data', () => {

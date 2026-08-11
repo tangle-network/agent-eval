@@ -22,7 +22,8 @@
  * layer inside a MultiLayerVerifier if that suits the caller.
  */
 
-import type { DefaultVerdict } from './verdict'
+import { packageVersion } from './package-version'
+import { certificationEvidenceDigest, type DefaultVerdict } from './verdict'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -365,6 +366,12 @@ function aggregate<Env>(
     failCount === 0 &&
     skippedCount === 0 &&
     errorCount === 0
+  // Layers that produced no measurement are the steps this composite
+  // certificate rests on without verifying — named per layer, never folded
+  // into the blend silently.
+  const assumptions = results
+    .filter((r) => r.status === 'skipped' || r.status === 'error' || r.status === 'timeout')
+    .map((r) => `layer '${r.layer}' ${r.status} — its obligations are unverified`)
   return {
     layers: results,
     passCount,
@@ -376,6 +383,12 @@ function aggregate<Env>(
     ...(taskScore === undefined ? {} : { taskScore }),
     valid: allPass,
     score: taskScore ?? 0,
+    certification: {
+      strategy: 'composite',
+      checker: { name: 'agent-eval:multi-layer-verifier', version: packageVersion() },
+      assumptions,
+      evidenceDigest: certificationEvidenceDigest(results),
+    },
     durationMs: finishedAtMs - startedAtMs,
     startedAt,
     finishedAt: new Date(finishedAtMs).toISOString(),

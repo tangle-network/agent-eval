@@ -36,9 +36,11 @@ import {
   type CounterfactualRunner,
   runCounterfactual,
 } from '../counterfactual'
+import { packageVersion } from '../package-version'
 import { TraceEmitter } from '../trace/emitter'
 import type { ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore, type TraceStore } from '../trace/store'
+import { certificationEvidenceDigest, type DefaultVerdict } from '../verdict'
 import type { ReplayExecBackend } from './exec'
 import { wrapActionForExec } from './exec'
 import {
@@ -320,7 +322,13 @@ export interface ReplayArmVerdict {
   prefix: PrefixReplayResult
 }
 
-export interface ReplayVerdict {
+/** Extends the substrate verdict spine: `valid` = the claim the caller asked
+ *  to verify held under execution — arm A reproduced the recorded failure on
+ *  an in-tolerance prefix, and, when arm B ran, the corrected step made the
+ *  failure vanish. `score` is the same bit as a number; the sub-measurements
+ *  live in `scores`. Certified as `'replication'`: a re-execution from the
+ *  pinned image, deterministic given the pins. */
+export interface ReplayVerdict extends DefaultVerdict {
   case: string
   image: string
   driver: string
@@ -370,7 +378,9 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
   const caseId = options.caseId ?? options.stepsPath
   const recordedReturncode = parseRecordedReturncode(target.observation)
   const signature = options.signature ?? deriveFailureSignature(target.observation)
-  const signatureBasis = signature ? 'returncode+output-substring' : 'returncode-only'
+  const signatureBasis: ReplayVerdict['signatureBasis'] = signature
+    ? 'returncode+output-substring'
+    : 'returncode-only'
 
   const runnerOptions: SandboxCounterfactualRunnerOptions = {
     cwd: options.cwd,
@@ -429,7 +439,7 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
 
   const armBOutput = armBExec ? `${armBExec.stdout}\n${armBExec.stderr}` : null
   const armAPrefix = requirePrefix(armARunner, 'arm A')
-  const verdict: ReplayVerdict = {
+  const core = {
     case: caseId,
     image: options.image,
     driver: options.driverLabel ?? 'docker',
@@ -469,6 +479,50 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
       original: runId,
       armA: armAResult.counterfactualRunId,
       armB: armBRunId,
+    },
+  }
+
+  // Steps the certificate rests on unverified: prefix steps the recording
+  // cannot adjudicate, a caller-truncated prefix, and a signature derived
+  // from the returncode alone.
+  const assumptions: string[] = []
+  if (armAPrefix.prefixUnknownExpectations > 0) {
+    assumptions.push(
+      `${armAPrefix.prefixUnknownExpectations} prefix step(s) carry no recorded returncode — agreement with the recording is unestablished there`,
+    )
+  }
+  if (options.prefixLimit !== undefined && options.prefixLimit < index) {
+    assumptions.push(
+      `prefix truncated at ${options.prefixLimit} of ${index} recorded steps — state fidelity at k is weakened`,
+    )
+  }
+  if (signatureBasis === 'returncode-only') {
+    assumptions.push(
+      'no output substring derived from the recording — reproduction rests on the returncode alone',
+    )
+  }
+  const valid =
+    core.prefixWithinTolerance &&
+    failureSignatureMatch &&
+    (core.armB === null || core.armB.failureVanished)
+  const verdict: ReplayVerdict = {
+    ...core,
+    valid,
+    score: valid ? 1 : 0,
+    scores: {
+      prefixFidelity: 1 - core.prefixDivergencePct / 100,
+      armAReproduced: failureSignatureMatch ? 1 : 0,
+      ...(core.armB === null ? {} : { armBFailureVanished: core.armB.failureVanished ? 1 : 0 }),
+    },
+    certification: {
+      strategy: 'replication',
+      checker: {
+        name: 'agent-eval:trajectory-replay',
+        version: packageVersion(),
+        pins: { image: options.image },
+      },
+      assumptions,
+      evidenceDigest: certificationEvidenceDigest(core),
     },
   }
 

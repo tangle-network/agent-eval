@@ -19,7 +19,7 @@
  * decide whether to trust the judge, retrain it, or add a tie-breaker.
  */
 
-import { pearsonR, spearmanR } from './statistics'
+import { pearsonR, spearmanR } from './statistics/descriptive'
 
 export interface GoldenItem {
   itemId: string

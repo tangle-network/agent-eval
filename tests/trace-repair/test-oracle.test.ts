@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { RepairSession } from '../../src/trace-repair/ports'
 import {
   injectedTestOracle,
   TestOracleError,
   TestSuiteTamperedError,
   testSuiteDigest,
 } from '../../src/trace-repair/test-oracle'
-import type { RepairSession } from '../../src/trace-repair/ports'
 import {
   FakeBox,
   HELD_OUT_SUITE,
@@ -144,8 +144,8 @@ describe('suite digest', () => {
         command: 'x',
       }),
     ).toThrow(/listed twice/)
-    expect(() =>
-      injectedTestOracle({ files: SUITE_FILES, command: 'x', purge: ['/'] }),
-    ).toThrow(/below the root/)
+    expect(() => injectedTestOracle({ files: SUITE_FILES, command: 'x', purge: ['/'] })).toThrow(
+      /below the root/,
+    )
   })
 })

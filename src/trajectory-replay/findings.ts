@@ -31,6 +31,8 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { packageVersion } from '../package-version'
+import { certificationEvidenceDigest, type DefaultVerdict } from '../verdict'
 import { type CorpusSpec, resolveCaseResources } from './corpus'
 import type { ReplayExecBackendFactory } from './exec'
 import { dockerImagePreparer, type ImagePreparer } from './image-preparer'
@@ -267,7 +269,13 @@ export interface FindingVerification {
   readonly deduplicated_with: string | null
 }
 
-export interface VerifyFindingsRun {
+/** Extends the substrate verdict spine over the whole batch: `score` =
+ *  verified findings (reproduced or fix-flipped) over MEASURABLE findings —
+ *  not-replayable rows leave the denominator, mirroring the completion
+ *  verifier's unmeasured rule — and `valid` = every finding was measured and
+ *  verified. Certification is present exactly when at least one proof
+ *  executed; a run that executed nothing certifies nothing. */
+export interface VerifyFindingsRun extends DefaultVerdict {
   readonly out: string
   readonly verifications: readonly FindingVerification[]
   readonly counts: Readonly<Record<FindingVerificationStatus, number>>
@@ -560,7 +568,42 @@ export async function verifyFindings(
     'not-replayable': 0,
   }
   for (const verification of verifications) counts[verification.verified] += 1
-  const run: VerifyFindingsRun = { out: options.out, verifications, counts, executions }
+  const verified = counts.reproduced + counts['fix-flipped']
+  const measurable = verifications.length - counts['not-replayable']
+  const run: VerifyFindingsRun = {
+    out: options.out,
+    verifications,
+    counts,
+    executions,
+    valid: measurable > 0 && verified === verifications.length,
+    score: measurable > 0 ? verified / measurable : 0,
+    // Status distribution over ALL findings (counts travel in `counts`).
+    scores: {
+      reproduced: counts.reproduced / verifications.length,
+      fixFlipped: counts['fix-flipped'] / verifications.length,
+      divergent: counts.divergent / verifications.length,
+      notReplayable: counts['not-replayable'] / verifications.length,
+    },
+    notes:
+      measurable === 0
+        ? 'no finding was replayable — nothing measured'
+        : `${verified}/${measurable} measurable finding(s) verified under execution (${counts['not-replayable']} not replayable)`,
+    ...(executions > 0
+      ? {
+          certification: {
+            strategy: 'replication',
+            checker: { name: 'agent-eval:trajectory-replay', version: packageVersion() },
+            assumptions:
+              counts['not-replayable'] > 0
+                ? [
+                    `${counts['not-replayable']} finding(s) were not replayable — excluded from the score's denominator, unverified either way`,
+                  ]
+                : [],
+            evidenceDigest: certificationEvidenceDigest(verifications),
+          },
+        }
+      : {}),
+  }
   writeFileSync(
     join(options.out, 'verifications.json'),
     `${JSON.stringify({ schema_version: '1.0.0', ...run }, null, 2)}\n`,

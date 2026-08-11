@@ -354,3 +354,26 @@ describe('gradeSemanticStatus', () => {
     ).toBe('pass')
   })
 })
+
+describe('MultiLayerVerifier — certification', () => {
+  it('every report carries a composite certification with the pipeline checker identity', async () => {
+    const verifier = new MultiLayerVerifier([passLayer('install'), passLayer('typecheck')])
+    const report = await verifier.run({ env: {} })
+    expect(report.certification?.strategy).toBe('composite')
+    expect(report.certification?.checker.name).toBe('agent-eval:multi-layer-verifier')
+    expect(report.certification?.checker.version).toMatch(/^\d+\.\d+\.\d+/)
+    expect(report.certification?.assumptions).toEqual([])
+    expect(report.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('names every unmeasured layer as an assumption instead of folding it into the blend silently', async () => {
+    const verifier = new MultiLayerVerifier([
+      failLayer('install'),
+      passLayer('typecheck', 1, { dependsOn: ['install'] }),
+    ])
+    const report = await verifier.run({ env: {} })
+    expect(report.certification?.assumptions).toEqual([
+      "layer 'typecheck' skipped — its obligations are unverified",
+    ])
+  })
+})

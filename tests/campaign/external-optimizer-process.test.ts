@@ -11,10 +11,10 @@ import {
 } from '../../src/campaign/external-optimizer-process'
 import {
   CostLedger,
-  costForTokenPricing,
   type CostLedgerHandle,
   type CostReceiptInput,
   type CustomTokenPricing,
+  costForTokenPricing,
 } from '../../src/cost-ledger'
 
 const openCallbacks: Array<{ close: () => Promise<void> }> = []
@@ -186,11 +186,7 @@ async function fakeOwnerReceipt(
   }
 }
 
-async function fakeOwnerResponse(
-  response: Response,
-  receipt: CostReceiptInput,
-  startedAt: number,
-) {
+async function fakeOwnerResponse(response: Response, receipt: CostReceiptInput, startedAt: number) {
   const text = await response.text()
   let raw: Record<string, unknown> = { body: text }
   try {
@@ -240,9 +236,7 @@ async function fakeOwnerResponse(
       completionTokens,
       totalTokens: promptTokens + completionTokens,
       ...(usageKnown ? {} : { captured: false }),
-      ...(receipt.cachedTokens === undefined
-        ? {}
-        : { cachedPromptTokens: receipt.cachedTokens }),
+      ...(receipt.cachedTokens === undefined ? {} : { cachedPromptTokens: receipt.cachedTokens }),
       ...(receipt.reasoningTokens === undefined
         ? {}
         : { reasoningTokens: receipt.reasoningTokens }),
@@ -255,8 +249,7 @@ async function fakeOwnerResponse(
         : null),
     model: receipt.model,
     durationMs: performance.now() - startedAt,
-    finishReason:
-      typeof firstRecord.finish_reason === 'string' ? firstRecord.finish_reason : null,
+    finishReason: typeof firstRecord.finish_reason === 'string' ? firstRecord.finish_reason : null,
     contentEmpty: content.trim().length === 0,
     raw,
   }
@@ -788,9 +781,7 @@ describe('external optimizer model proxy', () => {
           phase: 'optimizer',
           actor: 'official-library',
         }),
-      ).rejects.toThrow(
-        'maxReasoningTokensPerRequest must be a non-negative safe integer',
-      )
+      ).rejects.toThrow('maxReasoningTokensPerRequest must be a non-negative safe integer')
     }
   })
 
@@ -844,8 +835,7 @@ describe('external optimizer model proxy', () => {
           execution: { kind: 'runtime-profile-call' },
         }
       },
-      recordExecution: (record) =>
-        records.push(structuredClone(record) as Record<string, unknown>),
+      recordExecution: (record) => records.push(structuredClone(record) as Record<string, unknown>),
       model: 'model-a',
       budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 256 }),
       costLedger: new CostLedger(),

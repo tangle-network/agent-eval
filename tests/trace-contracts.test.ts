@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { expectAgent } from '../src/behavior-dsl'
 import { ValidationError } from '../src/errors'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 import { createOtelTracingStore } from '../src/trace/otel-bridge'
@@ -380,50 +379,6 @@ describe('dual-use: otel-bridge flattened spans', () => {
   })
 })
 
-// ── behavior-dsl integration ──────────────────────────────────────────
-
-describe('expectAgent(...).toSatisfyContract', () => {
-  async function recordedRun(
-    build: (e: TraceEmitter) => Promise<void>,
-  ): Promise<{ store: InMemoryTraceStore; runId: string }> {
-    const store = new InMemoryTraceStore()
-    let t = 0
-    let n = 0
-    const e = new TraceEmitter(store, { now: () => ++t, id: () => `id-${++n}` })
-    await e.startRun({ scenarioId: 's' })
-    await build(e)
-    await e.endRun({ pass: true })
-    return { store, runId: e.runId }
-  }
-
-  const contract = traceContract('guarded-transfer')
-    .precedes({ tool: 'approval' }, { tool: 'transfer' })
-    .build()
-
-  it('passes over a stored run that approves before transferring', async () => {
-    const { store, runId } = await recordedRun(async (e) => {
-      const a = await e.tool({ name: 'approval', toolName: 'approval', args: {} })
-      await a.end()
-      const tr = await e.tool({ name: 'transfer', toolName: 'transfer', args: {} })
-      await tr.end()
-    })
-    const r = await expectAgent(store, runId).toSatisfyContract(contract).check()
-    expect(r.ok).toBe(true)
-    expect(r.detail).toContain('guarded-transfer')
-  })
-
-  it('fails with the violating spanId as evidence', async () => {
-    const { store, runId } = await recordedRun(async (e) => {
-      const tr = await e.tool({ name: 'transfer', toolName: 'transfer', args: {} })
-      await tr.end()
-    })
-    const r = await expectAgent(store, runId).toSatisfyContract(contract).check()
-    expect(r.ok).toBe(false)
-    expect(r.detail).toMatch(/no earlier/)
-    expect(r.evidence).toBeDefined()
-  })
-})
-
 // ── campaign judge adapter ────────────────────────────────────────────
 
 describe('contractJudge', () => {
@@ -474,5 +429,39 @@ describe('contractJudge', () => {
         signal: new AbortController().signal,
       }),
     ).toThrow(/span array/)
+  })
+})
+
+describe('contract verdict certification', () => {
+  it('every verdict is certified as an invariant check with the trace-contracts checker identity', () => {
+    const c = traceContract('safety').never({ tool: 'rm' }).build()
+    const v = evaluateTraceContract(c, [tool('ls'), tool('cat')])
+    expect(v.certification?.strategy).toBe('invariant')
+    expect(v.certification?.checker.name).toBe('agent-eval:trace-contracts')
+    expect(v.certification?.checker.version).toMatch(/^\d+\.\d+\.\d+/)
+    expect(v.certification?.assumptions).toEqual([])
+    expect(v.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('names array ordering and custom predicates as assumptions the certificate rests on', () => {
+    const c = traceContract('ordering')
+      .eventually(
+        {
+          custom: function hasErrorAttr(span) {
+            return span.status === 'error'
+          },
+        },
+        'saw-error',
+      )
+      .build()
+    const untimed = [
+      { spanId: 'a', name: 'x', status: 'error' },
+      { spanId: 'b', name: 'y' },
+    ] satisfies ContractSpan[]
+    const v = evaluateTraceContract(c, untimed)
+    expect(v.certification?.assumptions).toEqual([
+      'spans ordered by array position — no startedAt timestamps to order by',
+      "rule 'saw-error' rests on a custom predicate function",
+    ])
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { admitRow, TB_REPAIR_ADMISSION_CRITERIA } from '../../src/trace-repair/admission-contract'
-import { blindTrajectory, BLINDED_FIELDS } from '../../src/trace-repair/blinding'
+import { BLINDED_FIELDS, blindTrajectory } from '../../src/trace-repair/blinding'
 import { admissionEvidence, admitted, POLICY_DIGEST, step } from './fixtures'
 
 const STEPS = [

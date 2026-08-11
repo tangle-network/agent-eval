@@ -13,7 +13,7 @@ import {
 } from '../../src/trace-repair/admission-contract'
 import { blindTrajectory } from '../../src/trace-repair/blinding'
 import type { RepairCredit } from '../../src/trace-repair/funnel'
-import { admitted, POLICY_DIGEST, step, SUITE_DIGEST } from './fixtures'
+import { admitted, POLICY_DIGEST, SUITE_DIGEST, step } from './fixtures'
 
 const UNADMITTED = {
   rowId: 'forged',

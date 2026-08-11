@@ -139,10 +139,10 @@ the dependencies behind `observe` and `act`.
   - one judge span per eval result
   - budget ledger entries for recorded spend
 
-## Propose / Review Preset
+## Propose / Review
 
-`runProposeReviewAsControlLoop` adapts the common artifact-refinement loop onto
-the generic runtime:
+`runProposeReview` is the stable convenience API for the common
+artifact-refinement loop:
 
 ```text
 propose -> verify -> review -> propose again
@@ -150,45 +150,6 @@ propose -> verify -> review -> propose again
 
 Use it when the task is naturally "produce or improve state until verification
 passes."
-
-```ts
-import { runProposeReviewAsControlLoop } from '@tangle-network/agent-eval'
-
-const report = await runProposeReviewAsControlLoop({
-  goal: 'Make the implementation pass tests and satisfy the reviewer.',
-  initialState: { workdir },
-  maxShots: 5,
-
-  async propose({ state, priorReview }) {
-    return await codingAgent.patch({
-      workdir: state.workdir,
-      instruction: priorReview?.nextShotInstruction,
-    })
-  },
-
-  async verify(state) {
-    const tests = await runTests(state.workdir)
-    return {
-      pass: tests.ok,
-      score: tests.ok ? 1 : 0,
-      failingLayers: tests.ok ? [] : ['tests'],
-      details: tests,
-    }
-  },
-
-  async review({ verification }) {
-    return await reviewer.explainNextShot(verification)
-  },
-
-  failureClassFromVerification(verification) {
-    if (verification.failingLayers?.includes('tests')) return 'sandbox_failure'
-    return 'unknown'
-  },
-})
-```
-
-Long term, `runProposeReview` should remain the stable convenience API, while
-its internals can route through this control-loop preset.
 
 ## Domain Patterns
 

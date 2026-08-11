@@ -107,7 +107,13 @@ describe('external optimizer server lifecycle', () => {
     await closing
     await request
     expect(activeProviderCalls).toBe(0)
-    expect(ledger.summary(), proxy.failures().map((error) => error.message).join('\n')).toMatchObject({
+    expect(
+      ledger.summary(),
+      proxy
+        .failures()
+        .map((error) => error.message)
+        .join('\n'),
+    ).toMatchObject({
       totalCalls: 1,
       pendingCalls: 0,
       accountingComplete: true,

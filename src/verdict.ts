@@ -14,7 +14,12 @@
  * never the other way around. See CLAUDE.md "Repo layering" for the rule.
  */
 
-import type { CheckerIdentity, VerificationStrategySource } from './verification-strategy'
+import { contentHash } from './verdict-cache'
+import type {
+  CheckerIdentity,
+  EquivalenceRecord,
+  VerificationStrategySource,
+} from './verification-strategy'
 
 /**
  * What certified a verdict — the epistemics a bare `valid` + `score` pair
@@ -74,4 +79,64 @@ export interface DefaultVerdict {
    * verdict it always saw.
    */
   certification?: VerdictCertification
+}
+
+/**
+ * Digest a certification's evidence artifact: sha-256 over the canonical
+ * JSON of the evidence AS SERIALIZED. The JSON round-trip drops
+ * `undefined`-valued fields on purpose — certified verdicts persist as
+ * JSON, so the digest must cover exactly what a reader of the persisted
+ * artifact can re-digest, nothing the wire cannot carry. Throws when the
+ * evidence has no JSON form at all.
+ */
+export function certificationEvidenceDigest(evidence: unknown): string {
+  const serialized = JSON.stringify(evidence)
+  if (serialized === undefined) {
+    throw new Error(
+      'certificationEvidenceDigest: evidence has no JSON form — a certificate over nothing is the unverifiable claim this record exists to kill',
+    )
+  }
+  return contentHash(JSON.parse(serialized))
+}
+
+/**
+ * Land a finished statement-equivalence record in the shared verdict
+ * spine. `valid` answers the protocol's question — are the two blind
+ * statements equivalent — so a refutation is `valid: false` even though a
+ * separating witness in hand is a successful protocol outcome.
+ *
+ * Certification is present exactly when the obligation was discharged
+ * (proved or refuted): the checker vouches for the discharge either way.
+ * An unresolved obligation certifies nothing and keeps its reason in
+ * `notes`.
+ */
+export function equivalenceVerdict(record: EquivalenceRecord): DefaultVerdict {
+  const { obligation, spec, arms } = record
+  const discharged = obligation.status !== 'unresolved'
+  const notes =
+    obligation.status === 'proved'
+      ? `statements equivalent: ${spec.artifact}`
+      : obligation.status === 'refuted-with-separating-witness'
+        ? `formalization gap witnessed: ${obligation.separatingWitness}`
+        : `obligation undischarged: ${obligation.unresolvedReason}`
+  return {
+    valid: obligation.status === 'proved',
+    score: obligation.status === 'proved' ? 1 : 0,
+    notes,
+    ...(discharged && obligation.evidenceDigest !== undefined
+      ? {
+          certification: {
+            strategy: spec.source,
+            checker: obligation.checker,
+            // The arms' blindness declarations are attested by the arms,
+            // never verified by the checker — the one step every
+            // equivalence certificate rests on.
+            assumptions: [
+              `arm '${arms[0].armId}' and arm '${arms[1].armId}' self-declare blind derivation`,
+            ],
+            evidenceDigest: obligation.evidenceDigest,
+          } satisfies VerdictCertification,
+        }
+      : {}),
+  }
 }
