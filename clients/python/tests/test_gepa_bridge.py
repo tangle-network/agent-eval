@@ -291,6 +291,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
                 "callbackToken": "local-token",
+                "timeoutMs": 2_700_000,
                 "recipe": {
                     "kind": "engine",
                     "run": {
@@ -384,6 +385,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
     assert callback["args"] == ("http://127.0.0.1:9999/evaluate",)
     assert callback["kwargs"]["headers"] == {"Authorization": "Bearer local-token"}
     assert callback["kwargs"]["json"] == {"candidate": "better", "exampleId": "train"}
+    assert callback["kwargs"]["timeout"] == 2_700.0
     output = json.loads(output_path.read_text())
     assert output.pop("runId") == f"{COMPATIBLE_RUN_ID}-attempt-one"
     assert output.pop("resumed") is False
@@ -426,6 +428,7 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9999/evaluate",
                 "callbackToken": "local-token",
+                "timeoutMs": 1_800_000,
                 "recipe": {
                     "kind": "omni",
                     "explore": [
@@ -550,6 +553,7 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
                 "seed": 42,
                 "callbackUrl": "http://127.0.0.1:9/evaluate",
                 "callbackToken": "unused",
+                "timeoutMs": 1_800_000,
                 "recipe": {
                     "kind": "omni",
                     "explore": [
@@ -724,6 +728,23 @@ def test_input_requires_evaluation_identity(tmp_path: Path) -> None:
     del input_value["evaluationId"]
 
     with pytest.raises(ValueError, match="evaluationId"):
+        gepa_bridge._validate_input(input_value)
+
+
+def test_input_requires_a_bounded_timeout(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    del input_value["timeoutMs"]
+
+    with pytest.raises(ValueError, match="timeoutMs"):
+        gepa_bridge._validate_input(input_value)
+
+
+@pytest.mark.parametrize("timeout_ms", [0, -1, 2_147_483_648, True, 1.5, "1800000"])
+def test_input_rejects_an_invalid_timeout(tmp_path: Path, timeout_ms: Any) -> None:
+    input_value = _valid_input(tmp_path)
+    input_value["timeoutMs"] = timeout_ms
+
+    with pytest.raises(ValueError, match="timeoutMs must be between"):
         gepa_bridge._validate_input(input_value)
 
 
@@ -1183,6 +1204,7 @@ def _valid_input(tmp_path: Path) -> dict[str, Any]:
         "seed": 42,
         "callbackUrl": "http://127.0.0.1:9999/evaluate",
         "callbackToken": "local-token",
+        "timeoutMs": 1_800_000,
         "recipe": {
             "kind": "engine",
             "run": _run("best_of_n", 1, 1.0),

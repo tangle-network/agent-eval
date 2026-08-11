@@ -395,6 +395,7 @@ describe('gepaOptimizationMethod', () => {
       },
       objective: 'Return the better policy.',
       evaluationId: 'test',
+      timeoutMs: 2_700_000,
       describeScenario: (scenario) => ({ prompt: scenario.prompt }),
       runner,
     })
@@ -430,6 +431,7 @@ describe('gepaOptimizationMethod', () => {
       resume: 'never',
       evaluationId: 'test',
       seed: 11,
+      timeoutMs: 2_700_000,
       engineModules: [],
       recipe: {
         kind: 'engine',

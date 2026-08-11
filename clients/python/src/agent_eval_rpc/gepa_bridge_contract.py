@@ -17,6 +17,8 @@ from agent_eval_rpc.optimizer_bridge_common import (
     validate_optimizer_model_budget,
 )
 
+MAX_TIMER_DELAY_MS = 2_147_483_647
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text())
@@ -43,6 +45,17 @@ def _validate_input(value: dict[str, Any]) -> None:
             or value[key].strip() != value[key]
         ):
             raise ValueError(f"GEPA bridge input requires non-empty string {key}")
+    timeout_ms = value.get("timeoutMs")
+    if (
+        isinstance(timeout_ms, bool)
+        or not isinstance(timeout_ms, int)
+        or timeout_ms <= 0
+        or timeout_ms > MAX_TIMER_DELAY_MS
+    ):
+        raise ValueError(
+            "GEPA bridge input timeoutMs must be between 1 and "
+            f"{MAX_TIMER_DELAY_MS}"
+        )
     if not re.fullmatch(r"[0-9a-f]{64}", value["compatibleRunId"]):
         raise ValueError("GEPA bridge input compatibleRunId must be a SHA-256 digest")
     if not isinstance(value.get("runtimeIdentity"), dict):

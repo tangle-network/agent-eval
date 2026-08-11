@@ -24,6 +24,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Blind statement-equivalence protocol (`defineEquivalenceCheck`, `buildEquivalenceRecord`, `runEquivalenceCheck`): the two-arm design as a typed primitive with fail-loud refusals (`EquivalenceProtocolError`) — a non-blind arm, a wrong arm count, a refutation without its separating witness, or a mismatched checker strategy throws instead of recording.
 - `docs/verification-strategies.md`: the family, each member's failure mode, and the BCWW (4.6) formalization pilot as the worked example.
 
+## [0.144.13] - 2026-08-11 - GEPA callback timeout alignment
+
+### Fixed
+
+- GEPA callers can now set `GepaOptimizationMethodConfig.timeoutMs` above 30 minutes without the Python callback bridge expiring at its old 30-minute limit.
+  Consumers using a custom GEPA timeout must upgrade both packages to 0.144.13; no new setting is required.
+
 ## [0.144.11] - 2026-08-10 - GEPA candidate graph
 
 ### Added

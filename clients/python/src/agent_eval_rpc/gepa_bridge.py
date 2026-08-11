@@ -96,10 +96,9 @@ def _main() -> None:
             input_value["callbackUrl"],
             headers={"Authorization": f"Bearer {input_value['callbackToken']}"},
             json={"candidate": candidate, "exampleId": example["id"]},
-            # One agentic evaluation may legitimately run for many minutes; this
-            # deadline must exceed the campaign's per-evaluation timeout, which
-            # the TypeScript callback enforces itself.
-            timeout=1800.0,
+            # The TypeScript owner supplies the same caller-configured deadline
+            # used to bound the bridge process, in milliseconds.
+            timeout=input_value["timeoutMs"] / 1000.0,
         )
         response.raise_for_status()
         evaluation_count += 1
