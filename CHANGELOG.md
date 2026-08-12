@@ -6,6 +6,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+---
+
+## [0.145.0] — 2026-08-11
+
+Breaking release: the deep clean. The measured consumer-import census is the compatibility contract — every symbol any consumer imports keeps its exact specifier; everything with zero importers is deleted.
+
+### Removed (breaking)
+
+- The generation-1 eval spine: `executeScenario`, `BenchmarkRunner`, the legacy reporter, the no-op `normalizeScores`, and the dead legacy exports of `types.ts` (`JudgeConfig`, `BenchmarkReport`, `BenchmarkRunnerConfig`, `EvalResult`). The campaign engine (`runCampaign`) and `/contract` are the one spine.
+- 30 zero-importer root modules and their tests (behavior-dsl, bisector, causal-attribution, ci-gate, cross-trace-diff, description-length-gate, self-play, visual-diff, and the rest listed in PR #581).
+- The `./control` subpath entry (its modules stay importable from the root barrel) and two-thirds of the root barrel: 1,660 → 789 symbols. Symbols removed from the root remain importable from their subpaths.
+
+### Changed
+
+- `src/statistics.ts` is now the `src/statistics/` directory (12 focused modules); every existing import specifier still compiles.
+- `runCampaign` internals split into phase modules; its import path and options are unchanged.
+- Every verifier lands in `DefaultVerdict`, with `certification` naming what certified the verdict (checker identity, strategy, assumptions, evidence digest).
+
+
 ### Fixed
 
 - Number callback evaluations from one for each optimizer attempt so resumed artifact files remain independently verifiable while cumulative budgets stay intact.
