@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.3] — 2026-08-12
+
+### Fixed
+
+- Accept and preserve a provider-qualified snapshot when an optimizer callback reports the requested model.
+- Reject true model substitution and conflicting response and receipt identities.
+
+---
+
 ## [0.145.2] — 2026-08-12
 
 ### Changed

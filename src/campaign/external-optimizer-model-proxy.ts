@@ -8,6 +8,7 @@ import type {
   CustomTokenPricing,
 } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
+import { assertServedModel, ModelSubstitutionError } from '../integrity/served-model'
 import { canonicalJson } from '../verdict-cache'
 import {
   assertExternalOptimizerModelBudget,
@@ -345,7 +346,8 @@ async function handleModelProxyRequest(args: {
             : paid.error instanceof ProviderResponseTooLargeError ||
                 paid.error instanceof MissingModelExecutionError ||
                 paid.error instanceof ModelExecutionPersistenceError ||
-                paid.error instanceof OwnerModelContractError
+                paid.error instanceof OwnerModelContractError ||
+                paid.error instanceof ModelSubstitutionError
               ? 502
               : 429,
           { error: paid.error.message },
@@ -539,11 +541,9 @@ function snapshotModelReceipt(value: CostReceiptInput, expectedModel: string): C
       `optimizer model callback returned an invalid receipt: ${toErrorMessage(error)}`,
     )
   }
-  if (snapshot.model !== expectedModel) {
-    throw new OwnerModelContractError(
-      `optimizer model callback receipt used '${snapshot.model}' instead of '${expectedModel}'`,
-    )
-  }
+  assertServedModel(expectedModel, snapshot.model, {
+    context: 'optimizer model callback receipt',
+  })
   return snapshot
 }
 
@@ -564,6 +564,11 @@ function assertResponseUsageMatchesReceipt(
   response: ChatResponse,
   receipt: CostReceiptInput,
 ): void {
+  if (response.model !== receipt.model) {
+    throw new OwnerModelContractError(
+      'optimizer model response and execution receipt disagree about the served model',
+    )
+  }
   if (response.usage.captured === false || receipt.usageUnknown === true) {
     if (response.usage.captured !== false || receipt.usageUnknown !== true) {
       throw new OwnerModelContractError(
@@ -936,11 +941,9 @@ function snapshotChatResponse(value: unknown, expectedModel: string): ChatRespon
   if (typeof value.content !== 'string') {
     throw new OwnerModelContractError('optimizer model callback response content must be a string')
   }
-  if (value.model !== expectedModel) {
-    throw new OwnerModelContractError(
-      `optimizer model callback response used '${String(value.model)}' instead of '${expectedModel}'`,
-    )
-  }
+  assertServedModel(expectedModel, typeof value.model === 'string' ? value.model : null, {
+    context: 'optimizer model callback response',
+  })
   if (!isNonnegativeFiniteNumber(value.durationMs)) {
     throw new OwnerModelContractError(
       'optimizer model callback response durationMs must be finite and non-negative',

@@ -857,6 +857,149 @@ describe('external optimizer model proxy', () => {
     }
   })
 
+  it('accepts and preserves a provider-qualified snapshot of the requested model', async () => {
+    const servedModel =
+      'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const ledger = new CostLedger()
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:qualified-snapshot',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'revised',
+          usage: { promptTokens: 7, completionTokens: 3, totalTokens: 10 },
+          costUsd: null,
+          model: servedModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: servedModel,
+          inputTokens: 7,
+          outputTokens: 3,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: servedModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 3 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 3,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ model: servedModel })
+      expect(ledger.list()).toEqual([
+        expect.objectContaining({ model: servedModel, inputTokens: 7, outputTokens: 3 }),
+      ])
+      proxy.assertExecutionComplete()
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rejects a provider-qualified snapshot of a different model', async () => {
+    const servedModel = 'deepseek/deepseek-v3@fp_other'
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:substituted-snapshot',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'wrong model',
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          costUsd: null,
+          model: servedModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: servedModel,
+          inputTokens: 1,
+          outputTokens: 1,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: servedModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 1 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain('model substitution')
+      expect(proxy.successfulCompletions()).toBe(0)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rejects different served snapshots in the response and receipt', async () => {
+    const responseModel = 'deepseek/deepseek-v4-flash@fp_response'
+    const receiptModel = 'deepseek/deepseek-v4-flash@fp_receipt'
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:conflicting-snapshots',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'conflicting evidence',
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          costUsd: null,
+          model: responseModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: receiptModel,
+          inputTokens: 1,
+          outputTokens: 1,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: responseModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 1 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain(
+        'optimizer model response and execution receipt disagree about the served model',
+      )
+      expect(proxy.successfulCompletions()).toBe(0)
+    } finally {
+      await proxy.close()
+    }
+  })
+
   it('fails loud when the execution owner rejects without evidence', async () => {
     const records: unknown[] = []
     const proxy = await startRuntimeOwnedModelProxy({
