@@ -494,12 +494,19 @@ export {
 
 export type {
   ComparePairedArmsOptions,
+  MatchedPair,
+  MatchedRunRecordPair,
+  PairArmsOptions,
+  PairArmsResult,
   PairedArmRow,
   PairedArmsComparison,
   PairedCorrectness,
   PairedMetricDelta,
+  PairRunRecordsResult,
 } from './paired-arms'
-export { comparePairedArms, pairRunRecords } from './paired-arms'
+// pairArms stays a root export: published agent-knowledge dists (7.0.x)
+// import it from the package root at ESM link time.
+export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
 
 export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-delta-test'
 export { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'

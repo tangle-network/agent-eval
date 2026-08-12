@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.1] — 2026-08-11
+
+### Fixed
+
+- Restored the root `pairArms` export (with its `PairArmsOptions`, `PairArmsResult`, `MatchedPair`, `MatchedRunRecordPair`, and `PairRunRecordsResult` types). Published `agent-knowledge` dists (7.0.x) import `pairArms` from the package root at ESM link time, so its removal in 0.144.13 crashed those consumers at import. The 0.145.0 census read consumer sources; published dists are consumers too.
+- `verify:package` now proves every typed entry point's `d.ts` and `js` agree exactly: a name the `d.ts` declares as a value must be a runtime export of the `js`, and the reverse. TypeScript classifies each candidate name, so the check is independent of the declaration bundler's output format.
+
+---
+
 ## [0.145.0] — 2026-08-11
 
 Breaking release: the deep clean. The measured consumer-import census is the compatibility contract — every symbol any consumer imports keeps its exact specifier; everything with zero importers is deleted.
