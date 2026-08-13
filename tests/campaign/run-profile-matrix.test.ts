@@ -17,7 +17,7 @@ import {
   type Scenario,
 } from '../../src/campaign/index'
 import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
-import { isRunRecord } from '../../src/run-record'
+import { isRunRecord, UNKNOWN_MODEL } from '../../src/run-record'
 
 interface FakeScenario extends Scenario {
   id: string
@@ -369,6 +369,121 @@ describe('runProfileMatrix', () => {
     expect(result.records[0]!.outcome.searchScore).toBeUndefined()
     expect(result.byProfile[BASELINE_PROFILE_ID]!.meanComposite).toBeNull()
     expect(result.byScenario).toEqual({})
+  })
+
+  it('retains a failed moving-model cell without inventing model, cost, or usage', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-failure',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [moving],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      dispatch: async () => {
+        throw new Error('provider refused before a model response')
+      },
+      integrity: 'off',
+    })
+    const profileId = agentProfileId(moving)
+    const record = result.records[0]!
+
+    expect(record).toMatchObject({
+      candidateId: profileId,
+      model: UNKNOWN_MODEL,
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+      tokenUsage: { input: 0, output: 0, tokensKnown: false },
+      terminalOutcome: 'failed',
+    })
+    expect(record.agentProfile?.profileId).toBe(profileId)
+    expect(record.agentProfile?.model).toBeUndefined()
+    expect(record.outcome.raw).toMatchObject({
+      cost_uncaptured: 1,
+      tokens_known: 0,
+    })
+    expect(result.byProfile[profileId]!.model).toBe(UNKNOWN_MODEL)
+  })
+
+  it('keeps failed moving rows unknown while requiring a served snapshot for success', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-mixed',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    const snapshot = 'deepseek/deepseek-v4-flash@2026-08-03'
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [moving],
+      scenarios: SCENARIOS.slice(0, 2),
+      reps: 1,
+      dispatch: async (profile, scenario, ctx) => {
+        if (scenario.id === 's1') throw new Error('one cell refused')
+        return paidArtifact(
+          ctx,
+          { text: `${profile.name}:${scenario.id}` },
+          { model: snapshot, inputTokens: 12, outputTokens: 3, actualCostUsd: 0.001 },
+        )
+      },
+      integrity: 'off',
+    })
+
+    expect(result.records).toHaveLength(2)
+    expect(result.records.find((record) => record.scenarioId === 's1')?.model).toBe(UNKNOWN_MODEL)
+    expect(result.records.find((record) => record.scenarioId === 's2')?.model).toBe(snapshot)
+    expect(result.byProfile[agentProfileId(moving)]!.model).toBe(snapshot)
+  })
+
+  it('preserves a settled served snapshot when failure happens after the paid call', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-after-call-failure',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    const snapshot = 'deepseek/deepseek-v4-flash@2026-08-03'
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [moving],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      dispatch: async (_profile, _scenario, ctx) => {
+        await paidArtifact(
+          ctx,
+          { text: 'provider returned an artifact before the worker failed' },
+          { model: snapshot, inputTokens: 12, outputTokens: 3, actualCostUsd: 0.001 },
+        )
+        throw new Error('worker failed after provider response')
+      },
+      integrity: 'off',
+    })
+
+    expect(result.records[0]).toMatchObject({
+      model: snapshot,
+      costUsd: 0.001,
+      tokenUsage: { input: 12, output: 3 },
+      terminalOutcome: 'failed',
+    })
+    expect(result.records[0]!.agentProfile?.model).toBe(snapshot)
+  })
+
+  it('still rejects a successful moving-model cell without an immutable served snapshot', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-no-snapshot',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [moving],
+        scenarios: [SCENARIOS[0]!],
+        reps: 1,
+        dispatch: async (profile, scenario, ctx) =>
+          paidArtifact(
+            ctx,
+            { text: `${profile.name}:${scenario.id}` },
+            { model: 'deepseek-v4-flash', inputTokens: 12, outputTokens: 3, actualCostUsd: 0.001 },
+          ),
+      }),
+    ).rejects.toThrow(/lacks a snapshot version/u)
   })
 
   it('gives failed profile retries distinct attempt identities and reuses only a completed cell', async () => {

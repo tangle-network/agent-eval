@@ -19,7 +19,8 @@ composition point already exists (see Produced-state grading below).**
 When variants of the same task run inside one `runCampaign`, give those scenarios the same `seedGroup` so each repetition uses common randomness.
 Use `runProfileMatrix` instead when profiles are separate campaign axes.
 Set `maxConcurrency` for cases within one profile and `maxProfileConcurrency` for independent profile columns; results retain caller order regardless of completion order.
-Every paid-call receipt must match the profile, and a moving alias must resolve to one snapshot across the entire profile column.
+Every paid-call receipt must match the profile, and a successful moving alias must resolve to one snapshot across the entire profile column.
+Failed cells with no served model remain durable with explicit unknown model, cost, and usage fields.
 The caller commit and profile config are always part of cache identity; set `dispatchRef` when execution behavior can change without a new commit.
 A failed profile cancels active sibling columns before the matrix rejects.
 

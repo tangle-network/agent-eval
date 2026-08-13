@@ -159,6 +159,10 @@ The campaign cell remains failed and unscored, so this protocol penalty is not a
 The failed cell is not cached; a later request retries it with a fresh `ctx.runAttemptId`, while completed cells remain resumable.
 Set `abortOnCellError: true` to keep fail-fast behavior.
 
+`runProfileMatrix()` retains a failed cell when a moving model alias produced no served model snapshot.
+The row carries `model: 'unknown'`, uncaptured cost, and incomplete token usage so downstream reports can count the failure without inventing measurements.
+Successful moving-model cells still require one immutable served snapshot.
+
 ## Adapt Another Text Optimizer
 
 Use `externalTextOptimizationMethod()` when an existing package owns search and selection for a text prompt or named text components.

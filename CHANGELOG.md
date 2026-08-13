@@ -8,6 +8,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.7] — 2026-08-13
+
+### Fixed
+
+- `runProfileMatrix()` now retains failed moving-model cells when no served model was observed.
+- These rows use explicit unknown model, uncaptured cost, and incomplete usage markers instead of fabricated snapshots or zero measurements.
+- Successful moving-model cells still require one immutable served model snapshot.
+
+---
+
 ## [0.145.6] — 2026-08-13
 
 ### Fixed

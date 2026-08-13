@@ -46,6 +46,9 @@ export type RunSplitTag = 'search' | 'dev' | 'holdout'
  */
 export type RunTerminalOutcome = 'succeeded' | 'failed' | 'cancelled' | 'incomplete' | 'unknown'
 
+/** Explicit model value for a row that never produced a served model snapshot. */
+export const UNKNOWN_MODEL = 'unknown'
+
 export interface RunTokenUsage {
   input: number
   /** All generated tokens charged as output, including reasoning tokens. */
@@ -149,9 +152,12 @@ export interface RunOutcome {
  *     configHash) uniquely identifies an experiment cell.
  *
  * Model snapshot discipline:
- *   - `model` MUST encode a snapshot version. Bare aliases like
+ *   - successful rows MUST encode a snapshot version. Bare aliases like
  *     `claude-sonnet-4` or `gpt-4o` are banned — they remap silently.
  *     Use `claude-sonnet-4-6@2025-04-15` or `gpt-4o-2024-11-20`.
+ *   - a failed, cancelled, incomplete, or otherwise unknown row may use
+ *     `UNKNOWN_MODEL` when no served model was observed. This is an explicit
+ *     absence marker, not a fabricated snapshot.
  */
 export interface RunRecord {
   /** UUID for the run. */
@@ -312,10 +318,15 @@ export function validateRunRecord(input: unknown): RunRecord {
   if (obj.queueMs !== undefined) expectNonNegativeNumber(obj.queueMs, 'queueMs')
   validateCost(obj.costUsd, obj.costProvenance)
 
-  // Snapshot discipline: bare model aliases are not paper-grade.
-  if (!modelHasSnapshot(obj.model as string)) {
+  // Snapshot discipline: successful rows require a served model snapshot.
+  // Non-success rows may carry the explicit absence marker when execution
+  // stopped before a model identity was observed.
+  if (
+    !modelHasSnapshot(obj.model as string) &&
+    !(obj.model === UNKNOWN_MODEL && obj.terminalOutcome !== 'succeeded')
+  ) {
     throw new RunRecordValidationError(
-      `model "${obj.model}" lacks a snapshot version (use 'name@YYYY-MM-DD' or 'name-YYYYMMDD')`,
+      `model "${obj.model}" lacks a snapshot version (use 'name@YYYY-MM-DD' or 'name-YYYYMMDD', or '${UNKNOWN_MODEL}' for a non-success row without a served model)`,
       'model',
     )
   }
