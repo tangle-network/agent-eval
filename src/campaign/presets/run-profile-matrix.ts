@@ -299,6 +299,10 @@ function receiptModels(cell: CampaignCellResult<unknown>): string[] {
   return [...new Set(reported.map((model) => model.trim()).filter(Boolean))]
 }
 
+function isUnknownModelOnly(reported: string[]): boolean {
+  return reported.length > 0 && reported.every((model) => model === UNKNOWN_MODEL)
+}
+
 /** Resolve and validate every paid-call model used by one cell. */
 function recordModel(
   cell: CampaignCellResult<unknown>,
@@ -310,7 +314,7 @@ function recordModel(
   // identity. Preserve that failed row with an explicit absence marker; a
   // failure must not be converted into a made-up snapshot or discarded.
   // When a settled receipt exists, retain and validate its real identity.
-  if (reported.length === 0 && cell.error !== undefined) {
+  if (cell.error !== undefined && (reported.length === 0 || isUnknownModelOnly(reported))) {
     return UNKNOWN_MODEL
   }
   if (modelHasSnapshot(declaredModel)) {
@@ -416,7 +420,7 @@ function durableCellForRecord<TArtifact>(
 ): CampaignCellResult<TArtifact> {
   if (cell.error === undefined) return cell
 
-  const hasSettledAgentCalls = receiptModels(cell).length > 0
+  const hasSettledAgentCalls = receiptModels(cell).some((model) => model !== UNKNOWN_MODEL)
   return {
     ...cell,
     tokenUsage:
