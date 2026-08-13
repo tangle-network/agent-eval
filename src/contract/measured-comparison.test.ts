@@ -345,6 +345,7 @@ function executionEvidence(input: {
       preparationId: `preparation-${executionId}`,
       grantDigest: executionPlan.material.model.access.grantDigest,
       closed: true as const,
+      usageWithinLimits: true,
       resolved: resolvedModel,
       calls: [],
       usage: {
