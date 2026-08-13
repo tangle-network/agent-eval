@@ -40,6 +40,12 @@ export {
   campaignSplitDigest,
   campaignSplitDigestFromIdentities,
 } from './coverage'
+export {
+  type CacheIssueReason,
+  type CacheRead,
+  readCachedCell,
+} from './cell-cache'
+export { cellCachePath } from './cell-schedule'
 // ── Cross-surface interaction matrix + frozen bundle selection ──────
 export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
 export type {
