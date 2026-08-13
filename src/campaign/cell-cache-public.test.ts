@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  cellCachePath,
-  inMemoryCampaignStorage,
-  readCachedCell,
-} from './index'
+import { cellCachePath, inMemoryCampaignStorage, readCachedCell } from './index'
 
 describe('public campaign cache reader', () => {
   it('reads a cache through the campaign storage contract and rejects stale identity', () => {
@@ -29,11 +25,15 @@ describe('public campaign cache reader', () => {
     storage.ensureDir(path.slice(0, path.lastIndexOf('/')))
     storage.write(path, JSON.stringify(cell))
 
-    expect(readCachedCell({ storage, cachePath: path, cellId: 'case:0', manifestHash: 'manifest-a' })).toEqual({
+    expect(
+      readCachedCell({ storage, cachePath: path, cellId: 'case:0', manifestHash: 'manifest-a' }),
+    ).toEqual({
       status: 'hit',
       cell,
     })
-    expect(readCachedCell({ storage, cachePath: path, cellId: 'case:0', manifestHash: 'manifest-b' })).toEqual({
+    expect(
+      readCachedCell({ storage, cachePath: path, cellId: 'case:0', manifestHash: 'manifest-b' }),
+    ).toEqual({
       status: 'miss',
       reason: 'manifest-mismatch',
     })

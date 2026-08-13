@@ -34,18 +34,18 @@ export {
   openAutoPr,
 } from './auto-pr'
 export {
+  type CacheIssueReason,
+  type CacheRead,
+  readCachedCell,
+} from './cell-cache'
+export { cellCachePath } from './cell-schedule'
+export {
   assertCampaignDesign,
   assertCampaignSplitIdentity,
   campaignScenarioIdentity,
   campaignSplitDigest,
   campaignSplitDigestFromIdentities,
 } from './coverage'
-export {
-  type CacheIssueReason,
-  type CacheRead,
-  readCachedCell,
-} from './cell-cache'
-export { cellCachePath } from './cell-schedule'
 // ── Cross-surface interaction matrix + frozen bundle selection ──────
 export { analyzeCrossSurfaceInteractions } from './cross-surface-interaction'
 export type {
