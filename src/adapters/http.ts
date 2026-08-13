@@ -64,6 +64,7 @@ export interface HttpDispatchOptions<TScenario extends Scenario, _TArtifact> {
 export interface HttpDispatchRequestBody<TScenario extends Scenario> {
   scenario: TScenario
   cellId: string
+  runAttemptId: string
   rep: number
   generation?: number
   seed: number
@@ -109,6 +110,7 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
     const body: HttpDispatchRequestBody<TScenario> = {
       scenario,
       cellId: ctx.cellId,
+      runAttemptId: ctx.runAttemptId,
       rep: ctx.rep,
       generation: ctx.generation,
       seed: ctx.seed,
@@ -296,12 +298,16 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
       const body = JSON.parse(
         Buffer.concat(chunks).toString('utf8'),
       ) as HttpDispatchRequestBody<TScenario>
+      if (typeof body.runAttemptId !== 'string' || body.runAttemptId.trim().length === 0) {
+        throw new Error('runDispatchServer: request runAttemptId is required')
+      }
       cellId = body.cellId
 
       const ctx: DispatchContext = opts.contextFactory
         ? await opts.contextFactory(body, aborter.signal)
         : {
             cellId: body.cellId,
+            runAttemptId: body.runAttemptId,
             rep: body.rep,
             generation: body.generation,
             seed: body.seed,
@@ -312,6 +318,9 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
             artifacts: NOOP_ARTIFACTS,
             cost: NOOP_COST,
           }
+      if (ctx.runAttemptId !== body.runAttemptId) {
+        throw new Error('runDispatchServer: contextFactory must preserve request runAttemptId')
+      }
 
       const artifact = await opts.dispatch(body.scenario, ctx)
       const responseBody: HttpDispatchResponseBody<TArtifact> = { artifact }

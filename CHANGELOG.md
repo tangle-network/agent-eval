@@ -8,6 +8,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.6] — 2026-08-13
+
+### Fixed
+
+- `runCampaign()` now passes its existing per-invocation `runAttemptId` through every `DispatchContext`, so failed profile retries receive distinct workspace identities while completed cache reuse remains unchanged.
+
+---
+
 ## [0.145.5] — 2026-08-12
 
 ### Fixed
