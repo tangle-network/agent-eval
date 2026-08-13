@@ -34,6 +34,12 @@ export {
   openAutoPr,
 } from './auto-pr'
 export {
+  type CacheIssueReason,
+  type CacheRead,
+  readCachedCell,
+} from './cell-cache'
+export { cellCachePath } from './cell-schedule'
+export {
   assertCampaignDesign,
   assertCampaignSplitIdentity,
   campaignScenarioIdentity,
