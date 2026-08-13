@@ -154,6 +154,11 @@ That receipt contains the original error, the cell result, exact call IDs, and s
 Active sibling cells are cancelled and allowed to finish recording their own receipts before the campaign rejects with the original cell error.
 Leaving `abortOnCellError` unset preserves continue-on-error behavior.
 
+When an external text optimizer uses that continue-on-error behavior, a failed evaluation returns a finite optimizer penalty of `0` with `info.status: 'failed'`.
+The campaign cell remains failed and unscored, so this protocol penalty is not a measured zero.
+The failed cell is not cached; a later request retries it, while completed cells remain resumable.
+Set `abortOnCellError: true` to keep fail-fast behavior.
+
 ## Adapt Another Text Optimizer
 
 Use `externalTextOptimizationMethod()` when an existing package owns search and selection for a text prompt or named text components.

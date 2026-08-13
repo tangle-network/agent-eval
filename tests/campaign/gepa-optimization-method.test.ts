@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { testModelExecutionOwner } from '../../src/analyst/model-execution.test-support'
 import {
@@ -308,6 +308,109 @@ describe('gepaOptimizationMethod', () => {
     expect(readFileSync(provenance.modelExecutions!.path, 'utf8').trim().split('\n')).toHaveLength(
       1,
     )
+  })
+
+  it('continues external GEPA after a failed cell without measuring the penalty as zero', async () => {
+    const observedInputPath = join(runDir, 'failed-cell-input.json')
+    let failedDispatches = 0
+    const method = gepaOptimizationMethod<TestScenario, TestArtifact>({
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'best_of_n',
+          maxEvaluations: 2,
+          maxProposerCostUsd: 1,
+        },
+      },
+      objective: 'Return the better policy.',
+      evaluationId: 'failed-cell',
+      runner: fakeGepaRunnerWithFailedEvaluation(observedInputPath),
+    })
+
+    const result = await compareOptimizationMethods<TestScenario, TestArtifact>({
+      methods: [method],
+      baselineSurface: 'baseline',
+      trainScenarios: [{ id: 'train', kind: 'qa', prompt: 'train', privateNote: '' }],
+      selectionScenarios: [{ id: 'selection', kind: 'qa', prompt: 'selection', privateNote: '' }],
+      testScenarios: [
+        { id: 'final', kind: 'qa', prompt: 'final', privateNote: '' },
+        { id: 'final-2', kind: 'qa', prompt: 'final 2', privateNote: '' },
+      ],
+      dispatchWithSurface: async (surface, scenario) => {
+        if (scenario.id === 'train' && surface === 'failed') {
+          failedDispatches += 1
+          throw new Error('provider 500')
+        }
+        return { text: String(surface) }
+      },
+      judges: [betterJudge],
+      optimizationRunOptions: { abortOnCellError: false, expectUsage: 'off' },
+      runDir,
+      seed: 11,
+      resamples: 40,
+    })
+
+    expect(failedDispatches).toBe(1)
+    expect(result.scores[0]).toMatchObject({
+      winnerSurface: 'better',
+      winnerComposite: 1,
+      provenance: {
+        evaluationCount: 2,
+        observations: {
+          evaluations: 2,
+          refusals: 0,
+        },
+        gepaCandidatePopulation: {
+          candidates: 2,
+          bestIndex: 1,
+        },
+      },
+    })
+
+    const observationsPath = result.scores[0]!.provenance!.observations!.path
+    const observations = readFileSync(observationsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line)) as Array<{
+      kind: string
+      response?: { score?: number; info?: { status?: string } }
+    }>
+    expect(
+      observations
+        .filter((observation) => observation.kind === 'evaluation')
+        .map((observation) => ({
+          score: observation.response?.score,
+          status: observation.response?.info?.status,
+        })),
+    ).toEqual([
+      { score: 0, status: 'failed' },
+      { score: 1, status: 'scored' },
+    ])
+
+    const failurePath = findFile(runDir, 'failure-receipt.json')
+    expect(failurePath).not.toBeUndefined()
+    expect(JSON.parse(readFileSync(failurePath!, 'utf8'))).toMatchObject({
+      failure: { stage: 'dispatch', error: { message: 'provider 500' } },
+      cell: {
+        errorStage: 'dispatch',
+        error: 'provider 500',
+        judgeScores: {},
+      },
+    })
+    expect(findFile(dirname(failurePath!), 'cached-result.json')).toBeUndefined()
+
+    const populationPath = result.scores[0]!.provenance!.gepaCandidatePopulation!.path
+    const population = JSON.parse(readFileSync(populationPath, 'utf8')) as {
+      candidates: Array<{ aggregateScore: number | null; selectionScores: unknown[] }>
+    }
+    expect(population.candidates[0]).toMatchObject({
+      aggregateScore: null,
+      selectionScores: [],
+    })
+    expect(population.candidates[1]).toMatchObject({
+      aggregateScore: 1,
+      selectionScores: [{ scenarioId: 'selection', score: 1 }],
+    })
   })
 
   it('keeps evaluation and optimizer-model budgets cumulative across resumes', async () => {
@@ -643,6 +746,61 @@ function fakeGepaRunner(
   return { command: process.execPath, args: ['-e', source, '--'] }
 }
 
+function fakeGepaRunnerWithFailedEvaluation(observedInputPath: string) {
+  const source = [
+    "const fs = require('node:fs')",
+    "const crypto = require('node:crypto')",
+    "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
+    "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
+    'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
+    `const runtime = ${JSON.stringify(GEPA_RUNTIME_IDENTITY)}`,
+    'if (input.operation === "inspect") {',
+    '  fs.writeFileSync(outputPath, JSON.stringify({ runtime }))',
+    '  process.exit(0)',
+    '}',
+    `fs.writeFileSync(${JSON.stringify(observedInputPath)}, JSON.stringify({ ...input, cwd: process.cwd() }))`,
+    ';(async () => {',
+    '  const evaluate = async (candidate) => {',
+    '    const response = await fetch(input.callbackUrl, {',
+    '      method: "POST",',
+    '      headers: { authorization: "Bearer " + input.callbackToken, "content-type": "application/json" },',
+    '      body: JSON.stringify({ candidate, exampleId: input.trainSet[0].id }),',
+    '    })',
+    '    if (!response.ok) throw new Error("callback failed: " + response.status)',
+    '    return response.json()',
+    '  }',
+    '  const failed = await evaluate("failed")',
+    '  const scored = await evaluate("better")',
+    '  fs.mkdirSync(input.outputDir, { recursive: true })',
+    '  const populationPath = input.outputDir + "/candidate-population-failed-cell.json"',
+    '  const populationContents = JSON.stringify({',
+    '    schemaVersion: 1,',
+    '    scope: "gepa-candidate-population",',
+    '    runId: input.runId,',
+    '    bestIndex: 1,',
+    '    candidates: [',
+    '      { index: 0, candidate: "failed", parentIndices: [null], aggregateScore: null, selectionScores: [], discoveryEvaluationCount: 1 },',
+    '      { index: 1, candidate: "better", parentIndices: [0], aggregateScore: scored.score, selectionScores: [{ scenarioId: input.selectionSet[0].id, score: scored.score }], discoveryEvaluationCount: 2 },',
+    '    ],',
+    '  }, null, 2) + "\\n"',
+    '  fs.writeFileSync(populationPath, populationContents)',
+    '  const candidatePopulation = { scope: "gepa-candidate-population", path: populationPath, sha256: "sha256:" + crypto.createHash("sha256").update(populationContents).digest("hex"), bytes: Buffer.byteLength(populationContents), runId: input.runId, candidates: 2, bestIndex: 1, maxCandidates: input.maxPopulationCandidates, maxCandidateChars: input.maxCandidateChars, scenarioIds: (input.selectionSet.length ? input.selectionSet : input.trainSet).map((scenario) => scenario.id), surfaceKind: typeof input.seedCandidate === "string" ? "text" : "components" }',
+    '  fs.writeFileSync(outputPath, JSON.stringify({',
+    '    bestCandidate: "better",',
+    '    bestScore: scored.score,',
+    '    totalEvaluations: 2,',
+    '    recipeKind: input.recipe.kind,',
+    '    proposerCostAccounting: "unavailable",',
+    '    upstream: runtime.optimizer,',
+    '    runId: input.runId,',
+    '    resumed: false,',
+    '    candidatePopulation,',
+    '  }))',
+    '})().catch((error) => { console.error(error); process.exit(1) })',
+  ].join('\n')
+  return { command: process.execPath, args: ['-e', source, '--'] }
+}
+
 function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
   const source = [
     "const fs = require('node:fs')",
@@ -737,6 +895,18 @@ function gepaComparisonOptions(
     expectUsage: 'off' as const,
     dispatchRef,
   }
+}
+
+function findFile(root: string, name: string): string | undefined {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name)
+    if (entry.isFile() && entry.name === name) return path
+    if (entry.isDirectory()) {
+      const found = findFile(path, name)
+      if (found) return found
+    }
+  }
+  return undefined
 }
 
 async function startModelServer(): Promise<string> {
