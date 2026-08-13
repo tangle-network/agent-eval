@@ -8,6 +8,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.4] — 2026-08-12
+
+### Added
+
+- Consumers that split one profile matrix across bounded external grants can
+  create one Eval-owned plan, pass disjoint rows to each segment, reuse the
+  same segment identity to resume failed cells, and call finalization only
+  after every declared row is claimed.
+- Finalization preserves the ordinary `runProfileMatrix` result and reports
+  missing, failed, and zero-score rows separately.
+
+---
+
 ## [0.145.3] — 2026-08-12
 
 ### Fixed

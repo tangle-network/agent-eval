@@ -86,7 +86,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     ) {
       throw invalidCachedCellsError([{ cellId: args.slot.cellId, reason: cached.reason }])
     }
-    if (cached.status === 'hit') {
+    if (cached.status === 'hit' && (!cached.cell.error || args.opts.reuseFailedCells)) {
       const receiptProblem = cachedCellReceiptProblem(cached.cell, args.costLedger, stableCostTags)
       if (receiptProblem === undefined) {
         const cell = withCurrentAgentModelEvidence(cached.cell, args.costLedger, stableCostTags)

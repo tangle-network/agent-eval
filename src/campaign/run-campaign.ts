@@ -56,6 +56,17 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    *  (manifestHash, scenarioId, rep, generation). Re-runs skip cached cells. */
   resumable?: boolean
   /**
+   * Optional explicit cell selection. The campaign manifest and split digest
+   * still describe the complete declared scenario × replicate design; this
+   * only limits the rows executed by this invocation.
+   */
+  cellFilter?: (input: { scenario: TScenario; rep: number }) => boolean
+  /**
+   * Reuse a cached cell that has an error instead of dispatching it again.
+   * The default retries failed cells, preserving normal campaign behaviour.
+   */
+  reuseFailedCells?: boolean
+  /**
    * Explicitly rerun only cached cells whose saved result is unreadable or
    * has missing/invalid cost provenance. Valid cached cells remain reusable.
    * Default false refuses to begin work when any such cache entry exists.
@@ -224,7 +235,9 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   const artifactsByPath: Record<string, string> = {}
 
   // Build the cell schedule (scenario × rep).
-  const schedule = buildCellSchedule(opts.scenarios, seed, reps)
+  const schedule = buildCellSchedule(opts.scenarios, seed, reps).filter((slot) =>
+    opts.cellFilter ? opts.cellFilter({ scenario: slot.scenario, rep: slot.rep }) : true,
+  )
 
   if (resumable) {
     // Execution reads each cache again so another process cannot replace a

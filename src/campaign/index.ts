@@ -271,6 +271,20 @@ export {
   runProfileMatrix,
   type ScenarioRollup,
 } from './presets/run-profile-matrix'
+export {
+  type CreateProfileMatrixPlanOptions,
+  createProfileMatrixPlan,
+  type FinalizedProfileMatrixResult,
+  type FinalizeProfileMatrixOptions,
+  finalizeProfileMatrix,
+  type ProfileMatrixCoverage,
+  type ProfileMatrixPlan,
+  type ProfileMatrixRow,
+  type ProfileMatrixSegmentResult,
+  type RunProfileMatrixSegmentOptions,
+  runProfileMatrixSegment,
+  SegmentedProfileMatrixError,
+} from './presets/segmented-profile-matrix'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,

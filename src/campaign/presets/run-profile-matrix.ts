@@ -58,6 +58,7 @@ import {
   runTaskScore,
   validateRunRecord,
 } from '../../run-record'
+import { computeManifestHash } from '../campaign-manifest'
 import { runCampaign } from '../run-campaign'
 import { campaignCellToRunRecord } from '../run-record'
 import type { CampaignStorage } from '../storage'
@@ -160,6 +161,16 @@ export interface RunProfileMatrixOptions<TScenario extends Scenario, TArtifact> 
     artifact: TArtifact,
     scenario: TScenario,
   ) => { prompt: string; completion: string } | undefined
+  /**
+   * Optional explicit row selection. The matrix identity remains based on the
+   * complete profiles × scenarios × reps design; this invocation executes only
+   * rows accepted by the predicate.
+   */
+  rowFilter?: (input: { profile: AgentProfile; scenario: TScenario; rep: number }) => boolean
+  /** Stable matrix identity supplied by a persisted profile-matrix plan. */
+  matrixId?: string
+  /** Reuse cached failed cells. Normal matrix runs retry them by default. */
+  reuseFailedCells?: boolean
 }
 
 export interface ProfileSummary {
@@ -198,6 +209,56 @@ export interface RunProfileMatrixResult<TArtifact, TScenario extends Scenario> {
   integrity: BackendIntegrityReport
   /** The raw per-profile campaign results, keyed by profile id. */
   campaigns: Record<string, CampaignResult<TArtifact, TScenario>>
+}
+
+/**
+ * Return the exact per-profile campaign identity used by `runProfileMatrix`.
+ * Segmented profile matrices use this to validate durable cell caches before
+ * finalization without dispatching a probe request.
+ */
+export function profileMatrixCampaignIdentity<TScenario extends Scenario, TArtifact>(opts: {
+  profile: AgentProfile
+  scenarios: TScenario[]
+  judges?: JudgeConfig<TArtifact, TScenario>[]
+  commitSha: string
+  dispatchRef?: string
+  splitTag?: RunSplitTag
+  seed?: number
+  reps?: number
+}): {
+  profileHash: string
+  profileId: string
+  configHash: string
+  dispatchRef: string
+  manifestHash: string
+} {
+  const seed = opts.seed ?? 42
+  const splitTag = opts.splitTag ?? 'search'
+  const reps = opts.reps ?? 1
+  const profileHash = agentProfileHash(opts.profile)
+  const profileId = agentProfileId(opts.profile)
+  const configHash = sha({
+    profile: profileHash,
+    judges: (opts.judges ?? []).map((judge) => judge.name),
+    seed,
+    splitTag,
+    dispatchRef: opts.dispatchRef ?? null,
+  })
+  const dispatchRef = `profile-matrix:${sha({
+    commitSha: opts.commitSha,
+    caller: opts.dispatchRef ?? null,
+    profileId,
+    profileHash,
+    configHash,
+  })}`
+  const manifestHash = computeManifestHash({
+    scenarios: opts.scenarios,
+    judges: (opts.judges ?? []) as unknown as JudgeConfig<unknown>[],
+    dispatchRef,
+    seed,
+    reps,
+  })
+  return { profileHash, profileId, configHash, dispatchRef, manifestHash }
 }
 
 function sanitize(id: string): string {
@@ -360,7 +421,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
   const experimentId =
     opts.experimentId ??
     `pm_${sha({ profileIds, scenarios: opts.scenarios.map((s) => s.id) }).slice(0, 16)}`
-  const matrixId = `mtx_${sha({
+  const derivedMatrixId = `mtx_${sha({
     experimentId,
     profileIds,
     seed,
@@ -368,6 +429,10 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     commitSha: opts.commitSha,
     dispatchRef: opts.dispatchRef ?? null,
   }).slice(0, 16)}`
+  const matrixId = opts.matrixId ?? derivedMatrixId
+  if (typeof matrixId !== 'string' || matrixId.trim().length === 0) {
+    throw new ProfileMatrixError('matrixId must be a non-empty string when provided')
+  }
   // Scenario lookup for the corpus-text extractor (records carry trajectory text).
   const scenarioById = new Map(opts.scenarios.map((s) => [s.id, s]))
 
@@ -417,23 +482,18 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
     opts.profiles,
     maxProfileConcurrency,
     async (profile, _index, signal) => {
-      const profileHash = agentProfileHash(profile)
-      const profileId = agentProfileId(profile)
-      const declaredModel = agentProfileModelId(profile)
-      const configHash = sha({
-        profile: profileHash,
-        judges: (opts.judges ?? []).map((j) => j.name),
-        seed,
-        splitTag,
-        dispatchRef: opts.dispatchRef ?? null,
-      })
-      const dispatchRef = `profile-matrix:${sha({
+      const identity = profileMatrixCampaignIdentity({
+        profile,
+        scenarios: opts.scenarios,
+        judges: opts.judges,
         commitSha: opts.commitSha,
-        caller: opts.dispatchRef ?? null,
-        profileId,
-        profileHash,
-        configHash,
-      })}`
+        dispatchRef: opts.dispatchRef,
+        splitTag,
+        seed,
+        reps: opts.reps,
+      })
+      const { profileHash, profileId, configHash, dispatchRef } = identity
+      const declaredModel = agentProfileModelId(profile)
 
       // Bind the profile into a campaign dispatch. Name it so the campaign's
       // manifest hash is stable + distinct per profile.
@@ -451,6 +511,10 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         reps: opts.reps,
         maxConcurrency: opts.maxConcurrency,
         costCeiling: opts.costCeiling,
+        cellFilter: opts.rowFilter
+          ? ({ scenario, rep }) => opts.rowFilter?.({ profile, scenario, rep }) ?? false
+          : undefined,
+        reuseFailedCells: opts.reuseFailedCells,
         labeledStore: opts.labeledStore,
         captureSource: opts.captureSource,
         storage: opts.storage,

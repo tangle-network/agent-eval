@@ -22,6 +22,17 @@ Set `maxConcurrency` for cases within one profile and `maxProfileConcurrency` fo
 Every paid-call receipt must match the profile, and a moving alias must resolve to one snapshot across the entire profile column.
 The caller commit and profile config are always part of cache identity; set `dispatchRef` when execution behavior can change without a new commit.
 A failed profile cancels active sibling columns before the matrix rejects.
+
+When one external grant cannot run the complete profile matrix, use
+`createProfileMatrixPlan`, `runProfileMatrixSegment`, and
+`finalizeProfileMatrix` from the same campaign surface.
+The plan hashes the complete profiles × scenarios × reps design and assigns
+one stable row identity to every cell.
+Each segment claims explicit, disjoint rows and can reuse its segment identity
+to retry failed cells from Eval's durable campaign cache.
+Finalization refuses missing, overlapping, stale, corrupt, or duplicate rows,
+then returns the ordinary `runProfileMatrix` result and its distributions.
+Coverage reports missing, failed, and zero-score rows separately.
 | `runAgentMatrix` | The bare N-axis cartesian scheduler with concurrency control. The layer beneath the eval surface: reach for it only when you need raw scheduling, not eval semantics. | cell results |
 
 Mental model: **measure** (`runCampaign`/`runEval`) → **factor** (`runProfileMatrix`) →
