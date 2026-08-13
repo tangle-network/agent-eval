@@ -196,6 +196,13 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     expect(() => validateRunRecord(makeRecord({ model: 'claude-sonnet-4' }))).toThrow(/snapshot/i)
   })
 
+  it('accepts the explicit unknown model marker only for a non-success row', () => {
+    expect(() =>
+      validateRunRecord(makeRecord({ model: 'unknown', terminalOutcome: 'failed' })),
+    ).not.toThrow()
+    expect(() => validateRunRecord(makeRecord({ model: 'unknown' }))).toThrow(/snapshot/i)
+  })
+
   it('accepts OpenAI-style date suffix (gpt-4o-2024-11-20)', () => {
     expect(() => validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20' }))).not.toThrow()
   })

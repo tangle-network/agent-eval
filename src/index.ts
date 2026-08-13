@@ -193,6 +193,7 @@ export {
   RunRecordValidationError,
   roundTripRunRecord,
   runTaskScore,
+  UNKNOWN_MODEL,
   validateRunRecord,
 } from './run-record'
 export type { RunScore, RunScoreWeights } from './run-score'

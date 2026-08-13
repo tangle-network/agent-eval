@@ -56,6 +56,7 @@ import {
   type RunRecord,
   type RunSplitTag,
   runTaskScore,
+  UNKNOWN_MODEL,
   validateRunRecord,
 } from '../../run-record'
 import { computeManifestHash } from '../campaign-manifest'
@@ -305,6 +306,13 @@ function recordModel(
   declaredModel: string,
 ): string {
   const reported = receiptModels(cell)
+  // A dispatch failure can happen before the provider returns any model
+  // identity. Preserve that failed row with an explicit absence marker; a
+  // failure must not be converted into a made-up snapshot or discarded.
+  // When a settled receipt exists, retain and validate its real identity.
+  if (reported.length === 0 && cell.error !== undefined) {
+    return UNKNOWN_MODEL
+  }
   if (modelHasSnapshot(declaredModel)) {
     for (const model of reported) {
       if (model !== declaredModel) {
@@ -362,10 +370,12 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     args
   const profileId = agentProfileId(profile)
   const declaredModel = agentProfileModelId(profile)
-  // Every record pins a snapshot. When a profile intentionally carries the provider-facing
-  // moving alias, the paid-call receipt supplies the immutable identity used here.
+  // Every successful record pins a snapshot. When a profile intentionally
+  // carries the provider-facing moving alias, the paid-call receipt supplies
+  // the immutable identity used here. Failed rows use explicit unknown data.
   const model = recordModel(cell, profileId, declaredModel)
-  const record = campaignCellToRunRecord(cell, {
+  const durableCell = durableCellForRecord(cell)
+  const record = campaignCellToRunRecord(durableCell, {
     runId: `${matrixId}:${profileId}:${cell.cellId}`,
     experimentId,
     candidateId: profileId,
@@ -392,6 +402,32 @@ function buildRunRecord<TScenario extends Scenario, TArtifact>(
     }
   }
   return record
+}
+
+/**
+ * Keep failed rows truthful at the RunRecord boundary.
+ *
+ * A cell with no settled call currently has a zero subtotal and an observed
+ * zero from the ledger. That is not measured provider usage or cost, so mark
+ * usage incomplete and cost uncaptured while retaining the known subtotal.
+ */
+function durableCellForRecord<TArtifact>(
+  cell: CampaignCellResult<TArtifact>,
+): CampaignCellResult<TArtifact> {
+  if (cell.error === undefined) return cell
+
+  const hasSettledAgentCalls = receiptModels(cell).length > 0
+  return {
+    ...cell,
+    tokenUsage:
+      cell.tokenUsage.tokensKnown === false || hasSettledAgentCalls
+        ? cell.tokenUsage
+        : { ...cell.tokenUsage, tokensKnown: false },
+    costProvenance:
+      !hasSettledAgentCalls && cell.costProvenance.kind === 'observed' && cell.costUsd === 0
+        ? { kind: 'uncaptured', usd: null }
+        : cell.costProvenance,
+  }
 }
 
 /**
@@ -531,11 +567,11 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
       // `cell.resolvedModels`), so the pivot groups by the model that actually ran and
       // the cell identity matches the RunRecord's pinned model.
       const axis = harnessAxisOf(profile)
-      const buildCellIdentity = (cellModel: string): Promise<AgentProfileCell> =>
+      const buildCellIdentity = (cellModel?: string): Promise<AgentProfileCell> =>
         buildAgentProfileCell({
           profileId,
           sourceProfile: { kind: 'agent-interface-profile', hash: profileHash },
-          model: cellModel,
+          ...(cellModel && cellModel !== UNKNOWN_MODEL ? { model: cellModel } : {}),
           ...(axis ? { harness: { id: axis.harness } } : {}),
         })
       // A profile with a pinned declared model builds its cell identity once and
@@ -546,9 +582,11 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
 
       const profileRecords: RunRecord[] = []
       for (const cell of campaign.cells) {
+        const cellModel = recordModel(cell, profileId, declaredModel)
         const agentProfileCell =
-          sharedCellIdentity ??
-          (await buildCellIdentity(recordModel(cell, profileId, declaredModel)))
+          cellModel === UNKNOWN_MODEL
+            ? await buildCellIdentity()
+            : (sharedCellIdentity ?? (await buildCellIdentity(cellModel)))
         const record = buildRunRecord({
           cell,
           profile,
@@ -566,7 +604,13 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         profileRecords.push(record)
       }
 
-      const recordedModels = [...new Set(profileRecords.map((record) => record.model))]
+      const recordedModels = [
+        ...new Set(
+          profileRecords
+            .map((record) => record.model)
+            .filter((model): model is string => model !== UNKNOWN_MODEL),
+        ),
+      ]
       if (recordedModels.length > 1) {
         throw new ProfileMatrixError(
           `profile '${profileId}' resolved to multiple model snapshots: ${recordedModels.join(', ')}`,
@@ -582,7 +626,7 @@ export async function runProfileMatrix<TScenario extends Scenario, TArtifact>(
         summary: {
           profileId,
           profileHash,
-          model: recordedModels[0] ?? declaredModel,
+          model: recordedModels[0] ?? UNKNOWN_MODEL,
           records: profileRecords.length,
           meanComposite: meanOrNull(
             profileRecords.map(scoreOf).filter((score): score is number => score !== undefined),
