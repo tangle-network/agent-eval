@@ -465,6 +465,81 @@ describe('runProfileMatrix', () => {
     expect(result.records[0]!.agentProfile?.model).toBe(snapshot)
   })
 
+  it('retains a failed moving row when the only receipt model is UNKNOWN_MODEL', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-unknown-receipt',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    const result = await runProfileMatrix({
+      ...baseOpts(),
+      profiles: [moving],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      dispatch: async (_profile, _scenario, ctx) => {
+        await paidArtifact(
+          ctx,
+          { text: 'provider failed after an unservable receipt' },
+          { model: UNKNOWN_MODEL, inputTokens: 12, outputTokens: 3, actualCostUsd: 0 },
+        )
+        throw new Error('worker failed after unknown model receipt')
+      },
+      integrity: 'off',
+    })
+
+    expect(result.records[0]).toMatchObject({
+      model: UNKNOWN_MODEL,
+      costUsd: null,
+      costProvenance: { kind: 'uncaptured', usd: null },
+      tokenUsage: { input: 12, output: 3, tokensKnown: false },
+      terminalOutcome: 'failed',
+    })
+  })
+
+  it('rejects UNKNOWN_MODEL on a successful moving-model cell', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-successful-unknown-receipt',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [moving],
+        scenarios: [SCENARIOS[0]!],
+        reps: 1,
+        dispatch: async (_profile, _scenario, ctx) =>
+          paidArtifact(
+            ctx,
+            { text: 'successful artifact without a served model' },
+            { model: UNKNOWN_MODEL, inputTokens: 12, outputTokens: 3, actualCostUsd: 0.001 },
+          ),
+      }),
+    ).rejects.toThrow(/lacks a snapshot version/u)
+  })
+
+  it('rejects a failed moving-model cell with a non-canonical invalid model string', async () => {
+    const moving: AgentProfile = {
+      name: 'moving-invalid-receipt',
+      model: { default: 'deepseek-v4-flash' },
+    }
+    await expect(
+      runProfileMatrix({
+        ...baseOpts(),
+        profiles: [moving],
+        scenarios: [SCENARIOS[0]!],
+        reps: 1,
+        dispatch: async (_profile, _scenario, ctx) => {
+          await paidArtifact(
+            ctx,
+            { text: 'provider failed with invalid evidence' },
+            { model: 'not-a-snapshot', inputTokens: 12, outputTokens: 3, actualCostUsd: 0.001 },
+          )
+          throw new Error('worker failed after invalid model receipt')
+        },
+        integrity: 'off',
+      }),
+    ).rejects.toThrow(/lacks a snapshot version/u)
+  })
+
   it('still rejects a successful moving-model cell without an immutable served snapshot', async () => {
     const moving: AgentProfile = {
       name: 'moving-no-snapshot',

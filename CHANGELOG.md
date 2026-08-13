@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.9] — 2026-08-13
+
+### Fixed
+
+- `runProfileMatrix()` now retains failed moving-model cells when the canonical `UNKNOWN_MODEL` receipt marker is present.
+- The marker counts as absent served-model evidence only on failed rows; successful rows and non-canonical invalid model strings remain rejected.
+
+---
+
 ## [0.145.8] — 2026-08-13
 
 ### Added
