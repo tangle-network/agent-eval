@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.8] — 2026-08-13
+
+### Added
+
+- Export the durable campaign cache reader and canonical cell-cache path from `@tangle-network/agent-eval/campaign`.
+- Consumers that inspect retained campaign cells can now use Eval's identity and cost-provenance validation without copying its filesystem parser.
+
+---
+
 ## [0.145.7] — 2026-08-13
 
 ### Fixed
