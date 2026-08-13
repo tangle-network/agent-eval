@@ -51,6 +51,8 @@ export interface CampaignScenarioIdentity extends Pick<Scenario, 'id' | 'kind'> 
  *  artifact root, the cost meter accumulates per cell. */
 export interface DispatchContext {
   cellId: string
+  /** Unique identity for this invocation of the campaign, including retries. */
+  runAttemptId: string
   rep: number
   generation?: number
   seed: number

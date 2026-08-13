@@ -155,6 +155,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
 
   const ctx: DispatchContext = {
     cellId: args.slot.cellId,
+    runAttemptId: args.runAttemptId,
     rep: args.slot.rep,
     seed: args.slot.cellSeed,
     signal: cellAbort.signal,

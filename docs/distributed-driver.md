@@ -25,6 +25,7 @@ The implementation can be local, remote, sandboxed, or spread across a worker fl
 | Where | What |
 |---|---|
 | **`DispatchContext.placement?: string`** | Opaque placement key the substrate forwards to the Dispatch. |
+| **`DispatchContext.runAttemptId: string`** | Unique identity for this campaign invocation, including failed retries. |
 | **`RunCampaignOptions.cellPlacement?(input) → string \| undefined`** | Strategy function the substrate calls per cell to compute the placement key. |
 | **`@tangle-network/agent-eval/adapters/http`** | `httpDispatch` (client) + `runDispatchServer` (server): wire shape for HTTP-based remote workers. |
 
@@ -32,6 +33,10 @@ Both ends of the wire are in the same package; no peer dep, no separate
 install. The substrate doesn't strategy-pick; you provide the
 `cellPlacement` function, the substrate forwards its result, the
 Dispatch reads it. Clean seam, no policy baked in.
+
+`runAttemptId` is not part of the cache key.
+Completed cells remain reusable, while each failed retry receives a new attempt identity.
+Keep this value in any worker workspace or receipt path that must not collide with another attempt.
 
 ## The three reference topologies
 
@@ -136,6 +141,7 @@ round-robin, region-affinity from a previous run, scheduling table).
 | **Cancellation** | The coordinator's `AbortSignal` forwards into the HTTP request; server translates `AbortError` → `499` so client doesn't retry. |
 | **Timeouts** | Per-call `timeoutMs` on the client; server can layer its own. |
 | **Retries** | Idempotent retries on 5xx / 408 / 429 with exponential backoff + jitter. Coordinator aborts never retry. |
+| **Attempt identity** | `runAttemptId` crosses the wire unchanged, so worker workspace names remain unique across failed retries. |
 | **Auth** | Bearer token on `Authorization`; pluggable via `auth: string \| () => string \| Promise<string>` for rotation/refresh. |
 | **Payload size** | Server enforces `maxBodyBytes` (default 10 MB). |
 | **Traces** | Both ends emit OTel: if both point at the same OTLP collector, you get a unified trace per cell. See `docs/adapters-observability.md`. |

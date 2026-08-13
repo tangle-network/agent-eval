@@ -371,6 +371,62 @@ describe('runProfileMatrix', () => {
     expect(result.byScenario).toEqual({})
   })
 
+  it('gives failed profile retries distinct attempt identities and reuses only a completed cell', async () => {
+    const storage = inMemoryCampaignStorage()
+    const attemptIds: string[] = []
+    let dispatches = 0
+    const dispatch: ProfileDispatchFn<FakeScenario, FakeArtifact> = async (
+      profile,
+      scenario,
+      ctx,
+    ) => {
+      attemptIds.push(ctx.runAttemptId)
+      dispatches += 1
+      if (dispatches <= 2) throw new Error(`attempt ${dispatches} failed`)
+      return paidArtifact(
+        ctx,
+        { text: `${profile.name}:${scenario.id}` },
+        {
+          model: 'test-model@2025-01-01',
+          inputTokens: 12,
+          outputTokens: 4,
+          actualCostUsd: 0.001,
+        },
+      )
+    }
+    const common = {
+      ...baseOpts(),
+      profiles: [PROFILES[0]!],
+      scenarios: [SCENARIOS[0]!],
+      reps: 1,
+      storage,
+      dispatch,
+      integrity: 'off' as const,
+    }
+
+    const first = await runProfileMatrix(common)
+    const second = await runProfileMatrix(common)
+    const completed = await runProfileMatrix(common)
+    const resumed = await runProfileMatrix(common)
+    const profileId = agentProfileId(PROFILES[0]!)
+
+    expect(first.records[0]).toMatchObject({
+      terminalOutcome: 'failed',
+      terminalFailureReason: 'attempt 1 failed',
+    })
+    expect(second.records[0]).toMatchObject({
+      terminalOutcome: 'failed',
+      terminalFailureReason: 'attempt 2 failed',
+    })
+    expect(completed.records[0]).toMatchObject({ terminalOutcome: 'succeeded' })
+    expect(resumed.records[0]).toMatchObject({ terminalOutcome: 'succeeded' })
+    expect(attemptIds).toHaveLength(3)
+    expect(new Set(attemptIds).size).toBe(3)
+    expect(dispatches).toBe(3)
+    expect(completed.campaigns[profileId]!.cells[0]!.cached).toBe(false)
+    expect(resumed.campaigns[profileId]!.cells[0]!.cached).toBe(true)
+  })
+
   it('preserves known usage while leaving failed-call cost uncaptured', async () => {
     const inputTokens = 236_736
     const cachedTokens = 9_497_984
