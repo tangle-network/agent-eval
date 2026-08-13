@@ -18,8 +18,10 @@ your code (any language)
 
 Both transports talk to identical handlers. If you need a sustained connection (live agent paths, high-frequency calls), use HTTP. If you need a one-shot (cron, CI, batch), use stdio RPC. The wire shape is the same.
 
+## Relationship to the Dispatch adapter
+
 This versioned `/v1` protocol is separate from the source-only distributed `Dispatch` adapter.
-The adapter's `/dispatch` endpoint is documented in [`docs/distributed-driver.md`](./distributed-driver.md).
+The adapter's `/dispatch` endpoint is documented in [docs/distributed-driver.md](./distributed-driver.md).
 Its request body includes the required `runAttemptId`, which the worker must preserve unchanged when it builds its `DispatchContext`.
 
 ## Two transports, one contract
