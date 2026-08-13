@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -8,7 +8,11 @@ import {
   externalTextOptimizationMethod,
 } from '../../src/campaign/external-text-optimization'
 import type { OptimizationMethodInput } from '../../src/campaign/presets/compare-optimization-methods'
-import { createRunCostLedger, inMemoryCampaignStorage } from '../../src/campaign/storage'
+import {
+  createRunCostLedger,
+  fsCampaignStorage,
+  inMemoryCampaignStorage,
+} from '../../src/campaign/storage'
 import type { Scenario } from '../../src/campaign/types'
 
 interface TestScenario extends Scenario {
@@ -783,7 +787,120 @@ describe('external text optimization', () => {
     ).resolves.toMatchObject({ score: 1 })
     expect(dispatches).toBe(2)
   })
+
+  it('returns a zero optimizer penalty for a failed cell without scoring it as zero', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'external-text-failed-cell-'))
+    const storage = fsCampaignStorage()
+    const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
+    const costLedger = createRunCostLedger({ storage, runDir: join(runDir, 'cost') })
+    let dispatches = 0
+    const input: OptimizationMethodInput<TestScenario, { text: string }> = {
+      ...optimizationInput([scenario], [], { runDir, dispatchRef: 'failed-dispatch' }),
+      dispatchWithSurface: async () => {
+        dispatches += 1
+        throw new Error('provider 500')
+      },
+      runOptions: {
+        storage,
+        dispatchRef: 'failed-dispatch',
+        abortOnCellError: false,
+        expectUsage: 'off',
+      },
+      costLedger,
+    }
+    const evaluate = createExternalTextEvaluator({
+      input,
+      label: 'failed-cell optimizer',
+      runDir,
+      compatibleRunId: 'failed-cell-evaluation',
+      costPhase: 'failed-cell',
+      costLedger,
+      scenarioById: new Map([[scenario.id, scenario]]),
+      maxCandidateChars: 10_000,
+      maxEvidenceChars: 10_000,
+    })
+
+    try {
+      const first = await evaluate({ candidate: 'candidate', exampleId: scenario.id })
+      expect(first).toMatchObject({
+        score: 0,
+        info: {
+          scenarioId: 'train',
+          dimensions: {},
+          status: 'failed',
+          error: { stage: 'dispatch', message: 'provider 500' },
+        },
+      })
+      expect(first.info.notes).toContain('not a measured zero')
+      expect(dispatches).toBe(1)
+
+      const failurePath = findFile(runDir, 'failure-receipt.json')
+      expect(failurePath).not.toBeUndefined()
+      expect(JSON.parse(readFileSync(failurePath!, 'utf8'))).toMatchObject({
+        failure: { stage: 'dispatch', error: { message: 'provider 500' } },
+        cell: { errorStage: 'dispatch', error: 'provider 500' },
+      })
+      expect(findFile(runDir, 'cached-result.json')).toBeUndefined()
+
+      await evaluate({ candidate: 'candidate', exampleId: scenario.id })
+      expect(dispatches).toBe(2)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves fail-fast evaluator behavior when abortOnCellError is true', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'external-text-fail-fast-cell-'))
+    const storage = fsCampaignStorage()
+    const scenario: TestScenario = { id: 'train', kind: 'qa', prompt: 'test' }
+    const costLedger = createRunCostLedger({ storage, runDir: join(runDir, 'cost') })
+    const input: OptimizationMethodInput<TestScenario, { text: string }> = {
+      ...optimizationInput([scenario], [], { runDir, dispatchRef: 'fail-fast-dispatch' }),
+      dispatchWithSurface: async () => {
+        throw new Error('fail-fast provider error')
+      },
+      runOptions: {
+        storage,
+        dispatchRef: 'fail-fast-dispatch',
+        abortOnCellError: true,
+        expectUsage: 'off',
+      },
+      costLedger,
+    }
+    const evaluate = createExternalTextEvaluator({
+      input,
+      label: 'fail-fast optimizer',
+      runDir,
+      compatibleRunId: 'fail-fast-evaluation',
+      costPhase: 'fail-fast-cell',
+      costLedger,
+      scenarioById: new Map([[scenario.id, scenario]]),
+      maxCandidateChars: 10_000,
+      maxEvidenceChars: 10_000,
+    })
+
+    try {
+      await expect(evaluate({ candidate: 'candidate', exampleId: scenario.id })).rejects.toThrow(
+        'fail-fast provider error',
+      )
+      expect(findFile(runDir, 'failure-receipt.json')).not.toBeUndefined()
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
 })
+
+function findFile(root: string, name: string): string | undefined {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name)
+    if (entry.isFile() && entry.name === name) return path
+    if (entry.isDirectory()) {
+      const found = findFile(path, name)
+      if (found) return found
+    }
+  }
+  return undefined
+}
 
 function optimizationInput(
   trainScenarios: readonly TestScenario[],

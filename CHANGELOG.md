@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.5] — 2026-08-12
+
+### Fixed
+
+- External text optimizers now receive a finite zero penalty when a continue-on-error campaign cell fails.
+- Eval preserves that cell as failed and unscored, retries it instead of caching it, and keeps `abortOnCellError: true` fail-fast.
+
+---
+
 ## [0.145.4] — 2026-08-12
 
 ### Added

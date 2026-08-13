@@ -24,6 +24,13 @@ export interface ExternalTextEvaluationResponse {
     dimensions: Record<string, number>
     notes?: string
     artifact?: unknown
+    /** The optimizer score is a finite protocol value; Eval remains the
+     * authority for whether the underlying cell actually produced a score. */
+    status?: 'scored' | 'failed'
+    error?: {
+      stage: 'dispatch' | 'judge' | 'unknown'
+      message: string
+    }
   }
 }
 
@@ -85,9 +92,19 @@ export function createExternalTextEvaluator<TScenario extends Scenario, TArtifac
       signal,
     })
     cached.set(cacheKey, result)
-    void result.catch(() => {
-      if (cached.get(cacheKey) === result) cached.delete(cacheKey)
-    })
+    void result.then(
+      (response) => {
+        // Failed cells are durable diagnostics, not reusable scores. Leave
+        // the successful path cached, but let a later GEPA request retry the
+        // failed or missing cell on resume.
+        if (response.info.status === 'failed' && cached.get(cacheKey) === result) {
+          cached.delete(cacheKey)
+        }
+      },
+      () => {
+        if (cached.get(cacheKey) === result) cached.delete(cacheKey)
+      },
+    )
     return result
   }
 }
@@ -169,6 +186,29 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
     maxConcurrency: 1,
     ...(args.signal ? { signal: args.signal } : {}),
   })
+  const failedCell = campaign.cells.find((cell) => cell.error !== undefined)
+  if (failedCell) {
+    const stage = failedCell.errorStage ?? 'unknown'
+    const message = failedCell.error?.slice(0, 2_000) ?? 'cell failed without an error message'
+    const response: ExternalTextEvaluationResponse = {
+      // GEPA requires a finite score for every callback response. This zero is
+      // an optimizer penalty only; the campaign cell remains unscored below.
+      score: 0,
+      info: {
+        scenarioId: failedCell.scenarioId,
+        dimensions: {},
+        status: 'failed',
+        notes: `Evaluation failed at ${stage}; optimizer penalty score 0 is not a measured zero. ${message}`,
+        error: { stage, message },
+      },
+    }
+    if (JSON.stringify(response).length > args.maxEvidenceChars) {
+      throw new Error(
+        `${args.label} failed evaluation evidence for '${args.scenario.id}' exceeds maxEvidenceChars`,
+      )
+    }
+    return response
+  }
   const breakdown = campaignBreakdown(campaign)
   const row = breakdown.scenarios[0]
   if (!row) throw new Error(`${args.label} evaluation produced no score for '${args.scenario.id}'`)
@@ -184,6 +224,7 @@ async function scoreOneScenario<TScenario extends Scenario, TArtifact>(args: {
     info: {
       scenarioId: row.scenarioId,
       dimensions: breakdown.dimensions,
+      status: 'scored',
       ...(row.notes ? { notes: row.notes } : {}),
       ...(artifact !== undefined ? { artifact } : {}),
     },
