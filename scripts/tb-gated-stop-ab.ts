@@ -54,6 +54,7 @@ import {
   MINI_SWE_SYSTEM_MESSAGE,
   parseAction,
   parseTaskOracleRegistry,
+  stratumOf,
   renderFormatErrorObservation,
   renderInstanceMessage,
   renderObservation,
@@ -97,6 +98,15 @@ const STEP_ALLOTMENT = 8
  */
 const ROWS_PER_CLUSTER = 2
 
+/**
+ * Strata a row may carry.
+ *
+ * A signal kill ends on a command the environment stopped, and substituting one
+ * command does not address a timeout, so the substrate's admission excludes it
+ * by default and this study reads the same rule.
+ */
+const ADMITTED_STRATA: readonly string[] = ['clean-exit', 'command-error']
+
 // ── Rows ─────────────────────────────────────────────────────────────
 
 interface CorpusRow {
@@ -133,6 +143,7 @@ function admissionRecord(
     taskName: row.taskName,
     placeholderCommands: row.placeholderCommands,
     finalReturncodeKnown: row.finalReturncode !== null,
+    stratum: stratumOf(row.finalReturncode) ?? 'unreadable',
     unknownRatio: row.unknownRatio,
     recordedCommands: row.recordedCommands,
     imageLocal: row.imageLocal,
@@ -252,6 +263,10 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
               { kind: 'compare', field: 'finalReturncodeKnown', op: 'eq', value: true },
             ],
           },
+        },
+        {
+          id: 'stratum-carries-a-repairable-failure',
+          keep: { kind: 'in', field: 'stratum', values: ['clean-exit', 'command-error'] },
         },
         {
           id: 'unknown-returncode-ratio-at-most-25pct',
@@ -732,6 +747,7 @@ function prepare(assumeScreened: boolean): Design {
       row.unknownRatio <= 0.25 &&
       row.recordedCommands <= 25 &&
       row.imageLocal &&
+      ADMITTED_STRATA.includes(stratumOf(row.finalReturncode) ?? 'unreadable') &&
       canonical.has(row.rowId) &&
       (assumeScreened || screen[row.rowId] === false),
   )
