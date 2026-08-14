@@ -8,10 +8,22 @@
  * one distinct system prompt across all of them). A continuation that renders
  * different bytes puts the model in a different distribution than the prefix
  * it inherits, so these strings are pinned, not configurable.
+ *
+ * The markers a reader matches on live in `trajectory-replay/steps`, which owns
+ * the recorded grammar. This module writes with them so a rendered observation
+ * and a recorded one classify the same way.
  */
 
+import {
+  FORMAT_ERROR_OBSERVATION_PREFIX,
+  SUBMIT_ACTION_SIGNATURE,
+  TIMEOUT_OBSERVATION_MARKER,
+} from '../trajectory-replay/steps'
+
+export { isRecordedTimeout } from '../trajectory-replay/steps'
+
 /** Whole-line marker that ends a run. The first output line must equal it and the command must exit 0. */
-export const SUBMIT_SENTINEL = 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'
+export const SUBMIT_SENTINEL = SUBMIT_ACTION_SIGNATURE
 
 /** Outputs at or above this length are elided head+tail instead of shown whole. */
 export const OUTPUT_ELISION_THRESHOLD = 10_000
@@ -181,31 +193,16 @@ export function renderObservation(output: CommandOutput): string {
 /** The observation after the environment killed a command for exceeding its timeout. */
 export function renderTimeoutObservation(command: string, partialOutput: string): string {
   return (
-    `The last command <command>${command}</command> timed out and has been killed.\n` +
+    `The last command <command>${command}</command> ${TIMEOUT_OBSERVATION_MARKER}.\n` +
     `The output of the command was:\n <output>\n${partialOutput}\n</output>\n` +
     'Please try another command and make sure to avoid those requiring interactive input.'
   )
 }
 
-/** Substring `renderTimeoutObservation` always writes, whatever the command was. */
-const TIMEOUT_OBSERVATION_MARKER = 'timed out and has been killed'
-
-/**
- * True when the recording shows the environment killed this step at its
- * wall-clock bound.
- *
- * Such a step carries no returncode, so no replay can confirm or contradict
- * it. Callers use this to bound the replay of that step cheaply rather than to
- * decide agreement.
- */
-export function isRecordedTimeout(observation: string | null): boolean {
-  return observation?.includes(TIMEOUT_OBSERVATION_MARKER) === true
-}
-
 /** The observation after a turn that did not contain exactly one bash block. */
 export function renderFormatErrorObservation(actionCount: number): string {
   return (
-    `Please always provide EXACTLY ONE action in triple backticks, found ${actionCount} actions.\n` +
+    `${FORMAT_ERROR_OBSERVATION_PREFIX}${actionCount} actions.\n` +
     `If you want to end the task, please issue the following command: \`echo ${SUBMIT_SENTINEL}\`\n` +
     'without any other command.\n' +
     'Else, please format your response exactly as follows:\n' +
