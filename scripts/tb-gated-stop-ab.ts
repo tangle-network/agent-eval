@@ -109,7 +109,11 @@ function loadCorpus(): CorpusRow[] {
 }
 
 /** The evidence record the sealed admission funnel reads. Never the outcome. */
-function admissionRecord(row: CorpusRow, clusterSize: number): EvidenceRecord {
+function admissionRecord(
+  row: CorpusRow,
+  clusterSize: number,
+  recordedEndStateFails: boolean,
+): EvidenceRecord {
   return {
     rowId: row.rowId,
     taskName: row.taskName,
@@ -119,6 +123,24 @@ function admissionRecord(row: CorpusRow, clusterSize: number): EvidenceRecord {
     recordedCommands: row.recordedCommands,
     imageLocal: row.imageLocal,
     clusterSize,
+    recordedEndStateFails,
+  }
+}
+
+/**
+ * What the end-state screen measured, by row id: `true` when the task's own
+ * suite passed on the recorded end state.
+ *
+ * A row whose end state already passes cannot measure a repair — every arm
+ * wins it for free — so it is excluded. A row the screen has not reached is
+ * excluded too: unscreened is not the same as failing, and only one of them
+ * may carry a contrast.
+ */
+function endStateScreen(): Record<string, boolean> {
+  try {
+    return JSON.parse(readFileSync(join(WORK, 'end-state-screen.json'), 'utf8')) as Record<string, boolean>
+  } catch {
+    return {}
   }
 }
 
@@ -209,6 +231,10 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
         {
           id: 'image-present-locally-at-pinned-digest',
           keep: { kind: 'compare', field: 'imageLocal', op: 'eq', value: true },
+        },
+        {
+          id: 'recorded-end-state-fails-its-own-suite',
+          keep: { kind: 'compare', field: 'recordedEndStateFails', op: 'eq', value: true },
         },
         {
           id: 'not-exposed-by-the-mechanism-pilot',
@@ -645,7 +671,7 @@ interface Design {
  * through `openSealedExperiment().admit`, so the funnel a report prints is the
  * funnel the seal registered.
  */
-function prepare(): Design {
+function prepare(assumeScreened: boolean): Design {
   const corpus = loadCorpus()
   const registry = parseTaskOracleRegistry(JSON.parse(readFileSync(TASK_ORACLES_PATH, 'utf8')))
   const certifiedTasks = [...registry.values()]
@@ -666,7 +692,14 @@ function prepare(): Design {
   )
   const sizes = new Map<string, number>()
   for (const row of eligible) sizes.set(row.taskName, (sizes.get(row.taskName) ?? 0) + 1)
-  const records = corpus.map((row) => admissionRecord(row, sizes.get(row.taskName) ?? 0))
+  const screen = endStateScreen()
+  const records = corpus.map((row) =>
+    admissionRecord(
+      row,
+      sizes.get(row.taskName) ?? 0,
+      assumeScreened ? true : screen[row.rowId] === false,
+    ),
+  )
   const clusterTasks = [...sizes.entries()].filter(([, n]) => n >= ROWS_PER_CLUSTER).map(([t]) => t)
   return {
     certifiedTasks,
@@ -715,7 +748,7 @@ function logger(path: string): (line: string) => void {
 async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'design'
   mkdirSync(WORK, { recursive: true })
-  const design = prepare()
+  const design = prepare(mode === 'screen')
   // Rows the mechanism pilot ran on. They are registered as excluded so a
   // later confirmatory run meets its rows unexposed.
   const exposed = pilotExposedRowIds(design.records.map((record) => String(record.rowId)))
@@ -784,6 +817,41 @@ async function main(): Promise<void> {
   )
 
   if (mode === 'design') return
+
+  if (mode === 'screen') {
+    // The end-state screen: replay each admitted row and grade the state the
+    // recording ended on. A row whose own suite already passes there cannot
+    // measure a repair, so the registered funnel drops it. No model call.
+    const log = logger(join(WORK, 'screen.log'))
+    const rows = admitted.survivors.map((record) => byRowId.get(String(record.rowId))!)
+    const tasks = new Map<string, TaskFixture>()
+    for (const name of new Set(rows.map((row) => row.taskName))) tasks.set(name, await loadTask(name))
+    const screened: Record<string, boolean> = { ...endStateScreen() }
+    let next = 0
+    await Promise.all(
+      Array.from({ length: Math.min(SEAT_CONCURRENCY, rows.length) }, async () => {
+        for (;;) {
+          const index = next
+          next += 1
+          if (index >= rows.length) return
+          const row = rows[index]!
+          const result = await runRow({
+            row,
+            task: tasks.get(row.taskName)!,
+            arm: 'end-state-screen',
+            allotment: 0,
+            stopOnPass: false,
+            log,
+          })
+          screened[row.rowId] = result.endStatePassed
+          writeFileSync(join(WORK, 'end-state-screen.json'), `${JSON.stringify(screened, null, 2)}\n`)
+        }
+      }),
+    )
+    const passing = Object.values(screened).filter(Boolean).length
+    log(`screen done rows=${rows.length} endStatePassed=${passing}`)
+    return
+  }
 
   if (mode === 'pilot') {
     // A pilot measures the mechanism's INPUT — how often a row clears the check
