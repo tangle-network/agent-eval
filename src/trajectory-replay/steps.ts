@@ -201,6 +201,12 @@ export interface DecodedTrajectory {
  * the command field. Replaying that field would execute a command the recorded
  * run did not, which is a worse corpus than a smaller one.
  *
+ * A rejected turn is recognised by its observation, so a rejected turn whose
+ * observation the dump elided is indistinguishable from an executed command
+ * whose observation it elided. Both read as a step. Nothing in the dump
+ * separates them, and the row-level defence is the share of unreadable exits a
+ * caller admits: a row with no elided observation cannot hold this case at all.
+ *
  * A trailing step that echoes the sentinel and nothing else, with no
  * observation, is dropped from `steps` and reported as `endedOnSubmitSentinel`.
  * The scaffold records an observation only when it hands one to the model, and
