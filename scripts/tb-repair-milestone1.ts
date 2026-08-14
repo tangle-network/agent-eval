@@ -66,6 +66,7 @@ import {
   testSuiteDigest,
 } from '../src/trace-repair'
 import {
+  isRecordedTimeout,
   parseRecordedReturncode,
   type RecordedTrajectoryStep,
 } from '../src/trajectory-replay/steps'
@@ -102,12 +103,9 @@ const VERIFIER_TIMEOUT_MS = 900_000
  * run costs, never what it counts.
  */
 const RECORDED_TIMEOUT_STEP_MS = 60_000
-const RECORDED_TIMEOUT_MARKER = 'timed out and has been killed'
 
 function stepTimeoutMs(observation: string | null): number {
-  return observation !== null && observation.includes(RECORDED_TIMEOUT_MARKER)
-    ? RECORDED_TIMEOUT_STEP_MS
-    : STEP_TIMEOUT_MS
+  return isRecordedTimeout(observation) ? RECORDED_TIMEOUT_STEP_MS : STEP_TIMEOUT_MS
 }
 
 /**
