@@ -108,7 +108,8 @@ export function isSubmitOnlyAction(action: string): boolean {
  *
  * Nothing in the dump maps a marker back to its text: the same marker carries
  * different content in different rows, so there is no dictionary to read. A
- * field that matches is unrecoverable, and the row that holds it is rejected.
+ * field that matches is unrecoverable, so a caller rejects the row that holds
+ * it rather than replaying the marker.
  */
 export const RECORDED_ELISION_PATTERN = /^\$[0-9a-f]+$/
 
@@ -179,7 +180,14 @@ export interface DecodedTrajectory {
   readonly steps: readonly RecordedTrajectoryStep[]
   /** Turns the scaffold rejected before anything ran. */
   readonly formatErrorTurns: number
-  /** Executed commands whose text the dump dropped. Any at all blocks replay. */
+  /**
+   * Executed commands whose text the dump dropped.
+   *
+   * The step stays in `steps` carrying the marker, because the run did execute
+   * a command there and a shorter list would misreport the trajectory. The
+   * marker is not a command, so any count above zero means this trajectory
+   * cannot be replayed: gate on it, or call `assertReplayableTrajectory`.
+   */
   readonly elidedCommands: number
   /** True when the run's last turn was the submit sentinel with no observation. */
   readonly endedOnSubmitSentinel: boolean
@@ -292,4 +300,21 @@ export function finalRecordedOutcome(
  */
 export function unreadableExitCount(steps: readonly RecordedTrajectoryStep[]): number {
   return steps.filter((step) => classifyObservation(step.observation) !== 'command-result').length
+}
+
+/**
+ * Throw unless every recorded command survived the dump.
+ *
+ * A replay executes `steps` verbatim, so one elision marker in an action means
+ * the replay runs the literal two-to-four characters of the marker instead of
+ * the command the run executed. The guard is here so a replayer needs one call
+ * rather than a field check it can forget.
+ */
+export function assertReplayableTrajectory(decoded: DecodedTrajectory): void {
+  if (decoded.elidedCommands === 0) return
+  const markers = decoded.steps.filter((step) => isElidedField(step.action)).map((step) => step.action)
+  throw new Error(
+    `trajectory holds ${decoded.elidedCommands} command(s) the dump elided (${markers.slice(0, 5).join(', ')}); ` +
+      'no dictionary maps a marker back to its text, so this trajectory cannot be replayed',
+  )
 }
