@@ -88,7 +88,7 @@ A high divergence rate is a finding about replay fidelity, not a harness error.
 
 | Module | Role |
 |---|---|
-| `steps` | The recorded step and its `<returncode>` / `<output>` grammar. |
+| `steps` | The recorded grammar: turns to steps, the four observation shapes, the final outcome. |
 | `exec` | The execution boundary and mini-SWE `/bin/sh` command wrapping. |
 | `verify` | One case: prefix replay, arm A, optional arm B, `ReplayVerdict`. |
 | `corpus` | Labeled corpora to replayable cases, with a reason for every exclusion. |
@@ -96,6 +96,26 @@ A high divergence rate is a finding about replay fidelity, not a harness error.
 | `fix` / `fix-loop` | Generate and iterate arm-B corrections through an injected chat caller. |
 | `batch` | Every replayable case to replayability and fix-flip rates. |
 | `wire` / `findings` | One analyst finding to an executed, receipted proof. |
+
+## The recorded grammar
+
+`steps` decodes turns into steps, and it is the only place that grammar is read.
+
+A turn is not a step.
+The system prompt, the task statement and every turn the scaffold rejected are turns that executed nothing.
+`decodeRecordedTurns` keeps the turns that ran a command and pairs each one with the observation of its own turn.
+A turn the scaffold rejected is dropped even when the published dump kept a command for it, because the scaffold ran none of the blocks that turn held.
+
+`classifyObservation` names four recorded shapes plus two absences: a command result carrying `<returncode>`, a timeout notice, a format-error notice, an elision marker `$<hex>`, no observation at all, and a shape this grammar does not know.
+Only a command result carries an exit status.
+
+`finalRecordedOutcome` reads the last executed command.
+It separates `killed` — the environment stopped the command and wrote a notice instead of an exit status — from `unreadable`, which names the shape that blocked the read.
+A run that ended on the submit sentinel has no observation for that turn, because the scaffold records one only when it hands one back to the model; `decodeRecordedTurns` reports the sentinel rather than reading it as the trajectory's last step.
+
+An elided field is unrecoverable.
+The marker is a counter, not a key: the same marker carries different text in different rows, and the dump ships no dictionary.
+A row whose commands cannot be reconstructed exactly as recorded is rejected, because a replay that guesses is worse than a smaller corpus.
 
 ## Honest limits
 

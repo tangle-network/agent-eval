@@ -35,8 +35,12 @@ Treat any other difference as an input that moved.
 ### Admission tiers
 
 Admission is tiered on what survived the scrape, not on raw failure.
-Roughly 10.8% of recorded commands were replaced by `$N` placeholders, and those ids are a per-occurrence counter rather than a content dictionary, so the dropped text carries no recovery key.
+17.8% of recorded commands — 19,266 of 107,989 on failed `mini-swe-agent` rows — were replaced by an elision marker, and the marker is a per-occurrence counter rather than a content dictionary, so the dropped text carries no recovery key.
 Affected rows are filtered, never repaired.
+
+The marker counts in hexadecimal, so the tier queries in this tool match `^[$][0-9]+$` and miss every marker carrying a letter: they count 11,651 of the 19,266.
+Read the tier numbers as a lower bound on elision and an upper bound on Tier B.
+`scripts/tb-corpus-rows.ts` decodes the same dump through `trajectory-replay/steps`, which reads the whole marker grammar, and its row set is the one an admission funnel should consume.
 
 - **Tier B** — every recorded command intact. This is the admission set for prefix replay: replay re-executes recorded commands and regenerates observations, so a placeholder in an observation costs the analyst context but never breaks execution. A placeholder in a command does break it.
 - **Tier A** — Tier B plus observations and reasoning intact. Stricter, and biased toward short trajectories, because a long run has more chances to lose a field.
