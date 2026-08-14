@@ -63,6 +63,7 @@ import {
   type TestSuiteFile,
   testSuiteDigest,
 } from '../src/trace-repair'
+import { parseRecordedReturncode } from '../src/trajectory-replay/steps'
 
 const run = promisify(execFile)
 
@@ -605,8 +606,8 @@ async function runRow(options: RunRowOptions): Promise<RowRun> {
     for (const step of row.steps) {
       const result = await session.exec2(step.action, REPLAY_TIMEOUT_MS)
       record.replayedCommands += 1
-      const recorded = /<returncode>(-?\d+)<\/returncode>/.exec(step.observation ?? '')
-      if (!recorded || Number(recorded[1]) !== result.returncode) record.replayDivergences += 1
+      const recorded = parseRecordedReturncode(step.observation)
+      if (recorded !== result.returncode) record.replayDivergences += 1
       messages.push({ role: 'assistant', content: `Replaying the recorded step.\n\n\`\`\`bash\n${step.action}\n\`\`\`` })
       messages.push({
         role: 'user',
