@@ -147,15 +147,50 @@ The funnel opens at 2,601 rather than the 2,727 rows the dump holds for these ta
 | stage | entering | excluded | remaining |
 | --- | --- | --- | --- |
 | `certified-deterministic-oracle` | 2,601 | 0 | 2,601 |
-| `replayable-commands-and-final-returncode` | 2,601 | 1,522 | 1,079 |
-| `unknown-returncode-ratio-at-most-25pct` | 1,079 | 121 | 958 |
-| `recorded-commands-at-most-25` | 958 | 166 | 792 |
-| `image-present-locally-at-pinned-digest` | 792 | 403 | 389 |
-| `one-row-per-recorded-trial` | 389 | 83 | 306 |
+| `replayable-commands-and-final-returncode` | 2,601 | 1,528 | 1,073 |
+| `stratum-carries-a-repairable-failure` | 1,073 | 3 | 1,070 |
+| `unknown-returncode-ratio-at-most-25pct` | 1,070 | 126 | 944 |
+| `recorded-commands-at-most-25` | 944 | 164 | 780 |
+| `image-pinned-by-digest` | 780 | 0 | 780 |
+| `one-row-per-recorded-trial` | 780 | 172 | 608 |
+| `recorded-end-state-fails-its-own-suite` | 608 | 324 | 284 |
+| `prefix-divergence-at-most-10pct` | 284 | 66 | 218 |
+| `not-exposed-by-the-mechanism-pilot` | 218 | 0 | 218 |
+| `task-carries-at-least-two-rows` | 218 | 2 | 216 |
 
-`one-row-per-recorded-trial` is a stage the earlier funnel did not have.
-885 `mini-swe-agent` trials appear in the dump twice, under an empty and a populated trial id, and the two copies are the same recorded run.
+216 rows in 22 task clusters, against 16 rows in 8 clusters before.
+Simulated power rises from 0.19 to 0.92 at a per-row effect of 0.10, and the registered 0.80 floor is cleared.
+
+Three of these stages are new and every one of them removes rows.
+
+`one-row-per-recorded-trial`: 885 `mini-swe-agent` trials appear in the dump twice, under an empty and a populated trial id, and the two copies are the same recorded run.
 A cluster holding both reads one trajectory as two independent rows.
+
+`stratum-carries-a-repairable-failure`: a row ending on a command the environment stopped cannot be repaired by substituting a command, which is why `ADMISSION_CONFIG_DEFAULTS.admitStrata` omits `signal-kill`.
+
+`image-pinned-by-digest` reads the checked-in lock, not one machine's docker store.
+A gate on local presence reports a different denominator after an image eviction, and the same funnel run twice on the same corpus gave 388 rows and then 75.
+Pulling is a prerequisite of execution: a row nothing ran on carries no end-state verdict and leaves at the next stage as unscreened, which is where the 324 exclusions there come from.
+
+`prefix-divergence-at-most-10pct`: condition 1, which the earlier design waived and measured without acting on.
+The measurement says the waiver was wrong. 303 rows were screened by replaying the recorded prefix and grading the state it left; 69.2% replay with no divergence at all and 76.9% at or under the threshold.
+One row's end-state verdict is not reproducible — `qemu-startup__giTPHxJ` graded pass under the pilot and fail under two later screens — and it carries 1 divergence over 8 replayed steps, which is above the threshold.
+The gate that was waived is the one that removes it.
+
+## When the corpus reward and the task's own suite disagree
+
+A row recorded with reward 0 can still pass the task's held-out suite on its replayed end state, and such a row cannot measure a repair because every arm wins it for free.
+
+Over 303 screened rows the disagreement rate is **1 row, 0.33%**, and it is `qemu-startup__PnXK6EH`: measured passing twice, in two independent screens 2 hours apart.
+Every task other than `qemu-startup` is 0 of 288. `qemu-startup` alone is 1 of 17, 5.9%.
+
+The screen catches that row and does not catch the second `qemu-startup` case.
+`qemu-startup__giTPHxJ` graded pass once and fail twice over three gradings of the same replayed prefix, so one screening grade of it is a draw rather than a measurement.
+The task's suite certified stable on byte-identical state; a replay builds a fresh container, and this task boots a virtual machine, so identical bytes is not what a replay reproduces.
+The divergence gate removes that row, which is the reason it is registered rather than waived.
+
+A screen that hits a boundary failure produces no verdict at all.
+20 of the 323 rows the screen opened a container for ended that way, and recording their default `false` would have admitted every one on a check that never ran.
 
 ## The population split
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generator": "tb-corpus-rows.ts",
-  "generatedAt": "2026-08-14T10:14:38.403Z",
+  "generatedAt": "2026-08-14T12:02:36.919Z",
   "source": {
     "scaffold": "mini-swe-agent",
     "reward": 0,
@@ -32,5 +32,6 @@
     "killed": 28,
     "unreadable:unreadable": 5
   },
+  "imagesPinned": 46,
   "imagesLocal": 4
 }

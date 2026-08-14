@@ -3,6 +3,7 @@
   "compilerOptions": { "rootDir": ".", "noEmit": true },
   "include": [
     "scripts/tb-corpus-rows.ts",
+    "scripts/tb-gated-stop-ab.ts",
     "scripts/tb-oracle-determinism.ts",
     "scripts/tb-repair-milestone1.ts",
     "src"
