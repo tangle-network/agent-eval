@@ -220,6 +220,63 @@ describe('code-agent session intake', () => {
     )
   })
 
+  it('classifies the Codex collaboration toolset as subagent activity', () => {
+    // Tool names observed in ~/.codex/sessions rollout files. Codex serves them
+    // from the `collaboration` and `multi_agent_v1` namespaces.
+    const collaborationTools = [
+      'spawn_agent',
+      'wait_agent',
+      'close_agent',
+      'interrupt_agent',
+      'resume_agent',
+      'list_agents',
+      'send_message',
+      'send_input',
+      'followup_task',
+    ]
+    const { metrics, observations } = fromCodexSession({
+      entries: [
+        {
+          timestamp: '2026-08-09T00:00:00.000Z',
+          type: 'session_meta',
+          payload: { id: 'codex-collab-1', cwd: '/repo', model_provider: 'openai' },
+        },
+        ...collaborationTools.map((tool, index) => ({
+          timestamp: '2026-08-09T00:00:01.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: tool,
+            namespace: 'collaboration',
+            call_id: `collab-${index}`,
+          },
+        })),
+        {
+          timestamp: '2026-08-09T00:00:02.000Z',
+          type: 'response_item',
+          payload: { type: 'function_call', name: 'exec_command', call_id: 'shell-1' },
+        },
+        {
+          timestamp: '2026-08-09T00:00:03.000Z',
+          type: 'response_item',
+          payload: { type: 'function_call', name: 'collaboration.wait_agent', call_id: 'collab-9' },
+        },
+      ],
+      malformedLines: 0,
+      sourcePath: 'codex-collab.jsonl',
+    })
+
+    const surfaceByName = new Map(
+      observations[0]!.actions.map((action) => [action.name, action.surface]),
+    )
+    for (const tool of collaborationTools) {
+      expect(surfaceByName.get(tool)).toBe('subagent')
+    }
+    expect(surfaceByName.get('collaboration.wait_agent')).toBe('subagent')
+    expect(surfaceByName.get('exec_command')).toBe('tool')
+    expect(metrics[0]!.subagentCalls).toBe(collaborationTools.length + 1)
+  })
+
   it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {
     const jsonl = readFileSync(
       new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),
