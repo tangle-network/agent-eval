@@ -65,7 +65,11 @@ import {
   type TestSuiteFile,
   testSuiteDigest,
 } from '../src/trace-repair'
-import type { RecordedTrajectoryStep } from '../src/trajectory-replay/steps'
+import {
+  isRecordedTimeout,
+  parseRecordedReturncode,
+  type RecordedTrajectoryStep,
+} from '../src/trajectory-replay/steps'
 
 const run = promisify(execFile)
 
@@ -99,12 +103,9 @@ const VERIFIER_TIMEOUT_MS = 900_000
  * run costs, never what it counts.
  */
 const RECORDED_TIMEOUT_STEP_MS = 60_000
-const RECORDED_TIMEOUT_MARKER = 'timed out and has been killed'
 
 function stepTimeoutMs(observation: string | null): number {
-  return observation !== null && observation.includes(RECORDED_TIMEOUT_MARKER)
-    ? RECORDED_TIMEOUT_STEP_MS
-    : STEP_TIMEOUT_MS
+  return isRecordedTimeout(observation) ? RECORDED_TIMEOUT_STEP_MS : STEP_TIMEOUT_MS
 }
 
 /**
@@ -347,7 +348,7 @@ async function runArm(
     let divergences = 0
     for (const step of steps) {
       const result = await session.exec(step.action, stepTimeoutMs(step.observation))
-      const recorded = recordedReturncode(step.observation)
+      const recorded = parseRecordedReturncode(step.observation)
       // An unadjudicable step is a divergence: the recording cannot confirm the
       // replayed state, so counting it as agreement would inflate fidelity.
       if (recorded === null || recorded !== result.exitCode) divergences += 1
@@ -368,12 +369,6 @@ async function runArm(
   } finally {
     await session.close()
   }
-}
-
-function recordedReturncode(observation: string | null): number | null {
-  if (!observation) return null
-  const m = /<returncode>(-?\d+)<\/returncode>/.exec(observation)
-  return m ? Number(m[1]) : null
 }
 
 interface RowOutcome {

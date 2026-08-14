@@ -99,12 +99,27 @@ export {
   type ImagePreparer,
 } from './image-preparer'
 export {
+  assertReplayableTrajectory,
+  classifyObservation,
+  type DecodedTrajectory,
+  decodeRecordedTurns,
   deriveFailureSignature,
+  FORMAT_ERROR_OBSERVATION_PREFIX,
+  finalRecordedOutcome,
+  isElidedField,
+  isRecordedTimeout,
   isSubmitAction,
+  isSubmitOnlyAction,
   parseObservationOutput,
   parseRecordedReturncode,
+  RECORDED_ELISION_PATTERN,
+  type RecordedFinalOutcome,
+  type RecordedObservationKind,
   type RecordedTrajectoryStep,
+  type RecordedTrajectoryTurn,
   SUBMIT_ACTION_SIGNATURE,
+  TIMEOUT_OBSERVATION_MARKER,
+  unreadableExitCount,
 } from './steps'
 export {
   type ArmExecutionResult,

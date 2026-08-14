@@ -21,10 +21,13 @@ import { join, resolve } from 'node:path'
 
 const SCAFFOLD = 'mini-swe-agent'
 
-// A step field whose entire value is "$" + digits is a scraper placeholder: the real
-// string was dropped when the trajectory was serialized. Character class avoids
-// backslash-escaping ambiguity across the JS -> argv -> duckdb boundary.
-const PLACEHOLDER_RE = '^[$][0-9]+$'
+// A step field whose entire value is "$" + a hexadecimal counter is a scraper
+// placeholder: the real string was dropped when the trajectory was serialized.
+// The counter is hexadecimal, so a decimal-only class reads every marker carrying
+// a letter as real text. Character class avoids backslash-escaping ambiguity
+// across the JS -> argv -> duckdb boundary.
+// `src/trajectory-replay/steps.ts` owns this grammar; keep the two in step.
+const PLACEHOLDER_RE = '^[$][0-9a-f]+$'
 // Negative codes are real and meaningful: the scaffold records signal kills as -15/-9,
 // which mark timeout-terminated commands rather than a command the agent chose to end on.
 const RETURNCODE_RE = '<returncode>-?[0-9]+</returncode>'
@@ -116,7 +119,13 @@ function preflight(cfg) {
 }
 
 // Every measurement runs against these CTEs so tier counts and distributions cannot
-// drift apart. Glob is train-*.parquet, never *.parquet: this tool writes parquet into
+// drift apart.
+//
+// Tiers are a cost gate over the whole dump, not an admission rule. They read a
+// row's fields in bulk and do not pair a command with the observation of its own
+// turn, so a row's tier is an upper bound on its replayability. The row-level
+// decode belongs to `scripts/tb-corpus-rows.ts`, which reads every turn through
+// `trajectory-replay/steps`; a funnel consumes that, never these counts. Glob is train-*.parquet, never *.parquet: this tool writes parquet into
 // the same directory and a bare glob would read its own output back in.
 function baseSql(dataDir) {
   return `

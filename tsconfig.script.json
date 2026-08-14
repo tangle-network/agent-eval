@@ -1,6 +1,11 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": ".", "noEmit": true },
-  "include": ["scripts/tb-repair-milestone1.ts", "src"],
+  "include": [
+    "scripts/tb-corpus-rows.ts",
+    "scripts/tb-oracle-determinism.ts",
+    "scripts/tb-repair-milestone1.ts",
+    "src"
+  ],
   "exclude": ["node_modules", "dist", "tests"]
 }

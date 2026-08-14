@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "generator": "tb-corpus-rows.ts",
+  "generatedAt": "2026-08-14T10:14:38.403Z",
+  "source": {
+    "scaffold": "mini-swe-agent",
+    "reward": 0,
+    "shards": [
+      "train-00000-of-00002.parquet",
+      "train-00001-of-00002.parquet"
+    ],
+    "duckdb": "v1.5.5 (Variegata) d8cdaa33fd"
+  },
+  "certifiedTasks": 46,
+  "rawRows": 2727,
+  "rowsWithNoExecutedCommand": 126,
+  "decodedRows": 2601,
+  "observationKinds": {
+    "elided": 8403,
+    "command-result": 46351,
+    "timeout": 1380,
+    "absent": 154,
+    "unreadable": 5
+  },
+  "executedCommands": 56293,
+  "elidedCommands": 10595,
+  "formatErrorTurns": 1956,
+  "finalOutcomes": {
+    "returncode": 2145,
+    "unreadable:absent": 154,
+    "unreadable:elided": 269,
+    "killed": 28,
+    "unreadable:unreadable": 5
+  },
+  "imagesLocal": 4
+}
