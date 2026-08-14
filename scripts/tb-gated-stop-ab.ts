@@ -33,8 +33,14 @@
  * effect refuses the spend instead of producing an interval nobody can read.
  *
  *   node --import tsx scripts/tb-gated-stop-ab.ts design
+ *   node --import tsx scripts/tb-gated-stop-ab.ts screen
  *   node --import tsx scripts/tb-gated-stop-ab.ts pilot --rows 6 --steps 8
- *   node --import tsx scripts/tb-gated-stop-ab.ts run
+ *
+ * The confirmatory executor that runs both arms is not written. The design's
+ * power gate refused the structure it was registered against, so nothing could
+ * have executed it; the recovered corpus clears that gate, and building the
+ * executor is the next piece of work rather than something this file already
+ * does. `stopOnPass` exists for it and no current mode passes `true`.
  */
 
 import { execFile } from 'node:child_process'
