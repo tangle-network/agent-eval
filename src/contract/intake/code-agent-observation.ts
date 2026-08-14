@@ -700,7 +700,8 @@ function surfaceForTool(name: string): CodeAgentSessionActionSurface {
     normalized.includes('subagent') ||
     normalized.includes('spawn_agent') ||
     normalized.includes('collab') ||
-    normalized.startsWith('multi_agent')
+    normalized.startsWith('multi_agent') ||
+    isCodexCollaborationTool(normalized)
   ) {
     return 'subagent'
   }
@@ -722,6 +723,24 @@ function surfaceForTool(name: string): CodeAgentSessionActionSurface {
     return 'code'
   }
   return 'tool'
+}
+
+/**
+ * Codex serves its subagent tools from the `collaboration` and `multi_agent_v1`
+ * namespaces. The namespace does not reach this function, so the tool name must
+ * carry the decision. Codex names every lifecycle verb `<verb>_agent` or
+ * `<verb>_agents`, and adds three message verbs that do not use that suffix.
+ * A namespaced name such as `collaboration.wait_agent` keeps the verb last, so
+ * only the final segment is tested.
+ */
+function isCodexCollaborationTool(normalized: string): boolean {
+  const verb = normalized.slice(normalized.lastIndexOf('.') + 1)
+  return (
+    /^[a-z_]+_agents?$/.test(verb) ||
+    verb === 'send_message' ||
+    verb === 'send_input' ||
+    verb === 'followup_task'
+  )
 }
 
 function statusFrom(value: Record<string, unknown>): CodeAgentSessionActionStatus {
