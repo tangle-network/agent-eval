@@ -32,15 +32,19 @@
  * The power floor is a registered gate, so a structure that cannot see the
  * effect refuses the spend instead of producing an interval nobody can read.
  *
- *   node --import tsx scripts/tb-gated-stop-ab.ts design
+ * The confirmatory draw is chosen on the power curve, not on appetite: the
+ * admitted set is the ceiling, and `settlingDraw` returns the smallest draw
+ * that clears the registered target at the settling effect.
+ *
+ * `confirm` evaluates the registered identity gate before it grades a row. A
+ * seat that answers the pinned model id with another model aborts the run at
+ * zero spend, because a contrast measured on a substituted model belongs to an
+ * experiment nobody registered.
+ *
+ *   node --import tsx scripts/tb-gated-stop-ab.ts design [--take N]
  *   node --import tsx scripts/tb-gated-stop-ab.ts screen
  *   node --import tsx scripts/tb-gated-stop-ab.ts pilot --rows 6 --steps 8
- *
- * The confirmatory executor that runs both arms is not written. The design's
- * power gate refused the structure it was registered against, so nothing could
- * have executed it; the recovered corpus clears that gate, and building the
- * executor is the next piece of work rather than something this file already
- * does. `stopOnPass` exists for it and no current mode passes `true`.
+ *   node --import tsx scripts/tb-gated-stop-ab.ts confirm
  */
 
 import { execFile } from 'node:child_process'
@@ -229,6 +233,148 @@ function divergenceRatio(measurement: EndStateMeasurement | undefined): number {
 const REGISTERED_EFFECT_GRID = [0.05, 0.1, 0.15, 0.2]
 const POWER_TARGET = 0.8
 const POWER_SIM = { trials: 3000, resamples: 3000, seed: 20260814 }
+
+/**
+ * The effect the confirmatory draw is sized against.
+ *
+ * 0.05 is below what this mechanism can generate and 0.15 would buy a draw too
+ * small to read a plausible effect, so the grid's second point is the one the
+ * row count is chosen on.
+ */
+const SETTLING_EFFECT = 0.1
+/**
+ * Trials for the settling search only.
+ *
+ * The registered gate is judged at `POWER_SIM`. Choosing the row count on that
+ * many trials would pick a draw whose margin over the target is Monte Carlo
+ * luck: at 3000 trials the standard error near 0.8 is about 0.007, which is
+ * wider than the gap between adjacent draws. The search runs hotter, and the
+ * chosen draw is then re-checked at the registered parameters.
+ */
+const SETTLING_TRIALS = 15_000
+
+/**
+ * Rows each cluster contributes when the registered round-robin takes `take`.
+ *
+ * The selection cycles tasks in lexical order and takes one row per pass, so
+ * the structure a smaller draw carries follows from the registered rule rather
+ * than from a second rule invented for the search.
+ */
+function roundRobinSizes(
+  clusters: readonly { taskName: string; rowIds: readonly string[] }[],
+  take: number,
+): number[] {
+  const ordered = [...clusters].sort((a, b) => a.taskName.localeCompare(b.taskName))
+  const counts = new Map<string, number>()
+  let taken = 0
+  for (let pass = 0; taken < take; pass += 1) {
+    let progressed = false
+    for (const cluster of ordered) {
+      if (taken >= take) break
+      if (pass >= cluster.rowIds.length) continue
+      counts.set(cluster.taskName, (counts.get(cluster.taskName) ?? 0) + 1)
+      taken += 1
+      progressed = true
+    }
+    if (!progressed) break
+  }
+  return [...counts.values()]
+}
+
+function powerAt(sizes: readonly number[], effect: number, trials: number): number {
+  return clusteredPower({
+    clusterSizes: [...sizes],
+    effects: [effect],
+    seed: POWER_SIM.seed,
+    trials,
+    resamples: POWER_SIM.resamples,
+    targetPower: POWER_TARGET,
+    baseWinRate: 0.05,
+    baseLossRate: 0.05,
+  }).curve[0]!.power
+}
+
+export interface SettlingDraw {
+  effect: number
+  target: number
+  trials: number
+  /** Smallest draw whose power clears the target at `effect`. */
+  rows: number
+  power: number
+  /** The same draw re-checked at the registered gate's simulation parameters. */
+  powerAtRegisteredSim: number
+  /** The largest draw searched, and its power — the ceiling the corpus offers. */
+  maxRows: number
+  maxPower: number
+  /** Every draw the search evaluated, so the curve is auditable. */
+  scanned: { rows: number; power: number; registered: number | null }[]
+}
+
+/**
+ * The smallest confirmatory draw that clears the power target.
+ *
+ * Taking every admitted row spends rows the design does not need. The search
+ * walks the draw upward and returns the first that clears, so the run buys the
+ * power the design registered and nothing beyond it.
+ */
+function settlingDraw(
+  clusters: readonly { taskName: string; rowIds: readonly string[] }[],
+  maxTake: number,
+): SettlingDraw {
+  const clusterCount = clusters.length
+  const scanned: { rows: number; power: number; registered: number | null }[] = []
+  const evaluate = (rows: number): number => {
+    const found = scanned.find((point) => point.rows === rows)
+    if (found !== undefined) return found.power
+    const power = powerAt(roundRobinSizes(clusters, rows), SETTLING_EFFECT, SETTLING_TRIALS)
+    scanned.push({ rows, power, registered: null })
+    return power
+  }
+  /**
+   * The registered gate re-check.
+   *
+   * The search runs hotter than the gate, so near the floor the two estimates
+   * straddle the target. A draw chosen only on the hotter estimate would carry
+   * a gate that reads below the floor on the same draw, so a draw must clear
+   * the target under both before it is chosen.
+   */
+  const registeredCheck = (rows: number): number => {
+    const point = scanned.find((entry) => entry.rows === rows)!
+    if (point.registered === null) {
+      point.registered = powerAt(roundRobinSizes(clusters, rows), SETTLING_EFFECT, POWER_SIM.trials)
+    }
+    return point.registered
+  }
+  const clears = (rows: number): boolean =>
+    evaluate(rows) >= POWER_TARGET && registeredCheck(rows) >= POWER_TARGET
+  // Bracket on a coarse grid, then refine by one row at a time.
+  let bracket = maxTake
+  for (let rows = clusterCount; rows <= maxTake; rows += clusterCount) {
+    if (clears(rows)) {
+      bracket = rows
+      break
+    }
+  }
+  let chosen = bracket
+  for (let rows = Math.max(clusterCount, bracket - clusterCount + 1); rows <= bracket; rows += 1) {
+    if (clears(rows)) {
+      chosen = rows
+      break
+    }
+  }
+  scanned.sort((a, b) => a.rows - b.rows)
+  return {
+    effect: SETTLING_EFFECT,
+    target: POWER_TARGET,
+    trials: SETTLING_TRIALS,
+    rows: chosen,
+    power: evaluate(chosen),
+    powerAtRegisteredSim: registeredCheck(chosen),
+    maxRows: maxTake,
+    maxPower: evaluate(maxTake),
+    scanned,
+  }
+}
 
 function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: number, pilotExposed: string[]) {
   return defineExperiment({
@@ -858,9 +1004,27 @@ async function main(): Promise<void> {
     await sealExperiment(buildSpec(design.certifiedTasks, [], design.take, exposed)),
   )
   const admitted = draft.admit(design.records)
-  const drawn = draft.select('confirmatory', admitted.survivors, { idField: 'rowId' })
+  const admittedDraw = draft.select('confirmatory', admitted.survivors, { idField: 'rowId' })
 
-  const sealed = await sealExperiment(buildSpec(design.certifiedTasks, drawn, design.take, exposed))
+  // The admitted set is the ceiling, not the draw. The row count is chosen on
+  // the power curve: the smallest draw that clears the registered target at
+  // the settling effect.
+  const byTask = new Map<string, string[]>()
+  for (const id of admittedDraw) {
+    const task = id.split('::')[0]!
+    byTask.set(task, [...(byTask.get(task) ?? []), id])
+  }
+  const admittedClusters = [...byTask.entries()].map(([taskName, rowIds]) => ({ taskName, rowIds }))
+  const settling = settlingDraw(admittedClusters, admittedDraw.length)
+  const takeArg = process.argv.indexOf('--take')
+  const take = takeArg > 0 ? Number(process.argv[takeArg + 1]) : settling.rows
+
+  const sized = await openSealedExperiment(
+    await sealExperiment(buildSpec(design.certifiedTasks, [], take, exposed)),
+  )
+  const drawn = sized.select('confirmatory', admitted.survivors, { idField: 'rowId' })
+
+  const sealed = await sealExperiment(buildSpec(design.certifiedTasks, drawn, take, exposed))
   const registered = await openSealedExperiment(sealed)
   const redrawn = registered.select('confirmatory', registered.admit(design.records).survivors, {
     idField: 'rowId',
@@ -891,10 +1055,25 @@ async function main(): Promise<void> {
   })
   const halt = registered.halt([powerGate])
 
+  // The digest this draw replaces, read from the checked-in design so the
+  // report carries the chain rather than a single current hash.
+  const previousSealDigest = ((): string | null => {
+    try {
+      const held = JSON.parse(
+        readFileSync(join(import.meta.dirname, '..', 'benchmarks', 'trace-repair', 'gated-stop-ab', 'design.json'), 'utf8'),
+      ) as { sealDigest?: string }
+      return held.sealDigest ?? null
+    } catch {
+      return null
+    }
+  })()
+
   const designReport = {
     generatedAt: new Date().toISOString(),
+    previousSealDigest,
     sealDigest: sealed.digest,
     sealedAt: sealed.sealedAt,
+    admittedRows: admittedDraw.length,
     clusters,
     clusterCount: clusters.length,
     rowCount: chosen.length,
@@ -903,12 +1082,15 @@ async function main(): Promise<void> {
     power,
     powerGate,
     halt,
-    settlingN: null as unknown,
+    settlingN: settling,
   }
   writeFileSync(join(WORK, 'design.json'), `${JSON.stringify(designReport, null, 2)}\n`)
   process.stdout.write(
-    `seal=${sealed.digest}\nclusters=${clusters.length} rows=${chosen.length}\n` +
+    `previousSeal=${previousSealDigest ?? 'none'}\nseal=${sealed.digest}\n` +
+      `clusters=${clusters.length} rows=${chosen.length} (admitted ${admittedDraw.length})\n` +
       `funnel: ${admitted.funnel.input} -> ${admitted.funnel.surviving} admitted -> ${chosen.length} drawn\n` +
+      `settling: rows=${settling.rows} power@${settling.effect}=${settling.power.toFixed(4)} registeredSim=${settling.powerAtRegisteredSim.toFixed(4)} ` +
+      `(ceiling rows=${settling.maxRows} power=${settling.maxPower.toFixed(4)})\n` +
       `power: ${power.curve.map((p) => `${p.effect}=>${p.power.toFixed(2)}`).join(' ')}\n` +
       `gate powerFloor passed=${powerGate.passed}; halt fired=${halt.fired} action=${halt.action ?? 'none'}\n`,
   )
@@ -1022,6 +1204,175 @@ async function main(): Promise<void> {
       }),
     )
     log(`pilot done rows=${results.length} spentUsd=${spent.toFixed(4)}`)
+    return
+  }
+
+  if (mode === 'confirm') {
+    const log = logger(join(WORK, 'confirm.log'))
+
+    // The identity gate runs before a row is graded and before a token is
+    // spent. A seat that answers the pinned id with another model produces a
+    // contrast for a model nobody registered, so the registered action here is
+    // to abort rather than to record the substitution and continue.
+    const probe = await callModel([{ role: 'user', content: 'reply with the single word ok' }])
+    const identity = registered.gate('servedModel', {
+      kind: 'identity',
+      pinned: MODEL,
+      served: probe.servedModel,
+    })
+    log(`servedModel gate: pinned=${MODEL} served=${probe.servedModel} passed=${identity.passed}`)
+    if (!identity.passed) {
+      const refusal = {
+        generatedAt: new Date().toISOString(),
+        sealDigest: sealed.digest,
+        gate: identity,
+        onFail: 'abort',
+        spentUsd: 0,
+        rowsGraded: 0,
+        note:
+          'The seat answered the pinned model id with a different model. No row was graded and no ' +
+          'arm was run. The contrast is not refused on its statistics; it was never started.',
+      }
+      writeFileSync(join(WORK, 'confirm-refusal.json'), `${JSON.stringify(refusal, null, 2)}\n`)
+      process.stdout.write(
+        `ABORT servedModel: pinned=${MODEL} served=${probe.servedModel}; no spend, no rows graded\n`,
+      )
+      process.exitCode = 3
+      return
+    }
+
+    const rows = chosen
+    const tasks = new Map<string, TaskFixture>()
+    for (const name of new Set(rows.map((row) => row.taskName))) tasks.set(name, await loadTask(name))
+
+    // Runs persist as they finish. A transport fault hours in must not force a
+    // re-spend of everything before it.
+    const statePath = join(WORK, 'confirm-runs.json')
+    const held: Record<string, RowRun> = (() => {
+      try {
+        return JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, RowRun>
+      } catch {
+        return {}
+      }
+    })()
+    const persist = (): void => writeFileSync(statePath, `${JSON.stringify(held, null, 2)}\n`)
+    const spent = (): number => Object.values(held).reduce((total, run) => total + run.costUsd, 0)
+
+    // ── Arm B: blind continuation, the whole allotment, whatever the check says.
+    let next = 0
+    await Promise.all(
+      Array.from({ length: Math.min(SEAT_CONCURRENCY, rows.length) }, async () => {
+        for (;;) {
+          const index = next
+          next += 1
+          if (index >= rows.length) return
+          const row = rows[index]!
+          const key = `blind-continue::${row.rowId}`
+          if (held[key] !== undefined) continue
+          if (spent() > COST_CEILING_USD) {
+            log(`cost ceiling ${COST_CEILING_USD} reached in blind-continue`)
+            return
+          }
+          held[key] = await runRow({
+            row,
+            task: tasks.get(row.taskName)!,
+            arm: 'blind-continue',
+            allotment: STEP_ALLOTMENT,
+            stopOnPass: false,
+            log,
+          })
+          persist()
+        }
+      }),
+    )
+
+    // ── Arm C: gated continuation, one row at a time in the registered order.
+    //
+    // A row that clears the check early returns the rest of its entitlement to
+    // a pool, and the pool pays for extra steps on rows still failing. The
+    // entitlement is what the blind arm actually spent on the same row, so the
+    // arms are matched on realized tokens rather than on steps.
+    let pool = 0
+    for (const row of rows) {
+      const control = held[`blind-continue::${row.rowId}`]
+      if (control === undefined) continue
+      const key = `gated-continue::${row.rowId}`
+      if (held[key] !== undefined) {
+        pool += control.promptTokens + control.completionTokens - (held[key]!.promptTokens + held[key]!.completionTokens)
+        continue
+      }
+      if (spent() > COST_CEILING_USD) {
+        log(`cost ceiling ${COST_CEILING_USD} reached in gated-continue`)
+        break
+      }
+      const entitlement = control.promptTokens + control.completionTokens
+      const perStep = entitlement / Math.max(1, control.steps.length)
+      const extra = perStep > 0 ? Math.max(0, Math.floor(pool / perStep)) : 0
+      const result = await runRow({
+        row,
+        task: tasks.get(row.taskName)!,
+        arm: 'gated-continue',
+        allotment: STEP_ALLOTMENT + extra,
+        stopOnPass: true,
+        log,
+      })
+      held[key] = result
+      pool += entitlement - (result.promptTokens + result.completionTokens)
+      log(`${row.rowId} gated extra=${extra} pool=${Math.round(pool)}`)
+      persist()
+    }
+
+    // ── The registered contrast.
+    const armRows = (arm: string, passedOf: (run: RowRun) => boolean): EvidenceRecord[] =>
+      rows
+        .map((row) => held[`${arm}::${row.rowId}`])
+        .filter((run): run is RowRun => run !== undefined)
+        .map((run) => ({
+          rowId: run.rowId,
+          taskName: run.taskName,
+          arm: arm === 'blind-continue' ? 'blind-continue' : 'gated-continue',
+          passed: passedOf(run),
+        }))
+    const finalPassed = (run: RowRun): boolean => run.steps.at(-1)?.gradePassed === true
+    const treatment = armRows('gated-continue', (run) => run.bestPassed)
+
+    const contrasts: Record<string, unknown> = {}
+    for (const [label, controlPassed] of [
+      ['C-vs-B-best', (run: RowRun) => run.bestPassed],
+      ['C-vs-B-final', finalPassed],
+    ] as const) {
+      const evidence = [...armRows('blind-continue', controlPassed), ...treatment]
+      contrasts[label] = {
+        estimand: registered.estimate('pairedContrast', evidence),
+        interval: registered.interval('pairedContrast95', { kind: 'rows', rows: evidence, value: 'passed' }),
+      }
+    }
+
+    const realized = (arm: string): number =>
+      rows
+        .map((row) => held[`${arm}::${row.rowId}`])
+        .filter((run): run is RowRun => run !== undefined)
+        .reduce((total, run) => total + run.promptTokens + run.completionTokens, 0)
+    const budgets = registered.matchedBudgets([
+      { armId: 'blind-continue', realizedTokens: realized('blind-continue') },
+      { armId: 'gated-continue', realizedTokens: realized('gated-continue') },
+    ])
+
+    const servedModels = [...new Set(Object.values(held).flatMap((run) => run.steps.map((s) => s.servedModel)))]
+    const report = {
+      generatedAt: new Date().toISOString(),
+      sealDigest: sealed.digest,
+      previousSealDigest,
+      rows: rows.length,
+      clusters: clusters.length,
+      servedModels,
+      contrasts,
+      budgets,
+      costUsd: spent(),
+      settlingN: settling,
+    }
+    writeFileSync(join(WORK, 'confirm-report.json'), `${JSON.stringify(report, null, 2)}\n`)
+    log(`confirm done rows=${rows.length} costUsd=${spent().toFixed(4)} matched=${budgets.matched}`)
     return
   }
 

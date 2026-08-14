@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-08-14T13:02:03.856Z",
+  "sealDigest": "ad82d3424f9949a53f12f2b0a709d0acb6b61f6e6472ba15727b1667c2ad1b4d",
+  "gate": {
+    "id": "servedModel",
+    "passed": false,
+    "evidence": {
+      "pinned": "glm-5.2",
+      "served": "glm-5.3",
+      "matched": false
+    }
+  },
+  "onFail": "abort",
+  "spentUsd": 0,
+  "rowsGraded": 0,
+  "note": "The seat answered the pinned model id with a different model. No row was graded and no arm was run. The contrast is not refused on its statistics; it was never started."
+}
