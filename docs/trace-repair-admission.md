@@ -85,11 +85,15 @@ The scaffold rejects a turn holding several bash blocks and runs none of them, w
 494 turns carry that pair.
 Replaying the field would execute a command the recorded run did not, which is a worse corpus than a smaller one.
 
-**A trailing submit sentinel is the end of the transcript, not a gap in it.**
+**A trailing step that echoes the sentinel and nothing else is the end of the transcript, not a gap in it.**
 The scaffold records an observation only when it hands one back to the model, and `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` ends the run.
 2,312 of 2,727 rows end that way.
-Reading the sentinel's turn as the trajectory's last step reports no exit status for 85% of the corpus.
+Reading that turn as the trajectory's last step reports no exit status for 85% of the corpus.
 Echoing the sentinel changes no state, so the recorded end state is the state the step before it left, and that step's exit is the row's final return code.
+
+The test is the whole action, never a substring.
+131 of those 2,312 runs end on a command that writes files or edits them and then echoes the sentinel.
+Dropping such a step would remove the run's last state change from the replay; keeping it leaves its exit unknown, which is what the row reports.
 
 The elision marker is a **hexadecimal** counter that rises by one per dropped string.
 A decimal-only pattern (`^\$\d+$`) reads `$3a` as command text: 19,266 of 107,989 recorded commands are elided, and the decimal pattern sees 11,651 of them.
@@ -126,12 +130,12 @@ The other gates are unchanged: the end-state screen, the image-digest pin, and t
 
 | stage | entering | excluded | remaining |
 | --- | --- | --- | --- |
-| `certified-deterministic-oracle` | 2,564 | 0 | 2,564 |
-| `replayable-commands-and-final-returncode` | 2,564 | 1,443 | 1,121 |
-| `unknown-returncode-ratio-at-most-25pct` | 1,121 | 129 | 992 |
-| `recorded-commands-at-most-25` | 992 | 170 | 822 |
-| `image-present-locally-at-pinned-digest` | 822 | 412 | 410 |
-| `one-row-per-recorded-trial` | 410 | 86 | 324 |
+| `certified-deterministic-oracle` | 2,601 | 0 | 2,601 |
+| `replayable-commands-and-final-returncode` | 2,601 | 1,522 | 1,079 |
+| `unknown-returncode-ratio-at-most-25pct` | 1,079 | 121 | 958 |
+| `recorded-commands-at-most-25` | 958 | 166 | 792 |
+| `image-present-locally-at-pinned-digest` | 792 | 403 | 389 |
+| `one-row-per-recorded-trial` | 389 | 83 | 306 |
 
 `one-row-per-recorded-trial` is a stage the earlier funnel did not have.
 885 `mini-swe-agent` trials appear in the dump twice, under an empty and a populated trial id, and the two copies are the same recorded run.
