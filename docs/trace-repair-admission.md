@@ -106,14 +106,17 @@ Measured over the 2,578 rows the earlier decoder rejected at the replayable stag
 | class | rows | share | recovery |
 | --- | --- | --- | --- |
 | commands elided by the dump | 1,327 | 51.5% | refused — no dictionary maps the marker back |
-| run ended on the submit sentinel | 621 | 24.1% | exact — the last executed command's own returncode |
-| ended on the sentinel AND shifted by a rejected turn | 316 | 12.3% | exact |
-| no executed command after decoding | 156 | 6.1% | refused — the run held only rejected turns or the sentinel |
-| final observation elided by the dump | 90 | 3.5% | refused |
+| run ended on the submit sentinel | 581 | 22.5% | exact — the last executed command's own returncode |
+| ended on the sentinel AND shifted by a rejected turn | 308 | 11.9% | exact |
+| no executed command after decoding | 119 | 4.6% | refused — the run held only rejected turns or the sentinel |
+| last executed command recorded no observation | 94 | 3.6% | refused — it echoed the sentinel after doing work, or its own text was elided |
+| final observation elided by the dump | 85 | 3.3% | refused |
 | shifted by a rejected turn | 47 | 1.8% | exact |
-| last command killed at its timeout | 18 | 0.7% | read exactly as `killed`, then excluded as `signal-kill` |
+| last command killed at its timeout | 14 | 0.5% | read exactly as `killed`, then excluded as `signal-kill` |
 | observation shape the grammar cannot read | 2 | 0.1% | refused |
 | phantom command from a rejected turn | 1 | 0.0% | exact |
+
+937 rows are recovered exactly — 36.3% of the 2,578 — and every refused class stays refused.
 
 The population is one scaffold: `mini-swe-agent`.
 No class is another scaffold's transcript format, because no other scaffold's rows enter this funnel.
