@@ -80,6 +80,21 @@ export function isSubmitAction(action: string): boolean {
   return action.includes(SUBMIT_ACTION_SIGNATURE)
 }
 
+/**
+ * True when the action is the sentinel echo and nothing else.
+ *
+ * The distinction decides whether a step may be dropped. An agent is told to
+ * issue the sentinel alone, and 5.7% of recorded runs end on a command that
+ * writes files or edits them and then echoes it. Dropping such a step because
+ * it holds the sentinel would remove the run's last state change from the
+ * replay, so the recorded end state and the replayed one would differ.
+ */
+export function isSubmitOnlyAction(action: string): boolean {
+  return /^echo\s+(?:"COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"|'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'|COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT)$/.test(
+    action.trim(),
+  )
+}
+
 // ── Fields the published dump dropped ────────────────────────────────
 
 /**
@@ -186,13 +201,17 @@ export interface DecodedTrajectory {
  * the command field. Replaying that field would execute a command the recorded
  * run did not, which is a worse corpus than a smaller one.
  *
- * A trailing submit sentinel with no observation is dropped from `steps` and
- * reported as `endedOnSubmitSentinel`. The scaffold records an observation only
- * when it hands one to the model, and the sentinel ends the run, so the missing
- * observation is the end of the transcript rather than a gap in it. Echoing the
- * sentinel changes no state, so the recorded end state is the state the step
- * before it left. A sentinel that DID get an observation stays a step: the run
- * continued past it.
+ * A trailing step that echoes the sentinel and nothing else, with no
+ * observation, is dropped from `steps` and reported as `endedOnSubmitSentinel`.
+ * The scaffold records an observation only when it hands one to the model, and
+ * the sentinel ends the run, so the missing observation is the end of the
+ * transcript rather than a gap in it. Echoing the sentinel changes no state, so
+ * the recorded end state is the state the step before it left.
+ *
+ * A step that DID get an observation stays a step: the run continued past it.
+ * So does a step that echoes the sentinel after doing real work — its state
+ * change is part of the recorded end state, and with no observation its exit is
+ * unknown, which `finalRecordedOutcome` reports rather than hides.
  */
 export function decodeRecordedTurns(turns: readonly RecordedTrajectoryTurn[]): DecodedTrajectory {
   const steps: RecordedTrajectoryStep[] = []
@@ -214,7 +233,7 @@ export function decodeRecordedTurns(turns: readonly RecordedTrajectoryTurn[]): D
   }
   const last = steps[steps.length - 1]
   const endedOnSubmitSentinel =
-    last !== undefined && last.observation === null && isSubmitAction(last.action)
+    last !== undefined && last.observation === null && isSubmitOnlyAction(last.action)
   if (endedOnSubmitSentinel) steps.pop()
   return {
     steps,

@@ -58,6 +58,92 @@ It is on the rejected decisions too, so a reader of an artifact can tell which c
 Divergence is `divergences / prefixExecuted`, and the threshold admits a row sitting exactly on it.
 A replay that executed fewer steps than the recording holds is excluded as `prefix-replay-truncated` before that ratio is read, because a truncated run computes divergence over the steps it did reach and a short replay would look perfect.
 
+## Reading the recording
+
+Every condition above is asked of a recording, so a row is admitted or not by what a decoder can read out of it.
+[`src/trajectory-replay/steps.ts`](../src/trajectory-replay/steps.ts) is that decoder, and it is the only one.
+
+The published Terminal-Bench-2 dump holds **turns**, not steps.
+A turn carries an observation in one of four shapes, and only the first of them carries an exit status.
+
+| observation shape | what it means | carries an exit status |
+| --- | --- | --- |
+| `<returncode>N</returncode><output>…</output>` | a command ran | yes |
+| `The last command <command>…</command> timed out and has been killed.` | the environment killed the command at its bound | no — the outcome is `killed` |
+| `Please always provide EXACTLY ONE action in triple backticks, found N actions.` | the scaffold rejected the turn | no — nothing ran |
+| `$3a` | the dump dropped the string | no — and nothing recovers it |
+
+Three rules follow, and each one costs rows when it is missing.
+
+**A command keeps the observation of its own turn.**
+Collecting commands and observations into two lists and zipping them looks right and is not.
+A rejected turn carries an observation and usually no command, so from the first rejected turn onward every observation is read against a different command than the one that produced it.
+1,654 turns in the certified population are rejected turns, and they shift 643 of 2,727 rows.
+
+**A rejected turn is never a step, even when the dump kept a command for it.**
+The scaffold rejects a turn holding several bash blocks and runs none of them, while the dump keeps one block in the command field.
+494 turns carry that pair.
+Replaying the field would execute a command the recorded run did not, which is a worse corpus than a smaller one.
+
+**A trailing step that echoes the sentinel and nothing else is the end of the transcript, not a gap in it.**
+The scaffold records an observation only when it hands one back to the model, and `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` ends the run.
+2,312 of 2,727 rows end that way.
+Reading that turn as the trajectory's last step reports no exit status for 85% of the corpus.
+Echoing the sentinel changes no state, so the recorded end state is the state the step before it left, and that step's exit is the row's final return code.
+
+The test is the whole action, never a substring.
+131 of those 2,312 runs end on a command that writes files or edits them and then echoes the sentinel.
+Dropping such a step would remove the run's last state change from the replay; keeping it leaves its exit unknown, which is what the row reports.
+
+The elision marker is a **hexadecimal** counter that rises by one per dropped string.
+A decimal-only pattern (`^\$\d+$`) reads `$3a` as command text: 19,266 of 107,989 recorded commands are elided, and the decimal pattern sees 11,651 of them.
+Nothing maps a marker back to its text — the same marker carries different content in different rows — so an elided command is unrecoverable and the row holding it is rejected.
+
+## What the decoder recovers, and what it refuses
+
+Measured over the 2,578 rows the earlier decoder rejected at the replayable stage, on the 46 certified tasks.
+
+| class | rows | share | recovery |
+| --- | --- | --- | --- |
+| commands elided by the dump | 1,327 | 51.5% | refused — no dictionary maps the marker back |
+| run ended on the submit sentinel | 581 | 22.5% | exact — the last executed command's own returncode |
+| ended on the sentinel AND shifted by a rejected turn | 308 | 11.9% | exact |
+| no executed command after decoding | 119 | 4.6% | refused — the run held only rejected turns or the sentinel |
+| last executed command recorded no observation | 94 | 3.6% | refused — it echoed the sentinel after doing work, or its own text was elided |
+| final observation elided by the dump | 85 | 3.3% | refused |
+| shifted by a rejected turn | 47 | 1.8% | exact |
+| last command killed at its timeout | 14 | 0.5% | read exactly as `killed`, then excluded as `signal-kill` |
+| observation shape the grammar cannot read | 2 | 0.1% | refused |
+| phantom command from a rejected turn | 1 | 0.0% | exact |
+
+937 rows are recovered exactly — 36.3% of the 2,578 — and every refused class stays refused.
+
+The population is one scaffold: `mini-swe-agent`.
+No class is another scaffold's transcript format, because no other scaffold's rows enter this funnel.
+`terminus-2`, `openhands`, `codex` and `claude-code` are pinned for later and are 0% of these 2,578.
+
+The correction runs in both directions.
+Six of the 142 rows the earlier decoder admitted carry a command the dump elided with a marker its pattern did not match, and one of those six is in the sealed 16.
+Replaying it would have run the literal string `$3a` as a shell command.
+
+## The measured funnel
+
+Certified tasks, `mini-swe-agent`, recorded reward 0.
+The other gates are unchanged: the end-state screen, the image-digest pin, and the oracle-determinism refusal all keep their thresholds.
+
+| stage | entering | excluded | remaining |
+| --- | --- | --- | --- |
+| `certified-deterministic-oracle` | 2,601 | 0 | 2,601 |
+| `replayable-commands-and-final-returncode` | 2,601 | 1,522 | 1,079 |
+| `unknown-returncode-ratio-at-most-25pct` | 1,079 | 121 | 958 |
+| `recorded-commands-at-most-25` | 958 | 166 | 792 |
+| `image-present-locally-at-pinned-digest` | 792 | 403 | 389 |
+| `one-row-per-recorded-trial` | 389 | 83 | 306 |
+
+`one-row-per-recorded-trial` is a stage the earlier funnel did not have.
+885 `mini-swe-agent` trials appear in the dump twice, under an empty and a populated trial id, and the two copies are the same recorded run.
+A cluster holding both reads one trajectory as two independent rows.
+
 ## The population split
 
 The corpus assay measured the final recorded return code of every admitted row.

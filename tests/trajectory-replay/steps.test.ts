@@ -11,6 +11,7 @@ import {
   isElidedField,
   isRecordedTimeout,
   isSubmitAction,
+  isSubmitOnlyAction,
   parseRecordedReturncode,
   type RecordedTrajectoryTurn,
   unreadableExitCount,
@@ -191,5 +192,35 @@ describe('unreadableExitCount', () => {
       turn('true', CORPUS.commandResult),
     ])
     expect(unreadableExitCount(decoded.steps)).toBe(2)
+  })
+})
+
+describe('the sentinel that is dropped and the sentinel that is not', () => {
+  it('drops a trailing step that echoes the sentinel and nothing else', () => {
+    for (const action of [
+      'echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT',
+      '  echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT  ',
+      'echo "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"',
+      "echo 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'",
+    ]) {
+      expect(isSubmitOnlyAction(action)).toBe(true)
+      const decoded = decodeRecordedTurns([turn('ls', CORPUS.commandResult), turn(action, null)])
+      expect(decoded.endedOnSubmitSentinel).toBe(true)
+      expect(decoded.steps.map((step) => step.action)).toEqual(['ls'])
+    }
+  })
+
+  it('keeps a trailing step that did real work before echoing the sentinel', () => {
+    // 131 of 2,312 recorded runs end this way. The write is part of the end
+    // state, and with no observation its exit is unknown rather than absent.
+    const action =
+      "cat <<'EOF' > /app/apply_macros.vim\n:wq\nEOF\ncp /app/expected.csv /app/input.csv\n" +
+      'diff -q /app/input.csv /app/expected.csv && echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'
+    expect(isSubmitAction(action)).toBe(true)
+    expect(isSubmitOnlyAction(action)).toBe(false)
+    const decoded = decodeRecordedTurns([turn('ls', CORPUS.commandResult), turn(action, null)])
+    expect(decoded.endedOnSubmitSentinel).toBe(false)
+    expect(decoded.steps.map((step) => step.action)).toEqual(['ls', action])
+    expect(finalRecordedOutcome(decoded.steps)).toEqual({ kind: 'unreadable', reason: 'absent' })
   })
 })
