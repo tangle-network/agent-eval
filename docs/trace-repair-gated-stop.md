@@ -72,3 +72,30 @@ The disagreement rate is 1 of 18 screened rows on `qemu-startup`, against 0 of 2
 The concentration is the finding, not the single row.
 `qemu-startup` rows still enter the study, because the screen tests each row against the condition that would disqualify it and the remaining rows pass that test.
 A task whose labels disagree with its own oracle at 5.6 % cannot carry a study on its own, and this design does not ask it to: it contributes 8 of 151 rows inside a task-clustered bootstrap that resamples whole tasks.
+
+## Running the confirmatory arm
+
+```bash
+node --import tsx scripts/tb-gated-stop-ab.ts design    # re-seal; prints both digests
+node --import tsx scripts/tb-gated-stop-ab.ts confirm   # identity gate, then both arms
+```
+
+`design` writes to the work directory. Copy the result over `benchmarks/trace-repair/gated-stop-ab/design.json` to move the checked-in seal forward; the next `design` reads that file to report the digest it replaces.
+
+`confirm` runs the control arm at the seat's concurrency limit and the treatment arm one row at a time.
+The treatment arm is serial because its pool is sequential state: a row draws the budget that earlier rows returned, so processing order decides allocation.
+Running those rows concurrently would change the allocation the seal registered, which makes the scheduling part of the experiment rather than a detail of it.
+
+The control arm therefore finishes in about a third of the wall time of the treatment arm on the same draw.
+
+Every finished row is written to `confirm-runs.json` before the next row starts.
+A re-invocation reads that file, skips rows already held, and rebuilds the pool from the entitlement and spend of each held treatment row.
+An interrupted run costs the row in flight and nothing before it.
+
+## Reading the result
+
+`confirm-report.json` carries the digest that produced it, both contrasts, the matched-budget verdict and the served model ids observed across every step.
+
+The matched-budget rule is a refusal object, not an assertion.
+The treatment arm can only spend returned budget on rows that come after the row that returned it, so budget freed by the last rows has nowhere to go.
+When that trailing shortfall pushes the arms more than 5 % apart, the registered decision table returns `contrast-refused-unmatched-budget` and the contrast is not read.
