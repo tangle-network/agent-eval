@@ -83,8 +83,15 @@ const WORK = '/home/drew/bench-cache/gated-stop-ab'
 const ROWS_PATH = join(WORK, 'rows-decoded.json')
 const TASK_ORACLES_PATH = join(import.meta.dirname, '..', 'benchmarks', 'trace-repair', 'task-oracles.json')
 
-/** z.ai coding plan, OpenAI-compatible. The seat this run is entitled to. */
-const MODEL = 'glm-5.2'
+/**
+ * z.ai coding plan, OpenAI-compatible. The seat this run is entitled to.
+ *
+ * The id is pinned to what the seat serves, not to what it accepts. The seat
+ * accepts the retired glm-5.2 id and answers it with glm-5.3, so pinning the
+ * retired id registers a model the run never uses. The `servedModel` gate reads
+ * the id the seat reports on the reply and aborts on any disagreement.
+ */
+const MODEL = 'glm-5.3'
 const BASE_URL = 'https://api.z.ai/api/coding/paas/v4/chat/completions'
 const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
 /** At most three in flight on this seat, so a 429 storm cannot be mistaken for a slow model. */
@@ -94,7 +101,15 @@ const MODEL_DEADLINE_MS = 180_000
 const STEP_TIMEOUT_SECONDS = 30
 const REPLAY_TIMEOUT_MS = 120_000
 const GRADE_TIMEOUT_MS = 420_000
-const COST_CEILING_USD = 25
+/**
+ * The operating ceiling for the confirmatory run.
+ *
+ * A ceiling that stops an arm part way leaves rows with a control run and no
+ * treatment run, and the registered estimand scores that pair as a zero
+ * difference. That dilutes the contrast toward null, so the ceiling is set
+ * above the draw's projected spend rather than at it.
+ */
+const COST_CEILING_USD = 40
 
 /** Per-row model steps the blind arm spends whatever the check says. */
 const STEP_ALLOTMENT = 8

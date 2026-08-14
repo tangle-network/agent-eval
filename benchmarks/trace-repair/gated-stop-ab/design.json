@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-08-14T13:02:01.887Z",
-  "previousSealDigest": "dadf75160af3522b120fc8fb6ba2437c4ab9f460243711db651ebe8939b3899f",
-  "sealDigest": "ad82d3424f9949a53f12f2b0a709d0acb6b61f6e6472ba15727b1667c2ad1b4d",
-  "sealedAt": "2026-08-14T13:01:50.273Z",
+  "generatedAt": "2026-08-14T13:20:36.726Z",
+  "previousSealDigest": "ad82d3424f9949a53f12f2b0a709d0acb6b61f6e6472ba15727b1667c2ad1b4d",
+  "sealDigest": "e13a4f8d9ff437dbf7d24898d64cba55c90c682c3902ad30bb528ca241939626",
+  "sealedAt": "2026-08-14T13:20:28.225Z",
   "admittedRows": 216,
   "clusters": [
     {
