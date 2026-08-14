@@ -95,9 +95,13 @@ The test is the whole action, never a substring.
 131 of those 2,312 runs end on a command that writes files or edits them and then echoes the sentinel.
 Dropping such a step would remove the run's last state change from the replay; keeping it leaves its exit unknown, which is what the row reports.
 
-The elision marker is a **hexadecimal** counter that rises by one per dropped string.
+The elision marker is a **hexadecimal** counter over the row's strings in serialization order.
 A decimal-only pattern (`^\$\d+$`) reads `$3a` as command text: 19,266 of 107,989 recorded commands are elided, and the decimal pattern sees 11,651 of them.
-Nothing maps a marker back to its text — the same marker carries different content in different rows — so an elided command is unrecoverable and the row holding it is rejected.
+
+The counter is a position, not a key.
+Across all 2,292 rows that hold a marker, the markers are strictly ascending and never repeat, and the first is always `$32` or `$33`.
+A shell command that happened to look like a marker would repeat one or arrive out of order; none does, so the pattern has no false positive in this corpus and no marker maps back to text.
+An elided command is unrecoverable and the row holding it is rejected.
 
 ## What the decoder recovers, and what it refuses
 
