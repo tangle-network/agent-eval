@@ -1,0 +1,211 @@
+{
+  "generatedAt": "2026-08-14T06:06:35.512Z",
+  "sealDigest": "2b58c52c799c65594dc9f8f6d54c7cc247907cc963eee278c323d873c4acea06",
+  "sealedAt": "2026-08-14T06:06:30.535Z",
+  "clusters": [
+    {
+      "taskName": "break-filter-js-from-html",
+      "rowIds": [
+        "break-filter-js-from-html::break-filter-js-from-html__97tZYzQ::b8c7ec92-31b5-4885-ace4-7bf4a1715627",
+        "break-filter-js-from-html::break-filter-js-from-html__cRcDUvb::ord0"
+      ]
+    },
+    {
+      "taskName": "distribution-search",
+      "rowIds": [
+        "distribution-search::distribution-search__p2UQ5ES::8fe55eb3-c402-41e0-97bf-86e3542f8949",
+        "distribution-search::distribution-search__p2UQ5ES::ord0"
+      ]
+    },
+    {
+      "taskName": "dna-insert",
+      "rowIds": [
+        "dna-insert::dna-insert__VCJbY9x::dbf33e48-3b4f-40c4-9123-f23c0a60b668",
+        "dna-insert::dna-insert__X8kM8if::ord0"
+      ]
+    },
+    {
+      "taskName": "merge-diff-arc-agi-task",
+      "rowIds": [
+        "merge-diff-arc-agi-task::merge-diff-arc-agi-task__beCj5QQ::1b8cd787-ecf5-4bbc-8ebe-4a15eaa195d3",
+        "merge-diff-arc-agi-task::merge-diff-arc-agi-task__hWbvJTk::ord0"
+      ]
+    },
+    {
+      "taskName": "model-extraction-relu-logits",
+      "rowIds": [
+        "model-extraction-relu-logits::model-extraction-relu-logits__Hfc3LfQ::ord0",
+        "model-extraction-relu-logits::model-extraction-relu-logits__nFWS2qi::ord0"
+      ]
+    },
+    {
+      "taskName": "nginx-request-logging",
+      "rowIds": [
+        "nginx-request-logging::nginx-request-logging__Fj3KNzk::ord0",
+        "nginx-request-logging::nginx-request-logging__XLQopKY::36cd1a18-acae-41ff-9bea-f4d8fae9e562"
+      ]
+    },
+    {
+      "taskName": "path-tracing",
+      "rowIds": [
+        "path-tracing::path-tracing__Ld2biwh::ord0",
+        "path-tracing::path-tracing__qVQgJUh::bc8bac3d-4808-4d65-9471-6daccb42cce6"
+      ]
+    },
+    {
+      "taskName": "qemu-startup",
+      "rowIds": [
+        "qemu-startup::qemu-startup__8y9V8cW::ord0",
+        "qemu-startup::qemu-startup__BGnJXwy::ord0"
+      ]
+    }
+  ],
+  "clusterCount": 8,
+  "rowCount": 16,
+  "funnel": {
+    "population": "terminalbench-trajectories, mini-swe-agent rows with reward 0, on tasks whose oracle certification is checked in",
+    "input": 2720,
+    "stages": [
+      {
+        "id": "certified-deterministic-oracle",
+        "entering": 2720,
+        "excluded": 0,
+        "remaining": 2720
+      },
+      {
+        "id": "replayable-commands-and-final-returncode",
+        "entering": 2720,
+        "excluded": 2578,
+        "remaining": 142
+      },
+      {
+        "id": "unknown-returncode-ratio-at-most-25pct",
+        "entering": 142,
+        "excluded": 28,
+        "remaining": 114
+      },
+      {
+        "id": "recorded-commands-at-most-25",
+        "entering": 114,
+        "excluded": 52,
+        "remaining": 62,
+        "waives": [
+          "prefix-divergence-screen: replay fidelity is measured per row and reported, not used to drop rows here"
+        ]
+      },
+      {
+        "id": "image-present-locally-at-pinned-digest",
+        "entering": 62,
+        "excluded": 30,
+        "remaining": 32
+      },
+      {
+        "id": "recorded-end-state-fails-its-own-suite",
+        "entering": 32,
+        "excluded": 13,
+        "remaining": 19
+      },
+      {
+        "id": "not-exposed-by-the-mechanism-pilot",
+        "entering": 19,
+        "excluded": 0,
+        "remaining": 19
+      },
+      {
+        "id": "task-carries-at-least-two-rows",
+        "entering": 19,
+        "excluded": 0,
+        "remaining": 19
+      }
+    ],
+    "surviving": 19,
+    "partitions": []
+  },
+  "registeredEffectGrid": [
+    0.05,
+    0.1,
+    0.15,
+    0.2
+  ],
+  "power": {
+    "clusterCount": 8,
+    "totalRows": 16,
+    "trials": 3000,
+    "resamples": 3000,
+    "seed": 20260814,
+    "confidence": 0.95,
+    "targetPower": 0.8,
+    "curve": [
+      {
+        "effect": 0.05,
+        "power": 0.08933333333333333,
+        "medianCiWidth": 0.3125
+      },
+      {
+        "effect": 0.1,
+        "power": 0.18766666666666668,
+        "medianCiWidth": 0.375
+      },
+      {
+        "effect": 0.15,
+        "power": 0.29033333333333333,
+        "medianCiWidth": 0.375
+      },
+      {
+        "effect": 0.2,
+        "power": 0.39566666666666667,
+        "medianCiWidth": 0.4375
+      }
+    ],
+    "maxPower": 0.39566666666666667,
+    "signFlipFloor": {
+      "twoSidedP": 0.0078125,
+      "oneSidedP": 0.00390625,
+      "alpha": 0.05,
+      "certifiableAtAlpha": true,
+      "minClustersForAlpha": 6
+    },
+    "adequate": false,
+    "refusal": {
+      "verdict": "underpowered",
+      "reasons": [
+        "simulated power tops out at 0.396 (effect 0.2) across the registered grid — below the 0.8 target at every effect"
+      ],
+      "recommendation": "Do not spend on this structure. Add independent clusters (>= 8) or register a design whose simulated power reaches 0.8, then re-run clusteredPower."
+    }
+  },
+  "powerGate": {
+    "id": "powerFloor",
+    "passed": false,
+    "evidence": {
+      "target": 0.8,
+      "maxPower": 0.39566666666666667,
+      "curve": [
+        {
+          "effect": 0.05,
+          "power": 0.08933333333333333
+        },
+        {
+          "effect": 0.1,
+          "power": 0.18766666666666668
+        },
+        {
+          "effect": 0.15,
+          "power": 0.29033333333333333
+        },
+        {
+          "effect": 0.2,
+          "power": 0.39566666666666667
+        }
+      ]
+    }
+  },
+  "halt": {
+    "fired": true,
+    "action": "refuse-spend",
+    "failedGates": [
+      "powerFloor"
+    ]
+  },
+  "settlingN": null
+}
