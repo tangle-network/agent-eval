@@ -68,7 +68,7 @@ const run = promisify(execFile)
 
 const TB2 = '/home/drew/bench-cache/terminal-bench-2'
 const WORK = '/home/drew/bench-cache/gated-stop-ab'
-const ROWS_PATH = join(WORK, 'rows-all-stable.json')
+const ROWS_PATH = join(WORK, 'rows-decoded.json')
 const TASK_ORACLES_PATH = join(import.meta.dirname, '..', 'benchmarks', 'trace-repair', 'task-oracles.json')
 
 /** z.ai coding plan, OpenAI-compatible. The seat this run is entitled to. */
@@ -86,7 +86,14 @@ const COST_CEILING_USD = 25
 
 /** Per-row model steps the blind arm spends whatever the check says. */
 const STEP_ALLOTMENT = 8
-/** Rows per task cluster. Two is the smallest that lets a cluster vary. */
+/**
+ * Rows a task must carry before it is a cluster.
+ *
+ * Two is the smallest that lets a cluster vary. It is a floor on the cluster,
+ * not a cap on the draw: the confirmatory selection takes every admitted row,
+ * because a structure that drops admitted rows loses the power they carry and
+ * the drop would have to be registered as a rule of its own.
+ */
 const ROWS_PER_CLUSTER = 2
 
 // ── Rows ─────────────────────────────────────────────────────────────
@@ -95,11 +102,16 @@ interface CorpusRow {
   rowId: string
   taskName: string
   recordedModel: string
+  trialName: string
+  trialId: string
   recordedCommands: number
   placeholderCommands: number
+  formatErrorTurns: number
   unknownReturncodes: number
   unknownRatio: number
   finalReturncode: number | null
+  finalOutcome: string
+  endedOnSubmitSentinel: boolean
   imageLocal: boolean
   steps: { step_id: number; action: string; observation: string | null }[]
 }
@@ -113,6 +125,7 @@ function admissionRecord(
   row: CorpusRow,
   clusterSize: number,
   recordedEndStateFails: boolean,
+  canonicalTrialRow: boolean,
 ): EvidenceRecord {
   return {
     rowId: row.rowId,
@@ -122,9 +135,29 @@ function admissionRecord(
     unknownRatio: row.unknownRatio,
     recordedCommands: row.recordedCommands,
     imageLocal: row.imageLocal,
+    canonicalTrialRow,
     clusterSize,
     recordedEndStateFails,
   }
+}
+
+/**
+ * Row ids the dump holds twice.
+ *
+ * 885 mini-swe-agent trials appear in the published dump under both an empty
+ * and a populated trial id, and the two copies are the same recorded run. A
+ * cluster that pairs them carries one trajectory twice, which the bootstrap
+ * reads as two independent rows. The copy carrying the trial id is canonical
+ * because it identifies the run; the other is dropped.
+ */
+function canonicalTrialRowIds(rows: readonly CorpusRow[]): Set<string> {
+  const canonical = new Map<string, CorpusRow>()
+  for (const row of rows) {
+    const trial = `${row.taskName}::${row.trialName}`
+    const held = canonical.get(trial)
+    if (held === undefined || (row.trialId !== '' && held.trialId === '')) canonical.set(trial, row)
+  }
+  return new Set([...canonical.values()].map((row) => row.rowId))
 }
 
 /**
@@ -231,6 +264,10 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
         {
           id: 'image-present-locally-at-pinned-digest',
           keep: { kind: 'compare', field: 'imageLocal', op: 'eq', value: true },
+        },
+        {
+          id: 'one-row-per-recorded-trial',
+          keep: { kind: 'compare', field: 'canonicalTrialRow', op: 'eq', value: true },
         },
         {
           id: 'recorded-end-state-fails-its-own-suite',
@@ -681,6 +718,11 @@ function prepare(assumeScreened: boolean): Design {
 
   // Rows that would survive the row-level predicates, counted per task, so the
   // cluster-size field the last stage reads is a property of the population.
+  const canonical = canonicalTrialRowIds(corpus)
+  const screen = endStateScreen()
+  // Every stage above the cluster count, including the end-state screen. A
+  // task whose second row the screen removes is not a cluster of two, and a
+  // cluster of one carries no paired contrast for the bootstrap to resample.
   const eligible = corpus.filter(
     (row) =>
       certifiedTasks.includes(row.taskName) &&
@@ -688,25 +730,27 @@ function prepare(assumeScreened: boolean): Design {
       row.finalReturncode !== null &&
       row.unknownRatio <= 0.25 &&
       row.recordedCommands <= 25 &&
-      row.imageLocal,
+      row.imageLocal &&
+      canonical.has(row.rowId) &&
+      (assumeScreened || screen[row.rowId] === false),
   )
   const sizes = new Map<string, number>()
   for (const row of eligible) sizes.set(row.taskName, (sizes.get(row.taskName) ?? 0) + 1)
-  const screen = endStateScreen()
   const records = corpus.map((row) =>
     admissionRecord(
       row,
       sizes.get(row.taskName) ?? 0,
       assumeScreened ? true : screen[row.rowId] === false,
+      canonical.has(row.rowId),
     ),
   )
-  const clusterTasks = [...sizes.entries()].filter(([, n]) => n >= ROWS_PER_CLUSTER).map(([t]) => t)
+  const clusterRows = [...sizes.values()].filter((n) => n >= ROWS_PER_CLUSTER)
   return {
     certifiedTasks,
     records,
     clusters: [],
     rows: corpus,
-    take: clusterTasks.length * ROWS_PER_CLUSTER,
+    take: clusterRows.reduce((total, n) => total + n, 0),
   }
 }
 
@@ -823,7 +867,15 @@ async function main(): Promise<void> {
     // recording ended on. A row whose own suite already passes there cannot
     // measure a repair, so the registered funnel drops it. No model call.
     const log = logger(join(WORK, 'screen.log'))
-    const rows = admitted.survivors.map((record) => byRowId.get(String(record.rowId))!)
+    // A row already screened keeps its measured verdict. The screen opens a
+    // container per row and the corpus is hundreds of rows long, so a run that
+    // restarted from zero after an interruption would pay for the whole set
+    // again and could not be resumed at all.
+    const measured = endStateScreen()
+    const rows = admitted.survivors
+      .map((record) => byRowId.get(String(record.rowId))!)
+      .filter((row) => measured[row.rowId] === undefined)
+    log(`screen start rows=${rows.length} alreadyMeasured=${Object.keys(measured).length}`)
     const tasks = new Map<string, TaskFixture>()
     for (const name of new Set(rows.map((row) => row.taskName))) tasks.set(name, await loadTask(name))
     const screened: Record<string, boolean> = { ...endStateScreen() }

@@ -1,0 +1,21 @@
+=== cancel-async-tasks | image=alexgshaw/cancel-async-tasks:20251031 ===
+image_bytes=120331878
+image_ref=alexgshaw/cancel-async-tasks@sha256:84c7fae6b256dcc56a350790e2a9715eefc7dad662a9d8e8a472363aa71ef18d
+tests_dir_before_agent_phase=ABSENT
+phaseA_unsolved_reward=0 test_secs=154.490069653
+solve_rc=0 solve_secs=.871939974
+tests_dir_after_solve=ABSENT
+phaseB_solved_reward=1 test_secs=222.217410646
+  determinism unsolved/idle: 0 pass / 3 fail
+  determinism unsolved/contended: 0 pass / 2 fail
+phaseC_unsolved_suite_reward=0pass/5fail
+  determinism solved/idle: 3 pass / 0 fail
+  determinism solved/contended: 0 pass / 2 fail
+phaseC_solved_suite_reward=3pass/2fail
+cancel-async-tasks: unsolved: 0/5 suite pass, per-assertion counting, no flip; solved: 3/5 suite pass, per-assertion counting, 2 unit(s) flipped, worst test_outputs.py::test_tasks_cancel_at_max_concurrent 3/5 pass (load-sensitive)
+  solved test_outputs.py::test_tasks_cancel_at_max_concurrent: 3 pass / 2 fail (flip 40.0 %)
+  solved test_outputs.py::test_tasks_cancel_below_max_concurrent: 4 pass / 1 fail (flip 20.0 %)
+phaseC_flip_bp=4000 replicates=10 state=unstable
+VERDICT=NONDETERMINISTIC_ORACLE(flip=40.00%,n=10)
+
+certified 0/1; summary: /home/drew/bench-cache/certify-slice1/summary.psv

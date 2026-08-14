@@ -1,0 +1,8 @@
+prove-plus-comm done rc=1
+make-mips-interpreter done rc=0
+ALLDONE2
+dna-insert done rc=0
+git-multibranch done rc=0
+sam-cell-seg done rc=1
+financial-document-processor done rc=1
+query-optimize done rc=1

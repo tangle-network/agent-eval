@@ -1,0 +1,19 @@
+=== rstan-to-pystan | image=alexgshaw/rstan-to-pystan:20251031 ===
+image_bytes=140682665
+image_ref=alexgshaw/rstan-to-pystan@sha256:b23d48839408524326095c15ada4145c772b87646cf299022ff1f58c97baba91
+tests_dir_before_agent_phase=ABSENT
+phaseA_unsolved_reward=0 test_secs=130.112811158
+solve_rc=1 solve_secs=1528.211159211
+tests_dir_after_solve=ABSENT
+phaseB_solved_reward=0 test_secs=74.675400048
+  determinism unsolved/idle: 0 pass / 3 fail
+  determinism unsolved/contended: 0 pass / 2 fail
+phaseC_unsolved_suite_reward=0pass/5fail
+  determinism solved/idle: 0 pass / 3 fail
+  determinism solved/contended: 0 pass / 2 fail
+phaseC_solved_suite_reward=0pass/5fail
+rstan-to-pystan: unsolved: 0/5 suite pass, reward counting, no flip; solved: 0/5 suite pass, reward counting, no flip
+phaseC_flip_bp=0 replicates=10 state=stable
+VERDICT=NOT_CERTIFIED(unsolved=0,solved=0)
+
+certified 0/1; summary: /home/drew/bench-cache/certify-slice1/summary.psv

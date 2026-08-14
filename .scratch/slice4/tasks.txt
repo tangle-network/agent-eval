@@ -1,0 +1,14 @@
+build-pmars
+cobol-modernization
+custom-memory-heap-crash
+extract-moves-from-video
+fix-git
+headless-terminal
+log-summary-date-ranges
+modernize-scientific-stack
+overfull-hbox
+protein-assembly
+qemu-startup
+rstan-to-pystan
+torch-pipeline-parallelism
+winning-avg-corewars
