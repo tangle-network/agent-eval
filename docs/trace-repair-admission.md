@@ -126,7 +126,6 @@ Measured over the 2,578 rows the earlier decoder rejected at the replayable stag
 
 937 rows are recovered exactly — 36.3% of the 2,578 — and every refused class stays refused.
 The 14 killed rows read their outcome exactly too, and are excluded at the stratum stage rather than counted here.
-The six admitted rows whose elided command the earlier pattern missed sit in the sealed 16-row draw the previous design registered; one of them is `distribution-search__p2UQ5ES`.
 
 The population is one scaffold: `mini-swe-agent`.
 No class is another scaffold's transcript format, because no other scaffold's rows enter this funnel.

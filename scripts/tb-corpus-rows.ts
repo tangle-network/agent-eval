@@ -223,6 +223,22 @@ function decodeRow(raw: RawRow, imageLocal: boolean): DecodedCorpusRow | null {
   }
 }
 
+function assertUniqueRowIds(rows: readonly DecodedCorpusRow[]): void {
+  const seen = new Map<string, DecodedCorpusRow>()
+  for (const row of rows) {
+    const held = seen.get(row.rowId)
+    if (held !== undefined) {
+      throw new Error(
+        `row id ${row.rowId} is not unique: ` +
+          `${held.taskName}/${held.trialName}/${held.recordedModel} and ` +
+          `${row.taskName}/${row.trialName}/${row.recordedModel} share it. ` +
+          'A duplicate id shares a continuation seed and a grading path between two rows.',
+      )
+    }
+    seen.set(row.rowId, row)
+  }
+}
+
 function main(): void {
   const options = parseOptions(process.argv.slice(2))
   const shards = shardsOf(options.dataDir)
@@ -243,6 +259,14 @@ function main(): void {
     if (row === null) noExecutedCommand += 1
     else rows.push(row)
   }
+
+  // Downstream, a row id is a key: a continuation seed hashes it, a grading
+  // path is built from it, and a campaign refuses a duplicate. It is unique
+  // here because a trial name identifies one recorded run, and the dump's only
+  // repeats are the two copies of one trial, which differ in their trial id.
+  // That is an invariant of the dump rather than of the format, so a collision
+  // stops the run instead of quietly sharing a seed between two rows.
+  assertUniqueRowIds(rows)
 
   mkdirSync(dirname(options.out), { recursive: true })
   writeFileSync(options.out, JSON.stringify(rows))

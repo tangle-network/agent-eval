@@ -5,6 +5,7 @@ import {
   renderTimeoutObservation,
 } from '../../src/trace-repair/mini-swe-scaffold'
 import {
+  assertReplayableTrajectory,
   classifyObservation,
   decodeRecordedTurns,
   finalRecordedOutcome,
@@ -222,5 +223,18 @@ describe('the sentinel that is dropped and the sentinel that is not', () => {
     expect(decoded.endedOnSubmitSentinel).toBe(false)
     expect(decoded.steps.map((step) => step.action)).toEqual(['ls', action])
     expect(finalRecordedOutcome(decoded.steps)).toEqual({ kind: 'unreadable', reason: 'absent' })
+  })
+})
+
+describe('assertReplayableTrajectory', () => {
+  it('passes a trajectory whose every command survived the dump', () => {
+    const decoded = decodeRecordedTurns([turn('ls', CORPUS.commandResult)])
+    expect(() => assertReplayableTrajectory(decoded)).not.toThrow()
+  })
+
+  it('refuses a trajectory holding an elision marker, naming the marker', () => {
+    const decoded = decodeRecordedTurns([turn('$3a', CORPUS.commandResult), turn('ls', CORPUS.commandResult)])
+    expect(decoded.steps.map((step) => step.action)).toEqual(['$3a', 'ls'])
+    expect(() => assertReplayableTrajectory(decoded)).toThrow(/\$3a/)
   })
 })
