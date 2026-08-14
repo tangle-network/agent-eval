@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-08-14T06:06:35.512Z",
+  "generatedAt": "2026-08-14T06:07:49.460Z",
   "sealDigest": "2b58c52c799c65594dc9f8f6d54c7cc247907cc963eee278c323d873c4acea06",
-  "sealedAt": "2026-08-14T06:06:30.535Z",
+  "sealedAt": "2026-08-14T06:07:44.596Z",
   "clusters": [
     {
       "taskName": "break-filter-js-from-html",
@@ -102,23 +102,23 @@
       {
         "id": "recorded-end-state-fails-its-own-suite",
         "entering": 32,
-        "excluded": 13,
-        "remaining": 19
+        "excluded": 12,
+        "remaining": 20
       },
       {
         "id": "not-exposed-by-the-mechanism-pilot",
-        "entering": 19,
+        "entering": 20,
         "excluded": 0,
-        "remaining": 19
+        "remaining": 20
       },
       {
         "id": "task-carries-at-least-two-rows",
-        "entering": 19,
+        "entering": 20,
         "excluded": 0,
-        "remaining": 19
+        "remaining": 20
       }
     ],
-    "surviving": 19,
+    "surviving": 20,
     "partitions": []
   },
   "registeredEffectGrid": [
