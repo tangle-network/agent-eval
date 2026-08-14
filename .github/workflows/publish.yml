@@ -127,12 +127,18 @@ jobs:
         with:
           name: openapi
           path: dist/openapi.json
+          # `pnpm build` makes this spec again from the tagged commit.
+          retention-days: 7
 
       - name: Upload Python build context
         uses: actions/upload-artifact@v7
         with:
           name: python-source
           path: clients/python
+          # No job downloads this. It only shows why a publish failed, and the
+          # tagged commit makes the same tree again. One week is sufficient to
+          # examine a failed release.
+          retention-days: 7
 
   publish-npm:
     needs: verify
