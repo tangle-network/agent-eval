@@ -24,7 +24,8 @@ import {
  * that stops reading it shows up here rather than as a smaller corpus.
  */
 const CORPUS = {
-  commandResult: '<returncode>127</returncode>\n<output>\n/bin/sh: 105: python: not found\n</output>',
+  commandResult:
+    '<returncode>127</returncode>\n<output>\n/bin/sh: 105: python: not found\n</output>',
   formatError:
     'Please always provide EXACTLY ONE action in triple backticks, found 0 actions.\n' +
     'If you want to end the task, please issue the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`\n' +
@@ -75,7 +76,9 @@ describe('classifyObservation', () => {
     expect(classifyObservation(CORPUS.timeout)).toBe('timeout')
     expect(classifyObservation('$3a')).toBe('elided')
     expect(classifyObservation(null)).toBe('absent')
-    expect(classifyObservation('Requirement already satisfied: grpcio==1.73.0\n')).toBe('unreadable')
+    expect(classifyObservation('Requirement already satisfied: grpcio==1.73.0\n')).toBe(
+      'unreadable',
+    )
   })
 
   it('classifies what the scaffold writes the same way it classifies what was recorded', () => {
@@ -107,7 +110,10 @@ describe('decodeRecordedTurns', () => {
       { src: 'system', msg: 'system prompt', tools: null, obs: null },
       { src: 'user', msg: 'task', tools: null, obs: null },
       turn(null, CORPUS.formatError),
-      turn("cat <<'EOF' > /app/apply_macros.vim\nEOF", renderObservation({ returncode: 0, output: '' })),
+      turn(
+        "cat <<'EOF' > /app/apply_macros.vim\nEOF",
+        renderObservation({ returncode: 0, output: '' }),
+      ),
       turn(CORPUS.submitCommand, null),
     ])
     expect(decoded.steps).toEqual([
@@ -136,7 +142,10 @@ describe('decodeRecordedTurns', () => {
     // 494 turns in the corpus hold both: the model wrote several bash blocks,
     // the scaffold ran none of them, and the dump kept one in the command field.
     const decoded = decodeRecordedTurns([
-      turn('cd /app && python -m grpc_tools.protoc kv-store.proto', renderFormatErrorObservation(2)),
+      turn(
+        'cd /app && python -m grpc_tools.protoc kv-store.proto',
+        renderFormatErrorObservation(2),
+      ),
       turn('ls', CORPUS.commandResult),
     ])
     expect(decoded.steps.map((step) => step.action)).toEqual(['ls'])
@@ -144,7 +153,10 @@ describe('decodeRecordedTurns', () => {
   })
 
   it('counts elided commands rather than replaying the marker', () => {
-    const decoded = decodeRecordedTurns([turn('$3a', CORPUS.commandResult), turn('ls', CORPUS.commandResult)])
+    const decoded = decodeRecordedTurns([
+      turn('$3a', CORPUS.commandResult),
+      turn('ls', CORPUS.commandResult),
+    ])
     expect(decoded.elidedCommands).toBe(1)
   })
 
@@ -157,7 +169,10 @@ describe('decodeRecordedTurns', () => {
 
 describe('finalRecordedOutcome', () => {
   it('reads the exit of the last executed command', () => {
-    const decoded = decodeRecordedTurns([turn('ls', CORPUS.commandResult), turn(CORPUS.submitCommand, null)])
+    const decoded = decodeRecordedTurns([
+      turn('ls', CORPUS.commandResult),
+      turn(CORPUS.submitCommand, null),
+    ])
     expect(finalRecordedOutcome(decoded.steps)).toEqual({ kind: 'returncode', value: 127 })
   })
 
@@ -233,7 +248,10 @@ describe('assertReplayableTrajectory', () => {
   })
 
   it('refuses a trajectory holding an elision marker, naming the marker', () => {
-    const decoded = decodeRecordedTurns([turn('$3a', CORPUS.commandResult), turn('ls', CORPUS.commandResult)])
+    const decoded = decodeRecordedTurns([
+      turn('$3a', CORPUS.commandResult),
+      turn('ls', CORPUS.commandResult),
+    ])
     expect(decoded.steps.map((step) => step.action)).toEqual(['$3a', 'ls'])
     expect(() => assertReplayableTrajectory(decoded)).toThrow(/\$3a/)
   })

@@ -312,7 +312,9 @@ export function unreadableExitCount(steps: readonly RecordedTrajectoryStep[]): n
  */
 export function assertReplayableTrajectory(decoded: DecodedTrajectory): void {
   if (decoded.elidedCommands === 0) return
-  const markers = decoded.steps.filter((step) => isElidedField(step.action)).map((step) => step.action)
+  const markers = decoded.steps
+    .filter((step) => isElidedField(step.action))
+    .map((step) => step.action)
   throw new Error(
     `trajectory holds ${decoded.elidedCommands} command(s) the dump elided (${markers.slice(0, 5).join(', ')}); ` +
       'no dictionary maps a marker back to its text, so this trajectory cannot be replayed',

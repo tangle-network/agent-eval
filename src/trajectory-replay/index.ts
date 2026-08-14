@@ -101,11 +101,11 @@ export {
 export {
   assertReplayableTrajectory,
   classifyObservation,
-  decodeRecordedTurns,
   type DecodedTrajectory,
+  decodeRecordedTurns,
   deriveFailureSignature,
-  finalRecordedOutcome,
   FORMAT_ERROR_OBSERVATION_PREFIX,
+  finalRecordedOutcome,
   isElidedField,
   isRecordedTimeout,
   isSubmitAction,
