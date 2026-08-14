@@ -65,7 +65,10 @@ import {
   type TestSuiteFile,
   testSuiteDigest,
 } from '../src/trace-repair'
-import type { RecordedTrajectoryStep } from '../src/trajectory-replay/steps'
+import {
+  parseRecordedReturncode,
+  type RecordedTrajectoryStep,
+} from '../src/trajectory-replay/steps'
 
 const run = promisify(execFile)
 
@@ -347,7 +350,7 @@ async function runArm(
     let divergences = 0
     for (const step of steps) {
       const result = await session.exec(step.action, stepTimeoutMs(step.observation))
-      const recorded = recordedReturncode(step.observation)
+      const recorded = parseRecordedReturncode(step.observation)
       // An unadjudicable step is a divergence: the recording cannot confirm the
       // replayed state, so counting it as agreement would inflate fidelity.
       if (recorded === null || recorded !== result.exitCode) divergences += 1
@@ -368,12 +371,6 @@ async function runArm(
   } finally {
     await session.close()
   }
-}
-
-function recordedReturncode(observation: string | null): number | null {
-  if (!observation) return null
-  const m = /<returncode>(-?\d+)<\/returncode>/.exec(observation)
-  return m ? Number(m[1]) : null
 }
 
 interface RowOutcome {
