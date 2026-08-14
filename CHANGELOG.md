@@ -8,6 +8,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.11] — 2026-08-14
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.8.0` and `0.52.0`.
+- Packed consumers now resolve the one-copy `0.8.0` Core and `0.52.0` Interface cohort through Eval's release verification.
+
+---
+
 ## [0.145.10] — 2026-08-13
 
 ### Changed
