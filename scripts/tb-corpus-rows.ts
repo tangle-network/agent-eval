@@ -174,6 +174,18 @@ function localImages(imagesPath: string): Set<string> {
   return local
 }
 
+/** Tasks the checked-in lock pins by digest. A fact of the repository. */
+function pinnedImages(imagesPath: string): Set<string> {
+  const lock = JSON.parse(readFileSync(imagesPath, 'utf8')) as {
+    images: Record<string, { digest: string }>
+  }
+  return new Set(
+    Object.entries(lock.images)
+      .filter(([, image]) => typeof image.digest === 'string' && image.digest.startsWith('sha256:'))
+      .map(([task]) => task),
+  )
+}
+
 export interface DecodedCorpusRow {
   rowId: string
   taskName: string
@@ -194,10 +206,12 @@ export interface DecodedCorpusRow {
   finalOutcome: 'returncode' | 'killed' | `unreadable:${RecordedObservationKind}`
   endedOnSubmitSentinel: boolean
   imageLocal: boolean
+  /** The task's image is pinned by digest in the checked-in lock. */
+  imagePinned: boolean
   steps: { step_id: number; action: string; observation: string | null }[]
 }
 
-function decodeRow(raw: RawRow, imageLocal: boolean): DecodedCorpusRow | null {
+function decodeRow(raw: RawRow, imageLocal: boolean, imagePinned: boolean): DecodedCorpusRow | null {
   const turns = JSON.parse(raw.steps) as RecordedTrajectoryTurn[]
   const decoded = decodeRecordedTurns(turns)
   if (decoded.steps.length === 0) return null
@@ -219,6 +233,7 @@ function decodeRow(raw: RawRow, imageLocal: boolean): DecodedCorpusRow | null {
     finalOutcome: outcome.kind === 'unreadable' ? `unreadable:${outcome.reason}` : outcome.kind,
     endedOnSubmitSentinel: decoded.endedOnSubmitSentinel,
     imageLocal,
+    imagePinned,
     steps: [...decoded.steps],
   }
 }
@@ -252,10 +267,11 @@ function main(): void {
 
   const raws = readRawRows(options, certified)
   const local = localImages(options.images)
+  const pinned = pinnedImages(options.images)
   const rows: DecodedCorpusRow[] = []
   let noExecutedCommand = 0
   for (const raw of raws) {
-    const row = decodeRow(raw, local.has(raw.task_name))
+    const row = decodeRow(raw, local.has(raw.task_name), pinned.has(raw.task_name))
     if (row === null) noExecutedCommand += 1
     else rows.push(row)
   }
@@ -299,6 +315,8 @@ function main(): void {
     elidedCommands,
     formatErrorTurns: rows.reduce((total, row) => total + row.formatErrorTurns, 0),
     finalOutcomes,
+    imagesPinned: [...new Set(rows.filter((row) => row.imagePinned).map((row) => row.taskName))].length,
+    /** Machine state at generation time, never an admission input. */
     imagesLocal: [...new Set(rows.filter((row) => row.imageLocal).map((row) => row.taskName))].length,
   }
   if (options.report !== null) {

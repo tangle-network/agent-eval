@@ -130,6 +130,8 @@ interface CorpusRow {
   finalOutcome: string
   endedOnSubmitSentinel: boolean
   imageLocal: boolean
+  /** The task's image is pinned by digest in the checked-in lock. */
+  imagePinned: boolean
   steps: { step_id: number; action: string; observation: string | null }[]
 }
 
@@ -153,7 +155,7 @@ function admissionRecord(
     stratum: stratumOf(row.finalReturncode) ?? 'unreadable',
     unknownRatio: row.unknownRatio,
     recordedCommands: row.recordedCommands,
-    imageLocal: row.imageLocal,
+    imagePinned: row.imagePinned,
     canonicalTrialRow,
     prefixDivergenceRatio,
     clusterSize,
@@ -301,8 +303,13 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
           keep: { kind: 'compare', field: 'recordedCommands', op: 'lte', value: 25 },
         },
         {
-          id: 'image-present-locally-at-pinned-digest',
-          keep: { kind: 'compare', field: 'imageLocal', op: 'eq', value: true },
+          // A pinned digest is a fact of the repository. Whether that image sits
+          // in one machine's docker store is a fact of the machine, and a funnel
+          // gated on it reports a different denominator after an eviction. The
+          // pull is a prerequisite of execution, and a row nothing executed on
+          // leaves at the end-state stage as unscreened.
+          id: 'image-pinned-by-digest',
+          keep: { kind: 'compare', field: 'imagePinned', op: 'eq', value: true },
         },
         {
           id: 'one-row-per-recorded-trial',
@@ -773,7 +780,7 @@ function prepare(assumeScreened: boolean): Design {
       row.finalReturncode !== null &&
       row.unknownRatio <= 0.25 &&
       row.recordedCommands <= 25 &&
-      row.imageLocal &&
+      row.imagePinned &&
       ADMITTED_STRATA.includes(stratumOf(row.finalReturncode) ?? 'unreadable') &&
       canonical.has(row.rowId) &&
       (assumeScreened || screen[row.rowId]?.endStatePassed === false) &&

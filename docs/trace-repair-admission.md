@@ -151,9 +151,9 @@ The funnel opens at 2,601 rather than the 2,727 rows the dump holds for these ta
 | `stratum-carries-a-repairable-failure` | 1,073 | 3 | 1,070 |
 | `unknown-returncode-ratio-at-most-25pct` | 1,070 | 126 | 944 |
 | `recorded-commands-at-most-25` | 944 | 164 | 780 |
-| `image-present-locally-at-pinned-digest` | 780 | 392 | 388 |
-| `one-row-per-recorded-trial` | 388 | 81 | 307 |
-| `recorded-end-state-fails-its-own-suite` | 307 | 23 | 284 |
+| `image-pinned-by-digest` | 780 | 0 | 780 |
+| `one-row-per-recorded-trial` | 780 | 172 | 608 |
+| `recorded-end-state-fails-its-own-suite` | 608 | 324 | 284 |
 | `prefix-divergence-at-most-10pct` | 284 | 66 | 218 |
 | `not-exposed-by-the-mechanism-pilot` | 218 | 0 | 218 |
 | `task-carries-at-least-two-rows` | 218 | 2 | 216 |
@@ -167,6 +167,10 @@ Three of these stages are new and every one of them removes rows.
 A cluster holding both reads one trajectory as two independent rows.
 
 `stratum-carries-a-repairable-failure`: a row ending on a command the environment stopped cannot be repaired by substituting a command, which is why `ADMISSION_CONFIG_DEFAULTS.admitStrata` omits `signal-kill`.
+
+`image-pinned-by-digest` reads the checked-in lock, not one machine's docker store.
+A gate on local presence reports a different denominator after an image eviction, and the same funnel run twice on the same corpus gave 388 rows and then 75.
+Pulling is a prerequisite of execution: a row nothing ran on carries no end-state verdict and leaves at the next stage as unscreened, which is where the 324 exclusions there come from.
 
 `prefix-divergence-at-most-10pct`: condition 1, which the earlier design waived and measured without acting on.
 The measurement says the waiver was wrong. 303 rows were screened by replaying the recorded prefix and grading the state it left; 69.2% replay with no divergence at all and 76.9% at or under the threshold.

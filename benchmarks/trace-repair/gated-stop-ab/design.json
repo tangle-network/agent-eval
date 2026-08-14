@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-08-14T08:23:27.110Z",
-  "sealDigest": "09f08b57beb2ed75c0e293b5487c64e98015795092fd2ea6664bc9641fe66ad4",
-  "sealedAt": "2026-08-14T08:23:18.754Z",
+  "generatedAt": "2026-08-14T12:02:56.974Z",
+  "sealDigest": "dadf75160af3522b120fc8fb6ba2437c4ab9f460243711db651ebe8939b3899f",
+  "sealedAt": "2026-08-14T12:02:43.896Z",
   "clusters": [
     {
       "taskName": "bn-fit-modify",
@@ -367,21 +367,21 @@
         "remaining": 780
       },
       {
-        "id": "image-present-locally-at-pinned-digest",
+        "id": "image-pinned-by-digest",
         "entering": 780,
-        "excluded": 392,
-        "remaining": 388
+        "excluded": 0,
+        "remaining": 780
       },
       {
         "id": "one-row-per-recorded-trial",
-        "entering": 388,
-        "excluded": 81,
-        "remaining": 307
+        "entering": 780,
+        "excluded": 172,
+        "remaining": 608
       },
       {
         "id": "recorded-end-state-fails-its-own-suite",
-        "entering": 307,
-        "excluded": 23,
+        "entering": 608,
+        "excluded": 324,
         "remaining": 284
       },
       {
