@@ -45,8 +45,8 @@ try {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
   }
   const expectedDependencyCohort = {
-    '@tangle-network/agent-core': '0.7.1',
-    '@tangle-network/agent-interface': '0.49.0',
+    '@tangle-network/agent-core': '0.8.0',
+    '@tangle-network/agent-interface': '0.52.0',
   }
   for (const [name, version] of Object.entries(expectedDependencyCohort)) {
     if (packageJson.dependencies?.[name] !== version) {
