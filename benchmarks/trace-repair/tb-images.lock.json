@@ -11,10 +11,11 @@
       "digest": "sha256:985bed39e8448bc95f138b5f766b59003a95c4be171c96af8e76448338f3dd8f",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 943,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:65b25be2c34967a7db2332794da5a1f6d8235e1792a1d747aff46b5bff77b9d7",
+      "imageBytes": 78128408,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:07.235Z"
+      "resolvedAt": "2026-08-10T01:12:07.235Z",
+      "pulledAt": "2026-08-14T03:42:29.800Z"
     },
     "bn-fit-modify": {
       "reference": "alexgshaw/bn-fit-modify:20251031",
@@ -37,8 +38,8 @@
       "digest": "sha256:d7bfb45e47cf10d2e21dc520239215498f4eba9c1ab2d0cd7d647985dddb4fa8",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2205,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:1c09e20b95f90415fe2f5424335b3bca11e36ee915715b2891aeaaefec475645",
+      "imageBytes": 1037400001,
       "resolvedFrom": "registry-head",
       "resolvedAt": "2026-08-10T01:12:08.256Z"
     },
@@ -50,10 +51,11 @@
       "digest": "sha256:3612a38fadb89a96f74a1a951fb0b0af734198fd160571eeaba6401593234594",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1790,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:b2a41c10dde020d36fbea4643794d8791118afb77db125e61837f21a02c1a3af",
+      "imageBytes": 837283125,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:08.775Z"
+      "resolvedAt": "2026-08-10T01:12:08.775Z",
+      "pulledAt": "2026-08-14T02:14:56.934Z"
     },
     "build-pmars": {
       "reference": "alexgshaw/build-pmars:20251031",
@@ -76,10 +78,11 @@
       "digest": "sha256:874baf49341e2853a15a9184e308c7eb632e97f434359fcff2891c6e5ca1b39b",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1366,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:bdd54bc6df23947ecd7277cbb5ff569b6436d8f697ecfe585f06d8265fcb1941",
+      "imageBytes": 388077987,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:09.733Z"
+      "resolvedAt": "2026-08-10T01:12:09.733Z",
+      "pulledAt": "2026-08-14T00:26:21.741Z"
     },
     "caffe-cifar-10": {
       "reference": "alexgshaw/caffe-cifar-10:20251031",
@@ -89,10 +92,11 @@
       "digest": "sha256:5b54d6e8f1b392cdeb819e28215853f500b72b8e08b91270c7a3693bf44d1fe2",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 948,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:c6f2e6e3130e72a7838ab5c78c59305018646725ee965baebbd66a40342a3177",
+      "imageBytes": 508054666,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:10.204Z"
+      "resolvedAt": "2026-08-10T01:12:10.204Z",
+      "pulledAt": "2026-08-13T23:14:24.164Z"
     },
     "cancel-async-tasks": {
       "reference": "alexgshaw/cancel-async-tasks:20251031",
@@ -115,10 +119,11 @@
       "digest": "sha256:bb447f94d9e2a8ed879f85c85a514b213b7418f9fe11fd7b2428a0b0e436e647",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2835,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:0977c69064c0e9d25a2267d99794290653e3683349a52e974c6f171e4293828f",
+      "imageBytes": 600449725,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:11.217Z"
+      "resolvedAt": "2026-08-10T01:12:11.217Z",
+      "pulledAt": "2026-08-13T22:32:11.581Z"
     },
     "circuit-fibsqrt": {
       "reference": "alexgshaw/circuit-fibsqrt:20251031",
@@ -131,7 +136,8 @@
       "imageId": "sha256:133688d2a04ad9fd39267badd3d61ac22c91c09162d682e44d4396b3445123ab",
       "imageBytes": 392035795,
       "resolvedFrom": "local-store",
-      "resolvedAt": "2026-08-10T01:12:11.229Z"
+      "resolvedAt": "2026-08-10T01:12:11.229Z",
+      "pulledAt": "2026-08-14T02:15:59.665Z"
     },
     "cobol-modernization": {
       "reference": "alexgshaw/cobol-modernization:20251031",
@@ -154,10 +160,11 @@
       "digest": "sha256:2be9cdb746ed18c1b2b1404032efae0b2235a1b8fc479ef17730c95409d89f76",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1574,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:95e8a914c522fb26db230a1f28a895f260a3f0b3351f3de8d5bd04e88f316998",
+      "imageBytes": 120426919,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:12.204Z"
+      "resolvedAt": "2026-08-10T01:12:12.204Z",
+      "pulledAt": "2026-08-14T01:32:15.642Z"
     },
     "compile-compcert": {
       "reference": "alexgshaw/compile-compcert:20251031",
@@ -181,10 +188,11 @@
       "digest": "sha256:9e48389b917fd4650dda1f64406bd7198bbf20dc1c6b0e5c4d81a3c16369f88c",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 947,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:ec4bd4a5223850005caf80b223cbd98adb8999dbc5326786169d7998db53b65f",
+      "imageBytes": 143238589,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:13.150Z"
+      "resolvedAt": "2026-08-10T01:12:13.150Z",
+      "pulledAt": "2026-08-13T23:14:13.312Z"
     },
     "constraints-scheduling": {
       "reference": "alexgshaw/constraints-scheduling:20251031",
@@ -221,10 +229,11 @@
       "digest": "sha256:0f4453abd774c5a3d3d7e66ba28fae88ec2e49ada3a993b324ebc16c348666d3",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1998,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:cd0a22dc1d928e3075936ac702626ae529a683ac25aed25103ffaf33b72074d5",
+      "imageBytes": 748557698,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:14.609Z"
+      "resolvedAt": "2026-08-10T01:12:14.609Z",
+      "pulledAt": "2026-08-13T22:31:35.539Z"
     },
     "custom-memory-heap-crash": {
       "reference": "alexgshaw/custom-memory-heap-crash:20251031",
@@ -247,10 +256,11 @@
       "digest": "sha256:0e33ea5ec823975d1bd6c3778395c9f94251dd88f571146057bff6adb7e4594e",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1362,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:0ff6d2977f94533d8a7a0cdc5a16efd42cb3ccfeb2f5684cdc8db0836b43b9e3",
+      "imageBytes": 498313678,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:15.546Z"
+      "resolvedAt": "2026-08-10T01:12:15.546Z",
+      "pulledAt": "2026-08-13T22:32:37.890Z"
     },
     "distribution-search": {
       "reference": "alexgshaw/distribution-search:20251031",
@@ -276,7 +286,8 @@
       "imageId": "sha256:940e10327e89b8034aa335c48e8e643414809f5ee2ffd2d2854688b996c822ee",
       "imageBytes": 78130568,
       "resolvedFrom": "local-store",
-      "resolvedAt": "2026-08-10T01:12:16.047Z"
+      "resolvedAt": "2026-08-10T01:12:16.047Z",
+      "pulledAt": "2026-08-14T00:26:24.527Z"
     },
     "dna-insert": {
       "reference": "alexgshaw/dna-insert:20251031",
@@ -299,10 +310,11 @@
       "digest": "sha256:6932e4cb318464307eacd497ef8dc617eaf551b6a90231f815ec0b911895cfed",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1363,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:ce2d818d338482f97d2dc224b884271798ccd801e922ef08606a64103e08489f",
+      "imageBytes": 998373805,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:16.517Z"
+      "resolvedAt": "2026-08-10T01:12:16.517Z",
+      "pulledAt": "2026-08-14T00:26:00.401Z"
     },
     "extract-moves-from-video": {
       "reference": "alexgshaw/extract-moves-from-video:20251031",
@@ -315,7 +327,8 @@
       "imageId": "sha256:2c864464739e8dae1f4176727835ace7201402fb9dbdff25d177740e04ec05a3",
       "imageBytes": 78122856,
       "resolvedFrom": "local-store",
-      "resolvedAt": "2026-08-10T01:12:16.530Z"
+      "resolvedAt": "2026-08-10T01:12:16.530Z",
+      "pulledAt": "2026-08-13T23:13:47.196Z"
     },
     "feal-differential-cryptanalysis": {
       "reference": "alexgshaw/feal-differential-cryptanalysis:20251031",
@@ -325,10 +338,11 @@
       "digest": "sha256:bea93bafe9eab601ca58729f5735a13f8339f52055322d1cf840e3742b54a287",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1783,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:ad58defcdd2544ac3494b06b77af0f6715fa1b94221e6d509578b156ef4817e2",
+      "imageBytes": 138242818,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:17.019Z"
+      "resolvedAt": "2026-08-10T01:12:17.019Z",
+      "pulledAt": "2026-08-14T03:25:15.846Z"
     },
     "feal-linear-cryptanalysis": {
       "reference": "alexgshaw/feal-linear-cryptanalysis:20251031",
@@ -351,10 +365,11 @@
       "digest": "sha256:92acda0f124b988036a6f426ce0bc47fac19f5efe9fc5e6ea3ea52ccb075d0a4",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1790,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:afdd2693169844c7a66ff66012b4c8470f3ca7c2420607d3b1629e38da9d4517",
+      "imageBytes": 1026166899,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:17.970Z"
+      "resolvedAt": "2026-08-10T01:12:17.970Z",
+      "pulledAt": "2026-08-14T02:15:35.136Z"
     },
     "financial-document-processor": {
       "reference": "alexgshaw/financial-document-processor:20251031",
@@ -403,10 +418,11 @@
       "digest": "sha256:66a1e2293076c9ef27a118611b3089a6284fdf467fd4675592d0cce7d11e5b0b",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1368,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:64b43d0dbddfbc0291d03486954c3def53d5d19c67426c8f758631d5dd9d7d85",
+      "imageBytes": 1140308461,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:19.382Z"
+      "resolvedAt": "2026-08-10T01:12:19.382Z",
+      "pulledAt": "2026-08-14T03:43:02.952Z"
     },
     "gcode-to-text": {
       "reference": "alexgshaw/gcode-to-text:20251031",
@@ -429,10 +445,11 @@
       "digest": "sha256:62160e522a4238b8bcd522411ea97b5b200f811e5899d34947e66809bef7e586",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1569,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:ac4c027aef4e069789e75e13a1b03b9cecb5f42faef5c828cac183d25ba08fe2",
+      "imageBytes": 217451781,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:19.869Z"
+      "resolvedAt": "2026-08-10T01:12:19.869Z",
+      "pulledAt": "2026-08-14T01:32:10.083Z"
     },
     "git-multibranch": {
       "reference": "alexgshaw/git-multibranch:20251031",
@@ -455,10 +472,11 @@
       "digest": "sha256:537e7bd26b02db5c761230515fa09dc05f89403c6737fbdae4b5793ebc2c7066",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1371,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:f4771870b08b96c63feb567c49bcc2c2b4deefd0fc3acab5ccb781ed4fc492a6",
+      "imageBytes": 846846058,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:20.839Z"
+      "resolvedAt": "2026-08-10T01:12:20.839Z",
+      "pulledAt": "2026-08-14T01:32:32.588Z"
     },
     "headless-terminal": {
       "reference": "alexgshaw/headless-terminal:20251031",
@@ -481,10 +499,11 @@
       "digest": "sha256:f96dd7d3c85c7257b404fd63ba8d24ced2478cd90232c20e297c372f953fa607",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1579,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:3f74fe03b175ad4bdb573dfe17f5cd4d151a5edbc67fae29555e251ad88cfb55",
+      "imageBytes": 8756257921,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:21.815Z"
+      "resolvedAt": "2026-08-10T01:12:21.815Z",
+      "pulledAt": "2026-08-14T03:55:16.830Z"
     },
     "install-windows-3.11": {
       "reference": "alexgshaw/install-windows-3.11:20251031",
@@ -494,10 +513,11 @@
       "digest": "sha256:c6695097316ef8810abce0545e347e65354aef9d51d4f7f662c3242e742f6a3e",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 3235,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:c476efafe0214c2c6263fcbc0b2ed0b67be0b19c053bd7c81865cc4786f79e5f",
+      "imageBytes": 1546518201,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:22.290Z"
+      "resolvedAt": "2026-08-10T01:12:22.290Z",
+      "pulledAt": "2026-08-13T23:14:09.267Z"
     },
     "kv-store-grpc": {
       "reference": "alexgshaw/kv-store-grpc:20251031",
@@ -507,10 +527,11 @@
       "digest": "sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1365,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:b9412389bb791988d341f7dcbf456fb68feea133d9e3e6a705fbea976a8acb2b",
+      "imageBytes": 120331878,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:22.767Z"
+      "resolvedAt": "2026-08-10T01:12:22.767Z",
+      "pulledAt": "2026-08-14T00:26:09.532Z"
     },
     "large-scale-text-editing": {
       "reference": "alexgshaw/large-scale-text-editing:20251031",
@@ -520,10 +541,11 @@
       "digest": "sha256:719adca3f1388220546ce6a155eee56eff3c4fe318183100320606a210f6b59c",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1997,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:4ca0b429596fd62b9fab0a787e276ee7ee3faf2761b56473232327218c462c56",
+      "imageBytes": 251687067,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:23.224Z"
+      "resolvedAt": "2026-08-10T01:12:23.224Z",
+      "pulledAt": "2026-08-13T22:31:43.871Z"
     },
     "largest-eigenval": {
       "reference": "alexgshaw/largest-eigenval:20251031",
@@ -559,10 +581,11 @@
       "digest": "sha256:cbeb6ba905c2fec294f16cd5e16e3ea7f2e04d38ac2484d51a11de262aa7dc51",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1990,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:748e8485201e72133a9400dc8f6f524eb20e9812655eef41b32a1cc21796bdef",
+      "imageBytes": 126326843,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:23.703Z"
+      "resolvedAt": "2026-08-10T01:12:23.703Z",
+      "pulledAt": "2026-08-14T03:55:19.339Z"
     },
     "mailman": {
       "reference": "alexgshaw/mailman:20251031",
@@ -572,10 +595,11 @@
       "digest": "sha256:04fac73db7e2b4f49d43f09fbc2266a94d70131f07efa1393d370abc059f4094",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1367,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:db488c3287e44deaa76c7bdb4b57019a9602b117a1132c99b2c1ae28b21c7ec7",
+      "imageBytes": 420732633,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:24.182Z"
+      "resolvedAt": "2026-08-10T01:12:24.182Z",
+      "pulledAt": "2026-08-13T23:14:30.901Z"
     },
     "make-doom-for-mips": {
       "reference": "alexgshaw/make-doom-for-mips:20251031",
@@ -637,10 +661,11 @@
       "digest": "sha256:52fe1f089f38650f0dc22d7531ee6e01ebd526de1b349aaa2ecb331dca9fabce",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1784,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:cc17ca081e08612a89a3d185fc4af6735ee2a08eaeb9478f8b2474392c4feac8",
+      "imageBytes": 211592745,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:26.091Z"
+      "resolvedAt": "2026-08-10T01:12:26.091Z",
+      "pulledAt": "2026-08-14T01:32:36.950Z"
     },
     "modernize-scientific-stack": {
       "reference": "alexgshaw/modernize-scientific-stack:20251031",
@@ -650,10 +675,11 @@
       "digest": "sha256:64e69cee13bf6b0b9016e735b51891bce996a60f1e2d1a005bf12c949e221d71",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1999,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:725e815168e64c91e9b45a71f3c989d3672b510647b98e7392c0bf9e7dc203c6",
+      "imageBytes": 1022837026,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:26.584Z"
+      "resolvedAt": "2026-08-10T01:12:26.584Z",
+      "pulledAt": "2026-08-14T03:55:21.415Z"
     },
     "mteb-leaderboard": {
       "reference": "alexgshaw/mteb-leaderboard:20251031",
@@ -663,10 +689,11 @@
       "digest": "sha256:968de9456bfc53728f7df0cb6c9ce33e17bd0e5563ddfe031e6ed2964965aecf",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1792,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:9b784274a38a1e7c5c518796f3bcf2f29692921538bbecbdf249615a9dcfe5d6",
+      "imageBytes": 12645214568,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:27.073Z"
+      "resolvedAt": "2026-08-10T01:12:27.073Z",
+      "pulledAt": "2026-08-14T03:31:59.864Z"
     },
     "mteb-retrieve": {
       "reference": "alexgshaw/mteb-retrieve:20251031",
@@ -676,10 +703,11 @@
       "digest": "sha256:99dd676a21fd3124b7b8164cd93e8f0c51f1fdab2f84a831c61049eff78d063d",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2212,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:1690268b1a0af7ce966e1e7136698e26151eb9528bf6cf7dd967d2f30e2a4dd5",
+      "imageBytes": 12592858891,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:27.542Z"
+      "resolvedAt": "2026-08-10T01:12:27.542Z",
+      "pulledAt": "2026-08-14T03:38:14.957Z"
     },
     "multi-source-data-merger": {
       "reference": "alexgshaw/multi-source-data-merger:20251031",
@@ -728,10 +756,11 @@
       "digest": "sha256:67fe0ccc0ff2305d6fcb3652977d377b901bb7bd96904b6765835935574992e1",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1571,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:14636c361ced3673ad2a80291343b30916af81c26d954567e6f3d9de04df3b76",
+      "imageBytes": 311918918,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:29.569Z"
+      "resolvedAt": "2026-08-10T01:12:29.569Z",
+      "pulledAt": "2026-08-14T00:26:08.357Z"
     },
     "password-recovery": {
       "reference": "alexgshaw/password-recovery:20251031",
@@ -754,10 +783,11 @@
       "digest": "sha256:4b44725102cd627dfa895191a5a30d16dae3c5623bb43da6459f79135db6b482",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1781,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:189b026301d200f7d2dec5cc9dc617c3c70163e687b407201a6a9300fdf8d655",
+      "imageBytes": 1076311059,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:30.078Z"
+      "resolvedAt": "2026-08-10T01:12:30.078Z",
+      "pulledAt": "2026-08-14T00:14:23.999Z"
     },
     "path-tracing-reverse": {
       "reference": "alexgshaw/path-tracing-reverse:20251031",
@@ -780,10 +810,11 @@
       "digest": "sha256:0f1c3b7816d70cf5551573fd6aeef76893f2ae3000be2419997b6871b5d987ed",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 948,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:e1956576c394084e01441646e27f54bf0a246d83b764d9d14b04273e00302f07",
+      "imageBytes": 340877587,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:31.052Z"
+      "resolvedAt": "2026-08-10T01:12:31.052Z",
+      "pulledAt": "2026-08-13T23:13:51.771Z"
     },
     "polyglot-rust-c": {
       "reference": "alexgshaw/polyglot-rust-c:20251031",
@@ -793,10 +824,11 @@
       "digest": "sha256:3ba84f0e138a4b65e58c53f920a0fc852571e6402901c3bdbb876e9dab6e6c5e",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 948,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:42e1c101034156ab6a0cbefc63ee654ab7fccb668e1580a090abba89244f6a93",
+      "imageBytes": 775995016,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:31.533Z"
+      "resolvedAt": "2026-08-10T01:12:31.533Z",
+      "pulledAt": "2026-08-14T00:15:31.877Z"
     },
     "portfolio-optimization": {
       "reference": "alexgshaw/portfolio-optimization:20251031",
@@ -806,10 +838,11 @@
       "digest": "sha256:93461db3cec697c31585941a3b9387c1398495aa1ff0aee2ac752c7230b50ef8",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2827,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:b0ef263fdd85ca609faafead645c86c8a03f534178b3368e3eedc0a273b3fed9",
+      "imageBytes": 579678690,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:32.024Z"
+      "resolvedAt": "2026-08-10T01:12:32.024Z",
+      "pulledAt": "2026-08-14T03:55:28.812Z"
     },
     "protein-assembly": {
       "reference": "alexgshaw/protein-assembly:20251031",
@@ -819,10 +852,11 @@
       "digest": "sha256:94de701b57e7ecfdbada6044f8534876e4b58874f8f313184dadc4d7533e0818",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1987,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:910129dce5e537266cd7570ab1894c9ba4112acc63f1863bb393b9a91bdd368d",
+      "imageBytes": 120338506,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:32.504Z"
+      "resolvedAt": "2026-08-10T01:12:32.504Z",
+      "pulledAt": "2026-08-14T02:15:37.537Z"
     },
     "prove-plus-comm": {
       "reference": "alexgshaw/prove-plus-comm:20251031",
@@ -884,10 +918,11 @@
       "digest": "sha256:541e8214a8c4faa7b556531b899d45da21048fa2ca6dd328d8cb6c4cffa8e964",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1792,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:e868510787ba024e1fced364e94b5ae42c9b3076fa2345498edb833752188f93",
+      "imageBytes": 1786663993,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:34.913Z"
+      "resolvedAt": "2026-08-10T01:12:34.913Z",
+      "pulledAt": "2026-08-14T03:55:34.293Z"
     },
     "qemu-startup": {
       "reference": "alexgshaw/qemu-startup:20251031",
@@ -897,10 +932,11 @@
       "digest": "sha256:1a666e049db553c5e713830b1f5de1953210ab7c99212d006bb4e46cbc6b6d04",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1792,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:7feacb1ee3f271a6a99b1ab8a04f0872411d651ef9319b5d6da2eb11b61bc210",
+      "imageBytes": 1786663993,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:35.411Z"
+      "resolvedAt": "2026-08-10T01:12:35.411Z",
+      "pulledAt": "2026-08-14T00:15:19.456Z"
     },
     "query-optimize": {
       "reference": "alexgshaw/query-optimize:20251031",
@@ -910,10 +946,11 @@
       "digest": "sha256:28de7da87004eab5b29bd5eaf1823579bc5b73ccea4b80349a5623185770da14",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1789,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:5654e241057913a0f1a234583c62e12ed7bfab560d9c3f0dc5da985d9f3514eb",
+      "imageBytes": 248393891,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:35.927Z"
+      "resolvedAt": "2026-08-10T01:12:35.927Z",
+      "pulledAt": "2026-08-14T00:26:14.641Z"
     },
     "raman-fitting": {
       "reference": "alexgshaw/raman-fitting:20251031",
@@ -952,7 +989,8 @@
       "imageId": "sha256:0a15c19cc78685f8d322945e882ba702ef3d0265d1f621ee00991b8e64ddb750",
       "imageBytes": 78122856,
       "resolvedFrom": "local-store",
-      "resolvedAt": "2026-08-10T01:12:36.923Z"
+      "resolvedAt": "2026-08-10T01:12:36.923Z",
+      "pulledAt": "2026-08-13T22:21:44.293Z"
     },
     "reshard-c4-data": {
       "reference": "alexgshaw/reshard-c4-data:20251031",
@@ -962,10 +1000,11 @@
       "digest": "sha256:92d209e704785e17ad6b3f740e813dd72bc7ac33982ce435d197ab9d890eac2a",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2205,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:a1ea118e6dbb44200cb77c4de3dc38023bf80387b0e781512c2d615189ad2562",
+      "imageBytes": 2744627066,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:37.455Z"
+      "resolvedAt": "2026-08-10T01:12:37.455Z",
+      "pulledAt": "2026-08-14T03:55:37.759Z"
     },
     "rstan-to-pystan": {
       "reference": "alexgshaw/rstan-to-pystan:20251031",
@@ -1017,7 +1056,8 @@
       "imageId": "sha256:85149ed74db9444b32fe96d058048ecbe604dfd39f19cf5deb4c0d7c10db57c9",
       "imageBytes": 120392648,
       "resolvedFrom": "local-store",
-      "resolvedAt": "2026-08-10T01:12:37.970Z"
+      "resolvedAt": "2026-08-10T01:12:37.970Z",
+      "pulledAt": "2026-08-14T01:32:14.207Z"
     },
     "sparql-university": {
       "reference": "alexgshaw/sparql-university:20251031",
@@ -1040,10 +1080,11 @@
       "digest": "sha256:aabac93c93bd1f310e6a6fb893911d7735026ed18491c72133c9196a09092ca4",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1572,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:33e71d5cd2768815d8c822af32020cd12ff3b0c35f4609dbd65523d8ee98d358",
+      "imageBytes": 120335974,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:38.960Z"
+      "resolvedAt": "2026-08-10T01:12:38.960Z",
+      "pulledAt": "2026-08-14T00:14:25.078Z"
     },
     "sqlite-with-gcov": {
       "reference": "alexgshaw/sqlite-with-gcov:20251031",
@@ -1053,10 +1094,11 @@
       "digest": "sha256:f986820b00c74ce75db7288719d364df313fde7c7917bea6eb6352a08431a89f",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 947,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:b9726244945382a5d73839440e391c88aceeb52346805eebd8712eb1b6ba8b3a",
+      "imageBytes": 90763564,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:39.443Z"
+      "resolvedAt": "2026-08-10T01:12:39.443Z",
+      "pulledAt": "2026-08-14T01:32:40.099Z"
     },
     "torch-pipeline-parallelism": {
       "reference": "alexgshaw/torch-pipeline-parallelism:20251031",
@@ -1118,10 +1160,11 @@
       "digest": "sha256:a2c0f39e3ab04e67ac6e49cad9167bb0d987babe32511768c01aa0c6905a875f",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2000,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:48c2f3683967aff593e02b1ef5b138ae5e4db7980bccd403ea550694b6fa8e43",
+      "imageBytes": 715770905,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:41.853Z"
+      "resolvedAt": "2026-08-10T01:12:41.853Z",
+      "pulledAt": "2026-08-14T03:55:44.376Z"
     },
     "vulnerable-secret": {
       "reference": "alexgshaw/vulnerable-secret:20251031",
@@ -1131,10 +1174,11 @@
       "digest": "sha256:61ebb40454dd103aa2f7e71ad6dafd91cf2b301e6bb07e69d5b472412d1ee15b",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 2407,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:54e36ed5f26ccc7489bde8745c86e6d8f2ce8927d2a5719316480716f550bf54",
+      "imageBytes": 372395519,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:42.343Z"
+      "resolvedAt": "2026-08-10T01:12:42.343Z",
+      "pulledAt": "2026-08-14T02:14:41.406Z"
     },
     "winning-avg-corewars": {
       "reference": "alexgshaw/winning-avg-corewars:20251031",
@@ -1144,10 +1188,11 @@
       "digest": "sha256:ad7a6b1c53aed59e10916c692aa7e2ae00042a4283187430aee1e3e79f72d5c6",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1785,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:d372f2022972a03c8a7d16f631e9171dad3a65e1d119a97d4875167f8db3e6ca",
+      "imageBytes": 709133216,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:42.820Z"
+      "resolvedAt": "2026-08-10T01:12:42.820Z",
+      "pulledAt": "2026-08-14T02:15:52.362Z"
     },
     "write-compressor": {
       "reference": "alexgshaw/write-compressor:20251031",
@@ -1157,10 +1202,11 @@
       "digest": "sha256:3618e1f8a997b437c09cd3dbaac736705809c05f6f12f584b65722175970ebe1",
       "manifestMediaType": "application/vnd.docker.distribution.manifest.v2+json",
       "manifestBytes": 1571,
-      "imageId": null,
-      "imageBytes": null,
+      "imageId": "sha256:795a10ee52aa610a840b6587c5a1d2194175faa76c58879c8846a115b601902a",
+      "imageBytes": 777076255,
       "resolvedFrom": "registry-head",
-      "resolvedAt": "2026-08-10T01:12:43.324Z"
+      "resolvedAt": "2026-08-10T01:12:43.324Z",
+      "pulledAt": "2026-08-14T00:14:35.976Z"
     }
   },
   "lockedAt": "2026-08-10T01:12:43.324Z"
