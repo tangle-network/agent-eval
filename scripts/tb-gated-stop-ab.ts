@@ -137,6 +137,7 @@ function admissionRecord(
   clusterSize: number,
   recordedEndStateFails: boolean,
   canonicalTrialRow: boolean,
+  prefixDivergenceRatio: number,
 ): EvidenceRecord {
   return {
     rowId: row.rowId,
@@ -148,6 +149,7 @@ function admissionRecord(
     recordedCommands: row.recordedCommands,
     imageLocal: row.imageLocal,
     canonicalTrialRow,
+    prefixDivergenceRatio,
     clusterSize,
     recordedEndStateFails,
   }
@@ -172,21 +174,37 @@ function canonicalTrialRowIds(rows: readonly CorpusRow[]): Set<string> {
   return new Set([...canonical.values()].map((row) => row.rowId))
 }
 
+/** What the end-state screen measured about one row. */
+interface EndStateMeasurement {
+  endStatePassed: boolean
+  replayedCommands: number
+  replayDivergences: number
+}
+
 /**
- * What the end-state screen measured, by row id: `true` when the task's own
- * suite passed on the recorded end state.
+ * What the end-state screen measured, by row id.
  *
  * A row whose end state already passes cannot measure a repair — every arm
  * wins it for free — so it is excluded. A row the screen has not reached is
- * excluded too: unscreened is not the same as failing, and only one of them
- * may carry a contrast.
+ * excluded too, and so is a row whose screen hit a boundary failure: neither
+ * produced a verdict, and an unmeasured row that reads as failing is admitted
+ * on a check that never ran.
  */
-function endStateScreen(): Record<string, boolean> {
+function endStateScreen(): Record<string, EndStateMeasurement> {
   try {
-    return JSON.parse(readFileSync(join(WORK, 'end-state-screen.json'), 'utf8')) as Record<string, boolean>
+    return JSON.parse(readFileSync(join(WORK, 'end-state-screen.json'), 'utf8')) as Record<
+      string,
+      EndStateMeasurement
+    >
   } catch {
     return {}
   }
+}
+
+/** Share of replayed steps whose exit differed from the recording. */
+function divergenceRatio(measurement: EndStateMeasurement | undefined): number {
+  if (measurement === undefined || measurement.replayedCommands === 0) return 1
+  return measurement.replayDivergences / measurement.replayedCommands
 }
 
 // ── The registered design ────────────────────────────────────────────
@@ -275,7 +293,6 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
         {
           id: 'recorded-commands-at-most-25',
           keep: { kind: 'compare', field: 'recordedCommands', op: 'lte', value: 25 },
-          waives: ['prefix-divergence-screen: replay fidelity is measured per row and reported, not used to drop rows here'],
         },
         {
           id: 'image-present-locally-at-pinned-digest',
@@ -288,6 +305,10 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
         {
           id: 'recorded-end-state-fails-its-own-suite',
           keep: { kind: 'compare', field: 'recordedEndStateFails', op: 'eq', value: true },
+        },
+        {
+          id: 'prefix-divergence-at-most-10pct',
+          keep: { kind: 'compare', field: 'prefixDivergenceRatio', op: 'lte', value: 0.1 },
         },
         {
           id: 'not-exposed-by-the-mechanism-pilot',
@@ -749,7 +770,8 @@ function prepare(assumeScreened: boolean): Design {
       row.imageLocal &&
       ADMITTED_STRATA.includes(stratumOf(row.finalReturncode) ?? 'unreadable') &&
       canonical.has(row.rowId) &&
-      (assumeScreened || screen[row.rowId] === false),
+      (assumeScreened || screen[row.rowId]?.endStatePassed === false) &&
+      (assumeScreened || divergenceRatio(screen[row.rowId]) <= 0.1),
   )
   const sizes = new Map<string, number>()
   for (const row of eligible) sizes.set(row.taskName, (sizes.get(row.taskName) ?? 0) + 1)
@@ -757,8 +779,9 @@ function prepare(assumeScreened: boolean): Design {
     admissionRecord(
       row,
       sizes.get(row.taskName) ?? 0,
-      assumeScreened ? true : screen[row.rowId] === false,
+      assumeScreened ? true : screen[row.rowId]?.endStatePassed === false,
       canonical.has(row.rowId),
+      assumeScreened ? 0 : divergenceRatio(screen[row.rowId]),
     ),
   )
   const clusterRows = [...sizes.values()].filter((n) => n >= ROWS_PER_CLUSTER)
@@ -895,7 +918,7 @@ async function main(): Promise<void> {
     log(`screen start rows=${rows.length} alreadyMeasured=${Object.keys(measured).length}`)
     const tasks = new Map<string, TaskFixture>()
     for (const name of new Set(rows.map((row) => row.taskName))) tasks.set(name, await loadTask(name))
-    const screened: Record<string, boolean> = { ...endStateScreen() }
+    const screened: Record<string, EndStateMeasurement> = { ...endStateScreen() }
     let next = 0
     await Promise.all(
       Array.from({ length: Math.min(SEAT_CONCURRENCY, rows.length) }, async () => {
@@ -912,12 +935,21 @@ async function main(): Promise<void> {
             stopOnPass: false,
             log,
           })
-          screened[row.rowId] = result.endStatePassed
-          writeFileSync(join(WORK, 'end-state-screen.json'), `${JSON.stringify(screened, null, 2)}\n`)
+          // A row whose screen hit a boundary failure produced no verdict.
+          // Writing its default `false` would admit it on a check that never
+          // ran, which is the same corruption as a silent zero.
+          if (result.error === null) {
+            screened[row.rowId] = {
+              endStatePassed: result.endStatePassed,
+              replayedCommands: result.replayedCommands,
+              replayDivergences: result.replayDivergences,
+            }
+            writeFileSync(join(WORK, 'end-state-screen.json'), `${JSON.stringify(screened, null, 2)}\n`)
+          }
         }
       }),
     )
-    const passing = Object.values(screened).filter(Boolean).length
+    const passing = Object.values(screened).filter((m) => m.endStatePassed).length
     log(`screen done rows=${rows.length} endStatePassed=${passing}`)
     return
   }

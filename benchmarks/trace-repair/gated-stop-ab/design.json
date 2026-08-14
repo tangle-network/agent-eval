@@ -1,124 +1,409 @@
 {
-  "generatedAt": "2026-08-14T06:07:49.460Z",
-  "sealDigest": "2b58c52c799c65594dc9f8f6d54c7cc247907cc963eee278c323d873c4acea06",
-  "sealedAt": "2026-08-14T06:07:44.596Z",
+  "generatedAt": "2026-08-14T08:23:27.110Z",
+  "sealDigest": "09f08b57beb2ed75c0e293b5487c64e98015795092fd2ea6664bc9641fe66ad4",
+  "sealedAt": "2026-08-14T08:23:18.754Z",
   "clusters": [
+    {
+      "taskName": "bn-fit-modify",
+      "rowIds": [
+        "bn-fit-modify::bn-fit-modify__4dpAjd3::4940924a-0b13-47ad-925b-d5b54c723954",
+        "bn-fit-modify::bn-fit-modify__izrkB8c::b9cf3d02-a169-4c4a-911b-00200178786d",
+        "bn-fit-modify::bn-fit-modify__qN7dL2C::4a7b677f-4dd5-4517-ad94-7643087e1c3d",
+        "bn-fit-modify::bn-fit-modify__qsU3YMz::99f980e2-f765-419b-8dc8-6b1f4da3c1ac"
+      ]
+    },
     {
       "taskName": "break-filter-js-from-html",
       "rowIds": [
+        "break-filter-js-from-html::break-filter-js-from-html__2R3WVf5::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__35Uc863::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__6iEP75a::ord0",
         "break-filter-js-from-html::break-filter-js-from-html__97tZYzQ::b8c7ec92-31b5-4885-ace4-7bf4a1715627",
-        "break-filter-js-from-html::break-filter-js-from-html__cRcDUvb::ord0"
+        "break-filter-js-from-html::break-filter-js-from-html__BnZWSDK::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__CVHv5bQ::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__DgW5Uf8::85311391-52de-4291-9216-9d3354e9524d",
+        "break-filter-js-from-html::break-filter-js-from-html__FS9o6H2::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__FbAThtu::5e2dd4a5-c0d5-48ac-ae16-a8ed1a89d5d5",
+        "break-filter-js-from-html::break-filter-js-from-html__HpxC3Nh::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__MsAGmXG::9cfa3c39-dd67-4002-8d57-a015ba1e12be",
+        "break-filter-js-from-html::break-filter-js-from-html__Ren9gY5::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__SBPD7KA::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__SmkYDSx::869c858f-45d0-481a-91d6-3cb8c235ef5f",
+        "break-filter-js-from-html::break-filter-js-from-html__UPtYZ3K::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__YrKE4JG::a068c57e-6aeb-436f-b4bc-f76a920ab9af",
+        "break-filter-js-from-html::break-filter-js-from-html__YytgLub::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__Z8DKsYa::b0ebf23d-ba67-4458-be9b-10ae8bfea2a1",
+        "break-filter-js-from-html::break-filter-js-from-html__ZNEGRBE::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__auronz2::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__cRcDUvb::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__eCxehgs::4098e56d-1f5a-468e-95cc-f6232d75e350",
+        "break-filter-js-from-html::break-filter-js-from-html__jAgdJGf::9a9ff662-1d3c-4794-8a45-f5acfd1c3396",
+        "break-filter-js-from-html::break-filter-js-from-html__kyKMFmj::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__mXWdn3b::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__orBRHGT::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__y8FbRrP::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__yNGimWW::ord0",
+        "break-filter-js-from-html::break-filter-js-from-html__yQdRrCj::ord0"
+      ]
+    },
+    {
+      "taskName": "chess-best-move",
+      "rowIds": [
+        "chess-best-move::chess-best-move__78oUeH9::131b095e-2fb3-49b6-9d9e-7f3dc7db4e43",
+        "chess-best-move::chess-best-move__8yz4zdF::ord0",
+        "chess-best-move::chess-best-move__CxXmyaw::457fdf36-0096-46bd-b768-90c750137bc5",
+        "chess-best-move::chess-best-move__P4LosWV::dc35d928-9e5d-4d39-b9e5-c2ca96298dc0",
+        "chess-best-move::chess-best-move__SDYnXSG::ord0",
+        "chess-best-move::chess-best-move__TpjiHFA::895aac58-188e-47c1-965d-754f62f79209",
+        "chess-best-move::chess-best-move__Ue6gFS9::e6461331-38da-480b-9ac0-bc0102f35fe2",
+        "chess-best-move::chess-best-move__XXLV2V6::f57cb929-fbea-4258-8eca-8beb49faf445",
+        "chess-best-move::chess-best-move__fow4qGA::ord0",
+        "chess-best-move::chess-best-move__kBK7T4E::ord0",
+        "chess-best-move::chess-best-move__kzCwv7q::ord0",
+        "chess-best-move::chess-best-move__nTSQzKk::d381e3f2-5849-469f-a706-b7395f2dc549",
+        "chess-best-move::chess-best-move__xxMUxUm::014f4b8b-cffd-49c3-8177-6da5ce3c5053"
       ]
     },
     {
       "taskName": "distribution-search",
       "rowIds": [
-        "distribution-search::distribution-search__p2UQ5ES::8fe55eb3-c402-41e0-97bf-86e3542f8949",
-        "distribution-search::distribution-search__p2UQ5ES::ord0"
+        "distribution-search::distribution-search__8WD6yW9::4ba4f851-6599-4050-acce-35a4f559f4ca",
+        "distribution-search::distribution-search__GygcanE::ef2a56cc-b7eb-4341-b403-5a65e66afa0a",
+        "distribution-search::distribution-search__MvC4XGG::05001e7a-7c36-4c52-8f9a-02a4761f134a",
+        "distribution-search::distribution-search__nMVAJ5E::c98e4eea-9d43-4d3c-be07-3445c9b9c347",
+        "distribution-search::distribution-search__nZxNo8G::d88e8f6a-86b0-4457-8e36-170eba4d0329",
+        "distribution-search::distribution-search__p2UQ5ES::8fe55eb3-c402-41e0-97bf-86e3542f8949"
       ]
     },
     {
       "taskName": "dna-insert",
       "rowIds": [
         "dna-insert::dna-insert__VCJbY9x::dbf33e48-3b4f-40c4-9123-f23c0a60b668",
-        "dna-insert::dna-insert__X8kM8if::ord0"
+        "dna-insert::dna-insert__Vkvh6kV::0db40d6f-6521-4074-9fef-a61813a5476b",
+        "dna-insert::dna-insert__X8kM8if::ord0",
+        "dna-insert::dna-insert__Ya4c9hz::1cca40c5-121e-4ce6-bf00-2e528f51cc2c",
+        "dna-insert::dna-insert__YzzLRFs::f349f9d4-d378-42fb-ac8f-509363940455",
+        "dna-insert::dna-insert__aoxfDta::1fb444e2-242a-4201-8b99-7c269ed027b3",
+        "dna-insert::dna-insert__mRRmSop::d95f12ed-935a-452b-8a4d-8263bc06c9b8"
       ]
     },
     {
-      "taskName": "merge-diff-arc-agi-task",
+      "taskName": "extract-moves-from-video",
       "rowIds": [
-        "merge-diff-arc-agi-task::merge-diff-arc-agi-task__beCj5QQ::1b8cd787-ecf5-4bbc-8ebe-4a15eaa195d3",
-        "merge-diff-arc-agi-task::merge-diff-arc-agi-task__hWbvJTk::ord0"
+        "extract-moves-from-video::extract-moves-from-video__4P9pVsg::59aedd74-262d-44f6-9c31-620edbbe2ea1",
+        "extract-moves-from-video::extract-moves-from-video__6g3Txfg::f8f19536-ebfe-441d-86c3-9fafe610948c",
+        "extract-moves-from-video::extract-moves-from-video__c9cUUsP::8b0ad782-c2f2-4f57-9ed4-2d37d0bd886d",
+        "extract-moves-from-video::extract-moves-from-video__pvzWCaf::ord0",
+        "extract-moves-from-video::extract-moves-from-video__tccSe47::ord0",
+        "extract-moves-from-video::extract-moves-from-video__vAwqfkF::2945341e-a171-4dd8-82a1-a838dab23707"
+      ]
+    },
+    {
+      "taskName": "feal-linear-cryptanalysis",
+      "rowIds": [
+        "feal-linear-cryptanalysis::feal-linear-cryptanalysis__5DdnxFL::74ed5b2b-38ff-4aea-a476-c926db296bb4",
+        "feal-linear-cryptanalysis::feal-linear-cryptanalysis__LFvrKFF::3b7db2ff-b829-46c7-8510-13373812731e"
+      ]
+    },
+    {
+      "taskName": "filter-js-from-html",
+      "rowIds": [
+        "filter-js-from-html::filter-js-from-html__7XW9kxb::ord0",
+        "filter-js-from-html::filter-js-from-html__BzX9HKX::5ec26654-054f-41b9-905c-1bed2ca87079",
+        "filter-js-from-html::filter-js-from-html__CSRRdv9::df125087-6475-4930-8f90-3de59db52fcc",
+        "filter-js-from-html::filter-js-from-html__LEafPo7::ord0",
+        "filter-js-from-html::filter-js-from-html__PJ2bpHy::ord0",
+        "filter-js-from-html::filter-js-from-html__S8a6ZYA::ord0",
+        "filter-js-from-html::filter-js-from-html__aJouy8R::ord0",
+        "filter-js-from-html::filter-js-from-html__anQHv5W::ord0",
+        "filter-js-from-html::filter-js-from-html__bck9ykA::a035a05a-2a53-4097-9ef3-e952f27b0993",
+        "filter-js-from-html::filter-js-from-html__drLu5nC::69319b63-2961-4d55-9394-f9030e2b8913",
+        "filter-js-from-html::filter-js-from-html__hbv6wH4::a52c0636-3f72-4363-9552-bb42582b7256",
+        "filter-js-from-html::filter-js-from-html__mHra9p6::93c17aad-f813-421f-9bbe-627d9d876b48",
+        "filter-js-from-html::filter-js-from-html__w9VS6fN::0f03f8db-3096-4f9c-b1b2-ea1829cb4a89",
+        "filter-js-from-html::filter-js-from-html__xyoCYLC::7170d09e-137f-417b-8f81-4b4b0e61ea7e"
+      ]
+    },
+    {
+      "taskName": "fix-code-vulnerability",
+      "rowIds": [
+        "fix-code-vulnerability::fix-code-vulnerability__K4DeU9w::d9cbdb63-a9a5-492f-9472-301de999c17c",
+        "fix-code-vulnerability::fix-code-vulnerability__fWuwBEn::c6be4ef7-bbff-4075-b5ac-095c3484ce04",
+        "fix-code-vulnerability::fix-code-vulnerability__igsaqM3::0c9ca0ea-add8-4de3-960c-d514ba768e66",
+        "fix-code-vulnerability::fix-code-vulnerability__mM2ecUt::f3217502-e921-4340-bd3f-fb797b12fcc1",
+        "fix-code-vulnerability::fix-code-vulnerability__sE76LTr::9beeb285-1757-4f9e-9e96-232f1f0680f2",
+        "fix-code-vulnerability::fix-code-vulnerability__uj28XWS::c5cb9a3e-566d-422c-8c3b-f5c25b08b399",
+        "fix-code-vulnerability::fix-code-vulnerability__ywjCtiv::eb3373a9-8829-4b48-b9d5-ac59c0c756e8",
+        "fix-code-vulnerability::fix-code-vulnerability__zmgrKvL::45e0c3aa-6be9-4dc9-a3d8-5084ec627095"
+      ]
+    },
+    {
+      "taskName": "git-leak-recovery",
+      "rowIds": [
+        "git-leak-recovery::git-leak-recovery__3fSuxv3::a162fbd4-46f1-41fc-9e55-af72610e8ee6",
+        "git-leak-recovery::git-leak-recovery__9S7qGLJ::ord0",
+        "git-leak-recovery::git-leak-recovery__9rCCprw::ord0",
+        "git-leak-recovery::git-leak-recovery__FbRmWQQ::ebb716e3-3606-4528-9612-861ad194e387",
+        "git-leak-recovery::git-leak-recovery__HBnLM3i::97e938e0-f694-4fc3-83bd-35c16ba74dc1",
+        "git-leak-recovery::git-leak-recovery__K8ok2pK::66deae27-26f1-406d-b75f-932657ce72b1",
+        "git-leak-recovery::git-leak-recovery__Nn5ttes::ord0",
+        "git-leak-recovery::git-leak-recovery__P7SuWyx::6439ad28-caaf-4d56-bb72-076c46dd50d1",
+        "git-leak-recovery::git-leak-recovery__Tg6AxNw::89d37d5d-c829-4fde-b139-0bc945509939",
+        "git-leak-recovery::git-leak-recovery__dXFx8P6::ord0",
+        "git-leak-recovery::git-leak-recovery__qSvc6zx::fc641256-e926-495f-a162-ff0fd13f3824",
+        "git-leak-recovery::git-leak-recovery__t4LRbnc::ord0",
+        "git-leak-recovery::git-leak-recovery__vFWKCQt::25641162-1145-4793-8064-abae8e279aa2"
+      ]
+    },
+    {
+      "taskName": "git-multibranch",
+      "rowIds": [
+        "git-multibranch::git-multibranch__42TMbeX::9e165b08-c568-4cda-a574-c796db49e237",
+        "git-multibranch::git-multibranch__KUjXXYf::f0df0a74-8e0c-4362-8293-d38419f6ab31",
+        "git-multibranch::git-multibranch__VuB6PpR::b70ba0bc-a3ae-47e4-b780-847cdea6c87f",
+        "git-multibranch::git-multibranch__f2FZgip::c7d9e81f-7616-4c97-b41f-094c0ea04634",
+        "git-multibranch::git-multibranch__tsHbYFY::09a848f8-7f03-4bb1-80d2-3148cf68b15e",
+        "git-multibranch::git-multibranch__z6CwVeP::ord0"
+      ]
+    },
+    {
+      "taskName": "kv-store-grpc",
+      "rowIds": [
+        "kv-store-grpc::kv-store-grpc__CRbiD9c::ord0",
+        "kv-store-grpc::kv-store-grpc__E26Z8TE::ord0",
+        "kv-store-grpc::kv-store-grpc__GyUiwyq::6858a846-9d5e-4ebc-9afa-16e605c3e62c",
+        "kv-store-grpc::kv-store-grpc__LeByUym::8a503353-3e15-4ce2-b967-2268de64fe65",
+        "kv-store-grpc::kv-store-grpc__Nyh8Smx::ord0",
+        "kv-store-grpc::kv-store-grpc__PKKLwCR::1bde1855-361f-4fdb-aa54-ae7edf056417",
+        "kv-store-grpc::kv-store-grpc__UXseWZi::022cc20b-dcec-4afa-8693-ceead1cc010d",
+        "kv-store-grpc::kv-store-grpc__kdqybAG::57e0f2cf-779e-48d8-9fb7-704cdd08d424",
+        "kv-store-grpc::kv-store-grpc__qnBaVxn::3308bda2-a678-4a27-8a65-e535b4af0caf",
+        "kv-store-grpc::kv-store-grpc__xwK4TCS::ord0"
       ]
     },
     {
       "taskName": "model-extraction-relu-logits",
       "rowIds": [
+        "model-extraction-relu-logits::model-extraction-relu-logits__GKJ43Ao::355cc3fc-9159-4020-a89b-733e6647f934",
         "model-extraction-relu-logits::model-extraction-relu-logits__Hfc3LfQ::ord0",
-        "model-extraction-relu-logits::model-extraction-relu-logits__nFWS2qi::ord0"
+        "model-extraction-relu-logits::model-extraction-relu-logits__LTs4DXq::c1986f39-cc8d-42f1-ad2d-997dfac32d0f",
+        "model-extraction-relu-logits::model-extraction-relu-logits__LUhmFHx::9fe337b9-771e-4cea-8b16-311729488b62",
+        "model-extraction-relu-logits::model-extraction-relu-logits__ZZEsB4i::22b1019d-eee3-4694-be20-b923ae552598",
+        "model-extraction-relu-logits::model-extraction-relu-logits__fqrGcZC::f58041eb-283a-4852-b372-02376394c21a",
+        "model-extraction-relu-logits::model-extraction-relu-logits__hr7cisz::bfb8a27d-fd92-4611-b23b-1a91b0f616e4",
+        "model-extraction-relu-logits::model-extraction-relu-logits__nFWS2qi::ord0",
+        "model-extraction-relu-logits::model-extraction-relu-logits__ncK3AWP::07fdced1-9b3a-41bf-8599-738384c87174",
+        "model-extraction-relu-logits::model-extraction-relu-logits__notJ6hQ::5a0b141a-b512-4a6e-9a66-417c3bf02c0a",
+        "model-extraction-relu-logits::model-extraction-relu-logits__svNbmWu::ord0",
+        "model-extraction-relu-logits::model-extraction-relu-logits__uWYzbk8::ord0"
       ]
     },
     {
       "taskName": "nginx-request-logging",
       "rowIds": [
+        "nginx-request-logging::nginx-request-logging__5LYeoAV::dc35f044-4a5b-49af-a0f8-edb236f84eeb",
         "nginx-request-logging::nginx-request-logging__Fj3KNzk::ord0",
-        "nginx-request-logging::nginx-request-logging__XLQopKY::36cd1a18-acae-41ff-9bea-f4d8fae9e562"
+        "nginx-request-logging::nginx-request-logging__LSY5CUm::b8937d87-e7ba-4f2a-91f8-385b501f0ba4",
+        "nginx-request-logging::nginx-request-logging__RAzoXrv::0536bed5-ad50-47cf-9379-7e4715c684d1",
+        "nginx-request-logging::nginx-request-logging__XLQopKY::36cd1a18-acae-41ff-9bea-f4d8fae9e562",
+        "nginx-request-logging::nginx-request-logging__hm68Hvu::9db8e83b-d005-4c20-823d-7e06a19b9536",
+        "nginx-request-logging::nginx-request-logging__z4i2jhx::7ad59bdb-2d65-4e07-a485-b44a79dc64bf"
+      ]
+    },
+    {
+      "taskName": "overfull-hbox",
+      "rowIds": [
+        "overfull-hbox::overfull-hbox__7azYMTA::905eab0b-4581-4668-bdef-2b98a9e364da",
+        "overfull-hbox::overfull-hbox__L94iqoW::1f7ad8fe-2bcd-4f89-af25-e7614f2f6202",
+        "overfull-hbox::overfull-hbox__Nv3WdnC::d80b287e-8f7f-45b8-aa20-11887ec7aabb",
+        "overfull-hbox::overfull-hbox__TqLjXMH::c8791ac4-c99b-407d-a520-0e5eae3ce84e",
+        "overfull-hbox::overfull-hbox__uYtDEPX::df14ebd9-05b5-4bae-9f60-33f9f2f73301"
+      ]
+    },
+    {
+      "taskName": "password-recovery",
+      "rowIds": [
+        "password-recovery::password-recovery__3ppLoVS::ord0",
+        "password-recovery::password-recovery__8hYw4W4::ord0",
+        "password-recovery::password-recovery__CmnSqNf::dd03eaa1-6208-4c63-b6c6-98829b365577",
+        "password-recovery::password-recovery__TDWFpxY::3e938185-ff6a-44ad-aca0-490b10265ccc",
+        "password-recovery::password-recovery__oDL7kv9::e16ce5b3-741f-4847-ac06-05ab2d05b3e3",
+        "password-recovery::password-recovery__rGg4KKB::ord0",
+        "password-recovery::password-recovery__yfageTv::37545ae4-7cad-46d5-929b-557281534be1"
       ]
     },
     {
       "taskName": "path-tracing",
       "rowIds": [
+        "path-tracing::path-tracing__7fToiQf::60ae7d14-8871-40af-bf8e-d08518b38a6b",
+        "path-tracing::path-tracing__ConH2gW::580d60f6-0184-405b-ad1f-04f8011399df",
+        "path-tracing::path-tracing__E2rDna5::ord0",
+        "path-tracing::path-tracing__Hs7FQXF::63fd1479-ee5b-42f2-8529-4ac053cbd84a",
+        "path-tracing::path-tracing__KYYhxrN::ord0",
         "path-tracing::path-tracing__Ld2biwh::ord0",
-        "path-tracing::path-tracing__qVQgJUh::bc8bac3d-4808-4d65-9471-6daccb42cce6"
+        "path-tracing::path-tracing__N9ENVmn::ord0",
+        "path-tracing::path-tracing__P9ZEiuh::4cb5116e-7262-4d5b-9b58-467c65e8e40f",
+        "path-tracing::path-tracing__Z4hmti2::ord0",
+        "path-tracing::path-tracing__feCVATm::ord0",
+        "path-tracing::path-tracing__ppNTLQZ::93f5b4a7-2cfe-4b6d-93e8-942afc0ccfd4",
+        "path-tracing::path-tracing__qVQgJUh::bc8bac3d-4808-4d65-9471-6daccb42cce6",
+        "path-tracing::path-tracing__utnFhM5::ord0",
+        "path-tracing::path-tracing__vtQ5md9::ord0"
+      ]
+    },
+    {
+      "taskName": "pytorch-model-cli",
+      "rowIds": [
+        "pytorch-model-cli::pytorch-model-cli__DjBeSAj::3ae8027a-7cc5-4f6a-b004-19536c0e1bb4",
+        "pytorch-model-cli::pytorch-model-cli__rQL58RW::012b37a0-3e99-4108-aab6-ea3154582414"
       ]
     },
     {
       "taskName": "qemu-startup",
       "rowIds": [
-        "qemu-startup::qemu-startup__8y9V8cW::ord0",
-        "qemu-startup::qemu-startup__BGnJXwy::ord0"
+        "qemu-startup::qemu-startup__4eRwYaJ::ord0",
+        "qemu-startup::qemu-startup__7uWeUps::ord0",
+        "qemu-startup::qemu-startup__GQYACw7::8cd14361-3f30-407c-948f-9ddd9bbf4624",
+        "qemu-startup::qemu-startup__dR742p2::ord0",
+        "qemu-startup::qemu-startup__dxi9J6K::ord0",
+        "qemu-startup::qemu-startup__fHCKqAu::ord0",
+        "qemu-startup::qemu-startup__j52j9ou::ord0",
+        "qemu-startup::qemu-startup__jAgPZ7R::ord0",
+        "qemu-startup::qemu-startup__yidXM4m::ord0"
+      ]
+    },
+    {
+      "taskName": "regex-chess",
+      "rowIds": [
+        "regex-chess::regex-chess__AfqdVqy::ddd75269-ed98-4140-a5af-086fdccee691",
+        "regex-chess::regex-chess__JbXL4Eg::ord0",
+        "regex-chess::regex-chess__KYFJepb::32b91d77-0c13-4b71-aa55-0bd4e902c81b",
+        "regex-chess::regex-chess__M85rmj8::5c499034-6285-4ca1-a340-2624082414be",
+        "regex-chess::regex-chess__NB8Tki9::27fee60b-cc7b-4208-883a-93736ee8263a",
+        "regex-chess::regex-chess__ZoA7qpB::ord0",
+        "regex-chess::regex-chess__ZynBG3r::d239da8a-4f1f-4178-b744-aa2f6697d830",
+        "regex-chess::regex-chess__cPycyuX::ord0",
+        "regex-chess::regex-chess__gGEmXrS::ord0",
+        "regex-chess::regex-chess__gzsTxh7::ord0",
+        "regex-chess::regex-chess__n9wfYsh::44a65548-1325-469b-b86c-7fa01cbf2b3d",
+        "regex-chess::regex-chess__tipe2JT::ef65d19c-e746-46d0-9d81-670cf5a35131"
+      ]
+    },
+    {
+      "taskName": "regex-log",
+      "rowIds": [
+        "regex-log::regex-log__63cV54r::3f19638b-eeca-4e6b-a8c5-2b88a87dd51d",
+        "regex-log::regex-log__EtyXhse::ord0",
+        "regex-log::regex-log__Gmzn93B::d08dd488-2c0d-443c-9e5f-23b1ffe21f41",
+        "regex-log::regex-log__HuQzsUA::ddc1cf41-7e51-42a7-aac7-89175fd4a216",
+        "regex-log::regex-log__KK3RP5S::0025f241-a253-4019-a1f8-cd9d9c731b28",
+        "regex-log::regex-log__UGzQbG8::ord0",
+        "regex-log::regex-log__V7P89ps::59942205-d29e-46fa-993e-96918c5ba9f9",
+        "regex-log::regex-log__WQxJoLA::ord0",
+        "regex-log::regex-log__Ymz5e27::ord0",
+        "regex-log::regex-log__ZLpgtxv::ord0",
+        "regex-log::regex-log__bQtFPoF::2c22649d-e689-4373-a04e-eb4febdc6b0b",
+        "regex-log::regex-log__eo3uVSo::f015bde3-ac57-45ba-85f3-6fa03fae3a76",
+        "regex-log::regex-log__erETYKP::ord0",
+        "regex-log::regex-log__fMAABjG::41189d53-6fac-4ed2-97be-cd7a4d45963b",
+        "regex-log::regex-log__mZCzu9B::ord0",
+        "regex-log::regex-log__nbpDq4C::ord0",
+        "regex-log::regex-log__qZszGwS::56c940d6-ba36-42b0-88a5-8e4362ed5156",
+        "regex-log::regex-log__xnmvrp7::f040ead1-261a-47ee-ab1e-5fff3202aedf",
+        "regex-log::regex-log__yoY6Ds3::ord0"
+      ]
+    },
+    {
+      "taskName": "winning-avg-corewars",
+      "rowIds": [
+        "winning-avg-corewars::winning-avg-corewars__7BK4pCU::133a6054-c1cc-479a-9732-040c95e5ee19",
+        "winning-avg-corewars::winning-avg-corewars__7ze9rcP::ord0",
+        "winning-avg-corewars::winning-avg-corewars__Fp4KhWA::ord0",
+        "winning-avg-corewars::winning-avg-corewars__NA6UU9T::371181a4-0d75-4fdf-8633-8876d27a6f66",
+        "winning-avg-corewars::winning-avg-corewars__Z2SbZS5::ord0",
+        "winning-avg-corewars::winning-avg-corewars__ZEpUJJ8::dd3d130e-5280-4fef-953f-621fc41e3e57",
+        "winning-avg-corewars::winning-avg-corewars__bXfu7mQ::b62bb781-2411-4b62-b9df-89b5d358a76f",
+        "winning-avg-corewars::winning-avg-corewars__gzJDGeV::ord0",
+        "winning-avg-corewars::winning-avg-corewars__m9YyonB::7f021107-703a-48e1-bd1f-96ab69ff69bb",
+        "winning-avg-corewars::winning-avg-corewars__mqqT9Wz::29e431fc-70da-4ad0-a561-596b067c0a35",
+        "winning-avg-corewars::winning-avg-corewars__weYHwi9::5bb2ba2e-5885-4270-8499-1c8735ea21b9"
       ]
     }
   ],
-  "clusterCount": 8,
-  "rowCount": 16,
+  "clusterCount": 22,
+  "rowCount": 216,
   "funnel": {
     "population": "terminalbench-trajectories, mini-swe-agent rows with reward 0, on tasks whose oracle certification is checked in",
-    "input": 2720,
+    "input": 2601,
     "stages": [
       {
         "id": "certified-deterministic-oracle",
-        "entering": 2720,
+        "entering": 2601,
         "excluded": 0,
-        "remaining": 2720
+        "remaining": 2601
       },
       {
         "id": "replayable-commands-and-final-returncode",
-        "entering": 2720,
-        "excluded": 2578,
-        "remaining": 142
+        "entering": 2601,
+        "excluded": 1528,
+        "remaining": 1073
+      },
+      {
+        "id": "stratum-carries-a-repairable-failure",
+        "entering": 1073,
+        "excluded": 3,
+        "remaining": 1070
       },
       {
         "id": "unknown-returncode-ratio-at-most-25pct",
-        "entering": 142,
-        "excluded": 28,
-        "remaining": 114
+        "entering": 1070,
+        "excluded": 126,
+        "remaining": 944
       },
       {
         "id": "recorded-commands-at-most-25",
-        "entering": 114,
-        "excluded": 52,
-        "remaining": 62,
-        "waives": [
-          "prefix-divergence-screen: replay fidelity is measured per row and reported, not used to drop rows here"
-        ]
+        "entering": 944,
+        "excluded": 164,
+        "remaining": 780
       },
       {
         "id": "image-present-locally-at-pinned-digest",
-        "entering": 62,
-        "excluded": 30,
-        "remaining": 32
+        "entering": 780,
+        "excluded": 392,
+        "remaining": 388
+      },
+      {
+        "id": "one-row-per-recorded-trial",
+        "entering": 388,
+        "excluded": 81,
+        "remaining": 307
       },
       {
         "id": "recorded-end-state-fails-its-own-suite",
-        "entering": 32,
-        "excluded": 12,
-        "remaining": 20
+        "entering": 307,
+        "excluded": 23,
+        "remaining": 284
+      },
+      {
+        "id": "prefix-divergence-at-most-10pct",
+        "entering": 284,
+        "excluded": 66,
+        "remaining": 218
       },
       {
         "id": "not-exposed-by-the-mechanism-pilot",
-        "entering": 20,
+        "entering": 218,
         "excluded": 0,
-        "remaining": 20
+        "remaining": 218
       },
       {
         "id": "task-carries-at-least-two-rows",
-        "entering": 20,
-        "excluded": 0,
-        "remaining": 20
+        "entering": 218,
+        "excluded": 2,
+        "remaining": 216
       }
     ],
-    "surviving": 20,
+    "surviving": 216,
     "partitions": []
   },
   "registeredEffectGrid": [
@@ -128,8 +413,8 @@
     0.2
   ],
   "power": {
-    "clusterCount": 8,
-    "totalRows": 16,
+    "clusterCount": 22,
+    "totalRows": 216,
     "trials": 3000,
     "resamples": 3000,
     "seed": 20260814,
@@ -138,74 +423,66 @@
     "curve": [
       {
         "effect": 0.05,
-        "power": 0.08933333333333333,
-        "medianCiWidth": 0.3125
+        "power": 0.494,
+        "medianCiWidth": 0.09744285160790392
       },
       {
         "effect": 0.1,
-        "power": 0.18766666666666668,
-        "medianCiWidth": 0.375
+        "power": 0.9236666666666666,
+        "medianCiWidth": 0.11107147756893951
       },
       {
         "effect": 0.15,
-        "power": 0.29033333333333333,
-        "medianCiWidth": 0.375
+        "power": 0.9943333333333333,
+        "medianCiWidth": 0.12135501355013549
       },
       {
         "effect": 0.2,
-        "power": 0.39566666666666667,
-        "medianCiWidth": 0.4375
+        "power": 1,
+        "medianCiWidth": 0.1303355299995693
       }
     ],
-    "maxPower": 0.39566666666666667,
+    "maxPower": 1,
     "signFlipFloor": {
-      "twoSidedP": 0.0078125,
-      "oneSidedP": 0.00390625,
+      "twoSidedP": 4.76837158203125e-7,
+      "oneSidedP": 2.384185791015625e-7,
       "alpha": 0.05,
       "certifiableAtAlpha": true,
       "minClustersForAlpha": 6
     },
-    "adequate": false,
-    "refusal": {
-      "verdict": "underpowered",
-      "reasons": [
-        "simulated power tops out at 0.396 (effect 0.2) across the registered grid — below the 0.8 target at every effect"
-      ],
-      "recommendation": "Do not spend on this structure. Add independent clusters (>= 8) or register a design whose simulated power reaches 0.8, then re-run clusteredPower."
-    }
+    "adequate": true,
+    "refusal": null
   },
   "powerGate": {
     "id": "powerFloor",
-    "passed": false,
+    "passed": true,
     "evidence": {
       "target": 0.8,
-      "maxPower": 0.39566666666666667,
+      "maxPower": 1,
       "curve": [
         {
           "effect": 0.05,
-          "power": 0.08933333333333333
+          "power": 0.494
         },
         {
           "effect": 0.1,
-          "power": 0.18766666666666668
+          "power": 0.9236666666666666
         },
         {
           "effect": 0.15,
-          "power": 0.29033333333333333
+          "power": 0.9943333333333333
         },
         {
           "effect": 0.2,
-          "power": 0.39566666666666667
+          "power": 1
         }
       ]
     }
   },
   "halt": {
-    "fired": true,
-    "action": "refuse-spend",
-    "failedGates": [
-      "powerFloor"
-    ]
+    "fired": false,
+    "action": null,
+    "failedGates": []
   },
   "settlingN": null
 }
