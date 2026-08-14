@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generator": "tb-corpus-rows.ts",
-  "generatedAt": "2026-08-14T06:48:34.835Z",
+  "generatedAt": "2026-08-14T09:15:26.752Z",
   "source": {
     "scaffold": "mini-swe-agent",
     "reward": 0,
@@ -22,6 +22,9 @@
     "absent": 154,
     "unreadable": 5
   },
+  "executedCommands": 56293,
+  "elidedCommands": 10595,
+  "formatErrorTurns": 1956,
   "finalOutcomes": {
     "returncode": 2145,
     "unreadable:absent": 154,

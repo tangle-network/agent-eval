@@ -138,10 +138,26 @@ function readRawRows(options: Options, tasks: readonly string[]): RawRow[] {
   }
 }
 
-/** Tasks whose pinned image is in the local docker store, by digest. */
+/**
+ * Tasks whose pinned image is in the local docker store, by digest.
+ *
+ * A daemon that cannot answer is not an empty store. Without the probe below,
+ * a broken docker maps every image to absent and the tool emits a corpus whose
+ * rows all read `imageLocal: false`, which is indistinguishable in the report
+ * from a machine that pulled nothing.
+ */
 function localImages(imagesPath: string): Set<string> {
   const lock = JSON.parse(readFileSync(imagesPath, 'utf8')) as {
     images: Record<string, { repository: string; digest: string }>
+  }
+  try {
+    execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore' })
+  } catch (error) {
+    throw new Error(
+      `docker is not usable, so image presence cannot be measured: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
   }
   const local = new Set<string>()
   for (const [task, image] of Object.entries(lock.images)) {
@@ -240,6 +256,10 @@ function main(): void {
   }
   const finalOutcomes: Record<string, number> = {}
   for (const row of rows) finalOutcomes[row.finalOutcome] = (finalOutcomes[row.finalOutcome] ?? 0) + 1
+  // Commands, counted separately from observations: both are elided by the same
+  // marker, and a report that names only one cannot corroborate the other.
+  const executedCommands = rows.reduce((total, row) => total + row.recordedCommands, 0)
+  const elidedCommands = rows.reduce((total, row) => total + row.placeholderCommands, 0)
 
   const report = {
     version: 1,
@@ -251,6 +271,9 @@ function main(): void {
     rowsWithNoExecutedCommand: noExecutedCommand,
     decodedRows: rows.length,
     observationKinds: observations,
+    executedCommands,
+    elidedCommands,
+    formatErrorTurns: rows.reduce((total, row) => total + row.formatErrorTurns, 0),
     finalOutcomes,
     imagesLocal: [...new Set(rows.filter((row) => row.imageLocal).map((row) => row.taskName))].length,
   }

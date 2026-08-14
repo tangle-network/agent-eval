@@ -64,7 +64,8 @@ Every condition above is asked of a recording, so a row is admitted or not by wh
 [`src/trajectory-replay/steps.ts`](../src/trajectory-replay/steps.ts) is that decoder, and it is the only one.
 
 The published Terminal-Bench-2 dump holds **turns**, not steps.
-A turn carries an observation in one of four shapes, and only the first of them carries an exit status.
+A turn carries an observation in one of four recorded shapes, plus two absences — no observation at all, and a shape this grammar does not know.
+Only the first shape carries an exit status.
 
 | observation shape | what it means | carries an exit status |
 | --- | --- | --- |
@@ -84,6 +85,9 @@ A rejected turn carries an observation and usually no command, so from the first
 The scaffold rejects a turn holding several bash blocks and runs none of them, while the dump keeps one block in the command field.
 494 turns carry that pair.
 Replaying the field would execute a command the recorded run did not, which is a worse corpus than a smaller one.
+
+A rejected turn is recognised by its observation, so a rejected turn whose observation the dump elided reads as an executed command.
+Nothing in the dump separates the two, and the defence is per row rather than per turn: the unknown-returncode ratio bounds how much of a row may be unreadable, and a row with no elided observation cannot hold the case at all.
 
 **A trailing step that echoes the sentinel and nothing else is the end of the transcript, not a gap in it.**
 The scaffold records an observation only when it hands one back to the model, and `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` ends the run.
@@ -121,6 +125,8 @@ Measured over the 2,578 rows the earlier decoder rejected at the replayable stag
 | phantom command from a rejected turn | 1 | 0.0% | exact |
 
 937 rows are recovered exactly — 36.3% of the 2,578 — and every refused class stays refused.
+The 14 killed rows read their outcome exactly too, and are excluded at the stratum stage rather than counted here.
+The six admitted rows whose elided command the earlier pattern missed sit in the sealed 16-row draw the previous design registered; one of them is `distribution-search__p2UQ5ES`.
 
 The population is one scaffold: `mini-swe-agent`.
 No class is another scaffold's transcript format, because no other scaffold's rows enter this funnel.
@@ -134,6 +140,10 @@ Replaying it would have run the literal string `$3a` as a shell command.
 
 Certified tasks, `mini-swe-agent`, recorded reward 0.
 The other gates are unchanged: the end-state screen, the image-digest pin, and the oracle-determinism refusal all keep their thresholds.
+
+The funnel opens at 2,601 rather than the 2,727 rows the dump holds for these tasks.
+126 rows executed no command at all — every turn was rejected, or the run's only command was the sentinel — so they carry no prefix to replay.
+[`tb-corpus-decode.json`](../benchmarks/trace-repair/tb-corpus-decode.json) records that count with the shard list and the duckdb version that produced it.
 
 | stage | entering | excluded | remaining |
 | --- | --- | --- | --- |
