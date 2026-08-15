@@ -32,6 +32,7 @@ export {
   partitionRunsByAuthoringModel,
 } from './agent-trace'
 export {
+  type CodeAgentJsonlLine,
   type CodeAgentSessionAction,
   type CodeAgentSessionActionKind,
   type CodeAgentSessionActionStatus,
@@ -53,6 +54,8 @@ export {
   observeCodeAgentSession,
   type ParsedCodeAgentJsonl,
   parseCodeAgentJsonl,
+  parseCodeAgentJsonlFile,
+  streamCodeAgentJsonlFile,
 } from './code-agent-session'
 export {
   type FeedbackTableMeta,
