@@ -101,6 +101,7 @@ function projectionFor(
 function codexProjection(entries: Record<string, unknown>[]): SessionProjection {
   const actions: CodeAgentSessionAction[] = []
   const calls = new Map<string, CodeAgentSessionAction>()
+  const transcriptStream = hasCodexTranscriptStream(entries)
   let finalText: string | null = null
   let terminal: CodeAgentSessionTerminalStatus = 'unknown'
   let explicitTerminal = false
@@ -110,9 +111,10 @@ function codexProjection(entries: Record<string, unknown>[]): SessionProjection 
     const payload = record(entry.payload) ?? {}
     const payloadType = stringField(payload, 'type')
     const timestampMs = timestamp(entry.timestamp)
-    const item = record(entry.item)
+    const itemEvent = admittedCodexItem(entry, transcriptStream)
+    const item = itemEvent?.item ?? null
 
-    if (entryType === 'item.started' && item) {
+    if (itemEvent?.eventType === 'item.started' && item) {
       const itemType = stringField(item, 'type')
       if (isCodexActionItem(itemType)) {
         const id = stringField(item, 'id') ?? `item-${actions.length}`
@@ -124,14 +126,14 @@ function codexProjection(entries: Record<string, unknown>[]): SessionProjection 
           name: codexItemName(itemType, item),
           status: 'started',
           timestampMs,
-          metadata: compactMetadata({ sourceEventType: entryType, itemType }),
+          metadata: compactMetadata({ sourceEventType: itemEvent.eventType, itemType }),
         })
         calls.set(id, action)
         actions.push(action)
       }
     }
 
-    if (entryType === 'item.completed' && item) {
+    if (itemEvent?.eventType === 'item.completed' && item) {
       const itemType = stringField(item, 'type')
       if (itemType === 'agent_message' || itemType === 'message') {
         finalText = nonEmpty(stringField(item, 'text')) ?? finalText
@@ -151,7 +153,7 @@ function codexProjection(entries: Record<string, unknown>[]): SessionProjection 
             name: codexItemName(itemType, item),
             status,
             timestampMs,
-            metadata: compactMetadata({ sourceEventType: entryType, itemType }),
+            metadata: compactMetadata({ sourceEventType: itemEvent.eventType, itemType }),
           })
           calls.set(id, action)
           actions.push(action)
@@ -565,6 +567,88 @@ function completeClaudeTools(content: unknown[], calls: Map<string, CodeAgentSes
     const action = id ? calls.get(id) : undefined
     if (action) action.status = part.is_error === true ? 'failed' : 'completed'
   }
+}
+
+export interface CodexItemEvent {
+  eventType: 'item.started' | 'item.completed'
+  item: Record<string, unknown>
+}
+
+/**
+ * Codex writes the same session items on two transports. The app-server stream
+ * of `codex exec --json` puts an item at the top level under `item.started` or
+ * `item.completed` and names its type in snake_case. A rollout file under
+ * `~/.codex/sessions` wraps the same item in an `event_msg` entry under
+ * `payload.item_started` or `payload.item_completed` and names its type in
+ * PascalCase. Read both here so one branch serves both transports.
+ */
+function codexItemEvent(entry: Record<string, unknown>): CodexItemEvent | null {
+  const entryType = stringField(entry, 'type')
+  if (entryType === 'item.started' || entryType === 'item.completed') {
+    const item = record(entry.item)
+    return item ? { eventType: entryType, item } : null
+  }
+  if (entryType !== 'event_msg') return null
+  const payload = record(entry.payload)
+  const payloadType = payload ? stringField(payload, 'type') : undefined
+  if (payloadType !== 'item_started' && payloadType !== 'item_completed') return null
+  const item = record(payload?.item)
+  if (!item) return null
+  const itemType = codexItemType(stringField(item, 'type'))
+  return {
+    eventType: payloadType === 'item_started' ? 'item.started' : 'item.completed',
+    item: itemType === undefined ? item : { ...item, type: itemType },
+  }
+}
+
+/**
+ * A rollout item type differs from its app-server name by case alone, except
+ * `CollabAgentToolCall`, which the app-server calls `collab_tool_call`. Convert
+ * the case mechanically so a new item type still arrives under a stable name.
+ */
+function codexItemType(itemType: string | undefined): string | undefined {
+  if (itemType === undefined || !/^[A-Z]/.test(itemType)) return itemType
+  if (itemType === 'CollabAgentToolCall') return 'collab_tool_call'
+  return itemType.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
+
+export function hasCodexTranscriptStream(entries: Record<string, unknown>[]): boolean {
+  return entries.some((entry) => stringField(entry, 'type') === 'response_item')
+}
+
+/**
+ * A rollout file records each turn twice: `response_item` holds the model
+ * transcript and the item stream holds the execution record. The app-server
+ * transport sends no `response_item` entry at all. So `response_item` keeps the
+ * tool call, reasoning, and assistant message accounting wherever it is
+ * present, and the item stream adds only the facts a `response_item` cannot
+ * express. Counting both streams together doubles the totals: a 186-file
+ * rollout corpus holds 58,752 `Reasoning` items against 58,893 `reasoning`
+ * response items, and 49,694 `CommandExecution` items against 52,183 response
+ * item tool calls.
+ *
+ * A collaboration or subagent item states no fact of its own here. Its id is
+ * either the id of a response item that the same file already reports, or the
+ * id of a command that ran inside the sandbox, which the enclosing response
+ * item already counts. Over the same corpus, all 320 collaboration items and
+ * all 523 subagent items that match a response item resolve to an action that
+ * `surfaceForTool` already marks `subagent`, and the 1,434 that match nothing
+ * would each add a second action for one operation.
+ */
+function isCodexExecutionOnlyItem(itemType: string | undefined): boolean {
+  return (
+    itemType === 'file_change' || itemType === 'user_message' || itemType === 'context_compaction'
+  )
+}
+
+export function admittedCodexItem(
+  entry: Record<string, unknown>,
+  transcriptStream: boolean,
+): CodexItemEvent | null {
+  const event = codexItemEvent(entry)
+  if (!event) return null
+  if (!transcriptStream) return event
+  return isCodexExecutionOnlyItem(stringField(event.item, 'type')) ? event : null
 }
 
 function isCodexActionItem(itemType: string | undefined): boolean {

@@ -9,9 +9,11 @@ import type {
 } from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import {
+  admittedCodexItem,
   type CodeAgentSessionExecutionReceipt,
   type CodeAgentSessionObservation,
   type CodeAgentSessionSource,
+  hasCodexTranscriptStream,
   observeCodeAgentSession,
 } from './code-agent-observation'
 
@@ -383,6 +385,7 @@ function metricsFor(
 function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
   const startedToolIds = new Set<string>()
+  const transcriptStream = hasCodexTranscriptStream(entries)
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -404,9 +407,15 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
     if (entryType === 'turn.failed') metrics.turnsAborted += 1
     if (entryType === 'error') metrics.unclassifiedErrors += 1
 
-    const item = record(entry.item)
-    if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
-      addCodexExecItem(metrics, startedToolIds, entryType, item)
+    const itemEvent = admittedCodexItem(entry, transcriptStream)
+    if (itemEvent) {
+      addCodexExecItem(
+        metrics,
+        startedToolIds,
+        itemEvent.eventType,
+        itemEvent.item,
+        transcriptStream,
+      )
     }
 
     if (entryType === 'response_item') {
@@ -473,14 +482,19 @@ function addCodexExecItem(
   startedToolIds: Set<string>,
   eventType: 'item.started' | 'item.completed',
   item: Record<string, unknown>,
+  transcriptStream: boolean,
 ): void {
   const itemType = stringField(item, 'type')
   const itemId = stringField(item, 'id')
+  // `response_item` owns the tool call accounting wherever the transport
+  // carries it. A rollout file already counts the enclosing call there, so an
+  // item that reaches this point adds only the surface it alone reports.
   const isTool =
-    itemType === 'command_execution' ||
-    itemType === 'mcp_tool_call' ||
-    itemType === 'collab_tool_call' ||
-    itemType === 'web_search'
+    !transcriptStream &&
+    (itemType === 'command_execution' ||
+      itemType === 'mcp_tool_call' ||
+      itemType === 'collab_tool_call' ||
+      itemType === 'web_search')
 
   if (eventType === 'item.started' && isTool) {
     metrics.toolCalls += 1
@@ -493,7 +507,9 @@ function addCodexExecItem(
   if (eventType !== 'item.completed') return
 
   if (itemType === 'agent_message' || itemType === 'message') metrics.assistantMessages += 1
+  if (itemType === 'user_message') metrics.userMessages += 1
   if (itemType === 'reasoning') metrics.reasoningItems += 1
+  if (itemType === 'context_compaction') metrics.contextCompactions += 1
   if (itemType === 'file_change') {
     metrics.patchAttempts += 1
     const status = stringField(item, 'status')
@@ -1038,11 +1054,32 @@ function cwdFromEntries(entries: Record<string, unknown>[]): string | undefined 
   return undefined
 }
 
+/** Join the `text` of every part in a `[{ type: 'text', text }]` content list. */
+function textFromContentParts(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  const text = content
+    .map((part) => {
+      const obj = record(part)
+      return obj ? stringField(obj, 'text') : undefined
+    })
+    .filter((part): part is string => part !== undefined)
+    .join('\n')
+  return text.length > 0 ? text : undefined
+}
+
 function firstUserText(entries: Record<string, unknown>[]): string | undefined {
   for (const entry of entries) {
     const payload = record(entry.payload)
     const payloadType = payload ? stringField(payload, 'type') : undefined
     if (payloadType === 'user_message') return stringField(payload!, 'message')
+
+    // A Codex rollout carries the prompt only as a `UserMessage` item. Without
+    // this, every rollout session hashes the same empty prompt.
+    const itemEvent = payload ? admittedCodexItem(entry, false) : null
+    if (itemEvent && stringField(itemEvent.item, 'type') === 'user_message') {
+      const text = textFromContentParts(itemEvent.item.content)
+      if (text) return text
+    }
 
     if (stringField(entry, 'role') === 'user') {
       const content = entry.content
@@ -1057,16 +1094,8 @@ function firstUserText(entries: Record<string, unknown>[]): string | undefined {
     if (message && stringField(message, 'role') === 'user') {
       const content = message.content
       if (typeof content === 'string') return content
-      if (Array.isArray(content)) {
-        const text = content
-          .map((part) => {
-            const obj = record(part)
-            return obj ? stringField(obj, 'text') : undefined
-          })
-          .filter((part): part is string => part !== undefined)
-          .join('\n')
-        if (text) return text
-      }
+      const text = textFromContentParts(content)
+      if (text) return text
     }
   }
   return undefined
