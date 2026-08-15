@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+---
+
+## [0.145.12] — 2026-08-14
+
 ### Fixed
 
 - Concurrent candidate campaigns now cancel active siblings after the first candidate failure while preserving caller cancellation.
