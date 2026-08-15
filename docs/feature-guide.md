@@ -34,7 +34,7 @@ Evaluation measures whether the result met its requirements, whether another att
 | “I need train/dev/test/holdout examples.” | `Dataset` plus feedback trajectory conversion | Stable splits and contamination control. |
 | “Which optimization procedure wins?” | `compareOptimizationMethods` | Runs complete methods on shared train and selection cases, then compares them on separate final cases. |
 | “Improve a multi-turn agent with candidates from my runtime.” | `runImprovementLoop` | Evaluates caller-generated candidates and applies a separate release rule. |
-| “Improve prompts, then code if prompts plateau.” | `runPromptEvolution`, composite mutator, code mutator | Bounded evolution with telemetry and lineage. |
+| “Improve prompts, then code if prompts plateau.” | `gepaOptimizationMethod` or `externalTextOptimizationMethod` for the prompt; agent-runtime's worktree path for the code | Text search stays here; executable code changes belong to the runtime. |
 | “Find why a regression happened.” | bisector, traces, run records | Narrows changes and preserves evidence. |
 | “Expose evals to another language.” | Wire protocol and Python client | HTTP/RPC boundary for non-TypeScript apps. |
 

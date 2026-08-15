@@ -51,5 +51,5 @@ Both calls read the same receipts, so different values make the plan describe a 
 
 ## Next
 
-- Run the same grid across models and profiles: [`profile-matrix`](../profile-matrix/).
+- Run the same grid across models and profiles: [`docs/eval-surface-map.md`](../../docs/eval-surface-map.md).
 - Let a candidate generator drive the grid: [`selfimprove-quickstart`](../selfimprove-quickstart/).

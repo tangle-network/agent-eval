@@ -1,24 +1,36 @@
 # Examples
 
-Start with the [offline quickstart](./selfimprove-quickstart/).
-It defines cases, an agent, a judge, a starting prompt, and a custom candidate generator in one file.
+Every directory holds one runnable file and a README that answers three questions: when to use it, how to run it, and why it is built that way.
+Every expected output printed in a README is the output that file produces.
 
-## Evaluation And Improvement
+Start with [`evaluate-a-change`](./evaluate-a-change/).
+It is the smallest complete path: cases in, scores out.
+
+Run any offline example from the repository root:
+
+```sh
+pnpm tsx examples/evaluate-a-change/index.ts
+```
+
+## Measure A Change
 
 | Goal | Example | Requirements |
 |---|---|---|
-| Improve with a custom `SurfaceProposer` | [`selfimprove-quickstart`](./selfimprove-quickstart/) | Offline |
-| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline or an OpenAI-compatible endpoint |
-| Compare official GEPA and SkillOpt | [`compare-optimization-methods`](./compare-optimization-methods/) | Python optimizer packages and an LLM endpoint |
+| Score one change on the same cases | [`evaluate-a-change`](./evaluate-a-change/) | Offline |
+| See the case grid before you pay for it | [`plan-before-you-spend`](./plan-before-you-spend/) | Offline |
+| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline, or an OpenAI-compatible endpoint |
 | Evaluate several attempts per case | [`multi-shot-optimization`](./multi-shot-optimization/) | Offline |
-| Apply a release rule without search | [`held-out-gate`](./held-out-gate/) | Offline |
-| Load folder-based cases | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
+| Apply a release rule without any search | [`held-out-gate`](./held-out-gate/) | Offline |
+| Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
+| Record and compare scores over time | [`scorecard`](./scorecard/) | Offline |
 
-Run an offline example from the repository root:
+## Improve A Surface
 
-```sh
-pnpm tsx examples/selfimprove-quickstart/index.ts
-```
+| Goal | Example | Requirements |
+|---|---|---|
+| Improve with your own candidate generator | [`selfimprove-quickstart`](./selfimprove-quickstart/) | Offline |
+| Let another package own the text search | [`adapt-a-text-optimizer`](./adapt-a-text-optimizer/) | Offline |
+| Compare official GEPA and SkillOpt | [`compare-optimization-methods`](./compare-optimization-methods/) | Python optimizer packages and an LLM endpoint |
 
 Run one official optimizer:
 
@@ -30,18 +42,25 @@ GEPA_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
 ```
 
-Replace the example rates with the exact endpoint rates.
-Use `OPTIMIZERS=skillopt` for SkillOpt or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
+Replace the example rates with the exact rates for your endpoint.
+Use `OPTIMIZERS=skillopt` for SkillOpt, or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
 Read the [optimizer install instructions](./compare-optimization-methods/README.md) first.
 
-## Existing Data
+## Prove A Result
 
-| Goal | Example |
-|---|---|
-| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop/) |
-| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces/) |
-| Record and compare scores over time | [`scorecard`](./scorecard/) |
-| Reuse file-based cases and cached results | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) |
+| Goal | Example | Requirements |
+|---|---|---|
+| Register the rules before the data arrives | [`sealed-experiment`](./sealed-experiment/) | Offline |
+| Certify a result that has no answer key | [`verify-without-an-answer-key`](./verify-without-an-answer-key/) | Offline |
+
+## Read Existing Data
+
+| Goal | Example | Requirements |
+|---|---|---|
+| Get a report from runs you already have | [`analyze-existing-runs`](./analyze-existing-runs/) | Offline |
+| Get cited findings out of a failed batch | [`custom-trace-analyst`](./custom-trace-analyst/) | Offline |
+| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop/) | Offline |
+| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces/) | Offline |
 
 ## Benchmarks And Training
 
@@ -60,5 +79,5 @@ Read the [optimizer install instructions](./compare-optimization-methods/README.
 | Run setup, execution, and scoring in one work directory | [`same-sandbox-harness`](./same-sandbox-harness/) |
 | Receive optional hosted events | [`hosted-ingest-server`](./hosted-ingest-server/) |
 
-`_shared/` contains fixtures reused by multiple examples.
+`_shared/` holds fixtures reused by several examples.
 It is not a standalone example.

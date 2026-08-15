@@ -223,6 +223,10 @@ uv sync --frozen --group gepa-release
 uv sync --frozen --group gepa-source
 ```
 
+The published package supports the standard `gepa` engine.
+The composed recipes below — `sequential`, `adaptive-sequential`, `best-of`, `vote`, and `omni` — need the tested official source revision.
+Move that revision only after both the release and the source compatibility tests pass.
+
 ## Configure GEPA
 
 `gepaOptimizationMethod()` accepts text surfaces and component surfaces.

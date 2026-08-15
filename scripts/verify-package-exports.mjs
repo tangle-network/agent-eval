@@ -145,7 +145,7 @@ try {
   symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-eval'), 'dir')
   verifyDistTypeRuntimeAgreement(packageJson, appDir)
   const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8')
-  const quickstart = readme.match(/## Evaluate An Agent[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
+  const quickstart = readme.match(/## Quickstart[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
   if (!quickstart) throw new Error('README quickstart TypeScript block was not found')
   writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}\n`)
   writeFileSync(join(appDir, 'package.json'), JSON.stringify({ type: 'module' }))
