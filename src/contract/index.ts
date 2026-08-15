@@ -297,6 +297,7 @@ export {
   type AgentTraceRange,
   type AgentTraceRecord,
   type AuthoringProvenance,
+  type CodeAgentJsonlLine,
   type CodeAgentSessionAction,
   type CodeAgentSessionActionKind,
   type CodeAgentSessionActionStatus,
@@ -330,6 +331,8 @@ export {
   type PartitionByAuthoringModelResult,
   parseAgentTrace,
   parseCodeAgentJsonl,
+  parseCodeAgentJsonlFile,
   partitionRunsByAuthoringModel,
   type RunRecordRejection,
+  streamCodeAgentJsonlFile,
 } from './intake'
