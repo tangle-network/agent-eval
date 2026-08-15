@@ -657,4 +657,56 @@ describe('runOptimization candidate concurrency', () => {
     expect(siblingSecondScenarioStarted).toBe(false)
     expect(dispatchedSurfaces).not.toContain('CANDIDATE-LATER')
   })
+
+  it('preserves caller cancellation inside an active candidate campaign', async () => {
+    const callerError = new Error('caller cancelled optimization')
+    const controller = new AbortController()
+    let candidateStarted!: () => void
+    const candidateReady = new Promise<void>((resolve) => {
+      candidateStarted = resolve
+    })
+    let candidateSignalAborted = false
+
+    const pending = runOptimization({
+      baselineSurface: 'BASELINE',
+      premeasuredBaseline: {
+        surfaceHash: surfaceHash('BASELINE'),
+        campaign: await measureBaseline(),
+      },
+      scenarios,
+      dispatchWithSurface: async (surface, _scenario, ctx) => {
+        candidateStarted()
+        return new Promise<TestArtifact>((resolve, reject) => {
+          const timer = setTimeout(() => resolve({ surface: String(surface) }), 50)
+          ctx.signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer)
+              candidateSignalAborted = true
+              reject(ctx.signal.reason)
+            },
+            { once: true },
+          )
+        })
+      },
+      judges: [qualityJudge],
+      proposer: proposer(),
+      populationSize: 1,
+      candidateConcurrency: 1,
+      maxConcurrency: 1,
+      maxGenerations: 1,
+      seed: 7,
+      signal: controller.signal,
+      runDir: '/parallel-candidates-caller-abort',
+      storage: inMemoryCampaignStorage(),
+      tracing: 'off',
+      expectUsage: 'off',
+    })
+
+    await candidateReady
+    controller.abort(callerError)
+
+    await expect(pending).rejects.toBe(callerError)
+    expect(candidateSignalAborted).toBe(true)
+  })
 })

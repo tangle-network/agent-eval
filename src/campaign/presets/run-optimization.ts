@@ -401,6 +401,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           coverage,
         }
       },
+      opts.signal,
     )
     for (const result of surfaceResults) {
       const { surface, surfaceHash: hash, campaign, coverage, label, rationale } = result
