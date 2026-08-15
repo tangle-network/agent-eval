@@ -22,11 +22,11 @@ importers:
         specifier: ^2.0.12
         version: 2.0.12(hono@4.12.32)
       '@tangle-network/agent-core':
-        specifier: 0.8.0
-        version: 0.8.0
+        specifier: 0.8.1
+        version: 0.8.1
       '@tangle-network/agent-interface':
-        specifier: 0.52.0
-        version: 0.52.0
+        specifier: 0.53.0
+        version: 0.53.0
       '@tangle-network/agent-trace-contract':
         specifier: ^1.0.2
         version: 1.0.2
@@ -807,11 +807,11 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tangle-network/agent-core@0.8.0':
-    resolution: {integrity: sha512-RH7RsFg/n/UOCQL9dvfod6m512oLtlVTk5IpPPttdr3HbcS3FAwDBaImljzX/WMyNQCHpBkC/GiBzUCI2XVtdQ==}
+  '@tangle-network/agent-core@0.8.1':
+    resolution: {integrity: sha512-uTVHrk3DVUQ0NSR4fx7R/jc5CS1xg/YFC19zPhhx6m75gDlz8WuXkpNA8mbAfA9CV2ccLAxKVD3omCBbu8hn1A==}
 
-  '@tangle-network/agent-interface@0.52.0':
-    resolution: {integrity: sha512-jISw0y/VqQxeyuI7N5zsEb2+AMAYoIkPCtDVbWwZ9n2KL45rur//0ih72xPo3M+fiE0eUj9weTAYg4mzZckiHg==}
+  '@tangle-network/agent-interface@0.53.0':
+    resolution: {integrity: sha512-XWH+4t9vPkVog9C9P+094USuoO//TJwaI+P6ntAm32wHqZ/kh5a9r6kSkHYMKsXgQjkY3IA5NO21w3rZ7M6U+g==}
 
   '@tangle-network/agent-trace-contract@1.0.2':
     resolution: {integrity: sha512-v7uMh56jkEp4vckevEU9xKsIatbs5dqzGPp69dFLSSXUVit0RP6VD6EANMXVlTCUk+6wVKBLHJx23XspVCEiIA==}
@@ -2282,12 +2282,12 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tangle-network/agent-core@0.8.0':
+  '@tangle-network/agent-core@0.8.1':
     dependencies:
-      '@tangle-network/agent-interface': 0.52.0
+      '@tangle-network/agent-interface': 0.53.0
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.52.0':
+  '@tangle-network/agent-interface@0.53.0':
     dependencies:
       '@noble/hashes': 1.8.0
       spdx-expression-parse: 5.0.0
