@@ -277,6 +277,190 @@ describe('code-agent session intake', () => {
     expect(metrics[0]!.subagentCalls).toBe(collaborationTools.length + 1)
   })
 
+  it('reads Codex rollout items without recounting the response item transcript', () => {
+    // Shapes copied from `~/.codex/sessions/**/rollout-*.jsonl` written by
+    // codex-cli 0.147.0. A rollout wraps every item in `event_msg` under
+    // `payload.item_completed` and names the item type in PascalCase, while
+    // `codex exec --json` sends the same item at the top level under
+    // `item.completed` in snake_case. File paths are replaced with `/repo`.
+    const rolloutItem = (item: Record<string, unknown>) => ({
+      timestamp: '2026-08-14T00:00:01.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        thread_id: '019fe5a6-6c57-76b2-84ab-7fe6dc5c38fa',
+        turn_id: '019fe8c8-98ca-7f10-a37a-12d1bfb10a96',
+        item,
+        started_at_ms: 1786314794948,
+        completed_at_ms: 1786314794949,
+      },
+    })
+
+    const { metrics, observations } = fromCodexSession({
+      entries: [
+        {
+          timestamp: '2026-08-14T00:00:00.000Z',
+          type: 'session_meta',
+          payload: { id: 'codex-rollout-1', cwd: '/repo', model_provider: 'openai' },
+        },
+        // The model transcript. A rollout carries this beside the item stream.
+        {
+          timestamp: '2026-08-14T00:00:01.000Z',
+          type: 'response_item',
+          payload: { type: 'reasoning', summary: [] },
+        },
+        {
+          timestamp: '2026-08-14T00:00:01.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'custom_tool_call',
+            name: 'exec',
+            call_id: 'call_d5FVKRYT1wa52X8Nlq7YbEbz',
+            input: 'const r = await tools.exec_command({cmd:"git status"})',
+          },
+        },
+        {
+          timestamp: '2026-08-14T00:00:02.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'custom_tool_call_output',
+            call_id: 'call_d5FVKRYT1wa52X8Nlq7YbEbz',
+            output: 'ok',
+          },
+        },
+        {
+          timestamp: '2026-08-14T00:00:03.000Z',
+          type: 'response_item',
+          payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+        },
+        // The execution record. Reasoning and CommandExecution repeat the
+        // transcript above; the rest appear nowhere else in the file.
+        rolloutItem({ type: 'Reasoning', id: 'rs-1', summary_text: '', raw_content: [] }),
+        rolloutItem({
+          type: 'CommandExecution',
+          id: 'exec-2cb88dce-4ffd-4c62-a354-d4a77e1ac75e',
+          command: ['/bin/bash', '-lc', 'git status'],
+          cwd: 'file:///repo',
+          source: 'unified_exec_startup',
+          status: 'completed',
+          exit_code: 0,
+        }),
+        rolloutItem({
+          type: 'FileChange',
+          id: 'exec-6be70362-83f1-4a34-b408-62bbbfcb8e08',
+          status: 'completed',
+          changes: {
+            '/repo/src/lib/billing.ts': {
+              type: 'update',
+              unified_diff: '@@ -448,2 +448,3 @@\n interface BillingServiceDeps {\n+  enabled?: boolean;\n',
+            },
+          },
+          stdout: '',
+          stderr: '',
+        }),
+        rolloutItem({
+          type: 'UserMessage',
+          id: '019fe8a8-a7c4-7fa2-a1ee-b2a40ce5fe54',
+          content: [{ type: 'text', text: 'check the billing path', text_elements: [] }],
+        }),
+        rolloutItem({ type: 'ContextCompaction', id: '019fe8b0-1978-7bb2-8667-8edd19146e37' }),
+        rolloutItem({
+          type: 'CollabAgentToolCall',
+          id: 'exec-3ced9ba6-39d7-4f86-9485-4ecebbb41fcb',
+          tool: 'spawn_agent',
+          status: 'completed',
+          sender_thread_id: '019fe5a6-6c57-76b2-84ab-7fe6dc5c38fa',
+          receiver_thread_ids: ['019fe8f3-4eed-71d1-8dbb-7d770ff4fca6'],
+        }),
+        rolloutItem({
+          type: 'SubAgentActivity',
+          id: 'call_EcQoxYEG5gDpLTQ8APQvNJNQ',
+          kind: 'started',
+          agent_thread_id: '019ffc80-a5d1-7f40-ac1f-402c4e78c01e',
+          agent_path: '/repo/reference',
+        }),
+        {
+          timestamp: '2026-08-14T00:00:09.000Z',
+          type: 'event_msg',
+          payload: { type: 'task_complete', completed_at: 1786314800 },
+        },
+      ],
+      malformedLines: 0,
+      sourcePath: 'rollout-2026-08-14T00-00-00-019fe5a6.jsonl',
+    })
+
+    // Items that only the rollout item stream reports.
+    expect(metrics[0]).toMatchObject({
+      patchAttempts: 1,
+      patchSuccesses: 1,
+      patchFailures: 0,
+      codeActions: 1,
+      userMessages: 1,
+      contextCompactions: 1,
+      subagentCalls: 2,
+    })
+    // The transcript keeps the accounting it already owns. Counting the item
+    // stream as well would report two reasoning items and two tool calls.
+    expect(metrics[0]).toMatchObject({
+      reasoningItems: 1,
+      toolCalls: 1,
+      toolOutputs: 1,
+      assistantMessages: 1,
+    })
+
+    const actions = observations[0]!.actions
+    expect(actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ surface: 'code', name: 'file_change', status: 'completed' }),
+        expect.objectContaining({ surface: 'subagent', name: 'spawn_agent', status: 'completed' }),
+        expect.objectContaining({ surface: 'subagent', name: 'started' }),
+      ]),
+    )
+    expect(actions.filter((action) => action.name === 'exec')).toHaveLength(1)
+  })
+
+  it('reads a collaboration item that shares its call id with the response item', () => {
+    // Codex reuses the response item `call_id` as the item id when the model
+    // calls the tool directly. The two merge into one action, and the item
+    // states the subagent surface that the tool name alone cannot.
+    const { metrics, observations } = fromCodexSession({
+      entries: [
+        {
+          timestamp: '2026-08-13T00:00:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'wait',
+            call_id: 'call_MotxTofWhMmRXIPtzkytl7j4',
+          },
+        },
+        {
+          timestamp: '2026-08-13T00:00:01.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'item_completed',
+            item: {
+              type: 'CollabAgentToolCall',
+              id: 'call_MotxTofWhMmRXIPtzkytl7j4',
+              tool: 'wait',
+              status: 'completed',
+              sender_thread_id: '019ffc7c-7036-7383-9050-efa5d8b7684d',
+              receiver_thread_ids: [],
+            },
+          },
+        },
+      ],
+      malformedLines: 0,
+      sourcePath: 'rollout-collab-merge.jsonl',
+    })
+
+    const waits = observations[0]!.actions.filter((action) => action.name === 'wait')
+    expect(waits).toHaveLength(1)
+    expect(waits[0]).toMatchObject({ surface: 'subagent', status: 'completed' })
+    expect(metrics[0]!.subagentCalls).toBe(1)
+    expect(metrics[0]!.toolCalls).toBe(1)
+  })
+
   it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {
     const jsonl = readFileSync(
       new URL('./fixtures/codex-exec-0.144.1.jsonl', import.meta.url),

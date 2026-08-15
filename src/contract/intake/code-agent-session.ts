@@ -9,9 +9,11 @@ import type {
 } from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import {
+  admittedCodexItem,
   type CodeAgentSessionExecutionReceipt,
   type CodeAgentSessionObservation,
   type CodeAgentSessionSource,
+  hasCodexTranscriptStream,
   observeCodeAgentSession,
 } from './code-agent-observation'
 
@@ -383,6 +385,7 @@ function metricsFor(
 function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
   const startedToolIds = new Set<string>()
+  const transcriptStream = hasCodexTranscriptStream(entries)
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -404,9 +407,15 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
     if (entryType === 'turn.failed') metrics.turnsAborted += 1
     if (entryType === 'error') metrics.unclassifiedErrors += 1
 
-    const item = record(entry.item)
-    if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
-      addCodexExecItem(metrics, startedToolIds, entryType, item)
+    const itemEvent = admittedCodexItem(entry, transcriptStream)
+    if (itemEvent) {
+      addCodexExecItem(
+        metrics,
+        startedToolIds,
+        itemEvent.eventType,
+        itemEvent.item,
+        transcriptStream,
+      )
     }
 
     if (entryType === 'response_item') {
@@ -473,14 +482,19 @@ function addCodexExecItem(
   startedToolIds: Set<string>,
   eventType: 'item.started' | 'item.completed',
   item: Record<string, unknown>,
+  transcriptStream: boolean,
 ): void {
   const itemType = stringField(item, 'type')
   const itemId = stringField(item, 'id')
+  // `response_item` owns the tool call accounting wherever the transport
+  // carries it. A rollout file already counts the enclosing call there, so an
+  // item that reaches this point adds only the surface it alone reports.
   const isTool =
-    itemType === 'command_execution' ||
-    itemType === 'mcp_tool_call' ||
-    itemType === 'collab_tool_call' ||
-    itemType === 'web_search'
+    !transcriptStream &&
+    (itemType === 'command_execution' ||
+      itemType === 'mcp_tool_call' ||
+      itemType === 'collab_tool_call' ||
+      itemType === 'web_search')
 
   if (eventType === 'item.started' && isTool) {
     metrics.toolCalls += 1
@@ -493,7 +507,9 @@ function addCodexExecItem(
   if (eventType !== 'item.completed') return
 
   if (itemType === 'agent_message' || itemType === 'message') metrics.assistantMessages += 1
+  if (itemType === 'user_message') metrics.userMessages += 1
   if (itemType === 'reasoning') metrics.reasoningItems += 1
+  if (itemType === 'context_compaction') metrics.contextCompactions += 1
   if (itemType === 'file_change') {
     metrics.patchAttempts += 1
     const status = stringField(item, 'status')
