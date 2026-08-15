@@ -144,11 +144,6 @@ function codexProjection(entries: Record<string, unknown>[]): SessionProjection 
         const existing = calls.get(id)
         if (existing) {
           existing.status = status
-          // A rollout item carries the same call id as its response item, so
-          // the two merge here. The item states the surface that a tool name
-          // alone cannot: `wait` is an agent wait only when the item says so.
-          const fixedSurface = codexItemFixedSurface(itemType)
-          if (fixedSurface) existing.surface = fixedSurface
         } else {
           const action = actionFor({
             id,
@@ -628,17 +623,21 @@ export function hasCodexTranscriptStream(entries: Record<string, unknown>[]): bo
  * tool call, reasoning, and assistant message accounting wherever it is
  * present, and the item stream adds only the facts a `response_item` cannot
  * express. Counting both streams together doubles the totals: a 186-file
- * rollout corpus holds 45,886 `Reasoning` items against 46,024 `reasoning`
- * response items, and 40,508 `CommandExecution` items against 40,599 response
+ * rollout corpus holds 58,752 `Reasoning` items against 58,893 `reasoning`
+ * response items, and 49,694 `CommandExecution` items against 52,183 response
  * item tool calls.
+ *
+ * A collaboration or subagent item states no fact of its own here. Its id is
+ * either the id of a response item that the same file already reports, or the
+ * id of a command that ran inside the sandbox, which the enclosing response
+ * item already counts. Over the same corpus, all 320 collaboration items and
+ * all 523 subagent items that match a response item resolve to an action that
+ * `surfaceForTool` already marks `subagent`, and the 1,434 that match nothing
+ * would each add a second action for one operation.
  */
 function isCodexExecutionOnlyItem(itemType: string | undefined): boolean {
   return (
-    itemType === 'file_change' ||
-    itemType === 'user_message' ||
-    itemType === 'context_compaction' ||
-    itemType === 'sub_agent_activity' ||
-    itemType === 'collab_tool_call'
+    itemType === 'file_change' || itemType === 'user_message' || itemType === 'context_compaction'
   )
 }
 
@@ -658,33 +657,19 @@ function isCodexActionItem(itemType: string | undefined): boolean {
     itemType === 'mcp_tool_call' ||
     itemType === 'collab_tool_call' ||
     itemType === 'web_search' ||
-    itemType === 'file_change' ||
-    itemType === 'sub_agent_activity'
+    itemType === 'file_change'
   )
-}
-
-/**
- * The surface an item type states on its own. A `command_execution` has none,
- * because only its tool name tells the surface apart.
- */
-function codexItemFixedSurface(
-  itemType: string | undefined,
-): CodeAgentSessionActionSurface | undefined {
-  if (itemType === 'mcp_tool_call') return 'mcp'
-  if (itemType === 'collab_tool_call' || itemType === 'sub_agent_activity') return 'subagent'
-  if (itemType === 'web_search') return 'web'
-  if (itemType === 'file_change') return 'code'
-  return undefined
 }
 
 function codexItemSurface(
   itemType: string | undefined,
   item: Record<string, unknown>,
 ): CodeAgentSessionActionSurface {
-  return (
-    codexItemFixedSurface(itemType) ??
-    surfaceForTool(stringField(item, 'name') ?? itemType ?? 'tool')
-  )
+  if (itemType === 'mcp_tool_call') return 'mcp'
+  if (itemType === 'collab_tool_call') return 'subagent'
+  if (itemType === 'web_search') return 'web'
+  if (itemType === 'file_change') return 'code'
+  return surfaceForTool(stringField(item, 'name') ?? itemType ?? 'tool')
 }
 
 function codexItemName(itemType: string | undefined, item: Record<string, unknown>): string {
@@ -694,7 +679,6 @@ function codexItemName(itemType: string | undefined, item: Record<string, unknow
     return [server, tool].filter(Boolean).join('/') || 'mcp'
   }
   if (itemType === 'collab_tool_call') return stringField(item, 'tool') ?? 'subagent'
-  if (itemType === 'sub_agent_activity') return stringField(item, 'kind') ?? 'subagent'
   if (itemType === 'web_search') return 'web_search'
   if (itemType === 'file_change') return 'file_change'
   return stringField(item, 'name') ?? itemType ?? 'tool'

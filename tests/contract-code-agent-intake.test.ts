@@ -364,21 +364,6 @@ describe('code-agent session intake', () => {
           content: [{ type: 'text', text: 'check the billing path', text_elements: [] }],
         }),
         rolloutItem({ type: 'ContextCompaction', id: '019fe8b0-1978-7bb2-8667-8edd19146e37' }),
-        rolloutItem({
-          type: 'CollabAgentToolCall',
-          id: 'exec-3ced9ba6-39d7-4f86-9485-4ecebbb41fcb',
-          tool: 'spawn_agent',
-          status: 'completed',
-          sender_thread_id: '019fe5a6-6c57-76b2-84ab-7fe6dc5c38fa',
-          receiver_thread_ids: ['019fe8f3-4eed-71d1-8dbb-7d770ff4fca6'],
-        }),
-        rolloutItem({
-          type: 'SubAgentActivity',
-          id: 'call_EcQoxYEG5gDpLTQ8APQvNJNQ',
-          kind: 'started',
-          agent_thread_id: '019ffc80-a5d1-7f40-ac1f-402c4e78c01e',
-          agent_path: '/repo/reference',
-        }),
         {
           timestamp: '2026-08-14T00:00:09.000Z',
           type: 'event_msg',
@@ -397,7 +382,6 @@ describe('code-agent session intake', () => {
       codeActions: 1,
       userMessages: 1,
       contextCompactions: 1,
-      subagentCalls: 2,
     })
     // The transcript keeps the accounting it already owns. Counting the item
     // stream as well would report two reasoning items and two tool calls.
@@ -412,17 +396,63 @@ describe('code-agent session intake', () => {
     expect(actions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ surface: 'code', name: 'file_change', status: 'completed' }),
-        expect.objectContaining({ surface: 'subagent', name: 'spawn_agent', status: 'completed' }),
-        expect.objectContaining({ surface: 'subagent', name: 'started' }),
       ]),
     )
     expect(actions.filter((action) => action.name === 'exec')).toHaveLength(1)
   })
 
-  it('reads a collaboration item that shares its call id with the response item', () => {
-    // Codex reuses the response item `call_id` as the item id when the model
-    // calls the tool directly. The two merge into one action, and the item
-    // states the subagent surface that the tool name alone cannot.
+  it('hashes the prompt a Codex rollout carries only as a UserMessage item', () => {
+    // A rollout writes the prompt as an item, never as an `event_msg`
+    // `user_message`. Reading only the legacy shape gave every rollout the
+    // hash of the empty prompt, so no two sessions were distinguishable.
+    const rolloutWithPrompt = (text: string) =>
+      fromCodexSession({
+        entries: [
+          {
+            timestamp: '2026-08-14T00:00:00.000Z',
+            type: 'response_item',
+            payload: { type: 'reasoning', summary: [] },
+          },
+          {
+            timestamp: '2026-08-14T00:00:01.000Z',
+            type: 'event_msg',
+            payload: {
+              type: 'item_completed',
+              item: {
+                type: 'UserMessage',
+                id: '019fe8a8-a7c4-7fa2-a1ee-b2a40ce5fe54',
+                content: [{ type: 'text', text, text_elements: [] }],
+              },
+            },
+          },
+        ],
+        malformedLines: 0,
+        sourcePath: 'rollout-prompt.jsonl',
+      }).runs[0]!
+
+    const first = rolloutWithPrompt('find why the router spent $300')
+    const second = rolloutWithPrompt('rewrite the billing guard')
+    const noPrompt = fromCodexSession({
+      entries: [
+        {
+          timestamp: '2026-08-14T00:00:00.000Z',
+          type: 'response_item',
+          payload: { type: 'reasoning', summary: [] },
+        },
+      ],
+      malformedLines: 0,
+      sourcePath: 'rollout-no-prompt.jsonl',
+    }).runs[0]!
+
+    expect(first.promptHash).not.toBe(second.promptHash)
+    expect(first.promptHash).not.toBe(noPrompt.promptHash)
+  })
+
+  it('does not add a second action for a collaboration item beside its response item', () => {
+    // Over 186 rollout files, 320 collaboration items and 523 subagent items
+    // reuse a response item call id, and 1,434 carry an `exec-<uuid>` id for a
+    // call that ran inside the sandbox. Either way the response item already
+    // counts the operation, so the item must not create an action of its own.
     const { metrics, observations } = fromCodexSession({
       entries: [
         {
@@ -430,7 +460,7 @@ describe('code-agent session intake', () => {
           type: 'response_item',
           payload: {
             type: 'function_call',
-            name: 'wait',
+            name: 'wait_agent',
             call_id: 'call_MotxTofWhMmRXIPtzkytl7j4',
           },
         },
@@ -449,16 +479,47 @@ describe('code-agent session intake', () => {
             },
           },
         },
+        {
+          timestamp: '2026-08-13T00:00:02.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'item_completed',
+            item: {
+              type: 'CollabAgentToolCall',
+              id: 'exec-3ced9ba6-39d7-4f86-9485-4ecebbb41fcb',
+              tool: 'spawn_agent',
+              status: 'completed',
+              sender_thread_id: '019fe5a6-6c57-76b2-84ab-7fe6dc5c38fa',
+              receiver_thread_ids: ['019fe8f3-4eed-71d1-8dbb-7d770ff4fca6'],
+            },
+          },
+        },
+        {
+          timestamp: '2026-08-13T00:00:03.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'item_completed',
+            item: {
+              type: 'SubAgentActivity',
+              id: 'call_EcQoxYEG5gDpLTQ8APQvNJNQ',
+              kind: 'started',
+              agent_thread_id: '019ffc80-a5d1-7f40-ac1f-402c4e78c01e',
+              agent_path: '/repo/reference',
+            },
+          },
+        },
       ],
       malformedLines: 0,
-      sourcePath: 'rollout-collab-merge.jsonl',
+      sourcePath: 'rollout-collab.jsonl',
     })
 
-    const waits = observations[0]!.actions.filter((action) => action.name === 'wait')
-    expect(waits).toHaveLength(1)
-    expect(waits[0]).toMatchObject({ surface: 'subagent', status: 'completed' })
-    expect(metrics[0]!.subagentCalls).toBe(1)
-    expect(metrics[0]!.toolCalls).toBe(1)
+    // One operation, one action. `wait_agent` already reads as subagent.
+    expect(observations[0]!.actions).toHaveLength(1)
+    expect(observations[0]!.actions[0]).toMatchObject({
+      name: 'wait_agent',
+      surface: 'subagent',
+    })
+    expect(metrics[0]).toMatchObject({ toolCalls: 1, subagentCalls: 1 })
   })
 
   it('preserves an explicitly uncaptured Codex cost instead of emitting observed $0', async () => {

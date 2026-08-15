@@ -1054,11 +1054,32 @@ function cwdFromEntries(entries: Record<string, unknown>[]): string | undefined 
   return undefined
 }
 
+/** Join the `text` of every part in a `[{ type: 'text', text }]` content list. */
+function textFromContentParts(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  const text = content
+    .map((part) => {
+      const obj = record(part)
+      return obj ? stringField(obj, 'text') : undefined
+    })
+    .filter((part): part is string => part !== undefined)
+    .join('\n')
+  return text.length > 0 ? text : undefined
+}
+
 function firstUserText(entries: Record<string, unknown>[]): string | undefined {
   for (const entry of entries) {
     const payload = record(entry.payload)
     const payloadType = payload ? stringField(payload, 'type') : undefined
     if (payloadType === 'user_message') return stringField(payload!, 'message')
+
+    // A Codex rollout carries the prompt only as a `UserMessage` item. Without
+    // this, every rollout session hashes the same empty prompt.
+    const itemEvent = payload ? admittedCodexItem(entry, false) : null
+    if (itemEvent && stringField(itemEvent.item, 'type') === 'user_message') {
+      const text = textFromContentParts(itemEvent.item.content)
+      if (text) return text
+    }
 
     if (stringField(entry, 'role') === 'user') {
       const content = entry.content
@@ -1073,16 +1094,8 @@ function firstUserText(entries: Record<string, unknown>[]): string | undefined {
     if (message && stringField(message, 'role') === 'user') {
       const content = message.content
       if (typeof content === 'string') return content
-      if (Array.isArray(content)) {
-        const text = content
-          .map((part) => {
-            const obj = record(part)
-            return obj ? stringField(obj, 'text') : undefined
-          })
-          .filter((part): part is string => part !== undefined)
-          .join('\n')
-        if (text) return text
-      }
+      const text = textFromContentParts(content)
+      if (text) return text
     }
   }
   return undefined
