@@ -8,6 +8,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.15] — 2026-08-15
+
+### Added
+
+- Add runnable entry points for evaluation, experiment planning, trace analysis, sealed experiments, verification, and optimizer adapters.
+- Add measured unconditional-continuation and gated-stop studies for trace repair.
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` dependency with `0.9.0`.
+- Size gated-stop confirmation draws from the registered power curve and reject substituted served models before spend.
+
+### Fixed
+
+- Read registered binary outcomes as `1` or `0` in paired estimates and intervals.
+- Give each continuation rollout an independent seed and clear stale assay rewards before every run.
+
+---
+
 ## [0.145.14] — 2026-08-15
 
 ### Changed
