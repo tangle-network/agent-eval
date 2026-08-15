@@ -8,6 +8,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.13] — 2026-08-15
+
+### Added
+
+- Add `streamCodeAgentJsonlFile` and `parseCodeAgentJsonlFile`, which read a code-agent transcript one line at a time and retain only the unterminated tail, so a session past V8's 536,870,888-character string ceiling can still be ingested. `parseCodeAgentJsonl` keeps its existing string-entrypoint signature and behavior.
+
+---
+
 ## [0.145.12] — 2026-08-14
 
 ### Fixed
