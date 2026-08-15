@@ -241,6 +241,32 @@ A definition a strategy cannot compile fails loud with `AnalystExpressivenessErr
 `AnalystContext.probe` (`ExecutionProbe`) is the optional live-execution port: a runtime that owns a sandbox or checkout fills it so an analyst can run a bounded command against the run's produced state and read a typed outcome.
 This package defines only the port; an absent probe means the analyst works from recorded evidence.
 
+## Exact Runs
+
+Call `AnalystRegistry.runExact()` when the caller, and not the registry, must own every execution choice.
+The runnable minimum is [`examples/custom-trace-analyst`](../examples/custom-trace-analyst/).
+
+The `analystIds` array is the execution order, and exact runs are serial.
+A caller that needs recursive or concurrent scheduling composes exact runs through its own runtime rather than adding a second scheduler here.
+Every option must be present, and `null` disables a channel on purpose, so a missing budget can never be read as an unlimited one.
+
+An analyst reaches an exact run only when it declares `executionConfig`: canonical JSON for every behavior knob that `version` does not already bind.
+The receipt stores a digest of it, so two runs that behaved differently cannot look identical.
+`defineCustomAnalyst()` returns an exact-capable analyst when that field is present, and the built-in analysts already declare it.
+
+Every other live component admitted to an exact run — the cost ledger, a registry hook, a registry chat client — carries an `ExactExecutionComponentIdentity`: a non-secret `id`, a `version`, and a canonical `config` object.
+`snapshotExactExecutionComponentIdentity()` reduces each one to an `ExactExecutionComponentSnapshot`, which keeps `id` and `version` and replaces `config` with `config_digest`.
+That is how a receipt names what ran without ever storing a credential.
+
+Three rules govern what a finished exact run may claim.
+
+1. Lifecycle hooks receive frozen snapshots. A hook observes the planned context; it cannot rewrite it.
+2. Persisted results store configuration digests, never raw configuration. The plan records the exact equal or weighted allocation for every routed analyst, and archival validates each summary against that same plan.
+3. Every receipt says whether it is `complete` or `failed`. A complete receipt must cover the whole plan. A failed receipt may cover only the prefix that ran.
+
+Any failure after an exact run starts rejects with `ExactAnalystRunExecutionError`.
+Its immutable failed receipt keeps the summaries, findings, usage, and cost that were already valid, so a late failure does not erase what was measured before it.
+
 ## Measure Analyst Quality
 
 Measure the analyst on labeled traces before using its findings for automated changes.

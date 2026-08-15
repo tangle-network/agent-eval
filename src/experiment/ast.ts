@@ -249,6 +249,10 @@ export type Estimand =
       treatment: string
       control: string
       pairBy: string
+      /**
+       * Field path to the per-row outcome. A boolean reads as 1 or 0, so a
+       * binary pass/fail outcome gives the risk difference directly.
+       */
       value: string
       /** A pair one arm did not answer contributes a difference of exactly zero. */
       missing: 'zero-diff'
@@ -291,6 +295,24 @@ function evaluateSetExpr(
   return out
 }
 
+/**
+ * Read one registered outcome field as a number.
+ *
+ * A binary outcome reaches evidence as `true` or `false`. Its mean is the pass
+ * rate and the mean of its paired differences is the risk difference, so
+ * `true` reads as 1 and `false` as 0 — the same quantity a caller would
+ * otherwise encode by hand, and the same reading in every interpreter here.
+ * Every other type, and a non-finite number, is a measurement defect: it
+ * rejects instead of poisoning the mean with `NaN` or a coerced zero.
+ */
+function readNumericOutcome(raw: unknown, context: string, field: string, where: string): number {
+  if (typeof raw === 'boolean') return raw ? 1 : 0
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  throw new ValidationError(
+    `${context}: value field '${field}' is not a finite number or a boolean on ${where}`,
+  )
+}
+
 /** Compute an estimand over evidence rows. Pure; reads only registered fields. */
 export function computeEstimand(
   estimand: Estimand,
@@ -321,12 +343,12 @@ export function computeEstimand(
         const arm = String(readField(row, estimand.armField))
         if (arm !== estimand.treatment && arm !== estimand.control) continue
         const pair = String(readField(row, estimand.pairBy))
-        const value = readField(row, estimand.value)
-        if (typeof value !== 'number') {
-          throw new ValidationError(
-            `computeEstimand: paired-mean-diff value field '${estimand.value}' is not a number on pair '${pair}'`,
-          )
-        }
+        const value = readNumericOutcome(
+          readField(row, estimand.value),
+          'computeEstimand paired-mean-diff',
+          estimand.value,
+          `pair '${pair}'`,
+        )
         const slot = byPair.get(pair) ?? {}
         if (arm === estimand.treatment) slot.treatment = value
         else slot.control = value
@@ -408,12 +430,12 @@ export function computeInterval(
     const clusters = new Map<string, number[]>()
     for (const row of evidence.rows) {
       const cluster = String(readField(row, spec.clusterBy))
-      const value = readField(row, evidence.value)
-      if (typeof value !== 'number') {
-        throw new ValidationError(
-          `computeInterval: value field '${evidence.value}' is not a number in cluster '${cluster}'`,
-        )
-      }
+      const value = readNumericOutcome(
+        readField(row, evidence.value),
+        'computeInterval cluster-bootstrap',
+        evidence.value,
+        `cluster '${cluster}'`,
+      )
       const bucket = clusters.get(cluster)
       if (bucket) bucket.push(value)
       else clusters.set(cluster, [value])

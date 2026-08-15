@@ -13,12 +13,38 @@ Use the lower-level functions when you need direct control over execution, stora
 | Function | When to call it | What you give it | What you get back |
 |---|---|---|---|
 | **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a report |
-| **`selfImprove()`** | You want candidate generation, scoring, and a release decision in one call. | scenarios, agent, judge, baseline surface | report, ship/hold decision, winner surface |
+| **`selfImprove()`** | You want candidate generation, scoring, and a release decision in one call. | scenarios, agent, judge, baseline surface | report, winner surface, and a `gateDecision` (see below) |
 | **`loadEvalFixtureScenarios()`** | You want agents to add evals as folders with `PROMPT.md`, checks, and starter files. | `evals/<name>/PROMPT.md + EVAL.ts + package.json` | `Scenario[]` that runs through `runCampaign`; pair with `planEvalFixtureRun()` before spending tokens |
 | **`analyzeRuns()`** | You have existing runs and do not need to invoke an agent. | `RunRecord[]` and options | `InsightReport` |
 | **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape: it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
+| **`sealExperiment()` / `openSealedExperiment()`** | The result must convince a reader who does not trust you, so the rules must be fixed before the data arrives. | arms, admission funnel, estimand, interval, decision table | a hashed rule tree plus executors that can run no other rule ([`experiment.md`](./experiment.md)) |
+| **`runEquivalenceCheck()`** | The work has no held-out test suite, so no answer key exists to grade against. | a claim, two blind arms, an injected checker | a certification naming who vouched and how it can fail ([`verification-strategies.md`](./verification-strategies.md)) |
+| **`AnalystRegistry.runExact()`** | A batch of runs failed and you need cited findings, with the caller owning every execution choice. | recorded evidence, a declared analyst list | findings with evidence references, an execution plan, and a receipt ([`trace-analysis.md`](./trace-analysis.md)) |
 
 See [`customer-journeys.md`](./customer-journeys.md) for runnable paths from existing logs, human ratings, and a callable agent.
+The [README front-door table](../README.md#which-front-door) lists every callable entry point with a runnable example.
+
+### The five release decisions
+
+`selfImprove()` and every gate return a `GateDecision`, not a two-way ship/hold flag.
+Folding the last three into `hold` throws away the action each one names.
+
+| Decision | What it means | What to do next |
+|---|---|---|
+| `ship` | Every gate passed on sufficient evidence. | Release the candidate. |
+| `hold` | A gate failed on sufficient evidence. | Reject this candidate. |
+| `need_more_work` | A gate could not decide: the evidence was missing, or the paired sample was too small to claim significance. | Gather more runs, then gate again. |
+| `model_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the model. | Handle it; no gate in this package emits it. |
+| `arch_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the architecture. | Handle it; no gate in this package emits it. |
+
+The last two are part of the taxonomy and of the composition order, but no built-in gate returns them today.
+Handle all five anyway: a caller's own gate may return either, and the type will not let you ignore them.
+
+`need_more_work` is not a quiet `hold`.
+"Gather more evidence" and "reject this candidate" are different actions, and folding the first into the second abandons a real gain that was only underpowered.
+
+When gates are composed, `ship` requires every gate to ship.
+Otherwise the strongest hold wins, in this order: `arch_ceiling`, `model_ceiling`, `hold`, `need_more_work`.
 
 `analyzeRuns()` and the high-level contract return the same `InsightReport` shape.
 It contains score distributions, paired lift intervals, judge agreement, cost, failure clusters, contamination checks, outcome correlation, and recommendations.
@@ -92,6 +118,48 @@ that can seed memory, replay scenarios, and optimization.
 | **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
 
+### Running an evaluation
+
+| Term | Plain English |
+|---|---|
+| **Case** (`Scenario`) | One task the agent must do. The unit every score is per. |
+| **Surface** | The value being changed: a prompt, a skill, or a serialized configuration. |
+| **Dispatch** | The function that runs your agent on one case and returns the artifact. |
+| **Campaign** | One complete pass of every case, executed, scored, and cached under a run directory. |
+| **Cell** | One (case × replicate) of a campaign. Cells are cached, so a rerun skips the ones that finished. |
+| **Receipt** | The record of what one paid call actually cost, in dollars and tokens. Absent when nothing measured it. |
+| **Cost ledger** | The spend account receipts are written to. A capped ledger refuses a call that would exceed the cap. |
+| **Provenance** | Where a number came from: the package version, the source revision, the run identity, the exact attempt. |
+| **`RunRecord`** | The analysis-time projection of one run: who ran, on what, with which seed, at what cost, and what it scored. |
+
+### Improving a surface
+
+| Term | Plain English |
+|---|---|
+| **Optimizer** | Any procedure that writes candidate surfaces and picks one. |
+| **GEPA** | An open-source optimizer that mutates text using reflection over failures. It searches; this package executes and scores. |
+| **SkillOpt** | Microsoft's skill optimizer. Same division of labour. |
+| **Engine** | One named search procedure inside GEPA. |
+| **Recipe** | How several engines are composed: in order, adaptively, best-of, or by vote. |
+| **Train cases** | Evidence the optimizer reads to write candidates. |
+| **Selection cases** | Evidence the optimizer reads to choose among its candidates. |
+| **Final cases** | Held back from the optimizer entirely. They produce the reported lift. |
+
+The three-way split is the reason a reported lift means anything.
+An optimizer that saw the final cases can score well on them without the agent getting better.
+
+### Proving a result
+
+| Term | Plain English |
+|---|---|
+| **Experiment** | The rules — arms, funnel, estimand, interval, decision — written as data before the data arrives. |
+| **Seal** | A hash of that whole rule tree. The execution surface accepts no rule outside it. |
+| **Estimand** | The exact quantity being measured, for example the paired difference in pass rate. |
+| **Funnel** | The denominator chain: how many rows entered, what each stage removed, and how many remain. |
+| **Verification strategy** | One of ten ways to certify a result, each with a documented way it can certify a wrong one. |
+| **Certification** | Who vouched for a verdict, with what checker version, and what the checker did not check. |
+| **Analyst** | A function that reads recorded evidence and returns findings that cite it. |
+
 ## The feedback trajectory loop
 
 Normal review activity can provide labels without a separate labeling interface:
@@ -154,18 +222,20 @@ When you have a multi-step pipeline (install → typecheck → build → lint �
 
 ```ts
 const verifier = new MultiLayerVerifier([
-  installLayer,      // runs `pnpm install`
-  typecheckLayer,    // runs `tsc --noEmit`, depends on install
-  buildLayer,        // runs `pnpm build`, depends on typecheck
-  semanticLayer,     // LLM judge, weight 3, depends on build
+  installLayer, // runs `pnpm install`
+  typecheckLayer, // runs `tsc --noEmit`, depends on install
+  buildLayer, // runs `pnpm build`, depends on typecheck
+  semanticLayer, // LLM judge, weight 3, depends on build
 ])
 
-const report = await verifier.run({ env: { runner, workdir, ... } })
-report.allPass        // boolean: every layer passed
-report.taskScore      // complete task score, or undefined
-report.blendedScore   // diagnostic weighted aggregate, possibly partial
-report.layers         // per-layer status, findings, duration
+const report = await verifier.run({ env })
+report.allPass // boolean: every layer passed
+report.taskScore // complete task score, or undefined
+report.blendedScore // diagnostic weighted aggregate, possibly partial
+report.layers // per-layer status, findings, duration
 ```
+
+`env` carries the sandbox driver, the working directory, and the harness commands each layer runs.
 
 Use `taskScore` when creating task labels or training data.
 An errored, timed-out, skipped, or incomplete scoring panel leaves `taskScore` undefined.
@@ -184,9 +254,31 @@ Two questions to answer before trusting any LLM judge:
 1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and worst-N miscalibrations vs a human golden set.
 2. **Does it agree with itself / other judges?** `continuousAgreement(scores)` and `calibrateJudgeContinuous(golden, candidate)` report κ_w + ICC(2,1) + Pearson + Spearman with bootstrap 95% CIs on the raw [0,1] scores.
 
-Why two κ flavours: the original `calibrateJudge` rounds scores to ints before computing κ. For fine-grained judges that loses information: 0.78 vs 0.81 both round to "1" and look perfectly agreed. Use `calibrateJudgeContinuous` (or `continuousAgreement` for N≥2 raters) when scores are continuous. ICC(2,1) catches systematic bias that Pearson misses: if judge B scores 2× judge A, Pearson stays ≈ 1 while ICC drops: that's the signal.
+Each statistic answers a different question:
 
-Bias probes (`positionalBias`, `verbosityBias`, `selfPreference`) cover the orthogonal failure modes: position-dependent scoring, length-correlated scoring, and judge-prefers-its-own-family.
+| Statistic | What it answers | What it misses |
+|---|---|---|
+| Pearson | Do the two raters move together? | Constant offset and constant scaling |
+| Spearman | Do they rank the same way? | The size of any gap |
+| MAE (mean absolute error) | How far apart are they, on average? | Whether the gap is systematic |
+| κ (Cohen's kappa) | Do they agree more than chance? | Everything below the rounding step |
+| ICC(2,1) | Do they agree in absolute value, not just in shape? | — |
+
+Use two flavours of κ for one reason.
+`calibrateJudge` rounds each score to an integer first.
+For a fine-grained judge that throws information away: 0.78 and 0.81 both round to 1 and look perfectly agreed.
+Use `calibrateJudgeContinuous`, or `continuousAgreement` for two or more raters, when the scores are continuous.
+
+ICC(2,1) catches a bias Pearson cannot see.
+If judge B always scores twice judge A, the two move together perfectly and Pearson stays near 1, while ICC drops.
+That drop is the signal.
+
+Every reported interval is a bootstrap 95 % interval: the statistic is recomputed on many resamples of the data, and the middle 95 % of those values is the interval.
+
+Three bias probes cover three separate failure modes.
+`positionalBias` finds a judge that scores by position.
+`verbosityBias` finds one that scores by length.
+`selfPreference` finds one that prefers output from its own model family.
 
 ## Trace Model
 
@@ -222,3 +314,8 @@ release decision.
 - **Building a code-generator eval?** → Start with `BuilderSession`, `SandboxHarness`, and `MultiLayerVerifier`.
 - **Multi-layer verifier?** → Use [control-runtime.md](./control-runtime.md) and `MultiLayerVerifier` for ordered gates with dependencies.
 - **Adding a new judge or rubric?** → `src/wire/rubrics.ts` for the cross-language path; `src/anti-slop.ts` and `src/judges.ts` for the in-process path.
+- **Registering an experiment before the data arrives?** Read [experiment.md](./experiment.md) for the rule AST, the seal, the funnel, and the refusals.
+- **Certifying a result with no answer key?** Read [verification-strategies.md](./verification-strategies.md) for the ten-member family and the blind two-arm protocol.
+- **Reading a verdict someone else produced?** Read [verdicts.md](./verdicts.md) for what `certification` carries and what an absent one means.
+- **Grading a finding by executing its repair?** Read [trace-repair-grader.md](./trace-repair-grader.md), and [trajectory-replay.md](./trajectory-replay.md) for re-executing a recorded failure.
+- **Wondering why this package exists at all?** Read [charter.md](./charter.md) for the four end-states it is built against.
