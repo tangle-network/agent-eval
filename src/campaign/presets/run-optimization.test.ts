@@ -584,4 +584,77 @@ describe('runOptimization candidate concurrency', () => {
     ])
     expect(result.winnerSurface).toBe('CANDIDATE')
   })
+
+  it('cancels active candidate campaigns after the first candidate fails', async () => {
+    const firstError = new Error('first candidate failed')
+    let siblingStarted!: () => void
+    const siblingReady = new Promise<void>((resolve) => {
+      siblingStarted = resolve
+    })
+    let siblingAborted = false
+    let siblingSecondScenarioStarted = false
+    const dispatchedSurfaces: string[] = []
+    const failFastScenarios: TestScenario[] = [
+      { id: 'first', kind: 'test', prompt: 'first' },
+      { id: 'second', kind: 'test', prompt: 'second' },
+    ]
+    const wideProposer: SurfaceProposer = {
+      kind: 'wide-fail-fast',
+      async propose() {
+        return ['CANDIDATE-FAILS', 'CANDIDATE-SIBLING', 'CANDIDATE-LATER']
+      },
+    }
+
+    await expect(
+      runOptimization({
+        baselineSurface: 'BASELINE',
+        premeasuredBaseline: {
+          surfaceHash: surfaceHash('BASELINE'),
+          campaign: await measureBaseline(failFastScenarios),
+        },
+        scenarios: failFastScenarios,
+        dispatchWithSurface: async (surface, scenario, ctx) => {
+          const surfaceName = String(surface)
+          dispatchedSurfaces.push(surfaceName)
+          if (surfaceName === 'CANDIDATE-FAILS') {
+            await siblingReady
+            throw firstError
+          }
+          if (surfaceName === 'CANDIDATE-SIBLING' && scenario.id === 'first') {
+            siblingStarted()
+            return new Promise<TestArtifact>((resolve, reject) => {
+              const timer = setTimeout(() => resolve({ surface: surfaceName }), 50)
+              ctx.signal.addEventListener(
+                'abort',
+                () => {
+                  clearTimeout(timer)
+                  siblingAborted = true
+                  reject(ctx.signal.reason)
+                },
+                { once: true },
+              )
+            })
+          }
+          if (surfaceName === 'CANDIDATE-SIBLING') siblingSecondScenarioStarted = true
+          return { surface: surfaceName }
+        },
+        judges: [qualityJudge],
+        proposer: wideProposer,
+        populationSize: 3,
+        candidateConcurrency: 2,
+        maxConcurrency: 1,
+        abortOnCellError: true,
+        maxGenerations: 1,
+        seed: 7,
+        runDir: '/parallel-candidates-fail-fast',
+        storage: inMemoryCampaignStorage(),
+        tracing: 'off',
+        expectUsage: 'off',
+      }),
+    ).rejects.toBe(firstError)
+
+    expect(siblingAborted).toBe(true)
+    expect(siblingSecondScenarioStarted).toBe(false)
+    expect(dispatchedSurfaces).not.toContain('CANDIDATE-LATER')
+  })
 })

@@ -365,10 +365,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const surfaceResults = await mapConcurrent(
       candidates,
       candidateConcurrency,
-      async ({ surface, label, rationale }, i): Promise<SurfaceResult> => {
+      async ({ surface, label, rationale }, i, signal): Promise<SurfaceResult> => {
         const hash = surfaceHash(surface)
         const campaign = await runCampaign<TScenario, TArtifact>({
           ...opts,
+          signal,
           costLedger,
           costPhase: 'search.candidate',
           dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
