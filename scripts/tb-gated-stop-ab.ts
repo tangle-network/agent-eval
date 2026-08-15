@@ -1225,6 +1225,30 @@ async function main(): Promise<void> {
   if (mode === 'confirm') {
     const log = logger(join(WORK, 'confirm.log'))
 
+    // The registered halt runs before a token is spent. A draw that fails the
+    // power floor records `refuse-spend` in design.json; opening spend anyway
+    // would run an experiment the registration refused.
+    if (halt.fired) {
+      const refusal = {
+        generatedAt: new Date().toISOString(),
+        sealDigest: sealed.digest,
+        halt,
+        powerGate,
+        onFail: 'refuse-spend',
+        spentUsd: 0,
+        rowsGraded: 0,
+        note:
+          'The registered halt fired on the power floor before any row was run. No arm was ' +
+          'started and no token was spent. The refusal is the verdict object for this draw.',
+      }
+      writeFileSync(join(WORK, 'confirm-refusal.json'), `${JSON.stringify(refusal, null, 2)}\n`)
+      process.stdout.write(
+        `REFUSE-SPEND powerFloor: halt fired for gates [${halt.failedGates.join(', ')}]; no spend, no rows graded\n`,
+      )
+      process.exitCode = 4
+      return
+    }
+
     // The identity gate runs before a row is graded and before a token is
     // spent. A seat that answers the pinned id with another model produces a
     // contrast for a model nobody registered, so the registered action here is
@@ -1337,7 +1361,8 @@ async function main(): Promise<void> {
       persist()
     }
 
-    // ── The registered contrast.
+    // ── The registered contrast. The estimand reads `passed` as a number,
+    // so the boolean verdict is written as 1 or 0 here.
     const armRows = (arm: string, passedOf: (run: RowRun) => boolean): EvidenceRecord[] =>
       rows
         .map((row) => held[`${arm}::${row.rowId}`])
@@ -1346,7 +1371,7 @@ async function main(): Promise<void> {
           rowId: run.rowId,
           taskName: run.taskName,
           arm: arm === 'blind-continue' ? 'blind-continue' : 'gated-continue',
-          passed: passedOf(run),
+          passed: passedOf(run) ? 1 : 0,
         }))
     const finalPassed = (run: RowRun): boolean => run.steps.at(-1)?.gradePassed === true
     const treatment = armRows('gated-continue', (run) => run.bestPassed)

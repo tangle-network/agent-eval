@@ -99,3 +99,16 @@ An interrupted run costs the row in flight and nothing before it.
 The matched-budget rule is a refusal object, not an assertion.
 The treatment arm can only spend returned budget on rows that come after the row that returned it, so budget freed by the last rows has nowhere to go.
 When that trailing shortfall pushes the arms more than 5 % apart, the registered decision table returns `contrast-refused-unmatched-budget` and the contrast is not read.
+
+## The measured result
+
+The confirmatory run completed both arms over the sealed draw: 302 rows graded, 151 per arm.
+
+The corrected primary contrast, best intermediate state in both arms, is **+0.0596** with a 95 % cluster-bootstrap interval of **[-0.0061, +0.1210]**.
+The interval includes zero, so the registered decision table reads `no-effect-resolved-at-this-n`.
+The study does not certify a gated-stop advantage at this draw.
+
+Two degradations bound what this run can claim.
+
+- 15 gated-arm rows were degraded by provider 429 rate-limit responses, and the treatment arm carries all of them; the contrast above is the corrected value after the tail audit accounted for them.
+- The registered estimand pipeline as first shipped crashed at report time, because the evidence rows carried a boolean where the paired-mean-diff estimand requires a number; the contrast above was recomputed from the persisted `confirm-runs.json` after the defect was fixed. The runner now writes the verdict as 1 or 0.
