@@ -76,6 +76,30 @@ describe('mapConcurrent', () => {
     expect(started).toEqual([0, 1])
   })
 
+  it('forwards caller cancellation to active work and starts no later items', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller cancelled map')
+    const started: number[] = []
+    const run = mapConcurrent(
+      [0, 1, 2],
+      2,
+      async (value, _index, signal) => {
+        started.push(value)
+        await new Promise<void>((resolve) =>
+          signal.addEventListener('abort', () => resolve(), { once: true }),
+        )
+        return value
+      },
+      controller.signal,
+    )
+
+    await delay(1)
+    controller.abort(reason)
+
+    await expect(run).rejects.toBe(reason)
+    expect(started).toEqual([0, 1])
+  })
+
   it('validates the worker count and handles empty input', async () => {
     await expect(mapConcurrent([], 1, async () => 'unused')).resolves.toEqual([])
     await expect(mapConcurrent([1], 0, async (value) => value)).rejects.toThrow('positive integer')
