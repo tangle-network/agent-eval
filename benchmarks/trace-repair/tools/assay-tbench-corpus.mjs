@@ -512,6 +512,13 @@ function verifyFailToPass(tb2Dir, task) {
         return null
       }
     }
+    // A run that dies before test.sh writes the reward must read as null, not
+    // as the previous run's verdict, so the file is removed before every run.
+    const clearReward = () =>
+      sh(['exec', cid, 'rm', '-f', '/logs/verifier/reward.txt', '/logs/verifier/ctrf.json'], {
+        stdio: 'ignore',
+      })
+    clearReward()
     const before = timed(() => sh(['exec', cid, 'bash', '/tests/test.sh'], { stdio: 'ignore' }))
     result.baselineSeconds = before.seconds
     result.baselineReward = readReward()
@@ -521,6 +528,7 @@ function verifyFailToPass(tb2Dir, task) {
     result.solutionSeconds = solve.seconds
     result.solutionOk = solve.ok
 
+    clearReward()
     const after = timed(() => sh(['exec', cid, 'bash', '/tests/test.sh'], { stdio: 'ignore' }))
     result.regradeSeconds = after.seconds
     result.repairedReward = readReward()
@@ -531,6 +539,7 @@ function verifyFailToPass(tb2Dir, task) {
     // whose verdict moves on identical bytes cannot price an intervention.
     const replicates = []
     for (let index = 0; index < REGRADE_REPLICATES; index++) {
+      clearReward()
       // Captured to a file rather than discarded, because pytest's `-rA` summary is where
       // the per-parameter verdicts are and a base name is a conjunction over them.
       const run = timed(() =>

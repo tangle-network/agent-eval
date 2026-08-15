@@ -5,6 +5,8 @@
     "scripts/tb-corpus-rows.ts",
     "scripts/tb-gated-stop-ab.ts",
     "scripts/tb-oracle-determinism.ts",
+    "scripts/tb-repair-freelunch-model.ts",
+    "scripts/tb-repair-freelunch.ts",
     "scripts/tb-repair-milestone1.ts",
     "src"
   ],

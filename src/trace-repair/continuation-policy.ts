@@ -214,6 +214,13 @@ export interface RunContinuationOptions {
   prefix: readonly ContinuationMessage[]
   /** Rollouts to run for this arm. */
   rollouts: number
+  /**
+   * Global index of the first rollout this invocation produces. The per-rollout
+   * seed derives from the global index, so a campaign that adds rollouts in
+   * later passes must shift this base — an index that repeats is a rollout
+   * that repeats. Defaults to 0.
+   */
+  rolloutBase?: number
   model: ContinuationModel
   environments: ContinuationEnvironmentFactory
   /** Epoch milliseconds. Injected so tests can assert on records without wall-clock noise. */
@@ -232,19 +239,25 @@ export async function runContinuation(
 ): Promise<ContinuationRollout[]> {
   const { policy, arm, rowId, prefix, rollouts, model, environments } = options
   const clock = options.clock ?? Date.now
+  const rolloutBase = options.rolloutBase ?? 0
   requirePositiveInteger(rollouts, 'rollouts')
+  if (!Number.isInteger(rolloutBase) || rolloutBase < 0) {
+    throw new ValidationError(
+      `continuation policy rolloutBase must be a non-negative integer, got ${rolloutBase}`,
+    )
+  }
   assertPrefix(prefix)
   const policyDigest = continuationPolicyDigest(policy)
 
   const records: ContinuationRollout[] = []
-  for (let index = 0; index < rollouts; index += 1) {
+  for (let offset = 0; offset < rollouts; offset += 1) {
     records.push(
       await runOneRollout({
         policy,
         policyDigest,
         arm,
         rowId,
-        index,
+        index: rolloutBase + offset,
         prefix,
         model,
         environments,
