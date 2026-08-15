@@ -15,7 +15,7 @@ The pre-pass that decides which rows the arms run on is in [trace-repair-admissi
 | --- | --- | --- |
 | scaffold | mini-swe-agent | The corpus recorded it, so a continuation stays in the same distribution as the prefix. |
 | step budget | 20 model calls | Bounds a rollout without a wall-clock limit, which would end rollouts at different points. |
-| temperature | 0 | With a fixed seed, the same prefix draws the same continuation. |
+| temperature | 0 | Removes the sampler as a source of variation the policy controls. It does not make a continuation repeat: measured against the z.ai seat, 19 of 20 replies to one identical prompt were distinct on `glm-5.3` and 8 of 20 on `glm-4.7`. A paired design must carry that variation as a threat to validity — see [trace-repair-gated-stop.md](./trace-repair-gated-stop.md). |
 | command timeout | 30 s | The recorded runs used the scaffold's own 30-second limit. A longer limit lets the continuation finish commands the recorded agent could not. |
 | network | `none` | A container with a network can install what the recorded run could not. |
 | format-error cap | 3 consecutive turns | Ends a rollout that has stopped producing actions. |
