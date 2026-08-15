@@ -33,11 +33,17 @@ Folding the last three into `hold` throws away the action each one names.
 |---|---|---|
 | `ship` | Every gate passed on sufficient evidence. | Release the candidate. |
 | `hold` | A gate failed on sufficient evidence. | Reject this candidate. |
-| `need_more_work` | A gate could not decide, because the evidence was missing or underpowered. | Gather more runs, then re-gate. |
-| `model_ceiling` | The measured limit is the model, not the candidate. | Change the model, not the surface. |
-| `arch_ceiling` | The measured limit is the architecture. | Change the design; more search will not help. |
+| `need_more_work` | A gate could not decide: the evidence was missing, or the paired sample was too small to claim significance. | Gather more runs, then gate again. |
+| `model_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the model. | Handle it; no gate in this package emits it. |
+| `arch_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the architecture. | Handle it; no gate in this package emits it. |
 
-When gates are composed, `ship` requires all of them.
+The last two are part of the taxonomy and of the composition order, but no built-in gate returns them today.
+Handle all five anyway: a caller's own gate may return either, and the type will not let you ignore them.
+
+`need_more_work` is not a quiet `hold`.
+"Gather more evidence" and "reject this candidate" are different actions, and folding the first into the second abandons a real gain that was only underpowered.
+
+When gates are composed, `ship` requires every gate to ship.
 Otherwise the strongest hold wins, in this order: `arch_ceiling`, `model_ceiling`, `hold`, `need_more_work`.
 
 `analyzeRuns()` and the high-level contract return the same `InsightReport` shape.
