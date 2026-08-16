@@ -93,9 +93,9 @@ describe('pairedEvalueSequence — basic behaviour', () => {
 })
 
 describe('sequentialCrossingHorizon', () => {
-  it('exposes the default perfect-data evidence and decision horizon', () => {
+  it('exposes distinct perfect-data evidence and decision horizons', () => {
     expect(sequentialCrossingHorizon({ alpha: 0.05, bound: 5, maxPairs: 100 })).toEqual({
-      evidencePairs: 24,
+      evidencePairs: 22,
       decisionPairs: 24,
       evidenceThreshold: 20,
       decisionThreshold: 40,
@@ -110,8 +110,14 @@ describe('sequentialCrossingHorizon', () => {
   })
 
   it('returns null when the declared cap cannot reach either threshold', () => {
-    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 23 })
+    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 21 })
     expect(horizon.evidencePairs).toBeNull()
+    expect(horizon.decisionPairs).toBeNull()
+  })
+
+  it('distinguishes an evidence-capable but decision-incapable design', () => {
+    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 23 })
+    expect(horizon.evidencePairs).toBe(22)
     expect(horizon.decisionPairs).toBeNull()
   })
 
