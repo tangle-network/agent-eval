@@ -18,9 +18,12 @@ export function compareJson(
   path: string,
   options: CompareOptions = {},
 ): string[] {
+  const limit = options.limit ?? 25
   const mismatches: string[] = []
-  walk(expected, actual, path, mismatches, options.limit ?? 25)
-  return mismatches
+  walk(expected, actual, path, mismatches, limit)
+  // The walk stops checking past the cap but a single frame can push several
+  // lines, so the list is trimmed to the number the caller asked for.
+  return mismatches.slice(0, limit)
 }
 
 function walk(
@@ -41,7 +44,9 @@ function walk(
       out.push(`${path}: expected ${expected.length} entries, received ${actual.length}`)
     }
     const shared = Math.min(expected.length, actual.length)
-    for (let i = 0; i < shared; i++) walk(expected[i], actual[i], `${path}[${i}]`, out, limit)
+    for (let i = 0; i < shared && out.length < limit; i++) {
+      walk(expected[i], actual[i], `${path}[${i}]`, out, limit)
+    }
     return
   }
 

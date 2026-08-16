@@ -190,7 +190,11 @@ async function main(): Promise<void> {
   const version = requireVersion()
   const engineSpec = requireArg('--engine')
   const matrixEngineSpec = requireArg('--matrix-engine')
-  const outDir = resolve(repoRoot, readArg('--out') ?? 'src/multishot/golden/records')
+  const outArg = readArg('--out')
+  if (outArg !== undefined && (outArg === '' || outArg.startsWith('--'))) {
+    throw new Error(`record-multishot-golden: --out was given ${outArg || 'an empty value'}`)
+  }
+  const outDir = resolve(repoRoot, outArg ?? 'src/multishot/golden/records')
   const outFile = join(outDir, `${version}.json`)
 
   if (existsSync(outFile)) {
@@ -243,7 +247,9 @@ async function main(): Promise<void> {
   // released record — and then linked into place. `linkSync` fails with EEXIST
   // rather than overwriting, so a second recorder that started meanwhile cannot
   // replace a frozen record.
-  const tempFile = `${outFile}.partial`
+  // Per-process temp path: two recorders on the same version must not write
+  // through one file on their way to the exclusive link below.
+  const tempFile = `${outFile}.${process.pid}.partial`
   writeFileSync(tempFile, `${JSON.stringify(set, null, 2)}\n`)
   try {
     linkSync(tempFile, outFile)

@@ -49,7 +49,7 @@ Both rules are enforced, not just documented: a second concurrent install throws
 ## Determinism rules
 
 Every scenario is a closed system: scripted transports, scripted tool executors, a fixed persona and profile, fixed token budgets.
-No network, no clock in a recorded field, no random number.
+No network, no random number, and no clock in a COMPARED field — the fixture envelope carries a `recordedAt` stamp as provenance, and nothing compares it.
 Matrix cells run one at a time, so the request ledger is a property of the conversation engine rather than of how two engines interleave their microtasks.
 
 Judge calls fan out across three slots through `Promise.all`, so their issue order is a detail of the cell body rather than observable behaviour.
@@ -66,8 +66,8 @@ The diff between the two files is the reviewable evidence of what moved, and the
 
 ## Regenerate
 
-The recorder never picks an engine for you.
-This package holds no conversation engine, so the reference has to be named:
+The recorder never picks an engine for you: the reference has to be named.
+Once the loop leaves this package there is no engine here to default to, and a script that silently picked one would record the wrong thing.
 
 ```bash
 pnpm tsx scripts/record-multishot-golden.ts \

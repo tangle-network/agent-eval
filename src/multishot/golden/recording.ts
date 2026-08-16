@@ -5,7 +5,7 @@
 // that is not normalized identically on both sides would read as a permanent
 // mismatch, so there is exactly one implementation.
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, posix, relative, sep } from 'node:path'
 import { readCellSpend } from '../../matrix'
 import type { MultishotResult, MultishotToolDefinition, MultishotTransportRequest } from '../types'
@@ -142,6 +142,11 @@ export function sortJudgeRequests(
  *  parsed and stripped of wall-clock keys; Markdown keeps its text with the
  *  rendered duration masked; anything else is kept verbatim. */
 export function readRunDir(dir: string): Record<string, unknown> {
+  if (!existsSync(dir)) {
+    throw new Error(
+      `multishot golden: the run directory ${dir} does not exist — the engine wrote no per-cell files`,
+    )
+  }
   const files: Record<string, unknown> = {}
   for (const path of walkFiles(dir)) {
     const key = relative(dir, path).split(sep).join(posix.sep)

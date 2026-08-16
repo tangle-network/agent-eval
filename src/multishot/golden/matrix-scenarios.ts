@@ -255,7 +255,7 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
       // The judge leg is the ONLY call allowed to reach the wire; the agent
       // and driver legs run on the scripted transports above. Anything else is
       // a wiring defect in the engine under test, so fail loud.
-      if (!String(url).startsWith(JUDGE_BASE_URL)) {
+      if (String(url) !== `${JUDGE_BASE_URL}/chat/completions`) {
         throw new Error(`multishot golden judge wire: unexpected request to ${String(url)}`)
       }
       const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
