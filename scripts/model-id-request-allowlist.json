@@ -25,6 +25,11 @@
       "file": "src/model-seats.ts",
       "literal": "google/gemini-2.5-flash",
       "reason": "seatPresets is a data table of REQUESTED ids and makes no call. Its doc requires assertModelsServed({ probe: true }) before a run, which is where the served id is proven."
+    },
+    {
+      "file": "src/multishot/golden/matrix-scenarios.ts",
+      "literal": "test/judge-model",
+      "reason": "Judge model of a golden-record matrix scenario. The scenario installs its own deterministic wire on globalThis.fetch and answers from a score table, so the literal never reaches a provider and there is no served id to compare it against."
     }
   ]
 }
