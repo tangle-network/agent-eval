@@ -198,7 +198,9 @@ export function createTraceAnalyst(
       return completed.findings.map((finding) =>
         toAnalystFinding(definition, version, finding, {
           analysis_engine: options.engine.id,
-          analysis_model: options.engine.model,
+          ...(options.engine.model === undefined
+            ? {}
+            : { analysis_model: options.engine.model }),
           analysis_model_calls: completed.modelCalls,
           analysis_tool_calls: completed.toolCalls,
           analysis_runtime: completed.runtime,
