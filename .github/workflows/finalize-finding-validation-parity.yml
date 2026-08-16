@@ -40,8 +40,33 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Preserve escaped newlines in generated Python
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('.github/scripts/finalize-finding-validation-parity.py')
+          text = path.read_text()
+          replacements = {
+              r'f"ANSWER:\n{answer_text}"': r'f"ANSWER:\\n{answer_text}"',
+              r'f"SUBMITTED_FINDINGS:\n{raw_findings_json.strip()}"': r'f"SUBMITTED_FINDINGS:\\n{raw_findings_json.strip()}"',
+              r'repair_source = "\n\n".join(repair_parts)': r'repair_source = "\\n\\n".join(repair_parts)',
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'newline escape anchor {old!r}: expected one, found {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+
       - name: Apply the cross-language contract repair
-        run: python .github/scripts/finalize-finding-validation-parity.py
+        run: |
+          python .github/scripts/finalize-finding-validation-parity.py
+          python -m py_compile \
+            clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py \
+            clients/python/src/agent_eval_rpc/finding_subject.py \
+            clients/python/tests/test_dspy_rlm_bridge.py \
+            clients/python/tests/test_finding_validation_parity.py
 
       - name: Format JavaScript and TypeScript changes
         run: |
