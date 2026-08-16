@@ -4,7 +4,7 @@
 // transport request each leg received, and the value the run resolved or threw
 // with. An engine conforms when it reproduces both, field for field.
 
-import type { MultishotResult } from '../types'
+import type { MultishotResult, MultishotToolDefinition } from '../types'
 
 /** One chat message as it reached a transport, normalized to the fields that
  *  decide behaviour. `content` is `null` when the message carried none. */
@@ -26,12 +26,11 @@ export interface MultishotRecordedRequest {
   model: string
   temperature: number | null
   maxTokens: number | null
-  /** Advertised tool names in order. `null` when the request carried no tools. */
-  toolNames: string[] | null
-  /** True when `req.tools` is the same array object the caller passed in
-   *  options. An engine that rebuilds the array can silently change what the
-   *  agent is offered. */
-  toolsPassedByReference: boolean
+  /** The tool definitions advertised, in order, compared by value. `null` when
+   *  the request carried no tools. An engine that rebuilds the array is free to
+   *  do so; an engine that changes a name, a description or a parameter schema
+   *  changes what the agent is offered, and that is the divergence. */
+  tools: MultishotToolDefinition[] | null
   messages: MultishotRecordedMessage[]
 }
 

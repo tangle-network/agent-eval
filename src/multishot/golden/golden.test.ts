@@ -142,7 +142,7 @@ function replayEngine(record: MultishotGoldenRecord): MultishotGoldenEngine {
       await transport({
         model: request.model,
         messages: request.messages.map(toWireMessage),
-        ...(request.toolNames === null ? {} : { tools: opts.tools }),
+        ...(request.tools === null ? {} : { tools: request.tools }),
         ...(request.temperature === null ? {} : { temperature: request.temperature }),
         ...(request.maxTokens === null ? {} : { maxTokens: request.maxTokens }),
       })

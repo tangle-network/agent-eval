@@ -55,15 +55,13 @@ export function recordMessage(raw: unknown): MultishotRecordedMessage {
 export function recordRequest(
   leg: 'agent' | 'driver',
   req: MultishotTransportRequest,
-  toolsReference: MultishotToolDefinition[] | undefined,
 ): MultishotRecordedRequest {
   return {
     leg,
     model: req.model,
     temperature: req.temperature ?? null,
     maxTokens: req.maxTokens ?? null,
-    toolNames: req.tools ? req.tools.map((tool) => tool.function.name) : null,
-    toolsPassedByReference: req.tools !== undefined && req.tools === toolsReference,
+    tools: req.tools ? (JSON.parse(JSON.stringify(req.tools)) as MultishotToolDefinition[]) : null,
     messages: req.messages.map(recordMessage),
   }
 }

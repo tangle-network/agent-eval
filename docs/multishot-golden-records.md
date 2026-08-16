@@ -7,7 +7,8 @@ Point your engine at them and any orchestration drift surfaces as a named field.
 
 Each scenario records two things.
 
-**The request ledger** — every transport call each leg received, in issue order: the model, the temperature, the token budget, the advertised tool names, whether the tools array reached the transport by reference, and the full message log.
+**The request ledger** — every transport call each leg received, in issue order: the model, the temperature, the token budget, the advertised tool definitions, and the full message log.
+Tools are compared by value, not by array identity: an engine may rebuild the array, but a changed name, description or parameter schema changes what the agent is offered.
 This is where two orchestrators diverge without their return value changing: a wrong follow-up token budget, a driver rotation that stops one model early, a point-of-view translation that drops a tool row from the driver's view.
 
 **The outcome** — either the `MultishotResult` without its wall-clock `durationMs`, or the throw reduced to its constructor name, its message, and the cell spend it declares for the cost ceiling.
@@ -41,6 +42,7 @@ describe('my engine reproduces the multishot golden records', () => {
 `checkMultishotGolden` runs the whole catalog in one call.
 
 The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
+That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it. The wire fails loud on any request it does not recognise, so an interleaved caller is reported rather than answered.
 
 ## Determinism rules
 
@@ -88,5 +90,7 @@ A scenario that is not reproducible cannot detect a regression, so an unstable c
 
 Add it to `multishotGoldenScenarios()` in `src/multishot/golden/scenarios.ts`, then mint a new version.
 The record-set integrity test requires one record per catalog scenario in catalog order, so a scenario with no record fails the suite rather than passing silently.
+
+A version may be dropped once no supported consumer checks against it and its behaviour is fully covered by a later version. Until then every version stays: an old record is how a consumer still on an older engine keeps a runnable contract.
 
 `v1` was captured from the `./multishot` loop at agent-eval 0.145.21 — the engine the merged loop-to-graph parity proofs compared against.

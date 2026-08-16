@@ -226,11 +226,11 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
     apiKey: 'golden-key',
     baseUrl: JUDGE_BASE_URL,
     agentTransport: async (req) => {
-      requests.push(recordRequest('agent', req, tools))
+      requests.push(recordRequest('agent', req))
       return agentTransport(req)
     },
     driverTransport: async (req) => {
-      requests.push(recordRequest('driver', req, tools))
+      requests.push(recordRequest('driver', req))
       return driverTransport(req)
     },
   }

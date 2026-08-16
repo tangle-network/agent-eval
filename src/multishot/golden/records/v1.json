@@ -2,7 +2,7 @@
   "version": "v1",
   "recordedFrom": "./src/multishot/multishot.ts#runMultishot + ./src/multishot/matrix.ts#runMultishotMatrix",
   "recordedFromPackageVersion": "0.145.21",
-  "recordedAt": "2026-08-16T18:46:52.109Z",
+  "recordedAt": "2026-08-16T19:18:57.728Z",
   "scenarios": [
     {
       "id": "delegation-three-turns",
@@ -13,8 +13,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -31,8 +47,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -75,8 +107,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -101,8 +132,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -153,8 +200,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -221,8 +284,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -259,8 +321,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -448,8 +526,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -466,8 +560,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -510,8 +620,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -536,8 +645,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -588,8 +713,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -656,8 +797,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -694,8 +834,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -770,8 +926,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -816,8 +971,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -900,8 +1071,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -954,8 +1124,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -1046,8 +1232,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -1108,8 +1293,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -1208,8 +1409,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -1278,8 +1478,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -1386,8 +1602,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -1464,8 +1679,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -1580,8 +1811,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -1666,8 +1896,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -1790,8 +2036,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -1884,8 +2129,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2231,8 +2492,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2249,8 +2526,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2361,8 +2654,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2379,8 +2688,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2423,8 +2748,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2449,8 +2773,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2475,8 +2798,7 @@
           "model": "test/driver-fallback",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2501,8 +2823,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2553,8 +2891,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2621,8 +2975,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2659,8 +3012,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2697,8 +3049,7 @@
           "model": "test/driver-fallback",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -2735,8 +3086,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2924,8 +3291,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2959,8 +3342,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -2977,8 +3376,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3021,8 +3436,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3047,8 +3461,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3090,8 +3503,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3108,8 +3537,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3142,8 +3587,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3209,8 +3670,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3227,8 +3710,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 222,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3271,8 +3776,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3297,8 +3801,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3323,8 +3826,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3375,8 +3900,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 222,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3443,8 +3990,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3477,8 +4023,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3511,8 +4056,7 @@
           "model": "fallback/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3545,8 +4089,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3721,8 +4287,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3756,8 +4344,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3774,8 +4384,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 222,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3818,8 +4450,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3844,8 +4475,7 @@
           "model": "primary/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3870,8 +4500,7 @@
           "model": "fallback/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3896,8 +4525,7 @@
           "model": "fallback/driver",
           "temperature": 0.9,
           "maxTokens": 333,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -3939,8 +4567,30 @@
           "model": "scripted/agent",
           "temperature": 0.7,
           "maxTokens": 111,
-          "toolNames": ["state_tax_search", "list_source_documents"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "state_tax_search",
+                "description": "search state tax rules",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "list_source_documents",
+                "description": "list docs",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3976,8 +4626,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -3994,8 +4660,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4028,8 +4710,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4054,8 +4735,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4096,8 +4793,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4154,8 +4867,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4192,8 +4904,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4258,8 +4986,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4276,8 +5020,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4310,8 +5070,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4336,8 +5095,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4378,8 +5153,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4436,8 +5227,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4474,8 +5264,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4540,8 +5346,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4558,8 +5380,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4592,8 +5430,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4618,8 +5455,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4660,8 +5513,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4718,8 +5587,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4756,8 +5624,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4822,8 +5706,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4840,8 +5740,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4874,8 +5790,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -4900,8 +5815,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -4942,8 +5873,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2000,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",
@@ -5000,8 +5947,7 @@
           "model": "test/driver-model",
           "temperature": 0.9,
           "maxTokens": 600,
-          "toolNames": null,
-          "toolsPassedByReference": false,
+          "tools": null,
           "messages": [
             {
               "role": "system",
@@ -5038,8 +5984,24 @@
           "model": "test/agent-model",
           "temperature": 0.7,
           "maxTokens": 2500,
-          "toolNames": ["delegate_research", "delegate_code"],
-          "toolsPassedByReference": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_research",
+                "description": "research",
+                "parameters": {}
+              }
+            },
+            {
+              "type": "function",
+              "function": {
+                "name": "delegate_code",
+                "description": "code",
+                "parameters": {}
+              }
+            }
+          ],
           "messages": [
             {
               "role": "system",

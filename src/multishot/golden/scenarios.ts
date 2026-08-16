@@ -47,11 +47,10 @@ export interface MultishotGoldenScenario {
 function ledgerTransport(
   ledger: MultishotRecordedRequest[],
   leg: 'agent' | 'driver',
-  toolsReference: MultishotToolDefinition[] | undefined,
   inner: MultishotTransport,
 ): MultishotTransport {
   return async (req) => {
-    ledger.push(recordRequest(leg, req, toolsReference))
+    ledger.push(recordRequest(leg, req))
     return inner(req)
   }
 }
@@ -193,18 +192,8 @@ function delegationCase(overrides: DelegationOverrides = {}): MultishotGoldenCas
     driverModel: 'test/driver-model',
     apiKey: 'golden-key',
     baseUrl: 'http://router.invalid',
-    agentTransport: ledgerTransport(
-      requests,
-      'agent',
-      delegationTools,
-      overrides.agent ?? delegationAgent,
-    ),
-    driverTransport: ledgerTransport(
-      requests,
-      'driver',
-      delegationTools,
-      overrides.driver ?? delegationDriver,
-    ),
+    agentTransport: ledgerTransport(requests, 'agent', overrides.agent ?? delegationAgent),
+    driverTransport: ledgerTransport(requests, 'driver', overrides.driver ?? delegationDriver),
   }
   if (overrides.maxToolDispatches !== undefined) {
     options.maxToolDispatches = overrides.maxToolDispatches
@@ -400,13 +389,11 @@ function samplingCase(overrides: SamplingOverrides = {}): MultishotGoldenCase {
     agentTransport: ledgerTransport(
       requests,
       'agent',
-      samplingTools,
       scriptedTransport(overrides.agentScript ?? samplingAgentScript(), 'agent transport'),
     ),
     driverTransport: ledgerTransport(
       requests,
       'driver',
-      samplingTools,
       scriptedTransport(overrides.driverScript ?? samplingDriverScript(), 'driver transport'),
     ),
   }
