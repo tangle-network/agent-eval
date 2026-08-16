@@ -172,6 +172,10 @@ function judge<TInput>(name: string, buildPrompt: (input: TInput) => string): Ju
   }
 }
 
+/** True while some case holds `globalThis.fetch`. Module scope, because the
+ *  resource being guarded is the process's own fetch. */
+let judgeWireInstalled = false
+
 /** Scores keyed by judge name, so the wire is a pure function of the request. */
 const JUDGE_SCORES: Record<string, { usefulness: number; specificity: number }> = {
   conversation: { usefulness: 8, specificity: 7 },
@@ -236,6 +240,16 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
   }
 
   const installJudgeWire = (): (() => void) => {
+    // The wire is process-wide, so two matrix checks running at once in one
+    // process would cross their judge ledgers. Refuse the second one instead of
+    // recording a mixture: a golden check that silently reads another run's
+    // calls reports a mismatch nobody can explain.
+    if (judgeWireInstalled) {
+      throw new Error(
+        'multishot golden judge wire: another matrix check already holds globalThis.fetch — run matrix checks serially within one process',
+      )
+    }
+    judgeWireInstalled = true
     const previous = globalThis.fetch
     globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
       // The judge leg is the ONLY call allowed to reach the wire; the agent
@@ -267,6 +281,7 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
     }) as unknown as typeof globalThis.fetch
     return () => {
       globalThis.fetch = previous
+      judgeWireInstalled = false
     }
   }
 

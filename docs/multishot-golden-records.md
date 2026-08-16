@@ -42,7 +42,8 @@ describe('my engine reproduces the multishot golden records', () => {
 `checkMultishotGolden` runs the whole catalog in one call.
 
 The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
-That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it. The wire fails loud on any request it does not recognise, so an interleaved caller is reported rather than answered.
+That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it.
+Both rules are enforced, not just documented: a second concurrent install throws, and the wire fails loud on any request it does not recognise rather than answering it.
 
 ## Determinism rules
 
