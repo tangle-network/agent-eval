@@ -208,45 +208,6 @@ export interface DriverState {
   generations: number
 }
 
-export interface TurnMetrics {
-  turn: number
-  timestamp: string
-  tasks: number
-  events: number
-  proposals: { pending: number; approved: number; rejected: number }
-  vaultFiles: number
-  responseLatencyMs: number
-  responseChars: number
-  codeBlocksProduced: number
-  blocksExtracted: number
-  qualityScore?: number
-  inputTokens: number
-  outputTokens: number
-  estimatedCostUsd: number
-  totalCostUsd: number
-  completionPercent: number
-}
-
-export interface DriverResult {
-  personaId: string
-  /** True when the simulated user professionally signed off (driver said DONE). */
-  completed: boolean
-  /** Turn at which the simulated user signed off, or null if it never did. */
-  turnsToCompletion: number | null
-  /**
-   * Turn at which nominal completionCriteria were first all met, or null.
-   * Distinct from turnsToCompletion: criteria can be met while the
-   * simulated professional is still unsatisfied with the work's rigor.
-   */
-  criteriaMetAtTurn: number | null
-  totalTurns: number
-  metrics: TurnMetrics[]
-  finalState: DriverState
-  convergenceCurve: number[]
-  totalCostUsd: number
-  finalQualityScore: number | null
-}
-
 export interface JudgeInput {
   scenario: Scenario
   turns: TurnResult[]

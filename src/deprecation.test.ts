@@ -1,15 +1,14 @@
 /**
- * The deprecated product-coupled surfaces (`AgentDriver`, `ProductClient`,
+ * The deprecated product-coupled surfaces (`ProductClient`,
  * `decideNextUserTurn`, `buildDriverSystemPrompt`) must warn LOUDLY — but
  * exactly once per process per surface, so a matrix run that constructs one
  * per cell is not flooded.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createChatClient } from './analyst/chat-client'
 import { ProductClient } from './client'
 import { resetDeprecationWarnings, warnDeprecatedOnce } from './deprecation'
-import { AgentDriver, buildDriverSystemPrompt } from './driver'
+import { buildDriverSystemPrompt } from './driver'
 import type { DriverState, PersonaConfig } from './types'
 
 const STATE: DriverState = {
@@ -54,26 +53,6 @@ describe('warnDeprecatedOnce', () => {
     const calls = warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes('ProductClient'))
     expect(calls).toHaveLength(1)
     expect(String(calls[0]![0])).toContain('#694')
-  })
-
-  it('AgentDriver warns once across repeated constructions', () => {
-    const chat = createChatClient({
-      transport: 'mock',
-      defaultModel: 'mock-model',
-      handler: async () => ({
-        content: 'x',
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        costUsd: null,
-        model: 'mock-model',
-        durationMs: 0,
-        raw: {},
-      }),
-    })
-    const client = new ProductClient({ baseUrl: 'http://localhost:1', routes: {} })
-    new AgentDriver(chat, { client })
-    new AgentDriver(chat, { client })
-    const calls = warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes('AgentDriver'))
-    expect(calls).toHaveLength(1)
   })
 
   it('buildDriverSystemPrompt warns once and still returns the full prompt', () => {

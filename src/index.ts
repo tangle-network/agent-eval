@@ -761,6 +761,23 @@ export {
   summarizeBackendIntegrity,
 } from './integrity/backend-integrity'
 
+// The model-substitution guard. A harness that owns its own conversation loop
+// needs the same check the packaged drivers make: hold the transport to the
+// model id it was asked for, so a turn written by a substitute model is not
+// scored as the requested model's behaviour.
+export type {
+  AssertServedModelOptions,
+  ServedModelCheck,
+  ServedModelVerdict,
+} from './integrity/served-model'
+export {
+  assertServedModel,
+  assertServedModels,
+  checkServedModel,
+  ModelSubstitutionError,
+  servedModelAcceptable,
+} from './integrity/served-model'
+
 export type {
   AssertSingleBackendOptions,
   BackendDescriptor,
