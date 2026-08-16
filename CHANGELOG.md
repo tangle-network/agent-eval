@@ -17,7 +17,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
-- The served-model guard reaches the public surface: `assertServedModel`, `assertServedModels`, `checkServedModel`, `servedModelAcceptable`, `ModelSubstitutionError`, and the `AssertServedModelOptions` / `ServedModelCheck` / `ServedModelVerdict` types. A harness that owns its own conversation loop needs the same check the packaged drivers make — hold the transport to the model id it was asked for — and could not reach it. Without this, migrating off `decideNextUserTurn` means dropping the check.
+- The served-model guard reaches the public surface: `assertServedModel`, `assertServedModels`, `assertCrossFamilyServed`, `checkServedModel`, `servedModelAcceptable`, `ModelSubstitutionError`, `ServedCrossFamilyError`, and the `AssertServedModelOptions` / `AssertCrossFamilyServedOptions` / `ServedModelCheck` / `ServedModelVerdict` types. A harness that owns its own conversation loop needs the same check the packaged drivers make — hold the transport to the model id it was asked for — and could not reach it. Without this, migrating off `decideNextUserTurn` means dropping the check. `docs/building-doctrine.md` names `assertCrossFamilyServed` as an enforcement mechanism, so the whole family ships together rather than the half a driver happens to call.
 
 ### Changed
 

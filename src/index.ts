@@ -766,15 +766,18 @@ export {
 // model id it was asked for, so a turn written by a substitute model is not
 // scored as the requested model's behaviour.
 export type {
+  AssertCrossFamilyServedOptions,
   AssertServedModelOptions,
   ServedModelCheck,
   ServedModelVerdict,
 } from './integrity/served-model'
 export {
+  assertCrossFamilyServed,
   assertServedModel,
   assertServedModels,
   checkServedModel,
   ModelSubstitutionError,
+  ServedCrossFamilyError,
   servedModelAcceptable,
 } from './integrity/served-model'
 
