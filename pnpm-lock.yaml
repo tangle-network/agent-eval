@@ -22,11 +22,11 @@ importers:
         specifier: ^2.0.12
         version: 2.0.12(hono@4.12.32)
       '@tangle-network/agent-core':
-        specifier: 0.9.3
-        version: 0.9.3
+        specifier: 0.9.4
+        version: 0.9.4
       '@tangle-network/agent-interface':
-        specifier: 0.56.0
-        version: 0.56.0
+        specifier: ^1.0.0
+        version: 1.0.0
       '@tangle-network/agent-trace-contract':
         specifier: ^1.0.2
         version: 1.0.2
@@ -807,16 +807,16 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tangle-network/agent-core@0.9.3':
-    resolution: {integrity: sha512-mxB6Ydw5uJR80FTGBMs3f0z9nO9JfcU0ywoH+846VAql/pIDvinpBwmHE6bpy2KfIF+/SeKiRYbcR5Oe49kn7Q==}
+  '@tangle-network/agent-core@0.9.4':
+    resolution: {integrity: sha512-2iSPCHPKI/9A4t1XXPTbpaJTzf3BkwNzXOJfb3M7AMjpIGR1SKNiRHKpDTTEUVbfx4tRny5qDDMhCnFmKgPsHA==}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.30.0
     peerDependenciesMeta:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@tangle-network/agent-interface@0.56.0':
-    resolution: {integrity: sha512-MFaUB/PHUMfOSpu+9o7LMEWwqlu61Nf5zE9oKEQ++bNM7g4ZbQKFPmdzw8iqTGpG/x6/phF75d+XxTXVi8J0rA==}
+  '@tangle-network/agent-interface@1.0.0':
+    resolution: {integrity: sha512-rhXoscOE1TwkLvHg3tfqdumz++kcDRf7c5GRSTBnJkKLVypwvXB5yQJCB4aTUTrOCJxJMqowm2VPOmlTrUszOQ==}
 
   '@tangle-network/agent-trace-contract@1.0.2':
     resolution: {integrity: sha512-v7uMh56jkEp4vckevEU9xKsIatbs5dqzGPp69dFLSSXUVit0RP6VD6EANMXVlTCUk+6wVKBLHJx23XspVCEiIA==}
@@ -2287,12 +2287,12 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tangle-network/agent-core@0.9.3':
+  '@tangle-network/agent-core@0.9.4':
     dependencies:
-      '@tangle-network/agent-interface': 0.56.0
+      '@tangle-network/agent-interface': 1.0.0
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.56.0':
+  '@tangle-network/agent-interface@1.0.0':
     dependencies:
       '@noble/hashes': 1.8.0
       spdx-expression-parse: 5.0.0

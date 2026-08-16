@@ -44,14 +44,17 @@ try {
   if (packageJson.dependencies?.[removedSdkPackage]) {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
   }
+  // range is the declaration the packed manifest must carry; version is the
+  // single copy that declaration must resolve to. A caret range and its
+  // resolved version are different strings, so the two are asserted apart.
   const expectedDependencyCohort = {
-    '@tangle-network/agent-core': '0.9.3',
-    '@tangle-network/agent-interface': '0.56.0',
+    '@tangle-network/agent-core': { range: '0.9.4', version: '0.9.4' },
+    '@tangle-network/agent-interface': { range: '^1.0.0', version: '1.0.0' },
   }
-  for (const [name, version] of Object.entries(expectedDependencyCohort)) {
-    if (packageJson.dependencies?.[name] !== version) {
+  for (const [name, { range }] of Object.entries(expectedDependencyCohort)) {
+    if (packageJson.dependencies?.[name] !== range) {
       throw new Error(
-        `packed package dependency ${name} must be exactly ${version}, received ${packageJson.dependencies?.[name]}`,
+        `packed package dependency ${name} must be exactly ${range}, received ${packageJson.dependencies?.[name]}`,
       )
     }
   }
@@ -1147,7 +1150,8 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
       type: 'module',
       dependencies: {
         '@tangle-network/agent-eval': `file:${tarball}`,
-        '@tangle-network/agent-interface': expectedVersions['@tangle-network/agent-interface'],
+        '@tangle-network/agent-interface':
+          expectedVersions['@tangle-network/agent-interface'].range,
       },
     }),
   )
@@ -1158,7 +1162,7 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
     { timeout: 180_000 },
   )
 
-  for (const [name, expectedVersion] of Object.entries(expectedVersions)) {
+  for (const [name, { version: expectedVersion }] of Object.entries(expectedVersions)) {
     const manifests = run(
       'find',
       [
