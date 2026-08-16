@@ -144,7 +144,7 @@ describe('runAgentMatrix — a failed cell is billed for what it spent', () => {
     expect(result.summary.costUncapturedCells).toBe(1)
     expect(result.byAxis.scenario?.s1?.costUncapturedCells).toBe(1)
     expect(warn).toHaveBeenCalledWith(
-      '[matrix] 1 cell reported no spend for a failure — totalCostUsd and the cost ceiling under-count this run',
+      "[matrix] a cell's cost is a subtotal, not a total — totalCostUsd and the cost ceiling under-count this run",
     )
     warn.mockRestore()
   })

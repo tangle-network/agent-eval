@@ -68,7 +68,11 @@ function makeMatrixId(): string {
   return `mtx_${t}_${r}`
 }
 
-const UNCAPTURED: CostProvenance = { kind: 'uncaptured', usd: null }
+/** Fresh per result — a shared object would let one consumer's mutation reach
+ *  every other cell in the run. */
+function uncaptured(): CostProvenance {
+  return { kind: 'uncaptured', usd: null }
+}
 
 function makeErrorResult<Output>(err: unknown): CellResult<Output> {
   const e = err as { message?: string; name?: string }
@@ -80,7 +84,7 @@ function makeErrorResult<Output>(err: unknown): CellResult<Output> {
     durationMs: spend?.durationMs ?? 0,
     costProvenance:
       spend === undefined || spend.kind === 'uncaptured'
-        ? UNCAPTURED
+        ? uncaptured()
         : { kind: spend.kind, usd: spend.costUsd },
     error: {
       message: typeof e?.message === 'string' ? e.message : String(err),
@@ -187,7 +191,7 @@ export async function runAgentMatrix<Output>(
           if (costUncapturedCells === 1) {
             // eslint-disable-next-line no-console
             console.warn(
-              '[matrix] 1 cell reported no spend for a failure — totalCostUsd and the cost ceiling under-count this run',
+              "[matrix] a cell's cost is a subtotal, not a total — totalCostUsd and the cost ceiling under-count this run",
             )
           }
         }
