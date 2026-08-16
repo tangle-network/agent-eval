@@ -72,7 +72,7 @@ describe('createTraceAnalyst exact canonical output', () => {
       exactOptions(),
     )
 
-    expect(result.completion.status).toBe('completed')
+    expect(result.completion.status).toBe('complete')
     expect(result.findings).toHaveLength(1)
     const finding = result.findings[0]!
     expect(Object.hasOwn(finding, 'subject')).toBe(false)
