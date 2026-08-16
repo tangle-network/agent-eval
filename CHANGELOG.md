@@ -8,6 +8,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.146.0] — 2026-08-16
+
+### Removed
+
+- `decideNextUserTurn`, `DecideNextUserTurnOpts` and `buildDriverSystemPrompt`, with `src/driver.ts` and the `user-simulation-driver` example. A role written as a code function cannot be optimized, and a persona driver is an `AgentProfile` on a graph edge, not a packaged function. The one remaining caller, gtm-agent, now owns the role in its own repository, where the prompt is product data it can change and measure.
+- `ConvergenceTracker` and `src/convergence.ts`. Its only caller was `AgentDriver`, which 0.145.22 deleted, and it never reached the barrel. `analyzeSeries` in `src/series-convergence.ts` is unaffected — it reads drift across runs, not progress within one.
+- Nothing else on the public surface changes. `PersonaConfig` and `DriverState` stay: a harness that writes its own driver still describes a persona and a produced state with them.
+
+### Migration
+
+A caller that drove a conversation with `decideNextUserTurn` owns two things now: the system prompt that states what its simulated professional demands, and one priced call that turns the transcript into the next message. Both stay reachable from this package — `CostLedger.runPaidCall` prices and attributes the call, `maximumChargeForLlmRequest` caps it, `costReceiptFromLlm` records it, and `assertServedModel` (published in 0.145.22) holds the transport to the model id it was asked for. gtm-agent's `eval/lib/persona-driver.ts` is the worked example.
+
+---
+
 ## [0.145.22] — 2026-08-16
 
 ### Removed
