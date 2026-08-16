@@ -1,0 +1,91 @@
+{
+  "validSubjects": [
+    "agent-knowledge:wiki:router-retries#failure-taxonomy",
+    "agent-knowledge:claim:provider identity",
+    "system-prompt:verification",
+    "skill:trace-analysis",
+    "tool-doc:viewTrace:pagination",
+    "mcp:github:create_pull_request",
+    "agent-profile:prompt.instructions",
+    "code:src/runtime.ts",
+    "rag:runbooks:billing-reconciliation",
+    "websearch:outdated:model pricing",
+    "prior-run-summary:timeout failures",
+    "appworld.task.530b157_1"
+  ],
+  "invalidSubjects": [
+    "",
+    "   ",
+    "What changed",
+    "agent-knowledge:wiki:Uppercase",
+    "skill:Bad Name",
+    "mcp:github:",
+    "cluster:with-colon-but-no-grammar",
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  ],
+  "rows": [
+    {
+      "name": "canonical subject",
+      "valid": true,
+      "value": {
+        "severity": "high",
+        "claim": "The prompt omitted the verification rule.",
+        "subject": "system-prompt:verification",
+        "confidence": 0.9,
+        "evidence": [{ "uri": "trace://run/span/step-2", "excerpt": "No verification was run." }]
+      }
+    },
+    {
+      "name": "subject omitted",
+      "valid": true,
+      "value": {
+        "severity": "info",
+        "claim": "The trace is clean.",
+        "confidence": 0.75,
+        "evidence": [{ "uri": "trace://run/span/step-1" }]
+      }
+    },
+    {
+      "name": "free-form subject",
+      "valid": false,
+      "value": {
+        "severity": "high",
+        "claim": "The prompt changed.",
+        "subject": "What changed",
+        "confidence": 0.9,
+        "evidence": [{ "uri": "trace://run/span/step-2" }]
+      }
+    },
+    {
+      "name": "unknown field",
+      "valid": false,
+      "value": {
+        "severity": "high",
+        "claim": "Unknown metadata must not cross the boundary.",
+        "confidence": 0.9,
+        "evidence": [{ "uri": "trace://run/span/step-2" }],
+        "extra": true
+      }
+    },
+    {
+      "name": "empty evidence",
+      "valid": false,
+      "value": {
+        "severity": "high",
+        "claim": "A finding must be citable.",
+        "confidence": 0.9,
+        "evidence": []
+      }
+    },
+    {
+      "name": "confidence above one",
+      "valid": false,
+      "value": {
+        "severity": "high",
+        "claim": "Confidence is bounded.",
+        "confidence": 1.1,
+        "evidence": [{ "uri": "trace://run/span/step-2" }]
+      }
+    }
+  ]
+}
