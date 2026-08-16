@@ -64,8 +64,8 @@ const persona: PersonaConfig = {
   rigor: 'demanding',
 }
 
-// ── DriverState — `AgentDriver` keeps this updated from product side
-//    effects; in this offline demo we hold it constant. ────────────────
+// ── DriverState — a harness keeps this updated from product side effects;
+//    in this offline demo we hold it constant. ────────────────────────
 const state: DriverState = {
   tasks: 0,
   events: 0,
