@@ -68,6 +68,40 @@ jobs:
             clients/python/tests/test_dspy_rlm_bridge.py \
             clients/python/tests/test_finding_validation_parity.py
 
+      - name: Wrap bridge prompt contracts
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py')
+          text = path.read_text()
+          replacements = {
+              'The complete trajectory is already loaded into the REPL as the variables `trajectory` and `final_verification`; read them with Python code instead of re-fetching the trace.': (
+                  'The complete trajectory is already loaded into the REPL as `trajectory` and\n'
+                  '`final_verification`. Read them with Python code instead of re-fetching the trace.'
+              ),
+              'Where analyst_instructions describe transport — findings_json, finding subjects, evidence URIs, or excerpts — they are superseded: SUBMIT typed blocks and the caller builds every subject, URI, and excerpt from them.': (
+                  'Where analyst_instructions describe transport — findings_json, finding subjects,\n'
+                  'evidence URIs, or excerpts — SUBMIT typed blocks instead. The caller builds every\n'
+                  'subject, URI, and excerpt from those blocks.'
+              ),
+              'Re-emit ONLY the strict findings_json JSON array for that answer: no prose, no Markdown fences, no field markers.': (
+                  'Re-emit ONLY the strict findings_json JSON array for that answer.\n'
+                  'Use no prose, Markdown fences, or field markers.'
+              ),
+              'Each element must contain only severity, claim, optional canonical FindingSubject, confidence, optional rationale, optional recommended_action, and evidence (a non-empty array of objects with uri and optional excerpt).': (
+                  'Each element may contain only severity, claim, optional canonical FindingSubject,\n'
+                  'confidence, optional rationale, optional recommended_action, and evidence.\n'
+                  'Evidence must be a non-empty array of objects with uri and optional excerpt.'
+              ),
+          }
+          for old, new in replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'prompt wrapping anchor count for {old[:40]!r}: {count}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+
       - name: Format JavaScript and TypeScript changes
         run: |
           pnpm exec biome check --write \
