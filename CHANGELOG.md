@@ -22,6 +22,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 A caller that drove a conversation with `decideNextUserTurn` owns two things now: the system prompt that states what its simulated professional demands, and one priced call that turns the transcript into the next message. Both stay reachable from this package — `CostLedger.runPaidCall` prices and attributes the call, `maximumChargeForLlmRequest` caps it, `costReceiptFromLlm` records it, and `assertServedModel` (published in 0.145.22) holds the transport to the model id it was asked for. gtm-agent's `eval/lib/persona-driver.ts` is the worked example.
 
 A caller pinned below 0.145.22 cannot import `assertServedModel`. Check what the pinned version did before porting: `decideNextUserTurn` did not call the guard before the 0.145.x line, so a port that omits it there matches the pinned behaviour exactly.
+## [0.146.0] — 2026-08-16
+
+### Added
+
+- `@tangle-network/agent-eval/multishot/golden` — frozen recordings of what a multishot conversation engine produces on a closed set of deterministic scenarios, and a framework-free check any engine can point at.
+
+  A record holds two things. The REQUEST LEDGER: every transport call each leg received, in issue order, with its model, temperature, token budget, advertised tool definitions and full message log — the four places two orchestrations diverge without their return value changing. And the OUTCOME: the `MultishotResult` without wall-clock `durationMs`, or the throw reduced to its class, its message and the cell spend it declares for the cost ceiling. Matrix records add the returned `MatrixResult`, the judge calls, and every file the run persisted.
+
+  13 shot scenarios and 1 matrix scenario cover the turn-count edges (0, NaN, 1, 3, 10), silent multi-tool turns, an unknown tool with unparseable arguments, typed artifacts of two kinds, both cost provenances, driver retry and full model rotation, and all three error paths. Everything is scripted: no network, no clock in a recorded field, no random number.
+
+  `assertMultishotGoldenScenario` / `checkMultishotGolden` and the matrix pair report every field that moved, by name. `docs/multishot-golden-records.md` documents the contract and the regeneration path.
+
+  Records are frozen. `scripts/record-multishot-golden.ts` never picks an engine for you, captures every scenario twice and refuses an unreproducible one, and cannot overwrite an existing version — a behaviour change mints a NEW version file and the diff between them is the reviewable evidence.
+
+### Changed
+
+- No existing export changed. `runMultishot` and `runMultishotMatrix` are untouched.
 
 ---
 

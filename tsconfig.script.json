@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": ".", "noEmit": true },
   "include": [
+    "scripts/record-multishot-golden.ts",
     "scripts/tb-corpus-rows.ts",
     "scripts/tb-gated-stop-ab.ts",
     "scripts/tb-oracle-determinism.ts",

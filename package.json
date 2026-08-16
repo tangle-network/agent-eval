@@ -89,6 +89,11 @@
       "import": "./dist/multishot/index.js",
       "default": "./dist/multishot/index.js"
     },
+    "./multishot/golden": {
+      "types": "./dist/multishot/golden/index.d.ts",
+      "import": "./dist/multishot/golden/index.js",
+      "default": "./dist/multishot/golden/index.js"
+    },
     "./campaign": {
       "types": "./dist/campaign/index.d.ts",
       "import": "./dist/campaign/index.js",
