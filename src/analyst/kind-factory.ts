@@ -403,9 +403,7 @@ function toAnalystFinding(
     evidence_refs: evidenceRefsFromRawFinding(raw),
     ...(raw.subject === undefined ? {} : { subject: raw.subject }),
     ...(raw.rationale === undefined ? {} : { rationale: raw.rationale }),
-    ...(raw.recommended_action === undefined
-      ? {}
-      : { recommended_action: raw.recommended_action }),
+    ...(raw.recommended_action === undefined ? {} : { recommended_action: raw.recommended_action }),
     metadata: { definition_version: version, ...metadata },
   })
 }
