@@ -29,7 +29,7 @@
     {
       "file": "src/multishot/golden/matrix-scenarios.ts",
       "literal": "test/judge-model",
-      "reason": "Judge model of a golden-record matrix scenario. The scenario installs its own deterministic wire on globalThis.fetch and answers from a score table, so the literal never reaches a provider and there is no served id to compare it against."
+      "reason": "Judge model of a golden-record matrix scenario, in both the request position and the served position of the fabricated response. The scenario installs its own deterministic wire on globalThis.fetch and answers from a score table, so the literal never reaches a provider and there is no served id to compare it against."
     }
   ]
 }

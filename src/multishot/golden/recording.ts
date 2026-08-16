@@ -105,11 +105,23 @@ export function stripVolatile(value: unknown): unknown {
   return value
 }
 
-/** The matrix summary Markdown carries a rendered duration. Mask it so the
- *  rest of the document — cell counts, pass rate, mean, cost, the uncaptured
- *  warning — stays under comparison. */
+/** The matrix summary Markdown carries a rendered duration. Mask it so the rest
+ *  of the document — cell counts, pass rate, mean, cost, the uncaptured warning
+ *  — stays under comparison.
+ *
+ *  A duration the mask does not recognise would stay in the comparison and make
+ *  every run mismatch on a definitionally irreproducible field, so an
+ *  unmaskable duration line fails loud instead. */
 export function maskVolatileMarkdown(text: string): string {
-  return text.replace(/\*\*Duration\*\*: \d+s/g, '**Duration**: <elided>')
+  const masked = text.replace(/\*\*Duration\*\*: [\d.]+\s*(?:ms|s|m)\b/g, '**Duration**: <elided>')
+  if (/\*\*Duration\*\*: (?!<elided>)/.test(masked)) {
+    throw new Error(
+      `multishot golden: a rendered duration is not in a form the mask recognises — ${
+        masked.match(/\*\*Duration\*\*: [^|\n]*/)?.[0] ?? '(unreadable)'
+      }`,
+    )
+  }
+  return masked
 }
 
 /** Judge calls fan out through `Promise.all` across three slots, so their

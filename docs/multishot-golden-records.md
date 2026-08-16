@@ -39,7 +39,8 @@ describe('my engine reproduces the multishot golden records', () => {
 
 `assertMultishotGoldenScenario` throws `MultishotGoldenMismatchError` listing every field that moved.
 `checkMultishotGoldenScenario` returns the same report without throwing, for a caller that wants to inspect it.
-`checkMultishotGolden` runs the whole catalog in one call.
+`checkMultishotGolden` runs every SHOT scenario in one call; the matrix scenarios have their own pair below.
+It refuses an `only` id the catalog does not hold, so a stale id after a rename stops the check instead of greening a run of zero scenarios.
 
 The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
 That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it.
@@ -84,8 +85,12 @@ pnpm tsx scripts/record-multishot-golden.ts \
   --matrix-engine ../gtm-agent/eval/lib/multishot-matrix-graph.ts#runMultishotMatrixGraph
 ```
 
+Then register the new file in `src/multishot/golden/records/index.ts` and move `CURRENT_MULTISHOT_GOLDEN_VERSION` to it.
+The recorder writes the file and nothing else; until it is registered, `goldenRecords()` still resolves the old version and the new file is inert.
+
 Every scenario is captured twice and the two captures must agree.
 A scenario that is not reproducible cannot detect a regression, so an unstable capture fails the run instead of freezing a coin flip.
+Captures run with the network refused and with the same `durationMs` contract the check enforces, so the recorder cannot freeze a record its own reference engine would fail.
 
 ## Adding a scenario
 

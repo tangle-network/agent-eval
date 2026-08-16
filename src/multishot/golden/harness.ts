@@ -92,27 +92,27 @@ export async function checkMultishotGoldenScenario(opts: {
   const runCase = opts.scenario.build()
 
   let observed: MultishotGoldenRecord['outcome']
+  const mismatches: string[] = []
   try {
     const result = await opts.engine(runCase.options)
     observed = { kind: 'result', result: recordResult(result) }
-    if (!Number.isFinite(result.durationMs) || result.durationMs < 0) {
-      // durationMs is wall clock and is excluded from the record, but it is
-      // still part of the contract: a result must report a usable duration.
-      return {
-        id: opts.scenario.id,
-        description: opts.scenario.description,
-        ok: false,
-        mismatches: [`durationMs: expected a finite number >= 0, received ${result.durationMs}`],
-      }
+    // durationMs is wall clock and is excluded from the record, but it is still
+    // part of the contract: a result must report a usable duration. It joins the
+    // other mismatches rather than replacing them, so one bad field cannot hide
+    // the rest of a divergent run.
+    if (!isUsableDuration(result.durationMs)) {
+      mismatches.push(
+        `durationMs: expected a finite number >= 0, received ${String(result.durationMs)}`,
+      )
     }
   } catch (err) {
     observed = { kind: 'error', error: recordError(err) }
   }
 
-  const mismatches = [
+  mismatches.push(
     ...compareJson(record.outcome, observed, 'outcome'),
     ...compareJson(record.requests, runCase.requests, 'requests'),
-  ]
+  )
   return {
     id: opts.scenario.id,
     description: opts.scenario.description,
@@ -141,8 +141,20 @@ export async function checkMultishotGolden(opts: {
   only?: string[]
 }): Promise<MultishotGoldenReport> {
   const records = opts.records ?? goldenRecords()
+  const catalog = multishotGoldenScenarios()
   const wanted = opts.only ? new Set(opts.only) : undefined
-  const scenarios = multishotGoldenScenarios().filter((s) => !wanted || wanted.has(s.id))
+  if (wanted) {
+    // An id that names no scenario would silently shrink the run, and a run of
+    // zero scenarios reports ok. A stale id after a rename must stop the check,
+    // not green it.
+    const unknown = [...wanted].filter((id) => !catalog.some((s) => s.id === id)).sort()
+    if (unknown.length > 0) {
+      throw new Error(
+        `multishot golden: \`only\` names ${unknown.length === 1 ? 'a scenario' : 'scenarios'} the catalog does not hold: ${unknown.join(', ')}`,
+      )
+    }
+  }
+  const scenarios = catalog.filter((s) => !wanted || wanted.has(s.id))
   const reports: MultishotGoldenScenarioReport[] = []
   for (const scenario of scenarios) {
     reports.push(await checkMultishotGoldenScenario({ engine: opts.engine, scenario, records }))
@@ -199,6 +211,11 @@ export async function assertMultishotMatrixGoldenScenario(opts: {
   if (!report.ok) {
     throw new MultishotGoldenMismatchError(report.id, report.mismatches, records.version)
   }
+}
+
+/** A duration a caller can read: finite and not negative. */
+export function isUsableDuration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 export { multishotGoldenScenarios, multishotMatrixGoldenScenarios }

@@ -10,11 +10,14 @@ import { compareJson } from './compare'
 import type { MultishotGoldenEngine } from './engine'
 import {
   assertMultishotGoldenScenario,
+  assertMultishotMatrixGoldenScenario,
+  checkMultishotGolden,
   checkMultishotGoldenScenario,
   checkMultishotMatrixGoldenScenario,
   MultishotGoldenMismatchError,
 } from './harness'
 import { multishotMatrixGoldenScenarios } from './matrix-scenarios'
+import { maskVolatileMarkdown } from './recording'
 import { goldenRecords } from './records'
 import { multishotGoldenScenarios } from './scenarios'
 import type { MultishotGoldenRecord, MultishotRecordedMessage } from './types'
@@ -312,6 +315,73 @@ describe('the golden records are load-bearing', () => {
     }
     // Released again after the first check finishes.
     scenario.build('/unused/golden-wire-c').installJudgeWire()()
+  })
+
+  it('refuses an `only` id the catalog does not hold instead of greening zero scenarios', async () => {
+    await expect(
+      checkMultishotGolden({
+        engine: async () => {
+          throw new Error('never reached')
+        },
+        only: ['delegatio-three-turns'],
+      }),
+    ).rejects.toThrow(/`only` names a scenario the catalog does not hold: delegatio-three-turns/)
+
+    // A real id still runs, so the guard rejects only what it should.
+    const report = await checkMultishotGolden({
+      engine: runMultishot,
+      only: ['delegation-zero-turns'],
+    })
+    expect(report.ok).toBe(true)
+    expect(report.scenarios.map((s) => s.id)).toEqual(['delegation-zero-turns'])
+  })
+
+  it('reports a bad durationMs beside every other divergence, not instead of them', async () => {
+    const scenario = first(multishotGoldenScenarios(), 'scenarios')
+    const record = first(records.scenarios, 'records')
+    const engine: MultishotGoldenEngine = async (opts) => {
+      const result = await replayEngine(record)(opts)
+      return { ...result, durationMs: Number.NaN, toolCalls: result.toolCalls + 1 }
+    }
+    const report = await checkMultishotGoldenScenario({ engine, scenario })
+    expect(report.mismatches).toEqual([
+      'durationMs: expected a finite number >= 0, received NaN',
+      'outcome.result.toolCalls: expected 3, received 4',
+    ])
+  })
+
+  it('fails loud on a duration the summary mask does not recognise', () => {
+    expect(maskVolatileMarkdown('**Duration**: 0s')).toContain('<elided>')
+    expect(maskVolatileMarkdown('**Duration**: 1.5s')).toContain('<elided>')
+    expect(maskVolatileMarkdown('**Duration**: 900ms')).toContain('<elided>')
+    expect(() => maskVolatileMarkdown('**Duration**: a while')).toThrow(
+      /not in a form the mask recognises/,
+    )
+  })
+
+  it('throws MultishotGoldenMismatchError from the matrix assertion too', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'multishot-golden-matrix-assert-'))
+    try {
+      await expect(
+        assertMultishotMatrixGoldenScenario({
+          engine: async () => {
+            throw new Error('matrix engine exploded')
+          },
+          scenario: first(multishotMatrixGoldenScenarios(), 'matrix scenarios'),
+          runDir,
+        }),
+      ).rejects.toThrow('matrix engine exploded')
+
+      await expect(
+        assertMultishotMatrixGoldenScenario({
+          engine: async (opts) => runMultishotMatrix({ ...opts, reps: 2 }),
+          scenario: first(multishotMatrixGoldenScenarios(), 'matrix scenarios'),
+          runDir,
+        }),
+      ).rejects.toThrow(MultishotGoldenMismatchError)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
   })
 
   it('refuses a scenario the record set does not hold', async () => {

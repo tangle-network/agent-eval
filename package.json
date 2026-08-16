@@ -180,8 +180,7 @@
     "check:model-ids": "node scripts/check-model-id-requests.mjs",
     "check:analyst-benchmark": "node scripts/check-analyst-benchmark-implementation.mjs",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
-    "verify:package": "pnpm check:analyst-benchmark && pnpm run check:skill && pnpm run check:model-ids && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs",
-    "record:multishot-golden": "tsx scripts/record-multishot-golden.ts"
+    "verify:package": "pnpm check:analyst-benchmark && pnpm run check:skill && pnpm run check:model-ids && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",

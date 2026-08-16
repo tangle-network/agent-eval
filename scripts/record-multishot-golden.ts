@@ -17,11 +17,20 @@
  * unstable capture fails the run instead of freezing a coin flip.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { compareJson } from '../src/multishot/golden/compare'
+import { isUsableDuration } from '../src/multishot/golden/harness'
 import type {
   MultishotGoldenEngine,
   MultishotMatrixGoldenEngine,
@@ -49,6 +58,20 @@ import type {
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
+/** Every scenario answers from its own scripted transports. A capture that
+ *  reaches the network is recording something the scenario does not control, so
+ *  the call fails loud instead of leaving. The matrix path has the same guard
+ *  through its judge wire. */
+function forbidNetwork(label: string): () => void {
+  const previous = globalThis.fetch
+  globalThis.fetch = (async (url: unknown) => {
+    throw new Error(`record-multishot-golden: ${label} reached the network at ${String(url)}`)
+  }) as unknown as typeof globalThis.fetch
+  return () => {
+    globalThis.fetch = previous
+  }
+}
+
 function readArg(flag: string): string | undefined {
   const argv = process.argv.slice(2)
   const index = argv.indexOf(flag)
@@ -58,7 +81,22 @@ function readArg(flag: string): string | undefined {
 function requireArg(flag: string): string {
   const value = readArg(flag)
   if (!value) throw new Error(`record-multishot-golden: ${flag} is required`)
+  if (value.startsWith('--')) {
+    throw new Error(`record-multishot-golden: ${flag} was given the flag ${value}, not a value`)
+  }
   return value
+}
+
+/** The version names a file, so it may not carry a path separator or anything
+ *  else that would place the record outside the records directory. */
+function requireVersion(): string {
+  const version = requireArg('--version')
+  if (!/^[a-zA-Z0-9._-]+$/.test(version) || version === '.' || version === '..') {
+    throw new Error(
+      `record-multishot-golden: --version must match [a-zA-Z0-9._-]+, received ${version}`,
+    )
+  }
+  return version
 }
 
 /** Load `<module>#<export>` relative to the repo root. The engine is never
@@ -84,10 +122,22 @@ async function captureScenario(
 ): Promise<MultishotGoldenRecord> {
   const runCase = scenario.build()
   let outcome: MultishotGoldenRecord['outcome']
+  const restoreFetch = forbidNetwork(`scenario ${scenario.id}`)
   try {
-    outcome = { kind: 'result', result: recordResult(await engine(runCase.options)) }
+    const result = await engine(runCase.options)
+    if (!isUsableDuration(result.durationMs)) {
+      // The checker rejects this on every live run, so freezing it would mint a
+      // record the reference engine itself cannot pass.
+      throw new Error(
+        `record-multishot-golden: ${scenario.id} returned durationMs ${String(result.durationMs)} — the check requires a finite number >= 0`,
+      )
+    }
+    outcome = { kind: 'result', result: recordResult(result) }
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('record-multishot-golden:')) throw err
     outcome = { kind: 'error', error: recordError(err) }
+  } finally {
+    restoreFetch()
   }
   return {
     id: scenario.id,
@@ -137,7 +187,7 @@ function requireStable(first: unknown, second: unknown, label: string): void {
 }
 
 async function main(): Promise<void> {
-  const version = requireArg('--version')
+  const version = requireVersion()
   const engineSpec = requireArg('--engine')
   const matrixEngineSpec = requireArg('--matrix-engine')
   const outDir = resolve(repoRoot, readArg('--out') ?? 'src/multishot/golden/records')
@@ -187,7 +237,23 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(outDir, { recursive: true })
-  writeFileSync(outFile, `${JSON.stringify(set, null, 2)}\n`)
+  // The whole capture run sits between the existsSync check above and this
+  // write, so the check alone cannot hold the freeze. The record is written to a
+  // sibling first — a crash there leaves a `.partial` nobody mistakes for a
+  // released record — and then linked into place. `linkSync` fails with EEXIST
+  // rather than overwriting, so a second recorder that started meanwhile cannot
+  // replace a frozen record.
+  const tempFile = `${outFile}.partial`
+  writeFileSync(tempFile, `${JSON.stringify(set, null, 2)}\n`)
+  try {
+    linkSync(tempFile, outFile)
+  } catch (err) {
+    throw new Error(
+      `record-multishot-golden: could not claim ${outFile} — another recorder may hold it: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  } finally {
+    rmSync(tempFile, { force: true })
+  }
   process.stdout.write(
     `wrote ${outFile} — ${scenarios.length} shot scenarios, ${matrixScenarios.length} matrix scenarios\n`,
   )
