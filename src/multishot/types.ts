@@ -1,5 +1,7 @@
 // Public types for the multishot substrate.
 
+import type { CostProvenance } from '../cost-ledger'
+
 export interface MultishotMessage {
   role: 'user' | 'assistant' | 'tool'
   content: string
@@ -19,7 +21,17 @@ export interface MultishotResult {
   artifacts: MultishotArtifact[]
   toolCalls: number
   durationMs: number
+  /** Known spend. A subtotal, not a total, when `costProvenance.kind` is
+   *  `uncaptured`. */
   costUsd: number
+  /** Origin of `costUsd`. A shot that priced every call reports `estimated`
+   *  or `observed`; a shot with a call the router priced at nothing reports
+   *  `uncaptured`, and the matrix records the cell as under-counted instead of
+   *  presenting the subtotal as a complete estimate.
+   *
+   *  Optional so an engine written before this field keeps working; the matrix
+   *  then judges the cell on judge receipts alone, as it did before. */
+  costProvenance?: CostProvenance
 }
 
 export interface MultishotToolDefinition {
@@ -124,10 +136,11 @@ const MULTISHOT_ROLES = new Set(['user', 'assistant', 'tool'])
  *  scores as though the artifact was never produced; a non-finite `costUsd`
  *  reaches `summary.totalCostUsd` and makes every cost number NaN.
  *
- *  It does NOT protect spend. A rejected cell records `costUsd: 0`, so a shot
- *  that spends before it returns a malformed result leaves that spend out of
- *  the cumulative sum the cost ceiling reads. That is how the matrix records
- *  every failed cell, not something this guard changes.
+ *  A rejected cell is still billed: the matrix cell reads the shot's own
+ *  `costUsd` when it is a usable amount and declares that spend on the throw,
+ *  so money the shot spent before returning a malformed result stays in the
+ *  cumulative sum the cost ceiling reads. A result whose `costUsd` is itself
+ *  malformed carries no usable amount, and the cell records as `uncaptured`.
  *
  *  Every required field of `MultishotMessage` and `MultishotArtifact` is
  *  checked, including `toolCalls` elements and `invocation.args`. Optional
@@ -152,6 +165,27 @@ export function assertMultishotShotResult(value: unknown): asserts value is Mult
   assertFiniteCount(result.toolCalls, 'toolCalls')
   assertFiniteCount(result.durationMs, 'durationMs')
   assertFiniteCount(result.costUsd, 'costUsd')
+  if (result.costProvenance !== undefined) assertCostProvenance(result.costProvenance)
+}
+
+function assertCostProvenance(value: unknown): void {
+  const row = requireRow(value, 'costProvenance')
+  if (row.kind !== 'observed' && row.kind !== 'estimated' && row.kind !== 'uncaptured') {
+    throw new MultishotShotResultError(
+      `costProvenance.kind must be observed, estimated or uncaptured, received ${describeValue(row.kind)}`,
+    )
+  }
+  // The matrix reads the amount from `costUsd`; `usd` only has to agree with
+  // the kind, so an uncaptured provenance cannot smuggle in a total.
+  if (row.kind === 'uncaptured') {
+    if (row.usd !== null) {
+      throw new MultishotShotResultError(
+        `uncaptured costProvenance.usd must be null, received ${describeValue(row.usd)}`,
+      )
+    }
+    return
+  }
+  assertFiniteCount(row.usd, 'costProvenance.usd')
 }
 
 function assertMessage(value: unknown, index: number): void {

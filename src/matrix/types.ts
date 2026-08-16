@@ -8,8 +8,10 @@
  * imported at the boundary by JSDoc only; the matrix never wraps them.
  */
 
+import type { CostProvenance } from '../cost-ledger'
 import type { DefaultVerdict } from '../verdict'
 
+export type { CostProvenance } from '../cost-ledger'
 export type { DefaultVerdict } from '../verdict'
 
 /** One axis = one dimension to iterate. `V` is the value type — pass any
@@ -36,11 +38,26 @@ export interface MatrixCell {
 export interface CellResult<Output> {
   output: Output
   verdict: DefaultVerdict
+  /** Known subtotal in USD. When `costProvenance.kind` is `uncaptured` the
+   *  cell spent this much AND an unknown amount more, so the value must not be
+   *  read as the cell's total. Counts toward `costCeiling` either way. */
   costUsd: number
   durationMs: number
   runId?: string
-  /** Populated when `runCell` threw. The cell contributes 0 to passRate AND
-   *  meanScore regardless of `verdict`. */
+  /** Origin of `costUsd`. Absent on a result `runCell` returned — that
+   *  `costUsd` is measured by contract. The runner always sets it on a cell
+   *  that threw, where a bare number cannot say whether `0` means "spent
+   *  nothing" or "spend unknown".
+   *
+   *  Converting to `RunRecord` needs one translation: a `RunRecord` rejects a
+   *  numeric `costUsd` beside `uncaptured` provenance, so an uncaptured cell
+   *  becomes `costUsd: null` there. A cell keeps the subtotal because a cost
+   *  ceiling must charge the part it can see; a record drops it because a
+   *  record must never read as a total. */
+  costProvenance?: CostProvenance
+  /** Populated when `runCell` threw, or when it returned a cost the runner
+   *  cannot bill. The cell contributes 0 to passRate AND meanScore regardless
+   *  of `verdict`. */
   error?: { message: string; kind: string }
 }
 
@@ -52,7 +69,11 @@ export interface AxisSummary {
   meanScore: number
   p50Score: number
   p90Score: number
+  /** Sum of the known cost subtotals in this bucket. Under-counts real spend
+   *  by an unknown amount when `costUncapturedCells` is above 0. */
   totalCostUsd: number
+  /** Cells in this bucket whose cost is a subtotal, not a total. */
+  costUncapturedCells: number
   meanDurationMs: number
 }
 
@@ -69,7 +90,18 @@ export interface MatrixResult<Output> {
     cellsSkipped: number
     overallPassRate: number
     overallMeanScore: number
+    /** Sum of every cell's known cost subtotal. Read it together with
+     *  `costUncapturedCells`: above 0, this number is a floor on real spend,
+     *  and the cost ceiling stopped the run later than true spend deserved. */
     totalCostUsd: number
+    /** Cells whose cost is a subtotal rather than a total — a failure that
+     *  reported no spend, a failure that reported a partial amount, or a
+     *  result the runner could not bill. */
+    costUncapturedCells: number
+    /** What the cost ceiling actually read. Equals `totalCostUsd` unless
+     *  `maxCellCostUsd` was set and a cell's cost was a subtotal, in which case
+     *  the ceiling charged the bound and this figure is higher. */
+    ceilingChargedUsd: number
     durationMs: number
   }
   /** Stable id-like string generated at the end of the run. */
@@ -79,7 +111,10 @@ export interface MatrixResult<Output> {
 export interface RunAgentMatrixOptions<Output> {
   axes: MatrixAxis<unknown>[]
   /** User-supplied cell executor. May throw; the matrix captures throws as
-   *  `CellResult.error` and continues. */
+   *  `CellResult.error` and continues. A cell that spends money before it
+   *  throws must declare that spend — `throw withCellSpend(err, spend)` — or
+   *  the money is missing from `totalCostUsd` and from the sum `costCeiling`
+   *  reads. */
   runCell: (cell: MatrixCell) => Promise<CellResult<Output>>
   /** Replicates per cell. Default 1. */
   reps?: number
@@ -91,8 +126,22 @@ export interface RunAgentMatrixOptions<Output> {
   maxConcurrency?: number
   /** Cumulative-cost abort threshold (USD). When the running sum of
    *  `result.costUsd` crosses this value, no new cells are scheduled.
-   *  In-flight cells finish. Default `Infinity`. */
+   *  In-flight cells finish. Failed cells count for the spend they declare.
+   *  Default `Infinity`. */
   costCeiling?: number
+  /** Upper bound on what ONE cell can spend (USD). A cell whose cost is a
+   *  subtotal — a failure that declared nothing, a partial amount, a result
+   *  the runner could not bill — is charged this bound against `costCeiling`
+   *  instead of its known subtotal, so hidden spend cannot walk the run past
+   *  its budget.
+   *
+   *  It changes only what the ceiling reads. `CellResult.costUsd` and
+   *  `summary.totalCostUsd` keep reporting known spend, never a bound that was
+   *  charged but not spent; `summary.ceilingChargedUsd` reports the
+   *  conservative figure. Omit it and the ceiling stays fail-open for exactly
+   *  the cells that hid their spend, with `costUncapturedCells` as the only
+   *  signal. */
+  maxCellCostUsd?: number
   /** Fires once per executed cell, after its promise settles. */
   onCellComplete?: (cell: MatrixCell, result: CellResult<Output>) => void
   /** External cancellation. Aborts in-flight cells via a forwarded signal
