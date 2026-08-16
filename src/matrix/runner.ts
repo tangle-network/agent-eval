@@ -12,8 +12,10 @@
  */
 
 import { buildByAxis } from './aggregation'
+import { isAmount, readCellSpend } from './cell-spend'
 import type {
   CellResult,
+  CostProvenance,
   MatrixAxis,
   MatrixCell,
   MatrixResult,
@@ -66,18 +68,56 @@ function makeMatrixId(): string {
   return `mtx_${t}_${r}`
 }
 
+/** Fresh per result — a shared object would let one consumer's mutation reach
+ *  every other cell in the run. */
+function uncaptured(): CostProvenance {
+  return { kind: 'uncaptured', usd: null }
+}
+
 function makeErrorResult<Output>(err: unknown): CellResult<Output> {
   const e = err as { message?: string; name?: string }
+  const spend = readCellSpend(err)
   return {
     output: undefined as unknown as Output,
     verdict: { valid: false, score: 0 },
-    costUsd: 0,
-    durationMs: 0,
+    costUsd: spend?.costUsd ?? 0,
+    durationMs: spend?.durationMs ?? 0,
+    costProvenance:
+      spend === undefined || spend.kind === 'uncaptured'
+        ? uncaptured()
+        : { kind: spend.kind, usd: spend.costUsd },
     error: {
       message: typeof e?.message === 'string' ? e.message : String(err),
       kind: typeof e?.name === 'string' ? e.name : 'Error',
     },
   }
+}
+
+/** Make a result safe to sum.
+ *
+ *  A `costUsd` that cannot be summed fails the cell: `NaN` in `cumulativeCost`
+ *  makes `>= costCeiling` false forever, so one bad cell would disable the
+ *  ceiling for every cell after it.
+ *
+ *  A bad `durationMs` reaches only `meanDurationMs`, never the ceiling, so it
+ *  cannot justify throwing away a real verdict and a real cost. It is reported
+ *  as 0 and warned about, and the rest of the result stands. A wall clock that
+ *  steps back mid-cell makes `Date.now() - startedAt` negative, so this is a
+ *  reachable state, not only a caller bug. */
+function billableResult<Output>(
+  result: CellResult<Output>,
+  onBadDuration: (reported: unknown) => void,
+): CellResult<Output> {
+  if (!isAmount(result.costUsd)) {
+    return makeErrorResult<Output>(
+      new RangeError(
+        `runCell reported costUsd=${String(result.costUsd)}; a cell cost must be a finite number >= 0 so the cost ceiling stays enforceable`,
+      ),
+    )
+  }
+  if (isAmount(result.durationMs)) return result
+  onBadDuration(result.durationMs)
+  return { ...result, durationMs: 0 }
 }
 
 export async function runAgentMatrix<Output>(
@@ -88,6 +128,11 @@ export async function runAgentMatrix<Output>(
   const maxConcurrency = Math.max(1, opts.maxConcurrency ?? 4)
   const costCeiling = opts.costCeiling ?? Number.POSITIVE_INFINITY
   const aggregateBy = opts.aggregateBy ?? opts.axes.map((a) => a.name)
+  if (opts.maxCellCostUsd !== undefined && !isAmount(opts.maxCellCostUsd)) {
+    throw new RangeError(
+      `runAgentMatrix: maxCellCostUsd must be a finite number >= 0, received ${String(opts.maxCellCostUsd)}`,
+    )
+  }
 
   const base = cartesian(opts.axes)
   const filtered = opts.filter
@@ -107,10 +152,15 @@ export async function runAgentMatrix<Output>(
   }
 
   const cellRecords: Array<{ cell: MatrixCell; runs: CellResult<Output>[] }> = []
+  // What the ceiling reads. It runs ahead of the reported total whenever a
+  // cell's cost is a subtotal and `maxCellCostUsd` bounds what it could have
+  // been — a budget must assume the worst about spend it cannot see.
   let cumulativeCost = 0
   let costCeilingReached = false
   let runsExecuted = 0
   let cellsUnscheduled = 0
+  let costUncapturedCells = 0
+  let badDurationCells = 0
 
   const aborted = (): boolean => opts.signal?.aborted === true
 
@@ -148,10 +198,32 @@ export async function runAgentMatrix<Output>(
           return makeErrorResult<Output>(err)
         }
       })()
-      promise.then((result) => {
+      promise.then((settled) => {
+        const result = billableResult(settled, (reported) => {
+          badDurationCells++
+          if (badDurationCells === 1) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[matrix] a cell reported durationMs=${String(reported)}; recorded as 0 — meanDurationMs under-reports this run`,
+            )
+          }
+        })
         record.runs.push(result)
         runsExecuted++
-        cumulativeCost += result.costUsd
+        const uncapturedCost = result.costProvenance?.kind === 'uncaptured'
+        cumulativeCost +=
+          uncapturedCost && opts.maxCellCostUsd !== undefined
+            ? Math.max(result.costUsd, opts.maxCellCostUsd)
+            : result.costUsd
+        if (uncapturedCost) {
+          costUncapturedCells++
+          if (costUncapturedCells === 1) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              "[matrix] a cell's cost is a subtotal, not a total — totalCostUsd and the cost ceiling under-count this run",
+            )
+          }
+        }
         if (cumulativeCost >= costCeiling && !costCeilingReached) {
           costCeilingReached = true
           // eslint-disable-next-line no-console
@@ -230,6 +302,8 @@ export async function runAgentMatrix<Output>(
       overallPassRate: runCount === 0 ? 0 : pass / runCount,
       overallMeanScore: runCount === 0 ? 0 : scoreSum / runCount,
       totalCostUsd: totalCost,
+      costUncapturedCells,
+      ceilingChargedUsd: cumulativeCost,
       durationMs: Date.now() - startedAt,
     },
     matrixId: makeMatrixId(),

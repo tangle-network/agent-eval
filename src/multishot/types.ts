@@ -1,5 +1,7 @@
 // Public types for the multishot substrate.
 
+import type { CostProvenance } from '../cost-ledger'
+
 export interface MultishotMessage {
   role: 'user' | 'assistant' | 'tool'
   content: string
@@ -19,7 +21,17 @@ export interface MultishotResult {
   artifacts: MultishotArtifact[]
   toolCalls: number
   durationMs: number
+  /** Known spend. A subtotal, not a total, when `costProvenance.kind` is
+   *  `uncaptured`. */
   costUsd: number
+  /** Origin of `costUsd`. A shot that priced every call reports `estimated`
+   *  or `observed`; a shot with a call the router priced at nothing reports
+   *  `uncaptured`, and the matrix records the cell as under-counted instead of
+   *  presenting the subtotal as a complete estimate.
+   *
+   *  Optional so an engine written before this field keeps working; the matrix
+   *  then judges the cell on judge receipts alone, as it did before. */
+  costProvenance?: CostProvenance
 }
 
 export interface MultishotToolDefinition {
@@ -105,4 +117,141 @@ export class MultishotFatalToolError extends Error {
     super(message)
     this.name = 'MultishotFatalToolError'
   }
+}
+
+export class MultishotShotResultError extends Error {
+  constructor(reason: string) {
+    super(`multishot: shot returned an invalid MultishotResult — ${reason}`)
+    this.name = 'MultishotShotResultError'
+  }
+}
+
+const MULTISHOT_ROLES = new Set(['user', 'assistant', 'tool'])
+
+/** Contract guard for the value a caller-supplied shot resolves with. The
+ *  matrix writes per-cell artifacts, builds judge inputs, and meters cost from
+ *  this value, so a malformed result must stop the cell instead of scoring a
+ *  degraded one. Two silent degradations this closes: an artifact with no
+ *  `type` matches neither the code nor the content artifact set, so the cell
+ *  scores as though the artifact was never produced; a non-finite `costUsd`
+ *  reaches `summary.totalCostUsd` and makes every cost number NaN.
+ *
+ *  A rejected cell is still billed: the matrix cell reads the shot's own
+ *  `costUsd` when it is a usable amount and declares that spend on the throw,
+ *  so money the shot spent before returning a malformed result stays in the
+ *  cumulative sum the cost ceiling reads. A result whose `costUsd` is itself
+ *  malformed carries no usable amount, and the cell records as `uncaptured`.
+ *
+ *  Every required field of `MultishotMessage` and `MultishotArtifact` is
+ *  checked, including `toolCalls` elements and `invocation.args`. Optional
+ *  fields are checked only when present. */
+export function assertMultishotShotResult(value: unknown): asserts value is MultishotResult {
+  if (typeof value !== 'object' || value === null) {
+    throw new MultishotShotResultError(`expected an object, received ${describeValue(value)}`)
+  }
+  const result = value as Record<string, unknown>
+  if (!Array.isArray(result.transcript)) {
+    throw new MultishotShotResultError(
+      `transcript must be an array, received ${describeValue(result.transcript)}`,
+    )
+  }
+  if (!Array.isArray(result.artifacts)) {
+    throw new MultishotShotResultError(
+      `artifacts must be an array, received ${describeValue(result.artifacts)}`,
+    )
+  }
+  result.transcript.forEach(assertMessage)
+  result.artifacts.forEach(assertArtifact)
+  assertFiniteCount(result.toolCalls, 'toolCalls')
+  assertFiniteCount(result.durationMs, 'durationMs')
+  assertFiniteCount(result.costUsd, 'costUsd')
+  if (result.costProvenance !== undefined) assertCostProvenance(result.costProvenance)
+}
+
+function assertCostProvenance(value: unknown): void {
+  const row = requireRow(value, 'costProvenance')
+  if (row.kind !== 'observed' && row.kind !== 'estimated' && row.kind !== 'uncaptured') {
+    throw new MultishotShotResultError(
+      `costProvenance.kind must be observed, estimated or uncaptured, received ${describeValue(row.kind)}`,
+    )
+  }
+  // The matrix reads the amount from `costUsd`; `usd` only has to agree with
+  // the kind, so an uncaptured provenance cannot smuggle in a total.
+  if (row.kind === 'uncaptured') {
+    if (row.usd !== null) {
+      throw new MultishotShotResultError(
+        `uncaptured costProvenance.usd must be null, received ${describeValue(row.usd)}`,
+      )
+    }
+    return
+  }
+  assertFiniteCount(row.usd, 'costProvenance.usd')
+}
+
+function assertMessage(value: unknown, index: number): void {
+  const row = requireRow(value, `transcript[${index}]`)
+  if (typeof row.role !== 'string' || !MULTISHOT_ROLES.has(row.role)) {
+    throw new MultishotShotResultError(
+      `transcript[${index}].role must be user, assistant or tool, received ${describeValue(row.role)}`,
+    )
+  }
+  assertString(row.content, `transcript[${index}].content`)
+  if (row.toolCallId !== undefined) {
+    assertString(row.toolCallId, `transcript[${index}].toolCallId`)
+  }
+  if (row.toolCalls === undefined) return
+  if (!Array.isArray(row.toolCalls)) {
+    throw new MultishotShotResultError(
+      `transcript[${index}].toolCalls must be an array when present, received ${describeValue(row.toolCalls)}`,
+    )
+  }
+  row.toolCalls.forEach((call, callIndex) => {
+    const field = `transcript[${index}].toolCalls[${callIndex}]`
+    const row = requireRow(call, field)
+    assertString(row.id, `${field}.id`)
+    assertString(row.name, `${field}.name`)
+    requireRow(row.args, `${field}.args`)
+  })
+}
+
+function assertArtifact(value: unknown, index: number): void {
+  const row = requireRow(value, `artifacts[${index}]`)
+  assertString(row.type, `artifacts[${index}].type`)
+  assertString(row.content, `artifacts[${index}].content`)
+  assertFiniteCount(row.turn, `artifacts[${index}].turn`)
+  const invocation = requireRow(row.invocation, `artifacts[${index}].invocation`)
+  assertString(invocation.name, `artifacts[${index}].invocation.name`)
+  requireRow(invocation.args, `artifacts[${index}].invocation.args`)
+}
+
+function requireRow(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new MultishotShotResultError(
+      `${field} must be an object, received ${describeValue(value)}`,
+    )
+  }
+  return value as Record<string, unknown>
+}
+
+function assertString(value: unknown, field: string): void {
+  if (typeof value !== 'string') {
+    throw new MultishotShotResultError(
+      `${field} must be a string, received ${describeValue(value)}`,
+    )
+  }
+}
+
+function assertFiniteCount(value: unknown, field: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new MultishotShotResultError(
+      `${field} must be a finite number >= 0, received ${describeValue(value)}`,
+    )
+  }
+}
+
+function describeValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'an array'
+  if (typeof value === 'object') return 'an object'
+  return `${typeof value} ${String(value)}`
 }

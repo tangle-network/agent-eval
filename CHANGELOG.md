@@ -8,6 +8,84 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.22] — 2026-08-16
+
+### Removed
+
+- `AgentDriver` and `AgentDriverConfig`. The class was absent from the barrel and from every published subpath, so no consumer could import it. Nine sibling default branches and ten published npm dependents carry zero callers.
+- `MetricsCollector`, `TurnMetrics` and `DriverResult`. Each existed only to serve `AgentDriver`, and none reached the export surface.
+
+### Added
+
+- The served-model guard reaches the public surface: `assertServedModel`, `assertServedModels`, `assertCrossFamilyServed`, `checkServedModel`, `servedModelAcceptable`, `ModelSubstitutionError`, `ServedCrossFamilyError`, and the `AssertServedModelOptions` / `AssertCrossFamilyServedOptions` / `ServedModelCheck` / `ServedModelVerdict` types. A harness that owns its own conversation loop needs the same check the packaged drivers make — hold the transport to the model id it was asked for — and could not reach it. Without this, migrating off `decideNextUserTurn` means dropping the check. `docs/building-doctrine.md` names `assertCrossFamilyServed` as an enforcement mechanism, so the whole family ships together rather than the half a driver happens to call.
+
+### Changed
+
+- The `buildDriverSystemPrompt` and `decideNextUserTurn` deprecation notices cite `tangle-network/agent-eval#618`, the open issue that tracks their removal, instead of a closed issue in another repository.
+
+---
+
+## [0.145.21] — 2026-08-16
+
+### Changed
+
+- `@tangle-network/agent-interface` is declared as `^1.0.0` instead of the exact `0.56.0`. Interface 1.0.0 publishes the surface of 0.56.0 unchanged and states a compatibility promise: a minor release is additive, a patch release is a fix, and only a major release removes or narrows. A caret range reads that promise, so a later additive minor needs no release here, and a consumer that installs this package beside another first-party package resolves one interface copy instead of two.
+- `@tangle-network/agent-core` moves to 0.9.4, which is the release that depends on interface 1.0.0. An older core pin drags its own interface copy into the tree.
+- `pnpm.minimumReleaseAgeExclude` accepts `@tangle-network/*`. The 3 day release-age floor refused a first-party version published the same day, which blocked adoption of the package this repository releases against.
+- `scripts/verify-package-exports.mjs` asserts the declared range and the resolved version apart. A caret range and the single version it resolves to are different strings, so one expectation cannot cover both.
+
+---
+
+## [0.145.20] — 2026-08-16
+
+### Fixed
+
+- A matrix cell that spent money and then threw recorded `costUsd: 0` and `durationMs: 0`. That spend left the cumulative sum `costCeiling` reads, so a run kept scheduling cells after real spend passed the ceiling. A failed cell is now billed for the spend it declares.
+- `runMultishot` lost the cost of every driver attempt that billed and returned empty content. Those calls are now charged as they happen, so `MultishotDriverEmptyError` no longer discards the whole conversation's spend.
+- A cell that returns a non-finite or negative `costUsd` no longer disables the ceiling for the rest of the run. `NaN` in the cumulative sum makes `>= costCeiling` false forever. Such a result now fails its own cell and the ceiling stays enforceable. An unusable `durationMs` reaches only `meanDurationMs`, so it is recorded as 0 with a warning and the cell keeps its verdict and its cost. A wall clock that steps back mid-cell makes an elapsed time negative, so this is a reachable state.
+- A shot whose call reported neither a cost nor usage priced that call at 0 and still reported the total as a complete estimate. `runMultishot` now reports `costProvenance` on success, so the cell records `uncaptured` and the run counts it. The error path already reported this; the success path did not.
+- `withCellSpend` lost the spend and replaced the original error when the thrown value was frozen, sealed, or otherwise non-extensible. Such a value is now wrapped in an `Error` that carries the spend and keeps the original as `cause`.
+
+### Added
+
+- `withCellSpend(error, spend)` and `readCellSpend(error)` on `@tangle-network/agent-eval/matrix`. A `runCell` implementation that spends before it throws declares that spend with `throw withCellSpend(err, { costUsd, durationMs, kind })`. The carrier is read structurally, so a throw that crosses a package boundary still bills.
+- `CellResult.costProvenance` names the origin of `costUsd`: `observed`, `estimated`, or `uncaptured`. A failure that declares no spend records `uncaptured`, which is distinct from a measured zero.
+- `MatrixResult.summary.costUncapturedCells` and `AxisSummary.costUncapturedCells` count the cells whose cost is a subtotal. Above 0, `totalCostUsd` is a floor on real spend, not the total.
+- `RunAgentMatrixOptions.maxCellCostUsd` bounds what one cell can spend. A cell whose cost is a subtotal is charged that bound against `costCeiling` instead of its known amount, so spend a cell hid cannot walk the run past its budget. It changes only what the ceiling reads: `CellResult.costUsd` and `summary.totalCostUsd` keep reporting known spend. `runMultishotMatrix` forwards the option.
+- `MatrixResult.summary.ceilingChargedUsd` reports the figure the ceiling read. It exceeds `totalCostUsd` only when `maxCellCostUsd` charged a bound.
+- `MultishotResult.costProvenance` lets a shot declare whether its `costUsd` is a total or a subtotal. It is optional, so an engine written before this field behaves as before. `assertMultishotShotResult` validates it when present and rejects an `uncaptured` provenance that carries a number.
+
+### Changed
+
+- The multishot cell declares the shot's own subtotal plus settled judge cost when it fails after the shot returns, and reports `costProvenance: uncaptured` when a judge cost was never reported. A shot that declares no spend is rethrown untouched, so the cell records as uncaptured rather than claiming a fabricated total.
+- `runMultishotMatrix` writes `costUncapturedCells` and `ceilingChargedUsd` into `summary.json`. `summary.md` labels the cost line "Cost (at least)" and carries a caveat line when any cell reported a subtotal, so a reader of the on-disk report cannot mistake the figure for the run's whole spend.
+- Refreshed the analyst benchmark dependency-lock hash for this version.
+
+---
+
+## [0.145.19] — 2026-08-16
+
+### Added
+
+- Add `RunMultishotMatrixOptions.runShot`, the per-cell conversation engine for `runMultishotMatrix`. It defaults to `runMultishot`. A consumer supplies an alternative engine and keeps the substrate cell body: fan-out, concurrency, the cost ceiling, the judge slots, the cell composite, the per-cell writers, and the run summary.
+- Export `MultishotShot`, the shot signature, and `MultishotCellOutput`, the per-cell output type. A consumer engine is checked against these types instead of a structural copy.
+- Export `MultishotShotResultError` and `assertMultishotShotResult`. The matrix validates each shot result and fails the cell loud. It never falls back to the default engine. The guard reads every required field of each transcript row and each artifact, including `toolCalls` elements and `invocation.args`. It rejects an untyped artifact before the cell scores as though the artifact was never produced, and a non-finite `costUsd` before the value makes every cost number NaN. The guard does not protect spend: a rejected cell records `costUsd: 0`, which is how the matrix records every failed cell.
+
+### Changed
+
+- The multishot matrix now applies `assertMultishotShotResult` to the default engine's result too. A custom tool executor that returns non-string `content`, or a custom transport that reports a negative or non-finite `costUsd`, now fails the cell instead of writing the value into the cell artifacts.
+
+---
+
+## [0.145.18] — 2026-08-16
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.9.3` and `0.56.0`.
+- Packed consumers now resolve one Core and Interface contract set through Eval.
+
+---
+
 ## [0.145.17] — 2026-08-16
 
 ### Changed

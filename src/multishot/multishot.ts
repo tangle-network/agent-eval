@@ -7,6 +7,7 @@
 // into the agent's message log so the agent integrates the result.
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { withCellSpend } from '../matrix'
 import { defaultDelegationTools } from './default-tools'
 import {
   defaultRouterBaseUrl,
@@ -70,8 +71,48 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   signal?: AbortSignal
 }
 
+/** One multishot shot — the conversation engine `runMultishotMatrix` invokes
+ *  once per cell. `runMultishot` is the default implementation.
+ *
+ *  An alternative engine (a graph-backed conversation, a replay of a recorded
+ *  transcript, a sandbox-hosted agent) implements this exact signature and
+ *  reaches the matrix through `RunMultishotMatrixOptions.runShot`. The matrix
+ *  keeps every other cell mechanic — cell fan-out, concurrency, the cost
+ *  ceiling, the judge slots, the cell composite, and the per-cell writers — so
+ *  swapping the engine needs no copy of the cell body. */
+export type MultishotShot<TPersona extends MultishotPersona> = (
+  opts: RunMultishotOptions<TPersona>,
+) => Promise<MultishotResult>
+
+/** Running spend of one shot, readable after the shot throws. */
+interface ShotMeter {
+  costUsd: number
+  startedAt: number
+  /** True once a call contributed a fabricated `0` — no provider cost and no
+   *  usage to price. `costUsd` is a subtotal from that point on. */
+  uncaptured: boolean
+}
+
 export async function runMultishot<TPersona extends MultishotPersona>(
   opts: RunMultishotOptions<TPersona>,
+): Promise<MultishotResult> {
+  const meter: ShotMeter = { costUsd: 0, startedAt: Date.now(), uncaptured: false }
+  try {
+    return await runShotTurns(opts, meter)
+  } catch (err) {
+    // The turns already paid for. Declare that spend so the matrix bills the
+    // failed cell for it and the cost ceiling sees the real cumulative total.
+    throw withCellSpend(err, {
+      costUsd: meter.costUsd,
+      durationMs: Date.now() - meter.startedAt,
+      kind: meter.uncaptured ? 'uncaptured' : 'estimated',
+    })
+  }
+}
+
+async function runShotTurns<TPersona extends MultishotPersona>(
+  opts: RunMultishotOptions<TPersona>,
+  meter: ShotMeter,
 ): Promise<MultishotResult> {
   const apiKey = opts.apiKey ?? requireRouterApiKey()
   const baseUrl = opts.baseUrl ?? defaultRouterBaseUrl()
@@ -102,11 +143,9 @@ export async function runMultishot<TPersona extends MultishotPersona>(
 
   const shape = defaultShapeFromProfile(opts.profile, opts.shape)
 
-  const start = Date.now()
   const transcript: MultishotMessage[] = []
   const artifacts: MultishotArtifact[] = []
   let toolCalls = 0
-  let totalCostUsd = 0
 
   const opener = shape.buildOpener(opts.persona)
   transcript.push({ role: 'user', content: opener })
@@ -136,7 +175,8 @@ export async function runMultishot<TPersona extends MultishotPersona>(
         maxTokens: dispatchesThisTurn === 0 ? agentMaxTokens : toolFollowupMaxTokens,
         signal: opts.signal,
       })
-      totalCostUsd += agentCostUsd ?? estimateRouterCost(agentModel, agentUsage)
+      meter.costUsd += agentCostUsd ?? estimateRouterCost(agentModel, agentUsage)
+      if (agentCostUsd === undefined && agentUsage === undefined) meter.uncaptured = true
 
       const agentText = (agentMsg.content ?? '').trim()
       const agentToolCalls = (agentMsg.tool_calls ?? []).map((tc) => ({
@@ -180,7 +220,7 @@ export async function runMultishot<TPersona extends MultishotPersona>(
           } else {
             const r = await executor(tc.args, { apiKey, baseUrl, signal: opts.signal })
             toolResult = r.content
-            totalCostUsd += r.costUsd
+            meter.costUsd += r.costUsd
             const artifactType = artifactTypeFor(tc.name)
             if (artifactType) {
               artifacts.push({
@@ -210,14 +250,26 @@ export async function runMultishot<TPersona extends MultishotPersona>(
         models: driverModels,
         maxTokens: driverMaxTokens,
         signal: opts.signal,
+        meter,
       })
-      totalCostUsd += driver.costUsd
       agentMessages.push({ role: 'user', content: driver.content })
       transcript.push({ role: 'user', content: driver.content })
     }
   }
 
-  return { transcript, artifacts, toolCalls, durationMs: Date.now() - start, costUsd: totalCostUsd }
+  return {
+    transcript,
+    artifacts,
+    toolCalls,
+    durationMs: Date.now() - meter.startedAt,
+    costUsd: meter.costUsd,
+    // A shot that priced every call reports a complete estimate. One that had
+    // a call the router priced at nothing reports a subtotal, so the cell is
+    // recorded as under-counted rather than as a complete estimate.
+    costProvenance: meter.uncaptured
+      ? { kind: 'uncaptured', usd: null }
+      : { kind: 'estimated', usd: meter.costUsd },
+  }
 }
 
 async function driverTurn<TPersona extends MultishotPersona>(opts: {
@@ -229,7 +281,11 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
   models: string[]
   maxTokens: number
   signal?: AbortSignal
-}): Promise<{ content: string; costUsd: number }> {
+  /** Charged for EVERY attempt, including the empty ones that force a retry
+   *  and the ones that precede `MultishotDriverEmptyError`. Those calls billed
+   *  the provider whether or not their content was usable. */
+  meter: ShotMeter
+}): Promise<{ content: string }> {
   const driverSystem = opts.shape.buildDriverSystemPrompt(opts.persona)
 
   // Translate transcript to driver POV: agent's `assistant` messages become
@@ -254,9 +310,10 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
         maxTokens: opts.maxTokens,
         signal: opts.signal,
       })
+      opts.meter.costUsd += costUsd ?? estimateRouterCost(model, usage)
+      if (costUsd === undefined && usage === undefined) opts.meter.uncaptured = true
       const content = (message.content ?? '').trim()
-      if (content.length > 0)
-        return { content, costUsd: costUsd ?? estimateRouterCost(model, usage) }
+      if (content.length > 0) return { content }
     }
   }
   throw new MultishotDriverEmptyError(opts.turn)
