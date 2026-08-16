@@ -70,6 +70,19 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   signal?: AbortSignal
 }
 
+/** One multishot shot — the conversation engine `runMultishotMatrix` invokes
+ *  once per cell. `runMultishot` is the default implementation.
+ *
+ *  An alternative engine (a graph-backed conversation, a replay of a recorded
+ *  transcript, a sandbox-hosted agent) implements this exact signature and
+ *  reaches the matrix through `RunMultishotMatrixOptions.runShot`. The matrix
+ *  keeps every other cell mechanic — cell fan-out, concurrency, the cost
+ *  ceiling, the judge slots, the cell composite, and the per-cell writers — so
+ *  swapping the engine needs no copy of the cell body. */
+export type MultishotShot<TPersona extends MultishotPersona> = (
+  opts: RunMultishotOptions<TPersona>,
+) => Promise<MultishotResult>
+
 export async function runMultishot<TPersona extends MultishotPersona>(
   opts: RunMultishotOptions<TPersona>,
 ): Promise<MultishotResult> {

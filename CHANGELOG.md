@@ -8,6 +8,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.18] — 2026-08-16
+
+### Added
+
+- Add `RunMultishotMatrixOptions.runShot`, the per-cell conversation engine for `runMultishotMatrix`. It defaults to `runMultishot`. A consumer supplies an alternative engine and keeps the substrate cell body: fan-out, concurrency, the cost ceiling, the judge slots, the cell composite, the per-cell writers, and the run summary.
+- Export `MultishotShot`, the shot signature, and `MultishotCellOutput`, the per-cell output type. A consumer engine is checked against these types instead of a structural copy.
+- Export `MultishotShotResultError` and `assertMultishotShotResult`. The matrix validates each shot result and fails the cell loud. It never falls back to the default engine. A non-finite `costUsd` is rejected before it reaches the cost ceiling.
+
+---
+
 ## [0.145.17] — 2026-08-16
 
 ### Changed

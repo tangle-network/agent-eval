@@ -106,3 +106,50 @@ export class MultishotFatalToolError extends Error {
     this.name = 'MultishotFatalToolError'
   }
 }
+
+export class MultishotShotResultError extends Error {
+  constructor(reason: string) {
+    super(`multishot: shot returned an invalid MultishotResult — ${reason}`)
+    this.name = 'MultishotShotResultError'
+  }
+}
+
+/** Contract guard for the value a caller-supplied shot resolves with. The
+ *  matrix meters cost, writes per-cell artifacts, and builds judge inputs from
+ *  this value, so a malformed result must stop the cell instead of degrading a
+ *  downstream number: a non-finite `costUsd` propagates into the cumulative
+ *  sum and disables the matrix cost ceiling for the rest of the run. */
+export function assertMultishotShotResult(value: unknown): asserts value is MultishotResult {
+  if (typeof value !== 'object' || value === null) {
+    throw new MultishotShotResultError(`expected an object, received ${describeValue(value)}`)
+  }
+  const result = value as Record<string, unknown>
+  if (!Array.isArray(result.transcript)) {
+    throw new MultishotShotResultError(
+      `transcript must be an array, received ${describeValue(result.transcript)}`,
+    )
+  }
+  if (!Array.isArray(result.artifacts)) {
+    throw new MultishotShotResultError(
+      `artifacts must be an array, received ${describeValue(result.artifacts)}`,
+    )
+  }
+  assertFiniteCount(result.toolCalls, 'toolCalls')
+  assertFiniteCount(result.durationMs, 'durationMs')
+  assertFiniteCount(result.costUsd, 'costUsd')
+}
+
+function assertFiniteCount(value: unknown, field: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new MultishotShotResultError(
+      `${field} must be a finite number >= 0, received ${describeValue(value)}`,
+    )
+  }
+}
+
+function describeValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'an array'
+  if (typeof value === 'object') return 'an object'
+  return `${typeof value} ${String(value)}`
+}

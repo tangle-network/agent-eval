@@ -30,12 +30,13 @@ export {
   type CellCompositeScore,
   type ConversationJudgeInput,
   computeCellComposite,
+  type MultishotCellOutput,
   type MultishotJudges,
   type RunMultishotMatrixOptions,
   type RunMultishotMatrixResult,
   runMultishotMatrix,
 } from './matrix'
-export { type RunMultishotOptions, runMultishot } from './multishot'
+export { type MultishotShot, type RunMultishotOptions, runMultishot } from './multishot'
 export {
   defaultRouterBaseUrl,
   estimateRouterCost,
@@ -53,6 +54,7 @@ export {
 } from './shape-defaults'
 
 export {
+  assertMultishotShotResult,
   type MultishotArtifact,
   MultishotDriverEmptyError,
   MultishotFatalToolError,
@@ -60,6 +62,7 @@ export {
   type MultishotPersona,
   type MultishotResult,
   type MultishotShape,
+  MultishotShotResultError,
   type MultishotToolDefinition,
   type MultishotToolExecutor,
   type MultishotTransport,
