@@ -102,6 +102,9 @@ export function pairedEvalueSequence(
   const rope = opts.rope ?? null
   if (c <= 0) throw new Error('pairedEvalueSequence: bound must be > 0')
   if (alpha <= 0 || alpha >= 1) throw new Error('pairedEvalueSequence: alpha must be in (0,1)')
+  if (!(initialShrink > 0 && initialShrink <= 1)) {
+    throw new Error('pairedEvalueSequence: initialBetShrinkage must be in (0,1]')
+  }
   if (rope && !(Number.isFinite(rope.low) && Number.isFinite(rope.high) && rope.low <= rope.high)) {
     throw new Error('pairedEvalueSequence: rope must satisfy low ≤ high')
   }
@@ -163,6 +166,62 @@ export function pairedEvalueSequence(
 
   const finalDecision = steps.length === 0 ? 'continue' : steps[steps.length - 1]!.decision
   return { steps, finalDecision, decisionFiredAt, clipped }
+}
+
+/** Configuration for the best-case reachability preflight. */
+export interface SequentialCrossingHorizonOptions
+  extends Pick<PairedEvalueOptions, 'alpha' | 'bound' | 'initialBetShrinkage'> {
+  /** Maximum pairs to simulate before returning `null`. Default 10,000. */
+  maxPairs?: number
+}
+
+/**
+ * Best-case horizons under the exact betting policy used by
+ * {@link pairedEvalueSequence}.
+ *
+ * `evidencePairs` is the first all-at-bound pair count whose e-value reaches
+ * `1/alpha`. `decisionPairs` is the first count whose actual two-sided
+ * sequence verdict fires (`2/alpha` in the current policy). A design whose
+ * pair cap is below either relevant horizon is undecidable by construction and
+ * should be refused before model spend.
+ */
+export interface SequentialCrossingHorizon {
+  readonly evidencePairs: number | null
+  readonly decisionPairs: number | null
+  readonly evidenceThreshold: number
+  readonly decisionThreshold: number
+  readonly maxPairs: number
+}
+
+/**
+ * Compute the minimum pair count at which even perfect, all-at-bound data can
+ * reach the evidence and decision thresholds. The calculation intentionally
+ * calls the canonical sequence implementation rather than maintaining a
+ * second approximation that can drift from its bet schedule.
+ */
+export function sequentialCrossingHorizon(
+  opts: SequentialCrossingHorizonOptions = {},
+): SequentialCrossingHorizon {
+  const bound = opts.bound ?? 1
+  const alpha = opts.alpha ?? 0.05
+  const maxPairs = opts.maxPairs ?? 10_000
+  if (!Number.isSafeInteger(maxPairs) || maxPairs < 1) {
+    throw new Error('sequentialCrossingHorizon: maxPairs must be a positive safe integer')
+  }
+  const sequence = pairedEvalueSequence(Array<number>(maxPairs).fill(bound), {
+    bound,
+    alpha,
+    initialBetShrinkage: opts.initialBetShrinkage,
+  })
+  const evidenceThreshold = 1 / alpha
+  const evidencePairs = sequence.steps.find((step) => step.evalue >= evidenceThreshold)?.t ?? null
+  return Object.freeze({
+    evidencePairs,
+    decisionPairs: sequence.decisionFiredAt,
+    evidenceThreshold,
+    decisionThreshold: 2 / alpha,
+    maxPairs,
+  })
 }
 
 export interface InterimReleaseConfidenceInput {
