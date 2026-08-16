@@ -8,6 +8,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.21] — 2026-08-16
+
+### Changed
+
+- `@tangle-network/agent-interface` is declared as `^1.0.0` instead of the exact `0.56.0`. Interface 1.0.0 publishes the surface of 0.56.0 unchanged and states a compatibility promise: a minor release is additive, a patch release is a fix, and only a major release removes or narrows. A caret range reads that promise, so a later additive minor needs no release here, and a consumer that installs this package beside another first-party package resolves one interface copy instead of two.
+- `@tangle-network/agent-core` moves to 0.9.4, which is the release that depends on interface 1.0.0. An older core pin drags its own interface copy into the tree.
+- `pnpm.minimumReleaseAgeExclude` accepts `@tangle-network/*`. The 3 day release-age floor refused a first-party version published the same day, which blocked adoption of the package this repository releases against.
+- `scripts/verify-package-exports.mjs` asserts the declared range and the resolved version apart. A caret range and the single version it resolves to are different strings, so one expectation cannot cover both.
+
+---
+
 ## [0.145.20] — 2026-08-16
 
 ### Fixed
