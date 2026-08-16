@@ -14,6 +14,7 @@ export const buildEntries = {
   'builder-eval/index': 'src/builder-eval/index.ts',
   'matrix/index': 'src/matrix/index.ts',
   'multishot/index': 'src/multishot/index.ts',
+  'multishot/golden/index': 'src/multishot/golden/index.ts',
   'campaign/index': 'src/campaign/index.ts',
   'ledger-core/index': 'src/ledger-core/index.ts',
   'authenticity/index': 'src/authenticity/index.ts',
