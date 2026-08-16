@@ -8,6 +8,26 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.20] — 2026-08-16
+
+### Fixed
+
+- A matrix cell that spent money and then threw recorded `costUsd: 0` and `durationMs: 0`. That spend left the cumulative sum `costCeiling` reads, so a run kept scheduling cells after real spend passed the ceiling. A failed cell is now billed for the spend it declares.
+- `runMultishot` lost the cost of every driver attempt that billed and returned empty content. Those calls are now charged as they happen, so `MultishotDriverEmptyError` no longer discards the whole conversation's spend.
+- A cell that returns a non-finite or negative `costUsd` no longer disables the ceiling for the rest of the run. `NaN` in the cumulative sum makes `>= costCeiling` false forever. Such a result now fails its own cell and the ceiling stays enforceable.
+
+### Added
+
+- `withCellSpend(error, spend)` and `readCellSpend(error)` on `@tangle-network/agent-eval/matrix`. A `runCell` implementation that spends before it throws declares that spend with `throw withCellSpend(err, { costUsd, durationMs, kind })`. The carrier is read structurally, so a throw that crosses a package boundary still bills.
+- `CellResult.costProvenance` names the origin of `costUsd`: `observed`, `estimated`, or `uncaptured`. A failure that declares no spend records `uncaptured`, which is distinct from a measured zero.
+- `MatrixResult.summary.costUncapturedCells` and `AxisSummary.costUncapturedCells` count the cells whose cost is a subtotal. Above 0, `totalCostUsd` is a floor on real spend, not the total.
+
+### Changed
+
+- The multishot cell declares the shot's own subtotal plus settled judge cost when it fails after the shot returns, and reports `costProvenance: uncaptured` when a judge cost was never reported. A shot that declares no spend is rethrown untouched, so the cell records as uncaptured rather than claiming a fabricated total.
+
+---
+
 ## [0.145.19] — 2026-08-16
 
 ### Added
