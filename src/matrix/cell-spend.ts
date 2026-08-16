@@ -84,7 +84,9 @@ export function readCellSpend(error: unknown): CellSpend | undefined {
   return { costUsd: candidate.costUsd, durationMs: candidate.durationMs, kind }
 }
 
-function isAmount(value: unknown): value is number {
+/** A number the matrix can add to a running cost or duration: finite and not
+ *  negative. Anything else would poison a sum the cost ceiling reads. */
+export function isAmount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 

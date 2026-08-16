@@ -12,7 +12,7 @@
  */
 
 import { buildByAxis } from './aggregation'
-import { readCellSpend } from './cell-spend'
+import { isAmount, readCellSpend } from './cell-spend'
 import type {
   CellResult,
   CostProvenance,
@@ -108,10 +108,6 @@ function billableResult<Output>(result: CellResult<Output>): CellResult<Output> 
   )
 }
 
-function isAmount(value: number): boolean {
-  return Number.isFinite(value) && value >= 0
-}
-
 export async function runAgentMatrix<Output>(
   opts: RunAgentMatrixOptions<Output>,
 ): Promise<MatrixResult<Output>> {
@@ -120,6 +116,11 @@ export async function runAgentMatrix<Output>(
   const maxConcurrency = Math.max(1, opts.maxConcurrency ?? 4)
   const costCeiling = opts.costCeiling ?? Number.POSITIVE_INFINITY
   const aggregateBy = opts.aggregateBy ?? opts.axes.map((a) => a.name)
+  if (opts.maxCellCostUsd !== undefined && !isAmount(opts.maxCellCostUsd)) {
+    throw new RangeError(
+      `runAgentMatrix: maxCellCostUsd must be a finite number >= 0, received ${String(opts.maxCellCostUsd)}`,
+    )
+  }
 
   const base = cartesian(opts.axes)
   const filtered = opts.filter
@@ -139,6 +140,9 @@ export async function runAgentMatrix<Output>(
   }
 
   const cellRecords: Array<{ cell: MatrixCell; runs: CellResult<Output>[] }> = []
+  // What the ceiling reads. It runs ahead of the reported total whenever a
+  // cell's cost is a subtotal and `maxCellCostUsd` bounds what it could have
+  // been — a budget must assume the worst about spend it cannot see.
   let cumulativeCost = 0
   let costCeilingReached = false
   let runsExecuted = 0
@@ -185,8 +189,12 @@ export async function runAgentMatrix<Output>(
         const result = billableResult(settled)
         record.runs.push(result)
         runsExecuted++
-        cumulativeCost += result.costUsd
-        if (result.costProvenance?.kind === 'uncaptured') {
+        const uncapturedCost = result.costProvenance?.kind === 'uncaptured'
+        cumulativeCost +=
+          uncapturedCost && opts.maxCellCostUsd !== undefined
+            ? Math.max(result.costUsd, opts.maxCellCostUsd)
+            : result.costUsd
+        if (uncapturedCost) {
           costUncapturedCells++
           if (costUncapturedCells === 1) {
             // eslint-disable-next-line no-console
@@ -274,6 +282,7 @@ export async function runAgentMatrix<Output>(
       overallMeanScore: runCount === 0 ? 0 : scoreSum / runCount,
       totalCostUsd: totalCost,
       costUncapturedCells,
+      ceilingChargedUsd: cumulativeCost,
       durationMs: Date.now() - startedAt,
     },
     matrixId: makeMatrixId(),

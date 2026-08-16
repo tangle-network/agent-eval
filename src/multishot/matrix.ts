@@ -89,6 +89,10 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   maxConcurrency?: number
   /** Total $ ceiling across the matrix; cells aborted past this. */
   costCeiling?: number
+  /** Upper bound on what one cell can spend. A cell whose cost is a subtotal
+   *  is charged this bound against `costCeiling` instead of its known amount,
+   *  so hidden spend cannot walk the run past its budget. */
+  maxCellCostUsd?: number
   /** Agent model. */
   agentModel?: string
   /** Driver model. */
@@ -215,6 +219,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
     reps: opts.reps ?? 1,
     maxConcurrency: opts.maxConcurrency ?? 2,
     costCeiling: opts.costCeiling,
+    maxCellCostUsd: opts.maxCellCostUsd,
     async runCell(cell) {
       const cellStartedAt = Date.now()
       const profile = cell.axes.profile?.value as AgentProfile
@@ -378,6 +383,8 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
     passRate: matrix.summary.overallPassRate,
     meanScore: matrix.summary.overallMeanScore,
     totalCostUsd: matrix.summary.totalCostUsd,
+    costUncapturedCells: matrix.summary.costUncapturedCells,
+    ceilingChargedUsd: matrix.summary.ceilingChargedUsd,
     durationMs: matrix.summary.durationMs,
     runsExecuted: matrix.summary.runsExecuted,
     cellsSkipped: matrix.summary.cellsSkipped,
@@ -386,11 +393,22 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
   }
   writeFileSync(join(opts.runDir, 'summary.json'), JSON.stringify(summary, null, 2))
 
+  // A reader of the on-disk summary must not take the cost line as the run's
+  // whole spend when some cells reported only a subtotal.
+  const uncaptured = matrix.summary.costUncapturedCells
+  const costLabel = uncaptured > 0 ? 'Cost (at least)' : 'Cost'
+
   const md: string[] = [
     `# Multishot matrix`,
     ``,
-    `**Cells**: ${matrix.summary.totalCells} | **Pass rate**: ${(matrix.summary.overallPassRate * 100).toFixed(0)}% | **Mean**: ${matrix.summary.overallMeanScore.toFixed(2)} | **Cost**: $${matrix.summary.totalCostUsd.toFixed(2)} | **Duration**: ${(matrix.summary.durationMs / 1000).toFixed(0)}s`,
+    `**Cells**: ${matrix.summary.totalCells} | **Pass rate**: ${(matrix.summary.overallPassRate * 100).toFixed(0)}% | **Mean**: ${matrix.summary.overallMeanScore.toFixed(2)} | **${costLabel}**: $${matrix.summary.totalCostUsd.toFixed(2)} | **Duration**: ${(matrix.summary.durationMs / 1000).toFixed(0)}s`,
     ``,
+    ...(uncaptured > 0
+      ? [
+          `> ${uncaptured} of ${matrix.summary.runsExecuted} cells reported a cost subtotal, not a total. Real spend is higher than every cost figure below.`,
+          ``,
+        ]
+      : []),
     `## By profile`,
     ``,
     '| profile | pass | mean | cost |',

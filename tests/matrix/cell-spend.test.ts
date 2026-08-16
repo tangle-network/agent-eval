@@ -174,6 +174,92 @@ describe('runAgentMatrix — a failed cell is billed for what it spent', () => {
     warn.mockRestore()
   })
 
+  it('charges an unknown-spend cell its declared bound so the ceiling stays fail-closed', async () => {
+    const sc = axis(
+      'scenario',
+      Array.from({ length: 6 }, (_, i) => [`s${i}`, i] as [string, number]),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let started = 0
+
+    const result = await runAgentMatrix({
+      axes: [sc] as MatrixAxis<unknown>[],
+      maxConcurrency: 1,
+      costCeiling: 1,
+      maxCellCostUsd: 0.6,
+      runCell: async () => {
+        started++
+        // Declares nothing: the run cannot see what this cell spent.
+        throw new Error('provider died mid-call')
+      },
+    })
+
+    // Two cells charged at the 0.6 bound cross the ceiling of 1.
+    expect(started).toBe(2)
+    expect(result.summary.ceilingChargedUsd).toBeCloseTo(1.2, 10)
+    // The reported total still says only what is known — never the bound.
+    expect(result.summary.totalCostUsd).toBe(0)
+    expect(result.summary.costUncapturedCells).toBe(2)
+    warn.mockRestore()
+  })
+
+  it('without a bound the same run is not stopped — the gap the bound closes', async () => {
+    const sc = axis(
+      'scenario',
+      Array.from({ length: 6 }, (_, i) => [`s${i}`, i] as [string, number]),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let started = 0
+
+    const result = await runAgentMatrix({
+      axes: [sc] as MatrixAxis<unknown>[],
+      maxConcurrency: 1,
+      costCeiling: 1,
+      runCell: async () => {
+        started++
+        throw new Error('provider died mid-call')
+      },
+    })
+
+    expect(started).toBe(6)
+    expect(result.summary.ceilingChargedUsd).toBe(0)
+    expect(result.summary.costUncapturedCells).toBe(6)
+    warn.mockRestore()
+  })
+
+  it('a declared subtotal above the bound is charged at the subtotal, not the bound', async () => {
+    const sc = axis('scenario', [['s1', 1]])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await runAgentMatrix({
+      axes: [sc] as MatrixAxis<unknown>[],
+      maxCellCostUsd: 0.1,
+      runCell: async () => {
+        throw withCellSpend(new Error('partial'), {
+          costUsd: 0.9,
+          durationMs: 5,
+          kind: 'uncaptured',
+        })
+      },
+    })
+
+    expect(result.summary.ceilingChargedUsd).toBe(0.9)
+    expect(result.summary.totalCostUsd).toBe(0.9)
+    warn.mockRestore()
+  })
+
+  it('rejects a bound that is not a usable amount', async () => {
+    await expect(
+      runAgentMatrix({
+        axes: [axis('scenario', [['s1', 1]])] as MatrixAxis<unknown>[],
+        maxCellCostUsd: Number.NaN,
+        runCell: async () => {
+          throw new Error('never runs')
+        },
+      }),
+    ).rejects.toThrow(/maxCellCostUsd must be a finite number/)
+  })
+
   it('fails a cell whose reported cost cannot be billed instead of killing the ceiling', async () => {
     const sc = axis(
       'scenario',

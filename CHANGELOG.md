@@ -21,10 +21,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `withCellSpend(error, spend)` and `readCellSpend(error)` on `@tangle-network/agent-eval/matrix`. A `runCell` implementation that spends before it throws declares that spend with `throw withCellSpend(err, { costUsd, durationMs, kind })`. The carrier is read structurally, so a throw that crosses a package boundary still bills.
 - `CellResult.costProvenance` names the origin of `costUsd`: `observed`, `estimated`, or `uncaptured`. A failure that declares no spend records `uncaptured`, which is distinct from a measured zero.
 - `MatrixResult.summary.costUncapturedCells` and `AxisSummary.costUncapturedCells` count the cells whose cost is a subtotal. Above 0, `totalCostUsd` is a floor on real spend, not the total.
+- `RunAgentMatrixOptions.maxCellCostUsd` bounds what one cell can spend. A cell whose cost is a subtotal is charged that bound against `costCeiling` instead of its known amount, so spend a cell hid cannot walk the run past its budget. It changes only what the ceiling reads: `CellResult.costUsd` and `summary.totalCostUsd` keep reporting known spend. `runMultishotMatrix` forwards the option.
+- `MatrixResult.summary.ceilingChargedUsd` reports the figure the ceiling read. It exceeds `totalCostUsd` only when `maxCellCostUsd` charged a bound.
 
 ### Changed
 
 - The multishot cell declares the shot's own subtotal plus settled judge cost when it fails after the shot returns, and reports `costProvenance: uncaptured` when a judge cost was never reported. A shot that declares no spend is rethrown untouched, so the cell records as uncaptured rather than claiming a fabricated total.
+- `runMultishotMatrix` writes `costUncapturedCells` and `ceilingChargedUsd` into `summary.json`. `summary.md` labels the cost line "Cost (at least)" and carries a caveat line when any cell reported a subtotal, so a reader of the on-disk report cannot mistake the figure for the run's whole spend.
 
 ---
 

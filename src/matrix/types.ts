@@ -92,6 +92,10 @@ export interface MatrixResult<Output> {
      *  reported no spend, a failure that reported a partial amount, or a
      *  result the runner could not bill. */
     costUncapturedCells: number
+    /** What the cost ceiling actually read. Equals `totalCostUsd` unless
+     *  `maxCellCostUsd` was set and a cell's cost was a subtotal, in which case
+     *  the ceiling charged the bound and this figure is higher. */
+    ceilingChargedUsd: number
     durationMs: number
   }
   /** Stable id-like string generated at the end of the run. */
@@ -119,6 +123,19 @@ export interface RunAgentMatrixOptions<Output> {
    *  In-flight cells finish. Failed cells count for the spend they declare.
    *  Default `Infinity`. */
   costCeiling?: number
+  /** Upper bound on what ONE cell can spend (USD). A cell whose cost is a
+   *  subtotal — a failure that declared nothing, a partial amount, a result
+   *  the runner could not bill — is charged this bound against `costCeiling`
+   *  instead of its known subtotal, so hidden spend cannot walk the run past
+   *  its budget.
+   *
+   *  It changes only what the ceiling reads. `CellResult.costUsd` and
+   *  `summary.totalCostUsd` keep reporting known spend, never a bound that was
+   *  charged but not spent; `summary.ceilingChargedUsd` reports the
+   *  conservative figure. Omit it and the ceiling stays fail-open for exactly
+   *  the cells that hid their spend, with `costUncapturedCells` as the only
+   *  signal. */
+  maxCellCostUsd?: number
   /** Fires once per executed cell, after its promise settles. */
   onCellComplete?: (cell: MatrixCell, result: CellResult<Output>) => void
   /** External cancellation. Aborts in-flight cells via a forwarded signal
