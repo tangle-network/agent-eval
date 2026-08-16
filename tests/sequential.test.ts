@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateInterimReleaseConfidence, pairedEvalueSequence } from '../src/sequential'
+import {
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+  sequentialCrossingHorizon,
+} from '../src/sequential'
 
 function deltasUnderNull(n: number, seed = 1, c = 0.1): number[] {
   // Mean-zero noise inside [-c, c]. Used to verify type-I error control.
@@ -73,6 +77,9 @@ describe('pairedEvalueSequence — basic behaviour', () => {
   it('rejects invalid configuration', () => {
     expect(() => pairedEvalueSequence([0], { bound: 0 })).toThrow(/bound must be > 0/)
     expect(() => pairedEvalueSequence([0], { alpha: 0 })).toThrow(/alpha must be in/)
+    expect(() => pairedEvalueSequence([0], { initialBetShrinkage: 0 })).toThrow(
+      /initialBetShrinkage/,
+    )
     expect(() => pairedEvalueSequence([0], { rope: { low: 1, high: 0 } })).toThrow(/low ≤ high/)
   })
 
@@ -82,6 +89,34 @@ describe('pairedEvalueSequence — basic behaviour', () => {
       expect(s.pValue).toBeGreaterThanOrEqual(0)
       expect(s.pValue).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('sequentialCrossingHorizon', () => {
+  it('exposes the default perfect-data evidence and decision horizon', () => {
+    expect(sequentialCrossingHorizon({ alpha: 0.05, bound: 5, maxPairs: 100 })).toEqual({
+      evidencePairs: 24,
+      decisionPairs: 24,
+      evidenceThreshold: 20,
+      decisionThreshold: 40,
+      maxPairs: 100,
+    })
+  })
+
+  it('is scale-invariant in the declared bound', () => {
+    expect(sequentialCrossingHorizon({ bound: 1 }).evidencePairs).toBe(
+      sequentialCrossingHorizon({ bound: 5 }).evidencePairs,
+    )
+  })
+
+  it('returns null when the declared cap cannot reach either threshold', () => {
+    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 23 })
+    expect(horizon.evidencePairs).toBeNull()
+    expect(horizon.decisionPairs).toBeNull()
+  })
+
+  it('rejects an invalid simulation cap', () => {
+    expect(() => sequentialCrossingHorizon({ maxPairs: 0 })).toThrow(/positive safe integer/)
   })
 })
 
