@@ -13,15 +13,16 @@ import type { CostProvenance } from '../cost-ledger'
 import type { MatrixResult } from '../matrix'
 import { runAgentMatrix } from '../matrix'
 import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
-import { runMultishot } from './multishot'
-import type {
-  MultishotArtifact,
-  MultishotMessage,
-  MultishotPersona,
-  MultishotShape,
-  MultishotToolDefinition,
-  MultishotToolExecutor,
-  MultishotTransport,
+import { type MultishotShot, runMultishot } from './multishot'
+import {
+  assertMultishotShotResult,
+  type MultishotArtifact,
+  type MultishotMessage,
+  type MultishotPersona,
+  type MultishotShape,
+  type MultishotToolDefinition,
+  type MultishotToolExecutor,
+  type MultishotTransport,
 } from './types'
 
 export interface ConversationJudgeInput<TPersona extends MultishotPersona> {
@@ -108,12 +109,30 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   agentTransport?: MultishotTransport
   /** Execution seam for the simulated-user driver leg of every cell. */
   driverTransport?: MultishotTransport
+  /** Conversation engine for every cell. Defaults to `runMultishot`.
+   *
+   *  The matrix owns everything around the shot — cell fan-out, concurrency,
+   *  the cost ceiling, the judge slots, the cell composite, the per-cell
+   *  artifact writers and the run summary — and forwards the whole cell input
+   *  to this function, so an alternative engine replaces ONLY the
+   *  conversation. Every option on this interface that `runMultishot` accepts
+   *  reaches the shot unchanged. `RunMultishotOptions.signal` has no
+   *  matrix-level counterpart and is not forwarded; a shot owns its own
+   *  cancellation.
+   *
+   *  A shot that resolves with a value outside `MultishotResult` throws
+   *  `MultishotShotResultError` for that cell. The default engine is never
+   *  used as a fallback. */
+  runShot?: MultishotShot<TPersona>
   /** Pass-thru fields. */
   apiKey?: string
   baseUrl?: string
 }
 
-interface CellOutput {
+/** Per-cell output the multishot matrix records in `MatrixResult.cells`.
+ *  A consumer that supplies its own `runShot` reads the matrix through this
+ *  type instead of declaring a structural copy. */
+export interface MultishotCellOutput {
   turns: number
   toolCalls: number
   artifactCount: number
@@ -177,7 +196,7 @@ export function computeCellComposite(input: CellCompositeInput): {
 }
 
 export interface RunMultishotMatrixResult {
-  matrix: MatrixResult<CellOutput>
+  matrix: MatrixResult<MultishotCellOutput>
 }
 
 export async function runMultishotMatrix<TPersona extends MultishotPersona>(
@@ -185,9 +204,10 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
 ): Promise<RunMultishotMatrixResult> {
   const codeTypes = new Set(opts.judges.codeArtifactTypes ?? ['code'])
   const contentTypes = new Set(opts.judges.contentArtifactTypes ?? ['research'])
+  const runShot: MultishotShot<TPersona> = opts.runShot ?? runMultishot
   mkdirSync(opts.runDir, { recursive: true })
 
-  const matrix = await runAgentMatrix<CellOutput>({
+  const matrix = await runAgentMatrix<MultishotCellOutput>({
     axes: [
       { name: 'profile', values: opts.profiles },
       { name: 'persona', values: opts.personas.map((p) => ({ id: p.id, value: p })) },
@@ -201,7 +221,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       const profileId = String(cell.axes.profile?.id ?? 'unknown')
       const personaId = String(cell.axes.persona?.id ?? 'unknown')
 
-      const sim = await runMultishot({
+      const sim = await runShot({
         profile,
         persona,
         shape: opts.shape,
@@ -221,6 +241,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
       })
+      assertMultishotShotResult(sim)
 
       const codeArtifacts = sim.artifacts.filter((a) => codeTypes.has(a.type))
       const contentArtifacts = sim.artifacts.filter((a) => contentTypes.has(a.type))
