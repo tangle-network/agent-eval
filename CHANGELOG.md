@@ -14,7 +14,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - A matrix cell that spent money and then threw recorded `costUsd: 0` and `durationMs: 0`. That spend left the cumulative sum `costCeiling` reads, so a run kept scheduling cells after real spend passed the ceiling. A failed cell is now billed for the spend it declares.
 - `runMultishot` lost the cost of every driver attempt that billed and returned empty content. Those calls are now charged as they happen, so `MultishotDriverEmptyError` no longer discards the whole conversation's spend.
-- A cell that returns a non-finite or negative `costUsd` no longer disables the ceiling for the rest of the run. `NaN` in the cumulative sum makes `>= costCeiling` false forever. Such a result now fails its own cell and the ceiling stays enforceable.
+- A cell that returns a non-finite or negative `costUsd` no longer disables the ceiling for the rest of the run. `NaN` in the cumulative sum makes `>= costCeiling` false forever. Such a result now fails its own cell and the ceiling stays enforceable. An unusable `durationMs` reaches only `meanDurationMs`, so it is recorded as 0 with a warning and the cell keeps its verdict and its cost. A wall clock that steps back mid-cell makes an elapsed time negative, so this is a reachable state.
+- A shot whose call reported neither a cost nor usage priced that call at 0 and still reported the total as a complete estimate. `runMultishot` now reports `costProvenance` on success, so the cell records `uncaptured` and the run counts it. The error path already reported this; the success path did not.
+- `withCellSpend` lost the spend and replaced the original error when the thrown value was frozen, sealed, or otherwise non-extensible. Such a value is now wrapped in an `Error` that carries the spend and keeps the original as `cause`.
 
 ### Added
 
@@ -23,11 +25,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `MatrixResult.summary.costUncapturedCells` and `AxisSummary.costUncapturedCells` count the cells whose cost is a subtotal. Above 0, `totalCostUsd` is a floor on real spend, not the total.
 - `RunAgentMatrixOptions.maxCellCostUsd` bounds what one cell can spend. A cell whose cost is a subtotal is charged that bound against `costCeiling` instead of its known amount, so spend a cell hid cannot walk the run past its budget. It changes only what the ceiling reads: `CellResult.costUsd` and `summary.totalCostUsd` keep reporting known spend. `runMultishotMatrix` forwards the option.
 - `MatrixResult.summary.ceilingChargedUsd` reports the figure the ceiling read. It exceeds `totalCostUsd` only when `maxCellCostUsd` charged a bound.
+- `MultishotResult.costProvenance` lets a shot declare whether its `costUsd` is a total or a subtotal. It is optional, so an engine written before this field behaves as before. `assertMultishotShotResult` validates it when present and rejects an `uncaptured` provenance that carries a number.
 
 ### Changed
 
 - The multishot cell declares the shot's own subtotal plus settled judge cost when it fails after the shot returns, and reports `costProvenance: uncaptured` when a judge cost was never reported. A shot that declares no spend is rethrown untouched, so the cell records as uncaptured rather than claiming a fabricated total.
 - `runMultishotMatrix` writes `costUncapturedCells` and `ceilingChargedUsd` into `summary.json`. `summary.md` labels the cost line "Cost (at least)" and carries a caveat line when any cell reported a subtotal, so a reader of the on-disk report cannot mistake the figure for the run's whole spend.
+- Refreshed the analyst benchmark dependency-lock hash for this version.
 
 ---
 

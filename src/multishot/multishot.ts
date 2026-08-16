@@ -263,6 +263,12 @@ async function runShotTurns<TPersona extends MultishotPersona>(
     toolCalls,
     durationMs: Date.now() - meter.startedAt,
     costUsd: meter.costUsd,
+    // A shot that priced every call reports a complete estimate. One that had
+    // a call the router priced at nothing reports a subtotal, so the cell is
+    // recorded as under-counted rather than as a complete estimate.
+    costProvenance: meter.uncaptured
+      ? { kind: 'uncaptured', usd: null }
+      : { kind: 'estimated', usd: meter.costUsd },
   }
 }
 

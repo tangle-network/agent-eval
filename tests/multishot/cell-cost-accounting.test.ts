@@ -255,6 +255,88 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
     warn.mockRestore()
   })
 
+  it('marks a successful cell uncaptured when the SHOT priced a call at nothing', async () => {
+    // Judges report their cost; only the agent leg is unpriced, so the cell can
+    // only learn its total is a subtotal from the shot itself.
+    stubJudgeFetch({ reportCost: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const agentTransport = vi.fn<MultishotTransport>(async () => ({
+      message: { content: 'agent answered' },
+    }))
+
+    const { matrix } = await runMultishotMatrix<TestPersona>({
+      profiles: [{ id: 'p1', value: PROFILE }],
+      personas: [PERSONA],
+      shape: SHAPE,
+      judges: JUDGES,
+      runDir: newRunDir(),
+      maxTurns: 1,
+      agentTransport,
+      apiKey: 'agent-key',
+      baseUrl: 'http://agent.invalid/v1',
+    })
+
+    const run = matrix.cells[0]?.runs[0]
+    expect(run?.error).toBeUndefined()
+    expect(run?.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
+    expect(matrix.summary.costUncapturedCells).toBe(1)
+    warn.mockRestore()
+  })
+
+  it('reports a fully priced shot as a complete estimate', async () => {
+    stubJudgeFetch({ reportCost: true })
+    const agentTransport = vi.fn<MultishotTransport>(async () => ({
+      message: { content: 'agent answered' },
+      costUsd: 0.2,
+    }))
+
+    const { matrix } = await runMultishotMatrix<TestPersona>({
+      profiles: [{ id: 'p1', value: PROFILE }],
+      personas: [PERSONA],
+      shape: SHAPE,
+      judges: JUDGES,
+      runDir: newRunDir(),
+      maxTurns: 1,
+      agentTransport,
+      apiKey: 'agent-key',
+      baseUrl: 'http://agent.invalid/v1',
+    })
+
+    const run = matrix.cells[0]?.runs[0]
+    expect(run?.costProvenance?.kind).toBe('estimated')
+    expect(matrix.summary.costUncapturedCells).toBe(0)
+  })
+
+  it('rejects a shot that claims an uncaptured provenance with a total', async () => {
+    stubJudgeFetch({ reportCost: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runShot: MultishotShot<TestPersona> = async () =>
+      ({
+        transcript: [],
+        artifacts: [],
+        toolCalls: 0,
+        durationMs: 12,
+        costUsd: 0.4,
+        costProvenance: { kind: 'uncaptured', usd: 0.4 },
+      }) as unknown as MultishotResult
+
+    const { matrix } = await runMultishotMatrix<TestPersona>({
+      profiles: [{ id: 'p1', value: PROFILE }],
+      personas: [PERSONA],
+      shape: SHAPE,
+      judges: JUDGES,
+      runDir: newRunDir(),
+      runShot,
+    })
+
+    const run = matrix.cells[0]?.runs[0]
+    expect(run?.error?.kind).toBe('MultishotShotResultError')
+    expect(run?.error?.message).toContain('uncaptured costProvenance.usd must be null')
+    // The shot's own subtotal is still billed.
+    expect(run?.costUsd).toBe(0.4)
+    warn.mockRestore()
+  })
+
   it('marks a successful cell uncaptured when a judge cost was never reported', async () => {
     stubJudgeFetch({ reportCost: false, model: 'vendor/unpriced-model' })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

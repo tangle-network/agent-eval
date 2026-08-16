@@ -53,6 +53,35 @@ describe('withCellSpend / readCellSpend', () => {
     ).toThrow(/durationMs must be a finite number/)
   })
 
+  it('carries the spend of a frozen throw instead of losing it', () => {
+    const frozen = Object.freeze(new Error('boom'))
+    const carried = withCellSpend(frozen, { costUsd: 0.7, durationMs: 40, kind: 'estimated' })
+
+    expect(carried).not.toBe(frozen)
+    expect((carried as Error).cause).toBe(frozen)
+    expect((carried as Error).message).toContain('boom')
+    expect(readCellSpend(carried)).toEqual({ costUsd: 0.7, durationMs: 40, kind: 'estimated' })
+  })
+
+  it('bills a frozen throw through the runner', async () => {
+    const result = await runAgentMatrix({
+      axes: [axis('scenario', [['s1', 1]])] as MatrixAxis<unknown>[],
+      runCell: async () => {
+        throw withCellSpend(Object.freeze(new Error('sealed and expensive')), {
+          costUsd: 0.55,
+          durationMs: 12,
+          kind: 'observed',
+        })
+      },
+    })
+
+    const run = result.cells[0]?.runs[0]
+    expect(run?.costUsd).toBe(0.55)
+    expect(run?.costProvenance).toEqual({ kind: 'observed', usd: 0.55 })
+    expect(run?.error?.message).toContain('sealed and expensive')
+    expect(result.summary.totalCostUsd).toBe(0.55)
+  })
+
   it('reads a malformed carrier as absent', () => {
     const err = new Error('x') as unknown as Record<string, unknown>
     err.__agentEvalCellSpend = { costUsd: 'lots', durationMs: 1, kind: 'observed' }
@@ -248,6 +277,34 @@ describe('runAgentMatrix — a failed cell is billed for what it spent', () => {
     warn.mockRestore()
   })
 
+  it('keeps a real verdict and a real cost when only durationMs is unusable', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await runAgentMatrix({
+      axes: [axis('scenario', [['s1', 1]])] as MatrixAxis<unknown>[],
+      // A wall clock that steps back mid-cell makes an elapsed time negative.
+      runCell: async () => ({
+        output: { ok: true },
+        verdict: { valid: true, score: 0.9 },
+        costUsd: 5,
+        durationMs: -12,
+      }),
+    })
+
+    const run = result.cells[0]?.runs[0]
+    expect(run?.error).toBeUndefined()
+    expect(run?.verdict.score).toBe(0.9)
+    // The $5 stays on the bill; only the unusable duration is repaired.
+    expect(run?.costUsd).toBe(5)
+    expect(run?.durationMs).toBe(0)
+    expect(result.summary.totalCostUsd).toBe(5)
+    expect(result.summary.overallPassRate).toBe(1)
+    expect(warn).toHaveBeenCalledWith(
+      '[matrix] a cell reported durationMs=-12; recorded as 0 — meanDurationMs under-reports this run',
+    )
+    warn.mockRestore()
+  })
+
   it('rejects a bound that is not a usable amount', async () => {
     await expect(
       runAgentMatrix({
@@ -281,7 +338,7 @@ describe('runAgentMatrix — a failed cell is billed for what it spent', () => {
 
     const poisoned = result.cells[0]?.runs[0]
     expect(poisoned?.error?.kind).toBe('RangeError')
-    expect(poisoned?.error?.message).toContain('costUsd')
+    expect(poisoned?.error?.message).toContain('costUsd=NaN')
     expect(poisoned?.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     // A NaN in the cumulative sum would make `>= ceiling` false forever; the
     // ceiling must still stop the run on the next real cell.

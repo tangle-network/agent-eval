@@ -254,6 +254,9 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
       // A throw past this line must carry it, or the money leaves the matrix's
       // cumulative sum and the cost ceiling under-counts the run.
       const shotCostUsd = shotCostSubtotal(sim)
+      // A shot that says nothing about provenance is taken at its word, which
+      // is how every engine written before the field behaved.
+      const shotCostComplete = sim?.costProvenance?.kind !== 'uncaptured'
       let judgeCostUsd = 0
       let judgeCostComplete = false
       // Where the cell is, so a throw declares the right completeness: before
@@ -349,12 +352,15 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
           },
           verdict: { valid: composite >= 5, score: composite, notes: notes.join(' ') },
           costUsd: sim.costUsd + judgeCostUsd,
-          // A judge whose cost the router never reported leaves the cell total a
-          // subtotal. The matrix counts it toward the ceiling and reports the
-          // cell as under-counted rather than presenting the sum as complete.
-          costProvenance: judgeCostComplete
-            ? { kind: 'estimated', usd: sim.costUsd + judgeCostUsd }
-            : { kind: 'uncaptured', usd: null },
+          // Either leg can leave the cell total a subtotal: a judge whose cost
+          // the router never reported, or a shot that declared its own spend
+          // uncaptured. The matrix counts the known part toward the ceiling and
+          // reports the cell as under-counted rather than presenting the sum as
+          // complete.
+          costProvenance:
+            judgeCostComplete && shotCostComplete
+              ? { kind: 'estimated', usd: sim.costUsd + judgeCostUsd }
+              : { kind: 'uncaptured', usd: null },
           durationMs: sim.durationMs,
         }
       } catch (err) {
@@ -367,9 +373,10 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
           durationMs: Date.now() - cellStartedAt,
           // The judges bill before they settle, so a throw among them leaves a
           // subtotal. Before they start, and after they settle with every
-          // receipt captured, the amount is the cell's whole spend.
+          // receipt captured, the amount is the cell's whole spend — unless the
+          // shot already declared its own part incomplete.
           kind:
-            phase === 'validate' || (phase === 'scoring' && judgeCostComplete)
+            shotCostComplete && (phase === 'validate' || (phase === 'scoring' && judgeCostComplete))
               ? 'estimated'
               : 'uncaptured',
         })
@@ -437,7 +444,9 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
  *  amount. `undefined` when it does not — a malformed shot result is exactly
  *  the case where the number cannot be trusted, and billing a wrong figure is
  *  worse than recording the cell as uncaptured. */
-function shotCostSubtotal(sim: { costUsd?: unknown } | null | undefined): number | undefined {
+function shotCostSubtotal(
+  sim: { costUsd?: unknown; costProvenance?: CostProvenance } | null | undefined,
+): number | undefined {
   const value = sim?.costUsd
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }

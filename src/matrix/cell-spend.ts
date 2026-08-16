@@ -35,10 +35,11 @@ export interface CellSpend {
  * Return `error` carrying `spend`, for a throw site inside `runCell`:
  * `throw withCellSpend(err, { costUsd, durationMs, kind })`.
  *
- * A value that cannot hold a property (a thrown string or number) is wrapped
- * in an `Error` that keeps the original as `cause`, so the spend is never
- * dropped silently. A later call overwrites an earlier carrier — the outer
- * frame knows more than the inner one.
+ * A value that cannot hold the carrier — a thrown string or number, or a
+ * frozen, sealed, or otherwise non-extensible object — is wrapped in an
+ * `Error` that keeps the original as `cause`, so the spend is never dropped.
+ * A later call overwrites an earlier carrier — the outer frame knows more
+ * than the inner one.
  *
  * Throws `TypeError` on a non-finite or negative amount. A poisoned amount
  * would reach `cumulativeCost` and disable the cost ceiling for the whole run,
@@ -57,17 +58,35 @@ export function withCellSpend(error: unknown, spend: CellSpend): unknown {
     durationMs: spend.durationMs,
     kind: spend.kind,
   }
-  const target =
-    typeof error === 'object' && error !== null
-      ? error
-      : new Error(`cell failed: ${String(error)}`, { cause: error })
-  Object.defineProperty(target, CELL_SPEND_KEY, {
-    value: carrier,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  })
-  return target
+  if (typeof error === 'object' && error !== null && attach(error, carrier)) return error
+  // A primitive cannot hold a property, and a frozen or sealed object refuses
+  // one. Carry the spend on a fresh Error that keeps the original as `cause`
+  // rather than lose it — a dropped carrier bills the cell as uncaptured,
+  // which is the under-billing this module exists to prevent.
+  const wrapper = new Error(`cell failed: ${messageOf(error)}`, { cause: error })
+  attach(wrapper, carrier)
+  return wrapper
+}
+
+/** True when the carrier landed. `defineProperty` throws on a non-extensible
+ *  target, so the caller must be able to fall back. */
+function attach(target: object, carrier: CellSpend): boolean {
+  try {
+    Object.defineProperty(target, CELL_SPEND_KEY, {
+      value: carrier,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
 }
 
 /** Read the spend a thrown value carries. `undefined` when the value carries

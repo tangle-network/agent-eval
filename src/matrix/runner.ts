@@ -93,19 +93,31 @@ function makeErrorResult<Output>(err: unknown): CellResult<Output> {
   }
 }
 
-/** A result whose amounts cannot be summed fails the cell instead of poisoning
- *  the run: `NaN` in `cumulativeCost` makes `>= costCeiling` false forever, so
- *  one bad cell would disable the ceiling for every cell after it. */
-function billableResult<Output>(result: CellResult<Output>): CellResult<Output> {
-  const bad: string[] = []
-  if (!isAmount(result.costUsd)) bad.push(`costUsd=${String(result.costUsd)}`)
-  if (!isAmount(result.durationMs)) bad.push(`durationMs=${String(result.durationMs)}`)
-  if (bad.length === 0) return result
-  return makeErrorResult<Output>(
-    new RangeError(
-      `runCell reported ${bad.join(', ')}; a cell must report finite amounts >= 0 so the cost ceiling stays enforceable`,
-    ),
-  )
+/** Make a result safe to sum.
+ *
+ *  A `costUsd` that cannot be summed fails the cell: `NaN` in `cumulativeCost`
+ *  makes `>= costCeiling` false forever, so one bad cell would disable the
+ *  ceiling for every cell after it.
+ *
+ *  A bad `durationMs` reaches only `meanDurationMs`, never the ceiling, so it
+ *  cannot justify throwing away a real verdict and a real cost. It is reported
+ *  as 0 and warned about, and the rest of the result stands. A wall clock that
+ *  steps back mid-cell makes `Date.now() - startedAt` negative, so this is a
+ *  reachable state, not only a caller bug. */
+function billableResult<Output>(
+  result: CellResult<Output>,
+  onBadDuration: (reported: unknown) => void,
+): CellResult<Output> {
+  if (!isAmount(result.costUsd)) {
+    return makeErrorResult<Output>(
+      new RangeError(
+        `runCell reported costUsd=${String(result.costUsd)}; a cell cost must be a finite number >= 0 so the cost ceiling stays enforceable`,
+      ),
+    )
+  }
+  if (isAmount(result.durationMs)) return result
+  onBadDuration(result.durationMs)
+  return { ...result, durationMs: 0 }
 }
 
 export async function runAgentMatrix<Output>(
@@ -148,6 +160,7 @@ export async function runAgentMatrix<Output>(
   let runsExecuted = 0
   let cellsUnscheduled = 0
   let costUncapturedCells = 0
+  let badDurationCells = 0
 
   const aborted = (): boolean => opts.signal?.aborted === true
 
@@ -186,7 +199,15 @@ export async function runAgentMatrix<Output>(
         }
       })()
       promise.then((settled) => {
-        const result = billableResult(settled)
+        const result = billableResult(settled, (reported) => {
+          badDurationCells++
+          if (badDurationCells === 1) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[matrix] a cell reported durationMs=${String(reported)}; recorded as 0 — meanDurationMs under-reports this run`,
+            )
+          }
+        })
         record.runs.push(result)
         runsExecuted++
         const uncapturedCost = result.costProvenance?.kind === 'uncaptured'
