@@ -1,0 +1,92 @@
+# Multishot golden records
+
+`@tangle-network/agent-eval/multishot/golden` holds frozen recordings of what a multishot conversation engine produces on a closed set of deterministic scenarios.
+Point your engine at them and any orchestration drift surfaces as a named field.
+
+## What a record holds
+
+Each scenario records two things.
+
+**The request ledger** — every transport call each leg received, in issue order: the model, the temperature, the token budget, the advertised tool names, whether the tools array reached the transport by reference, and the full message log.
+This is where two orchestrators diverge without their return value changing: a wrong follow-up token budget, a driver rotation that stops one model early, a point-of-view translation that drops a tool row from the driver's view.
+
+**The outcome** — either the `MultishotResult` without its wall-clock `durationMs`, or the throw reduced to its constructor name, its message, and the cell spend it declares for the cost ceiling.
+
+The matrix scenarios add the returned `MatrixResult`, the judge calls, and every file the run persisted under its run directory.
+
+Wall-clock and run-identity keys (`durationMs`, `meanDurationMs`, `matrixId`, `runId`) are removed before comparison — no two runs agree on them.
+The summary Markdown keeps its text with the rendered duration masked.
+
+## Use it
+
+```ts
+import { describe, it } from 'vitest'
+import {
+  assertMultishotGoldenScenario,
+  multishotGoldenScenarios,
+} from '@tangle-network/agent-eval/multishot/golden'
+import { runMyEngine } from './my-engine'
+
+describe('my engine reproduces the multishot golden records', () => {
+  for (const scenario of multishotGoldenScenarios()) {
+    it(scenario.description, async () => {
+      await assertMultishotGoldenScenario({ engine: runMyEngine, scenario })
+    })
+  }
+})
+```
+
+`assertMultishotGoldenScenario` throws `MultishotGoldenMismatchError` listing every field that moved.
+`checkMultishotGoldenScenario` returns the same report without throwing, for a caller that wants to inspect it.
+`checkMultishotGolden` runs the whole catalog in one call.
+
+The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
+
+## Determinism rules
+
+Every scenario is a closed system: scripted transports, scripted tool executors, a fixed persona and profile, fixed token budgets.
+No network, no clock in a recorded field, no random number.
+Matrix cells run one at a time, so the request ledger is a property of the conversation engine rather than of how two engines interleave their microtasks.
+
+Judge calls fan out across three slots through `Promise.all`, so their issue order is a detail of the cell body rather than observable behaviour.
+Their content is behaviour, so they are compared as a set with a stable order.
+
+## Records are frozen
+
+A version file is written once and never edited.
+A golden record that can be regenerated over itself proves nothing: a regression would simply be re-recorded as the new truth.
+
+`scripts/record-multishot-golden.ts` refuses to overwrite an existing version.
+A deliberate behaviour change mints a NEW version file, registers it in `src/multishot/golden/records/index.ts` beside the old one, and moves `CURRENT_MULTISHOT_GOLDEN_VERSION`.
+The diff between the two files is the reviewable evidence of what moved, and the previous contract stays runnable through `goldenRecords('v1')`.
+
+## Regenerate
+
+The recorder never picks an engine for you.
+This package holds no conversation engine, so the reference has to be named:
+
+```bash
+pnpm tsx scripts/record-multishot-golden.ts \
+  --version v2 \
+  --engine <module>#<export> \
+  --matrix-engine <module>#<export>
+```
+
+`<module>` resolves from the repository root and may point outside it, so a reference engine that lives in a consumer works:
+
+```bash
+pnpm tsx scripts/record-multishot-golden.ts \
+  --version v2 \
+  --engine ../gtm-agent/eval/lib/multishot-graph.ts#runMultishotGraph \
+  --matrix-engine ../gtm-agent/eval/lib/multishot-matrix-graph.ts#runMultishotMatrixGraph
+```
+
+Every scenario is captured twice and the two captures must agree.
+A scenario that is not reproducible cannot detect a regression, so an unstable capture fails the run instead of freezing a coin flip.
+
+## Adding a scenario
+
+Add it to `multishotGoldenScenarios()` in `src/multishot/golden/scenarios.ts`, then mint a new version.
+The record-set integrity test requires one record per catalog scenario in catalog order, so a scenario with no record fails the suite rather than passing silently.
+
+`v1` was captured from the `./multishot` loop at agent-eval 0.145.21 — the engine the merged loop-to-graph parity proofs compared against.
