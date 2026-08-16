@@ -156,9 +156,7 @@ describe('ExperimentTracker', () => {
   it('rejects empty rep lineage identities', async () => {
     const t = make()
     await t.create({ id: 'invalid-evidence', label: 'candidate', changeSummary: 'invalid' })
-    await expect(t.addRep('invalid-evidence', { score: 1, runId: '  ' })).rejects.toThrow(
-      /runId/,
-    )
+    await expect(t.addRep('invalid-evidence', { score: 1, runId: '  ' })).rejects.toThrow(/runId/)
     await expect(
       t.addRep('invalid-evidence', {
         score: 1,
