@@ -82,7 +82,7 @@ const presentFieldsEngine: TraceAnalysisEngine = {
           severity: 'high',
           claim: 'The selected span contains a fully described reproducible issue.',
           confidence: 0.95,
-          subject: 'leaf:fixture-1',
+          subject: 'system-prompt:fixture-1',
           rationale: 'The exact provider response proves the failure mode.',
           recommended_action: 'Repair the provider boundary and replay this exact run.',
           evidence: [
@@ -172,7 +172,7 @@ describe('createTraceAnalyst exact canonical output', () => {
 
     expect(result.completion.status).toBe('complete')
     expect(result.findings[0]).toMatchObject({
-      subject: 'leaf:fixture-1',
+      subject: 'system-prompt:fixture-1',
       rationale: 'The exact provider response proves the failure mode.',
       recommended_action: 'Repair the provider boundary and replay this exact run.',
       evidence_refs: [
