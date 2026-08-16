@@ -14,6 +14,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - `decideNextUserTurn`, `DecideNextUserTurnOpts` and `buildDriverSystemPrompt`, with `src/driver.ts` and the `user-simulation-driver` example. A role written as a code function cannot be optimized, and a persona driver is an `AgentProfile` on a graph edge, not a packaged function. The one remaining caller, gtm-agent, now owns the role in its own repository, where the prompt is product data it can change and measure.
 - `ConvergenceTracker` and `src/convergence.ts`. Its only caller was `AgentDriver`, which 0.145.22 deleted, and it never reached the barrel. `analyzeSeries` in `src/series-convergence.ts` is unaffected — it reads drift across runs, not progress within one.
+- `PersonaConfig.feedbackPatterns`, the `FeedbackPattern` type, and `PersonaConfig.driverModel`. `feedbackPatterns` told `AgentDriver` which product approvals to reject, and `driverModel` picked its driver model; with the class gone nothing reads either, in this package or in any repository that depends on it. A field that advertises behaviour the package no longer has is worse than no field.
 - Nothing else on the public surface changes. `PersonaConfig` and `DriverState` stay: a harness that writes its own driver still describes a persona and a produced state with them.
 
 ### Migration

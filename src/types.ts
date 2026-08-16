@@ -152,11 +152,6 @@ export interface CompletionCriterion {
   progress?: (state: DriverState) => number
 }
 
-export interface FeedbackPattern {
-  trigger: string
-  response: string
-}
-
 /**
  * How hard the simulated user pushes back. The driver LLM scales its tone
  * and follow-up aggression to this:
@@ -172,9 +167,7 @@ export interface PersonaConfig {
   role: string
   goal: string
   completionCriteria: CompletionCriterion[]
-  feedbackPatterns?: FeedbackPattern[]
   maxTurns: number
-  driverModel?: string
   /** How adversarial the simulated user is. Defaults to 'demanding'. */
   rigor?: PersonaRigor
   /**
