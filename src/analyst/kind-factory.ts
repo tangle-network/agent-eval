@@ -397,13 +397,15 @@ function toAnalystFinding(
   return makeFinding({
     analyst_id: definition.id,
     area: definition.area,
-    subject: raw.subject,
     claim: raw.claim,
-    rationale: raw.rationale,
     severity: raw.severity,
     confidence: raw.confidence,
     evidence_refs: evidenceRefsFromRawFinding(raw),
-    recommended_action: raw.recommended_action,
+    ...(raw.subject === undefined ? {} : { subject: raw.subject }),
+    ...(raw.rationale === undefined ? {} : { rationale: raw.rationale }),
+    ...(raw.recommended_action === undefined
+      ? {}
+      : { recommended_action: raw.recommended_action }),
     metadata: { definition_version: version, ...metadata },
   })
 }
