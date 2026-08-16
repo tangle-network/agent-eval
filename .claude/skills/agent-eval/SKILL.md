@@ -82,6 +82,47 @@ Pair baseline and candidate by case and seed.
 Test ties, missing pairs, zero variance, small samples, interrupted runs, and deterministic failures.
 Never promote from development scores alone.
 
+### Removing A Public Symbol
+
+Derive the caller set mechanically. Never grep a hand-written list of repositories.
+A repository missing from a list returns zero matches, which reads exactly like a repository that has no callers.
+
+Select repositories by structure, so a naming convention cannot go stale:
+
+```bash
+# canonical checkout = .git is a DIRECTORY; a worktree clone's .git is a FILE
+cd ~/code
+for d in */; do d=${d%/}; [ -d "$d/.git" ] && echo "$d"; done
+```
+
+Grep each repository on its **default branch ref**, not its working tree.
+A repository is usually sitting on unrelated in-flight work.
+
+```bash
+ref=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)
+git -C "$repo" grep -n -w -I -- "$SYMBOL" "$ref" -- ':(exclude)*/node_modules/*'
+```
+
+Do not assume the default branch is `main`; resolve it per repository.
+Use `git grep -w` so a lookalike identifier cannot match.
+
+For published dependents, union the registry scope search with every non-private `package.json` name in those repositories — the search index is incomplete.
+Download each package's `latest` tarball and grep the built `dist/` output, which is what a consumer resolves.
+
+Read the `from` clause of every hit before calling it a caller.
+A property key, a local definition of the same name, and a doc comment all look like calls to a grep.
+
+Report every repository the sweep could not cover, such as one with no remote default branch.
+Silence about a gap is the defect this procedure exists to prevent.
+
+Record each caller's **pinned version**, then read what that pinned version's implementation did.
+It is not always what `main` does, and a port copied from `main` into a repository pinned below it changes behavior silently.
+
+Migrate every caller before the deletion lands, each in its own repository and its own pull request.
+
+When verifying a migration in a consumer repository, run the tsconfig that covers the changed file.
+A repository's `typecheck` script often excludes its `eval/` directory.
+
 ### Trace Or Intake Adapter
 
 Preserve identity, timestamps, ordering, raw provenance, unknown fields, and error state.
