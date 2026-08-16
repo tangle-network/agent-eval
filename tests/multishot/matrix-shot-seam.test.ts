@@ -560,6 +560,25 @@ describe('runMultishotMatrix shot seam', () => {
     expect(Number.isFinite(result.matrix.summary.totalCostUsd)).toBe(true)
     expect(result.matrix.summary.totalCostUsd).toBe(0)
   })
+
+  it('fails the cell loud when the shot emits an untyped artifact', async () => {
+    const runDir = newRunDir()
+    const result = await runMultishotMatrix({
+      ...baseOptions(runDir),
+      runShot: syntheticShot((r) => ({
+        ...r,
+        artifacts: r.artifacts.map(({ type: _dropped, ...rest }) => rest as never),
+      })),
+    })
+
+    for (const { runs } of result.matrix.cells) {
+      expect(runs[0]!.error?.kind).toBe('MultishotShotResultError')
+      expect(runs[0]!.error?.message).toContain('artifacts[0].type must be a string')
+    }
+    // An untyped artifact matches neither judge set, so without the guard the
+    // cell would score as though the artifact was never produced.
+    expect(judgeCalls).toBe(0)
+  })
 })
 
 describe('assertMultishotShotResult', () => {
@@ -571,8 +590,22 @@ describe('assertMultishotShotResult', () => {
     costUsd: 0,
   }
 
+  const populated: MultishotResult = {
+    ...valid,
+    transcript: [
+      { role: 'user', content: 'ask' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'make_code', args: {} }] },
+      { role: 'tool', content: 'CODE-ARTIFACT', toolCallId: 'a' },
+    ],
+    artifacts: [
+      { type: 'code', turn: 0, invocation: { name: 'make_code', args: {} }, content: 'x' },
+    ],
+    toolCalls: 1,
+  }
+
   it('accepts a well-formed result', () => {
     expect(() => assertMultishotShotResult(valid)).not.toThrow()
+    expect(() => assertMultishotShotResult(populated)).not.toThrow()
   })
 
   it.each([
@@ -582,6 +615,57 @@ describe('assertMultishotShotResult', () => {
     ['a missing artifacts list', { ...valid, artifacts: null }, 'artifacts must be an array'],
     ['a negative toolCalls', { ...valid, toolCalls: -1 }, 'toolCalls must be a finite number >= 0'],
     ['an infinite durationMs', { ...valid, durationMs: Infinity }, 'durationMs must be a finite'],
+    [
+      'a null transcript row',
+      { ...populated, transcript: [null] },
+      'transcript[0] must be an object',
+    ],
+    [
+      'an unknown message role',
+      { ...populated, transcript: [{ role: 'system', content: 'x' }] },
+      'transcript[0].role must be user, assistant or tool',
+    ],
+    [
+      'a message with no content',
+      { ...populated, transcript: [{ role: 'user' }] },
+      'transcript[0].content must be a string',
+    ],
+    [
+      'a non-array toolCalls',
+      { ...populated, transcript: [{ role: 'assistant', content: 'x', toolCalls: 3 }] },
+      'transcript[0].toolCalls must be an array when present',
+    ],
+    [
+      'an artifact with no type',
+      {
+        ...populated,
+        artifacts: [{ turn: 0, invocation: { name: 'make_code', args: {} }, content: 'x' }],
+      },
+      'artifacts[0].type must be a string',
+    ],
+    [
+      'an artifact with a negative turn',
+      {
+        ...populated,
+        artifacts: [
+          { type: 'code', turn: -1, invocation: { name: 'make_code', args: {} }, content: 'x' },
+        ],
+      },
+      'artifacts[0].turn must be a finite number >= 0',
+    ],
+    [
+      'an artifact with no invocation',
+      { ...populated, artifacts: [{ type: 'code', turn: 0, content: 'x' }] },
+      'artifacts[0].invocation must be an object',
+    ],
+    [
+      'an artifact whose invocation has no name',
+      {
+        ...populated,
+        artifacts: [{ type: 'code', turn: 0, invocation: { args: {} }, content: 'x' }],
+      },
+      'artifacts[0].invocation.name must be a string',
+    ],
     ['a NaN costUsd', { ...valid, costUsd: Number.NaN }, 'costUsd must be a finite number >= 0'],
   ])('rejects %s', (_label, value, reason) => {
     expect(() => assertMultishotShotResult(value)).toThrow(MultishotShotResultError)

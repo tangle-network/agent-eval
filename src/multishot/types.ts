@@ -114,11 +114,20 @@ export class MultishotShotResultError extends Error {
   }
 }
 
+const MULTISHOT_ROLES = new Set(['user', 'assistant', 'tool'])
+
 /** Contract guard for the value a caller-supplied shot resolves with. The
  *  matrix meters cost, writes per-cell artifacts, and builds judge inputs from
  *  this value, so a malformed result must stop the cell instead of degrading a
- *  downstream number: a non-finite `costUsd` propagates into the cumulative
- *  sum and disables the matrix cost ceiling for the rest of the run. */
+ *  downstream number. Two silent degradations this closes: a non-finite
+ *  `costUsd` propagates into the cumulative sum and disables the matrix cost
+ *  ceiling for the rest of the run; an artifact with no `type` matches neither
+ *  the code nor the content artifact set and leaves the cell scored as though
+ *  the artifact was never produced.
+ *
+ *  Rows are checked to the depth the matrix and the judges read them: every
+ *  required field of `MultishotMessage` and `MultishotArtifact`. Optional
+ *  fields are checked only when present. */
 export function assertMultishotShotResult(value: unknown): asserts value is MultishotResult {
   if (typeof value !== 'object' || value === null) {
     throw new MultishotShotResultError(`expected an object, received ${describeValue(value)}`)
@@ -134,9 +143,52 @@ export function assertMultishotShotResult(value: unknown): asserts value is Mult
       `artifacts must be an array, received ${describeValue(result.artifacts)}`,
     )
   }
+  result.transcript.forEach(assertMessage)
+  result.artifacts.forEach(assertArtifact)
   assertFiniteCount(result.toolCalls, 'toolCalls')
   assertFiniteCount(result.durationMs, 'durationMs')
   assertFiniteCount(result.costUsd, 'costUsd')
+}
+
+function assertMessage(value: unknown, index: number): void {
+  const row = requireRow(value, `transcript[${index}]`)
+  if (typeof row.role !== 'string' || !MULTISHOT_ROLES.has(row.role)) {
+    throw new MultishotShotResultError(
+      `transcript[${index}].role must be user, assistant or tool, received ${describeValue(row.role)}`,
+    )
+  }
+  assertString(row.content, `transcript[${index}].content`)
+  if (row.toolCalls !== undefined && !Array.isArray(row.toolCalls)) {
+    throw new MultishotShotResultError(
+      `transcript[${index}].toolCalls must be an array when present, received ${describeValue(row.toolCalls)}`,
+    )
+  }
+}
+
+function assertArtifact(value: unknown, index: number): void {
+  const row = requireRow(value, `artifacts[${index}]`)
+  assertString(row.type, `artifacts[${index}].type`)
+  assertString(row.content, `artifacts[${index}].content`)
+  assertFiniteCount(row.turn, `artifacts[${index}].turn`)
+  const invocation = requireRow(row.invocation, `artifacts[${index}].invocation`)
+  assertString(invocation.name, `artifacts[${index}].invocation.name`)
+}
+
+function requireRow(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new MultishotShotResultError(
+      `${field} must be an object, received ${describeValue(value)}`,
+    )
+  }
+  return value as Record<string, unknown>
+}
+
+function assertString(value: unknown, field: string): void {
+  if (typeof value !== 'string') {
+    throw new MultishotShotResultError(
+      `${field} must be a string, received ${describeValue(value)}`,
+    )
+  }
 }
 
 function assertFiniteCount(value: unknown, field: string): void {
