@@ -14,6 +14,10 @@ export const MODEL_PRICING: Record<string, TokenPrice> = {
   'claude-sonnet-4-20250514': { input: 0.003, output: 0.015 },
   'claude-opus-4-20250514': { input: 0.015, output: 0.075 },
   'claude-3-haiku-20240307': { input: 0.00025, output: 0.00125 },
+  // Router response-header rates observed for the exact served model on
+  // 2026-08-15. Keep this exact row ahead of the deliberately coarse family
+  // fallback so glm-5.3 campaign costs are not understated by ~2.5x.
+  'glm-5.3': { input: 0.00168, output: 0.00528 },
 }
 
 /** Family-level pricing fallbacks (per-1K), matched against a normalized id
@@ -40,10 +44,13 @@ const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
 ]
 
 /** Normalize a model id for pricing: drop a `@snapshot` suffix, lowercase,
- *  and keep the final harness/provider-prefixed segment so family regexes
- *  match (`opencode/zai-coding-plan/glm-5.1` → `glm-5.1`). */
-function normalizeModelId(model: string): string {
-  return (model.split('@')[0] ?? model).trim().toLowerCase()
+ *  and return both the complete harness/provider-prefixed id and its final
+ *  served-model segment (`opencode/zai-coding-plan/glm-5.3` → full id plus
+ *  `glm-5.3`). Exact rows are checked against both before family fallback. */
+function normalizedModelIds(model: string): string[] {
+  const id = (model.split('@')[0] ?? model).trim().toLowerCase()
+  const finalSegment = id.slice(id.lastIndexOf('/') + 1)
+  return finalSegment === id ? [id] : [id, finalSegment]
 }
 
 /** Resolve pricing for a model id: exact table, then family fallback.
@@ -51,10 +58,12 @@ function normalizeModelId(model: string): string {
  *  silent-zero masquerading as a real $0 cost). */
 export function resolveModelPricing(model: string): TokenPrice | null {
   if (MODEL_PRICING[model]) return MODEL_PRICING[model]
-  const id = normalizeModelId(model)
-  if (MODEL_PRICING[id]) return MODEL_PRICING[id]
+  const ids = normalizedModelIds(model)
+  for (const id of ids) {
+    if (MODEL_PRICING[id]) return MODEL_PRICING[id]
+  }
   for (const [pattern, price] of FAMILY_PRICING) {
-    if (pattern.test(id)) return price
+    if (ids.some((id) => pattern.test(id))) return price
   }
   return null
 }
