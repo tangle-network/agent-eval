@@ -1,6 +1,4 @@
 import type { ChatClient, ChatRequest } from './analyst/chat-client'
-import type { ProductClient } from './client'
-import { ConvergenceTracker } from './convergence'
 import { CostLedger, type CostLedgerHandle } from './cost-ledger'
 import { warnDeprecatedOnce } from './deprecation'
 import { assertServedModel } from './integrity/served-model'
@@ -9,17 +7,7 @@ import {
   costReceiptFromLlmError,
   maximumChargeForLlmRequest,
 } from './llm-client'
-import { MetricsCollector } from './metrics'
-import type { DriverResult, DriverState, PersonaConfig, PersonaRigor, TurnMetrics } from './types'
-
-export interface AgentDriverConfig {
-  client: ProductClient
-  driverModel?: string
-  /** System prompt context for the driver LLM to understand the product */
-  productContext?: string
-  /** Shared account for driver-model calls. */
-  costLedger?: CostLedgerHandle
-}
+import type { DriverState, PersonaConfig, PersonaRigor } from './types'
 
 /**
  * Per-rigor stance the driver LLM adopts. Scales how hard the simulated
@@ -32,191 +20,6 @@ const RIGOR_STANCE: Record<PersonaRigor, string> = {
     'Your stance: an experienced professional with no time to waste. You do not accept vague, hedged, or generic answers — you expect specifics, and you say so plainly when you do not get them.',
   relentless:
     'Your stance: a senior partner reviewing this work for a client who will litigate if it is wrong. You interrogate every claim. You accept nothing undefended. You find the single weakest point in every answer and attack it. Courteous, never satisfied.',
-}
-
-/**
- * AgentDriver — meta-agent that plays a persona against the real product.
- *
- * Uses a driver LLM (Claude/GPT-4o) to decide what to say each turn.
- * Not scripted — the driver gets the current product state and decides
- * the next realistic user message.
- *
- * @deprecated A one-product driver welded to `ProductClient` does not belong
- * in the generic substrate. Moves to the product repo in the next major
- * (tangle-network/agent-runtime#694). A driver is an `AgentProfile` on a
- * graph edge; use the agent-graph path once it lands, or vendor this class.
- */
-export class AgentDriver {
-  private chat: ChatClient
-  private client: ProductClient
-  private driverModel: string
-  private productContext: string
-  private costLedger: CostLedgerHandle
-
-  constructor(chat: ChatClient, config: AgentDriverConfig) {
-    warnDeprecatedOnce(
-      'AgentDriver',
-      'AgentDriver is deprecated and moves to the product repo in the next major (tangle-network/agent-runtime#694).',
-    )
-    this.chat = chat
-    this.client = config.client
-    this.driverModel = config.driverModel ?? 'claude-sonnet-4-6'
-    this.productContext = config.productContext ?? ''
-    this.costLedger = config.costLedger ?? new CostLedger()
-  }
-
-  /**
-   * Run a persona through the product.
-   *
-   * Returns metrics on how many turns to completion, cost curve,
-   * quality curve, and convergence curve.
-   */
-  async run(persona: PersonaConfig): Promise<DriverResult> {
-    const costTags = { driverRunId: globalThis.crypto.randomUUID() }
-    // Setup: create workspace + thread
-    const email = `eval-driver-${Date.now()}@test.agent-eval.local`
-    await this.client.signup(`Driver ${persona.role}`, email, 'eval-driver-pass')
-    await this.client.login(email, 'eval-driver-pass')
-    const workspaceId = await this.client.createWorkspace(`${persona.role} Eval`)
-    const threadId = await this.client.createThread(workspaceId)
-
-    const metrics = new MetricsCollector(this.client, workspaceId)
-    const convergence = new ConvergenceTracker(persona.completionCriteria)
-    const turnMetrics: TurnMetrics[] = []
-    const conversationHistory: { role: string; content: string }[] = []
-
-    let completed = false
-    let turnsToCompletion: number | null = null
-    let criteriaMetAtTurn: number | null = null
-
-    for (let turn = 1; turn <= persona.maxTurns; turn++) {
-      // Get current product state
-      const state = await metrics.getState()
-
-      // Ask driver LLM what to say
-      const userMessage = await this.decideNextMessage(
-        persona,
-        state,
-        conversationHistory,
-        costTags,
-      )
-
-      if (userMessage === 'DONE') {
-        completed = true
-        turnsToCompletion = turn - 1
-        console.log(`  SIGNED OFF by simulated ${persona.role} after turn ${turn - 1}`)
-        break
-      }
-
-      // Send to product
-      const turnStart = Date.now()
-      const response = await this.client.chat(workspaceId, threadId, userMessage)
-      const latency = Date.now() - turnStart
-
-      conversationHistory.push(
-        { role: 'user', content: userMessage },
-        { role: 'assistant', content: response.text },
-      )
-
-      // Wait for post-processor
-      await new Promise((r) => setTimeout(r, 2000))
-
-      // Handle pending approvals
-      await this.handleApprovals(persona, workspaceId, state)
-
-      // Check convergence
-      const postState = await metrics.getState()
-      const conv = convergence.record(turn, postState)
-
-      // Collect metrics
-      const codeBlockCount = (response.text.match(/```\w+\n/g) || []).length
-      const m = await metrics.collect(
-        turn,
-        latency,
-        response.text.length,
-        codeBlockCount,
-        response.blocks.length,
-        Object.values(conv.criteriaStatus).filter(Boolean).length,
-        persona.completionCriteria.length,
-      )
-      turnMetrics.push(m)
-
-      // Print turn status
-      const criteriaStr = Object.entries(conv.criteriaStatus)
-        .map(([k, v]) => `${k}:${v ? '+' : '-'}`)
-        .join(' ')
-      console.log(
-        `  [turn ${turn}] ${conv.completionPercent.toFixed(0)}% — ${criteriaStr} (${(latency / 1000).toFixed(1)}s)`,
-      )
-
-      // Nominal criteria met is recorded, not a stop condition. The
-      // simulated professional keeps pressure-testing until genuinely
-      // satisfied — a criteria-met-but-sloppy answer must still be defended.
-      if (conv.complete && criteriaMetAtTurn === null) {
-        criteriaMetAtTurn = turn
-        console.log(`  criteria met at turn ${turn} — driver continues pressure-testing`)
-      }
-    }
-
-    const finalState = await metrics.getState()
-
-    return {
-      personaId: persona.id,
-      completed,
-      turnsToCompletion,
-      criteriaMetAtTurn,
-      totalTurns: turnMetrics.length,
-      metrics: turnMetrics,
-      finalState,
-      convergenceCurve: convergence.getCurve(),
-      totalCostUsd: this.costLedger.summary({ tags: costTags }).totalCostUsd,
-      finalQualityScore: null,
-    }
-  }
-
-  /** Use the driver LLM to decide what the "user" says next */
-  private async decideNextMessage(
-    persona: PersonaConfig,
-    state: DriverState,
-    history: { role: string; content: string }[],
-    costTags: Record<string, string>,
-  ): Promise<string> {
-    return decideNextUserTurn(this.chat, {
-      persona,
-      state,
-      history,
-      productContext: this.productContext,
-      model: this.driverModel,
-      costLedger: this.costLedger,
-      costTags,
-    })
-  }
-
-  /** Handle pending approvals based on persona feedback patterns */
-  private async handleApprovals(
-    persona: PersonaConfig,
-    workspaceId: string,
-    _state: DriverState,
-  ): Promise<void> {
-    const approvals = await this.client.getApprovals(workspaceId)
-    const pending = approvals.filter((a) => a.status === 'pending')
-
-    for (const action of pending) {
-      // Check if any feedback pattern triggers a rejection
-      const rejection = persona.feedbackPatterns?.find((fp) => {
-        const title = action.title.toLowerCase()
-        return title.includes(fp.trigger.toLowerCase())
-      })
-
-      if (rejection) {
-        await this.client.rejectAction(workspaceId, action.id, rejection.response)
-        console.log(`    rejected: ${action.title} — ${rejection.response.slice(0, 60)}`)
-      } else {
-        await this.client.approveAction(workspaceId, action.id)
-        console.log(`    approved: ${action.title}`)
-      }
-    }
-  }
 }
 
 /** Describe which nominal completion criteria are met, for the driver prompt. */
@@ -239,8 +42,8 @@ function describeCompletion(persona: PersonaConfig, state: DriverState): string 
  * — exported so harness authors can inspect and regression-test it.
  *
  * @deprecated A role expressed as a code function can never be optimized.
- * Removal is a major; until then, treat this output as SEED data for a
- * registry-backed directive prompt (tangle-network/agent-runtime#694).
+ * Treat this output as SEED data for a registry-backed directive prompt.
+ * Removal tracked by tangle-network/agent-eval#618.
  */
 export function buildDriverSystemPrompt(
   persona: PersonaConfig,
@@ -249,7 +52,7 @@ export function buildDriverSystemPrompt(
 ): string {
   warnDeprecatedOnce(
     'buildDriverSystemPrompt',
-    'buildDriverSystemPrompt is deprecated: roles belong in registry-backed prompt data, not code (tangle-network/agent-runtime#694).',
+    'buildDriverSystemPrompt is deprecated: roles belong in registry-backed prompt data, not code (tangle-network/agent-eval#618).',
   )
   const rigor: PersonaRigor = persona.rigor ?? 'demanding'
   const expertise = persona.expertise ? ` You are ${persona.expertise}.` : ''
@@ -311,14 +114,13 @@ export interface DecideNextUserTurnOpts {
 
 /**
  * Decide the simulated user's next turn — the reactive, adversarial
- * turn-generation core of `AgentDriver`, exposed standalone so an in-process
- * eval harness can drive multi-shot conversations without the `ProductClient`
- * workspace machinery. Returns the next user message, or the literal "DONE"
- * when the simulated professional would sign off.
+ * turn-generator an in-process eval harness uses to drive a multi-shot
+ * conversation. Returns the next user message, or the literal "DONE" when the
+ * simulated professional would sign off.
  *
  * @deprecated The persona-driver loop becomes a 2-node agent graph (driver
- * profile + delegates edge); removal is a major
- * (tangle-network/agent-runtime#694).
+ * profile + delegates edge). Removal tracked by
+ * tangle-network/agent-eval#618.
  */
 export async function decideNextUserTurn(
   chat: ChatClient,
@@ -326,7 +128,7 @@ export async function decideNextUserTurn(
 ): Promise<string> {
   warnDeprecatedOnce(
     'decideNextUserTurn',
-    'decideNextUserTurn is deprecated: the persona-driver loop becomes a 2-node agent graph (tangle-network/agent-runtime#694).',
+    'decideNextUserTurn is deprecated: the persona-driver loop becomes a 2-node agent graph (tangle-network/agent-eval#618).',
   )
   const { persona, state, history, productContext = '', model = 'claude-sonnet-4-6' } = opts
 

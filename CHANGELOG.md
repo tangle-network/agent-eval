@@ -8,6 +8,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.145.22] — 2026-08-16
+
+### Removed
+
+- `AgentDriver` and `AgentDriverConfig`. The class was absent from the barrel and from every published subpath, so no consumer could import it. Nine sibling default branches and ten published npm dependents carry zero callers.
+- `MetricsCollector`, `TurnMetrics` and `DriverResult`. Each existed only to serve `AgentDriver`, and none reached the export surface.
+
+### Added
+
+- The served-model guard reaches the public surface: `assertServedModel`, `assertServedModels`, `assertCrossFamilyServed`, `checkServedModel`, `servedModelAcceptable`, `ModelSubstitutionError`, `ServedCrossFamilyError`, and the `AssertServedModelOptions` / `AssertCrossFamilyServedOptions` / `ServedModelCheck` / `ServedModelVerdict` types. A harness that owns its own conversation loop needs the same check the packaged drivers make — hold the transport to the model id it was asked for — and could not reach it. Without this, migrating off `decideNextUserTurn` means dropping the check. `docs/building-doctrine.md` names `assertCrossFamilyServed` as an enforcement mechanism, so the whole family ships together rather than the half a driver happens to call.
+
+### Changed
+
+- The `buildDriverSystemPrompt` and `decideNextUserTurn` deprecation notices cite `tangle-network/agent-eval#618`, the open issue that tracks their removal, instead of a closed issue in another repository.
+
+---
+
 ## [0.145.21] — 2026-08-16
 
 ### Changed
