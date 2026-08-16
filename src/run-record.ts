@@ -507,6 +507,10 @@ function validateCost(costUsd: unknown, provenance: unknown): void {
       'costProvenance.kind',
     )
   }
+  // A record must never read as a total it cannot support, so an uncaptured
+  // cost carries no number at all. A matrix `CellResult` keeps its known
+  // subtotal instead, because a cost ceiling must charge the part it can see;
+  // converting one to the other drops that subtotal.
   if (value.kind === 'uncaptured') {
     if (value.usd !== null) {
       throw new RunRecordValidationError(

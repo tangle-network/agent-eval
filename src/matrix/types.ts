@@ -47,7 +47,13 @@ export interface CellResult<Output> {
   /** Origin of `costUsd`. Absent on a result `runCell` returned — that
    *  `costUsd` is measured by contract. The runner always sets it on a cell
    *  that threw, where a bare number cannot say whether `0` means "spent
-   *  nothing" or "spend unknown". */
+   *  nothing" or "spend unknown".
+   *
+   *  Converting to `RunRecord` needs one translation: a `RunRecord` rejects a
+   *  numeric `costUsd` beside `uncaptured` provenance, so an uncaptured cell
+   *  becomes `costUsd: null` there. A cell keeps the subtotal because a cost
+   *  ceiling must charge the part it can see; a record drops it because a
+   *  record must never read as a total. */
   costProvenance?: CostProvenance
   /** Populated when `runCell` threw, or when it returned a cost the runner
    *  cannot bill. The cell contributes 0 to passRate AND meanScore regardless
