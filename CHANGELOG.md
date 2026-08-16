@@ -8,7 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.145.18] — 2026-08-16
+## [0.145.19] — 2026-08-16
 
 ### Added
 
@@ -19,6 +19,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Changed
 
 - The multishot matrix now applies `assertMultishotShotResult` to the default engine's result too. A custom tool executor that returns non-string `content`, or a custom transport that reports a negative or non-finite `costUsd`, now fails the cell instead of writing the value into the cell artifacts.
+
+---
+
+## [0.145.18] — 2026-08-16
+
+### Changed
+
+- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.9.3` and `0.56.0`.
+- Packed consumers now resolve one Core and Interface contract set through Eval.
 
 ---
 
