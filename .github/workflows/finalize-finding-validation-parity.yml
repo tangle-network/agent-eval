@@ -53,12 +53,12 @@ jobs:
 
       - name: Format Python changes
         run: |
-          uv run --project clients/python --extra dspy --group dev ruff format \
+          uv run --project clients/python --extra dspy --extra dev ruff format \
             clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py \
             clients/python/src/agent_eval_rpc/finding_subject.py \
             clients/python/tests/test_dspy_rlm_bridge.py \
             clients/python/tests/test_finding_validation_parity.py
-          uv run --project clients/python --extra dspy --group dev ruff check --fix \
+          uv run --project clients/python --extra dspy --extra dev ruff check --fix \
             clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py \
             clients/python/src/agent_eval_rpc/finding_subject.py \
             clients/python/tests/test_dspy_rlm_bridge.py \
@@ -78,9 +78,9 @@ jobs:
           pnpm run typecheck:scripts
           pnpm test
           pnpm run build
-          uv run --project clients/python --extra dspy --group dev ruff check \
+          uv run --project clients/python --extra dspy --extra dev ruff check \
             clients/python/src clients/python/tests
-          uv run --project clients/python --extra dspy --group dev pytest -q
+          uv run --project clients/python --extra dspy --extra dev pytest -q
 
       - name: Commit the validated repair
         shell: bash
