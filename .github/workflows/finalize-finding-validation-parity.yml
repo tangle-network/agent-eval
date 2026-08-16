@@ -1,0 +1,262 @@
+name: Finalize finding validation parity
+
+on:
+  push:
+    branches:
+      - fix/finding-validation-parity
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/finding-validation-parity
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: pnpm install --frozen-lockfile
+      - name: Apply the bridge contract repair
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+
+          path = Path('clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one bridge anchor, found {text.count(old)}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'from agent_eval_rpc.optimizer_bridge_common import atomic_write_json\n',
+              'from agent_eval_rpc.finding_subject import is_valid_finding_subject\n'
+              'from agent_eval_rpc.optimizer_bridge_common import atomic_write_json\n',
+          )
+          replace_once(
+              '   - subject: an optional non-empty string',
+              '   - subject: an optional canonical FindingSubject locus such as '
+              'system-prompt:verification, tool-doc:viewTrace:pagination, '
+              'agent-profile:prompt.instructions, or a lowercase cluster-label; never prose',
+          )
+          replace_once(
+              'def _parse_findings_json(value: str) -> list[dict[str, Any]]:\n'
+              '    # findings_json is model output. A model that wraps the array in a fenced\n'
+              '    # block or leaves prose around it should not void a completed investigation,\n'
+              '    # so the array is extracted before parsing. A genuinely absent array means\n'
+              '    # "no citable finding", which is a valid empty result, not a crash. Each\n'
+              '    # surviving row is still validated strictly.\n'
+              '    return _validated_rows(_extract_json_array(value))\n\n\n'
+              'def _validated_rows(parsed: list[Any] | None) -> list[dict[str, Any]]:\n'
+              '    if parsed is None:\n'
+              '        return []\n'
+              '    rows: list[dict[str, Any]] = []\n'
+              '    for index, row in enumerate(parsed):\n'
+              '        # One malformed finding row is dropped, not fatal: the TypeScript\n'
+              '        # boundary re-validates every surviving row, so nothing invalid reaches\n'
+              '        # the score, and a completed investigation keeps its usable findings.\n'
+              '        try:\n'
+              '            rows.append(_validate_finding(row, index))\n'
+              '        except ValueError:\n'
+              '            continue\n'
+              '    return rows\n',
+              'def _parse_findings_json(\n'
+              '    value: str,\n'
+              '    rejections: list[dict[str, Any]] | None = None,\n'
+              ') -> list[dict[str, Any]]:\n'
+              '    # findings_json is model output. A model that wraps the array in a fenced\n'
+              '    # block or leaves prose around it should not void a completed investigation.\n'
+              '    return _validated_rows(_extract_json_array(value), rejections, phase="initial")\n\n\n'
+              'def _validated_rows(\n'
+              '    parsed: list[Any] | None,\n'
+              '    rejections: list[dict[str, Any]] | None = None,\n'
+              '    *,\n'
+              '    phase: str = "initial",\n'
+              ') -> list[dict[str, Any]]:\n'
+              '    if parsed is None:\n'
+              '        return []\n'
+              '    rows: list[dict[str, Any]] = []\n'
+              '    for index, row in enumerate(parsed):\n'
+              '        # One malformed sibling does not erase valid rows, but its exact defect\n'
+              '        # remains visible in the runtime record for repair and debugging.\n'
+              '        try:\n'
+              '            rows.append(_validate_finding(row, index))\n'
+              '        except ValueError as error:\n'
+              '            if rejections is not None:\n'
+              '                rejections.append(\n'
+              '                    {"phase": phase, "index": index, "reason": str(error)[:300]}\n'
+              '                )\n'
+              '    return rows\n',
+          )
+          replace_once(
+              'def _repair_findings_turn(lm: Any, answer_text: str) -> tuple[list[dict[str, Any]], str | None]:',
+              'def _repair_findings_turn(\n'
+              '    lm: Any, answer_text: str\n'
+              ') -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:',
+          )
+          replace_once(
+              '        return [], f"{type(error).__name__}: {summary}"',
+              '        return [], f"{type(error).__name__}: {summary}", []',
+          )
+          replace_once(
+              '        return [], f"repair completion has unexpected type {type(completion).__name__}"\n'
+              '    return _validated_rows(_extract_json_array(completion)), None',
+              '        return [], f"repair completion has unexpected type {type(completion).__name__}", []\n'
+              '    rejections: list[dict[str, Any]] = []\n'
+              '    rows = _validated_rows(\n'
+              '        _extract_json_array(completion), rejections, phase="repair"\n'
+              '    )\n'
+              '    return rows, None, rejections',
+          )
+          replace_once(
+              '    if "subject" in finding:\n'
+              '        _require_bounded_string(finding["subject"], f"findings[{index}].subject", 400)\n',
+              '    if "subject" in finding:\n'
+              '        _require_bounded_string(finding["subject"], f"findings[{index}].subject", 400)\n'
+              '        if not is_valid_finding_subject(finding["subject"]):\n'
+              '            raise ValueError(\n'
+              '                f"findings[{index}].subject does not match canonical FindingSubject grammar"\n'
+              '            )\n',
+          )
+          replace_once(
+              '    repair_error: str | None = None\n',
+              '    repair_error: str | None = None\n'
+              '    finding_rejections: list[dict[str, Any]] = []\n',
+          )
+          replace_once(
+              '        findings = _parse_findings_json(raw_findings_json)',
+              '        findings = _parse_findings_json(raw_findings_json, finding_rejections)',
+          )
+          replace_once(
+              '        if not findings and findings_salvage is None and answer_text:\n'
+              '            # EXACTLY one repair turn on the same LM handle: the model re-emits\n'
+              '            # the strict array from its own answer. The call is visible in\n'
+              '            # modelCalls (counted below) and flagged in the runtime record.\n'
+              '            format_repair_used = True\n'
+              '            findings, repair_error = _repair_findings_turn(lm, answer_text)',
+              '        repair_source = answer_text or raw_findings_json.strip()\n'
+              '        if not findings and findings_salvage is None and repair_source:\n'
+              '            # EXACTLY one repair turn on the same LM handle. An all-invalid\n'
+              '            # structured submission is repairable even when prose is absent.\n'
+              '            format_repair_used = True\n'
+              '            findings, repair_error, repair_rejections = _repair_findings_turn(\n'
+              '                lm, repair_source\n'
+              '            )\n'
+              '            finding_rejections.extend(repair_rejections)',
+          )
+          replace_once(
+              '            "format_repair_used": format_repair_used,\n'
+              '            **({"format_repair_error": repair_error} if repair_error is not None else {}),',
+              '            "format_repair_used": format_repair_used,\n'
+              '            **(\n'
+              '                {"finding_rejections": finding_rejections}\n'
+              '                if finding_rejections\n'
+              '                else {}\n'
+              '            ),\n'
+              '            **({"format_repair_error": repair_error} if repair_error is not None else {}),',
+          )
+          path.write_text(text)
+
+          test_path = Path('clients/python/tests/test_dspy_rlm_bridge.py')
+          tests = test_path.read_text()
+          test_name = 'test_all_invalid_subjects_trigger_repair_and_report_exact_defects'
+          if test_name not in tests:
+              tests += '''\n\n
+def test_all_invalid_subjects_trigger_repair_and_report_exact_defects(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    invalid = {
+        "severity": "high",
+        "claim": "The profile changed.",
+        "subject": "What changed",
+        "confidence": 0.9,
+        "evidence": [{"uri": "trace://trace-1/span/step-2"}],
+    }
+    fake = _fake_dspy(
+        calls,
+        findings_json=json.dumps([invalid]),
+        answer="The profile changed at step 2.",
+        invoke_tool=False,
+        repair_completion=json.dumps([_VALID_FINDING]),
+    )
+
+    output = _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert output["findings"] == [_VALID_FINDING]
+    assert output["runtime"]["format_repair_used"] is True
+    assert output["runtime"]["finding_rejections"] == [
+        {
+            "phase": "initial",
+            "index": 0,
+            "reason": (
+                "findings[0].subject does not match canonical FindingSubject grammar"
+            ),
+        }
+    ]
+    assert len(calls["repair_calls"]) == 1
+    assert output["modelCalls"] == 4
+
+
+def test_malformed_sibling_keeps_valid_finding_and_exact_defect() -> None:
+    invalid = {
+        "severity": "high",
+        "claim": "The profile changed.",
+        "subject": "What changed",
+        "confidence": 0.9,
+        "evidence": [{"uri": "trace://trace-1/span/step-2"}],
+    }
+    rejections: list[dict[str, Any]] = []
+
+    rows = dspy_rlm_bridge._parse_findings_json(
+        json.dumps([invalid, _VALID_FINDING]), rejections
+    )
+
+    assert rows == [_VALID_FINDING]
+    assert rejections == [
+        {
+            "phase": "initial",
+            "index": 0,
+            "reason": (
+                "findings[0].subject does not match canonical FindingSubject grammar"
+            ),
+        }
+    ]
+'''
+              test_path.write_text(tests)
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text())
+          package['version'] = '0.145.23'
+          package_path.write_text(json.dumps(package, indent=2) + '\n')
+          Path('.github/workflows/finalize-finding-validation-parity.yml').unlink()
+      - name: Format TypeScript test
+        run: pnpm exec biome check --write tests/finding-validation-parity.test.ts
+      - name: Run focused parity tests
+        run: |
+          pnpm exec vitest run tests/finding-validation-parity.test.ts
+          uv run --project clients/python pytest -q clients/python/tests/test_finding_validation_parity.py clients/python/tests/test_dspy_rlm_bridge.py
+          pnpm run typecheck
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          git add package.json clients/python/src/agent_eval_rpc clients/python/tests tests/finding-validation-parity.test.ts .github/workflows/finalize-finding-validation-parity.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(analyst): keep Python and TypeScript finding validation identical"
+          git push origin HEAD:fix/finding-validation-parity
