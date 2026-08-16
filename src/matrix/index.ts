@@ -11,10 +11,12 @@
  * `CellResult`, `AxisSummary`, `MatrixResult`.
  */
 
+export { type CellSpend, readCellSpend, withCellSpend } from './cell-spend'
 export { runAgentMatrix } from './runner'
 export type {
   AxisSummary,
   CellResult,
+  CostProvenance,
   DefaultVerdict,
   MatrixAxis,
   MatrixCell,

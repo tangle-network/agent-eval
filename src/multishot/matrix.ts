@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CostProvenance } from '../cost-ledger'
 import type { MatrixResult } from '../matrix'
-import { runAgentMatrix } from '../matrix'
+import { runAgentMatrix, withCellSpend } from '../matrix'
 import { type JudgeConfig, type JudgeScore, runJudge } from './judges'
 import { type MultishotShot, runMultishot } from './multishot'
 import {
@@ -216,11 +216,15 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
     maxConcurrency: opts.maxConcurrency ?? 2,
     costCeiling: opts.costCeiling,
     async runCell(cell) {
+      const cellStartedAt = Date.now()
       const profile = cell.axes.profile?.value as AgentProfile
       const persona = cell.axes.persona?.value as TPersona
       const profileId = String(cell.axes.profile?.id ?? 'unknown')
       const personaId = String(cell.axes.persona?.id ?? 'unknown')
 
+      // A shot that throws declares its own spend (see `runMultishot`). Rethrow
+      // it untouched: a shot that declared nothing spent an unknown amount, and
+      // claiming a number here would report a fabricated total.
       const sim = await runShot({
         profile,
         persona,
@@ -241,92 +245,129 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
       })
-      assertMultishotShotResult(sim)
+      // Everything from here on runs with the shot's spend already committed.
+      // A throw past this line must carry it, or the money leaves the matrix's
+      // cumulative sum and the cost ceiling under-counts the run.
+      const shotCostUsd = shotCostSubtotal(sim)
+      let judgeCostUsd = 0
+      let judgeCostComplete = false
+      // Where the cell is, so a throw declares the right completeness: before
+      // the judges only the shot has spent, while they are in flight their
+      // spend is unknown, and after they settle their receipts decide.
+      let phase: 'validate' | 'judging' | 'scoring' = 'validate'
+      try {
+        assertMultishotShotResult(sim)
 
-      const codeArtifacts = sim.artifacts.filter((a) => codeTypes.has(a.type))
-      const contentArtifacts = sim.artifacts.filter((a) => contentTypes.has(a.type))
+        const codeArtifacts = sim.artifacts.filter((a) => codeTypes.has(a.type))
+        const contentArtifacts = sim.artifacts.filter((a) => contentTypes.has(a.type))
 
-      const [conversationRun, codeReviewRuns, contentReviewRuns] = await Promise.all([
-        runJudge(withJudgeMaxTokens(opts.judges.conversation, opts.judgeMaxTokens), {
-          transcript: sim.transcript,
-          persona,
-        }),
-        opts.judges.codeReview
-          ? Promise.all(
-              codeArtifacts.map((artifact) =>
-                runJudge(withJudgeMaxTokens(opts.judges.codeReview!, opts.judgeMaxTokens), {
-                  artifact,
-                  persona,
-                }).then((result) => ({
-                  score: {
-                    ...result.score,
-                    turn: artifact.turn,
-                    type: artifact.type,
-                  },
-                  cost: result.cost,
-                })),
-              ),
-            )
-          : Promise.resolve([] as ArtifactJudgeRun[]),
-        opts.judges.contentQuality
-          ? Promise.all(
-              contentArtifacts.map((artifact) =>
-                runJudge(withJudgeMaxTokens(opts.judges.contentQuality!, opts.judgeMaxTokens), {
-                  artifact,
-                  persona,
-                }).then((result) => ({
-                  score: {
-                    ...result.score,
-                    turn: artifact.turn,
-                    type: artifact.type,
-                  },
-                  cost: result.cost,
-                })),
-              ),
-            )
-          : Promise.resolve([] as ArtifactJudgeRun[]),
-      ])
-      const conversation = conversationRun.score
-      const codeReviews = codeReviewRuns.map((run) => run.score)
-      const contentReviews = contentReviewRuns.map((run) => run.score)
+        phase = 'judging'
+        const [conversationRun, codeReviewRuns, contentReviewRuns] = await Promise.all([
+          runJudge(withJudgeMaxTokens(opts.judges.conversation, opts.judgeMaxTokens), {
+            transcript: sim.transcript,
+            persona,
+          }),
+          opts.judges.codeReview
+            ? Promise.all(
+                codeArtifacts.map((artifact) =>
+                  runJudge(withJudgeMaxTokens(opts.judges.codeReview!, opts.judgeMaxTokens), {
+                    artifact,
+                    persona,
+                  }).then((result) => ({
+                    score: {
+                      ...result.score,
+                      turn: artifact.turn,
+                      type: artifact.type,
+                    },
+                    cost: result.cost,
+                  })),
+                ),
+              )
+            : Promise.resolve([] as ArtifactJudgeRun[]),
+          opts.judges.contentQuality
+            ? Promise.all(
+                contentArtifacts.map((artifact) =>
+                  runJudge(withJudgeMaxTokens(opts.judges.contentQuality!, opts.judgeMaxTokens), {
+                    artifact,
+                    persona,
+                  }).then((result) => ({
+                    score: {
+                      ...result.score,
+                      turn: artifact.turn,
+                      type: artifact.type,
+                    },
+                    cost: result.cost,
+                  })),
+                ),
+              )
+            : Promise.resolve([] as ArtifactJudgeRun[]),
+        ])
+        const judgeRuns = [conversationRun, ...codeReviewRuns, ...contentReviewRuns]
+        judgeCostUsd = judgeRuns.reduce((sum, run) => sum + (run.cost.usd ?? 0), 0)
+        judgeCostComplete = judgeRuns.every((run) => run.cost.kind !== 'uncaptured')
+        phase = 'scoring'
 
-      const { composite, codeComposite, contentComposite, allJudgesFailed } = computeCellComposite({
-        conversation,
-        codeReviews: opts.judges.codeReview ? codeReviews : undefined,
-        contentReviews: opts.judges.contentQuality ? contentReviews : undefined,
-      })
+        const conversation = conversationRun.score
+        const codeReviews = codeReviewRuns.map((run) => run.score)
+        const contentReviews = contentReviewRuns.map((run) => run.score)
 
-      const cellScore: CellCompositeScore = { composite, conversation }
-      if (opts.judges.codeReview)
-        cellScore.codeReview = { perArtifact: codeReviews, composite: codeComposite }
-      if (opts.judges.contentQuality)
-        cellScore.contentQuality = { perArtifact: contentReviews, composite: contentComposite }
+        const { composite, codeComposite, contentComposite, allJudgesFailed } =
+          computeCellComposite({
+            conversation,
+            codeReviews: opts.judges.codeReview ? codeReviews : undefined,
+            contentReviews: opts.judges.contentQuality ? contentReviews : undefined,
+          })
 
-      const cellDir = join(opts.runDir, profileId, personaId, `rep-${cell.rep}`)
-      mkdirSync(cellDir, { recursive: true })
-      writeFileSync(join(cellDir, 'transcript.json'), JSON.stringify(sim.transcript, null, 2))
-      writeFileSync(join(cellDir, 'artifacts.json'), JSON.stringify(sim.artifacts, null, 2))
-      writeFileSync(join(cellDir, 'scores.json'), JSON.stringify(cellScore, null, 2))
+        const cellScore: CellCompositeScore = { composite, conversation }
+        if (opts.judges.codeReview)
+          cellScore.codeReview = { perArtifact: codeReviews, composite: codeComposite }
+        if (opts.judges.contentQuality)
+          cellScore.contentQuality = { perArtifact: contentReviews, composite: contentComposite }
 
-      const notes = [`convo=${conversation.composite.toFixed(1)}`]
-      if (opts.judges.codeReview) notes.push(`code=${codeComposite.toFixed(1)}`)
-      if (opts.judges.contentQuality) notes.push(`content=${contentComposite.toFixed(1)}`)
-      if (allJudgesFailed) notes.push('all-judges-failed')
-      const judgeRuns = [conversationRun, ...codeReviewRuns, ...contentReviewRuns]
-      const judgeCostUsd = judgeRuns.reduce((sum, run) => sum + (run.cost.usd ?? 0), 0)
-      if (judgeRuns.some((run) => run.cost.kind === 'uncaptured')) {
-        notes.push('judge-cost-incomplete')
-      }
+        const cellDir = join(opts.runDir, profileId, personaId, `rep-${cell.rep}`)
+        mkdirSync(cellDir, { recursive: true })
+        writeFileSync(join(cellDir, 'transcript.json'), JSON.stringify(sim.transcript, null, 2))
+        writeFileSync(join(cellDir, 'artifacts.json'), JSON.stringify(sim.artifacts, null, 2))
+        writeFileSync(join(cellDir, 'scores.json'), JSON.stringify(cellScore, null, 2))
 
-      return {
-        output: {
-          turns: sim.transcript.length,
-          toolCalls: sim.toolCalls,
-          artifactCount: sim.artifacts.length,
-        },
-        verdict: { valid: composite >= 5, score: composite, notes: notes.join(' ') },
-        costUsd: sim.costUsd + judgeCostUsd,
-        durationMs: sim.durationMs,
+        const notes = [`convo=${conversation.composite.toFixed(1)}`]
+        if (opts.judges.codeReview) notes.push(`code=${codeComposite.toFixed(1)}`)
+        if (opts.judges.contentQuality) notes.push(`content=${contentComposite.toFixed(1)}`)
+        if (allJudgesFailed) notes.push('all-judges-failed')
+        if (!judgeCostComplete) notes.push('judge-cost-incomplete')
+
+        return {
+          output: {
+            turns: sim.transcript.length,
+            toolCalls: sim.toolCalls,
+            artifactCount: sim.artifacts.length,
+          },
+          verdict: { valid: composite >= 5, score: composite, notes: notes.join(' ') },
+          costUsd: sim.costUsd + judgeCostUsd,
+          // A judge whose cost the router never reported leaves the cell total a
+          // subtotal. The matrix counts it toward the ceiling and reports the
+          // cell as under-counted rather than presenting the sum as complete.
+          costProvenance: judgeCostComplete
+            ? { kind: 'estimated', usd: sim.costUsd + judgeCostUsd }
+            : { kind: 'uncaptured', usd: null },
+          durationMs: sim.durationMs,
+        }
+      } catch (err) {
+        // No usable shot subtotal means the cell's spend is genuinely unknown;
+        // rethrow untouched so the matrix records it as uncaptured instead of
+        // billing a number this frame cannot support.
+        if (shotCostUsd === undefined) throw err
+        throw withCellSpend(err, {
+          costUsd: shotCostUsd + judgeCostUsd,
+          durationMs: Date.now() - cellStartedAt,
+          // The judges bill before they settle, so a throw among them leaves a
+          // subtotal. Before they start, and after they settle with every
+          // receipt captured, the amount is the cell's whole spend.
+          kind:
+            phase === 'validate' || (phase === 'scoring' && judgeCostComplete)
+              ? 'estimated'
+              : 'uncaptured',
+        })
       }
     },
   })
@@ -372,6 +413,15 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
   writeFileSync(join(opts.runDir, 'summary.md'), md.join('\n'))
 
   return { matrix }
+}
+
+/** The shot's own spend, when the value it resolved with reports a usable
+ *  amount. `undefined` when it does not — a malformed shot result is exactly
+ *  the case where the number cannot be trusted, and billing a wrong figure is
+ *  worse than recording the cell as uncaptured. */
+function shotCostSubtotal(sim: { costUsd?: unknown } | null | undefined): number | undefined {
+  const value = sim?.costUsd
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 function withJudgeMaxTokens<TInput>(

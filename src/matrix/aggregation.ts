@@ -2,8 +2,10 @@
  * Per-axis aggregation of cell runs into `AxisSummary` rows.
  *
  * Pure: consumes the final `cells: [{cell, runs}]` array and returns the
- * `byAxis` table. Error runs contribute 0 to passRate and meanScore. Cost
- * and duration always count — the budget was spent regardless.
+ * `byAxis` table. Error runs contribute 0 to passRate and meanScore. Cost and
+ * duration always count — the budget was spent regardless. A run whose cost is
+ * a subtotal rather than a total raises `costUncapturedCells` for its bucket,
+ * so a per-axis cost row says when it under-counts.
  */
 
 import type { AxisSummary, CellResult, MatrixAxis, MatrixCell, MatrixResult } from './types'
@@ -47,6 +49,7 @@ export function summariseRows<Output>(
       p50Score: 0,
       p90Score: 0,
       totalCostUsd: 0,
+      costUncapturedCells: 0,
       meanDurationMs: 0,
     }
   }
@@ -54,6 +57,7 @@ export function summariseRows<Output>(
   let scoreSum = 0
   let costSum = 0
   let durSum = 0
+  let costUncapturedCells = 0
   const scores: number[] = []
   for (const { result } of rows) {
     const errored = result.error !== undefined
@@ -64,6 +68,7 @@ export function summariseRows<Output>(
     scores.push(score)
     costSum += result.costUsd
     durSum += result.durationMs
+    if (result.costProvenance?.kind === 'uncaptured') costUncapturedCells++
   }
   scores.sort((a, b) => a - b)
   return {
@@ -75,6 +80,7 @@ export function summariseRows<Output>(
     p50Score: quantile(scores, 0.5),
     p90Score: quantile(scores, 0.9),
     totalCostUsd: costSum,
+    costUncapturedCells,
     meanDurationMs: durSum / rows.length,
   }
 }

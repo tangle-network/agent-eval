@@ -12,8 +12,10 @@
  */
 
 import { buildByAxis } from './aggregation'
+import { readCellSpend } from './cell-spend'
 import type {
   CellResult,
+  CostProvenance,
   MatrixAxis,
   MatrixCell,
   MatrixResult,
@@ -66,18 +68,44 @@ function makeMatrixId(): string {
   return `mtx_${t}_${r}`
 }
 
+const UNCAPTURED: CostProvenance = { kind: 'uncaptured', usd: null }
+
 function makeErrorResult<Output>(err: unknown): CellResult<Output> {
   const e = err as { message?: string; name?: string }
+  const spend = readCellSpend(err)
   return {
     output: undefined as unknown as Output,
     verdict: { valid: false, score: 0 },
-    costUsd: 0,
-    durationMs: 0,
+    costUsd: spend?.costUsd ?? 0,
+    durationMs: spend?.durationMs ?? 0,
+    costProvenance:
+      spend === undefined || spend.kind === 'uncaptured'
+        ? UNCAPTURED
+        : { kind: spend.kind, usd: spend.costUsd },
     error: {
       message: typeof e?.message === 'string' ? e.message : String(err),
       kind: typeof e?.name === 'string' ? e.name : 'Error',
     },
   }
+}
+
+/** A result whose amounts cannot be summed fails the cell instead of poisoning
+ *  the run: `NaN` in `cumulativeCost` makes `>= costCeiling` false forever, so
+ *  one bad cell would disable the ceiling for every cell after it. */
+function billableResult<Output>(result: CellResult<Output>): CellResult<Output> {
+  const bad: string[] = []
+  if (!isAmount(result.costUsd)) bad.push(`costUsd=${String(result.costUsd)}`)
+  if (!isAmount(result.durationMs)) bad.push(`durationMs=${String(result.durationMs)}`)
+  if (bad.length === 0) return result
+  return makeErrorResult<Output>(
+    new RangeError(
+      `runCell reported ${bad.join(', ')}; a cell must report finite amounts >= 0 so the cost ceiling stays enforceable`,
+    ),
+  )
+}
+
+function isAmount(value: number): boolean {
+  return Number.isFinite(value) && value >= 0
 }
 
 export async function runAgentMatrix<Output>(
@@ -111,6 +139,7 @@ export async function runAgentMatrix<Output>(
   let costCeilingReached = false
   let runsExecuted = 0
   let cellsUnscheduled = 0
+  let costUncapturedCells = 0
 
   const aborted = (): boolean => opts.signal?.aborted === true
 
@@ -148,10 +177,20 @@ export async function runAgentMatrix<Output>(
           return makeErrorResult<Output>(err)
         }
       })()
-      promise.then((result) => {
+      promise.then((settled) => {
+        const result = billableResult(settled)
         record.runs.push(result)
         runsExecuted++
         cumulativeCost += result.costUsd
+        if (result.costProvenance?.kind === 'uncaptured') {
+          costUncapturedCells++
+          if (costUncapturedCells === 1) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              '[matrix] 1 cell reported no spend for a failure — totalCostUsd and the cost ceiling under-count this run',
+            )
+          }
+        }
         if (cumulativeCost >= costCeiling && !costCeilingReached) {
           costCeilingReached = true
           // eslint-disable-next-line no-console
@@ -230,6 +269,7 @@ export async function runAgentMatrix<Output>(
       overallPassRate: runCount === 0 ? 0 : pass / runCount,
       overallMeanScore: runCount === 0 ? 0 : scoreSum / runCount,
       totalCostUsd: totalCost,
+      costUncapturedCells,
       durationMs: Date.now() - startedAt,
     },
     matrixId: makeMatrixId(),

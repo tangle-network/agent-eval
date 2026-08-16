@@ -124,10 +124,11 @@ const MULTISHOT_ROLES = new Set(['user', 'assistant', 'tool'])
  *  scores as though the artifact was never produced; a non-finite `costUsd`
  *  reaches `summary.totalCostUsd` and makes every cost number NaN.
  *
- *  It does NOT protect spend. A rejected cell records `costUsd: 0`, so a shot
- *  that spends before it returns a malformed result leaves that spend out of
- *  the cumulative sum the cost ceiling reads. That is how the matrix records
- *  every failed cell, not something this guard changes.
+ *  A rejected cell is still billed: the matrix cell reads the shot's own
+ *  `costUsd` when it is a usable amount and declares that spend on the throw,
+ *  so money the shot spent before returning a malformed result stays in the
+ *  cumulative sum the cost ceiling reads. A result whose `costUsd` is itself
+ *  malformed carries no usable amount, and the cell records as `uncaptured`.
  *
  *  Every required field of `MultishotMessage` and `MultishotArtifact` is
  *  checked, including `toolCalls` elements and `invocation.args`. Optional
