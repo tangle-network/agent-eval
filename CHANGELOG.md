@@ -14,7 +14,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - Add `RunMultishotMatrixOptions.runShot`, the per-cell conversation engine for `runMultishotMatrix`. It defaults to `runMultishot`. A consumer supplies an alternative engine and keeps the substrate cell body: fan-out, concurrency, the cost ceiling, the judge slots, the cell composite, the per-cell writers, and the run summary.
 - Export `MultishotShot`, the shot signature, and `MultishotCellOutput`, the per-cell output type. A consumer engine is checked against these types instead of a structural copy.
-- Export `MultishotShotResultError` and `assertMultishotShotResult`. The matrix validates each shot result and fails the cell loud. It never falls back to the default engine. The guard reads every required field of each transcript row and each artifact. It rejects a non-finite `costUsd` before the value reaches the cost ceiling, and an untyped artifact before the cell scores as though the artifact was never produced.
+- Export `MultishotShotResultError` and `assertMultishotShotResult`. The matrix validates each shot result and fails the cell loud. It never falls back to the default engine. The guard reads every required field of each transcript row and each artifact, including `toolCalls` elements and `invocation.args`. It rejects an untyped artifact before the cell scores as though the artifact was never produced, and a non-finite `costUsd` before the value makes every cost number NaN. The guard does not protect spend: a rejected cell records `costUsd: 0`, which is how the matrix records every failed cell.
+
+### Changed
+
+- The multishot matrix now applies `assertMultishotShotResult` to the default engine's result too. A custom tool executor that returns non-string `content`, or a custom transport that reports a negative or non-finite `costUsd`, now fails the cell instead of writing the value into the cell artifacts.
 
 ---
 

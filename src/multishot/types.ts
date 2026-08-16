@@ -117,16 +117,20 @@ export class MultishotShotResultError extends Error {
 const MULTISHOT_ROLES = new Set(['user', 'assistant', 'tool'])
 
 /** Contract guard for the value a caller-supplied shot resolves with. The
- *  matrix meters cost, writes per-cell artifacts, and builds judge inputs from
- *  this value, so a malformed result must stop the cell instead of degrading a
- *  downstream number. Two silent degradations this closes: a non-finite
- *  `costUsd` propagates into the cumulative sum and disables the matrix cost
- *  ceiling for the rest of the run; an artifact with no `type` matches neither
- *  the code nor the content artifact set and leaves the cell scored as though
- *  the artifact was never produced.
+ *  matrix writes per-cell artifacts, builds judge inputs, and meters cost from
+ *  this value, so a malformed result must stop the cell instead of scoring a
+ *  degraded one. Two silent degradations this closes: an artifact with no
+ *  `type` matches neither the code nor the content artifact set, so the cell
+ *  scores as though the artifact was never produced; a non-finite `costUsd`
+ *  reaches `summary.totalCostUsd` and makes every cost number NaN.
  *
- *  Rows are checked to the depth the matrix and the judges read them: every
- *  required field of `MultishotMessage` and `MultishotArtifact`. Optional
+ *  It does NOT protect spend. A rejected cell records `costUsd: 0`, so a shot
+ *  that spends before it returns a malformed result leaves that spend out of
+ *  the cumulative sum the cost ceiling reads. That is how the matrix records
+ *  every failed cell, not something this guard changes.
+ *
+ *  Every required field of `MultishotMessage` and `MultishotArtifact` is
+ *  checked, including `toolCalls` elements and `invocation.args`. Optional
  *  fields are checked only when present. */
 export function assertMultishotShotResult(value: unknown): asserts value is MultishotResult {
   if (typeof value !== 'object' || value === null) {
@@ -158,11 +162,22 @@ function assertMessage(value: unknown, index: number): void {
     )
   }
   assertString(row.content, `transcript[${index}].content`)
-  if (row.toolCalls !== undefined && !Array.isArray(row.toolCalls)) {
+  if (row.toolCallId !== undefined) {
+    assertString(row.toolCallId, `transcript[${index}].toolCallId`)
+  }
+  if (row.toolCalls === undefined) return
+  if (!Array.isArray(row.toolCalls)) {
     throw new MultishotShotResultError(
       `transcript[${index}].toolCalls must be an array when present, received ${describeValue(row.toolCalls)}`,
     )
   }
+  row.toolCalls.forEach((call, callIndex) => {
+    const field = `transcript[${index}].toolCalls[${callIndex}]`
+    const row = requireRow(call, field)
+    assertString(row.id, `${field}.id`)
+    assertString(row.name, `${field}.name`)
+    requireRow(row.args, `${field}.args`)
+  })
 }
 
 function assertArtifact(value: unknown, index: number): void {
@@ -172,6 +187,7 @@ function assertArtifact(value: unknown, index: number): void {
   assertFiniteCount(row.turn, `artifacts[${index}].turn`)
   const invocation = requireRow(row.invocation, `artifacts[${index}].invocation`)
   assertString(invocation.name, `artifacts[${index}].invocation.name`)
+  requireRow(invocation.args, `artifacts[${index}].invocation.args`)
 }
 
 function requireRow(value: unknown, field: string): Record<string, unknown> {

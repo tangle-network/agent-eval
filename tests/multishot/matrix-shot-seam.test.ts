@@ -228,18 +228,33 @@ afterEach(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-/** Wall-clock fields differ run to run; every other field must match. */
+const CELLS = PROFILES.length * PERSONAS.length * 2
+
+/** Wall-clock fields differ run to run. Cost sums are compared with a
+ *  tolerance instead, so a change in the runner's accumulation order cannot
+ *  fail the comparison on the last float bit. Every other field must match. */
 function stripVolatile(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripVolatile)
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (k === 'durationMs' || k === 'meanDurationMs' || k === 'matrixId') continue
+      if (k === 'costUsd' || k === 'totalCostUsd') continue
       out[k] = stripVolatile(v)
     }
     return out
   }
   return value
+}
+
+function collectCosts(result: RunMultishotMatrixResult): number[] {
+  return [
+    result.matrix.summary.totalCostUsd,
+    ...result.matrix.cells.flatMap(({ runs }) => runs.map((run) => run.costUsd)),
+    ...Object.values(result.matrix.byAxis).flatMap((axis) =>
+      Object.values(axis).map((summary) => summary.totalCostUsd),
+    ),
+  ]
 }
 
 function readCellJson(runDir: string, profileId: string, personaId: string, file: string): unknown {
@@ -267,7 +282,7 @@ function assertMatrixMatchesShot(
 ): void {
   const composite = (expected.conversationScore + expected.codeScore + expected.contentScore) / 3
   const cellCost = expected.shotCostUsd + expected.judgeCallsPerCell * JUDGE_COST_USD
-  const cells = PROFILES.length * PERSONAS.length * 2
+  const cells = CELLS
 
   expect(result.matrix.summary.totalCells).toBe(cells)
   expect(result.matrix.summary.runsExecuted).toBe(cells)
@@ -403,6 +418,10 @@ describe('runMultishotMatrix shot seam', () => {
     })
 
     expect(stripVolatile(seamRun.matrix)).toEqual(stripVolatile(defaultRun.matrix))
+    const defaultCosts = collectCosts(defaultRun)
+    collectCosts(seamRun).forEach((cost, i) => {
+      expect(cost).toBeCloseTo(defaultCosts[i]!, 8)
+    })
 
     for (const profile of PROFILES) {
       for (const persona of PERSONAS) {
@@ -418,7 +437,7 @@ describe('runMultishotMatrix shot seam', () => {
     }
 
     // The seam forwards the whole cell input, not a subset.
-    expect(seen).toHaveLength(PROFILES.length * PERSONAS.length * 2)
+    expect(seen).toHaveLength(CELLS)
     const input = seen[0]!
     expect(PROFILES.map((p) => p.value)).toContain(input.profile)
     expect(PERSONAS).toContain(input.persona)
@@ -438,6 +457,41 @@ describe('runMultishotMatrix shot seam', () => {
     expect(input.driverTransport).toBe(driverTransport)
     expect(input.apiKey).toBe('agent-key')
     expect(input.baseUrl).toBe('http://agent.invalid/v1')
+  })
+
+  // `maxTurns: 1` never reaches the driver leg, so the case above compares two
+  // agent-only conversations. This one runs a real driver turn on both paths.
+  it('drives the default engine identically when a driver turn runs', async () => {
+    const defaultDir = newRunDir()
+    const defaultRun = await runMultishotMatrix({ ...baseOptions(defaultDir), maxTurns: 2 })
+    const defaultDriverCalls = driverTransport.mock.calls.length
+    expect(defaultDriverCalls).toBe(CELLS)
+
+    judgeCalls = 0
+    agentTransport.mockClear()
+    driverTransport.mockClear()
+    const seamDir = newRunDir()
+    const seamRun = await runMultishotMatrix({
+      ...baseOptions(seamDir),
+      maxTurns: 2,
+      runShot: runMultishot,
+    })
+
+    expect(driverTransport.mock.calls.length).toBe(defaultDriverCalls)
+    expect(stripVolatile(seamRun.matrix)).toEqual(stripVolatile(defaultRun.matrix))
+    const defaultCosts = collectCosts(defaultRun)
+    collectCosts(seamRun).forEach((cost, i) => {
+      expect(cost).toBeCloseTo(defaultCosts[i]!, 8)
+    })
+
+    // The driver's reply is in the compared transcript, so a seam bug that
+    // mangled only driver-turn data would show here.
+    const transcript = readCellJson(seamDir, 'p1', 'alice', 'transcript.json') as Array<{
+      role: string
+      content: string
+    }>
+    expect(transcript.filter((m) => m.content === 'driver says more')).toHaveLength(1)
+    expect(transcript).toEqual(readCellJson(defaultDir, 'p1', 'alice', 'transcript.json'))
   })
 
   it('runs the whole cell body on an independent engine', async () => {
@@ -531,7 +585,7 @@ describe('runMultishotMatrix shot seam', () => {
       runShot: async () => undefined as unknown as MultishotResult,
     })
 
-    expect(result.matrix.summary.runsExecuted).toBe(8)
+    expect(result.matrix.summary.runsExecuted).toBe(CELLS)
     for (const { runs } of result.matrix.cells) {
       expect(runs[0]!.error?.kind).toBe('MultishotShotResultError')
       expect(runs[0]!.error?.message).toContain('expected an object, received undefined')
@@ -578,6 +632,24 @@ describe('runMultishotMatrix shot seam', () => {
     // An untyped artifact matches neither judge set, so without the guard the
     // cell would score as though the artifact was never produced.
     expect(judgeCalls).toBe(0)
+  })
+
+  // A rejecting shot takes the runner's catch path, not the guard's throw.
+  it('records the cell error when the shot rejects', async () => {
+    const runDir = newRunDir()
+    const result = await runMultishotMatrix({
+      ...baseOptions(runDir),
+      runShot: async () => {
+        throw new Error('engine unreachable')
+      },
+    })
+
+    expect(result.matrix.summary.runsExecuted).toBe(CELLS)
+    for (const { runs } of result.matrix.cells) {
+      expect(runs[0]!.error).toEqual({ kind: 'Error', message: 'engine unreachable' })
+    }
+    expect(result.matrix.summary.overallPassRate).toBe(0)
+    expect(agentTransport).not.toHaveBeenCalled()
   })
 })
 
@@ -665,6 +737,47 @@ describe('assertMultishotShotResult', () => {
         artifacts: [{ type: 'code', turn: 0, invocation: { args: {} }, content: 'x' }],
       },
       'artifacts[0].invocation.name must be a string',
+    ],
+    [
+      'an artifact whose invocation has no args',
+      {
+        ...populated,
+        artifacts: [{ type: 'code', turn: 0, invocation: { name: 'make_code' }, content: 'x' }],
+      },
+      'artifacts[0].invocation.args must be an object',
+    ],
+    [
+      'a tool call with no id',
+      {
+        ...populated,
+        transcript: [{ role: 'assistant', content: '', toolCalls: [{ name: 'x', args: {} }] }],
+      },
+      'transcript[0].toolCalls[0].id must be a string',
+    ],
+    [
+      'a tool call with a null name',
+      {
+        ...populated,
+        transcript: [
+          { role: 'assistant', content: '', toolCalls: [{ id: 'a', name: null, args: {} }] },
+        ],
+      },
+      'transcript[0].toolCalls[0].name must be a string',
+    ],
+    [
+      'a tool call with string args',
+      {
+        ...populated,
+        transcript: [
+          { role: 'assistant', content: '', toolCalls: [{ id: 'a', name: 'x', args: '{}' }] },
+        ],
+      },
+      'transcript[0].toolCalls[0].args must be an object',
+    ],
+    [
+      'a non-string toolCallId',
+      { ...populated, transcript: [{ role: 'tool', content: 'x', toolCallId: 7 }] },
+      'transcript[0].toolCallId must be a string',
     ],
     ['a NaN costUsd', { ...valid, costUsd: Number.NaN }, 'costUsd must be a finite number >= 0'],
   ])('rejects %s', (_label, value, reason) => {

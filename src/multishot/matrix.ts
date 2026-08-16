@@ -115,8 +115,10 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
    *  the cost ceiling, the judge slots, the cell composite, the per-cell
    *  artifact writers and the run summary — and forwards the whole cell input
    *  to this function, so an alternative engine replaces ONLY the
-   *  conversation. Every option above that `runMultishot` accepts reaches the
-   *  shot unchanged.
+   *  conversation. Every option on this interface that `runMultishot` accepts
+   *  reaches the shot unchanged. `RunMultishotOptions.signal` has no
+   *  matrix-level counterpart and is not forwarded; a shot owns its own
+   *  cancellation.
    *
    *  A shot that resolves with a value outside `MultishotResult` throws
    *  `MultishotShotResultError` for that cell. The default engine is never
