@@ -289,9 +289,6 @@ export { objectiveEval, runAgentControlLoop, subjectiveEval } from './control-ru
 export type { DiscoveredPersona, DiscoverPersonasOptions } from './discover-personas'
 export { discoverPersonas } from './discover-personas'
 
-export type { DecideNextUserTurnOpts } from './driver'
-export { decideNextUserTurn } from './driver'
-
 export type {
   CampaignFactoryParams,
   CampaignIntegrityPolicy,

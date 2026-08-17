@@ -75,7 +75,6 @@ Read the [optimizer install instructions](./compare-optimization-methods/README.
 | Goal | Example |
 |---|---|
 | Coordinate workers across processes | [`distributed-driver`](./distributed-driver/) |
-| Evaluate a multi-turn simulated user | [`user-simulation-driver`](./user-simulation-driver/) |
 | Run setup, execution, and scoring in one work directory | [`same-sandbox-harness`](./same-sandbox-harness/) |
 | Receive optional hosted events | [`hosted-ingest-server`](./hosted-ingest-server/) |
 

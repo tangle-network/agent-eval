@@ -1,10 +1,7 @@
 /**
  * Series convergence — detects whether a sequence of scalar measurements
- * is stabilizing, drifting, or noisy.
- *
- * Lifted from ADC convergence.ts. The per-turn `ConvergenceTracker` is
- * about progress *within* a single run; this module is about drift
- * *across* runs (e.g. "are my nightly eval scores stabilizing?").
+ * is stabilizing, drifting, or noisy. It reads drift *across* runs, e.g.
+ * "are my nightly eval scores stabilizing?".
  *
  * Three signals:
  *   - stabilized: last K values have low variance (< epsilon) — done
