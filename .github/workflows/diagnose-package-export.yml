@@ -1,0 +1,48 @@
+name: Diagnose packed package export
+
+on:
+  push:
+    branches:
+      - codex/pursuit-evidence-receipts
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm build
+
+      - name: Capture packed-export verifier output
+        run: |
+          set +e
+          pnpm run verify:package > "$RUNNER_TEMP/verify-package.log" 2>&1
+          status=$?
+          set -e
+          {
+            echo "exit_status=$status"
+            tail -n 500 "$RUNNER_TEMP/verify-package.log"
+          } > .ci-eval-package.log
+          cat .ci-eval-package.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci-eval-package.log
+          git commit -m "ci: capture packed export failure"
+          git push
