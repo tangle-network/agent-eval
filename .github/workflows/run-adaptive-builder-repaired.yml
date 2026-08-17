@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    if: github.actor != 'github-actions[bot]'
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -50,18 +50,20 @@ jobs:
               lines.append(line[10:] if line else '')
           script = '\n'.join(lines) + '\n'
           pattern = re.compile(r"const oldIdentity = `[\s\S]*?\nconst attemptedEnd =")
-          replacement = r"""const taskIdentityTypePattern =
-  /  identity: \{\n    model: SearchModelIdentity\n    agent: SearchSourceRef\n    benchmark: SearchSourceRef\n  \}\n/
-if (!taskIdentityTypePattern.test(ledger)) {
-  throw new Error('task identity type block not found')
-}
-ledger = ledger.replace(
-  taskIdentityTypePattern,
-  '  identity: SearchTaskExecutionIdentity\\n',
-)
-
-const attemptedEnd ="""
-          script, count = pattern.subn(replacement, script, count=1)
+          replacement = (
+              "const taskIdentityTypePattern =\n"
+              "  /  identity: \\{\\n    model: SearchModelIdentity\\n"
+              "    agent: SearchSourceRef\\n    benchmark: SearchSourceRef\\n  \\}\\n/\n"
+              "if (!taskIdentityTypePattern.test(ledger)) {\n"
+              "  throw new Error('task identity type block not found')\n"
+              "}\n"
+              "ledger = ledger.replace(\n"
+              "  taskIdentityTypePattern,\n"
+              "  '  identity: SearchTaskExecutionIdentity\\\\n',\n"
+              ")\n\n"
+              "const attemptedEnd ="
+          )
+          script, count = pattern.subn(lambda _: replacement, script, count=1)
           if count != 1:
               raise SystemExit(f'expected one brittle identity block, replaced {count}')
           Path('/tmp/implement-adaptive-ledger.sh').write_text(script)
