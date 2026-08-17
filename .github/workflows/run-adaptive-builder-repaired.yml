@@ -34,6 +34,7 @@ jobs:
         run: |
           python <<'PY'
           from pathlib import Path
+          import json
           import re
 
           source = Path('.github/workflows/build-adaptive-search-ledger.yml').read_text()
@@ -49,8 +50,9 @@ jobs:
                   raise SystemExit(f'unexpected implementation indentation: {line[:80]!r}')
               lines.append(line[10:] if line else '')
           script = '\n'.join(lines) + '\n'
-          pattern = re.compile(r"const oldIdentity = `[\s\S]*?\nconst attemptedEnd =")
-          replacement = (
+
+          identity_pattern = re.compile(r"const oldIdentity = `[\s\S]*?\nconst attemptedEnd =")
+          identity_replacement = (
               "const taskIdentityTypePattern =\n"
               "  /  identity: \\{\\n    model: SearchModelIdentity\\n"
               "    agent: SearchSourceRef\\n    benchmark: SearchSourceRef\\n  \\}\\n/\n"
@@ -63,16 +65,76 @@ jobs:
               ")\n\n"
               "const attemptedEnd ="
           )
-          script, count = pattern.subn(lambda _: replacement, script, count=1)
+          script, count = identity_pattern.subn(lambda _: identity_replacement, script, count=1)
           if count != 1:
               raise SystemExit(f'expected one brittle identity block, replaced {count}')
-          Path('/tmp/implement-adaptive-ledger.sh').write_text(script)
+
+          replay_pattern = re.compile(r"const fileReplay = `[\s\S]*?\nconst parseAnchor =")
+          replay_replacement = (
+              "const fileReplayPattern = /  async replay\\(\\): Promise<SearchLedgerReplay> \\{\\n"
+              "    return \\(await this\\.journal\\.replay\\(\\)\\)\\.projection\\n  \\}\\n/\n"
+              "if (!fileReplayPattern.test(ledger)) {\n"
+              "  throw new Error('FileSearchLedger replay method not found')\n"
+              "}\n"
+              "ledger = ledger.replace(\n"
+              "  fileReplayPattern,\n"
+              "  (matched) => `${matched}\\n  async artifactRef(options: SearchLedgerArtifactRefOptions = {}): Promise<SearchArtifactRef> {\\n    await this.replay()\\n    const bytes = readFileSync(this.path)\\n    return searchLedgerArtifactRef(bytes, {\\n      ...options,\\n      uri: options.uri ?? pathToFileURL(this.path).href,\\n    })\\n  }\\n`,\n"
+              ")\n\n"
+              "const parseAnchor ="
+          )
+          script, count = replay_pattern.subn(lambda _: replay_replacement, script, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one brittle replay block, replaced {count}')
+
+          adaptive_text = """
+          ## Adaptive optimizers
+
+          A fixed denominator does not require an optimizer to evaluate every candidate on every case. It requires every planned cell to end honestly:
+
+          - `task-attempted` records a measured or errored execution;
+          - `task-closed` records that an adaptive policy deliberately did not request the cell, or stopped retrying it, without converting absence into a score;
+          - candidate slots that were never produced close explicitly;
+          - the generation operation may remain in flight while candidates are registered, but terminal completion verifies the operation outcome against every slot.
+
+          `SearchTaskExecutionIdentity` accepts either an immutable model/agent identity or an immutable dispatch reference. A multi-step Runtime dispatch must not be mislabeled as one model call.
+
+          `openCampaignSearchLedger()` uses the filesystem ledger with trusted-head pinning for `fsCampaignStorage()`. Memory and custom stores retain the same canonical event validation and state-machine projection through compare-and-append storage, but report trusted-head pinning as unsupported. In every case, `ledger.artifactRef()` binds the exact JSONL bytes used by `SearchHistoryReceipt`.
+          """
+          docs_pattern = re.compile(r"const adaptive = `[\s\S]*?`\n          doc = doc\.replace")
+          docs_replacement = f"const adaptive = {json.dumps(adaptive_text)}\n          doc = doc.replace"
+          script, count = docs_pattern.subn(lambda _: docs_replacement, script, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one adaptive docs block, replaced {count}')
+
+          Path('/tmp/implement-adaptive-ledger.sh').write_text('set -euo pipefail\n' + script)
           PY
           bash /tmp/implement-adaptive-ledger.sh
 
+      - name: Polish generated source before validation
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('src/campaign/campaign-search-ledger.ts')
+          value = path.read_text().replace('  type SearchLedgerHash,\n', '')
+          path.write_text(value)
+
+          path = Path('src/campaign/search-ledger-adaptive.test.ts')
+          value = path.read_text().replace("'sha256:' + 'b'.repeat(64)", "`sha256:${'b'.repeat(64)}`")
+          path.write_text(value)
+          PY
+          pnpm biome check --write \
+            src/campaign/search-ledger.ts \
+            src/campaign/campaign-search-ledger.ts \
+            src/campaign/search-ledger-adaptive.test.ts \
+            src/campaign/storage.ts \
+            src/campaign/index.ts \
+            docs/search-history-receipts.md \
+            CHANGELOG.md
+
       - name: Repin governed benchmark source digests
         run: |
-          DIGESTS=$(node scripts/check-analyst-benchmark-implementation.mjs --print-only)
+          DIGESTS=$(node scripts/check-analyst-benchmark-implementation.mjs --print)
           SOURCE_DIGEST=$(printf '%s\n' "$DIGESTS" | head -n 1)
           LOCK_DIGEST=$(printf '%s\n' "$DIGESTS" | tail -n 1)
           node - "$SOURCE_DIGEST" "$LOCK_DIGEST" <<'NODE'
