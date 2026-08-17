@@ -1,0 +1,164 @@
+name: Run resilient adaptive ledger builder
+
+on:
+  push:
+    branches: [feat/adaptive-search-ledger-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/adaptive-search-ledger-v1
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Materialize product changes from the reviewed implementation script
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          workflow = Path('.github/workflows/build-adaptive-search-ledger.yml').read_text()
+          marker = '      - name: Implement adaptive-safe ledger semantics\n'
+          start = workflow.index(marker) + len(marker)
+          start = workflow.index('        run: |\n', start) + len('        run: |\n')
+          end = workflow.index('\n      - name:', start)
+          block = workflow[start:end]
+          script = '\n'.join(line[10:] if line else '' for line in block.splitlines()) + '\n'
+
+          def replace(pattern, replacement, label):
+              global script
+              script, count = re.subn(pattern, lambda _: replacement, script, count=1)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one block, replaced {count}')
+
+          replace(
+              r"const oldIdentity = `[\s\S]*?\nconst attemptedEnd =",
+              """const taskIdentityTypePattern =
+  /  identity: \\{\\n    model: SearchModelIdentity\\n    agent: SearchSourceRef\\n    benchmark: SearchSourceRef\\n  \\}\\n/
+if (!taskIdentityTypePattern.test(ledger)) throw new Error('task identity type block not found')
+ledger = ledger.replace(taskIdentityTypePattern, '  identity: SearchTaskExecutionIdentity\\n')
+
+const attemptedEnd =""",
+              'task identity type',
+          )
+          replace(
+              r"const fileReplay = `[\s\S]*?\nconst parseAnchor =",
+              """const fileReplayPattern = /  async replay\\(\\): Promise<SearchLedgerReplay> \\{\\n    return \\(await this\\.journal\\.replay\\(\\)\\)\\.projection\\n  \\}\\n/
+if (!fileReplayPattern.test(ledger)) throw new Error('FileSearchLedger replay method not found')
+ledger = ledger.replace(
+  fileReplayPattern,
+  (matched) => `${matched}\n  async artifactRef(options: SearchLedgerArtifactRefOptions = {}): Promise<SearchArtifactRef> {\n    await this.replay()\n    const bytes = readFileSync(this.path)\n    return searchLedgerArtifactRef(bytes, {\n      ...options,\n      uri: options.uri ?? pathToFileURL(this.path).href,\n    })\n  }\n`,
+)
+
+const parseAnchor =""",
+              'filesystem artifact helper',
+          )
+          replace(
+              r"const generationPrerequisite = `[\s\S]*?'adaptive candidate ordering',\n\s*\)",
+              """const generationPrerequisitePattern = /      const generationOperation = operationsById\\.get\\(event\\.generationOperationId\\)\\n      if \\(!generationOperation\\) \\{[\\s\\S]*?\\n      \\}\\n      if \\(generationOperation\\.outcome\\.status === 'failed'\\) \\{/
+if (!generationPrerequisitePattern.test(ledger)) {
+  throw new Error('adaptive candidate ordering source block not found')
+}
+ledger = ledger.replace(
+  generationPrerequisitePattern,
+  `      const generationOperation = operationsById.get(event.generationOperationId)\n      // Adaptive optimizers may emit candidates while generation is in flight.\n      // Terminal completion later proves the operation and all planned slots agree.\n      if (generationOperation?.outcome.status === 'failed') {`,
+)""",
+              'adaptive candidate ordering',
+          )
+
+          adaptive_text = """
+## Adaptive optimizers
+
+A fixed denominator does not require evaluating every candidate on every case. It requires every planned cell to end honestly:
+
+- `task-attempted` records a measured or errored execution;
+- `task-closed` records that an adaptive policy deliberately did not request the cell, or stopped retrying it, without inventing a score;
+- unproduced candidate slots close explicitly;
+- generation may remain in flight while candidates register, but terminal completion verifies the operation against every slot.
+
+`SearchTaskExecutionIdentity` accepts either an immutable model/agent identity or an immutable dispatch reference. A multi-step Runtime dispatch must not be mislabeled as one model call.
+
+`openCampaignSearchLedger()` preserves trusted-head pinning for filesystem storage. Memory and custom stores reuse the same canonical validation and state-machine projection through compare-and-append storage, but explicitly do not claim trusted-head protection. `ledger.artifactRef()` binds the exact JSONL bytes used by `SearchHistoryReceipt`.
+"""
+          replace(
+              r"const adaptive = `[\s\S]*?`\n\s*doc = doc\.replace",
+              f"const adaptive = {json.dumps(adaptive_text)}\ndoc = doc.replace",
+              'adaptive documentation',
+          )
+
+          Path('/tmp/implement-adaptive-ledger.sh').write_text('set -euo pipefail\n' + script)
+          PY
+          bash /tmp/implement-adaptive-ledger.sh
+
+      - name: Normalize generated source
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          path = Path('src/campaign/campaign-search-ledger.ts')
+          path.write_text(path.read_text().replace('  type SearchLedgerHash,\n', ''))
+          path = Path('src/campaign/search-ledger-adaptive.test.ts')
+          path.write_text(path.read_text().replace("'sha256:' + 'b'.repeat(64)", "`sha256:${'b'.repeat(64)}`"))
+          PY
+          pnpm biome check --write \
+            src/campaign/search-ledger.ts \
+            src/campaign/campaign-search-ledger.ts \
+            src/campaign/search-ledger-adaptive.test.ts \
+            src/campaign/storage.ts \
+            src/campaign/index.ts \
+            docs/search-history-receipts.md \
+            CHANGELOG.md
+
+      - name: Repin governed source digests
+        run: |
+          DIGESTS=$(node scripts/check-analyst-benchmark-implementation.mjs --print)
+          SOURCE_DIGEST=$(printf '%s\n' "$DIGESTS" | head -n 1)
+          LOCK_DIGEST=$(printf '%s\n' "$DIGESTS" | tail -n 1)
+          node - "$SOURCE_DIGEST" "$LOCK_DIGEST" <<'NODE'
+          const fs = require('node:fs')
+          const [sourceDigest, lockDigest] = process.argv.slice(2)
+          const path = 'src/analyst/benchmark-implementation.ts'
+          let value = fs.readFileSync(path, 'utf8')
+          value = value.replace(
+            /(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${sourceDigest}$2`,
+          )
+          value = value.replace(
+            /(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${lockDigest}$2`,
+          )
+          fs.writeFileSync(path, value)
+          NODE
+          pnpm biome check --write src/analyst/benchmark-implementation.ts
+
+      - name: Validate the complete JavaScript package
+        run: |
+          pnpm lint
+          pnpm run check:model-ids
+          pnpm typecheck
+          pnpm typecheck:examples
+          pnpm typecheck:scripts
+          pnpm test -- src/campaign/search-ledger-adaptive.test.ts src/campaign/search-ledger.test.ts src/campaign/search-history-receipt.test.ts
+          pnpm test
+          pnpm build
+          pnpm run verify:package
+
+      - name: Commit validated product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src docs CHANGELOG.md
+          git diff --cached --quiet || git commit -m "feat(history): support adaptive optimizer search ledgers"
+          git push
