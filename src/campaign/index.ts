@@ -335,6 +335,23 @@ export {
   campaignMeanComposite,
   compareRankKeys,
 } from './score-utils'
+// ── Compact proof over the canonical improvement-search ledger ───────
+export {
+  assertCompleteSearchHistory,
+  assertSearchHistoryMatchesReplay,
+  type CreateSearchHistoryReceiptInput,
+  createSearchHistoryReceipt,
+  SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM,
+  SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION,
+  type SearchHistoryAuditSummary,
+  type SearchHistoryCoverage,
+  type SearchHistoryCoverageRow,
+  type SearchHistoryPolicy,
+  type SearchHistoryReceipt,
+  SearchHistoryRequiredError,
+  searchHistoryCoverageRow,
+  verifySearchHistoryReceipt,
+} from './search-history-receipt'
 // ── Durable improvement-search audit log ────────────────────────────
 export {
   FileSearchLedger,
