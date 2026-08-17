@@ -1,10 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  SearchArtifactRef,
-  SearchLedgerEntry,
-  SearchLedgerHash,
-  SearchLedgerReplay,
-} from './search-ledger'
 import {
   assertCompleteOptimizationHistory,
   assertOptimizationHistoryMatchesReplay,
@@ -12,6 +6,12 @@ import {
   OptimizationHistoryRequiredError,
   verifyOptimizationHistoryReceipt,
 } from './optimization-history'
+import type {
+  SearchArtifactRef,
+  SearchLedgerEntry,
+  SearchLedgerHash,
+  SearchLedgerReplay,
+} from './search-ledger'
 
 const hash = (character: string): SearchLedgerHash => `sha256:${character.repeat(64)}`
 const source = { uri: 'git+https://example.test/repo.git', revision: 'a'.repeat(40) }
@@ -285,7 +285,16 @@ describe('optimization history receipts', () => {
     ).toThrow(/receipt digest mismatch/)
 
     const replay = completeReplay()
-    replay.audit = { ...replay.audit, accounting: { ...replay.audit.accounting, costUsd: 2 } }
+    replay.audit = {
+      ...replay.audit,
+      accounting: {
+        status: 'known',
+        inputTokens: 10,
+        outputTokens: 2,
+        cachedTokens: 0,
+        costUsd: 2,
+      },
+    }
     expect(() => assertOptimizationHistoryMatchesReplay(value, replay)).toThrow(
       /does not match the supplied search-ledger replay/,
     )

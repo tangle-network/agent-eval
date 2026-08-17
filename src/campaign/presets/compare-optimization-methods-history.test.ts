@@ -7,10 +7,7 @@ import {
 import type { SearchLedgerHash, SearchLedgerReplay } from '../search-ledger'
 import { inMemoryCampaignStorage } from '../storage'
 import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from '../types'
-import {
-  compareOptimizationMethods,
-  type OptimizationMethod,
-} from './compare-optimization-methods'
+import { compareOptimizationMethods, type OptimizationMethod } from './compare-optimization-methods'
 
 interface FixtureScenario extends Scenario {
   kind: 'fixture'

@@ -71,6 +71,17 @@ Keep the default whenever real model calls happen.
 
 Runnable copy: [`examples/evaluate-a-change`](./examples/evaluate-a-change/).
 
+## Optimization History: the Flight Recorder
+
+A winner is not the same thing as a record of the search that produced it. Optimization methods may return a content-addressed history receipt that points to Eval's canonical hash-chained search ledger.
+
+- The ledger retains every candidate, task attempt, operation, refusal, decision, accounting gap, and terminal outcome.
+- The receipt indexes those exact bytes without inventing a second history format.
+- `historyPolicy: 'allow-missing'` keeps existing methods source-compatible and reports coverage.
+- `historyPolicy: 'require-complete'` refuses before untouched-final-test scoring unless every method has complete history.
+
+`comparison.optimizationHistory` reports `complete`, `incomplete`, or `missing` for every method. Each scored method also retains its exact `history` receipt. See [complete optimization history](./docs/optimization-history.md) for the copy-paste integration and the precise proof boundary.
+
 ## Which Front Door
 
 Every row is a function you call. Each links to a runnable example.
@@ -151,6 +162,7 @@ Use a subpath when you want an explicit capability boundary.
 | Why does this package exist, and where is it going? | [`docs/charter.md`](./docs/charter.md) |
 | Which `run*` function do I want? | [`docs/eval-surface-map.md`](./docs/eval-surface-map.md) |
 | How do I choose a candidate-generation method? | [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) |
+| How do I retain every optimizer attempt and fail closed on gaps? | [`docs/optimization-history.md`](./docs/optimization-history.md) |
 | What is in an `InsightReport`? | [`docs/insight-report.md`](./docs/insight-report.md) |
 | How do I register an experiment as a sealed object? | [`docs/experiment.md`](./docs/experiment.md) |
 | How is something certified without an answer key? | [`docs/verification-strategies.md`](./docs/verification-strategies.md) |

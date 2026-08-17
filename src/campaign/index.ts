@@ -218,6 +218,20 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
+// ── Content-addressed complete optimization history ─────────────────
+export {
+  assertCompleteOptimizationHistory,
+  assertOptimizationHistoryMatchesReplay,
+  type CreateOptimizationHistoryReceiptInput,
+  createOptimizationHistoryReceipt,
+  OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM,
+  OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION,
+  type OptimizationHistoryEntityIndex,
+  type OptimizationHistoryEventIndex,
+  type OptimizationHistoryReceipt,
+  OptimizationHistoryRequiredError,
+  verifyOptimizationHistoryReceipt,
+} from './optimization-history'
 export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,
@@ -229,8 +243,11 @@ export {
   combineComparisonCosts,
   compareOptimizationMethods,
   costFromLedgerSummary,
+  type OptimizationHistoryCoverage,
+  type OptimizationHistoryPolicy,
   type OptimizationMethod,
   type OptimizationMethodComparison,
+  type OptimizationMethodHistoryCoverage,
   type OptimizationMethodInput,
   type OptimizationMethodPairwise,
   type OptimizationMethodProvenance,

@@ -151,9 +151,7 @@ export function verifyOptimizationHistoryReceipt(
     throw new Error(`optimization history kind must be 'optimization-history'`)
   }
   if (receipt.digestAlgorithm !== OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM) {
-    throw new Error(
-      `unsupported optimization history digestAlgorithm '${receipt.digestAlgorithm}'`,
-    )
+    throw new Error(`unsupported optimization history digestAlgorithm '${receipt.digestAlgorithm}'`)
   }
   normalizeArtifactRef(receipt.ledger)
   validateReceiptIndexes(receipt)
@@ -212,9 +210,7 @@ function historyIncompleteReasons(replay: SearchLedgerReplay): string[] {
     )
   }
   if (replay.audit.expected.missingOperations.length > 0) {
-    reasons.push(
-      `operations are unresolved: ${replay.audit.expected.missingOperations.join(', ')}`,
-    )
+    reasons.push(`operations are unresolved: ${replay.audit.expected.missingOperations.join(', ')}`)
   }
   if (replay.audit.decisions.pending > 0) {
     reasons.push(`${replay.audit.decisions.pending} candidate decision(s) are pending`)

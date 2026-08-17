@@ -24,6 +24,11 @@ import {
   assertGepaCandidatePopulationSummary,
   type GepaCandidatePopulationSummary,
 } from '../gepa-candidate-population'
+import {
+  assertCompleteOptimizationHistory,
+  type OptimizationHistoryReceipt,
+  verifyOptimizationHistoryReceipt,
+} from '../optimization-history'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
@@ -142,6 +147,21 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly costLedger: CostLedgerHandle
 }
 
+export type OptimizationHistoryPolicy = 'allow-missing' | 'require-complete'
+
+export interface OptimizationMethodHistoryCoverage {
+  readonly methodName: string
+  readonly status: 'complete' | 'incomplete' | 'missing'
+  readonly reasons: readonly string[]
+  readonly receipt?: OptimizationHistoryReceipt
+}
+
+export interface OptimizationHistoryCoverage {
+  readonly policy: OptimizationHistoryPolicy
+  readonly allComplete: boolean
+  readonly methods: readonly OptimizationMethodHistoryCoverage[]
+}
+
 export interface OptimizationMethodResult {
   /** Surface selected without using the final test partition. */
   winnerSurface: MutableSurface
@@ -151,6 +171,8 @@ export interface OptimizationMethodResult {
   durationMs?: number
   /** Exact external implementation and run identity, when the method uses one. */
   provenance?: OptimizationMethodProvenance
+  /** Content-addressed index over this method's canonical search ledger. */
+  history?: OptimizationHistoryReceipt
 }
 
 /** A complete optimization method, including candidate generation and selection. */
@@ -179,6 +201,8 @@ export interface OptimizationMethodScore {
   durationMs?: number
   /** Exact external implementation and run identity, when reported by the method. */
   provenance?: OptimizationMethodProvenance
+  /** Exact optimization history reported by the method, when present. */
+  history?: OptimizationHistoryReceipt
   /** Paired final-test values used to compute lift and its interval. */
   scenarioScores: Array<{
     scenarioId: string
@@ -207,6 +231,8 @@ export interface OptimizationMethodComparison {
   /** Sorted by descending lift; `rank` set accordingly. */
   scores: OptimizationMethodScore[]
   best: OptimizationMethodScore
+  /** Complete, incomplete, or missing search-history coverage in method input order. */
+  optimizationHistory: OptimizationHistoryCoverage
   /** Best vs each other method, using simultaneous paired-bootstrap intervals. */
   pairwise: OptimizationMethodPairwise[]
   testScenarioIds: string[]
@@ -254,6 +280,12 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
   optimizationRunOptions?: OptimizationMethodRunOptions<TScenario, TArtifact>
   /** Number of optimization methods to run concurrently. Default 1. */
   optimizationConcurrency?: number
+  /**
+   * `allow-missing` preserves existing methods while reporting coverage.
+   * `require-complete` refuses before untouched-final-test scoring unless every
+   * method returns a terminal, denominator-complete history receipt.
+   */
+  historyPolicy?: OptimizationHistoryPolicy
   /** Simultaneous confidence across method-vs-baseline and method-vs-method contrasts.
    *  Each bootstrap interval is Bonferroni-adjusted. Default 0.95. */
   confidence?: number
@@ -271,6 +303,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   assertComparisonPartitions(opts)
   const seed = opts.seed ?? 42
   const confidence = opts.confidence ?? 0.95
+  const historyPolicy = opts.historyPolicy ?? 'allow-missing'
   assertConfidence(confidence)
   const optimizationConcurrency = opts.optimizationConcurrency ?? 1
   const comparisonCount = (opts.methods.length * (opts.methods.length + 1)) / 2
@@ -345,18 +378,29 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
         ),
       )
       assertOptimizationResult(method.name, out)
+      const historyCoverage = historyCoverageForMethod(method.name, out.history)
+      if (historyPolicy === 'require-complete') {
+        assertCompleteOptimizationHistory(method.name, out.history)
+      }
       const winnerSurface = structuredClone(out.winnerSurface)
       return {
         name: method.name,
         winnerSurface,
         cost: out.cost,
-        durationMs: out.durationMs,
-        provenance: out.provenance,
+        historyCoverage,
+        ...(out.durationMs !== undefined ? { durationMs: out.durationMs } : {}),
+        ...(out.provenance !== undefined ? { provenance: structuredClone(out.provenance) } : {}),
+        ...(out.history !== undefined ? { history: out.history } : {}),
       }
     } catch (error) {
       if (!optimizationOwner.signal.aborted) optimizationOwner.abort(error)
       throw error
     }
+  })
+  const optimizationHistory: OptimizationHistoryCoverage = Object.freeze({
+    policy: historyPolicy,
+    allComplete: optimized.every((result) => result.historyCoverage.status === 'complete'),
+    methods: Object.freeze(optimized.map((result) => result.historyCoverage)),
   })
   assertReportedCostWithinCeiling(
     combineComparisonCosts(
@@ -420,6 +464,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     }
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
     if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
+    if (w.history !== undefined) score.history = w.history
     return score
   })
   scores.sort((a, b) => b.lift - a.lift)
@@ -485,6 +530,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   return {
     scores,
     best,
+    optimizationHistory,
     pairwise,
     testScenarioIds: scenarioIds,
     optimizationCost,
@@ -497,6 +543,31 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     resamples,
     reps: opts.reps ?? 1,
   }
+}
+
+function historyCoverageForMethod(
+  methodName: string,
+  receipt: OptimizationHistoryReceipt | undefined,
+): OptimizationMethodHistoryCoverage {
+  if (receipt === undefined) {
+    return Object.freeze({
+      methodName,
+      status: 'missing',
+      reasons: Object.freeze(['history receipt is missing']),
+    })
+  }
+  verifyOptimizationHistoryReceipt(receipt)
+  if (receipt.methodName !== methodName) {
+    throw new Error(
+      `compareOptimizationMethods: method '${methodName}' returned history for '${receipt.methodName}'`,
+    )
+  }
+  return Object.freeze({
+    methodName,
+    status: receipt.historyComplete ? 'complete' : 'incomplete',
+    reasons: Object.freeze([...receipt.incompleteReasons]),
+    receipt,
+  })
 }
 
 function assertReportedCostWithinCeiling(
@@ -565,6 +636,7 @@ export function assertOptimizationResult(name: string, result: OptimizationMetho
   if (result.provenance !== undefined) {
     assertOptimizationProvenance(name, result.provenance)
   }
+  if (result.history !== undefined) historyCoverageForMethod(name, result.history)
 }
 
 function assertOptimizationProvenance(
@@ -712,6 +784,15 @@ function assertComparisonControls<TScenario extends Scenario, TArtifact>(
   resamples: number,
   confidence: number,
 ): void {
+  if (
+    opts.historyPolicy !== undefined &&
+    opts.historyPolicy !== 'allow-missing' &&
+    opts.historyPolicy !== 'require-complete'
+  ) {
+    throw new Error(
+      `compareOptimizationMethods: unknown historyPolicy '${String(opts.historyPolicy)}'`,
+    )
+  }
   if (
     opts.optimizationRunOptions &&
     'costCeiling' in (opts.optimizationRunOptions as unknown as Record<string, unknown>)
