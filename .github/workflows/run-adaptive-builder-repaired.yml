@@ -1,0 +1,111 @@
+name: Execute repaired adaptive ledger builder
+
+on:
+  push:
+    branches: [feat/adaptive-search-ledger-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/adaptive-search-ledger-v1
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: clients/python/uv.lock
+      - run: pnpm install --frozen-lockfile
+
+      - name: Extract, repair, and execute the existing implementation script
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path('.github/workflows/build-adaptive-search-ledger.yml').read_text()
+          marker = '      - name: Implement adaptive-safe ledger semantics\n'
+          start = source.index(marker) + len(marker)
+          run_marker = '        run: |\n'
+          start = source.index(run_marker, start) + len(run_marker)
+          end = source.index('\n      - name:', start)
+          block = source[start:end]
+          lines = []
+          for line in block.splitlines():
+              if line and not line.startswith('          '):
+                  raise SystemExit(f'unexpected implementation indentation: {line[:80]!r}')
+              lines.append(line[10:] if line else '')
+          script = '\n'.join(lines) + '\n'
+          pattern = re.compile(r"const oldIdentity = `[\s\S]*?\nconst attemptedEnd =")
+          replacement = r"""const taskIdentityTypePattern =
+  /  identity: \{\n    model: SearchModelIdentity\n    agent: SearchSourceRef\n    benchmark: SearchSourceRef\n  \}\n/
+if (!taskIdentityTypePattern.test(ledger)) {
+  throw new Error('task identity type block not found')
+}
+ledger = ledger.replace(
+  taskIdentityTypePattern,
+  '  identity: SearchTaskExecutionIdentity\\n',
+)
+
+const attemptedEnd ="""
+          script, count = pattern.subn(replacement, script, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one brittle identity block, replaced {count}')
+          Path('/tmp/implement-adaptive-ledger.sh').write_text(script)
+          PY
+          bash /tmp/implement-adaptive-ledger.sh
+
+      - name: Repin governed benchmark source digests
+        run: |
+          DIGESTS=$(node scripts/check-analyst-benchmark-implementation.mjs --print-only)
+          SOURCE_DIGEST=$(printf '%s\n' "$DIGESTS" | head -n 1)
+          LOCK_DIGEST=$(printf '%s\n' "$DIGESTS" | tail -n 1)
+          node - "$SOURCE_DIGEST" "$LOCK_DIGEST" <<'NODE'
+          const fs = require('node:fs')
+          const [sourceDigest, lockDigest] = process.argv.slice(2)
+          const path = 'src/analyst/benchmark-implementation.ts'
+          let value = fs.readFileSync(path, 'utf8')
+          value = value.replace(
+            /(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${sourceDigest}$2`,
+          )
+          value = value.replace(
+            /(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${lockDigest}$2`,
+          )
+          fs.writeFileSync(path, value)
+          NODE
+          pnpm biome check --write src/analyst/benchmark-implementation.ts
+
+      - name: Validate focused and repository-wide behavior
+        run: |
+          pnpm lint
+          pnpm run check:model-ids
+          pnpm typecheck
+          pnpm typecheck:examples
+          pnpm typecheck:scripts
+          pnpm test -- src/campaign/search-ledger-adaptive.test.ts src/campaign/search-ledger.test.ts src/campaign/search-history-receipt.test.ts
+          pnpm test
+          pnpm build
+          pnpm run verify:package
+
+      - name: Commit only validated product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src docs CHANGELOG.md
+          git diff --cached --quiet || git commit -m "feat(history): support adaptive optimizer search ledgers"
+          git push
