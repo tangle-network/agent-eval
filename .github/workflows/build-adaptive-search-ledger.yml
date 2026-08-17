@@ -1,0 +1,1221 @@
+name: Build adaptive-safe canonical search ledger
+
+on:
+  push:
+    branches: [feat/adaptive-search-ledger-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/adaptive-search-ledger-v1
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: clients/python/uv.lock
+      - run: pnpm install --frozen-lockfile
+
+      - name: Implement adaptive-safe ledger semantics
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+
+          const replaceOnce = (source, before, after, label) => {
+            const count = source.split(before).length - 1
+            if (count !== 1) throw new Error(`${label}: expected one anchor, found ${count}`)
+            return source.replace(before, after)
+          }
+
+          const ledgerPath = 'src/campaign/search-ledger.ts'
+          let ledger = fs.readFileSync(ledgerPath, 'utf8')
+
+          ledger = replaceOnce(
+            ledger,
+            "import { z } from 'zod'\n",
+            "import { createHash } from 'node:crypto'\nimport { readFileSync } from 'node:fs'\nimport { pathToFileURL } from 'node:url'\nimport { z } from 'zod'\n",
+            'node imports',
+          )
+          ledger = replaceOnce(
+            ledger,
+            "  canonicalString,\n  FileLedgerJournal,",
+            "  canonicalString,\n  FileLedgerJournal,\n  hashCanonical,",
+            'hashCanonical import',
+          )
+
+          const modelIdentity = `export interface SearchModelIdentity {
+            provider: string
+            snapshot: string
+          }
+          `
+          ledger = replaceOnce(
+            ledger,
+            modelIdentity,
+            `${modelIdentity}
+          /** Honest execution identity for one candidate/task measurement. */
+          export type SearchTaskExecutionIdentity =
+            | {
+                model: SearchModelIdentity
+                agent: SearchSourceRef
+                benchmark: SearchSourceRef
+              }
+            | {
+                dispatch: {
+                  ref: string
+                  source: SearchSourceRef
+                }
+                benchmark: SearchSourceRef
+              }
+          `,
+            'task execution identity',
+          )
+
+          const oldIdentity = `  identity: {
+            model: SearchModelIdentity
+            agent: SearchSourceRef
+            benchmark: SearchSourceRef
+          }
+          `
+          ledger = replaceOnce(
+            ledger,
+            oldIdentity,
+            `  identity: SearchTaskExecutionIdentity
+          `,
+            'task identity field',
+          )
+
+          const attemptedEnd = `export interface SearchOperationRecordedEvent extends SearchLedgerEventBase {`
+          ledger = replaceOnce(
+            ledger,
+            attemptedEnd,
+            `/** Explicitly closes one planned candidate/task cell without inventing a score. */
+          export interface SearchTaskClosedEvent extends SearchLedgerEventBase {
+            kind: 'task-closed'
+            candidateId: string
+            task: {
+              taskId: string
+              source: SearchSourceRef
+            }
+            reason: SearchFailureReason
+          }
+
+          ${attemptedEnd}`,
+            'task-closed type',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  | SearchTaskAttemptedEvent
+            | SearchOperationRecordedEvent`,
+            `  | SearchTaskAttemptedEvent
+            | SearchTaskClosedEvent
+            | SearchOperationRecordedEvent`,
+            'event union',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  attemptCount: number
+            operationCount: number`,
+            `  attemptCount: number
+            /** Planned candidate/task cells explicitly closed without a measured score. */
+            closedTaskCount?: number
+            operationCount: number`,
+            'audit closed task count',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  attempts: SearchTaskAttemptedEvent[]
+            operations: SearchOperationRecordedEvent[]`,
+            `  attempts: SearchTaskAttemptedEvent[]
+            /** Always populated by current replays; optional for old serialized projections. */
+            closedTasks?: SearchTaskClosedEvent[]
+            operations: SearchOperationRecordedEvent[]`,
+            'replay closed tasks',
+          )
+
+          const taskSchemaAnchor = `const TaskAttemptedSchema = z
+            .object({`
+          const identitySchemas = `const ModelTaskIdentitySchema = z
+            .object({
+              model: z
+                .object({
+                  provider: NON_EMPTY,
+                  snapshot: NON_EMPTY.refine(
+                    modelHasSnapshot,
+                    'model must include an immutable snapshot',
+                  ),
+                })
+                .strict(),
+              agent: SourceRefSchema,
+              benchmark: SourceRefSchema,
+            })
+            .strict()
+
+          const DispatchTaskIdentitySchema = z
+            .object({
+              dispatch: z
+                .object({
+                  ref: NON_EMPTY,
+                  source: SourceRefSchema,
+                })
+                .strict(),
+              benchmark: SourceRefSchema,
+            })
+            .strict()
+
+          ${taskSchemaAnchor}`
+          ledger = replaceOnce(ledger, taskSchemaAnchor, identitySchemas, 'identity schemas')
+
+          const identitySchemaRegex = /    identity: z\n      \.object\(\{\n        model: z[\s\S]*?      \}\)\n      \.strict\(\),\n    outcome: OutcomeSchema,/
+          if (!identitySchemaRegex.test(ledger)) throw new Error('task identity schema block not found')
+          ledger = ledger.replace(
+            identitySchemaRegex,
+            `    identity: z.union([ModelTaskIdentitySchema, DispatchTaskIdentitySchema]),
+            outcome: OutcomeSchema,`,
+          )
+
+          const operationSchemaAnchor = `const SearchOperationRecordedSchema = z`
+          ledger = replaceOnce(
+            ledger,
+            operationSchemaAnchor,
+            `const TaskClosedSchema = z
+            .object({
+              ...EventBaseShape,
+              kind: z.literal('task-closed'),
+              candidateId: NON_EMPTY,
+              task: z.object({ taskId: NON_EMPTY, source: SourceRefSchema }).strict(),
+              reason: FailureReasonSchema,
+            })
+            .strict()
+
+          ${operationSchemaAnchor}`,
+            'task closed schema',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  TaskAttemptedSchema,
+            SearchOperationRecordedSchema,`,
+            `  TaskAttemptedSchema,
+            TaskClosedSchema,
+            SearchOperationRecordedSchema,`,
+            'event schema union',
+          )
+
+          const artifactOptionsAnchor = `export interface SearchLedger {`
+          ledger = replaceOnce(
+            ledger,
+            artifactOptionsAnchor,
+            `export interface SearchLedgerArtifactRefOptions {
+            role?: string
+            uri?: string
+          }
+
+          ${artifactOptionsAnchor}`,
+            'artifact options',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  append(event: SearchLedgerEvent): Promise<SearchLedgerAppendResult>
+            replay(): Promise<SearchLedgerReplay>`,
+            `  append(event: SearchLedgerEvent): Promise<SearchLedgerAppendResult>
+            replay(): Promise<SearchLedgerReplay>
+            /** Verify the ledger and bind its exact canonical JSONL bytes. */
+            artifactRef(options?: SearchLedgerArtifactRefOptions): Promise<SearchArtifactRef>`,
+            'ledger artifact method',
+          )
+
+          const fileReplay = `  async replay(): Promise<SearchLedgerReplay> {
+            return (await this.journal.replay()).projection
+          }
+          `
+          ledger = replaceOnce(
+            ledger,
+            fileReplay,
+            `${fileReplay}
+          async artifactRef(options: SearchLedgerArtifactRefOptions = {}): Promise<SearchArtifactRef> {
+            await this.replay()
+            const bytes = readFileSync(this.path)
+            return searchLedgerArtifactRef(bytes, {
+              role: options.role,
+              uri: options.uri ?? pathToFileURL(this.path).href,
+            })
+          }
+          `,
+            'file artifact method',
+          )
+
+          const parseAnchor = `interface CandidateState {`
+          ledger = replaceOnce(
+            ledger,
+            parseAnchor,
+            `/** Verify typed entries and replay the one canonical search state machine. */
+          export function projectSearchLedgerEntries(
+            entries: readonly SearchLedgerEntry[],
+            campaignId: string,
+          ): SearchLedgerReplay {
+            if (typeof campaignId !== 'string' || campaignId.length === 0 || campaignId.trim() !== campaignId) {
+              throw new SearchLedgerIntegrityError('campaignId must be a trimmed non-empty string')
+            }
+            const projector = createSearchLedgerProjector(campaignId)
+            const eventIds = new Set<string>()
+            let expectedPrevious: SearchLedgerHash | null = null
+            entries.forEach((entry, index) => {
+              if (entry.schema !== SEARCH_LEDGER_SCHEMA) {
+                throw new SearchLedgerIntegrityError(
+                  \`entry \${index} has unsupported schema \${String(entry.schema)}\`,
+                )
+              }
+              if (entry.campaignId !== campaignId) {
+                throw new SearchLedgerIntegrityError(
+                  \`entry \${index} belongs to campaign \${entry.campaignId}, expected \${campaignId}\`,
+                )
+              }
+              if (entry.sequence !== index) {
+                throw new SearchLedgerIntegrityError(
+                  \`entry \${entry.event.eventId} has sequence \${entry.sequence}, expected \${index}\`,
+                )
+              }
+              if (entry.previousHash !== expectedPrevious) {
+                throw new SearchLedgerIntegrityError(
+                  \`entry \${entry.event.eventId} does not extend the previous ledger head\`,
+                )
+              }
+              const event = validateSearchLedgerEvent(entry.event)
+              if (canonicalString(event) !== canonicalString(entry.event)) {
+                throw new SearchLedgerIntegrityError(
+                  \`entry \${entry.event.eventId} has non-canonical event ordering\`,
+                )
+              }
+              if (eventIds.has(event.eventId)) {
+                throw new SearchLedgerIntegrityError(\`eventId \${event.eventId} appears twice\`)
+              }
+              eventIds.add(event.eventId)
+              const material = {
+                schema: entry.schema,
+                campaignId: entry.campaignId,
+                sequence: entry.sequence,
+                previousHash: entry.previousHash,
+                event: entry.event,
+              }
+              if (hashCanonical(material) !== entry.entryHash) {
+                throw new SearchLedgerIntegrityError(\`entry \${event.eventId} has an invalid hash\`)
+              }
+              projector.apply(entry, index)
+              expectedPrevious = entry.entryHash
+            })
+            return projector.finish([...entries])
+          }
+
+          /** Bind exact JSONL bytes without claiming their URI is durably retained. */
+          export function searchLedgerArtifactRef(
+            content: string | Uint8Array,
+            options: { role?: string; uri: string },
+          ): SearchArtifactRef {
+            const role = options.role ?? 'search-ledger'
+            if (typeof role !== 'string' || role.length === 0 || role.trim() !== role) {
+              throw new SearchLedgerError('search ledger artifact role must be trimmed and non-empty')
+            }
+            if (typeof options.uri !== 'string' || options.uri.length === 0 || options.uri.trim() !== options.uri) {
+              throw new SearchLedgerError('search ledger artifact uri must be trimmed and non-empty')
+            }
+            const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
+            return Object.freeze({
+              role,
+              uri: options.uri,
+              sha256: \`sha256:\${createHash('sha256').update(bytes).digest('hex')}\`,
+              byteLength: bytes.byteLength,
+            })
+          }
+
+          ${parseAnchor}`,
+            'pure projector and artifact helper',
+          )
+
+          ledger = replaceOnce(
+            ledger,
+            `  const attemptKeys = new Set<string>()
+            const candidateEvents: SearchCandidateRegisteredEvent[] = []`,
+            `  const attemptKeys = new Set<string>()
+            const closedTaskKeys = new Set<string>()
+            const candidateEvents: SearchCandidateRegisteredEvent[] = []`,
+            'closed task key state',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `  const attempts: SearchTaskAttemptedEvent[] = []
+            const operationEvents: SearchOperationRecordedEvent[] = []`,
+            `  const attempts: SearchTaskAttemptedEvent[] = []
+            const closedTaskEvents: SearchTaskClosedEvent[] = []
+            const operationEvents: SearchOperationRecordedEvent[] = []`,
+            'closed task event state',
+          )
+
+          const generationPrerequisite = `      const generationOperation = operationsById.get(event.generationOperationId)
+            if (!generationOperation) {
+              throw new SearchLedgerIntegrityError(
+                \`candidate \${event.candidateId} precedes generation operation \${event.generationOperationId}\`,
+              )
+            }
+            if (generationOperation.outcome.status === 'failed') {`
+          ledger = replaceOnce(
+            ledger,
+            generationPrerequisite,
+            `      const generationOperation = operationsById.get(event.generationOperationId)
+            // Adaptive optimizers emit candidates while the generation operation is still
+            // running. The terminal search-completed transition later proves that the
+            // operation and all of its planned slots agree. A generation operation that
+            // is already known to have failed still cannot produce a candidate.
+            if (generationOperation?.outcome.status === 'failed') {`,
+            'adaptive candidate ordering',
+          )
+
+          ledger = replaceOnce(
+            ledger,
+            `      const attemptKey = canonicalString([event.candidateId, event.task.taskId, event.attemptIndex])
+            if (attemptKeys.has(attemptKey)) {`,
+            `      const cellKey = taskCellKey(event.candidateId, event.task.taskId)
+            if (closedTaskKeys.has(cellKey)) {
+              throw new SearchLedgerIntegrityError(
+                \`attempt \${event.eventId} appears after candidate \${event.candidateId} task \${event.task.taskId} was closed\`,
+              )
+            }
+            const attemptKey = canonicalString([event.candidateId, event.task.taskId, event.attemptIndex])
+            if (attemptKeys.has(attemptKey)) {`,
+            'attempt after closure refusal',
+          )
+
+          const operationBranch = `    if (event.kind === 'search-operation-recorded') {`
+          ledger = replaceOnce(
+            ledger,
+            operationBranch,
+            `    if (event.kind === 'task-closed') {
+            const candidate = candidates.get(event.candidateId)
+            if (!candidate) {
+              throw new SearchLedgerIntegrityError(
+                \`task closure \${event.eventId} references unknown candidate \${event.candidateId}\`,
+              )
+            }
+            if (candidate.decision) {
+              throw new SearchLedgerIntegrityError(
+                \`task closure \${event.eventId} appears after candidate \${event.candidateId} was decided\`,
+              )
+            }
+            const plannedTask = planEvent.plan.tasks.find((task) => task.taskId === event.task.taskId)
+            if (!plannedTask) {
+              throw new SearchLedgerIntegrityError(
+                \`task closure \${event.eventId} references unplanned task \${event.task.taskId}\`,
+              )
+            }
+            if (canonicalString(plannedTask.source) !== canonicalString(event.task.source)) {
+              throw new SearchLedgerIntegrityError(
+                \`task closure \${event.eventId} does not match its planned source identity\`,
+              )
+            }
+            const cellKey = taskCellKey(event.candidateId, event.task.taskId)
+            if (closedTaskKeys.has(cellKey)) {
+              throw new SearchLedgerIntegrityError(
+                \`candidate \${event.candidateId} task \${event.task.taskId} was closed twice\`,
+              )
+            }
+            if (
+              candidate.attempts.some(
+                (attempt) =>
+                  attempt.task.taskId === event.task.taskId && attempt.outcome.status !== 'errored',
+              )
+            ) {
+              throw new SearchLedgerIntegrityError(
+                \`candidate \${event.candidateId} task \${event.task.taskId} cannot close after a measured outcome\`,
+              )
+            }
+            closedTaskKeys.add(cellKey)
+            closedTaskEvents.push(event)
+            return
+          }
+
+          ${operationBranch}`,
+            'task closed projector branch',
+          )
+
+          ledger = ledger.replaceAll(
+            'plannedTaskOutcomeKeys(planEvent, candidates)',
+            'plannedTaskOutcomeKeys(planEvent, candidates, closedTaskKeys)',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `      attempts,
+            operations: operationEvents,`,
+            `      attempts,
+            closedTasks: closedTaskEvents,
+            operations: operationEvents,`,
+            'replay closed tasks output',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `        attemptCount: attempts.length,
+            operationCount: operationEvents.length,`,
+            `        attemptCount: attempts.length,
+            closedTaskCount: closedTaskEvents.length,
+            operationCount: operationEvents.length,`,
+            'audit closed task output',
+          )
+
+          const plannedFunction = `function plannedTaskOutcomeKeys(
+            planEvent: SearchPlannedEvent,
+            candidates: Map<string, CandidateState>,
+          ): string[] {`
+          ledger = replaceOnce(
+            ledger,
+            plannedFunction,
+            `function plannedTaskOutcomeKeys(
+            planEvent: SearchPlannedEvent,
+            candidates: Map<string, CandidateState>,
+            closedTaskKeys: ReadonlySet<string>,
+          ): string[] {`,
+            'planned task function signature',
+          )
+          ledger = replaceOnce(
+            ledger,
+            `      if (!measured) missing.push(\`\${slotId}/\${task.taskId}\`)`,
+            `      const closed = closedTaskKeys.has(taskCellKey(candidate.registered.candidateId, task.taskId))
+            if (!measured && !closed) missing.push(\`\${slotId}/\${task.taskId}\`)`,
+            'planned task closure satisfaction',
+          )
+          const normalizeAnchor = `function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {`
+          ledger = replaceOnce(
+            ledger,
+            normalizeAnchor,
+            `function taskCellKey(candidateId: string, taskId: string): string {
+            return canonicalString([candidateId, taskId])
+          }
+
+          ${normalizeAnchor}`,
+            'task cell key helper',
+          )
+
+          fs.writeFileSync(ledgerPath, ledger)
+
+          const storagePath = 'src/campaign/storage.ts'
+          let storage = fs.readFileSync(storagePath, 'utf8')
+          storage = replaceOnce(
+            storage,
+            `export interface CampaignStorage {
+            /** Ensure a directory exists (recursive). No-op for in-memory. */`,
+            `export interface CampaignStorage {
+            /** Optional built-in adapter identity. Custom stores may omit it. */
+            readonly kind?: 'filesystem' | 'memory' | 'custom'
+            /** Ensure a directory exists (recursive). No-op for in-memory. */`,
+            'storage kind type',
+          )
+          storage = replaceOnce(
+            storage,
+            `  return {
+              ensureDir(dir) {`,
+            `  return {
+              kind: 'filesystem',
+              ensureDir(dir) {`,
+            'filesystem kind',
+          )
+          const secondReturnIndex = storage.indexOf('  return {', storage.indexOf("export function inMemoryCampaignStorage"))
+          if (secondReturnIndex < 0) throw new Error('in-memory storage return not found')
+          storage = `${storage.slice(0, secondReturnIndex)}  return {\n    kind: 'memory',${storage.slice(secondReturnIndex + '  return {'.length)}`
+          fs.writeFileSync(storagePath, storage)
+          NODE
+
+          cat > src/campaign/campaign-search-ledger.ts <<'EOF'
+          import { canonicalString, hashCanonical, type LedgerTrustedHead, type LedgerTrustedHeadRemoval } from '../ledger-core'
+          import {
+            projectSearchLedgerEntries,
+            SEARCH_LEDGER_SCHEMA,
+            type OpenSearchLedgerOptions,
+            openSearchLedger,
+            searchLedgerArtifactRef,
+            type SearchArtifactRef,
+            type SearchLedger,
+            type SearchLedgerAppendResult,
+            type SearchLedgerArtifactRefOptions,
+            SearchLedgerConflictError,
+            SearchLedgerError,
+            SearchLedgerIntegrityError,
+            type SearchLedgerEntry,
+            type SearchLedgerEvent,
+            type SearchLedgerHash,
+            type SearchLedgerReplay,
+            validateSearchLedgerEvent,
+          } from './search-ledger'
+          import type { CampaignStorage } from './storage'
+
+          export interface OpenCampaignSearchLedgerOptions
+            extends Omit<OpenSearchLedgerOptions, 'trustedHead'> {
+            storage: CampaignStorage
+            /** URI retained in generated artifact references. Defaults to path. */
+            artifactUri?: string
+            /** Filesystem storage keeps the ordinary trusted-head mode. */
+            trustedHead?: OpenSearchLedgerOptions['trustedHead']
+            /** CAS retries for custom/in-memory storage. Default 64. */
+            maxAppendRetries?: number
+          }
+
+          /**
+           * Open the canonical SearchLedger through a CampaignStorage.
+           *
+           * The built-in filesystem store uses FileSearchLedger and its trusted
+           * head. Memory/custom stores use the same event validator and projector
+           * over CAS-appended canonical JSONL, but cannot claim a separately
+           * protected trusted head because CampaignStorage has no such primitive.
+           */
+          export function openCampaignSearchLedger(
+            options: OpenCampaignSearchLedgerOptions,
+          ): SearchLedger {
+            if (options.storage.kind === 'filesystem') {
+              return openSearchLedger({
+                path: options.path,
+                campaignId: options.campaignId,
+                ...(options.trustedHead === undefined ? {} : { trustedHead: options.trustedHead }),
+              })
+            }
+            return new CampaignStorageSearchLedger(options)
+          }
+
+          class CampaignStorageSearchLedger implements SearchLedger {
+            readonly path: string
+            readonly campaignId: string
+            readonly trustedHeadPath: string
+            private readonly storage: CampaignStorage
+            private readonly artifactUri: string
+            private readonly maxAppendRetries: number
+
+            constructor(options: OpenCampaignSearchLedgerOptions) {
+              if (!options.storage || typeof options.storage !== 'object') {
+                throw new SearchLedgerError('campaign search ledger storage is required')
+              }
+              this.path = trimmed(options.path, 'campaign search ledger path')
+              this.campaignId = trimmed(options.campaignId, 'campaign search ledger campaignId')
+              this.storage = options.storage
+              this.artifactUri = trimmed(
+                options.artifactUri ?? options.path,
+                'campaign search ledger artifactUri',
+              )
+              this.maxAppendRetries = options.maxAppendRetries ?? 64
+              if (!Number.isSafeInteger(this.maxAppendRetries) || this.maxAppendRetries < 1) {
+                throw new SearchLedgerError(
+                  'campaign search ledger maxAppendRetries must be a positive safe integer',
+                )
+              }
+              this.trustedHeadPath = `${this.path}.head.unsupported`
+            }
+
+            async replay(): Promise<SearchLedgerReplay> {
+              return readProjection(this.storage, this.path, this.campaignId).replay
+            }
+
+            async append(input: SearchLedgerEvent): Promise<SearchLedgerAppendResult> {
+              const event = validateSearchLedgerEvent(input)
+              for (let retry = 0; retry < this.maxAppendRetries; retry += 1) {
+                const before = readProjection(this.storage, this.path, this.campaignId)
+                const existing = before.entries.find((entry) => entry.event.eventId === event.eventId)
+                if (existing) {
+                  if (canonicalString(existing.event) !== canonicalString(event)) {
+                    throw new SearchLedgerConflictError(
+                      `eventId ${event.eventId} already exists with different content`,
+                    )
+                  }
+                  return { entry: existing, appended: false, replay: before.replay }
+                }
+                const material = {
+                  schema: SEARCH_LEDGER_SCHEMA,
+                  campaignId: this.campaignId,
+                  sequence: before.entries.length,
+                  previousHash: before.entries.at(-1)?.entryHash ?? null,
+                  event,
+                }
+                const entry: SearchLedgerEntry = {
+                  ...material,
+                  entryHash: hashCanonical(material),
+                }
+                const entries = [...before.entries, entry]
+                const replay = projectSearchLedgerEntries(entries, this.campaignId)
+                const line = `${canonicalString(entry)}\n`
+                const next = this.storage.append(this.path, line, before.byteLength)
+                if (next !== undefined) return { entry, appended: true, replay }
+              }
+              throw new SearchLedgerConflictError(
+                `campaign search ledger changed concurrently at '${this.path}'`,
+              )
+            }
+
+            async artifactRef(
+              options: SearchLedgerArtifactRefOptions = {},
+            ): Promise<SearchArtifactRef> {
+              await this.replay()
+              const contents = readText(this.storage, this.path)
+              return searchLedgerArtifactRef(contents, {
+                role: options.role,
+                uri: options.uri ?? this.artifactUri,
+              })
+            }
+
+            async trustedHead(): Promise<LedgerTrustedHead | null> {
+              return null
+            }
+
+            async pinTrustedHead(): Promise<LedgerTrustedHead> {
+              throw new SearchLedgerError(
+                'campaign-backed SearchLedger cannot pin a trusted head; use filesystem storage or an external immutable artifact authority',
+              )
+            }
+
+            async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
+              throw new SearchLedgerError(
+                'campaign-backed SearchLedger has no trusted head to clear',
+              )
+            }
+          }
+
+          function readProjection(
+            storage: CampaignStorage,
+            path: string,
+            campaignId: string,
+          ): { entries: SearchLedgerEntry[]; replay: SearchLedgerReplay; byteLength: number } {
+            const contents = readText(storage, path)
+            const byteLength = new TextEncoder().encode(contents).byteLength
+            if (contents.length === 0) {
+              const entries: SearchLedgerEntry[] = []
+              return {
+                entries,
+                replay: projectSearchLedgerEntries(entries, campaignId),
+                byteLength,
+              }
+            }
+            if (!contents.endsWith('\n')) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger ${path} has a truncated final record`,
+              )
+            }
+            const entries = contents
+              .slice(0, -1)
+              .split('\n')
+              .map((line, index) => parseEntry(line, path, index + 1))
+            return {
+              entries,
+              replay: projectSearchLedgerEntries(entries, campaignId),
+              byteLength,
+            }
+          }
+
+          function parseEntry(line: string, path: string, lineNumber: number): SearchLedgerEntry {
+            if (line.length === 0) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger ${path} has a blank row at line ${lineNumber}`,
+              )
+            }
+            let raw: unknown
+            try {
+              raw = JSON.parse(line)
+            } catch (cause) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger ${path} has invalid JSON at line ${lineNumber}`,
+                { cause },
+              )
+            }
+            if (!isRecord(raw)) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger ${path} row ${lineNumber} must be an object`,
+              )
+            }
+            const event = validateSearchLedgerEvent(raw.event)
+            const entry = {
+              schema: raw.schema,
+              campaignId: raw.campaignId,
+              sequence: raw.sequence,
+              previousHash: raw.previousHash,
+              event,
+              entryHash: raw.entryHash,
+            } as SearchLedgerEntry
+            if (canonicalString(entry) !== line) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger ${path} has non-canonical bytes at line ${lineNumber}`,
+              )
+            }
+            return entry
+          }
+
+          function readText(storage: CampaignStorage, path: string): string {
+            const contents = storage.read(path)
+            if (contents === undefined && storage.exists(path)) {
+              throw new SearchLedgerIntegrityError(
+                `campaign search ledger exists but is unreadable at '${path}'`,
+              )
+            }
+            return contents ?? ''
+          }
+
+          function isRecord(value: unknown): value is Record<string, unknown> {
+            return typeof value === 'object' && value !== null && !Array.isArray(value)
+          }
+
+          function trimmed(value: unknown, label: string): string {
+            if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+              throw new SearchLedgerError(`${label} must be a trimmed non-empty string`)
+            }
+            return value
+          }
+          EOF
+
+          cat > src/campaign/search-ledger-adaptive.test.ts <<'EOF'
+          import { describe, expect, it } from 'vitest'
+          import { openCampaignSearchLedger } from './campaign-search-ledger'
+          import {
+            openSearchLedger,
+            type SearchArtifactRef,
+            type SearchLedger,
+            type SearchLedgerEvent,
+            type SearchSourceRef,
+          } from './search-ledger'
+          import { inMemoryCampaignStorage } from './storage'
+          import { mkdtempSync, rmSync } from 'node:fs'
+          import { tmpdir } from 'node:os'
+          import { join } from 'node:path'
+
+          const source: SearchSourceRef = {
+            uri: 'git+https://example.test/repo.git',
+            revision: 'a'.repeat(40),
+          }
+          const artifact = (role: string, seed: string): SearchArtifactRef => ({
+            role,
+            uri: `artifact://adaptive/${role}/${seed}`,
+            sha256: `sha256:${seed.repeat(64).slice(0, 64)}`,
+            byteLength: 1,
+          })
+          let tick = 0
+          const at = () => `2026-08-17T00:00:${String(tick++).padStart(2, '0')}.000Z`
+          const event = <T extends SearchLedgerEvent>(value: Omit<T, 'occurredAt'>): T =>
+            ({ ...value, occurredAt: at() }) as T
+
+          async function planned(ledger: SearchLedger): Promise<void> {
+            await ledger.append(
+              event({
+                kind: 'search-planned',
+                eventId: 'plan',
+                artifacts: [artifact('plan', '1')],
+                plan: {
+                  candidateSlots: [{ slotId: 'slot-1', generationOperationId: 'generate' }],
+                  tasks: [{ taskId: 'task-1', source, benchmark: source, maxAttempts: 2 }],
+                  operations: [{ operationId: 'generate', kind: 'candidate-generation' }],
+                },
+              }),
+            )
+          }
+
+          describe('adaptive SearchLedger', () => {
+            it('accepts candidates while generation is in flight and closes intentionally unmeasured cells', async () => {
+              tick = 0
+              const ledger = openCampaignSearchLedger({
+                storage: inMemoryCampaignStorage(),
+                path: 'mem://adaptive/search.jsonl',
+                campaignId: 'adaptive-search',
+              })
+              await planned(ledger)
+              await ledger.append(
+                event({
+                  kind: 'candidate-registered',
+                  eventId: 'candidate',
+                  artifacts: [artifact('candidate', '2')],
+                  slotId: 'slot-1',
+                  generationOperationId: 'generate',
+                  candidateId: 'candidate-a',
+                  lineage: {
+                    lineageNodeId: '0123456789abcdef',
+                    parentCandidateIds: [],
+                    generation: 0,
+                    proposer: 'adaptive-fixture',
+                    proposerSource: source,
+                  },
+                  surfaces: [
+                    {
+                      surfaceId: 'surface-a',
+                      kind: 'prompt',
+                      artifact: artifact('surface', '3'),
+                    },
+                  ],
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'task-closed',
+                  eventId: 'task-closed',
+                  artifacts: [artifact('closure', '4')],
+                  candidateId: 'candidate-a',
+                  task: { taskId: 'task-1', source },
+                  reason: { code: 'not-requested', message: 'Adaptive optimizer did not request this cell.' },
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'search-operation-recorded',
+                  eventId: 'generation',
+                  artifacts: [artifact('generation', '5')],
+                  operationId: 'generate',
+                  operationKind: 'candidate-generation',
+                  execution: { kind: 'deterministic', source },
+                  outcome: { status: 'completed' },
+                  accounting: {
+                    tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+                    cost: { status: 'known', usd: 0, source: 'free' },
+                  },
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'candidate-decided',
+                  eventId: 'rejected',
+                  artifacts: [artifact('decision', '6')],
+                  candidateId: 'candidate-a',
+                  decision: {
+                    status: 'rejected',
+                    reason: { code: 'not-measured', message: 'No measured task outcome.' },
+                  },
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'search-completed',
+                  eventId: 'completed',
+                  artifacts: [artifact('completion', '7')],
+                  result: {
+                    status: 'all-rejected',
+                    reason: { code: 'no-winner', message: 'No candidate was selected.' },
+                  },
+                }),
+              )
+
+              const replay = await ledger.replay()
+              expect(replay.audit.status).toBe('all-rejected')
+              expect(replay.audit.expected.missingTaskOutcomes).toEqual([])
+              expect(replay.closedTasks).toHaveLength(1)
+              expect(replay.audit.closedTaskCount).toBe(1)
+              const ref = await ledger.artifactRef({ uri: 'artifact://adaptive/search-ledger.jsonl' })
+              expect(ref.sha256).toMatch(/^sha256:[a-f0-9]{64}$/)
+              expect(ref.byteLength).toBeGreaterThan(0)
+            })
+
+            it('retains honest dispatch identity without inventing a model', async () => {
+              tick = 0
+              const ledger = openCampaignSearchLedger({
+                storage: inMemoryCampaignStorage(),
+                path: 'mem://dispatch/search.jsonl',
+                campaignId: 'dispatch-search',
+              })
+              await planned(ledger)
+              await ledger.append(
+                event({
+                  kind: 'candidate-registered',
+                  eventId: 'candidate',
+                  artifacts: [artifact('candidate', '8')],
+                  slotId: 'slot-1',
+                  generationOperationId: 'generate',
+                  candidateId: 'candidate-a',
+                  lineage: {
+                    lineageNodeId: 'fedcba9876543210',
+                    parentCandidateIds: [],
+                    generation: 0,
+                    proposer: 'adaptive-fixture',
+                    proposerSource: source,
+                  },
+                  surfaces: [
+                    {
+                      surfaceId: 'surface-a',
+                      kind: 'prompt',
+                      artifact: artifact('surface', '9'),
+                    },
+                  ],
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'task-attempted',
+                  eventId: 'attempt',
+                  artifacts: [artifact('attempt', 'a')],
+                  candidateId: 'candidate-a',
+                  runId: 'run-a',
+                  attemptIndex: 0,
+                  task: { taskId: 'task-1', source },
+                  identity: {
+                    dispatch: { ref: 'sha256:' + 'b'.repeat(64), source },
+                    benchmark: source,
+                  },
+                  outcome: { status: 'passed', score: 1, metrics: { quality: 1 } },
+                  accounting: {
+                    tokens: { status: 'unknown', reason: 'dispatch aggregate unavailable' },
+                    cost: { status: 'unknown', knownLowerBoundUsd: 0, reason: 'cell receipt retained separately' },
+                  },
+                  surfaceEvidence: [
+                    {
+                      surfaceId: 'surface-a',
+                      fired: true,
+                      firingCount: 1,
+                      effect: { status: 'not-measured', reason: 'No attribution experiment.' },
+                      evidence: [artifact('surface-evidence', 'c')],
+                    },
+                  ],
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'search-operation-recorded',
+                  eventId: 'generation',
+                  artifacts: [artifact('generation', 'd')],
+                  operationId: 'generate',
+                  operationKind: 'candidate-generation',
+                  execution: { kind: 'deterministic', source },
+                  outcome: { status: 'completed' },
+                  accounting: {
+                    tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+                    cost: { status: 'known', usd: 0, source: 'free' },
+                  },
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'candidate-decided',
+                  eventId: 'selected',
+                  artifacts: [artifact('decision', 'e')],
+                  candidateId: 'candidate-a',
+                  decision: { status: 'selected' },
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'search-completed',
+                  eventId: 'completed',
+                  artifacts: [artifact('completion', 'f')],
+                  result: { status: 'selected', candidateId: 'candidate-a' },
+                }),
+              )
+
+              const replay = await ledger.replay()
+              expect(replay.attempts[0]?.identity).toEqual({
+                dispatch: { ref: 'sha256:' + 'b'.repeat(64), source },
+                benchmark: source,
+              })
+              expect(replay.audit.accounting.status).toBe('partial')
+            })
+
+            it('refuses an attempt after a cell is closed and selection without measurement', async () => {
+              tick = 0
+              const ledger = openCampaignSearchLedger({
+                storage: inMemoryCampaignStorage(),
+                path: 'mem://refusal/search.jsonl',
+                campaignId: 'refusal-search',
+              })
+              await planned(ledger)
+              await ledger.append(
+                event({
+                  kind: 'candidate-registered',
+                  eventId: 'candidate',
+                  artifacts: [artifact('candidate', '1')],
+                  slotId: 'slot-1',
+                  generationOperationId: 'generate',
+                  candidateId: 'candidate-a',
+                  lineage: {
+                    lineageNodeId: '1111111111111111',
+                    parentCandidateIds: [],
+                    generation: 0,
+                    proposer: 'adaptive-fixture',
+                    proposerSource: source,
+                  },
+                  surfaces: [{ surfaceId: 'surface-a', kind: 'prompt', artifact: artifact('surface', '2') }],
+                }),
+              )
+              await ledger.append(
+                event({
+                  kind: 'task-closed',
+                  eventId: 'closed',
+                  artifacts: [artifact('closure', '3')],
+                  candidateId: 'candidate-a',
+                  task: { taskId: 'task-1', source },
+                  reason: { code: 'not-requested', message: 'Not requested.' },
+                }),
+              )
+              await expect(
+                ledger.append(
+                  event({
+                    kind: 'task-attempted',
+                    eventId: 'late-attempt',
+                    artifacts: [artifact('attempt', '4')],
+                    candidateId: 'candidate-a',
+                    runId: 'late-run',
+                    attemptIndex: 0,
+                    task: { taskId: 'task-1', source },
+                    identity: { model: { provider: 'fixture', snapshot: 'fixture/model@1' }, agent: source, benchmark: source },
+                    outcome: { status: 'passed', score: 1, metrics: {} },
+                    accounting: {
+                      tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+                      cost: { status: 'known', usd: 0, source: 'free' },
+                    },
+                    surfaceEvidence: [{
+                      surfaceId: 'surface-a',
+                      fired: true,
+                      firingCount: 1,
+                      effect: { status: 'not-measured', reason: 'fixture' },
+                      evidence: [artifact('surface-evidence', '5')],
+                    }],
+                  }),
+                ),
+              ).rejects.toThrow(/after candidate candidate-a task task-1 was closed/)
+              await expect(
+                ledger.append(
+                  event({
+                    kind: 'candidate-decided',
+                    eventId: 'bad-selection',
+                    artifacts: [artifact('decision', '6')],
+                    candidateId: 'candidate-a',
+                    decision: { status: 'selected' },
+                  }),
+                ),
+              ).rejects.toThrow(/cannot be selected without a measured task outcome/)
+            })
+
+            it('keeps the filesystem trusted-head implementation and exposes exact bytes', async () => {
+              tick = 0
+              const dir = mkdtempSync(join(tmpdir(), 'agent-eval-search-ledger-'))
+              try {
+                const ledger = openSearchLedger({
+                  path: join(dir, 'search.jsonl'),
+                  campaignId: 'filesystem-search',
+                })
+                await planned(ledger)
+                const ref = await ledger.artifactRef()
+                expect(ref.uri.startsWith('file:')).toBe(true)
+                expect(ref.byteLength).toBeGreaterThan(0)
+                await expect(ledger.trustedHead()).resolves.toMatchObject({ sequence: 0 })
+              } finally {
+                rmSync(dir, { recursive: true, force: true })
+              }
+            })
+          })
+          EOF
+
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = 'src/campaign/index.ts'
+          let source = fs.readFileSync(path, 'utf8')
+          const anchor = "// ── Durable improvement-search audit log ────────────────────────────\n"
+          if (!source.includes(anchor)) throw new Error('campaign search ledger export anchor not found')
+          const block = `// ── CampaignStorage-backed canonical search ledger ──────────────────
+          export {
+            type OpenCampaignSearchLedgerOptions,
+            openCampaignSearchLedger,
+          } from './campaign-search-ledger'
+          `
+          source = source.replace(anchor, `${block}${anchor}`)
+          source = source.replace(
+            `  type SearchLedgerAppendResult,\n`,
+            `  type SearchLedgerAppendResult,\n  type SearchLedgerArtifactRefOptions,\n`,
+          )
+          source = source.replace(
+            `  type SearchTaskAttemptedEvent,\n`,
+            `  type SearchTaskAttemptedEvent,\n  type SearchTaskClosedEvent,\n  type SearchTaskExecutionIdentity,\n`,
+          )
+          source = source.replace(
+            `  validateSearchLedgerEvent,\n`,
+            `  projectSearchLedgerEntries,\n  searchLedgerArtifactRef,\n  validateSearchLedgerEvent,\n`,
+          )
+          fs.writeFileSync(path, source)
+
+          const changelogPath = 'CHANGELOG.md'
+          let changelog = fs.readFileSync(changelogPath, 'utf8')
+          const marker = '## [Unreleased]\n\n'
+          if (!changelog.includes(marker)) throw new Error('Unreleased changelog marker not found')
+          if (!changelog.includes('adaptive optimizer search histories')) {
+            changelog = changelog.replace(
+              marker,
+              `${marker}### Added\n\n- Make the canonical SearchLedger usable by adaptive optimizers: candidate registration may occur while generation is in flight; planned candidate/task cells may be explicitly closed without inventing a score; task execution may identify an opaque dispatch instead of a fake model; filesystem and CampaignStorage ledgers expose exact content-addressed artifact references.\n\n`,
+            )
+          }
+          fs.writeFileSync(changelogPath, changelog)
+
+          const docPath = 'docs/search-history-receipts.md'
+          let doc = fs.readFileSync(docPath, 'utf8')
+          const ownership = '\n## Ownership\n'
+          if (!doc.includes(ownership)) throw new Error('search history docs ownership anchor not found')
+          const adaptive = `
+          ## Adaptive optimizers
+
+          A fixed denominator does not require an optimizer to evaluate every candidate on every case. It requires every planned cell to end honestly:
+
+          - `task-attempted` records a measured or errored execution;
+          - `task-closed` records that an adaptive policy deliberately did not request the cell, or stopped retrying it, without converting absence into a score;
+          - candidate slots that were never produced close explicitly;
+          - the generation operation may remain in flight while candidates are registered, but terminal completion verifies the operation outcome against every slot.
+
+          `SearchTaskExecutionIdentity` accepts either an immutable model/agent identity or an immutable dispatch reference. A multi-step Runtime dispatch must not be mislabeled as one model call.
+
+          `openCampaignSearchLedger()` uses the filesystem ledger with trusted-head pinning for `fsCampaignStorage()`. Memory and custom stores retain the same canonical event validation and state-machine projection through compare-and-append storage, but report trusted-head pinning as unsupported. In every case, `ledger.artifactRef()` binds the exact JSONL bytes used by `SearchHistoryReceipt`.
+          `
+          doc = doc.replace(ownership, `${adaptive}${ownership}`)
+          fs.writeFileSync(docPath, doc)
+          NODE
+
+          pnpm biome check --write \
+            src/campaign/search-ledger.ts \
+            src/campaign/campaign-search-ledger.ts \
+            src/campaign/search-ledger-adaptive.test.ts \
+            src/campaign/storage.ts \
+            src/campaign/index.ts
+
+      - name: Repin benchmark implementation digest if the governed source set changed
+        run: |
+          DIGESTS=$(node scripts/check-analyst-benchmark-implementation.mjs --print-only)
+          SOURCE_DIGEST=$(printf '%s\n' "$DIGESTS" | head -n 1)
+          LOCK_DIGEST=$(printf '%s\n' "$DIGESTS" | tail -n 1)
+          node - "$SOURCE_DIGEST" "$LOCK_DIGEST" <<'NODE'
+          const fs = require('node:fs')
+          const [sourceDigest, lockDigest] = process.argv.slice(2)
+          const path = 'src/analyst/benchmark-implementation.ts'
+          let value = fs.readFileSync(path, 'utf8')
+          value = value.replace(
+            /(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${sourceDigest}$2`,
+          )
+          value = value.replace(
+            /(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256\s*=\s*\n\s*')[0-9a-f]{64}(')/,
+            `$1${lockDigest}$2`,
+          )
+          fs.writeFileSync(path, value)
+          NODE
+          pnpm biome check --write src/analyst/benchmark-implementation.ts
+
+      - name: Validate focused and repository-wide behavior
+        run: |
+          pnpm lint
+          pnpm run check:model-ids
+          pnpm typecheck
+          pnpm typecheck:examples
+          pnpm typecheck:scripts
+          pnpm test -- src/campaign/search-ledger-adaptive.test.ts src/campaign/search-ledger.test.ts src/campaign/search-history-receipt.test.ts
+          pnpm test
+          pnpm build
+          pnpm run verify:package
+
+      - name: Commit validated implementation and remove one-time workflow
+        run: |
+          rm .github/workflows/build-adaptive-search-ledger.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat(history): support adaptive optimizer search ledgers"
+          git push
