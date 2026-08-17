@@ -1,0 +1,70 @@
+name: Simplify search history receipt
+
+on:
+  push:
+    branches: [feat/search-history-receipts-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  simplify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/search-history-receipts-v1
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Keep one canonical audit view
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs')
+          const path = 'src/campaign/search-history-receipt.ts'
+          let source = fs.readFileSync(path, 'utf8')
+
+          const redundantInterface = `  readonly campaignId: string\n  readonly headHash: SearchLedgerHash | null\n  readonly status: SearchLedgerAudit['status']\n  readonly selectedCandidateId: string | null\n`
+          source = source.replace(redundantInterface, '')
+
+          const redundantMaterial = `    campaignId: replay.audit.campaignId,\n    headHash: replay.audit.headHash,\n    status: replay.audit.status,\n    selectedCandidateId: replay.audit.selectedCandidateId,\n`
+          source = source.replace(redundantMaterial, '')
+
+          const redundantChecks = `  if (receipt.audit.campaignId !== receipt.campaignId) {\n    throw new Error('search history campaignId does not match its audit')\n  }\n  if (receipt.audit.headHash !== receipt.headHash) {\n    throw new Error('search history headHash does not match its audit')\n  }\n  if (receipt.audit.status !== receipt.status) {\n    throw new Error('search history status does not match its audit')\n  }\n  if (receipt.audit.selectedCandidateId !== receipt.selectedCandidateId) {\n    throw new Error('search history selectedCandidateId does not match its audit')\n  }\n`
+          source = source.replace(redundantChecks, '')
+
+          const redundantReceiptMaterial = `    campaignId: receipt.campaignId,\n    headHash: receipt.headHash,\n    status: receipt.status,\n    selectedCandidateId: receipt.selectedCandidateId,\n`
+          source = source.replace(redundantReceiptMaterial, '')
+
+          fs.writeFileSync(path, source)
+          EOF
+          pnpm biome check --write \
+            src/campaign/search-history-receipt.ts \
+            src/campaign/search-history-receipt.test.ts \
+            src/campaign/presets/compare-optimization-methods.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts \
+            docs/search-history-receipts.md \
+            README.md
+      - name: Validate focused and full package behavior
+        run: |
+          pnpm typecheck
+          pnpm test -- \
+            src/campaign/search-history-receipt.test.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts
+          pnpm build
+          pnpm lint
+          pnpm test
+      - name: Commit and remove all one-time workflows
+        run: |
+          rm -f .github/workflows/simplify-search-history-receipt.yml
+          rm -f .github/workflows/audit-search-history-receipts.yml
+          rm -f .github/workflows/finalize-search-history-receipts.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "refactor(history): keep one canonical replay audit"
+          git push
