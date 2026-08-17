@@ -1,0 +1,137 @@
+name: Finalize search history receipts
+
+on:
+  push:
+    branches: [feat/search-history-receipts-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/search-history-receipts-v1
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Integrate history into the existing comparison API
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs')
+
+          function insertAfter(source, anchor, insertion, label) {
+            if (source.includes(insertion.trim())) return source
+            if (!source.includes(anchor)) throw new Error(`${label} anchor not found`)
+            return source.replace(anchor, `${anchor}${insertion}`)
+          }
+
+          const comparePath = 'src/campaign/presets/compare-optimization-methods.ts'
+          let compare = fs.readFileSync(comparePath, 'utf8')
+
+          compare = insertAfter(
+            compare,
+            "import { surfaceContentHash } from '../surface-identity'\n",
+            "import {\n  assertCompleteSearchHistory,\n  type SearchHistoryCoverage,\n  type SearchHistoryPolicy,\n  type SearchHistoryReceipt,\n  searchHistoryCoverageRow,\n} from '../search-history-receipt'\n",
+            'history import',
+          )
+
+          compare = insertAfter(
+            compare,
+            "  /** Exact external implementation and run identity, when the method uses one. */\n  provenance?: OptimizationMethodProvenance\n",
+            "  /** Compact proof/index over the canonical SearchLedger for this optimization. */\n  searchHistory?: SearchHistoryReceipt\n",
+            'method result history field',
+          )
+
+          compare = insertAfter(
+            compare,
+            "  /** Agent runs averaged within each test scenario before resampling scenarios. */\n  reps: number\n",
+            "  /** Coverage of every method's canonical search history. */\n  searchHistory: SearchHistoryCoverage\n",
+            'comparison history field',
+          )
+
+          compare = insertAfter(
+            compare,
+            "  /** Shared spend limit across every method's optimizer and evaluation calls plus final scoring. */\n  costCeiling?: number\n",
+            "  /**\n   * Missing history is reported by default. Publication-grade or autonomous\n   * callers set `require-complete`, which aborts before the first final-test call.\n   */\n  searchHistoryPolicy?: SearchHistoryPolicy\n",
+            'comparison history policy',
+          )
+
+          compare = insertAfter(
+            compare,
+            "  assertOptimizationMethods(opts.methods)\n  assertComparisonPartitions(opts)\n",
+            "  const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'\n  if (searchHistoryPolicy !== 'allow-missing' && searchHistoryPolicy !== 'require-complete') {\n    throw new TypeError(\n      `compareOptimizationMethods: unknown searchHistoryPolicy '${String(searchHistoryPolicy)}'`,\n    )\n  }\n",
+            'history policy validation',
+          )
+
+          const oldResult = `      assertOptimizationResult(method.name, out)\n      const winnerSurface = structuredClone(out.winnerSurface)\n      return {\n        name: method.name,\n        winnerSurface,\n        cost: out.cost,\n        durationMs: out.durationMs,\n        provenance: out.provenance,\n      }`
+          const newResult = `      assertOptimizationResult(method.name, out)\n      const searchHistoryCoverage = searchHistoryCoverageRow(method.name, out.searchHistory)\n      if (searchHistoryPolicy === 'require-complete') {\n        assertCompleteSearchHistory(method.name, out.searchHistory)\n      }\n      const winnerSurface = structuredClone(out.winnerSurface)\n      return {\n        name: method.name,\n        winnerSurface,\n        cost: out.cost,\n        ...(out.durationMs === undefined ? {} : { durationMs: out.durationMs }),\n        ...(out.provenance === undefined ? {} : { provenance: out.provenance }),\n        searchHistoryCoverage,\n      }`
+          if (!compare.includes(newResult)) {
+            if (!compare.includes(oldResult)) throw new Error('optimized result projection anchor not found')
+            compare = compare.replace(oldResult, newResult)
+          }
+
+          if (!compare.includes('searchHistory: Object.freeze({\n      policy: searchHistoryPolicy,')) {
+            const functionStart = compare.indexOf(
+              'export async function compareOptimizationMethods<TScenario extends Scenario, TArtifact>',
+            )
+            if (functionStart < 0) throw new Error('comparison function not found')
+            const nextFunction = compare.indexOf('\nfunction ', functionStart)
+            if (nextFunction < 0) throw new Error('comparison function boundary not found')
+            const functionText = compare.slice(functionStart, nextFunction)
+            const finalReturn = functionText.lastIndexOf('\n  return {')
+            const objectClose = functionText.lastIndexOf('\n  }')
+            if (finalReturn < 0 || objectClose < finalReturn) {
+              throw new Error('comparison final result boundary not found')
+            }
+            const insertionPoint = functionStart + objectClose
+            const historyResult = `\n    searchHistory: Object.freeze({\n      policy: searchHistoryPolicy,\n      allComplete: optimized.every(\n        (result) => result.searchHistoryCoverage.status === 'complete',\n      ),\n      producers: Object.freeze(\n        optimized.map((result) => result.searchHistoryCoverage),\n      ),\n    }),`
+            compare = `${compare.slice(0, insertionPoint)}${historyResult}${compare.slice(insertionPoint)}`
+          }
+          fs.writeFileSync(comparePath, compare)
+
+          const indexPath = 'src/campaign/index.ts'
+          let index = fs.readFileSync(indexPath, 'utf8')
+          const historyExport = `// ── Compact proof over the canonical improvement-search ledger ───────\nexport {\n  assertCompleteSearchHistory,\n  assertSearchHistoryMatchesReplay,\n  type CreateSearchHistoryReceiptInput,\n  createSearchHistoryReceipt,\n  type SearchHistoryCoverage,\n  type SearchHistoryCoverageRow,\n  type SearchHistoryEntityIndex,\n  type SearchHistoryEventIndex,\n  type SearchHistoryPolicy,\n  type SearchHistoryReceipt,\n  SearchHistoryRequiredError,\n  SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM,\n  SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION,\n  searchHistoryCoverageRow,\n  verifySearchHistoryReceipt,\n} from './search-history-receipt'\n`
+          if (!index.includes("from './search-history-receipt'")) {
+            const anchor = '// ── Durable improvement-search audit log ────────────────────────────\n'
+            if (!index.includes(anchor)) throw new Error('campaign index search-ledger anchor not found')
+            index = index.replace(anchor, `${historyExport}${anchor}`)
+          }
+          fs.writeFileSync(indexPath, index)
+
+          const readmePath = 'README.md'
+          let readme = fs.readFileSync(readmePath, 'utf8')
+          const readmeSection = `\n## Auditable optimization history\n\nOptimization methods can return a compact \`SearchHistoryReceipt\` over Eval's canonical, hash-chained \`SearchLedger\`. Existing comparisons continue to work and report missing coverage. Autonomous and publication-grade runs set \`searchHistoryPolicy: 'require-complete'\` to refuse missing candidates, attempts, operations, decisions, or terminal evidence before the untouched test set is opened.\n\nThe receipt is a tamper-evident table of contents, not a second event log. See [Complete search history](docs/search-history-receipts.md) for the ELI5 model, ownership boundaries, integration recipe, and proof limits.\n`
+          if (!readme.includes('## Auditable optimization history')) readme += readmeSection
+          fs.writeFileSync(readmePath, readme)
+          EOF
+          pnpm biome check --write \
+            README.md \
+            docs/search-history-receipts.md \
+            src/campaign/index.ts \
+            src/campaign/search-history-receipt.ts \
+            src/campaign/search-history-receipt.test.ts \
+            src/campaign/presets/compare-optimization-methods.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts
+      - name: Validate public types, behavior, and package build
+        run: |
+          pnpm typecheck
+          pnpm test -- \
+            src/campaign/search-history-receipt.test.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts
+          pnpm build
+      - name: Commit the validated implementation and remove this workflow
+        run: |
+          rm .github/workflows/finalize-search-history-receipts.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat(history): require complete search evidence before final scoring"
+          git push
