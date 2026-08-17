@@ -6,11 +6,10 @@ on:
       - codex/pursuit-evidence-receipts
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   diagnose:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -32,17 +31,21 @@ jobs:
 
       - name: Capture packed-export verifier output
         run: |
+          mkdir -p diagnostics
           set +e
-          pnpm run verify:package > "$RUNNER_TEMP/verify-package.log" 2>&1
+          pnpm run verify:package > diagnostics/verify-package.log 2>&1
           status=$?
           set -e
           {
+            echo
             echo "exit_status=$status"
-            tail -n 500 "$RUNNER_TEMP/verify-package.log"
-          } > .ci-eval-package.log
-          cat .ci-eval-package.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-eval-package.log
-          git commit -m "ci: capture packed export failure"
-          git push
+          } >> diagnostics/verify-package.log
+          cat diagnostics/verify-package.log
+
+      - name: Upload verifier diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-packed-export-diagnostic
+          path: diagnostics/verify-package.log
+          if-no-files-found: error
