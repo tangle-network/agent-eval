@@ -25,6 +25,7 @@ describe('attest', () => {
     const attested = attest(report, provenance)
     expect(attested.algorithm).toBe(ATTESTATION_ALGORITHM)
     expect(attested.reportHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(attested.envelopeHash).toMatch(/^[0-9a-f]{64}$/)
     expect(attested.provenance).toEqual(provenance)
   })
 
@@ -77,6 +78,25 @@ describe('verifyAttestation', () => {
       cells: [report.cells[0], { scenarioId: 's-2', composite: 0.61 }],
     }
     expect(verifyAttestation(tampered, attested).valid).toBe(false)
+  })
+
+  it('rejects provenance tampering even when the report itself is unchanged', () => {
+    const attested = attest(report, provenance)
+    const forged: AttestedReport = {
+      ...attested,
+      provenance: { ...attested.provenance, codeSha: 'different-code' },
+    }
+    const result = verifyAttestation(report, forged)
+    expect(result.valid).toBe(false)
+    expect(result.reason).toMatch(/envelope hash mismatch/)
+  })
+
+  it('marks legacy attestations as valid report hashes with unbound provenance', () => {
+    const { envelopeHash: _envelopeHash, ...legacy } = attest(report, provenance)
+    expect(verifyAttestation(report, legacy)).toEqual({
+      valid: true,
+      legacyUnboundProvenance: true,
+    })
   })
 
   it('rejects an unknown algorithm instead of guessing', () => {
