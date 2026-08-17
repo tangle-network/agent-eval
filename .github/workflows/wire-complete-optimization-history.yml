@@ -1,0 +1,60 @@
+name: Wire complete optimization history
+
+on:
+  push:
+    branches: [feat/complete-optimization-history-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/complete-optimization-history-v1
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Export the additive campaign front doors
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs')
+          const path = 'src/campaign/index.ts'
+          let source = fs.readFileSync(path, 'utf8')
+          const compareAnchor = "} from './presets/compare-optimization-methods'\n"
+          if (!source.includes(compareAnchor)) throw new Error('compare export anchor not found')
+          const compareExport = `${compareAnchor}export {\n  compareOptimizationMethodsWithHistory,\n  type CompareOptimizationMethodsWithHistoryOptions,\n  type HistoryAwareOptimizationMethod,\n  type HistoryAwareOptimizationMethodResult,\n  type OptimizationHistoryCoverage,\n  type OptimizationHistoryPolicy,\n  type OptimizationMethodComparisonWithHistory,\n  type OptimizationMethodHistoryCoverage,\n} from './presets/compare-optimization-methods-with-history'\n`
+          source = source.replace(compareAnchor, compareExport)
+          const ledgerAnchor = '// ── Durable improvement-search audit log ────────────────────────────\n'
+          if (!source.includes(ledgerAnchor)) throw new Error('ledger export anchor not found')
+          const historyExport = `// ── Content-addressed complete optimization history ─────────────────\nexport {\n  assertCompleteOptimizationHistory,\n  assertOptimizationHistoryMatchesReplay,\n  type CreateOptimizationHistoryReceiptInput,\n  createOptimizationHistoryReceipt,\n  type OptimizationHistoryEntityIndex,\n  type OptimizationHistoryEventIndex,\n  type OptimizationHistoryReceipt,\n  OptimizationHistoryRequiredError,\n  OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM,\n  OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION,\n  verifyOptimizationHistoryReceipt,\n} from './optimization-history'\n`
+          source = source.replace(ledgerAnchor, `${historyExport}${ledgerAnchor}`)
+          fs.writeFileSync(path, source)
+          EOF
+          pnpm biome check --write \
+            src/campaign/index.ts \
+            src/campaign/optimization-history.ts \
+            src/campaign/optimization-history.test.ts \
+            src/campaign/presets/compare-optimization-methods-with-history.ts \
+            src/campaign/presets/compare-optimization-methods-with-history.test.ts
+      - name: Validate types and focused behavior
+        run: |
+          pnpm typecheck
+          pnpm test -- \
+            src/campaign/optimization-history.test.ts \
+            src/campaign/presets/compare-optimization-methods-with-history.test.ts
+          pnpm build
+      - name: Commit implementation and remove this one-time workflow
+        run: |
+          rm .github/workflows/wire-complete-optimization-history.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "feat(history): expose complete optimization history"
+          git push
