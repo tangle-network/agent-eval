@@ -1,0 +1,159 @@
+name: Simplify complete optimization history
+
+on:
+  push:
+    branches: [feat/complete-optimization-history-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  simplify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/complete-optimization-history-v1
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Keep one ledger and one compact receipt
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs')
+
+          function replaceOnce(source, needle, replacement, label) {
+            const first = source.indexOf(needle)
+            if (first < 0) throw new Error(`${label}: anchor not found`)
+            if (source.indexOf(needle, first + needle.length) >= 0) {
+              throw new Error(`${label}: anchor is not unique`)
+            }
+            return source.replace(needle, replacement)
+          }
+
+          const historyPath = 'src/campaign/optimization-history.ts'
+          let history = fs.readFileSync(historyPath, 'utf8')
+          history = replaceOnce(
+            history,
+            `export interface OptimizationHistoryEventIndex {\n  readonly sequence: number\n  readonly eventId: string\n  readonly kind: string\n  readonly entryHash: SearchLedgerHash\n}\n\n`,
+            '',
+            'event index type',
+          )
+          history = replaceOnce(
+            history,
+            ` * The receipt never copies the rich candidate, attempt, operation, or decision\n * records. \`ledger\` binds those bytes; \`events\` makes every record addressable;\n * \`entities\` gives callers a compact inventory; and \`audit\` states whether the\n * planned denominator is complete. This prevents winner-only APIs without\n * creating a second history format.`,
+            ` * The receipt never copies candidate, attempt, operation, or decision records.\n * \`ledger\` binds those bytes, \`entities\` gives callers a compact join inventory,\n * and \`audit\` states whether the planned denominator is complete. The ledger's\n * whole-artifact digest and hash-chain head already bind every event, so the\n * receipt deliberately does not maintain a second per-event index.`,
+            'receipt design comment',
+          )
+          history = replaceOnce(
+            history,
+            `  readonly incompleteReasons: readonly string[]\n  readonly events: readonly OptimizationHistoryEventIndex[]\n  readonly entities: OptimizationHistoryEntityIndex`,
+            `  readonly incompleteReasons: readonly string[]\n  readonly entities: OptimizationHistoryEntityIndex`,
+            'receipt events field',
+          )
+          const eventConstruction = `  const events = Object.freeze(\n    replay.entries.map((entry, index) => {\n      if (entry.sequence !== index) {\n        throw new Error(\n          \`optimization history sequence mismatch: expected \${index}, observed \${entry.sequence}\`,\n        )\n      }\n      return Object.freeze({\n        sequence: entry.sequence,\n        eventId: nonEmpty(entry.event.eventId, \`optimization history event[\${index}].eventId\`),\n        kind: entry.event.kind,\n        entryHash: ledgerHash(entry.entryHash, \`optimization history event[\${index}].entryHash\`),\n      })\n    }),\n  )\n`
+          history = replaceOnce(history, eventConstruction, '', 'event index construction')
+          history = replaceOnce(
+            history,
+            `    incompleteReasons,\n    events,\n    entities,`,
+            `    incompleteReasons,\n    entities,`,
+            'receipt event material',
+          )
+          history = replaceOnce(
+            history,
+            `  if (replay.audit.eventCount !== replay.entries.length) {`,
+            `  replay.entries.forEach((entry, index) => {\n    if (entry.sequence !== index) {\n      throw new Error(\n        \`optimization history sequence mismatch: expected \${index}, observed \${entry.sequence}\`,\n      )\n    }\n  })\n  if (replay.audit.eventCount !== replay.entries.length) {`,
+            'replay sequence validation',
+          )
+          history = replaceOnce(
+            history,
+            `  if (receipt.audit.eventCount !== receipt.events.length) {\n    throw new Error('optimization history event count does not match its audit')\n  }\n  receipt.events.forEach((event, index) => {\n    if (event.sequence !== index) {\n      throw new Error(\n        \`optimization history event sequence mismatch: expected \${index}, observed \${event.sequence}\`,\n      )\n    }\n    ledgerHash(event.entryHash, \`optimization history events[\${index}].entryHash\`)\n  })\n`,
+            '',
+            'receipt event validation',
+          )
+          fs.writeFileSync(historyPath, history)
+
+          const comparePath = 'src/campaign/presets/compare-optimization-methods.ts'
+          let compare = fs.readFileSync(comparePath, 'utf8')
+          compare = replaceOnce(
+            compare,
+            `  readonly reasons: readonly string[]\n  readonly receipt?: OptimizationHistoryReceipt`,
+            `  readonly reasons: readonly string[]\n  readonly receiptDigest?: OptimizationHistoryReceipt['receiptDigest']`,
+            'coverage receipt reference',
+          )
+          compare = replaceOnce(
+            compare,
+            `    reasons: Object.freeze([...receipt.incompleteReasons]),\n    receipt,`,
+            `    reasons: Object.freeze([...receipt.incompleteReasons]),\n    receiptDigest: receipt.receiptDigest,`,
+            'coverage digest projection',
+          )
+          fs.writeFileSync(comparePath, compare)
+
+          const compareTestPath =
+            'src/campaign/presets/compare-optimization-methods-history.test.ts'
+          let compareTest = fs.readFileSync(compareTestPath, 'utf8')
+          compareTest = replaceOnce(
+            compareTest,
+            `        reasons: [],\n        receipt: history,`,
+            `        reasons: [],\n        receiptDigest: history.receiptDigest,`,
+            'comparison coverage expectation',
+          )
+          fs.writeFileSync(compareTestPath, compareTest)
+
+          const historyTestPath = 'src/campaign/optimization-history.test.ts'
+          let historyTest = fs.readFileSync(historyTestPath, 'utf8')
+          historyTest = replaceOnce(
+            historyTest,
+            `    expect(value.events.map((event) => [event.sequence, event.kind, event.eventId])).toEqual([\n      [0, 'search-planned', 'plan-1'],\n      [1, 'candidate-registered', 'candidate-1'],\n      [2, 'search-operation-recorded', 'operation-1'],\n      [3, 'task-attempted', 'attempt-1'],\n      [4, 'candidate-decided', 'decision-1'],\n      [5, 'search-completed', 'complete-1'],\n    ])\n`,
+            `    expect(value.audit.eventCount).toBe(6)\n    expect(value.headHash).toBe(hash('6'))\n`,
+            'history event expectation',
+          )
+          fs.writeFileSync(historyTestPath, historyTest)
+
+          const indexPath = 'src/campaign/index.ts'
+          let index = fs.readFileSync(indexPath, 'utf8')
+          index = replaceOnce(
+            index,
+            '  type OptimizationHistoryEventIndex,\n',
+            '',
+            'event index export',
+          )
+          fs.writeFileSync(indexPath, index)
+
+          const docsPath = 'docs/optimization-history.md'
+          let docs = fs.readFileSync(docsPath, 'utf8')
+          docs = replaceOnce(
+            docs,
+            'The ledger remains the sole detailed record. The receipt is a compact, immutable index that binds the ledger bytes, hash-chain head, event inventory, entity inventory, terminal state, accounting audit, and every unresolved denominator.',
+            'The ledger remains the sole detailed record. The receipt is a compact, immutable index that binds the ledger bytes, hash-chain head, entity inventory, terminal state, accounting audit, and every unresolved denominator. It does not copy a second per-event history.',
+            'docs receipt description',
+          )
+          fs.writeFileSync(docsPath, docs)
+          EOF
+
+          pnpm biome check --write \
+            docs/optimization-history.md \
+            src/campaign/index.ts \
+            src/campaign/optimization-history.ts \
+            src/campaign/optimization-history.test.ts \
+            src/campaign/presets/compare-optimization-methods.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts
+      - name: Validate the simplified contract
+        run: |
+          pnpm typecheck
+          pnpm test -- \
+            src/campaign/optimization-history.test.ts \
+            src/campaign/presets/compare-optimization-methods-history.test.ts
+          pnpm build
+      - name: Commit and remove this one-time workflow
+        run: |
+          rm .github/workflows/simplify-complete-optimization-history.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "refactor(history): keep one canonical search record"
+          git push
