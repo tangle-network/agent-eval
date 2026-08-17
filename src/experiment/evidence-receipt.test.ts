@@ -43,6 +43,27 @@ describe('evidence receipts', () => {
     expect(verifyEvidenceReceipt(tampered).valid).toBe(false)
   })
 
+  it('detects provenance mutation', () => {
+    const receipt = createEvidenceReceipt(binding, provenance)
+    const tampered = {
+      ...receipt,
+      attestation: {
+        ...receipt.attestation,
+        provenance: { ...receipt.attestation.provenance, codeSha: 'forged-code' },
+      },
+    }
+    expect(verifyEvidenceReceipt(tampered)).toMatchObject({ valid: false })
+  })
+
+  it('refuses legacy report attestations whose provenance was never envelope-bound', () => {
+    const receipt = createEvidenceReceipt(binding, provenance)
+    const { envelopeHash: _envelopeHash, ...legacy } = receipt.attestation
+    expect(verifyEvidenceReceipt({ ...receipt, attestation: legacy })).toEqual({
+      valid: false,
+      reason: 'evidence receipt provenance is not bound by an attestation envelope',
+    })
+  })
+
   it('keeps candidate self-reports distinct from independent evidence', () => {
     const receipt = createEvidenceReceipt(
       {
