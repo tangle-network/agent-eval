@@ -21,8 +21,29 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Align dependency cohort with current main
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises'
+          const packagePath = 'package.json'
+          const packageSource = await readFile(packagePath, 'utf8')
+          const oldDependency = '"@tangle-network/agent-interface": "^1.0.0"'
+          const newDependency = '"@tangle-network/agent-interface": "^1.0.1"'
+          if (!packageSource.includes(oldDependency)) throw new Error('old package dependency not found')
+          await writeFile(packagePath, packageSource.replace(oldDependency, newDependency))
+
+          const verifierPath = 'scripts/verify-package-exports.mjs'
+          const verifierSource = await readFile(verifierPath, 'utf8')
+          const oldCohort = "'@tangle-network/agent-interface': { range: '^1.0.0', version: '1.0.0' }"
+          const newCohort = "'@tangle-network/agent-interface': { range: '^1.0.1', version: '1.0.1' }"
+          if (!verifierSource.includes(oldCohort)) throw new Error('old verifier cohort not found')
+          await writeFile(verifierPath, verifierSource.replace(oldCohort, newCohort))
+          NODE
+
+      - name: Refresh lockfile and install dependencies
+        run: |
+          pnpm install --lockfile-only
+          pnpm install --frozen-lockfile
 
       - name: Build package
         env:
@@ -42,10 +63,14 @@ jobs:
           } >> diagnostics/verify-package.log
           cat diagnostics/verify-package.log
 
-      - name: Upload verifier diagnostic
+      - name: Upload cohort repair and verifier diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-packed-export-diagnostic
-          path: diagnostics/verify-package.log
+          path: |
+            package.json
+            pnpm-lock.yaml
+            scripts/verify-package-exports.mjs
+            diagnostics/verify-package.log
           if-no-files-found: error
