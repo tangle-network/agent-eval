@@ -22,7 +22,7 @@ importers:
         specifier: ^2.0.12
         version: 2.0.12(hono@4.12.32)
       '@tangle-network/agent-core':
-        specifier: 0.9.4
+        specifier: ^0.9.4
         version: 0.9.4
       '@tangle-network/agent-interface':
         specifier: ^1.0.0
