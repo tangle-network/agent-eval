@@ -100,8 +100,8 @@ jobs:
 
           `openCampaignSearchLedger()` uses the filesystem ledger with trusted-head pinning for `fsCampaignStorage()`. Memory and custom stores retain the same canonical event validation and state-machine projection through compare-and-append storage, but report trusted-head pinning as unsupported. In every case, `ledger.artifactRef()` binds the exact JSONL bytes used by `SearchHistoryReceipt`.
           """
-          docs_pattern = re.compile(r"const adaptive = `[\s\S]*?`\n          doc = doc\.replace")
-          docs_replacement = f"const adaptive = {json.dumps(adaptive_text)}\n          doc = doc.replace"
+          docs_pattern = re.compile(r"const adaptive = `[\s\S]*?`\n\s*doc = doc\.replace")
+          docs_replacement = f"const adaptive = {json.dumps(adaptive_text)}\ndoc = doc.replace"
           script, count = docs_pattern.subn(lambda _: docs_replacement, script, count=1)
           if count != 1:
               raise SystemExit(f'expected one adaptive docs block, replaced {count}')
