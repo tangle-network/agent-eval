@@ -66,7 +66,7 @@ export function evidenceRefsFromRawFinding(finding: RawAnalystFinding): Evidence
   return finding.evidence.map(({ uri, excerpt }) => ({
     kind: evidenceKindFromUri(uri),
     uri,
-    excerpt,
+    ...(excerpt === undefined ? {} : { excerpt }),
   }))
 }
 

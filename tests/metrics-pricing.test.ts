@@ -30,6 +30,29 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
     expect(estimateCost(1000, 1000, 'gpt-4o')).toBeCloseTo(0.0125, 6)
   })
 
+  it('uses the exact router-observed glm-5.3 rates', () => {
+    expect(resolveModelPricing('glm-5.3')).toEqual({ input: 0.00168, output: 0.00528 })
+    expect(estimateCost(1000, 1000, 'glm-5.3')).toBeCloseTo(0.00696, 8)
+  })
+
+  it('uses an exact served-model row through harness prefixes and snapshot suffixes', () => {
+    expect(resolveModelPricing('opencode/zai-coding-plan/glm-5.3')).toEqual({
+      input: 0.00168,
+      output: 0.00528,
+    })
+    expect(resolveModelPricing('opencode/zai-coding-plan/glm-5.3@router-snapshot')).toEqual({
+      input: 0.00168,
+      output: 0.00528,
+    })
+  })
+
+  it('keeps the coarse glm family fallback for other versions', () => {
+    expect(resolveModelPricing('opencode/zai-coding-plan/glm-5.1')).toEqual({
+      input: 0.0006,
+      output: 0.0022,
+    })
+  })
+
   it('opus costs more than haiku (family ordering is correct)', () => {
     expect(estimateCost(1000, 1000, 'claude-code/opus')).toBeGreaterThan(
       estimateCost(1000, 1000, 'claude-haiku-4-5'),

@@ -116,6 +116,55 @@ describe('ExperimentTracker', () => {
     expect(v.medianDelta).toBe(10)
   })
 
+  it('retains a mechanically resolvable run and evidence chain per rep', async () => {
+    const t = make()
+    await t.create({ id: 'evidenced', label: 'candidate', changeSummary: 'measure exact run' })
+    const evidence = [
+      {
+        kind: 'span' as const,
+        uri: 'trace://trace-1/span/span-2',
+        excerpt: 'tool returned permission denied',
+      },
+      { kind: 'artifact' as const, uri: 'artifact://runs/run-1/result.json' },
+    ]
+    const experiment = await t.addRep('evidenced', {
+      score: 0.8,
+      runId: 'run-1',
+      evidence,
+    })
+
+    evidence[0]!.uri = 'mutated-after-add'
+    expect(experiment.reps[0]).toMatchObject({
+      runId: 'run-1',
+      evidence: [
+        {
+          kind: 'span',
+          uri: 'trace://trace-1/span/span-2',
+          excerpt: 'tool returned permission denied',
+        },
+        { kind: 'artifact', uri: 'artifact://runs/run-1/result.json' },
+      ],
+    })
+    expect(Object.hasOwn(experiment.reps[0]!, 'passed')).toBe(false)
+    expect(Object.hasOwn(experiment.reps[0]!, 'metrics')).toBe(false)
+
+    const roundTripped = await t.get('evidenced')
+    expect(roundTripped?.reps[0]?.runId).toBe('run-1')
+    expect(roundTripped?.reps[0]?.evidence).toHaveLength(2)
+  })
+
+  it('rejects empty rep lineage identities', async () => {
+    const t = make()
+    await t.create({ id: 'invalid-evidence', label: 'candidate', changeSummary: 'invalid' })
+    await expect(t.addRep('invalid-evidence', { score: 1, runId: '  ' })).rejects.toThrow(/runId/)
+    await expect(
+      t.addRep('invalid-evidence', {
+        score: 1,
+        evidence: [{ kind: 'artifact', uri: '  ' }],
+      }),
+    ).rejects.toThrow(/evidence\[0\]\.uri/)
+  })
+
   it('rejects a duplicate id and an unknown parent — fail loud', async () => {
     const t = make()
     await t.create({ id: 'x', label: 'x', changeSummary: 's' })
@@ -131,9 +180,10 @@ describe('ExperimentTracker', () => {
     const store = inMemoryExperimentStore()
     const a = new ExperimentTracker({ store, provenanceReader: () => PROV, now: fixedNow })
     await a.create({ id: 'persisted', label: 'p', changeSummary: 's' })
-    await a.addRep('persisted', { score: 5 })
+    await a.addRep('persisted', { score: 5, runId: 'run-persisted' })
     const b = new ExperimentTracker({ store, provenanceReader: () => PROV, now: fixedNow })
     const got = await b.get('persisted')
     expect(got?.reps).toHaveLength(1)
+    expect(got?.reps[0]?.runId).toBe('run-persisted')
   })
 })

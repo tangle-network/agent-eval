@@ -23,6 +23,7 @@
  */
 
 import { execSync } from 'node:child_process'
+import type { EvidenceRef } from './analyst/types'
 import { iqr } from './baseline'
 import { ValidationError } from './errors'
 
@@ -49,6 +50,10 @@ export interface ExperimentRep {
   score: number
   /** ISO timestamp the rep completed. */
   timestamp: string
+  /** Stable execution/run identity that produced this score. */
+  runId?: string
+  /** Mechanically resolvable trace, artifact, metric, or finding evidence. */
+  evidence?: EvidenceRef[]
   /** Whether this rep passed the consumer's own gate — folded into `passRate`. */
   passed?: boolean
   /** Free-form numeric metrics retained for later analysis. */
@@ -398,12 +403,29 @@ export class ExperimentTracker {
     const exp = experiments.find((e) => e.id === experimentId)
     if (!exp)
       throw new ValidationError(`experiment-tracker: experiment "${experimentId}" not found`)
+    if (rep.runId !== undefined && rep.runId.trim().length === 0) {
+      throw new ValidationError('experiment-tracker: rep runId must be non-empty when present')
+    }
+    const evidence = rep.evidence?.map((reference, index) => {
+      if (reference.uri.trim().length === 0) {
+        throw new ValidationError(
+          `experiment-tracker: rep evidence[${index}].uri must be non-empty`,
+        )
+      }
+      return {
+        kind: reference.kind,
+        uri: reference.uri,
+        ...(reference.excerpt === undefined ? {} : { excerpt: reference.excerpt }),
+      }
+    })
     const fullRep: ExperimentRep = {
       rep: rep.rep ?? exp.reps.length,
       score: rep.score,
-      passed: rep.passed,
-      metrics: rep.metrics,
       timestamp: rep.timestamp ?? new Date(this.now()).toISOString(),
+      ...(rep.runId === undefined ? {} : { runId: rep.runId }),
+      ...(evidence === undefined ? {} : { evidence }),
+      ...(rep.passed === undefined ? {} : { passed: rep.passed }),
+      ...(rep.metrics === undefined ? {} : { metrics: { ...rep.metrics } }),
     }
     exp.reps.push(fullRep)
     exp.stats = computeExperimentStats(exp.reps, this.thresholds)

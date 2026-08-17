@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateInterimReleaseConfidence, pairedEvalueSequence } from '../src/sequential'
+import {
+  evaluateInterimReleaseConfidence,
+  pairedEvalueSequence,
+  sequentialCrossingHorizon,
+} from '../src/sequential'
 
 function deltasUnderNull(n: number, seed = 1, c = 0.1): number[] {
   // Mean-zero noise inside [-c, c]. Used to verify type-I error control.
@@ -70,9 +74,22 @@ describe('pairedEvalueSequence — basic behaviour', () => {
     expect(Math.abs(seq.steps[0]!.delta)).toBeLessThanOrEqual(0.1)
   })
 
-  it('rejects invalid configuration', () => {
-    expect(() => pairedEvalueSequence([0], { bound: 0 })).toThrow(/bound must be > 0/)
-    expect(() => pairedEvalueSequence([0], { alpha: 0 })).toThrow(/alpha must be in/)
+  it('rejects invalid or non-finite configuration and observations', () => {
+    expect(() => pairedEvalueSequence([0], { bound: 0 })).toThrow(/bound must be a finite/)
+    expect(() => pairedEvalueSequence([0], { bound: Number.POSITIVE_INFINITY })).toThrow(
+      /bound must be a finite/,
+    )
+    expect(() => pairedEvalueSequence([0], { alpha: 0 })).toThrow(/alpha must be a finite/)
+    expect(() => pairedEvalueSequence([0], { alpha: Number.NaN })).toThrow(
+      /alpha must be a finite/,
+    )
+    expect(() => pairedEvalueSequence([0], { initialBetShrinkage: 0 })).toThrow(
+      /initialBetShrinkage/,
+    )
+    expect(() =>
+      pairedEvalueSequence([0], { initialBetShrinkage: Number.POSITIVE_INFINITY }),
+    ).toThrow(/initialBetShrinkage/)
+    expect(() => pairedEvalueSequence([Number.NaN])).toThrow(/delta\[0\] must be finite/)
     expect(() => pairedEvalueSequence([0], { rope: { low: 1, high: 0 } })).toThrow(/low ≤ high/)
   })
 
@@ -82,6 +99,50 @@ describe('pairedEvalueSequence — basic behaviour', () => {
       expect(s.pValue).toBeGreaterThanOrEqual(0)
       expect(s.pValue).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('sequentialCrossingHorizon', () => {
+  it('exposes distinct perfect-data evidence and decision horizons', () => {
+    expect(sequentialCrossingHorizon({ alpha: 0.05, bound: 5, maxPairs: 100 })).toEqual({
+      evidencePairs: 22,
+      decisionPairs: 24,
+      evidenceThreshold: 20,
+      decisionThreshold: 40,
+      maxPairs: 100,
+    })
+  })
+
+  it('is scale-invariant in the declared bound', () => {
+    expect(sequentialCrossingHorizon({ bound: 1 }).evidencePairs).toBe(
+      sequentialCrossingHorizon({ bound: 5 }).evidencePairs,
+    )
+  })
+
+  it('returns null when the declared cap cannot reach either threshold', () => {
+    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 21 })
+    expect(horizon.evidencePairs).toBeNull()
+    expect(horizon.decisionPairs).toBeNull()
+  })
+
+  it('distinguishes an evidence-capable but decision-incapable design', () => {
+    const horizon = sequentialCrossingHorizon({ alpha: 0.05, maxPairs: 23 })
+    expect(horizon.evidencePairs).toBe(22)
+    expect(horizon.decisionPairs).toBeNull()
+  })
+
+  it('rejects invalid and non-finite preflight inputs before simulation', () => {
+    expect(() => sequentialCrossingHorizon({ maxPairs: 0 })).toThrow(/positive safe integer/)
+    expect(() => sequentialCrossingHorizon({ maxPairs: 1_000_001 })).toThrow(/must be <=/)
+    expect(() => sequentialCrossingHorizon({ bound: Number.NaN })).toThrow(
+      /bound must be a finite/,
+    )
+    expect(() => sequentialCrossingHorizon({ alpha: Number.POSITIVE_INFINITY })).toThrow(
+      /alpha must be a finite/,
+    )
+    expect(() =>
+      sequentialCrossingHorizon({ initialBetShrinkage: Number.NaN }),
+    ).toThrow(/initialBetShrinkage/)
   })
 })
 

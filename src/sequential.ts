@@ -100,11 +100,11 @@ export function pairedEvalueSequence(
   const alpha = opts.alpha ?? 0.05
   const initialShrink = opts.initialBetShrinkage ?? 0.5
   const rope = opts.rope ?? null
-  if (c <= 0) throw new Error('pairedEvalueSequence: bound must be > 0')
-  if (alpha <= 0 || alpha >= 1) throw new Error('pairedEvalueSequence: alpha must be in (0,1)')
+  assertSequentialScalarConfiguration(c, alpha, initialShrink, 'pairedEvalueSequence')
   if (rope && !(Number.isFinite(rope.low) && Number.isFinite(rope.high) && rope.low <= rope.high)) {
     throw new Error('pairedEvalueSequence: rope must satisfy low ≤ high')
   }
+  const { decisionThreshold } = sequentialThresholds(alpha)
 
   const steps: PairedEvalueStep[] = []
   let clipped = false
@@ -118,6 +118,9 @@ export function pairedEvalueSequence(
 
   for (let i = 0; i < deltas.length; i++) {
     let d = deltas[i]!
+    if (!Number.isFinite(d)) {
+      throw new Error(`pairedEvalueSequence: delta[${i}] must be finite`)
+    }
     if (d < -c || d > c) {
       d = Math.max(-c, Math.min(c, d))
       clipped = true
@@ -152,8 +155,8 @@ export function pairedEvalueSequence(
 
     let decision: SequentialDecision = 'continue'
     if (rope && cs.low >= rope.low && cs.high <= rope.high) decision = 'equivalent'
-    else if (evalue >= 2 / alpha && muHat > 0) decision = 'promote_now'
-    else if (evalue >= 2 / alpha && muHat < 0) decision = 'reject_now'
+    else if (evalue >= decisionThreshold && muHat > 0) decision = 'promote_now'
+    else if (evalue >= decisionThreshold && muHat < 0) decision = 'reject_now'
     else if (rope && cs.high < rope.low) decision = 'reject_now'
 
     if (decision !== 'continue' && decisionFiredAt === null) decisionFiredAt = t
@@ -163,6 +166,76 @@ export function pairedEvalueSequence(
 
   const finalDecision = steps.length === 0 ? 'continue' : steps[steps.length - 1]!.decision
   return { steps, finalDecision, decisionFiredAt, clipped }
+}
+
+/** Configuration for the best-case reachability preflight. */
+export interface SequentialCrossingHorizonOptions
+  extends Pick<PairedEvalueOptions, 'alpha' | 'bound' | 'initialBetShrinkage'> {
+  /** Maximum pairs to simulate before returning `null`. Default 10,000. */
+  maxPairs?: number
+}
+
+/**
+ * Best-case horizons under the exact betting policy used by
+ * {@link pairedEvalueSequence}.
+ *
+ * `evidencePairs` is the first all-at-bound pair count whose e-value reaches
+ * `1/alpha`. `decisionPairs` is the first count whose actual two-sided
+ * sequence verdict fires (`2/alpha` in the current policy). A design whose
+ * pair cap is below either relevant horizon is undecidable by construction and
+ * should be refused before model spend.
+ */
+export interface SequentialCrossingHorizon {
+  readonly evidencePairs: number | null
+  readonly decisionPairs: number | null
+  readonly evidenceThreshold: number
+  readonly decisionThreshold: number
+  readonly maxPairs: number
+}
+
+const MAX_SEQUENTIAL_CROSSING_PAIRS = 1_000_000
+
+/**
+ * Compute the minimum pair count at which even perfect, all-at-bound data can
+ * reach the evidence and decision thresholds. The calculation intentionally
+ * calls the canonical sequence implementation rather than maintaining a
+ * second approximation that can drift from its bet schedule.
+ */
+export function sequentialCrossingHorizon(
+  opts: SequentialCrossingHorizonOptions = {},
+): SequentialCrossingHorizon {
+  const bound = opts.bound ?? 1
+  const alpha = opts.alpha ?? 0.05
+  const initialBetShrinkage = opts.initialBetShrinkage ?? 0.5
+  const maxPairs = opts.maxPairs ?? 10_000
+  assertSequentialScalarConfiguration(
+    bound,
+    alpha,
+    initialBetShrinkage,
+    'sequentialCrossingHorizon',
+  )
+  if (!Number.isSafeInteger(maxPairs) || maxPairs < 1) {
+    throw new Error('sequentialCrossingHorizon: maxPairs must be a positive safe integer')
+  }
+  if (maxPairs > MAX_SEQUENTIAL_CROSSING_PAIRS) {
+    throw new Error(
+      `sequentialCrossingHorizon: maxPairs must be <= ${MAX_SEQUENTIAL_CROSSING_PAIRS}`,
+    )
+  }
+  const sequence = pairedEvalueSequence(Array<number>(maxPairs).fill(bound), {
+    bound,
+    alpha,
+    initialBetShrinkage,
+  })
+  const { evidenceThreshold, decisionThreshold } = sequentialThresholds(alpha)
+  const evidencePairs = sequence.steps.find((step) => step.evalue >= evidenceThreshold)?.t ?? null
+  return Object.freeze({
+    evidencePairs,
+    decisionPairs: sequence.decisionFiredAt,
+    evidenceThreshold,
+    decisionThreshold,
+    maxPairs,
+  })
 }
 
 export interface InterimReleaseConfidenceInput {
@@ -241,6 +314,34 @@ export function evaluateInterimReleaseConfidence(
 }
 
 // ── Internals ────────────────────────────────────────────────────────────
+
+function assertSequentialScalarConfiguration(
+  bound: number,
+  alpha: number,
+  initialBetShrinkage: number,
+  context: string,
+): void {
+  if (!Number.isFinite(bound) || bound <= 0) {
+    throw new Error(`${context}: bound must be a finite number > 0`)
+  }
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new Error(`${context}: alpha must be a finite number in (0,1)`)
+  }
+  if (
+    !Number.isFinite(initialBetShrinkage) ||
+    initialBetShrinkage <= 0 ||
+    initialBetShrinkage > 1
+  ) {
+    throw new Error(`${context}: initialBetShrinkage must be a finite number in (0,1]`)
+  }
+}
+
+function sequentialThresholds(alpha: number): {
+  evidenceThreshold: number
+  decisionThreshold: number
+} {
+  return { evidenceThreshold: 1 / alpha, decisionThreshold: 2 / alpha }
+}
 
 /**
  * Empirical Bernstein confidence sequence on the mean of bounded variables.

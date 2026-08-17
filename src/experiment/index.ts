@@ -78,6 +78,9 @@ export {
   type PairedEvalueSequence,
   type PairedEvalueStep,
   pairedEvalueSequence,
+  type SequentialCrossingHorizon,
+  type SequentialCrossingHorizonOptions,
+  sequentialCrossingHorizon,
 } from '../sequential'
 // ── Fold-in: estimators and registration primitives, from their homes ─
 export {
