@@ -48,7 +48,7 @@ try {
   // single copy that declaration must resolve to. A caret range and its
   // resolved version are different strings, so the two are asserted apart.
   const expectedDependencyCohort = {
-    '@tangle-network/agent-core': { range: '0.9.4', version: '0.9.4' },
+    '@tangle-network/agent-core': { range: '^0.9.4', version: '0.9.4' },
     '@tangle-network/agent-interface': { range: '^1.0.0', version: '1.0.0' },
   }
   for (const [name, { range }] of Object.entries(expectedDependencyCohort)) {
