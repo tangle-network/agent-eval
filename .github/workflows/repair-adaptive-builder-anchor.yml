@@ -1,0 +1,49 @@
+name: Repair adaptive ledger builder anchor
+
+on:
+  push:
+    branches: [feat/adaptive-search-ledger-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/adaptive-search-ledger-v1
+      - name: Replace the brittle type anchor
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = '.github/workflows/build-adaptive-search-ledger.yml'
+          let source = fs.readFileSync(path, 'utf8')
+          const pattern = /          const oldIdentity = `[\s\S]*?\n          const attemptedEnd =/
+          if (!pattern.test(source)) throw new Error('brittle task identity anchor block not found')
+          source = source.replace(
+            pattern,
+            `          const taskIdentityTypePattern =
+            /  identity: \\{\\n    model: SearchModelIdentity\\n    agent: SearchSourceRef\\n    benchmark: SearchSourceRef\\n  \\}\\n/
+          if (!taskIdentityTypePattern.test(ledger)) {
+            throw new Error('task identity type block not found')
+          }
+          ledger = ledger.replace(
+            taskIdentityTypePattern,
+            '  identity: SearchTaskExecutionIdentity\\n',
+          )
+
+          const attemptedEnd =`,
+          )
+          fs.writeFileSync(path, source)
+          NODE
+      - name: Commit repair and remove this one-time workflow
+        run: |
+          rm .github/workflows/repair-adaptive-builder-anchor.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "ci: make adaptive ledger builder resilient to formatting"
+          git push
