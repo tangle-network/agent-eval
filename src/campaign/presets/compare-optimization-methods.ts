@@ -153,7 +153,7 @@ export interface OptimizationMethodHistoryCoverage {
   readonly methodName: string
   readonly status: 'complete' | 'incomplete' | 'missing'
   readonly reasons: readonly string[]
-  readonly receipt?: OptimizationHistoryReceipt
+  readonly receiptDigest?: OptimizationHistoryReceipt['receiptDigest']
 }
 
 export interface OptimizationHistoryCoverage {
@@ -566,7 +566,7 @@ function historyCoverageForMethod(
     methodName,
     status: receipt.historyComplete ? 'complete' : 'incomplete',
     reasons: Object.freeze([...receipt.incompleteReasons]),
-    receipt,
+    receiptDigest: receipt.receiptDigest,
   })
 }
 

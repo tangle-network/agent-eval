@@ -203,7 +203,7 @@ describe('compareOptimizationMethods optimization history', () => {
         methodName: 'fixture-method',
         status: 'complete',
         reasons: [],
-        receipt: history,
+        receiptDigest: history.receiptDigest,
       },
     ])
     expect(comparison.best.history?.receiptDigest).toBe(history.receiptDigest)

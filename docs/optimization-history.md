@@ -2,7 +2,7 @@
 
 A winning surface is not a search history.
 
-`compareOptimizationMethods()` can now retain a content-addressed receipt for each method's complete search ledger. The ledger remains the sole detailed record. The receipt is a compact, immutable index that binds the ledger bytes, hash-chain head, event inventory, entity inventory, terminal state, accounting audit, and every unresolved denominator.
+`compareOptimizationMethods()` can now retain a content-addressed receipt for each method's complete search ledger. The ledger remains the sole detailed record. The receipt is a compact, immutable index that binds the ledger bytes, hash-chain head, entity inventory, terminal state, accounting audit, and every unresolved denominator. It does not copy a second per-event history.
 
 ## ELI5
 

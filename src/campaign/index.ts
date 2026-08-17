@@ -227,7 +227,6 @@ export {
   OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM,
   OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION,
   type OptimizationHistoryEntityIndex,
-  type OptimizationHistoryEventIndex,
   type OptimizationHistoryReceipt,
   OptimizationHistoryRequiredError,
   verifyOptimizationHistoryReceipt,

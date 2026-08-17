@@ -207,14 +207,8 @@ describe('optimization history receipts', () => {
     expect(verifyOptimizationHistoryReceipt(value)).toBe(value)
     expect(value.historyComplete).toBe(true)
     expect(value.incompleteReasons).toEqual([])
-    expect(value.events.map((event) => [event.sequence, event.kind, event.eventId])).toEqual([
-      [0, 'search-planned', 'plan-1'],
-      [1, 'candidate-registered', 'candidate-1'],
-      [2, 'search-operation-recorded', 'operation-1'],
-      [3, 'task-attempted', 'attempt-1'],
-      [4, 'candidate-decided', 'decision-1'],
-      [5, 'search-completed', 'complete-1'],
-    ])
+    expect(value.audit.eventCount).toBe(6)
+    expect(value.headHash).toBe(hash('6'))
     expect(value.entities).toEqual({
       candidateIds: ['candidate-a'],
       runIds: ['run-a'],

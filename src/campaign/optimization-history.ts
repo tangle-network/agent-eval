@@ -9,13 +9,6 @@ import type {
 export const OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
 export const OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
 
-export interface OptimizationHistoryEventIndex {
-  readonly sequence: number
-  readonly eventId: string
-  readonly kind: string
-  readonly entryHash: SearchLedgerHash
-}
-
 /** Compact identities for the full records retained in the canonical ledger. */
 export interface OptimizationHistoryEntityIndex {
   readonly candidateIds: readonly string[]
@@ -29,11 +22,11 @@ export interface OptimizationHistoryEntityIndex {
 /**
  * Content-addressed index over Eval's canonical search ledger.
  *
- * The receipt never copies the rich candidate, attempt, operation, or decision
- * records. `ledger` binds those bytes; `events` makes every record addressable;
- * `entities` gives callers a compact inventory; and `audit` states whether the
- * planned denominator is complete. This prevents winner-only APIs without
- * creating a second history format.
+ * The receipt never copies candidate, attempt, operation, or decision records.
+ * `ledger` binds those bytes, `entities` gives callers a compact join inventory,
+ * and `audit` states whether the planned denominator is complete. The ledger's
+ * whole-artifact digest and hash-chain head already bind every event, so the
+ * receipt deliberately does not maintain a second per-event index.
  */
 export interface OptimizationHistoryReceipt {
   readonly schemaVersion: typeof OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION
@@ -49,7 +42,6 @@ export interface OptimizationHistoryReceipt {
   readonly selectedCandidateId: string | null
   readonly historyComplete: boolean
   readonly incompleteReasons: readonly string[]
-  readonly events: readonly OptimizationHistoryEventIndex[]
   readonly entities: OptimizationHistoryEntityIndex
   readonly audit: SearchLedgerAudit
 }
@@ -86,21 +78,6 @@ export function createOptimizationHistoryReceipt(
   const runId = nonEmpty(input.runId, 'optimization history runId')
   const ledger = normalizeArtifactRef(input.ledger)
   const replay = validateReplay(input.replay)
-  const events = Object.freeze(
-    replay.entries.map((entry, index) => {
-      if (entry.sequence !== index) {
-        throw new Error(
-          `optimization history sequence mismatch: expected ${index}, observed ${entry.sequence}`,
-        )
-      }
-      return Object.freeze({
-        sequence: entry.sequence,
-        eventId: nonEmpty(entry.event.eventId, `optimization history event[${index}].eventId`),
-        kind: entry.event.kind,
-        entryHash: ledgerHash(entry.entryHash, `optimization history event[${index}].entryHash`),
-      })
-    }),
-  )
   const entities = Object.freeze({
     candidateIds: freezeUnique(replay.candidates.map((event) => event.candidateId)),
     runIds: freezeUnique(replay.attempts.map((event) => event.runId)),
@@ -131,7 +108,6 @@ export function createOptimizationHistoryReceipt(
     selectedCandidateId: replay.audit.selectedCandidateId,
     historyComplete: incompleteReasons.length === 0,
     incompleteReasons,
-    events,
     entities,
     audit: immutableClone(replay.audit),
   })
@@ -222,6 +198,13 @@ function validateReplay(replay: SearchLedgerReplay): SearchLedgerReplay {
   if (!replay || typeof replay !== 'object') {
     throw new TypeError('optimization history replay is required')
   }
+  replay.entries.forEach((entry, index) => {
+    if (entry.sequence !== index) {
+      throw new Error(
+        `optimization history sequence mismatch: expected ${index}, observed ${entry.sequence}`,
+      )
+    }
+  })
   if (replay.audit.eventCount !== replay.entries.length) {
     throw new Error(
       `optimization history audit eventCount ${replay.audit.eventCount} does not match ${replay.entries.length} entries`,
@@ -240,17 +223,6 @@ function validateReceiptIndexes(receipt: OptimizationHistoryReceipt): void {
   if (receipt.audit.headHash !== receipt.headHash) {
     throw new Error('optimization history headHash does not match its audit')
   }
-  if (receipt.audit.eventCount !== receipt.events.length) {
-    throw new Error('optimization history event count does not match its audit')
-  }
-  receipt.events.forEach((event, index) => {
-    if (event.sequence !== index) {
-      throw new Error(
-        `optimization history event sequence mismatch: expected ${index}, observed ${event.sequence}`,
-      )
-    }
-    ledgerHash(event.entryHash, `optimization history events[${index}].entryHash`)
-  })
   if (receipt.historyComplete !== (receipt.incompleteReasons.length === 0)) {
     throw new Error('optimization history historyComplete disagrees with incompleteReasons')
   }
