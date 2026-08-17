@@ -202,34 +202,41 @@ function receipt(replay = completeReplay()) {
 }
 
 describe('SearchHistoryReceipt', () => {
-  it('indexes every canonical event and entity without copying rich history records', () => {
+  it('is a bounded proof envelope over the canonical ledger, not another history', () => {
     const value = receipt()
 
     expect(verifySearchHistoryReceipt(value)).toBe(value)
     expect(value.complete).toBe(true)
     expect(value.incompleteReasons).toEqual([])
-    expect(value.events.map((event) => [event.sequence, event.kind, event.eventId])).toEqual([
-      [0, 'search-planned', 'plan-1'],
-      [1, 'candidate-registered', 'candidate-1'],
-      [2, 'search-operation-recorded', 'operation-1'],
-      [3, 'task-attempted', 'attempt-1'],
-      [4, 'candidate-decided', 'decision-1'],
-      [5, 'search-completed', 'complete-1'],
-    ])
-    expect(value.entities).toEqual({
-      candidateIds: ['candidate-a'],
-      runIds: ['run-a'],
-      operationIds: ['generate-1'],
-      closedCandidateSlotIds: [],
-      selectedCandidateIds: ['candidate-a'],
-      rejectedCandidateIds: [],
+    expect(value.auditDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(value.summary).toEqual({
+      campaignId: 'campaign-1',
+      headHash: hash('6'),
+      status: 'selected',
+      selectedCandidateId: 'candidate-a',
+      eventCount: 6,
+      candidateCount: 1,
+      closedCandidateSlotCount: 0,
+      attemptCount: 1,
+      operationCount: 1,
+      expectedCandidateSlots: 1,
+      expectedTaskOutcomes: 1,
+      expectedOperations: 1,
+      missingCandidateSlots: 0,
+      missingTaskOutcomes: 0,
+      missingOperations: 0,
+      pendingDecisions: 0,
+      hasPlan: true,
+      hasCompletion: true,
     })
+    expect('events' in value).toBe(false)
+    expect('entities' in value).toBe(false)
     expect(value.receiptDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(Object.isFrozen(value)).toBe(true)
-    expect(Object.isFrozen(value.audit)).toBe(true)
+    expect(Object.isFrozen(value.summary)).toBe(true)
   })
 
-  it('states every unresolved denominator instead of calling an interrupted search complete', () => {
+  it('states every unresolved denominator without copying unbounded id lists', () => {
     const replay = completeReplay()
     replay.entries = replay.entries.slice(0, 2)
     replay.operations = []
@@ -258,10 +265,12 @@ describe('SearchHistoryReceipt', () => {
     expect(value.incompleteReasons).toEqual([
       'terminal search-completed event is missing',
       'search status is in-progress',
-      'task outcomes are unresolved: candidate-a/task-1',
-      'operations are unresolved: generate-1',
-      '1 candidate decision(s) are pending',
+      '1 task outcome is unresolved',
+      '1 operation is unresolved',
+      '1 candidate decision is pending',
     ])
+    expect(value.summary.missingTaskOutcomes).toBe(1)
+    expect(value.summary.missingOperations).toBe(1)
     expect(() => assertCompleteSearchHistory('fixture-method', value)).toThrow(
       SearchHistoryRequiredError,
     )
@@ -277,12 +286,12 @@ describe('SearchHistoryReceipt', () => {
     )
   })
 
-  it('detects receipt mutation and replay drift', () => {
+  it('detects receipt mutation and exact replay drift', () => {
     const value = receipt()
     expect(() =>
       verifySearchHistoryReceipt({
         ...value,
-        entities: { ...value.entities, runIds: ['forged-run'] },
+        summary: { ...value.summary, attemptCount: 2 },
       }),
     ).toThrow(/receipt digest mismatch/)
 
@@ -302,27 +311,17 @@ describe('SearchHistoryReceipt', () => {
     )
   })
 
-  it('refuses a replay whose sequence, campaign, chain, or audit head is inconsistent', () => {
-    const wrongSequence = completeReplay()
-    wrongSequence.entries = wrongSequence.entries.map((row, index) =>
-      index === 2 ? { ...row, sequence: 8 } : row,
-    )
-    expect(() => receipt(wrongSequence)).toThrow(/expected 2, observed 8/)
-
-    const wrongCampaign = completeReplay()
-    wrongCampaign.entries = wrongCampaign.entries.map((row, index) =>
-      index === 1 ? { ...row, campaignId: 'other-campaign' } : row,
-    )
-    expect(() => receipt(wrongCampaign)).toThrow(/belongs to another campaign/)
-
-    const wrongChain = completeReplay()
-    wrongChain.entries = wrongChain.entries.map((row, index) =>
-      index === 3 ? { ...row, previousHash: hash('f') } : row,
-    )
-    expect(() => receipt(wrongChain)).toThrow(/does not extend the prior ledger head/)
+  it('checks the projection joins the canonical replay without reimplementing the ledger', () => {
+    const wrongCount = completeReplay()
+    wrongCount.audit = { ...wrongCount.audit, eventCount: 5 }
+    expect(() => receipt(wrongCount)).toThrow(/eventCount 5 does not match 6 entries/)
 
     const wrongHead = completeReplay()
     wrongHead.audit = { ...wrongHead.audit, headHash: hash('7') }
     expect(() => receipt(wrongHead)).toThrow(/headHash does not match/)
+
+    const wrongTerminalProjection = completeReplay()
+    wrongTerminalProjection.completion = null
+    expect(() => receipt(wrongTerminalProjection)).toThrow(/status and hasCompletion disagree/)
   })
 })

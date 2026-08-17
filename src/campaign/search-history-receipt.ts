@@ -1,18 +1,17 @@
 import { hashCanonical } from '../ledger-core/canonical'
-import {
-  SEARCH_LEDGER_SCHEMA,
-  type SearchArtifactRef,
-  type SearchLedgerAudit,
-  type SearchLedgerEvent,
-  type SearchLedgerHash,
-  type SearchLedgerReplay,
-  validateSearchLedgerEvent,
+import type {
+  SearchArtifactRef,
+  SearchLedgerAudit,
+  SearchLedgerEvent,
+  SearchLedgerHash,
+  SearchLedgerReplay,
 } from './search-ledger'
 
 export const SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
 export const SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
 
-/** One addressable event in the canonical ledger. Rich event bytes stay there. */
+// TEMPORARY EXPORT COMPATIBILITY START
+/** @deprecated Receipts no longer copy per-event indexes; read SearchLedgerReplay.entries. */
 export interface SearchHistoryEventIndex {
   readonly sequence: number
   readonly eventId: string
@@ -20,7 +19,7 @@ export interface SearchHistoryEventIndex {
   readonly entryHash: SearchLedgerHash
 }
 
-/** Compact identities for the full records retained in the canonical ledger. */
+/** @deprecated Receipts no longer copy entity inventories; read SearchLedgerReplay. */
 export interface SearchHistoryEntityIndex {
   readonly candidateIds: readonly string[]
   readonly runIds: readonly string[]
@@ -29,14 +28,37 @@ export interface SearchHistoryEntityIndex {
   readonly selectedCandidateIds: readonly string[]
   readonly rejectedCandidateIds: readonly string[]
 }
+// TEMPORARY EXPORT COMPATIBILITY END
+
+/** Bounded projection of the canonical replay audit. Exact ids stay in SearchLedger. */
+export interface SearchHistoryAuditSummary {
+  readonly campaignId: string
+  readonly headHash: SearchLedgerHash | null
+  readonly status: SearchLedgerAudit['status']
+  readonly selectedCandidateId: string | null
+  readonly eventCount: number
+  readonly candidateCount: number
+  readonly closedCandidateSlotCount: number
+  readonly attemptCount: number
+  readonly operationCount: number
+  readonly expectedCandidateSlots: number
+  readonly expectedTaskOutcomes: number
+  readonly expectedOperations: number
+  readonly missingCandidateSlots: number
+  readonly missingTaskOutcomes: number
+  readonly missingOperations: number
+  readonly pendingDecisions: number
+  readonly hasPlan: boolean
+  readonly hasCompletion: boolean
+}
 
 /**
- * A tamper-evident table of contents for one verified SearchLedger replay.
+ * A bounded proof envelope over one canonical SearchLedger replay.
  *
- * This is deliberately not another history. `ledger` binds the canonical JSONL
- * bytes, `events` makes every ledger record addressable, and `entities` gives
- * callers a compact inventory. Candidate payloads, attempts, failures, scores,
- * decisions, and artifacts remain in SearchLedger as the sole source of truth.
+ * The content-addressed ledger remains the sole rich history. This receipt binds
+ * its producer/run identity, exact audit digest, bounded completeness summary,
+ * and its own canonical digest. Consumers needing candidate ids, attempts,
+ * failures, accounting gaps, or decisions read and replay the canonical ledger.
  */
 export interface SearchHistoryReceipt {
   readonly schemaVersion: typeof SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION
@@ -48,11 +70,11 @@ export interface SearchHistoryReceipt {
   /** Concrete optimizer/runtime invocation that produced the ledger. */
   readonly runId: string
   readonly ledger: SearchArtifactRef
+  /** Digest of the complete SearchLedgerAudit produced by canonical replay. */
+  readonly auditDigest: SearchLedgerHash
+  readonly summary: SearchHistoryAuditSummary
   readonly complete: boolean
   readonly incompleteReasons: readonly string[]
-  readonly events: readonly SearchHistoryEventIndex[]
-  readonly entities: SearchHistoryEntityIndex
-  readonly audit: SearchLedgerAudit
 }
 
 export interface CreateSearchHistoryReceiptInput {
@@ -60,7 +82,7 @@ export interface CreateSearchHistoryReceiptInput {
   readonly runId: string
   /** Content-addressed canonical SearchLedger JSONL artifact. */
   readonly ledger: SearchArtifactRef
-  /** The result of SearchLedger.replay(), after its hash-chain verification. */
+  /** The result returned by SearchLedger.replay(). */
   readonly replay: SearchLedgerReplay
 }
 
@@ -92,7 +114,7 @@ export class SearchHistoryRequiredError extends Error {
   }
 }
 
-/** Build a compact receipt from an already verified canonical ledger replay. */
+/** Build a bounded receipt from the projection returned by canonical ledger replay. */
 export function createSearchHistoryReceipt(
   input: CreateSearchHistoryReceiptInput,
 ): SearchHistoryReceipt {
@@ -102,34 +124,10 @@ export function createSearchHistoryReceipt(
   const producerId = nonEmpty(input.producerId, 'search history producerId')
   const runId = nonEmpty(input.runId, 'search history runId')
   const ledger = normalizeArtifactRef(input.ledger)
-  const replay = validateReplay(input.replay)
-  const events = Object.freeze(
-    replay.entries.map((entry, index) =>
-      Object.freeze({
-        sequence: index,
-        eventId: nonEmpty(entry.event.eventId, `search history event[${index}].eventId`),
-        kind: entry.event.kind,
-        entryHash: ledgerHash(entry.entryHash, `search history event[${index}].entryHash`),
-      }),
-    ),
-  )
-  const entities = Object.freeze({
-    candidateIds: freezeUnique(replay.candidates.map((event) => event.candidateId)),
-    runIds: freezeUnique(replay.attempts.map((event) => event.runId)),
-    operationIds: freezeUnique(replay.operations.map((event) => event.operationId)),
-    closedCandidateSlotIds: freezeUnique(replay.closedCandidateSlots.map((event) => event.slotId)),
-    selectedCandidateIds: freezeUnique(
-      replay.decisions
-        .filter((event) => event.decision.status === 'selected')
-        .map((event) => event.candidateId),
-    ),
-    rejectedCandidateIds: freezeUnique(
-      replay.decisions
-        .filter((event) => event.decision.status === 'rejected')
-        .map((event) => event.candidateId),
-    ),
-  })
-  const incompleteReasons = Object.freeze(historyIncompleteReasons(replay))
+  const replay = validateReplayProjection(input.replay)
+  const auditDigest = ledgerHash(hashCanonical(replay.audit), 'search history auditDigest')
+  const summary = summarizeReplay(replay)
+  const incompleteReasons = Object.freeze(historyIncompleteReasons(summary))
   const material = Object.freeze({
     schemaVersion: SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION,
     kind: 'search-history-receipt' as const,
@@ -137,16 +135,15 @@ export function createSearchHistoryReceipt(
     producerId,
     runId,
     ledger,
+    auditDigest,
+    summary,
     complete: incompleteReasons.length === 0,
     incompleteReasons,
-    events,
-    entities,
-    audit: immutableClone(replay.audit),
   })
   return Object.freeze({ ...material, receiptDigest: hashCanonical(material) })
 }
 
-/** Verify the compact receipt itself. Full ledger bytes are verified by SearchLedger. */
+/** Verify the bounded receipt. Full ledger bytes are verified by SearchLedger. */
 export function verifySearchHistoryReceipt(receipt: SearchHistoryReceipt): SearchHistoryReceipt {
   if (!receipt || typeof receipt !== 'object') {
     throw new TypeError('search history receipt is required')
@@ -160,17 +157,38 @@ export function verifySearchHistoryReceipt(receipt: SearchHistoryReceipt): Searc
   if (receipt.digestAlgorithm !== SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM) {
     throw new Error(`unsupported search history digestAlgorithm '${receipt.digestAlgorithm}'`)
   }
-  nonEmpty(receipt.producerId, 'search history producerId')
-  nonEmpty(receipt.runId, 'search history runId')
-  normalizeArtifactRef(receipt.ledger)
-  validateReceiptIndexes(receipt)
-  if (hashCanonical(receiptMaterial(receipt)) !== receipt.receiptDigest) {
+  const producerId = nonEmpty(receipt.producerId, 'search history producerId')
+  const runId = nonEmpty(receipt.runId, 'search history runId')
+  const ledger = normalizeArtifactRef(receipt.ledger)
+  const auditDigest = ledgerHash(receipt.auditDigest, 'search history auditDigest')
+  const summary = normalizeSummary(receipt.summary)
+  const incompleteReasons = normalizeReasons(receipt.incompleteReasons)
+  const expectedReasons = historyIncompleteReasons(summary)
+  if (!sameStrings(incompleteReasons, expectedReasons)) {
+    throw new Error('search history incompleteReasons disagree with its summary')
+  }
+  if (receipt.complete !== (expectedReasons.length === 0)) {
+    throw new Error('search history complete disagrees with its summary')
+  }
+  const material = {
+    schemaVersion: receipt.schemaVersion,
+    kind: receipt.kind,
+    digestAlgorithm: receipt.digestAlgorithm,
+    producerId,
+    runId,
+    ledger,
+    auditDigest,
+    summary,
+    complete: receipt.complete,
+    incompleteReasons,
+  }
+  if (hashCanonical(material) !== receipt.receiptDigest) {
     throw new Error('search history receipt digest mismatch')
   }
   return receipt
 }
 
-/** Prove that a receipt still describes the exact verified replay supplied. */
+/** Prove that a receipt still describes the exact canonical replay supplied. */
 export function assertSearchHistoryMatchesReplay(
   receipt: SearchHistoryReceipt,
   replay: SearchLedgerReplay,
@@ -204,7 +222,7 @@ export function assertCompleteSearchHistory(
   }
 }
 
-/** Classify one producer's history without treating a malformed receipt as absence. */
+/** Classify one producer's history without treating malformed evidence as absence. */
 export function searchHistoryCoverageRow(
   producerId: string,
   receipt: SearchHistoryReceipt | undefined,
@@ -230,121 +248,239 @@ export function searchHistoryCoverageRow(
   })
 }
 
-function historyIncompleteReasons(replay: SearchLedgerReplay): string[] {
-  const reasons: string[] = []
-  if (replay.plan === null) reasons.push('search plan is missing')
-  if (replay.completion === null) reasons.push('terminal search-completed event is missing')
-  if (replay.audit.status === 'in-progress') reasons.push('search status is in-progress')
-  if (replay.audit.expected.missingCandidateSlots.length > 0) {
-    reasons.push(
-      `candidate slots are unresolved: ${replay.audit.expected.missingCandidateSlots.join(', ')}`,
-    )
-  }
-  if (replay.audit.expected.missingTaskOutcomes.length > 0) {
-    reasons.push(
-      `task outcomes are unresolved: ${replay.audit.expected.missingTaskOutcomes.join(', ')}`,
-    )
-  }
-  if (replay.audit.expected.missingOperations.length > 0) {
-    reasons.push(`operations are unresolved: ${replay.audit.expected.missingOperations.join(', ')}`)
-  }
-  if (replay.audit.decisions.pending > 0) {
-    reasons.push(`${replay.audit.decisions.pending} candidate decision(s) are pending`)
-  }
-  return reasons
-}
-
-function validateReplay(replay: SearchLedgerReplay): SearchLedgerReplay {
+function validateReplayProjection(replay: SearchLedgerReplay): SearchLedgerReplay {
   if (!replay || typeof replay !== 'object') {
     throw new TypeError('search history replay is required')
   }
+  if (!Array.isArray(replay.entries)) {
+    throw new TypeError('search history replay.entries must be an array')
+  }
   if (!replay.audit || typeof replay.audit !== 'object') {
     throw new TypeError('search history replay.audit is required')
+  }
+  if (replay.plan !== null && (!replay.plan || typeof replay.plan !== 'object')) {
+    throw new TypeError('search history replay.plan must be an event or null')
+  }
+  if (
+    replay.completion !== null &&
+    (!replay.completion || typeof replay.completion !== 'object')
+  ) {
+    throw new TypeError('search history replay.completion must be an event or null')
   }
   if (replay.audit.eventCount !== replay.entries.length) {
     throw new Error(
       `search history audit eventCount ${replay.audit.eventCount} does not match ${replay.entries.length} entries`,
     )
   }
-  let previousHash: SearchLedgerHash | null = null
-  replay.entries.forEach((entry, index) => {
-    if (entry.schema !== SEARCH_LEDGER_SCHEMA) {
-      throw new Error(`search history entry ${index} has unsupported schema '${entry.schema}'`)
-    }
-    if (entry.campaignId !== replay.audit.campaignId) {
-      throw new Error(`search history entry ${index} belongs to another campaign`)
-    }
-    if (entry.sequence !== index) {
-      throw new Error(
-        `search history sequence mismatch: expected ${index}, observed ${entry.sequence}`,
-      )
-    }
-    if (entry.previousHash !== previousHash) {
-      throw new Error(`search history entry ${index} does not extend the prior ledger head`)
-    }
-    validateSearchLedgerEvent(entry.event)
-    ledgerHash(entry.entryHash, `search history entry[${index}].entryHash`)
-    previousHash = entry.entryHash
-  })
-  if (replay.audit.headHash !== previousHash) {
+  const observedHead = replay.entries.at(-1)?.entryHash ?? null
+  if (replay.audit.headHash !== observedHead) {
     throw new Error('search history audit headHash does not match the final ledger entry')
   }
   return replay
 }
 
-function validateReceiptIndexes(receipt: SearchHistoryReceipt): void {
-  if (receipt.audit.eventCount !== receipt.events.length) {
-    throw new Error('search history event count does not match its audit')
-  }
-  receipt.events.forEach((event, index) => {
-    if (event.sequence !== index) {
-      throw new Error(
-        `search history event sequence mismatch: expected ${index}, observed ${event.sequence}`,
-      )
-    }
-    nonEmpty(event.eventId, `search history events[${index}].eventId`)
-    ledgerHash(event.entryHash, `search history events[${index}].entryHash`)
+function summarizeReplay(replay: SearchLedgerReplay): SearchHistoryAuditSummary {
+  const audit = replay.audit
+  return normalizeSummary({
+    campaignId: audit.campaignId,
+    headHash: audit.headHash,
+    status: audit.status,
+    selectedCandidateId: audit.selectedCandidateId,
+    eventCount: audit.eventCount,
+    candidateCount: audit.candidateCount,
+    closedCandidateSlotCount: audit.closedCandidateSlotCount,
+    attemptCount: audit.attemptCount,
+    operationCount: audit.operationCount,
+    expectedCandidateSlots: audit.expected.candidateSlots,
+    expectedTaskOutcomes: audit.expected.taskOutcomes,
+    expectedOperations: audit.expected.operations,
+    missingCandidateSlots: audit.expected.missingCandidateSlots.length,
+    missingTaskOutcomes: audit.expected.missingTaskOutcomes.length,
+    missingOperations: audit.expected.missingOperations.length,
+    pendingDecisions: audit.decisions.pending,
+    hasPlan: replay.plan !== null,
+    hasCompletion: replay.completion !== null,
   })
-  if (receipt.complete !== (receipt.incompleteReasons.length === 0)) {
-    throw new Error('search history complete disagrees with incompleteReasons')
-  }
 }
 
-function receiptMaterial(receipt: SearchHistoryReceipt) {
-  return {
-    schemaVersion: receipt.schemaVersion,
-    kind: receipt.kind,
-    digestAlgorithm: receipt.digestAlgorithm,
-    producerId: receipt.producerId,
-    runId: receipt.runId,
-    ledger: receipt.ledger,
-    complete: receipt.complete,
-    incompleteReasons: receipt.incompleteReasons,
-    events: receipt.events,
-    entities: receipt.entities,
-    audit: receipt.audit,
+function normalizeSummary(value: SearchHistoryAuditSummary): SearchHistoryAuditSummary {
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('search history summary is required')
   }
+  const campaignId = nonEmpty(value.campaignId, 'search history summary.campaignId')
+  const headHash = nullableLedgerHash(value.headHash, 'search history summary.headHash')
+  const status = searchStatus(value.status)
+  const selectedCandidateId = optionalNullableText(
+    value.selectedCandidateId,
+    'search history summary.selectedCandidateId',
+  )
+  const eventCount = nonNegativeSafeInteger(value.eventCount, 'search history summary.eventCount')
+  const candidateCount = nonNegativeSafeInteger(
+    value.candidateCount,
+    'search history summary.candidateCount',
+  )
+  const closedCandidateSlotCount = nonNegativeSafeInteger(
+    value.closedCandidateSlotCount,
+    'search history summary.closedCandidateSlotCount',
+  )
+  const attemptCount = nonNegativeSafeInteger(
+    value.attemptCount,
+    'search history summary.attemptCount',
+  )
+  const operationCount = nonNegativeSafeInteger(
+    value.operationCount,
+    'search history summary.operationCount',
+  )
+  const expectedCandidateSlots = nonNegativeSafeInteger(
+    value.expectedCandidateSlots,
+    'search history summary.expectedCandidateSlots',
+  )
+  const expectedTaskOutcomes = nonNegativeSafeInteger(
+    value.expectedTaskOutcomes,
+    'search history summary.expectedTaskOutcomes',
+  )
+  const expectedOperations = nonNegativeSafeInteger(
+    value.expectedOperations,
+    'search history summary.expectedOperations',
+  )
+  const missingCandidateSlots = nonNegativeSafeInteger(
+    value.missingCandidateSlots,
+    'search history summary.missingCandidateSlots',
+  )
+  const missingTaskOutcomes = nonNegativeSafeInteger(
+    value.missingTaskOutcomes,
+    'search history summary.missingTaskOutcomes',
+  )
+  const missingOperations = nonNegativeSafeInteger(
+    value.missingOperations,
+    'search history summary.missingOperations',
+  )
+  const pendingDecisions = nonNegativeSafeInteger(
+    value.pendingDecisions,
+    'search history summary.pendingDecisions',
+  )
+  const hasPlan = boolean(value.hasPlan, 'search history summary.hasPlan')
+  const hasCompletion = boolean(value.hasCompletion, 'search history summary.hasCompletion')
+
+  if (missingCandidateSlots > expectedCandidateSlots) {
+    throw new Error('search history missingCandidateSlots exceeds expectedCandidateSlots')
+  }
+  if (missingTaskOutcomes > expectedTaskOutcomes) {
+    throw new Error('search history missingTaskOutcomes exceeds expectedTaskOutcomes')
+  }
+  if (missingOperations > expectedOperations) {
+    throw new Error('search history missingOperations exceeds expectedOperations')
+  }
+  if (pendingDecisions > candidateCount) {
+    throw new Error('search history pendingDecisions exceeds candidateCount')
+  }
+  if ((eventCount === 0) !== (headHash === null)) {
+    throw new Error('search history eventCount and headHash disagree')
+  }
+  if ((status === 'in-progress') === hasCompletion) {
+    throw new Error('search history status and hasCompletion disagree')
+  }
+  if (status === 'selected' && selectedCandidateId === null) {
+    throw new Error('selected search history requires selectedCandidateId')
+  }
+  if (status !== 'selected' && selectedCandidateId !== null) {
+    throw new Error('non-selected search history cannot name selectedCandidateId')
+  }
+
+  return Object.freeze({
+    campaignId,
+    headHash,
+    status,
+    selectedCandidateId,
+    eventCount,
+    candidateCount,
+    closedCandidateSlotCount,
+    attemptCount,
+    operationCount,
+    expectedCandidateSlots,
+    expectedTaskOutcomes,
+    expectedOperations,
+    missingCandidateSlots,
+    missingTaskOutcomes,
+    missingOperations,
+    pendingDecisions,
+    hasPlan,
+    hasCompletion,
+  })
+}
+
+function historyIncompleteReasons(summary: SearchHistoryAuditSummary): string[] {
+  const reasons: string[] = []
+  if (!summary.hasPlan) reasons.push('search plan is missing')
+  if (!summary.hasCompletion) reasons.push('terminal search-completed event is missing')
+  if (summary.status === 'in-progress') reasons.push('search status is in-progress')
+  if (summary.missingCandidateSlots > 0) {
+    reasons.push(countReason(summary.missingCandidateSlots, 'candidate slot', 'candidate slots'))
+  }
+  if (summary.missingTaskOutcomes > 0) {
+    reasons.push(countReason(summary.missingTaskOutcomes, 'task outcome', 'task outcomes'))
+  }
+  if (summary.missingOperations > 0) {
+    reasons.push(countReason(summary.missingOperations, 'operation', 'operations'))
+  }
+  if (summary.pendingDecisions > 0) {
+    reasons.push(
+      countReason(summary.pendingDecisions, 'candidate decision', 'candidate decisions', 'pending'),
+    )
+  }
+  return reasons
+}
+
+function countReason(
+  count: number,
+  singular: string,
+  plural: string,
+  adjective = 'unresolved',
+): string {
+  return `${count} ${count === 1 ? singular : plural} ${count === 1 ? 'is' : 'are'} ${adjective}`
 }
 
 function normalizeArtifactRef(value: SearchArtifactRef): SearchArtifactRef {
   if (!value || typeof value !== 'object') {
     throw new TypeError('search history ledger artifact is required')
   }
-  if (!Number.isSafeInteger(value.byteLength) || value.byteLength < 0) {
-    throw new TypeError('search history ledger byteLength must be a non-negative safe integer')
-  }
   return Object.freeze({
     role: nonEmpty(value.role, 'search history ledger role'),
     uri: nonEmpty(value.uri, 'search history ledger uri'),
     sha256: ledgerHash(value.sha256, 'search history ledger sha256'),
-    byteLength: value.byteLength,
+    byteLength: nonNegativeSafeInteger(
+      value.byteLength,
+      'search history ledger byteLength',
+    ),
   })
 }
 
-function freezeUnique(values: readonly string[]): readonly string[] {
-  return Object.freeze([
-    ...new Set(values.map((value) => nonEmpty(value, 'search history entity id'))),
-  ])
+function normalizeReasons(value: readonly string[]): readonly string[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError('search history incompleteReasons must be an array')
+  }
+  return Object.freeze(
+    value.map((reason, index) => nonEmpty(reason, `search history incompleteReasons[${index}]`)),
+  )
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function searchStatus(value: unknown): SearchLedgerAudit['status'] {
+  if (value !== 'in-progress' && value !== 'selected' && value !== 'all-rejected') {
+    throw new TypeError(`search history summary.status is invalid: ${String(value)}`)
+  }
+  return value
+}
+
+function nullableLedgerHash(value: unknown, label: string): SearchLedgerHash | null {
+  return value === null ? null : ledgerHash(value, label)
+}
+
+function optionalNullableText(value: unknown, label: string): string | null {
+  return value === null ? null : nonEmpty(value, label)
 }
 
 function ledgerHash(value: unknown, label: string): SearchLedgerHash {
@@ -355,20 +491,20 @@ function ledgerHash(value: unknown, label: string): SearchLedgerHash {
 }
 
 function nonEmpty(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new TypeError(`${label} must be a non-empty string`)
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new TypeError(`${label} must be a trimmed non-empty string`)
   }
-  return value.trim()
+  return value
 }
 
-function immutableClone<T>(value: T): T {
-  return deepFreeze(structuredClone(value))
+function nonNegativeSafeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${label} must be a non-negative safe integer`)
+  }
+  return value as number
 }
 
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value)
-    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
-  }
+function boolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new TypeError(`${label} must be a boolean`)
   return value
 }

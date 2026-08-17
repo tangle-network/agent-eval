@@ -1,47 +1,43 @@
-# Complete search history
+# Complete optimization search history
 
-Optimization is not only the winning prompt, profile, or patch. A trustworthy optimizer must retain the complete search it performed: what it planned to try, what it actually tried, what failed to run, what was rejected, what it spent, and why it stopped.
+A selected prompt, profile, or patch is not a record of the search that produced it. A trustworthy optimizer must account for what it planned, tried, failed to run, rejected, and left unresolved before its winner is evaluated on untouched final cases.
 
-Eval already has one canonical representation for this: `SearchLedger`. The history receipt in this package does **not** introduce another event log.
+Eval already has one rich source of truth for that process: `SearchLedger`. This feature does not add another event log.
 
 ```text
-SearchLedger JSONL               canonical facts and rich evidence
+SearchLedger JSONL                 canonical facts and rich evidence
         │
-        ├── hash chain           mutation and truncation detection
-        ├── replay audit         planned denominator and unresolved work
-        └── SearchHistoryReceipt compact, content-addressed table of contents
+        ├── hash chain             mutation and truncation detection
+        ├── replay audit           planned denominator and unresolved work
+        └── SearchHistoryReceipt   bounded proof envelope
                     │
-                    └── compareOptimizationMethods(...,
-                          searchHistoryPolicy: 'require-complete')
+                    └── compareOptimizationMethods({
+                          searchHistoryPolicy: 'require-complete'
+                        })
 ```
 
 ## ELI5
 
-Imagine several scientists competing to improve an agent. Previously, each scientist could hand back only their favorite answer. You could test the favorites, but you could not see the discarded ideas, broken experiments, missing measurements, or whether the scientist quietly stopped early.
+`SearchLedger` is the sealed laboratory notebook. `SearchHistoryReceipt` is the small signed cover sheet saying which notebook, which run, and whether the notebook accounts for the whole planned experiment.
 
-`SearchLedger` is the sealed lab notebook. `SearchHistoryReceipt` is its tamper-evident table of contents. Strict comparison says: **no final exam until every scientist hands in a complete notebook**.
+The cover sheet does not copy every page. To inspect a candidate, failed attempt, missing task id, decision, or accounting gap, open the notebook.
 
-## One source of truth
+## What the receipt contains
 
-Rich records stay in the ledger:
+The receipt is bounded by the contract rather than by search length. It carries:
 
-- the search plan;
-- candidate slots and explicit closed slots;
-- candidate identity and lineage;
-- every task attempt and outcome;
-- model, agent, benchmark, and source identity;
-- surface firing/effect evidence;
-- every model-backed or deterministic search operation;
-- token and cost accounting, including explicit unknowns;
-- selected and rejected decisions;
-- the terminal result;
-- content-addressed artifacts.
+- the producer and concrete run identity;
+- a content-addressed reference to the canonical ledger bytes;
+- the digest of the exact replay audit;
+- counts and terminal state needed to classify completeness;
+- short, count-based incompleteness reasons;
+- its own RFC 8785 SHA-256 digest.
 
-The receipt copies none of those records. It binds the ledger artifact, verified head, replay audit, event addresses, and a small identity inventory. Deleting the ledger destroys the evidence; the receipt cannot masquerade as a replacement.
+It does not carry event arrays, candidate inventories, attempt records, decisions, or lists of every missing id. Those remain in `SearchLedgerReplay`.
 
-## Creating a receipt
+## Create a receipt
 
-Create it only from a replay returned by the canonical ledger implementation:
+Create receipts only from the result returned by `SearchLedger.replay()`:
 
 ```ts
 import {
@@ -49,12 +45,12 @@ import {
   openSearchLedger,
 } from '@tangle-network/agent-eval/campaign'
 
-const ledger = await openSearchLedger({
+const searchLedger = openSearchLedger({
   path: '/runs/gepa/search-ledger.jsonl',
   campaignId: 'gepa-run-42',
 })
-const replay = await ledger.replay()
 
+const replay = await searchLedger.replay()
 const receipt = createSearchHistoryReceipt({
   producerId: 'gepa',
   runId: 'gepa-run-42',
@@ -68,21 +64,25 @@ const receipt = createSearchHistoryReceipt({
 })
 ```
 
-The receipt is complete only when the replay has:
+First-party optimizer adapters should do this automatically. Application code should not hand-author receipt JSON.
+
+## Complete means the planned denominator is closed
+
+A receipt is complete only when canonical replay reports:
 
 - a search plan;
 - a terminal `search-completed` event;
 - no unresolved candidate slots;
-- no missing task outcomes;
+- no missing planned task outcomes;
 - no missing planned operations;
 - no pending candidate decisions;
-- a terminal status (`selected` or `all-rejected`).
+- a terminal status of `selected` or `all-rejected`.
 
-Known cost is a separate requirement. A complete notebook may honestly contain unknown accounting; the comparison cost contract still prevents that subtotal from being represented as total spend.
+Cost completeness remains a separate contract. Unknown spend stays unknown; it is never converted into zero merely because search history is complete.
 
-## Comparing methods
+## Compare methods without exposing final cases
 
-Existing callers need no change. Missing history is reported but does not alter scoring:
+Existing callers remain compatible. Missing history is reported:
 
 ```ts
 const comparison = await compareOptimizationMethods({
@@ -90,13 +90,13 @@ const comparison = await compareOptimizationMethods({
   trainScenarios,
   selectionScenarios,
   testScenarios,
-  // ...existing settings
+  // existing options
 })
 
 console.log(comparison.searchHistory)
 ```
 
-Autonomous or publication-grade callers should fail closed:
+Autonomous or publication-grade callers fail closed:
 
 ```ts
 const comparison = await compareOptimizationMethods({
@@ -105,47 +105,35 @@ const comparison = await compareOptimizationMethods({
   selectionScenarios,
   testScenarios,
   searchHistoryPolicy: 'require-complete',
-  // ...existing settings
+  // existing options
 })
 ```
 
-Every method finishes optimization before the first untouched-test call. Under `require-complete`, a missing, malformed, producer-mismatched, interrupted, or denominator-incomplete receipt aborts at that boundary. The final test is never used to rescue or diagnose an incomplete search.
+Every method finishes optimization before the first untouched-final-test dispatch. Under `require-complete`, missing, malformed, producer-mismatched, interrupted, or denominator-incomplete evidence aborts at that boundary.
 
-## What it proves
+## Verification boundary
 
-A verified receipt proves that its compact index is internally intact and binds one declared content-addressed ledger artifact, ledger head, audit, producer, and run identity. Matching it against the supplied replay proves the receipt describes that exact replay.
+`verifySearchHistoryReceipt()` verifies the bounded envelope and its canonical digest.
 
-It does **not** prove:
+`assertSearchHistoryMatchesReplay()` additionally proves that the envelope was derived from the supplied canonical replay.
 
-- that the optimizer searched intelligently;
-- that a candidate is correct or safe;
-- that a selected candidate generalizes;
-- that the ledger artifact is durably retained at its URI;
-- that a declared external source is honest;
-- that knowledge caused an improvement;
-- that the result is novel.
+Neither function fetches or retains the ledger artifact. A skeptical consumer must resolve `receipt.ledger`, verify its digest and byte length, replay it with `SearchLedger`, and then call `assertSearchHistoryMatchesReplay()`.
 
-Those claims require the ledger bytes, artifact verification, held-out evaluation, provenance checks, knowledge-use receipts, and causal experiments.
+The receipt does not prove that:
 
-## Package ownership
+- the optimizer searched intelligently;
+- a candidate is correct, safe, or novel;
+- the winner generalizes;
+- an external source identity is honest;
+- knowledge caused an improvement;
+- the artifact URI will remain available.
 
-- **Eval** owns search plans, attempts, outcomes, decisions, completeness audits, and method comparison.
-- **Runtime** owns executing candidates, durable checkpoints, trace emission, and resume orchestration.
-- **Knowledge** owns visibility, retrieval, and downstream-use receipts for knowledge pages.
-- **Interface** owns portable agent/profile identities and canonical digests. It should not own Eval's search semantics.
-- **SDKs** should provide adapters and ergonomic builders around these contracts, not fork their types.
+Those claims require held-out evaluation, artifact retention, provenance verification, knowledge-use evidence, and causal experiments.
 
-This boundary is intentional: shared identity primitives can move downward; domain claims stay with the package capable of verifying them.
+## Ownership
 
-## Integration checklist
-
-A method is ready for strict comparison when it:
-
-1. plans the complete denominator before work begins;
-2. appends every candidate, closed slot, attempt, operation, decision, and terminal event;
-3. records unknown accounting as unknown rather than zero;
-4. stores the canonical JSONL artifact durably;
-5. replays and audits that artifact;
-6. returns a `SearchHistoryReceipt` whose `producerId` exactly matches its method name.
-
-The best developer experience is a method adapter that performs steps 2–6 automatically while leaving candidate-generation strategy entirely unconstrained.
+- **Eval** owns search evidence, completeness, held-out comparison, statistics, and release decisions.
+- **Runtime** owns execution, checkpoints, cancellation, and resume orchestration while referencing Eval evidence.
+- **Knowledge** owns what information was visible, retrieved, and selected for use.
+- **Interface** owns portable profiles, diffs, identities, and digest primitives.
+- **SDKs** should automate these owner contracts, not copy their types or introduce another optimizer loop.
