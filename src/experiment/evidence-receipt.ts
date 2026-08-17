@@ -20,13 +20,23 @@ import {
 
 export const EVIDENCE_RECEIPT_VERSION = '1.0.0' as const
 
-export type EvidenceAuthorityKind =
-  | 'candidate-self-report'
-  | 'independent-evaluator'
-  | 'independent-replication'
-  | 'human-review'
-  | 'production-canary'
-  | (string & {})
+/** Closed promotion vocabulary. A typo or unknown future kind is never independent by default. */
+export const EVIDENCE_AUTHORITY_KINDS = [
+  'candidate-self-report',
+  'independent-evaluator',
+  'independent-replication',
+  'human-review',
+  'production-canary',
+] as const
+
+export type EvidenceAuthorityKind = (typeof EVIDENCE_AUTHORITY_KINDS)[number]
+
+export const INDEPENDENT_EVIDENCE_AUTHORITY_KINDS = [
+  'independent-evaluator',
+  'independent-replication',
+  'human-review',
+  'production-canary',
+] as const satisfies readonly EvidenceAuthorityKind[]
 
 export interface EvidenceAuthority {
   readonly kind: EvidenceAuthorityKind
@@ -74,11 +84,15 @@ export interface CreateEvidenceReceiptInput extends Omit<EvidenceBinding, 'schem
 /**
  * Mint a content-attested evidence receipt. Required identity fields are deliberately
  * non-optional: unknown evidence stays unknown and cannot accidentally look certified.
+ * The attestation's input provenance must equal the receipt commitment so two competing
+ * descriptions of the evaluated population cannot coexist inside one valid receipt.
  */
 export function createEvidenceReceipt(
   input: CreateEvidenceReceiptInput,
   provenance: AttestationProvenance,
 ): EvidenceReceipt {
+  const inputSetCommitment = requiredIdentity(input.inputSetCommitment, 'inputSetCommitment')
+  assertInputCommitment(provenance, inputSetCommitment)
   const binding: EvidenceBinding = Object.freeze({
     schemaVersion: EVIDENCE_RECEIPT_VERSION,
     pursuitId: requiredIdentity(input.pursuitId, 'pursuitId'),
@@ -86,13 +100,10 @@ export function createEvidenceReceipt(
     candidateDigest: requiredIdentity(input.candidateDigest, 'candidateDigest'),
     evaluatorDigest: requiredIdentity(input.evaluatorDigest, 'evaluatorDigest'),
     environmentDigest: requiredIdentity(input.environmentDigest, 'environmentDigest'),
-    inputSetCommitment: requiredIdentity(input.inputSetCommitment, 'inputSetCommitment'),
+    inputSetCommitment,
     outputDigest: requiredIdentity(input.outputDigest, 'outputDigest'),
     resultDigest: requiredIdentity(input.resultDigest, 'resultDigest'),
-    authority: Object.freeze({
-      kind: requiredIdentity(input.authority.kind, 'authority.kind'),
-      id: requiredIdentity(input.authority.id, 'authority.id'),
-    }),
+    authority: requiredAuthority(input.authority),
     ...(input.experimentDigest === undefined
       ? {}
       : { experimentDigest: requiredIdentity(input.experimentDigest, 'experimentDigest') }),
@@ -126,18 +137,21 @@ export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceipt
       inputSetCommitment: receipt.binding.inputSetCommitment,
       outputDigest: receipt.binding.outputDigest,
       resultDigest: receipt.binding.resultDigest,
-      authorityKind: receipt.binding.authority.kind,
-      authorityId: receipt.binding.authority.id,
     })) {
       requiredIdentity(value, field)
     }
+    requiredAuthority(receipt.binding.authority)
+    assertInputCommitment(receipt.attestation.provenance, receipt.binding.inputSetCommitment)
   } catch (error) {
     return { valid: false, reason: error instanceof Error ? error.message : String(error) }
   }
 
   const verification = verifyAttestation(receipt.binding, receipt.attestation)
   if (!verification.valid) return verification
-  if (verification.legacyUnboundProvenance === true || receipt.attestation.envelopeHash === undefined) {
+  if (
+    verification.legacyUnboundProvenance === true ||
+    receipt.attestation.envelopeHash === undefined
+  ) {
     return {
       valid: false,
       reason: 'evidence receipt provenance is not bound by an attestation envelope',
@@ -148,10 +162,47 @@ export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceipt
 
 /**
  * Promotion may choose a stricter policy, but this primitive makes the basic separation
- * explicit: self-reported evidence is never silently equivalent to independent evidence.
+ * explicit: only a recognized independent authority is independent. Unknown/forged kinds
+ * and candidate self-reports both return false.
  */
 export function isIndependentEvidence(receipt: EvidenceReceipt): boolean {
-  return receipt.binding.authority.kind !== 'candidate-self-report'
+  return (INDEPENDENT_EVIDENCE_AUTHORITY_KINDS as readonly string[]).includes(
+    receipt.binding.authority?.kind,
+  )
+}
+
+function requiredAuthority(value: unknown): EvidenceAuthority {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('evidence receipt: authority must be an object')
+  }
+  const authority = value as { kind?: unknown; id?: unknown }
+  if (
+    typeof authority.kind !== 'string' ||
+    !(EVIDENCE_AUTHORITY_KINDS as readonly string[]).includes(authority.kind)
+  ) {
+    throw new TypeError(`evidence receipt: unknown authority kind '${String(authority.kind)}'`)
+  }
+  if (typeof authority.id !== 'string') {
+    throw new TypeError('evidence receipt: authority.id must be a string')
+  }
+  return Object.freeze({
+    kind: authority.kind as EvidenceAuthorityKind,
+    id: requiredIdentity(authority.id, 'authority.id'),
+  })
+}
+
+function assertInputCommitment(
+  provenance: AttestationProvenance,
+  inputSetCommitment: string,
+): void {
+  if (typeof provenance?.inputsHash !== 'string' || provenance.inputsHash.trim().length === 0) {
+    throw new TypeError('evidence receipt: provenance.inputsHash is required')
+  }
+  if (provenance.inputsHash.trim() !== inputSetCommitment) {
+    throw new TypeError(
+      'evidence receipt: provenance.inputsHash must equal binding.inputSetCommitment',
+    )
+  }
 }
 
 function requiredIdentity(value: string, field: string): string {
