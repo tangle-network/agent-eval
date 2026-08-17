@@ -188,3 +188,9 @@ uv run --frozen pytest tests/test_dspy_metric.py
 ## License
 
 MIT.
+
+## Auditable optimization history
+
+Optimization methods can return a compact `SearchHistoryReceipt` over Eval's canonical, hash-chained `SearchLedger`. Existing comparisons continue to work and report missing coverage. Autonomous and publication-grade runs set `searchHistoryPolicy: 'require-complete'` to refuse missing candidates, attempts, operations, decisions, or terminal evidence before the untouched test set is opened.
+
+The receipt is a tamper-evident table of contents, not a second event log. See [Complete search history](docs/search-history-receipts.md) for the ELI5 model, ownership boundaries, integration recipe, and proof limits.

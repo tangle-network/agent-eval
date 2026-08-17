@@ -27,6 +27,13 @@ import {
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
+import {
+  assertCompleteSearchHistory,
+  type SearchHistoryCoverage,
+  type SearchHistoryPolicy,
+  type SearchHistoryReceipt,
+  searchHistoryCoverageRow,
+} from '../search-history-receipt'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceContentHash } from '../surface-identity'
 import type {
@@ -151,6 +158,8 @@ export interface OptimizationMethodResult {
   durationMs?: number
   /** Exact external implementation and run identity, when the method uses one. */
   provenance?: OptimizationMethodProvenance
+  /** Compact proof/index over the canonical SearchLedger for this optimization. */
+  searchHistory?: SearchHistoryReceipt
 }
 
 /** A complete optimization method, including candidate generation and selection. */
@@ -228,6 +237,8 @@ export interface OptimizationMethodComparison {
   resamples: number
   /** Agent runs averaged within each test scenario before resampling scenarios. */
   reps: number
+  /** Coverage of every method's canonical search history. */
+  searchHistory: SearchHistoryCoverage
 }
 
 export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, TArtifact>
@@ -259,6 +270,11 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
   confidence?: number
   /** Shared spend limit across every method's optimizer and evaluation calls plus final scoring. */
   costCeiling?: number
+  /**
+   * Missing history is reported by default. Publication-grade or autonomous
+   * callers set `require-complete`, which aborts before the first final-test call.
+   */
+  searchHistoryPolicy?: SearchHistoryPolicy
 }
 
 /**
@@ -269,6 +285,12 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
 ): Promise<OptimizationMethodComparison> {
   assertOptimizationMethods(opts.methods)
   assertComparisonPartitions(opts)
+  const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'
+  if (searchHistoryPolicy !== 'allow-missing' && searchHistoryPolicy !== 'require-complete') {
+    throw new TypeError(
+      `compareOptimizationMethods: unknown searchHistoryPolicy '${String(searchHistoryPolicy)}'`,
+    )
+  }
   const seed = opts.seed ?? 42
   const confidence = opts.confidence ?? 0.95
   assertConfidence(confidence)
@@ -345,13 +367,18 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
         ),
       )
       assertOptimizationResult(method.name, out)
+      const searchHistoryCoverage = searchHistoryCoverageRow(method.name, out.searchHistory)
+      if (searchHistoryPolicy === 'require-complete') {
+        assertCompleteSearchHistory(method.name, out.searchHistory)
+      }
       const winnerSurface = structuredClone(out.winnerSurface)
       return {
         name: method.name,
         winnerSurface,
         cost: out.cost,
-        durationMs: out.durationMs,
-        provenance: out.provenance,
+        ...(out.durationMs === undefined ? {} : { durationMs: out.durationMs }),
+        ...(out.provenance === undefined ? {} : { provenance: out.provenance }),
+        searchHistoryCoverage,
       }
     } catch (error) {
       if (!optimizationOwner.signal.aborted) optimizationOwner.abort(error)
@@ -496,6 +523,11 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     seed,
     resamples,
     reps: opts.reps ?? 1,
+    searchHistory: Object.freeze({
+      policy: searchHistoryPolicy,
+      allComplete: optimized.every((result) => result.searchHistoryCoverage.status === 'complete'),
+      producers: Object.freeze(optimized.map((result) => result.searchHistoryCoverage)),
+    }),
   }
 }
 

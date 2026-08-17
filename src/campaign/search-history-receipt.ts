@@ -254,9 +254,7 @@ function historyIncompleteReasons(replay: SearchLedgerReplay): string[] {
     )
   }
   if (replay.audit.expected.missingOperations.length > 0) {
-    reasons.push(
-      `operations are unresolved: ${replay.audit.expected.missingOperations.join(', ')}`,
-    )
+    reasons.push(`operations are unresolved: ${replay.audit.expected.missingOperations.join(', ')}`)
   }
   if (replay.audit.decisions.pending > 0) {
     reasons.push(`${replay.audit.decisions.pending} candidate decision(s) are pending`)
@@ -368,7 +366,9 @@ function normalizeArtifactRef(value: SearchArtifactRef): SearchArtifactRef {
 }
 
 function freezeUnique(values: readonly string[]): readonly string[] {
-  return Object.freeze([...new Set(values.map((value) => nonEmpty(value, 'search history entity id')))])
+  return Object.freeze([
+    ...new Set(values.map((value) => nonEmpty(value, 'search history entity id'))),
+  ])
 }
 
 function ledgerHash(value: unknown, label: string): SearchLedgerHash {

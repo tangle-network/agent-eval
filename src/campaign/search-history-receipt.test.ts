@@ -1,10 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  SearchArtifactRef,
-  SearchLedgerEntry,
-  SearchLedgerHash,
-  SearchLedgerReplay,
-} from './search-ledger'
 import {
   assertCompleteSearchHistory,
   assertSearchHistoryMatchesReplay,
@@ -13,6 +7,12 @@ import {
   searchHistoryCoverageRow,
   verifySearchHistoryReceipt,
 } from './search-history-receipt'
+import type {
+  SearchArtifactRef,
+  SearchLedgerEntry,
+  SearchLedgerHash,
+  SearchLedgerReplay,
+} from './search-ledger'
 
 const hash = (character: string): SearchLedgerHash => `sha256:${character.repeat(64)}`
 const source = { uri: 'git+https://example.test/repo.git', revision: 'a'.repeat(40) }

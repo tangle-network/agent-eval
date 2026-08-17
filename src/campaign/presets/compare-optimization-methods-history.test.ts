@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { SearchHistoryRequiredError, type SearchHistoryReceipt } from '../search-history-receipt'
+import { type SearchHistoryReceipt, SearchHistoryRequiredError } from '../search-history-receipt'
 import { inMemoryCampaignStorage } from '../storage'
 import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from '../types'
 import {
-  compareOptimizationMethods,
   type CompareOptimizationMethodsOptions,
+  compareOptimizationMethods,
   type OptimizationMethod,
 } from './compare-optimization-methods'
 
