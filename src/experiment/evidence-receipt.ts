@@ -69,8 +69,7 @@ export interface EvidenceReceiptVerification {
   readonly reason?: string
 }
 
-export interface CreateEvidenceReceiptInput
-  extends Omit<EvidenceBinding, 'schemaVersion'> {}
+export interface CreateEvidenceReceiptInput extends Omit<EvidenceBinding, 'schemaVersion'> {}
 
 /**
  * Mint a content-attested evidence receipt. Required identity fields are deliberately
@@ -104,7 +103,12 @@ export function createEvidenceReceipt(
   return Object.freeze({ binding, attestation: attest(binding, provenance) })
 }
 
-/** Verify the canonical payload binding. Cryptographic signer verification is a consumer concern. */
+/**
+ * Verify promotion-grade evidence. Generic report attestation keeps a legacy read path,
+ * but an EvidenceReceipt never accepts unbound provenance: changing the evaluator code,
+ * model versions, input commitment provenance, or creation record must invalidate the
+ * evidence rather than merely annotating it as legacy.
+ */
 export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceiptVerification {
   if (receipt.binding.schemaVersion !== EVIDENCE_RECEIPT_VERSION) {
     return {
@@ -130,7 +134,16 @@ export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceipt
   } catch (error) {
     return { valid: false, reason: error instanceof Error ? error.message : String(error) }
   }
-  return verifyAttestation(receipt.binding, receipt.attestation)
+
+  const verification = verifyAttestation(receipt.binding, receipt.attestation)
+  if (!verification.valid) return verification
+  if (verification.legacyUnboundProvenance === true || receipt.attestation.envelopeHash === undefined) {
+    return {
+      valid: false,
+      reason: 'evidence receipt provenance is not bound by an attestation envelope',
+    }
+  }
+  return { valid: true }
 }
 
 /**
