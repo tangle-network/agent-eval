@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createEvidenceReceipt,
+  type EvidenceReceipt,
   isIndependentEvidence,
   verifyEvidenceReceipt,
 } from './evidence-receipt'
@@ -8,7 +9,7 @@ import {
 const provenance = {
   modelVersions: { evaluator: 'checker@abc' },
   codeSha: 'abc123',
-  inputsHash: 'sha256:inputs',
+  inputsHash: 'sha256:hidden-cases',
   createdAt: '2026-08-17T00:00:00.000Z',
 }
 
@@ -55,6 +56,15 @@ describe('evidence receipts', () => {
     expect(verifyEvidenceReceipt(tampered)).toMatchObject({ valid: false })
   })
 
+  it('requires provenance to name the same hidden input commitment as the binding', () => {
+    expect(() =>
+      createEvidenceReceipt(binding, {
+        ...provenance,
+        inputsHash: 'sha256:different-inputs',
+      }),
+    ).toThrow(/inputsHash must equal binding.inputSetCommitment/)
+  })
+
   it('refuses legacy report attestations whose provenance was never envelope-bound', () => {
     const receipt = createEvidenceReceipt(binding, provenance)
     const { envelopeHash: _envelopeHash, ...legacy } = receipt.attestation
@@ -73,6 +83,23 @@ describe('evidence receipts', () => {
       provenance,
     )
     expect(isIndependentEvidence(receipt)).toBe(false)
+  })
+
+  it('fails closed on unknown authority kinds instead of treating typos as independent', () => {
+    const receipt = createEvidenceReceipt(binding, provenance)
+    const forged = {
+      ...receipt,
+      binding: {
+        ...receipt.binding,
+        authority: { kind: 'independent-evaluatr', id: 'forged' },
+      },
+    } as unknown as EvidenceReceipt
+
+    expect(isIndependentEvidence(forged)).toBe(false)
+    expect(verifyEvidenceReceipt(forged)).toMatchObject({
+      valid: false,
+      reason: expect.stringMatching(/unknown authority kind/),
+    })
   })
 
   it('refuses missing identity instead of encoding unknown as empty', () => {
