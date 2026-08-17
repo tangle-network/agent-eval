@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Added
+
+- Add a bounded `SearchHistoryReceipt` over the canonical `SearchLedger`, plus search-history coverage and `searchHistoryPolicy: 'require-complete'` on `compareOptimizationMethods()`. Strict mode refuses missing or denominator-incomplete optimization evidence before untouched-final-test scoring. Rich events remain only in the ledger.
+
 ---
 
 ## [0.147.0] — 2026-08-16

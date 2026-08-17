@@ -158,7 +158,7 @@ export interface OptimizationMethodResult {
   durationMs?: number
   /** Exact external implementation and run identity, when the method uses one. */
   provenance?: OptimizationMethodProvenance
-  /** Compact proof/index over the canonical SearchLedger for this optimization. */
+  /** Bounded proof envelope over the canonical SearchLedger for this optimization. */
   searchHistory?: SearchHistoryReceipt
 }
 

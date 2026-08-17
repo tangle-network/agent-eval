@@ -71,6 +71,12 @@ Keep the default whenever real model calls happen.
 
 Runnable copy: [`examples/evaluate-a-change`](./examples/evaluate-a-change/).
 
+## Auditable optimization history
+
+Optimization methods may return a bounded `SearchHistoryReceipt` over Eval's canonical hash-chained `SearchLedger`. Existing callers keep working and see missing-history coverage. Autonomous and publication-grade runs set `searchHistoryPolicy: 'require-complete'` to refuse an incomplete planned denominator before the untouched final cases are opened.
+
+The receipt is a small proof envelope, not another event log. Exact candidates, attempts, failures, decisions, and missing ids remain in the ledger. See [complete optimization search history](./docs/search-history-receipts.md).
+
 ## Which Front Door
 
 Every row is a function you call. Each links to a runnable example.
@@ -189,8 +195,3 @@ uv run --frozen pytest tests/test_dspy_metric.py
 
 MIT.
 
-## Auditable optimization history
-
-Optimization methods can return a compact `SearchHistoryReceipt` over Eval's canonical, hash-chained `SearchLedger`. Existing comparisons continue to work and report missing coverage. Autonomous and publication-grade runs set `searchHistoryPolicy: 'require-complete'` to refuse missing candidates, attempts, operations, decisions, or terminal evidence before the untouched test set is opened.
-
-The receipt is a tamper-evident table of contents, not a second event log. See [Complete search history](docs/search-history-receipts.md) for the ELI5 model, ownership boundaries, integration recipe, and proof limits.

@@ -2,33 +2,12 @@ import { hashCanonical } from '../ledger-core/canonical'
 import type {
   SearchArtifactRef,
   SearchLedgerAudit,
-  SearchLedgerEvent,
   SearchLedgerHash,
   SearchLedgerReplay,
 } from './search-ledger'
 
 export const SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
 export const SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
-
-// TEMPORARY EXPORT COMPATIBILITY START
-/** @deprecated Receipts no longer copy per-event indexes; read SearchLedgerReplay.entries. */
-export interface SearchHistoryEventIndex {
-  readonly sequence: number
-  readonly eventId: string
-  readonly kind: SearchLedgerEvent['kind']
-  readonly entryHash: SearchLedgerHash
-}
-
-/** @deprecated Receipts no longer copy entity inventories; read SearchLedgerReplay. */
-export interface SearchHistoryEntityIndex {
-  readonly candidateIds: readonly string[]
-  readonly runIds: readonly string[]
-  readonly operationIds: readonly string[]
-  readonly closedCandidateSlotIds: readonly string[]
-  readonly selectedCandidateIds: readonly string[]
-  readonly rejectedCandidateIds: readonly string[]
-}
-// TEMPORARY EXPORT COMPATIBILITY END
 
 /** Bounded projection of the canonical replay audit. Exact ids stay in SearchLedger. */
 export interface SearchHistoryAuditSummary {
@@ -261,10 +240,7 @@ function validateReplayProjection(replay: SearchLedgerReplay): SearchLedgerRepla
   if (replay.plan !== null && (!replay.plan || typeof replay.plan !== 'object')) {
     throw new TypeError('search history replay.plan must be an event or null')
   }
-  if (
-    replay.completion !== null &&
-    (!replay.completion || typeof replay.completion !== 'object')
-  ) {
+  if (replay.completion !== null && (!replay.completion || typeof replay.completion !== 'object')) {
     throw new TypeError('search history replay.completion must be an event or null')
   }
   if (replay.audit.eventCount !== replay.entries.length) {
@@ -448,10 +424,7 @@ function normalizeArtifactRef(value: SearchArtifactRef): SearchArtifactRef {
     role: nonEmpty(value.role, 'search history ledger role'),
     uri: nonEmpty(value.uri, 'search history ledger uri'),
     sha256: ledgerHash(value.sha256, 'search history ledger sha256'),
-    byteLength: nonNegativeSafeInteger(
-      value.byteLength,
-      'search history ledger byteLength',
-    ),
+    byteLength: nonNegativeSafeInteger(value.byteLength, 'search history ledger byteLength'),
   })
 }
 
