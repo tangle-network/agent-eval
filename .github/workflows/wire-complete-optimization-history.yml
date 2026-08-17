@@ -21,12 +21,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Export the additive campaign front doors
+      - name: Export the additive campaign front doors and repair test types
         run: |
           node <<'EOF'
           const fs = require('node:fs')
-          const path = 'src/campaign/index.ts'
-          let source = fs.readFileSync(path, 'utf8')
+
+          const indexPath = 'src/campaign/index.ts'
+          let source = fs.readFileSync(indexPath, 'utf8')
           const compareAnchor = "} from './presets/compare-optimization-methods'\n"
           if (!source.includes(compareAnchor)) throw new Error('compare export anchor not found')
           const compareExport = `${compareAnchor}export {\n  compareOptimizationMethodsWithHistory,\n  type CompareOptimizationMethodsWithHistoryOptions,\n  type HistoryAwareOptimizationMethod,\n  type HistoryAwareOptimizationMethodResult,\n  type OptimizationHistoryCoverage,\n  type OptimizationHistoryPolicy,\n  type OptimizationMethodComparisonWithHistory,\n  type OptimizationMethodHistoryCoverage,\n} from './presets/compare-optimization-methods-with-history'\n`
@@ -35,7 +36,31 @@ jobs:
           if (!source.includes(ledgerAnchor)) throw new Error('ledger export anchor not found')
           const historyExport = `// ── Content-addressed complete optimization history ─────────────────\nexport {\n  assertCompleteOptimizationHistory,\n  assertOptimizationHistoryMatchesReplay,\n  type CreateOptimizationHistoryReceiptInput,\n  createOptimizationHistoryReceipt,\n  type OptimizationHistoryEntityIndex,\n  type OptimizationHistoryEventIndex,\n  type OptimizationHistoryReceipt,\n  OptimizationHistoryRequiredError,\n  OPTIMIZATION_HISTORY_RECEIPT_DIGEST_ALGORITHM,\n  OPTIMIZATION_HISTORY_RECEIPT_SCHEMA_VERSION,\n  verifyOptimizationHistoryReceipt,\n} from './optimization-history'\n`
           source = source.replace(ledgerAnchor, `${historyExport}${ledgerAnchor}`)
-          fs.writeFileSync(path, source)
+          fs.writeFileSync(indexPath, source)
+
+          const historyTestPath = 'src/campaign/optimization-history.test.ts'
+          let historyTest = fs.readFileSync(historyTestPath, 'utf8')
+          const partialAccounting = "replay.audit = { ...replay.audit, accounting: { ...replay.audit.accounting, costUsd: 2 } }"
+          if (!historyTest.includes(partialAccounting)) {
+            throw new Error('history accounting fixture anchor not found')
+          }
+          historyTest = historyTest.replace(
+            partialAccounting,
+            "replay.audit = {\n      ...replay.audit,\n      accounting: {\n        status: 'known',\n        inputTokens: 10,\n        outputTokens: 2,\n        cachedTokens: 0,\n        costUsd: 2,\n      },\n    }",
+          )
+          fs.writeFileSync(historyTestPath, historyTest)
+
+          const compareTestPath = 'src/campaign/presets/compare-optimization-methods-with-history.test.ts'
+          let compareTest = fs.readFileSync(compareTestPath, 'utf8')
+          compareTest = compareTest.replace(
+            "import type { DispatchContext, JudgeConfig, Scenario } from '../types'",
+            "import type { DispatchContext, JudgeConfig, MutableSurface, Scenario } from '../types'",
+          )
+          compareTest = compareTest.replace(
+            '    surface: string,\n',
+            '    surface: MutableSurface,\n',
+          )
+          fs.writeFileSync(compareTestPath, compareTest)
           EOF
           pnpm biome check --write \
             src/campaign/index.ts \
