@@ -48,10 +48,6 @@ export interface SearchHistoryReceipt {
   /** Concrete optimizer/runtime invocation that produced the ledger. */
   readonly runId: string
   readonly ledger: SearchArtifactRef
-  readonly campaignId: string
-  readonly headHash: SearchLedgerHash | null
-  readonly status: SearchLedgerAudit['status']
-  readonly selectedCandidateId: string | null
   readonly complete: boolean
   readonly incompleteReasons: readonly string[]
   readonly events: readonly SearchHistoryEventIndex[]
@@ -141,10 +137,6 @@ export function createSearchHistoryReceipt(
     producerId,
     runId,
     ledger,
-    campaignId: replay.audit.campaignId,
-    headHash: replay.audit.headHash,
-    status: replay.audit.status,
-    selectedCandidateId: replay.audit.selectedCandidateId,
     complete: incompleteReasons.length === 0,
     incompleteReasons,
     events,
@@ -301,18 +293,6 @@ function validateReplay(replay: SearchLedgerReplay): SearchLedgerReplay {
 }
 
 function validateReceiptIndexes(receipt: SearchHistoryReceipt): void {
-  if (receipt.audit.campaignId !== receipt.campaignId) {
-    throw new Error('search history campaignId does not match its audit')
-  }
-  if (receipt.audit.headHash !== receipt.headHash) {
-    throw new Error('search history headHash does not match its audit')
-  }
-  if (receipt.audit.status !== receipt.status) {
-    throw new Error('search history status does not match its audit')
-  }
-  if (receipt.audit.selectedCandidateId !== receipt.selectedCandidateId) {
-    throw new Error('search history selectedCandidateId does not match its audit')
-  }
   if (receipt.audit.eventCount !== receipt.events.length) {
     throw new Error('search history event count does not match its audit')
   }
@@ -338,10 +318,6 @@ function receiptMaterial(receipt: SearchHistoryReceipt) {
     producerId: receipt.producerId,
     runId: receipt.runId,
     ledger: receipt.ledger,
-    campaignId: receipt.campaignId,
-    headHash: receipt.headHash,
-    status: receipt.status,
-    selectedCandidateId: receipt.selectedCandidateId,
     complete: receipt.complete,
     incompleteReasons: receipt.incompleteReasons,
     events: receipt.events,
