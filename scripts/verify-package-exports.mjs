@@ -45,12 +45,17 @@ try {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
   }
   // range is the declaration the packed manifest must carry; version is the
-  // single copy that declaration must resolve to. A caret range and its
-  // resolved version are different strings, so the two are asserted apart.
-  const expectedDependencyCohort = {
-    '@tangle-network/agent-core': { range: '^0.9.4', version: '0.9.4' },
-    '@tangle-network/agent-interface': { range: '^1.0.1', version: '1.0.1' },
-  }
+  // copy this repository resolved that declaration to and then built and tested
+  // against. Both are read, never written down here: the range comes from the
+  // source manifest that npm pack copies, and the version comes from the
+  // installed tree. A literal expectation instead froze both into this file, so
+  // every upstream release inside the caret range broke main until a human
+  // hand-edited the literal — agent-interface 0.56.0, 1.0.0, 1.0.1 and 1.1.0
+  // each cost that edit, the last one after the publish had already crossed it.
+  const expectedDependencyCohort = readDependencyCohort([
+    '@tangle-network/agent-core',
+    '@tangle-network/agent-interface',
+  ])
   for (const [name, { range }] of Object.entries(expectedDependencyCohort)) {
     if (packageJson.dependencies?.[name] !== range) {
       throw new Error(
@@ -1142,6 +1147,52 @@ function collectDtsExportNames(dtsPath, seenFiles = new Set()) {
   return names
 }
 
+// npm caret admission, which is what the consumer's own resolver applies to the
+// declared range. The compatible segment is the leftmost non-zero one, so
+// ^1.1.0 admits 1.x at or above 1.1.0, ^0.9.4 admits only 0.9.x at or above
+// 0.9.4, and ^0.0.3 admits 0.0.3 alone. The cohort declares both shapes today:
+// agent-interface at ^1.1.0 and agent-core at ^0.9.4.
+function caretAdmits(range, version) {
+  const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
+  const found = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)
+  if (floor === null || found === null) return false
+  const [floorMajor, floorMinor, floorPatch] = floor.slice(1).map(Number)
+  const [major, minor, patch] = found.slice(1).map(Number)
+  if (major !== floorMajor) return false
+  if (floorMajor === 0 && minor !== floorMinor) return false
+  if (floorMajor === 0 && floorMinor === 0) return patch === floorPatch
+  return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
+}
+
+// Reads the cohort expectation from the two manifests that already state it,
+// so no release can leave a stale copy of the answer behind in this file.
+function readDependencyCohort(names) {
+  const sourceManifest = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+  const cohort = {}
+  for (const name of names) {
+    const range = sourceManifest.dependencies?.[name]
+    if (typeof range !== 'string') {
+      throw new Error(`source manifest does not declare ${name} as a dependency`)
+    }
+    const installedManifest = join(repoRoot, 'node_modules', name, 'package.json')
+    if (!existsSync(installedManifest)) {
+      throw new Error(`${name} is declared but not installed; run pnpm install before verifying`)
+    }
+    const version = JSON.parse(readFileSync(installedManifest, 'utf8')).version
+    // The declaration must be the caret range of the copy this repository was
+    // built against. An exact pin duplicates the copy in a consumer that also
+    // depends on the package, and a lower floor lets a consumer resolve a copy
+    // older than the one the packed dist was compiled and tested against.
+    if (range !== `^${version}`) {
+      throw new Error(
+        `${name} is declared as ${range} but installed as ${version}; declare ^${version} so the packed floor is the tested copy`,
+      )
+    }
+    cohort[name] = { range, version }
+  }
+  return cohort
+}
+
 function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
   writeFileSync(
     join(appDir, 'package.json'),
@@ -1162,7 +1213,7 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
     { timeout: 180_000 },
   )
 
-  for (const [name, { version: expectedVersion }] of Object.entries(expectedVersions)) {
+  for (const [name, { range: expectedRange }] of Object.entries(expectedVersions)) {
     const manifests = run(
       'find',
       [
@@ -1183,10 +1234,18 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
         `packed consumer must install one ${name} copy, found ${manifests.length}: ${manifests.join(', ')}`,
       )
     }
+    // The consumer resolves a caret range against the live registry, so it
+    // reads the newest release inside that range, not the copy this repository
+    // happens to hold. Admission by the range is therefore the only assertion
+    // this probe can make about the resolved version; the assertions that the
+    // resolved copy actually works are the single-copy check above and the
+    // schema round-trip below. Equality against the repository's own copy would
+    // fail on every upstream release inside the range, which is how
+    // agent-interface 1.1.0 turned main red 14 minutes after it published.
     const installedVersion = JSON.parse(readFileSync(manifests[0], 'utf8')).version
-    if (installedVersion !== expectedVersion) {
+    if (!caretAdmits(expectedRange, installedVersion)) {
       throw new Error(
-        `packed consumer installed ${name} ${installedVersion}, expected ${expectedVersion}`,
+        `packed consumer installed ${name} ${installedVersion}, outside the declared range ${expectedRange}`,
       )
     }
   }
