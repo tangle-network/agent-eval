@@ -8,6 +8,28 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.149.0] — 2026-08-18
+
+### Removed
+
+- Twelve modules and their tests: `reviewer`, `analyst/knowledge-capture`, `multi-toolchain-layer`, `dual-agent-bench`, `workspace-inspector`, `golden-matcher`, `ui-finding`, `slo`, `adapters/langchain`, `judge-runner`, `cost-report` and `worker-driver-seed`.
+
+  0.145.3 tiered the root barrel to consumer-imported symbols and documented front doors. These twelve lost their last export path in that pass and kept their source files. Each is unreachable from all 28 build entry points, so none has shipped in `dist` since 0.145.3, and the only importer each retained was its own test.
+
+  **The public export surface does not move.** A build of 0.148.0 and a build of this release each declare 3,447 export entries, and the two lists are identical. No consumer of any published version can be importing a deleted name, because none of them was reachable to import.
+
+### Changed
+
+- Four doc comments named a deleted symbol and now describe the surviving behaviour: `multi-layer-verifier` (twice), `fuzz/types` and `contract/self-improve`, plus the `docs/feature-guide` feature map. `dist` loses 753 bytes, all of it that doc-comment text.
+
+### Migration
+
+Nothing to do. No symbol removed here has been importable since 0.145.3.
+
+One repository still names three of them. `starter-foundry` imports `runAssertions`, `WorkspaceAssertion` and `WorkspaceSnapshot` from this package and pins it to exactly `0.135.1`, where those symbols still exist, so it builds today and this release does not change that. The constraint it already carries is that it cannot move past 0.145.3 without porting them, and that predates this release by four versions. The workspace-assertion helpers were a thin projection over a snapshot it already builds itself.
+
+---
+
 ## [0.148.0] — 2026-08-18
 
 ### Added
