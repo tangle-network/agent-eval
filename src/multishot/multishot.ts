@@ -101,8 +101,9 @@ interface ShotMeter {
  *  2. `golden.test.ts` proves the frozen records against it on every run, and
  *     perturbs it to prove the records detect a change. Records checked only
  *     against a replay of themselves prove nothing.
- *  3. `scripts/record-multishot-golden.ts` reads it as the in-repo `--engine`.
- *     A record set minted from a consumer's engine would let a product's wiring
+ *  3. The repo's recording command names it as `--engine`. The script defaults
+ *     no engine, so a version records whichever one the caller names — and a
+ *     record set minted from a consumer's engine would let a product's wiring
  *     define this package's frozen contract.
  *
  *  An alternative engine reaches the matrix through `runShot` and reaches the

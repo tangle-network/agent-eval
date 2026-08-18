@@ -60,8 +60,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Every scenario answers from its own scripted transports. A capture that
  *  reaches the network is recording something the scenario does not control, so
- *  the call fails loud instead of leaving. The matrix path has the same guard
- *  through its judge wire. */
+ *  the call fails loud instead of freezing that value into the record. The
+ *  matrix path has the same guard through its judge wire. */
 function forbidNetwork(label: string): () => void {
   const previous = globalThis.fetch
   globalThis.fetch = (async (url: unknown) => {
