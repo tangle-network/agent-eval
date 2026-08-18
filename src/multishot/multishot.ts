@@ -97,7 +97,7 @@ interface ShotMeter {
  *  things that stop working without it.
  *
  *  1. `runMultishotMatrix` runs it as the per-cell engine when the caller names
- *     no `runShot`, so the matrix always has an engine to declare.
+ *     no `runShot`, so the matrix always has an engine to run.
  *  2. `golden.test.ts` proves the frozen records against it on every run, and
  *     perturbs it to prove the records detect a change. Records checked only
  *     against a replay of themselves prove nothing.

@@ -66,7 +66,8 @@ The diff between the two files is the reviewable evidence of what moved, and the
 
 ## The reference engine
 
-`runMultishot` is this package's reference conversation engine, and the suite proves the records against it on every run.
+`runMultishot` is this package's reference conversation engine, and the suite proves the shot records against it on every run.
+The matrix records are proved against `runMultishotMatrix` the same way, and `recordedFrom` in the fixture names both engines.
 The suite also perturbs the engine: one scenario runs it with a changed token budget and requires the check to name the moved field.
 The records are therefore proved able to detect a change, not merely able to pass.
 
