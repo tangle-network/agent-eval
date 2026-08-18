@@ -64,10 +64,21 @@ A golden record that can be regenerated over itself proves nothing: a regression
 A deliberate behaviour change mints a NEW version file, registers it in `src/multishot/golden/records/index.ts` beside the old one, and moves `CURRENT_MULTISHOT_GOLDEN_VERSION`.
 The diff between the two files is the reviewable evidence of what moved, and the previous contract stays runnable through `goldenRecords('v1')`.
 
+## The reference engine
+
+`runMultishot` is this package's reference conversation engine, and the suite proves the shot records against it on every run.
+The matrix records are proved against `runMultishotMatrix` the same way, and `recordedFrom` in the fixture names both engines.
+The suite also perturbs the engine: one scenario runs it with a changed token budget and requires the check to name the moved field.
+The records are therefore proved able to detect a change, not merely able to pass.
+
+The recorder accepts an engine from outside the repository, so a consumer's engine can mint a version.
+Minting every version that way would let a product's wiring define this package's frozen contract.
+This package is the substrate below its consumers, so it keeps a reference engine and mints its versions in-repo.
+
 ## Regenerate
 
 The recorder never picks an engine for you: the reference has to be named.
-Once the loop leaves this package there is no engine here to default to, and a script that silently picked one would record the wrong thing.
+A script that silently picked one would record the wrong thing.
 
 ```bash
 pnpm tsx scripts/record-multishot-golden.ts \
