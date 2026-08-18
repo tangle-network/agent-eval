@@ -42,6 +42,9 @@ describe('my engine reproduces the multishot golden records', () => {
 `checkMultishotGolden` runs every SHOT scenario in one call; the matrix scenarios have their own pair below.
 It refuses an `only` id the catalog does not hold, so a stale id after a rename stops the check instead of greening a run of zero scenarios.
 
+An external conversation engine plugs into the matrix through one seam: `RunMultishotMatrixOptions.runShot`.
+The matrix runs that engine for every cell and reads its result through `MultishotCellOutput`, so the same golden checks grade any engine that implements the seam.
+
 The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
 That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it.
 Both rules are enforced, not just documented: a second concurrent install throws, and the wire fails loud on any request it does not recognise rather than answering it.
