@@ -6,9 +6,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+---
+
+## [0.148.0] — 2026-08-18
+
 ### Added
 
-- Add a bounded `SearchHistoryReceipt` over the canonical `SearchLedger`, plus search-history coverage and `searchHistoryPolicy: 'require-complete'` on `compareOptimizationMethods()`. Strict mode refuses missing or denominator-incomplete optimization evidence before untouched-final-test scoring. Rich events remain only in the ledger.
+- `@tangle-network/agent-eval/experiment` publishes the evidence receipt: `createEvidenceReceipt`, `verifyEvidenceReceipt`, `isIndependentEvidence`, `EVIDENCE_RECEIPT_VERSION`, `EVIDENCE_AUTHORITY_KINDS`, `INDEPENDENT_EVIDENCE_AUTHORITY_KINDS`, and the `EvidenceReceipt` / `EvidenceBinding` / `EvidenceAuthority` / `EvidenceAuthorityKind` / `EvidenceReceiptVerification` / `CreateEvidenceReceiptInput` types.
+
+  A receipt binds one Runtime execution to the measurement that judged it, without either package importing the other. It carries stable pursuit and run identity, the exact candidate, evaluator, environment, input-set and output content identities, the result digest, and the authority class that made the observation. The payload is attested with the existing canonical report attestation, so mutating any bound field invalidates the receipt.
+
+  The authority vocabulary is closed. An unknown or misspelled kind is never independent, and `candidate-self-report` is never independent, so a candidate cannot certify itself by accident.
+
+- A bounded `SearchHistoryReceipt` over the canonical `SearchLedger`, plus search-history coverage and `searchHistoryPolicy: 'require-complete'` on `compareOptimizationMethods()`. Strict mode refuses missing or denominator-incomplete optimization evidence before untouched-final-test scoring. Rich events remain only in the ledger.
+
+### Fixed
+
+- The packed dependency cohort is read from the manifests instead of a second hand-kept list.
+
+### Changed
+
+- No existing export changed.
 
 ---
 
