@@ -199,6 +199,19 @@ export {
   isIndependentEvidence,
   verifyEvidenceReceipt,
 } from './evidence-receipt'
+// ── Evidence registry records (evidence/records/*.json) ──────────────
+export {
+  EVIDENCE_STATES,
+  type EvidenceDenominator,
+  EvidenceRegistryError,
+  type EvidenceRegistryRecord,
+  type EvidenceState,
+  evidenceDenominatorSchema,
+  evidenceRegistryRecordSchema,
+  parseEvidenceRegistryRecord,
+  renderEvidenceIndex,
+  validateEvidenceRegistry,
+} from './evidence-record'
 // ── Denominator chain ────────────────────────────────────────────────
 export {
   type AdmissionExecution,

@@ -2,6 +2,8 @@
 
 `@tangle-network/agent-eval/experiment` turns an experiment's registration into the object that runs it.
 
+The registry of measured claims those experiments produce lives in [`evidence/`](../evidence/README.md); a sealed experiment's digest is the `experimentDigest` its registry record carries.
+
 ## The covenant
 
 1. **The registered rule is the executed rule.**

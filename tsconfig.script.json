@@ -1,7 +1,11 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
   "include": [
+    "scripts/render-evidence-index.ts",
     "scripts/record-multishot-golden.ts",
     "scripts/tb-corpus-rows.ts",
     "scripts/tb-gated-stop-ab.ts",
@@ -11,5 +15,9 @@
     "scripts/tb-repair-milestone1.ts",
     "src"
   ],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests"
+  ]
 }

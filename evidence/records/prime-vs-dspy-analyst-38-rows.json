@@ -1,0 +1,28 @@
+{
+  "id": "prime-vs-dspy-analyst-38-rows",
+  "date": "2026-08-08",
+  "claim": "Prime-agent as a one-shot trace analyst beats the GEPA-certified DSPy-RLM analyst on stored-baseline CodeTraceBench rows.",
+  "domain": "trace-analysis",
+  "instrument": "batch comparison over stored dspy baselines: prime-RLM one-shot with a bounded structured-output repair turn, scored per-case F1 against human step labels",
+  "command": "prime-vs-dspy batch over 38 positive-labeled OH+T2 dev rows via cli-bridge prime backend (systemd-run scoped spawn, nix-built prime-agent 0.7.0)",
+  "arms": ["prime-agent-0.7.0", "dspy-rlm-stored-baseline"],
+  "n": {
+    "value": 38,
+    "unit": "rows",
+    "detail": "positive-labeled OH+T2 dev rows; 35/38 completed ok, 5 needed the repair turn"
+  },
+  "result": "Prime wins the dev-pool comparison: mean per-case scored F1 0.3218 vs 0.1833; 18W/4L/16T (all ties 0-0); two-sided sign test p=0.0043. Direction consistent across both baseline sources including the derivation-verified stock-smoke slice (OH 0.377 vs 0.231, T2 0.416 vs 0.163).",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "https://gist.github.com/drewstone/cd6ee0f0ca659334215001d792d0dacf",
+    ".evolve/experiments.jsonl (arm prime-38-row-comparison)"
+  ],
+  "costUsd": 5.3,
+  "confounds": [
+    "compared against STORED dspy baselines, not a same-day paired rerun; provider state differed between the arms' measurement dates",
+    "cost asymmetry ~4.7x dspy (220K input tokens per case mean), so the win is not cost-normalized",
+    "dev-pool rows, not the sealed cert splits; 3/38 prime rows failed structured output"
+  ],
+  "sourceRepo": "traces",
+  "notes": "Until this registry, the durable copy of this result was a secret gist plus an uncommitted .evolve line in a working tree."
+}

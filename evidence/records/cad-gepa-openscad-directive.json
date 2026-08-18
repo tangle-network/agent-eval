@@ -1,0 +1,26 @@
+{
+  "id": "cad-gepa-openscad-directive",
+  "date": "2026-06-08",
+  "claim": "GEPA optimization of the OpenSCAD system directive lifts the CAD agent's held-out build quality over the hand-written directive.",
+  "domain": "creative-cad",
+  "instrument": "creative-agent CAD self-improvement loop: GEPA over the OpenSCAD directive, held-out scenario split, produced-state scoring of compiled models",
+  "command": null,
+  "arms": ["hand-written-directive", "gepa-optimized-directive"],
+  "n": {
+    "value": 1,
+    "unit": "held-out split",
+    "detail": "single held-out evaluation of the winning directive; split size recorded in the creative-agent run artifacts"
+  },
+  "result": "+9.5pp held-out over the baseline directive; the winning directive shipped with automatic video capture of the built models.",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "creative-agent: .evolve/evals/ and the CAD self-improve loop run artifacts (repo tangle-network/creative-agent)"
+  ],
+  "costUsd": null,
+  "confounds": [
+    "single held-out evaluation, no replication or challenger round",
+    "exact invocation and split size were not preserved in a durable record - this registry entry is the pointer that stops the number from degrading into folklore; the next CAD run should re-derive and upgrade or kill this record"
+  ],
+  "sourceRepo": "creative-agent",
+  "notes": "Weakest record in the initial migration by design: it demonstrates the UNVERIFIED->MEASURED-ONCE boundary. The +9.5pp number traces to the CAD loop session record, but the run directory is not pinned here yet."
+}

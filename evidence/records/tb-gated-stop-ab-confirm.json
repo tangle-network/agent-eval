@@ -1,0 +1,31 @@
+{
+  "id": "tb-gated-stop-ab-confirm",
+  "date": "2026-08-15",
+  "claim": "At one matched total token budget on TB-Repair, an agent that may stop only after an executable held-out check passes finishes more rows than the same agent on unconditional continuation.",
+  "domain": "trace-repair",
+  "instrument": "tb-gated-stop-ab confirmatory draw: sealed registered experiment, servedModel abort gate, paired cluster-bootstrap contrast over best intermediate state",
+  "command": "pnpm tsx scripts/tb-gated-stop-ab.ts (design/screen/pilot/confirm phases; seal e13a4f8d re-executed by the confirm runner)",
+  "arms": ["blind-continue", "gated-continue"],
+  "n": {
+    "value": 151,
+    "unit": "rows",
+    "detail": "22 clusters; settlingDraw at power 0.8009 (search sim) / 0.8013 (registered sim) for effect 0.10; admitted ceiling 216 rows at power 0.9189"
+  },
+  "result": "+0.0596 pass-rate delta (best intermediate state in both arms), 95% cluster-bootstrap CI [-0.0061, +0.1210]. The interval crosses zero: direction positive, not significant at the registered level.",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "docs/trace-repair-gated-stop.md",
+    "benchmarks/trace-repair/gated-stop-ab/design.json",
+    "~/bench-cache/gated-stop-ab/ (design.json, pilot.json, confirm-runs.json, confirm-refusal.json, finalize.out)",
+    "https://github.com/tangle-network/agent-eval/pull/601"
+  ],
+  "costUsd": null,
+  "confounds": [
+    "95% CI crosses zero; the draw was powered for effect 0.10 and the observed effect is 0.06",
+    "provider retired the pinned glm-5.2 mid-campaign; the servedModel gate aborted the stale seal at $0 and the pin moved to glm-5.3 (seal ad82d342 -> e13a4f8d), so screen-era and confirm-era rows saw different provider states",
+    "confirm run absorbed HTTP 429 rate-limit interruptions on several rows (retried; logged in confirm-run.out)"
+  ],
+  "sourceRepo": "agent-eval",
+  "experimentDigest": "e13a4f8d9ff437dbf7d24898d64cba55c90c682c3902ad30bb528ca241939626",
+  "notes": "Aggregate router spend was not captured as one number for the confirm draw; per-row token and grade costs are in confirm-runs.json."
+}
