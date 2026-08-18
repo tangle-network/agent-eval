@@ -93,6 +93,21 @@ interface ShotMeter {
   uncaptured: boolean
 }
 
+/** The package's reference conversation engine, and the referent of three
+ *  things that stop working without it.
+ *
+ *  1. `runMultishotMatrix` runs it as the per-cell engine when the caller names
+ *     no `runShot`, so the matrix always has an engine to declare.
+ *  2. `golden.test.ts` proves the frozen records against it on every run, and
+ *     perturbs it to prove the records detect a change. Records checked only
+ *     against a replay of themselves prove nothing.
+ *  3. `scripts/record-multishot-golden.ts` reads it as the in-repo `--engine`.
+ *     A record set minted from a consumer's engine would let a product's wiring
+ *     define this package's frozen contract.
+ *
+ *  An alternative engine reaches the matrix through `runShot` and reaches the
+ *  records through `assertMultishotGoldenScenario`. Neither seam removes the
+ *  three roles above. */
 export async function runMultishot<TPersona extends MultishotPersona>(
   opts: RunMultishotOptions<TPersona>,
 ): Promise<MultishotResult> {
