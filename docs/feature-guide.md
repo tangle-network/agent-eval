@@ -152,7 +152,7 @@ Store as `FeedbackTrajectory`, then derive:
 | Area | Key exports | Best for | Notes |
 | --- | --- | --- | --- |
 | Judging | `llmJudge`, semantic judges, anti-slop, wire rubrics | Content, voice, semantic quality | Pair with objective checks when possible. |
-| Verification | `MultiLayerVerifier`, `JudgeRunner`, sandbox harness | Code and multi-step gates | Do not let semantic judges override failed builds. |
+| Verification | `MultiLayerVerifier`, sandbox harness | Code and multi-step gates | Do not let semantic judges override failed builds. |
 | Control | `runAgentControlLoop`, `objectiveEval`, `subjectiveEval` | Long-running agent tasks | Supports budgets, cost, stop policies, trace spans. |
 | Propose/review | `runProposeReview` | Iterative artifact repair | Good for code, docs, plans, briefs. |
 | Feedback data | `FeedbackTrajectory`, stores, converters | Human/environment labels | Domain adapters live in downstream repos. |
