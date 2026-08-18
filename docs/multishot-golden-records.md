@@ -67,8 +67,8 @@ The diff between the two files is the reviewable evidence of what moved, and the
 ## The reference engine
 
 `runMultishot` is this package's reference conversation engine, and the suite proves the records against it on every run.
-It also perturbs it — one scenario runs the engine with a changed token budget and requires the check to name the moved field — so the records are proved able to detect a change, not merely able to pass.
-A record set checked only against a replay of itself proves nothing.
+The suite also perturbs the engine: one scenario runs it with a changed token budget and requires the check to name the moved field.
+The records are therefore proved able to detect a change, not merely able to pass.
 
 The recorder accepts an engine from outside the repository, so a consumer's engine can mint a version.
 Minting every version that way would let a product's wiring define this package's frozen contract, which the layering rule in `CLAUDE.md` forbids.

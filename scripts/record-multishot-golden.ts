@@ -100,8 +100,8 @@ function requireVersion(): string {
 }
 
 /** Load `<module>#<export>` relative to the repo root. The engine is never
- *  defaulted: after the loop is deleted this repository holds no conversation
- *  engine, and a script that silently picked one would record the wrong thing. */
+ *  defaulted: a version records whichever engine the caller names, and a script
+ *  that silently picked one would record the wrong thing. */
 async function loadEngine<T>(spec: string, flag: string): Promise<T> {
   const [modulePath, exportName] = spec.split('#')
   if (!modulePath || !exportName) {
