@@ -141,8 +141,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  these unless `budget.holdoutScenarios` is set explicitly. */
   scenarios: TScenario[]
 
-  /** Judge that scores artifacts. Bring your own; use `langchainJudge`
-   *  from `/adapters/langchain` for a Runnable-shaped one. */
+  /** Judge that scores artifacts. Bring your own, or wrap `llmJudge`. */
   judge: JudgeConfig<TArtifact, TScenario>
 
   /** Starting surface — system prompt, JSON config, anything `MutableSurface`

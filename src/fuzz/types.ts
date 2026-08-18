@@ -306,7 +306,7 @@ export interface ExploreOptions<S> {
    * Sink for per-run cost entries — each known `costOf` result is recorded
    * with channel 'agent' and `actualCostUsd` (token axes are zero: the
    * explorer only sees dollars). Pass the program's shared `CostLedger` so
-   * `costReport` stamps fuzz spend alongside judge/analyst spend.
+   * `CostLedger.summary()` counts fuzz spend alongside judge/analyst spend.
    */
   ledger?: CostLedgerHandle
   /** Observer fired for every known-cost run recorded. */

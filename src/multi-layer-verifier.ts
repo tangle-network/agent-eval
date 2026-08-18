@@ -1,11 +1,9 @@
 /**
  * Multi-layer verifier — ordered pipeline of verification layers.
  *
- * Different contract from {@link JudgeRunner} (which runs parallel
- * specs against a sandbox). MultiLayerVerifier is a DAG of layers
- * (install → typecheck → build → lint → serve → semantic → …) with
- * dependency-based skip, per-layer findings, soft-fail semantics, and
- * an aggregated `blendedScore` across all passed layers.
+ * A DAG of layers (install → typecheck → build → lint → serve → semantic → …)
+ * with dependency-based skip, per-layer findings, soft-fail semantics, and an
+ * aggregated `blendedScore` across all passed layers.
  *
  * Use when you want:
  *   - ordered stages where a failing upstream stage skips downstream ones
@@ -13,13 +11,8 @@
  *   - a single composite score across stages with per-stage weights
  *   - soft-fail stages whose failure doesn't abort the pipeline
  *
- * Use {@link JudgeRunner} when you want:
- *   - N independent judges running in parallel against the same artifact
- *   - no inter-judge dependencies
- *   - boolean `passed` per judge + overall
- *
- * Both primitives compose — JudgeRunner can be invoked as a single
- * layer inside a MultiLayerVerifier if that suits the caller.
+ * A layer body is an arbitrary async function, so independent checks that need
+ * no ordering run as one layer that resolves them in parallel.
  */
 
 import { packageVersion } from './package-version'
@@ -38,8 +31,8 @@ export interface Finding {
   /** Optional layer name the finding belongs to (set by the verifier if omitted). */
   layer?: string
   /**
-   * Free-form structured payload — used by `multiToolchainLayer` to attach
-   * `{ adapter: 'pnpm' }`, by judges to attach evidence pointers, etc.
+   * Free-form structured payload — a layer attaches its toolchain
+   * (`{ adapter: 'pnpm' }`), a judge attaches evidence pointers, etc.
    * Renderers MAY interrogate; agent-eval primitives never assume shape.
    */
   detail?: Record<string, unknown>

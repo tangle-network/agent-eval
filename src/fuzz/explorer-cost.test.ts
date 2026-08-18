@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { CostLedger } from '../cost-ledger'
-import { costReport } from '../cost-report'
 import { ValidationError } from '../errors'
 import { renderCapsuleHtml } from './capsule'
 import { BehaviorExplorer } from './explorer'
@@ -95,8 +94,7 @@ describe('BehaviorExplorer cost budget', () => {
       expect(entry.model).toBe('gpt-4o')
       expect(entry.tags?.target).toBe('cost-target')
     }
-    const report = costReport(ledger)
-    expect(report.perModel).toEqual([{ model: 'gpt-4o', usd: 1, entries: 2, unpriced: false }])
+    expect(entries.reduce((sum, entry) => sum + entry.costUsd, 0)).toBe(1)
   })
 
   it('labels ledger entries unattributed when costOf names no model', async () => {
