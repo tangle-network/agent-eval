@@ -8,13 +8,18 @@
  *   OPTIMIZERS=gepa
  *   OPTIMIZERS=skillopt
  *   OPTIMIZERS=gepa,skillopt
+ *
+ * Select a GEPA recipe (default `engine`):
+ *   GEPA_RECIPE=engine|sequential|adaptive-sequential|best-of|vote|omni
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   compareOptimizationMethods,
+  type GepaEngineRun,
   gepaOptimizationMethod,
+  type GepaOptimizationRecipe,
   type OptimizationMethod,
   skillOptOptimizationMethod,
 } from '../../src/campaign'
@@ -77,6 +82,60 @@ const SKILLOPT_MAX_EVALUATIONS = positiveIntegerEnv(
   SKILLOPT_CORE_EVALUATIONS,
 )
 const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', SKILLOPT_CORE_EVALUATIONS)
+
+// ── GEPA recipe selection ────────────────────────────────────────────────
+// GEPA composes engines through recipes. `engine` is one budgeted engine run;
+// the composed kinds run several. Every stage below uses the standard `gepa`
+// engine, so the provider key stays outside Python and reflection usage is
+// recorded exactly. The composed kinds need the tested GEPA source revision —
+// see docs/campaign-proposers.md ("Install official GEPA").
+const GEPA_RECIPE_KINDS = [
+  'engine',
+  'sequential',
+  'adaptive-sequential',
+  'best-of',
+  'vote',
+  'omni',
+] as const
+type GepaRecipeKind = (typeof GEPA_RECIPE_KINDS)[number]
+const GEPA_RECIPE = (process.env.GEPA_RECIPE || 'engine') as GepaRecipeKind
+if (!GEPA_RECIPE_KINDS.includes(GEPA_RECIPE)) {
+  throw new Error(`GEPA_RECIPE must be one of: ${GEPA_RECIPE_KINDS.join(', ')}`)
+}
+
+/** Split one evaluation and dollar budget across `stages` standard-engine runs. */
+function gepaStage(stages: number): GepaEngineRun {
+  return {
+    engine: 'gepa',
+    maxEvaluations: Math.max(1, Math.floor(GEPA_MAX_EVALUATIONS / stages)),
+    maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / stages,
+  }
+}
+
+function buildGepaRecipe(kind: GepaRecipeKind): GepaOptimizationRecipe {
+  switch (kind) {
+    case 'engine':
+      return { kind, run: gepaStage(1) }
+    case 'sequential':
+      return { kind, runs: [gepaStage(2), gepaStage(2)] }
+    case 'adaptive-sequential':
+      return {
+        kind,
+        runs: [
+          { engine: 'gepa', maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2 },
+          { engine: 'gepa', maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2 },
+        ],
+        maxEvaluations: GEPA_MAX_EVALUATIONS,
+        plateauEvaluations: Math.max(2, Math.floor(GEPA_MAX_EVALUATIONS / 4)),
+      }
+    case 'best-of':
+      return { kind, runs: [gepaStage(2), gepaStage(2)] }
+    case 'vote':
+      return { kind, runs: [gepaStage(2), gepaStage(2)] }
+    case 'omni':
+      return { kind, explore: [gepaStage(3), gepaStage(3)], continueWith: gepaStage(3) }
+  }
+}
 
 if (!API_KEY) {
   throw new Error('Set LLM_API_KEY, or TANGLE_API_KEY with TANGLE_ROUTER_URL, for the worker.')
@@ -177,14 +236,7 @@ function createMethods(owners: {
         background:
           'The candidate is the complete system prompt for a transaction extraction agent.',
         evaluationId: 'transaction-extraction',
-        recipe: {
-          kind: 'engine',
-          run: {
-            engine: 'gepa',
-            maxEvaluations: GEPA_MAX_EVALUATIONS,
-            maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
-          },
-        },
+        recipe: buildGepaRecipe(GEPA_RECIPE),
         optimizer: {
           model: GEPA_MODEL,
           ...owners.gepa!,

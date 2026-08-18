@@ -33,6 +33,10 @@ Total cost:           $0.000
 This is a wiring example, not statistical evidence.
 Only four tasks are held back, so do not use its release decision as a production threshold.
 
+The release decision comes from the held-out promotion gate, not from the search score.
+The gate holds a candidate that is byte-identical to the baseline, requires the bootstrap confidence interval on the paired holdout delta to clear the threshold, and refuses a candidate whose search-to-holdout gap says it won the optimizer but lost the exam.
+[`held-out-gate`](../held-out-gate/) walks each check with a promoting and a refused candidate.
+
 ## Adapt It
 
 - Replace `agent` with the product call you want to improve.
