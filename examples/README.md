@@ -23,6 +23,7 @@ pnpm tsx examples/evaluate-a-change/index.ts
 | Apply a release rule without any search | [`held-out-gate`](./held-out-gate/) | Offline |
 | Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
 | Record and compare scores over time | [`scorecard`](./scorecard/) | Offline |
+| Run the same cases across several profiles | [`profile-matrix`](./profile-matrix/) | Offline |
 
 ## Improve A Surface
 
@@ -44,6 +45,7 @@ pnpm tsx examples/compare-optimization-methods/index.ts
 
 Replace the example rates with the exact rates for your endpoint.
 Use `OPTIMIZERS=skillopt` for SkillOpt, or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
+Set `GEPA_RECIPE` to run a composed GEPA recipe — `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` — instead of one engine run.
 Read the [optimizer install instructions](./compare-optimization-methods/README.md) first.
 
 ## Prove A Result
@@ -52,6 +54,7 @@ Read the [optimizer install instructions](./compare-optimization-methods/README.
 |---|---|---|
 | Register the rules before the data arrives | [`sealed-experiment`](./sealed-experiment/) | Offline |
 | Certify a result that has no answer key | [`verify-without-an-answer-key`](./verify-without-an-answer-key/) | Offline |
+| Track reps, verdicts, and evidence per candidate | [`experiment-evidence`](./experiment-evidence/) | Offline |
 
 ## Read Existing Data
 

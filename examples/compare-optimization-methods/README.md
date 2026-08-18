@@ -51,6 +51,29 @@ Replace the example rates with the current exact endpoint rates.
 GEPA uses `LLM_MODEL` by default.
 Set `GEPA_MODEL` when reflection should use another model.
 
+### Choose a GEPA recipe
+
+`GEPA_RECIPE` selects how GEPA composes engine runs.
+The default, `engine`, is one budgeted run of the standard `gepa` engine.
+
+```sh
+GEPA_RECIPE=omni OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
+```
+
+| Kind | What runs |
+|---|---|
+| `engine` | One budgeted engine run. |
+| `sequential` | Engines in order; the best result across stages is kept. |
+| `adaptive-sequential` | Switch engines after a plateau, under one shared evaluation budget. |
+| `best-of` | Independent engines; the highest selection score wins. |
+| `vote` | Independent engines; GEPA's vote composition selects. |
+| `omni` | Best-of exploration, then one continuation from its winner. |
+
+The example splits `GEPA_MAX_EVALUATIONS` and `GEPA_MAX_PROPOSER_COST_USD` evenly across stages, so every recipe runs at the same total budget.
+Every stage uses the standard `gepa` engine, which keeps the provider key outside Python.
+The composed kinds require the tested GEPA source revision from the install step above; the published wheel supports `engine` only.
+[`docs/campaign-proposers.md`](../../docs/campaign-proposers.md) documents recipes, other engines, budgets, and resuming.
+
 ## Run SkillOpt
 
 ```sh
