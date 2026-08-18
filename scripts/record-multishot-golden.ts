@@ -60,8 +60,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** Every scenario answers from its own scripted transports. A capture that
  *  reaches the network is recording something the scenario does not control, so
- *  the call fails loud instead of leaving. The matrix path has the same guard
- *  through its judge wire. */
+ *  the call fails loud instead of freezing that value into the record. The
+ *  matrix path has the same guard through its judge wire. */
 function forbidNetwork(label: string): () => void {
   const previous = globalThis.fetch
   globalThis.fetch = (async (url: unknown) => {
@@ -100,8 +100,8 @@ function requireVersion(): string {
 }
 
 /** Load `<module>#<export>` relative to the repo root. The engine is never
- *  defaulted: after the loop is deleted this repository holds no conversation
- *  engine, and a script that silently picked one would record the wrong thing. */
+ *  defaulted: a version records whichever engine the caller names, and a script
+ *  that silently picked one would record the wrong thing. */
 async function loadEngine<T>(spec: string, flag: string): Promise<T> {
   const [modulePath, exportName] = spec.split('#')
   if (!modulePath || !exportName) {
