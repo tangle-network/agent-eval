@@ -3,11 +3,11 @@ import { classifyFailure } from '../src/failure-taxonomy'
 import {
   acquisitionPlansForKnowledgeGaps,
   blockingKnowledgeEval,
-  type KnowledgeRequirement,
   knowledgeReadinessTracePayload,
   scoreKnowledgeReadiness,
   userQuestionsForKnowledgeGaps,
-} from '../src/knowledge'
+} from '../src/knowledge/readiness'
+import type { KnowledgeRequirement } from '../src/knowledge/types'
 import type { Run, Span, TraceEvent } from '../src/trace/schema'
 
 function req(overrides: Partial<KnowledgeRequirement> = {}): KnowledgeRequirement {
