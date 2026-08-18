@@ -11,9 +11,10 @@
  * New here: the registered-rule AST and seal (`defineExperiment`,
  * `sealExperiment`, `openSealedExperiment`), cluster-aware power with a
  * refusal (`clusteredPower`), the denominator-chain object (`buildFunnel`),
- * and matched-budget verification (`verifyMatchedBudgets`). Everything
- * statistical underneath is re-exported from its existing home — this subpath
- * adds registration and refusal, not estimator forks.
+ * matched-budget verification (`verifyMatchedBudgets`), and content-attested
+ * evidence receipts that join Runtime pursuits/runs to independent evaluation.
+ * Everything statistical underneath is re-exported from its existing home —
+ * this subpath adds registration, refusal, and evidence identity, not estimator forks.
  *
  * Full doctrine: docs/experiment.md.
  */
@@ -183,6 +184,21 @@ export {
   sealExperiment,
   verifySealedExperiment,
 } from './define'
+// ── Runtime↔Eval evidence identity ───────────────────────────────────
+export {
+  type CreateEvidenceReceiptInput,
+  createEvidenceReceipt,
+  EVIDENCE_AUTHORITY_KINDS,
+  EVIDENCE_RECEIPT_VERSION,
+  type EvidenceAuthority,
+  type EvidenceAuthorityKind,
+  type EvidenceBinding,
+  type EvidenceReceipt,
+  type EvidenceReceiptVerification,
+  INDEPENDENT_EVIDENCE_AUTHORITY_KINDS,
+  isIndependentEvidence,
+  verifyEvidenceReceipt,
+} from './evidence-receipt'
 // ── Denominator chain ────────────────────────────────────────────────
 export {
   type AdmissionExecution,
