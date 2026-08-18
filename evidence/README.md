@@ -6,7 +6,7 @@ This directory is the canonical registry for measured claims about our agents, p
 ## The rule
 
 - **A measured claim that anyone will cite later gets a record here.**
-  One JSON file per claim in [`records/`](./records/), validated by the exported schema (`evidenceRecordSchema` from `@tangle-network/agent-eval/experiment`).
+  One JSON file per claim in [`records/`](./records/), validated by the exported schema (`evidenceRegistryRecordSchema` from `@tangle-network/agent-eval/experiment`).
 - **The registry lives in agent-eval** because the measurement substrate owns evidence legitimacy.
   Every other repo keeps at most a pointer file (`docs/EVIDENCE.md`, three lines: "measured results for this repo live in agent-eval `evidence/`; do not restate numbers here").
 - **Humans read [`INDEX.md`](./INDEX.md); machines read `records/*.json`.**

@@ -34,7 +34,7 @@ One repository still names three of them. `starter-foundry` imports `runAssertio
 
 ### Added
 
-<<<<<<< HEAD
+- The evidence registry: one canonical home for measured claims. `evidence/records/*.json` hold typed records (claim, instrument, exact command, arms, denominator, result, evidence state `CERTIFIED`/`MEASURED-ONCE`/`RESOLVED-NULL`/`UNVERIFIED`/`KILLED`, artifacts, cost, confounds, optional experiment seal digest), validated by `evidenceRecordSchema` from `./experiment`. `pnpm run evidence:render` generates `evidence/INDEX.md` from the records; `pnpm run evidence:check` (inside `verify:package`) fails on an invalid record or a stale index, so the human index can never drift from the data. Initial migration: seven records spanning trace-repair (gated-stop confirm, free-lunch), multishot (golden oracle v1), trace-analysis (GEPA-certified prompt, prime-vs-dspy), creative-cad, and vertical-bench (parity no-flip).
 - `@tangle-network/agent-eval/experiment` publishes the evidence receipt: `createEvidenceReceipt`, `verifyEvidenceReceipt`, `isIndependentEvidence`, `EVIDENCE_RECEIPT_VERSION`, `EVIDENCE_AUTHORITY_KINDS`, `INDEPENDENT_EVIDENCE_AUTHORITY_KINDS`, and the `EvidenceReceipt` / `EvidenceBinding` / `EvidenceAuthority` / `EvidenceAuthorityKind` / `EvidenceReceiptVerification` / `CreateEvidenceReceiptInput` types.
 
   A receipt binds one Runtime execution to the measurement that judged it, without either package importing the other. It carries stable pursuit and run identity, the exact candidate, evaluator, environment, input-set and output content identities, the result digest, and the authority class that made the observation. The payload is attested with the existing canonical report attestation, so mutating any bound field invalidates the receipt.
@@ -50,10 +50,6 @@ One repository still names three of them. `starter-foundry` imports `runAssertio
 ### Changed
 
 - No existing export changed.
-=======
-- The evidence registry: one canonical home for measured claims. `evidence/records/*.json` hold typed records (claim, instrument, exact command, arms, denominator, result, evidence state `CERTIFIED`/`MEASURED-ONCE`/`RESOLVED-NULL`/`UNVERIFIED`/`KILLED`, artifacts, cost, confounds, optional experiment seal digest), validated by `evidenceRecordSchema` from `./experiment`. `pnpm run evidence:render` generates `evidence/INDEX.md` from the records; `pnpm run evidence:check` (inside `verify:package`) fails on an invalid record or a stale index, so the human index can never drift from the data. Initial migration: seven records spanning trace-repair (gated-stop confirm, free-lunch), multishot (golden oracle v1), trace-analysis (GEPA-certified prompt, prime-vs-dspy), creative-cad, and vertical-bench (parity no-flip).
-- Add a bounded `SearchHistoryReceipt` over the canonical `SearchLedger`, plus search-history coverage and `searchHistoryPolicy: 'require-complete'` on `compareOptimizationMethods()`. Strict mode refuses missing or denominator-incomplete optimization evidence before untouched-final-test scoring. Rich events remain only in the ledger.
->>>>>>> 14322f5d (feat(experiment): add the evidence registry — one home for measured claims)
 
 ---
 

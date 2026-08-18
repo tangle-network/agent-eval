@@ -56,6 +56,13 @@ describe('evidenceRegistryRecordSchema', () => {
   it('rejects a negative cost', () => {
     expect(() => parseEvidenceRegistryRecord({ ...valid, costUsd: -1 })).toThrow()
   })
+
+  it('rejects a zero or negative denominator', () => {
+    expect(() => parseEvidenceRegistryRecord({ ...valid, n: { value: 0, unit: 'rows' } })).toThrow()
+    expect(() =>
+      parseEvidenceRegistryRecord({ ...valid, n: { value: -5, unit: 'rows' } }),
+    ).toThrow()
+  })
 })
 
 describe('validateEvidenceRegistry', () => {

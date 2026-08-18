@@ -51,7 +51,7 @@ const sha256Pattern = /^[0-9a-f]{64}$/
 
 /** Denominator of the measurement. A claim without an `n` is prose, not evidence. */
 export const evidenceDenominatorSchema = z.strictObject({
-  value: z.number().finite(),
+  value: z.number().positive().finite(),
   /** What one unit is: rows, cases, rollouts, records, leaves… */
   unit: z.string().min(1),
   /** Clustering, reps, split names — whatever the bare number hides. */
