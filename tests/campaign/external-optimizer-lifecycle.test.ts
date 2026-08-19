@@ -38,6 +38,22 @@ describe('external optimizer server lifecycle', () => {
     expect(activeEvaluations).toBe(0)
   })
 
+  it('carries the thrown detail in the evaluation-failed 500 body', async () => {
+    const callback = await startExternalOptimizerCallback({
+      token: 'secret',
+      maxEvaluations: 1,
+      evaluate: async () => {
+        throw new Error('router 503 after 3 attempts')
+      },
+    })
+    const response = await postEvaluation(callback.url, callback.token)
+    const body = (await response.json()) as { error: string }
+    await callback.close()
+
+    expect(response.status).toBe(500)
+    expect(body.error).toContain('router 503 after 3 attempts')
+  })
+
   it('closes the callback and aborts active evaluation work with the owner signal', async () => {
     const owner = new AbortController()
     const started = deferred<void>()

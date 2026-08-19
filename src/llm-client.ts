@@ -349,7 +349,10 @@ function providerTokenCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
-const RETRYABLE_STATUS = new Set([429, 502, 503, 504])
+// 522/524: Cloudflare edge timeouts (origin connect/respond) — transient
+// exactly like 504. Router deployments serve through Cloudflare, so a long
+// non-streaming call can draw these from the edge, not the origin.
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504, 522, 524])
 
 /**
  * Transient transport/network error signatures, matched against an error's

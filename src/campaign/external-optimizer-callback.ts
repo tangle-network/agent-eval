@@ -179,7 +179,7 @@ async function handleCallback<TResponse>(
     let result: TResponse
     try {
       result = await args.evaluate({ candidate, exampleId: body.exampleId }, signal)
-    } catch {
+    } catch (error) {
       observe({
         kind: 'refusal',
         reason: 'evaluation-failed',
@@ -187,7 +187,11 @@ async function handleCallback<TResponse>(
         candidateHash,
         exampleId: body.exampleId,
       })
-      sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
+      // The thrown detail is the only diagnostic for a failed evaluation —
+      // an opaque 500 costs the caller a blind debugging round.
+      sendJsonIfOpen(response, 500, {
+        error: `evaluation failed: ${String(error).slice(0, 400)}`,
+      })
       return
     }
     let encoded: string
