@@ -1,0 +1,29 @@
+{
+  "id": "tb-repair-free-lunch",
+  "date": "2026-08-10",
+  "claim": "Unconditional continuation from the recorded end state with a real model budget (no analyst, no hint, no gate) rescues failed TB-Repair rows, so admission condition 3 has a free lunch to subtract.",
+  "domain": "trace-repair",
+  "instrument": "tb-repair-freelunch runner: pinned mini-swe-agent continuation policy, network none inside the continuation container, deterministic oracle grading, servedModel check per pass",
+  "command": "bash ~/bench-cache/freelunch-20260810/run3.sh -> tsx scripts/tb-repair-freelunch.ts (policy tb-repair-continuation-v1, glm-5.2 pinned, seed 20260810, $10 ceiling)",
+  "arms": ["zero-call-control", "budgeted-continuation"],
+  "n": {
+    "value": 64,
+    "unit": "rollouts",
+    "detail": "32 prefix-faithful rows x uniform n=2; denominator chain 48 evaluated -> 43 deterministic oracle -> 35 clean exit -> 32 prefix-fidelity ok"
+  },
+  "result": "3 of 64 rollouts rescued (4.7%); 2 of 32 rows rescued at least once (6.2%). Zero-call control: 0 passes in 96 rollouts. Exit statuses: 15 submitted, 46 step-budget-exhausted, 3 model-error.",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "docs/trace-repair-free-lunch.md",
+    "~/bench-cache/freelunch-20260810/ (freelunch-pass1.json, freelunch-pass2.json, rollouts.jsonl, PREREG.md, status.txt)",
+    "https://github.com/tangle-network/agent-eval/pull/558"
+  ],
+  "costUsd": 9.64,
+  "confounds": [
+    "one full pass was served a substituted model (deepseek-v3.2 request answered as deepseek-v4-flash) and was aborted pre-count; only glm-5.2-served rollouts are in the denominator",
+    "uniform n stopped at 2 because a third pass would cross the $10 ceiling",
+    "3 prefix-divergent rows quarantined to a secondary set and excluded from the primary denominator"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "The free-lunch rate is the floor any repair intervention must beat; it is subtracted, not celebrated."
+}

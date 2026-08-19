@@ -1,0 +1,29 @@
+{
+  "id": "ctb-analyst-gepa-certified-prompt",
+  "date": "2026-08-02",
+  "claim": "The GEPA-optimized DSPy-RLM analyst prompt (sha d3829fb8) is the certified shipping prompt on CodeTraceBench: challengers lose on pooled sealed splits under the pre-registered rule.",
+  "domain": "trace-analysis",
+  "instrument": "sealed certification runs: pre-registration written before the winner was known, pooled OH-cert32 + T2-cert32 sealed splits, scored micro-F1 against human step labels, paired CIs",
+  "command": "gepa-analyst-campaign certification phase: 4 serial runs, 2 reps, mutex-held seat (see .evolve/certification-2026-08-02-preregistration.md for the registered rule)",
+  "arms": ["stock-d3829fb8", "g2-challenger-1bb303e7"],
+  "n": {
+    "value": 64,
+    "unit": "sealed cases",
+    "detail": "OH-cert32 + T2-cert32, 2 reps (128 case-runs; G2 failed 3/128, stock 0/128); both cert32 splits spent for this config family"
+  },
+  "result": "G2 REJECTED by rule 1: pooled-cert micro-F1 stock 0.2489 vs G2 0.1928 (-5.6pp). Per-family stock OH 0.2896 / T2 0.2162. Paired CIs [-0.126, 0.058] OH, [-0.143, 0.023] T2. G2's selection-split edge (+0.064 weighted) did not transfer - third consecutive tuning-split-vs-fresh-split reversal in the campaign. The shipping prompt stands, defended twice (round-1 and round-2 challengers).",
+  "evidenceState": "CERTIFIED",
+  "artifacts": [
+    "~/bench-cache/ctb-20260801/cert2/ (4 result.json + logs + winner-instructions.txt)",
+    ".evolve/certification-2026-08-02-preregistration.md",
+    ".evolve/experiments.jsonl (arm cert2-stock-vs-g2)"
+  ],
+  "costUsd": 31.07,
+  "confounds": [
+    "cross-family gap is the dominant residual: shipping analyst OH 0.29 / T2 0.22 vs mini-SWE wide 0.56-0.63 (~2x), later diagnosed as localization (far-class mass), not prompt quality",
+    "gold-mass-weighted selection metric recorded as overfit-prone at n=12",
+    "CodeTraceBench frozen as an optimization target on 2026-08-04: ~60% of residual misses are missing labels (H1, n=20 adjudication), so absolute F1 under-reads the analyst"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "Companion baseline: dev-pool scored-F1 baseline for the dspy-rlm analyst stack is 32.73%/30.99% (retired direct runner excluded). Prime-agent comparison against these stored baselines is recorded separately (prime-vs-dspy-analyst-38-rows)."
+}

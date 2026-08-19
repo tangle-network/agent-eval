@@ -1,0 +1,28 @@
+{
+  "id": "multishot-golden-oracle-v1",
+  "date": "2026-08-16",
+  "claim": "The multishot loop's behaviour is frozen as deterministic golden records that any engine can be verified against, and the records are load-bearing: they detect every field-level and engine-level deviation.",
+  "domain": "multishot",
+  "instrument": "golden-record oracle: scripted transports and executors, request ledger + outcome per scenario, double capture with mandatory agreement, exhaustive single-field mutation and engine-mutant detection in the suite",
+  "command": "pnpm vitest run src/multishot/golden/golden.test.ts",
+  "arms": ["recorded-loop-v1", "candidate-engine"],
+  "n": {
+    "value": 14,
+    "unit": "records",
+    "detail": "13 shot scenarios + 1 matrix scenario, each captured twice with agreement required; v1 captured from the loop at 0.145.21"
+  },
+  "result": "Consumer parity proven before freezing: tax 4/4 deep-equal, gtm 4/4 shot-level and 8/8 matrix-level. Oracle load-bearing: every single leaf of {outcome, requests} (and {matrix, requests, judgeRequests, files}) mutated one at a time is reported for all 14 records; 8/8 engine mutants detected, each naming the deviating field.",
+  "evidenceState": "CERTIFIED",
+  "artifacts": [
+    "src/multishot/golden/records/v1.json",
+    "src/multishot/golden/golden.test.ts",
+    "docs/multishot-golden-records.md",
+    "https://github.com/tangle-network/agent-eval/pull/627"
+  ],
+  "costUsd": 0,
+  "confounds": [
+    "deterministic-only coverage: scripted transports, fixed personas and budgets; live-provider behaviour (latency, substitution, SSE faults) is out of the oracle's scope by design"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "CERTIFIED because the check re-runs on every suite run and records are frozen: the recorder refuses to overwrite a version, so a behaviour change mints a new version file and the diff is the reviewable evidence. Later consumer parity counts quoted as 14/14 and 15/15 live in the loop-retention PR chain (#617 and its consumers) - PR-comment-only until migrated here."
+}

@@ -1,0 +1,29 @@
+{
+  "id": "vb-cell-engine-parity-no-flip",
+  "date": "2026-08-15",
+  "claim": "The VerticalBench graph cell-engine reaches behavioural parity with the loop cell-engine on a live cell, so the default engine can flip to the graph.",
+  "domain": "vertical-bench",
+  "instrument": "instrumented live parity cell: tempo-payments tempo-tip20-balance-viewer, opencode glm-5.3 (router-served id verified), shots=2, verify=full, judges deepseek-v4-flash, identical env across arms",
+  "command": "blueprint-agent experiments harness, parity phase 3 of tangle-network/agent-runtime#694 (loop arm + four instrumented graph attempts)",
+  "arms": ["loop-cell-engine", "graph-cell-engine"],
+  "n": {
+    "value": 1,
+    "unit": "leaf",
+    "detail": "1 rep per arm; 4 instrumented graph cycles, each archived with its defect"
+  },
+  "result": "NO FLIP. Parity holds on dispatched shot-1 prompt (byte-identical), realness-firewall activation, verification score on the same graded state (blended 0.31 both arms), and toolchain detection. Parity fails on coder turn depth (graph settles recon-only in ~3-4m vs the loop working the full 30m wall; opencode SSE errored 2/4 cells), fixed-budget adherence (structural in the loop vs probabilistic in the graph: 1/3 post-contract cells dispatched shot 2), and board classification (loop 2/2 fair attempts, graph 0/2 - quarantined, never silently scored).",
+  "evidenceState": "RESOLVED-NULL",
+  "artifacts": [
+    "blueprint-agent: scripts/experiments/results/p3-parity-20260815/ (loop + four graph attempts, each archived with its defect)",
+    "https://github.com/tangle-network/blueprint-agent/pull/2330"
+  ],
+  "costUsd": null,
+  "confounds": [
+    "n=1 leaf, 1 rep per arm; stochastic model trajectories",
+    "arms ran hours apart on a live provider",
+    "the loop's cells were wall-capped at 30m, so its 0.31 grades a half-build",
+    "glm-5.3 had no rate in SANDBOX_MODEL_COSTS/cost-estimator at run time, so spend did not accumulate against caps (left loud, not guessed)"
+  ],
+  "sourceRepo": "blueprint-agent",
+  "notes": "Two structural gaps block the flip and are named in the engine header: TODO(graph-cell/bridge-turn-depth) and TODO(graph-cell/fixed-budget-adherence). The flip is one line once both close. Until this registry, these numbers lived only in the PR body."
+}

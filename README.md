@@ -12,6 +12,8 @@ Model calls happen only through the clients and agents you configure.
 
 New to the package? Read [concepts](./docs/concepts.md) first — it takes five minutes and defines every word used here.
 
+Looking for a measured result (a lift, a null, a parity verdict)? The canonical registry is [`evidence/`](./evidence/README.md) — machine-readable records, a generated index, and a freshness gate.
+
 ## Install
 
 ```sh
