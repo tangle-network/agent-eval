@@ -11,6 +11,15 @@ Use it for caller-defined logic, an agent-runtime worker, or declared parameter 
 Do not wrap a complete external optimizer in `SurfaceProposer`.
 That would split its search state from its own selection behavior and make budgets harder to compare.
 
+## Choose The Entry Point
+
+An `OptimizationMethod` plugs into exactly two entry points.
+`selfImprove()` from `/contract` is the improvement entry: one call gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
+Use it when one surface must get better.
+`compareOptimizationMethods()` from `/campaign` is the measurement entry: it gives every method equal inputs and scores the selected surfaces on final cases no method received.
+Use it when two or more methods must be compared at equal budget.
+Runnable versions: [`examples/self-improve-optimizer`](../examples/self-improve-optimizer/) and [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
+
 ## Adapt A Third-Party Text Optimizer
 
 `externalTextOptimizationMethod()` is the general adapter for a package that already owns text or component search.
