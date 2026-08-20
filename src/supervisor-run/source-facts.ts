@@ -254,6 +254,13 @@ export interface SupervisorTreeFacts {
   readonly state: Record<string, unknown> | null
   readonly startedAt: number | null
   readonly completedAt: number | null
+  /**
+   * First and last stamped tree events (spawned / settled / cancelled /
+   * metered) in the journal — the bounds of observed activity. They derive a
+   * lower-bound wall for a store that writes no completion stamp.
+   */
+  readonly firstEventAt: number | null
+  readonly lastEventAt: number | null
 }
 
 interface VerdictFacts {
@@ -403,7 +410,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   let unreadableRows = 0
   const ignoredByKind = new Map<string, number>()
   const dialectsSeen = new Set<JournalRowDialect>()
-  const meteredRows: Array<{ id: string; spend: SpendLike }> = []
+  const meteredRows: Array<{ id: string; spend: SpendLike; at: number | null }> = []
   for (const [sourceRow, row] of events.entries()) {
     const reading = readJournalRow(row)
     if (reading.outcome === 'unreadable') {
@@ -499,7 +506,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     } else if (kind === 'metered') {
       // Deferred: rows are attributed after the loop, once the root is known, so a metered
       // event that precedes the root spawn is never misattributed.
-      meteredRows.push({ id, spend: readSpend(ev.spend) })
+      meteredRows.push({ id, spend: readSpend(ev.spend), at: ms(ev.at) })
     } else {
       // `TREE_EVENT_KINDS` and these branches are one contract: adding a kind to the set
       // without a branch here would silently drop its rows, which is the defect this
@@ -646,6 +653,17 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   const rootClose = rootId === null ? null : closes.find((close) => close.id === rootId)
   const completedAt = ms(state?.completedAt) ?? rootClose?.at ?? null
 
+  let firstEventAt: number | null = null
+  let lastEventAt: number | null = null
+  const widenEventSpan = (at: number | null): void => {
+    if (at === null) return
+    if (firstEventAt === null || at < firstEventAt) firstEventAt = at
+    if (lastEventAt === null || at > lastEventAt) lastEventAt = at
+  }
+  for (const spawn of spawns) widenEventSpan(spawn.at)
+  for (const close of closes) widenEventSpan(close.at)
+  for (const metered of meteredRows) widenEventSpan(metered.at)
+
   return {
     rootId,
     spawns,
@@ -672,5 +690,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     state,
     startedAt,
     completedAt,
+    firstEventAt,
+    lastEventAt,
   }
 }

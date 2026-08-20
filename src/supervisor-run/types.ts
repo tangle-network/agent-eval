@@ -25,6 +25,7 @@
  */
 
 import type { RolloutLine } from '../rollout/schema'
+import type { SeriesDistribution } from '../statistics'
 
 // ---------------------------------------------------------------------------
 // Unavailable-aware metric type.
@@ -145,6 +146,12 @@ export interface SupervisorRunSources {
    * settled `verdict` may be a legacy string or `{ valid, score, ... }`.
    */
   readonly journal: string | null
+  /**
+   * Source-specific reason `journal` is null. The analyzer uses it verbatim as
+   * the `unavailable` reason on every journal-dependent metric, so a non-loops
+   * layout names its own journal file instead of inheriting the loops paths.
+   */
+  readonly journalMissingReason?: string
   /** Per-brain-call tap (JSONL): finish_reason, completion tokens, requested max tokens. */
   readonly brainLog: string | null
   /** Source-specific reason `brainLog` is absent. */
@@ -254,6 +261,15 @@ export interface OrchestrationMetrics {
   readonly delegationDepth: Measured<number>
   readonly timeToFirstSpawnMs: Measured<number>
   readonly supervisorWallMs: Measured<number>
+  /**
+   * Which measurement `supervisorWallMs` holds — never a silent substitution.
+   * `stamps`: explicit start and completion stamps. `journal-span`: the start
+   * stamp (or first stamped event) to the last stamped journal event — a
+   * lower bound, derived when the store wrote no completion stamp. `idleMs`,
+   * `idlePct`, and `workerUtilization` cover the same span. Unavailable
+   * exactly when `supervisorWallMs` is, with the same reason.
+   */
+  readonly supervisorWallSource: Measured<'stamps' | 'journal-span'>
   /** Wall time inside the supervisor run with ZERO live workers. */
   readonly idleMs: Measured<number>
   readonly idlePct: Measured<number>
@@ -320,13 +336,35 @@ export interface PerWorkerRow {
   readonly score: number | null
 }
 
-export interface WallDistribution {
-  readonly n: number
-  readonly min: number
-  readonly p50: number
-  readonly p90: number
-  readonly max: number
-  readonly sum: number
+/**
+ * `SeriesDistribution` (from `../statistics`) over per-worker wall
+ * milliseconds. The fold itself is `summarizeNumberSeries`, exported for any
+ * series — fleet wall medians, tokens-per-claim spreads — not only wall.
+ */
+export type WallDistribution = SeriesDistribution
+
+/** One spend measurement and the number of source records behind it. */
+export interface SpendMeasurement {
+  readonly usd: Measured<number>
+  /** Source records folded into `usd`; 0 when the measurement is unavailable. */
+  readonly records: number
+}
+
+/**
+ * The run's total inference spend, measured two ways.
+ *
+ * `closeRecord` is the spend the store recorded as settled when the run
+ * closed (loops `state.json` `result.spentUsd`; Runtime `result.json`
+ * `spentTotal.usd`) — the billing-shaped answer. `journalDerived` is the
+ * spend execution observably consumed (journal `metered` + `settled` rows) —
+ * the execution-accounting answer. Neither is canonical for the other's
+ * question. The two cover different records at different moments, so
+ * divergence between them is itself a signal (a dropped settlement, a
+ * double meter, spend after the close) — read it, never average it away.
+ */
+export interface SpendMeasurements {
+  readonly journalDerived: SpendMeasurement
+  readonly closeRecord: SpendMeasurement
 }
 
 export interface EconomicsMetrics {
@@ -342,6 +380,14 @@ export interface EconomicsMetrics {
   readonly brainTruncations: Measured<number>
   /** Worker inference — journal `settled` spend plus the harness session join. */
   readonly workers: RoleSpend
+  /** Both total-spend measurements, each with its own record count. */
+  readonly spend: SpendMeasurements
+  /**
+   * One collapsed number kept for existing consumers: the close record when
+   * the store wrote one, else the journal-derived sum. `totalUsdSource` names
+   * the pick. Prefer `spend` — the collapse hides which accounting question
+   * the number answers.
+   */
   readonly totalUsd: Measured<number>
   /**
    * Where `totalUsd` came from. CLI-backend workers never price their own inference into
@@ -418,7 +464,21 @@ export interface SupervisorRunRollup {
   readonly idlePctMean: Measured<number>
   readonly workersSpawnedTotal: Measured<number>
   readonly acceptedTotal: Measured<number>
+  /**
+   * Sum of the per-run collapsed `totalUsd`. Prefer `spendUsd`: this total
+   * mixes close-record and journal-derived cells without saying which.
+   */
   readonly usdTotal: Measured<number>
+  /**
+   * Fleet spend measured two ways. `runs` is each measurement's own
+   * denominator — the cells where that measurement was available. The two
+   * sums cover different run sets, so comparing the values without their
+   * denominators manufactures a phantom divergence.
+   */
+  readonly spendUsd: {
+    readonly journalDerived: { readonly value: Measured<number>; readonly runs: number }
+    readonly closeRecord: { readonly value: Measured<number>; readonly runs: number }
+  }
   readonly resolvedCount: Measured<number>
   readonly perCell: readonly RollupCellRow[]
 }

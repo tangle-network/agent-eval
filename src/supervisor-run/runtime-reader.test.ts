@@ -455,8 +455,15 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(report.economics.workers.tokensIn).toBe(25)
     expect(report.economics.workers.tokensOut).toBe(5)
     expect(report.economics.totalUsd).toBe(0.035)
+    // Two spend measurements: journal metered + settled (2 records) and the
+    // result.json spentTotal close record (1 record). They agree on this run.
+    expect(report.economics.spend.journalDerived).toEqual({ usd: 0.035, records: 2 })
+    expect(report.economics.spend.closeRecord).toEqual({ usd: 0.035, records: 1 })
     expect(report.outcome.supStatus).toBe('completed')
-    expect(isUnavailable(report.orchestration.supervisorWallMs)).toBe(true)
+    // No completion stamp in Runtime's layout: the wall derives from the
+    // journal event span (begin at(0) → child settled at(4)) and says so.
+    expect(report.orchestration.supervisorWallMs).toBe(4_000)
+    expect(report.orchestration.supervisorWallSource).toBe('journal-span')
 
     if (isUnavailable(report.economics.perWorker)) {
       throw new Error(report.economics.perWorker.unavailable)
@@ -577,7 +584,9 @@ describe('Runtime FileRunContext supervisor reader', () => {
 
     const report = await analyzeSupervisorRun(runDir)
     expect(isUnavailable(report.outcome.supStatus)).toBe(true)
-    expect(isUnavailable(report.orchestration.supervisorWallMs)).toBe(true)
+    // The metered row at at(1) is the last stamped event, so it widens the span.
+    expect(report.orchestration.supervisorWallMs).toBe(1_000)
+    expect(report.orchestration.supervisorWallSource).toBe('journal-span')
     expect(report.economics.brain.tokensIn).toBe(8)
     expect(report.economics.totalUsd).toBe(0.004)
     expect(report.orchestration.workersSpawned).toBe(0)
@@ -903,5 +912,54 @@ describe('Runtime FileRunContext supervisor reader', () => {
     await expect(readRuntimeSupervisorRun(runDir)).rejects.toThrow(
       /expected one top-level tree, found 2/,
     )
+  })
+})
+
+describe('journal-less Runtime run dirs — absence is a modeled result', () => {
+  it('returns the loops-shaped absent sources instead of throwing', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'journal-less')
+    await mkdir(runDir, { recursive: true })
+
+    const source = await readRuntimeSupervisorRun(runDir)
+    expect(source.journal).toBeNull()
+    expect(source.supRunDir).toBeNull()
+    expect(source.workers).toBeNull()
+    expect(source.instanceId).toBeNull()
+    expect(source.journalMissingReason).toBe(
+      `no Runtime spawn journal (spawn-journal.jsonl) under ${runDir}`,
+    )
+    expect(source.workersMissingReason).toBe(source.journalMissingReason)
+
+    const report = analyzeSupervisorRunSources(source)
+    expect(report.orchestration.workersSpawned).toEqual({
+      unavailable: `no Runtime spawn journal (spawn-journal.jsonl) under ${runDir}`,
+    })
+    expect(isUnavailable(report.orchestration.supervisorWallMs)).toBe(true)
+    expect(isUnavailable(report.economics.totalUsd)).toBe(true)
+    expect(isUnavailable(report.economics.brain.tokensIn)).toBe(true)
+    expect(report.gaps.length).toBeGreaterThan(0)
+  })
+
+  it('still reads a result.json the journal-less run dir carries', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'journal-less-with-result')
+    await mkdir(runDir, { recursive: true })
+    await writeFile(
+      join(runDir, 'result.json'),
+      JSON.stringify({ kind: 'completed', tree: { root: 'orphan-root', nodes: [] } }),
+    )
+
+    const source = await readRuntimeSupervisorRun(runDir)
+    expect(source.journal).toBeNull()
+    expect(source.result).toContain('"kind":"completed"')
+  })
+
+  it('throws on the missing journal when strict is set', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'strict-journal-less')
+    await mkdir(runDir, { recursive: true })
+
+    await expect(readRuntimeSupervisorRun(runDir, { strict: true })).rejects.toThrow(/ENOENT/)
   })
 })

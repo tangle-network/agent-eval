@@ -5,6 +5,7 @@
  * (`loops-reader.ts` is one).
  */
 
+import { summarizeNumberSeries } from '../statistics'
 import {
   asRecord,
   parseJson,
@@ -24,6 +25,7 @@ import {
   type PatchStats,
   type PerWorkerRow,
   type RollupCellRow,
+  type SpendMeasurements,
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
@@ -69,9 +71,10 @@ export function analyzeSupervisorRunSources(
   }
 
   const journalMissing =
-    src.supRunDir === null
+    src.journalMissingReason ??
+    (src.supRunDir === null
       ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
-      : 'journal.jsonl absent'
+      : 'journal.jsonl absent')
   const haveJournal = src.journal !== null
   const tree = parseSupervisorTree(src)
   const state = tree.state
@@ -101,12 +104,36 @@ export function analyzeSupervisorRunSources(
     return matches.length === 1 ? (matches[0] ?? null) : null
   }
 
-  const supervisorWallMs: Measured<number> =
-    startedAt !== null && completedAt !== null && completedAt >= startedAt
-      ? completedAt - startedAt
-      : !haveJournal
-        ? gap('supervisorWallMs', journalMissing)
-        : gap('supervisorWallMs', 'no parseable start/complete timestamps in state.json or journal')
+  // Wall provenance: explicit stamps when the store wrote both; otherwise the
+  // journal event span (a lower bound) when there is no completion stamp at
+  // all. A present-but-inverted stamp pair is corruption, not absence, and
+  // stays unavailable.
+  const wallSpanStart = startedAt ?? tree.firstEventAt
+  const wallSpanEnd = tree.lastEventAt
+  let supervisorWallMs: Measured<number>
+  let supervisorWallSource: Measured<'stamps' | 'journal-span'>
+  if (startedAt !== null && completedAt !== null && completedAt >= startedAt) {
+    supervisorWallMs = completedAt - startedAt
+    supervisorWallSource = 'stamps'
+  } else if (
+    completedAt === null &&
+    wallSpanStart !== null &&
+    wallSpanEnd !== null &&
+    wallSpanEnd >= wallSpanStart
+  ) {
+    supervisorWallMs = wallSpanEnd - wallSpanStart
+    supervisorWallSource = 'journal-span'
+  } else {
+    const reason = !haveJournal
+      ? journalMissing
+      : 'no parseable start/complete timestamps in state.json or journal'
+    supervisorWallMs = gap('supervisorWallMs', reason)
+    supervisorWallSource = unavailable(reason)
+  }
+  // Where the measured wall ends — the completion stamp, or the last stamped
+  // journal event on the journal-span path. Idle and utilization integrate to
+  // this bound so their denominator is the wall they are reported against.
+  const wallEndAt = completedAt ?? (supervisorWallSource === 'journal-span' ? wallSpanEnd : null)
 
   // ── steers (worker inbox + control events) ─────────────────────────────
   const steerRows: SteerBreakdown[] = []
@@ -211,8 +238,8 @@ export function analyzeSupervisorRunSources(
     if (live > maxConcurrency) maxConcurrency = live
     prev = step.at
   }
-  if (prev !== null && completedAt !== null && completedAt >= prev) {
-    const span = completedAt - prev
+  if (prev !== null && wallEndAt !== null && wallEndAt >= prev) {
+    const span = wallEndAt - prev
     if (live === 0) idleMs += span
     sumWorkerWallMs += span * live
   }
@@ -307,6 +334,7 @@ export function analyzeSupervisorRunSources(
           ? unavailable('no worker spawn timestamps')
           : unavailable(journalMissing),
     supervisorWallMs,
+    supervisorWallSource,
     idleMs: isUnavailable(supervisorWallMs) ? unavailable(supervisorWallMs.unavailable) : idleMs,
     idlePct:
       isUnavailable(supervisorWallMs) || supervisorWallMs === 0
@@ -454,6 +482,13 @@ export function analyzeSupervisorRunSources(
 
   const stateResult = asRecord(state?.result)
   const stateUsd = typeof stateResult.spentUsd === 'number' ? stateResult.spentUsd : null
+  const resultSpentTotal = asRecord(result?.spentTotal)
+  const resultCloseUsd =
+    typeof resultSpentTotal.usd === 'number' && Number.isFinite(resultSpentTotal.usd)
+      ? resultSpentTotal.usd
+      : null
+  // The close record: what the store wrote as settled when the run closed.
+  const closeUsd = stateUsd ?? resultCloseUsd
   // A store that logs tokens but never a price yields usd 0 from every sum. That
   // 0 is the store's silence, not a free run, so the limit outranks the sum.
   const usdLimit = src.limits.spendUsd
@@ -465,6 +500,28 @@ export function analyzeSupervisorRunSources(
         : haveJournal
           ? round(tree.brain.usd + journalWorkerUsd, 6)
           : gap('totalUsd', journalMissing)
+
+  const journalSpendRecords =
+    tree.brain.meteredCount + rootChildCloses.filter((close) => close.hasSpend).length
+  const journalDerivedAvailable = usdLimit === null && haveJournal
+  const closeRecordAvailable = usdLimit === null && closeUsd !== null
+  const spend: SpendMeasurements = {
+    journalDerived: {
+      usd: journalDerivedAvailable
+        ? round(tree.brain.usd + journalWorkerUsd, 6)
+        : unavailable(usdLimit ?? journalMissing),
+      records: journalDerivedAvailable ? journalSpendRecords : 0,
+    },
+    closeRecord: {
+      usd: closeRecordAvailable
+        ? round(closeUsd as number, 6)
+        : unavailable(
+            usdLimit ??
+              'no close record: neither state.json result.spentUsd nor result.json spentTotal.usd is present',
+          ),
+      records: closeRecordAvailable ? 1 : 0,
+    },
+  }
 
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
     const f = tree.workerLogs.get(workerSourceKey(w))
@@ -507,10 +564,9 @@ export function analyzeSupervisorRunSources(
       score: close?.score ?? f?.score ?? null,
     }
   })
-  const walls = perWorker
-    .map((w) => w.wallMs)
-    .filter((w): w is number => w !== null)
-    .sort((a, b) => a - b)
+  const wallDistribution = summarizeNumberSeries(
+    perWorker.map((w) => w.wallMs).filter((w): w is number => w !== null),
+  )
 
   const brainCalls = parseJsonl(src.brainLog)
   const managerTokenLimit = src.limits.managerTokens
@@ -592,6 +648,7 @@ export function analyzeSupervisorRunSources(
             ? `journal settled spend + ${sq.store} sessions (n=${sq.sessions})`
             : `journal settled spend only — ${src.harnessMissingReason ?? 'harness session store unavailable'}`,
     },
+    spend,
     totalUsd,
     totalUsdSource:
       usdLimit !== null
@@ -609,18 +666,11 @@ export function analyzeSupervisorRunSources(
           ? unavailable('no accepted worker patch (cost has no denominator)')
           : round(totalUsd / decision.accepted, 6),
     workerWallMsDistribution:
-      walls.length === 0
+      wallDistribution === null
         ? unavailable(
             src.workers === null ? workersGapReason : 'no worker start/finish pairs captured',
           )
-        : {
-            n: walls.length,
-            min: walls[0] as number,
-            p50: quantile(walls, 0.5),
-            p90: quantile(walls, 0.9),
-            max: walls[walls.length - 1] as number,
-            sum: walls.reduce((a, b) => a + b, 0),
-          },
+        : wallDistribution,
     perWorker: src.workers === null ? unavailable(workersGapReason) : perWorker,
   }
 
@@ -734,12 +784,6 @@ export function round(v: number, digits: number): number {
   return Math.round(v * f) / f
 }
 
-function quantile(sorted: readonly number[], q: number): number {
-  if (sorted.length === 0) return 0
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))
-  return sorted[idx] as number
-}
-
 /** Unified-diff stats. Counts `+++ b/<path>` targets, body +/- lines, and test-file touches. */
 export function parsePatch(text: string): PatchStats {
   const files = new Set<string>()
@@ -799,6 +843,8 @@ export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): S
   const spawnVals = known(reports.map((r) => r.orchestration.workersSpawned))
   const acceptVals = known(reports.map((r) => r.decision.accepted))
   const usdVals = known(reports.map((r) => r.economics.totalUsd))
+  const journalSpendVals = known(reports.map((r) => r.economics.spend.journalDerived.usd))
+  const closeSpendVals = known(reports.map((r) => r.economics.spend.closeRecord.usd))
   const resolvedVals = known(reports.map((r) => r.outcome.judgeResolved))
   const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0)
   const mean = (xs: readonly number[]): Measured<number> =>
@@ -835,6 +881,22 @@ export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): S
     acceptedTotal:
       acceptVals.length === 0 ? unavailable('no cell reported acceptance') : sum(acceptVals),
     usdTotal: usdVals.length === 0 ? unavailable('no cell reported spend') : round(sum(usdVals), 6),
+    spendUsd: {
+      journalDerived: {
+        value:
+          journalSpendVals.length === 0
+            ? unavailable('no cell measured journal-derived spend')
+            : round(sum(journalSpendVals), 6),
+        runs: journalSpendVals.length,
+      },
+      closeRecord: {
+        value:
+          closeSpendVals.length === 0
+            ? unavailable('no cell carried a close record')
+            : round(sum(closeSpendVals), 6),
+        runs: closeSpendVals.length,
+      },
+    },
     resolvedCount:
       resolvedVals.length === 0
         ? unavailable('no cell reported a judge verdict')

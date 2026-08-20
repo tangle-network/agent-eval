@@ -13,11 +13,12 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  SourceLimits,
-  SupervisorRunReader,
-  SupervisorRunSources,
-  WorkerLogSource,
+import {
+  NO_SOURCE_LIMITS,
+  type SourceLimits,
+  type SupervisorRunReader,
+  type SupervisorRunSources,
+  type WorkerLogSource,
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
@@ -413,16 +414,76 @@ function runtimeState(
   })
 }
 
+export interface RuntimeReaderOptions {
+  /**
+   * Throw on a missing spawn journal instead of returning absent-shaped
+   * sources. The default (false) models a journal-less run dir — a
+   * pre-supervise death, a backfilled zombie — as a readable absence.
+   */
+  readonly strict?: boolean
+}
+
+/**
+ * Sources for a run dir whose spawn journal does not exist. Mirrors the
+ * absent shape `readLoopsSupervisorRun` returns for a missing store: every
+ * journal-dependent metric downstream reads `unavailable`, never 0.
+ */
+function absentRuntimeSupervisorRun(
+  runDir: string,
+  resultText: string | null,
+): SupervisorRunSources {
+  const reason = `no Runtime spawn journal (${JOURNAL_FILE}) under ${runDir}`
+  return {
+    runRef: runDir,
+    instanceId: null,
+    arm: null,
+    supRunDir: null,
+    journal: null,
+    journalMissingReason: reason,
+    brainLog: null,
+    brainLogMissingReason:
+      'Runtime FileRunContext records spend but not model completion finish reasons',
+    state: null,
+    progress: null,
+    workers: null,
+    workersMissingReason: reason,
+    result: resultText,
+    judge: null,
+    judgeSource: null,
+    patch: null,
+    driverLog: null,
+    harnessWorkerTokens: null,
+    harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
+    limits: NO_SOURCE_LIMITS,
+    rootTranscriptRef: null,
+    traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
+  }
+}
+
 /**
  * Read one agent-runtime `createFileRunContext(dir)` directory.
+ *
+ * A run dir without `spawn-journal.jsonl` returns the same absent-shaped
+ * sources `readLoopsSupervisorRun` returns for a missing store: `journal` and
+ * `workers` null, each with its reason, so every dependent metric reads
+ * `unavailable` — never 0 and never a throw. Pass `strict: true` to throw on
+ * the missing journal instead. A journal that exists but cannot be parsed
+ * always throws: a corrupt journal is a defect, not an absence.
  *
  * The reader translates storage envelopes only. It does not assign research
  * roles, interpret artifacts, or turn process completion into a quality
  * verdict.
  */
-export async function readRuntimeSupervisorRun(runDir: string): Promise<SupervisorRunSources> {
+export async function readRuntimeSupervisorRun(
+  runDir: string,
+  opts: RuntimeReaderOptions = {},
+): Promise<SupervisorRunSources> {
   const journalPath = join(runDir, JOURNAL_FILE)
-  const rawJournal = await readFile(journalPath, 'utf8')
+  const rawJournal =
+    opts.strict === true ? await readFile(journalPath, 'utf8') : await readMaybe(journalPath)
+  if (rawJournal === null) {
+    return absentRuntimeSupervisorRun(runDir, await readMaybe(join(runDir, RESULT_FILE)))
+  }
   const normalized = parseEnvelopeJournal(rawJournal, journalPath)
   const resultText = await readMaybe(join(runDir, RESULT_FILE))
   const trajectoryText = await readMaybe(join(runDir, TRAJECTORY_FILE))
@@ -482,8 +543,11 @@ export async function readRuntimeSupervisorRun(runDir: string): Promise<Supervis
 }
 
 /** The agent-runtime file-backed layout as a `SupervisorRunReader`. */
-export function runtimeSupervisorRunReader(runDir: string): SupervisorRunReader {
-  return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir) }
+export function runtimeSupervisorRunReader(
+  runDir: string,
+  opts: RuntimeReaderOptions = {},
+): SupervisorRunReader {
+  return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir, opts) }
 }
 
 /** True when a directory contains Runtime's canonical file-backed journal. */

@@ -30,7 +30,8 @@ export function renderSupervisorRunHeadline(r: SupervisorRunReport): string {
     `  waves=${showMeasured(o.waves)} sizes=${isUnavailable(o.waveSizes) ? `unavailable — ${o.waveSizes.unavailable}` : `[${o.waveSizes.join(',')}]`}` +
       ` workers=${showMeasured(o.workersSpawned)} settled=${showMeasured(o.workersSettled)} cancelled=${showMeasured(o.workersCancelled)}`,
     `  concurrency max=${showMeasured(o.maxConcurrency)} utilization=${showMeasured(o.workerUtilization)}` +
-      ` idle=${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) wall=${fmtMs(o.supervisorWallMs)}`,
+      ` idle=${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) wall=${fmtMs(o.supervisorWallMs)}` +
+      `${o.supervisorWallSource === 'journal-span' ? ' (journal-span lower bound)' : ''}`,
     `  respawns=${showMeasured(o.respawns)} evidence→respawn=${showMeasured(r.decision.observeThenRespawn)}` +
       ` blind-respawn=${showMeasured(r.decision.respawnWithoutEvidence)} depth=${showMeasured(o.delegationDepth)}`,
     `  accepted=${showMeasured(r.decision.accepted)} rejected=${showMeasured(r.decision.rejected)} empty-pass=${showMeasured(r.decision.emptyPass)}`,
@@ -87,7 +88,9 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   )
   out.push(`| Delegation depth | ${showMeasured(o.delegationDepth)} |`)
   out.push(`| Time to first spawn | ${fmtMs(o.timeToFirstSpawnMs)} |`)
-  out.push(`| Supervisor wall | ${fmtMs(o.supervisorWallMs)} |`)
+  out.push(
+    `| Supervisor wall | ${fmtMs(o.supervisorWallMs)}${isUnavailable(o.supervisorWallSource) ? '' : ` (source: ${o.supervisorWallSource}${o.supervisorWallSource === 'journal-span' ? ', lower bound' : ''})`} |`,
+  )
   out.push(`| Idle (zero live workers) | ${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) |`)
   out.push(
     `| Worker utilization (Σ worker wall ÷ supervisor wall) | ${showMeasured(o.workerUtilization)} |`,
@@ -150,6 +153,10 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
     )
   }
   out.push(`- Total USD: ${showMeasured(e.totalUsd)} (source: ${e.totalUsdSource})`)
+  out.push(
+    `- Spend measured two ways: journal-derived $${showMeasured(e.spend.journalDerived.usd)} over ${e.spend.journalDerived.records} journal record(s) (execution accounting) · ` +
+      `close-record $${showMeasured(e.spend.closeRecord.usd)} over ${e.spend.closeRecord.records} close record(s) (billing-shaped). Divergence is a signal, not an error.`,
+  )
   out.push(`- Cost per accepted patch: ${showMeasured(e.costPerAcceptedPatchUsd)}`)
   if (isUnavailable(e.workerWallMsDistribution)) {
     out.push(`- Worker wall distribution: unavailable — ${e.workerWallMsDistribution.unavailable}`)
@@ -238,6 +245,10 @@ export function renderSupervisorRollupMarkdown(
   )
   out.push(
     `- Spend: $${showMeasured(rollup.usdTotal)} · judged resolved: ${showMeasured(rollup.resolvedCount)}/${rollup.cells}`,
+  )
+  out.push(
+    `- Spend measured two ways: journal-derived $${showMeasured(rollup.spendUsd.journalDerived.value)} over ${rollup.spendUsd.journalDerived.runs}/${rollup.cells} runs (execution accounting) · ` +
+      `close-record $${showMeasured(rollup.spendUsd.closeRecord.value)} over ${rollup.spendUsd.closeRecord.runs}/${rollup.cells} runs (billing-shaped)`,
   )
   out.push('')
   out.push('| Instance | Arm | Steers | Waves | Utilization | Idle % | Resolved | USD |')

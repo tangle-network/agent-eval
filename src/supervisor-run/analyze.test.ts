@@ -783,3 +783,138 @@ describe('rollupSupervisorRuns', () => {
     expect(isUnavailable(rollup.utilizationMean)).toBe(true)
   })
 })
+
+describe('analyzeSupervisorRun — supervisor wall provenance', () => {
+  it('reports stamps as the wall source when start and completion stamps exist', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 0, endSec: 200 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    expect(r.orchestration.supervisorWallMs).toBe(200_000)
+    expect(r.orchestration.supervisorWallSource).toBe('stamps')
+  })
+
+  it('derives a journal-span wall when the completion stamp is missing, and says so', () => {
+    const r = analyze(
+      sources({
+        journal: journal({
+          workers: [['a', 10, 100]],
+          metered: [[150, 5, 1, 0.001]],
+        }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    // Root spawn at 0s; the last stamped journal event is the metered row at 150s.
+    expect(r.orchestration.supervisorWallMs).toBe(150_000)
+    expect(r.orchestration.supervisorWallSource).toBe('journal-span')
+    // Idle integrates to the same bound: [0,10) + [100,150] = 60s of 150s.
+    expect(r.orchestration.idleMs).toBe(60_000)
+    expect(r.orchestration.idlePct).toBe(40)
+    expect(r.orchestration.workerUtilization).toBeCloseTo(90 / 150, 3)
+    expect(renderSupervisorRunHeadline(r)).toContain('(journal-span lower bound)')
+    expect(renderSupervisorRunMarkdown(r)).toContain('(source: journal-span, lower bound)')
+  })
+
+  it('keeps the wall and its source unavailable together without a journal', () => {
+    const r = analyze(sources({ supRunDir: null }))
+    expect(isUnavailable(r.orchestration.supervisorWallMs)).toBe(true)
+    expect(r.orchestration.supervisorWallSource).toEqual(r.orchestration.supervisorWallMs)
+  })
+
+  it('treats an inverted stamp pair as corruption, never a journal-span fallback', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 300, endSec: 0 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    expect(r.orchestration.supervisorWallMs).toEqual({
+      unavailable: 'no parseable start/complete timestamps in state.json or journal',
+    })
+    expect(r.orchestration.supervisorWallSource).toEqual(r.orchestration.supervisorWallMs)
+  })
+})
+
+describe('analyzeSupervisorRun — spend measured two ways', () => {
+  it('surfaces the journal-derived and close-record measurements with their record counts', () => {
+    const r = analyze(
+      sources({
+        journal: journal({
+          workers: [
+            ['a', 10, 100],
+            ['b', 20, 110],
+          ],
+          metered: [[5, 1000, 200, 0.02]],
+        }),
+        state: state({ startSec: 0, endSec: 200, usd: 0.05 }),
+        workers: [
+          worker('w-0', { startSec: 10, finishSec: 100 }),
+          worker('w-1', { startSec: 20, finishSec: 110 }),
+        ],
+      }),
+    )
+    // Journal: 1 metered (0.02) + 2 settled (0.001 each) = 0.022 over 3 records.
+    expect(r.economics.spend.journalDerived).toEqual({ usd: 0.022, records: 3 })
+    // Close record: state.json result.spentUsd = 0.05 over 1 record.
+    expect(r.economics.spend.closeRecord).toEqual({ usd: 0.05, records: 1 })
+    // The collapsed field still prefers the close record; the pair keeps the divergence visible.
+    expect(r.economics.totalUsd).toBe(0.05)
+    expect(renderSupervisorRunMarkdown(r)).toContain('Spend measured two ways')
+  })
+
+  it('keeps the close record unavailable when no store wrote one', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]], metered: [[5, 100, 10, 0.01]] }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    expect(r.economics.spend.journalDerived).toEqual({ usd: 0.011, records: 2 })
+    expect(r.economics.spend.closeRecord).toEqual({
+      usd: {
+        unavailable:
+          'no close record: neither state.json result.spentUsd nor result.json spentTotal.usd is present',
+      },
+      records: 0,
+    })
+  })
+
+  it('keeps both measurements unavailable when the store prices nothing', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 0, endSec: 200 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+        limits: { ...NO_SOURCE_LIMITS, spendUsd: 'the store prices no inference' },
+      }),
+    )
+    expect(r.economics.spend.journalDerived).toEqual({
+      usd: { unavailable: 'the store prices no inference' },
+      records: 0,
+    })
+    expect(r.economics.spend.closeRecord).toEqual({
+      usd: { unavailable: 'the store prices no inference' },
+      records: 0,
+    })
+  })
+
+  it('rolls up each measurement over its own denominator', () => {
+    const measured = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 0, endSec: 200, usd: 0.5 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    const blind = analyze(sources({ supRunDir: null }))
+    const rollup = rollupSupervisorRuns([measured, measured, blind])
+    expect(rollup.cells).toBe(3)
+    expect(rollup.spendUsd.journalDerived).toEqual({ value: 0.002, runs: 2 })
+    expect(rollup.spendUsd.closeRecord).toEqual({ value: 1, runs: 2 })
+    expect(renderSupervisorRollupMarkdown(rollup)).toContain('over 2/3 runs')
+  })
+})
