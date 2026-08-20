@@ -31,6 +31,45 @@ function baseRequest(overrides: Record<string, unknown> = {}): Record<string, un
   }
 }
 
+interface WireFixtureBody {
+  model: string
+  max_tokens: number
+  messages: { role: string; content: unknown }[]
+}
+
+function translateWireFixture(name: string) {
+  const raw = readFileSync(join(__dirname, '../fixtures', name))
+  const body = JSON.parse(raw.toString('utf8')) as WireFixtureBody
+  return {
+    body,
+    translated: translateAnthropicMessagesRequest(raw, body.model, body.max_tokens),
+  }
+}
+
+/**
+ * Prove the system-role acceptance changed nothing else: dropping the wire
+ * body's system turns must reproduce the translation minus exactly the inline
+ * canonical system messages. Index 0 stays — it comes from the top-level
+ * `system` field, not from a system-role turn.
+ */
+function expectOnlySystemTurnsAdded(
+  body: WireFixtureBody,
+  messages: readonly { role: string; content: string }[],
+): void {
+  const withoutSystemTurns = {
+    ...body,
+    messages: body.messages.filter((message) => message.role !== 'system'),
+  }
+  const baseline = translateAnthropicMessagesRequest(
+    new TextEncoder().encode(JSON.stringify(withoutSystemTurns)),
+    body.model,
+    body.max_tokens,
+  )
+  expect(messages.filter((message, index) => !(message.role === 'system' && index > 0))).toEqual(
+    baseline.request.messages,
+  )
+}
+
 function chatResponse(overrides: Partial<ChatResponse> = {}): ChatResponse {
   return {
     content: 'better',
@@ -96,6 +135,41 @@ describe('translateAnthropicMessagesRequest', () => {
       role: 'system',
       content: 'part one\n\npart two',
     })
+  })
+
+  it('translates injected system-role turns in place', () => {
+    const translated = translate(
+      baseRequest({
+        system: 'You improve candidates.',
+        messages: [
+          { role: 'user', content: 'improve the candidate' },
+          { role: 'system', content: 'USD budget: $0/$1; $1 remaining' },
+          {
+            role: 'system',
+            content: [{ type: 'text', text: 'reminder', cache_control: { type: 'ephemeral' } }],
+          },
+          { role: 'user', content: 'continue' },
+        ],
+      }),
+    )
+    expect(translated.request.messages).toEqual([
+      { role: 'system', content: 'You improve candidates.' },
+      { role: 'user', content: 'improve the candidate' },
+      { role: 'system', content: 'USD budget: $0/$1; $1 remaining' },
+      { role: 'system', content: 'reminder' },
+      { role: 'user', content: 'continue' },
+    ])
+    expect(translated.strippedFields).toEqual([])
+  })
+
+  it('refuses non-text blocks inside a system-role turn', () => {
+    expect(() =>
+      translate(
+        baseRequest({
+          messages: [{ role: 'system', content: [{ type: 'tool_result', tool_use_id: 't1' }] }],
+        }),
+      ),
+    ).toThrow("system content block type 'tool_result' has no metered translation")
   })
 
   it.each([
@@ -289,6 +363,46 @@ describe('translateAnthropicMessagesRequest', () => {
     expect(translated.request.tools?.every((tool) => tool.type === 'function')).toBe(true)
   })
 
+  // Both fixtures are verbatim claude CLI 2.1.232 wire bodies captured against
+  // the published shim (scratchpad shim-proof-2). Each carries an injected
+  // system-role turn the shim previously refused with a 400.
+  it('translates the captured engine run whose budget status line is a system turn', () => {
+    const { body, translated } = translateWireFixture('claude-cli-engine-system-role-budget.json')
+    expect(body.messages.map((message) => message.role)).toEqual(['user', 'system'])
+
+    const messages = translated.request.messages
+    expect(messages[0]?.role).toBe('system')
+    expect(messages[messages.length - 1]).toEqual({
+      role: 'system',
+      content: 'USD budget: $0/$1; $1 remaining',
+    })
+    expect(messages.filter((message) => message.role === 'system')).toHaveLength(2)
+    expect(translated.stream).toBe(true)
+    expect(translated.maxOutputTokens).toBe(16000)
+    expect(translated.request.tools).toHaveLength(20)
+    expect(translated.strippedFields).toEqual(['context_management', 'output_config', 'thinking'])
+    expectOnlySystemTurnsAdded(body, translated.request.messages)
+  })
+
+  it('translates the captured mid-session body whose task reminder is a system turn', () => {
+    const { body, translated } = translateWireFixture('claude-cli-midsession-task-reminder.json')
+    expect(body.messages[body.messages.length - 1]?.role).toBe('system')
+
+    const messages = translated.request.messages
+    const last = messages[messages.length - 1]
+    expect(last?.role).toBe('system')
+    expect(last?.content).toContain("The task tools haven't been used recently.")
+    expect(messages.filter((message) => message.role === 'system')).toHaveLength(2)
+    expect(messages.filter((message) => message.role === 'tool')).toHaveLength(9)
+    expect(translated.strippedFields).toEqual([
+      'context_management',
+      'messages.tool_result.is_error',
+      'output_config',
+      'thinking',
+    ])
+    expectOnlySystemTurnsAdded(body, translated.request.messages)
+  })
+
   it('refuses image blocks, unknown fields, and unknown roles', () => {
     expect(() =>
       translate(
@@ -303,8 +417,8 @@ describe('translateAnthropicMessagesRequest', () => {
       "request field 'service_tier' has no metered translation",
     )
     expect(() =>
-      translate(baseRequest({ messages: [{ role: 'system', content: 'no system turns' }] })),
-    ).toThrow("message role must be 'user' or 'assistant'")
+      translate(baseRequest({ messages: [{ role: 'developer', content: 'no developer turns' }] })),
+    ).toThrow("message role must be 'system', 'user', or 'assistant'")
   })
 
   it('requires the configured model and a bounded max_tokens', () => {

@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Fixed
+
+- The `/v1/messages` shim translation accepts `system`-role messages inside the `messages` array. Measured blocker (live proof against published 0.150.1): claude CLI 2.1.232 injects system-role turns mid-conversation — the `--max-budget-usd` status line ("USD budget: $0/$1; $1 remaining", sent on every engine run because the bridge always passes the budget flag), session-front listings, and task-tool reminders — and the translation refused each with a 400 `message role must be 'user' or 'assistant'`. The canonical contract already allows the system role at any position, so an injected system turn now translates to a canonical system message in place, with the same text-block joining and `cache_control` stripping as the top-level `system` field, which keeps its slot at the front. Two verbatim captured wire bodies ship as test fixtures.
+
 ---
 
 ## [0.150.1] — 2026-08-20
