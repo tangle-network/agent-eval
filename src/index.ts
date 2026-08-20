@@ -766,6 +766,7 @@ export type {
   AssertCrossFamilyServedOptions,
   AssertServedModelOptions,
   ServedModelCheck,
+  ServedModelPolicy,
   ServedModelVerdict,
 } from './integrity/served-model'
 export {

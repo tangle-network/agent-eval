@@ -8,7 +8,12 @@ import type {
   CustomTokenPricing,
 } from '../cost-ledger'
 import { costForTokenPricing } from '../cost-ledger'
-import { assertServedModel, ModelSubstitutionError } from '../integrity/served-model'
+import {
+  assertServedModel,
+  assertServedModelPolicy,
+  ModelSubstitutionError,
+  type ServedModelPolicy,
+} from '../integrity/served-model'
 import { canonicalJson } from '../verdict-cache'
 import {
   assertExternalOptimizerModelBudget,
@@ -50,6 +55,8 @@ type ExternalOptimizerModelProxyArgs = {
   recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   budget: ExternalOptimizerModelBudget
+  /** Served-model acceptance for every proxied call. Default `'exact'`. */
+  servedModelPolicy?: ServedModelPolicy
   costLedger: CostLedgerHandle
   phase: string
   actor: string
@@ -233,6 +240,7 @@ async function handleModelProxyRequest(args: {
     recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
     model: string
     budget: ExternalOptimizerModelBudget
+    servedModelPolicy?: ServedModelPolicy
     costLedger: CostLedgerHandle
     phase: string
     actor: string
@@ -316,6 +324,7 @@ async function handleModelProxyRequest(args: {
             path: modelPath,
             request: parsed.request,
             model: args.args.model,
+            allowWithinFamily: args.args.servedModelPolicy === 'allow-within-family',
             maxOutputTokens: parsed.maxOutputTokens,
             ...(args.args.budget.maxReasoningTokensPerRequest === undefined
               ? {}
@@ -411,6 +420,8 @@ async function forwardModelProxyRequest(args: {
   path: ModelProxyPath
   request: ExternalOptimizerChatRequest
   model: string
+  /** True when the proxy's servedModelPolicy is 'allow-within-family'. */
+  allowWithinFamily: boolean
   maxOutputTokens: number
   /** Enforced only when the caller declared a thinking budget. */
   maxReasoningTokens?: number
@@ -451,8 +462,8 @@ async function forwardModelProxyRequest(args: {
     let authoritativeReceipt: CostReceiptInput
     let canonicalResponse: ChatResponse
     try {
-      authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model)
-      canonicalResponse = snapshotChatResponse(called.response, args.model)
+      authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model, args.allowWithinFamily)
+      canonicalResponse = snapshotChatResponse(called.response, args.model, args.allowWithinFamily)
       assertResponseUsageMatchesReceipt(canonicalResponse, authoritativeReceipt)
     } catch (error) {
       args.recordExecutionReceipt({
@@ -519,7 +530,7 @@ async function forwardModelProxyRequest(args: {
       error: called.error,
       execution,
     })
-    const failedReceipt = snapshotModelReceipt(called.receipt, args.model)
+    const failedReceipt = snapshotModelReceipt(called.receipt, args.model, args.allowWithinFamily)
     return {
       status: 502,
       contentType: 'application/json',
@@ -531,7 +542,11 @@ async function forwardModelProxyRequest(args: {
   }
 }
 
-function snapshotModelReceipt(value: CostReceiptInput, expectedModel: string): CostReceiptInput {
+function snapshotModelReceipt(
+  value: CostReceiptInput,
+  expectedModel: string,
+  allowWithinFamily: boolean,
+): CostReceiptInput {
   let snapshot: CostReceiptInput
   try {
     assertJsonValue(value, 'optimizer model callback receipt')
@@ -543,6 +558,7 @@ function snapshotModelReceipt(value: CostReceiptInput, expectedModel: string): C
   }
   assertServedModel(expectedModel, snapshot.model, {
     context: 'optimizer model callback receipt',
+    allowWithinFamily,
   })
   return snapshot
 }
@@ -934,7 +950,11 @@ function assertAllowedKeys(
     throw new Error(`${label} contains unsupported fields: ${unknown.join(', ')}`)
 }
 
-function snapshotChatResponse(value: unknown, expectedModel: string): ChatResponse {
+function snapshotChatResponse(
+  value: unknown,
+  expectedModel: string,
+  allowWithinFamily: boolean,
+): ChatResponse {
   if (!isRecord(value)) {
     throw new OwnerModelContractError('optimizer model callback response must be an object')
   }
@@ -943,6 +963,7 @@ function snapshotChatResponse(value: unknown, expectedModel: string): ChatRespon
   }
   assertServedModel(expectedModel, typeof value.model === 'string' ? value.model : null, {
     context: 'optimizer model callback response',
+    allowWithinFamily,
   })
   if (!isNonnegativeFiniteNumber(value.durationMs)) {
     throw new OwnerModelContractError(
@@ -1184,6 +1205,7 @@ function assertModelProxyConfig(args: {
   recordExecution: (observation: ExternalOptimizerModelExecutionObservation) => void
   model: string
   budget: ExternalOptimizerModelBudget
+  servedModelPolicy?: ServedModelPolicy
   phase: string
   actor: string
   tags?: Record<string, string>
@@ -1193,6 +1215,10 @@ function assertModelProxyConfig(args: {
     costUsd?: number
   }
 }): void {
+  assertServedModelPolicy(
+    args.servedModelPolicy,
+    'external optimizer model proxy: servedModelPolicy',
+  )
   for (const [label, value] of [
     ['model', args.model],
     ['phase', args.phase],

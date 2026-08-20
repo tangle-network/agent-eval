@@ -115,7 +115,14 @@ export interface OptimizationMethodProvenance {
   resumed: boolean
   /** Whether the run seed reached every external engine configuration. */
   seedApplied?: boolean
+  /** Evaluations the local callback metered — the trusted count. */
   evaluationCount: number
+  /**
+   * Evaluation total the external optimizer reported from its own counters.
+   * A difference from `evaluationCount` means upstream skipped, cached, or
+   * double-counted work; inspect before trusting upstream-derived budgets.
+   */
+  upstreamReportedEvaluations?: number
   artifactDir: string
   tokenUsage?: OptimizationTokenUsage
   /** Candidates submitted to the callback, per-case scores, and refusals. */

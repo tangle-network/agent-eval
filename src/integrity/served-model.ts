@@ -165,6 +165,24 @@ export class ModelSubstitutionError extends AgentEvalError {
   }
 }
 
+/**
+ * Consumer-facing name for the substitution policy a metered surface applies.
+ * `'exact'` rejects every substitution. `'allow-within-family'` accepts a
+ * different model of the same provider family; it keeps family-level claims
+ * valid and forfeits per-model claims. Maps to
+ * `AssertServedModelOptions.allowWithinFamily`.
+ */
+export type ServedModelPolicy = 'exact' | 'allow-within-family'
+
+export function assertServedModelPolicy(
+  value: unknown,
+  label: string,
+): asserts value is ServedModelPolicy | undefined {
+  if (value !== undefined && value !== 'exact' && value !== 'allow-within-family') {
+    throw new Error(`${label} must be 'exact' or 'allow-within-family'`)
+  }
+}
+
 export interface AssertServedModelOptions {
   /**
    * Accept a different model of the same provider family (e.g. requested

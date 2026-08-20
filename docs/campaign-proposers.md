@@ -337,7 +337,10 @@ recipe: {
 ```
 
 Their external model spend remains incomplete unless that engine reports it.
-Keep API keys in environment variables or `runner.env`.
+Supply provider API keys only through `runner.env`.
+An exported shell variable never reaches the bridge child.
+The spawn builds the child environment from a fixed allowlist of benign variables (PATH, HOME, locale, `PYTHONPATH`) plus `runner.env`, so the parent environment is stripped by construction.
+When `optimizer` is set, `removeCredentialEnvironment` also deletes credential-shaped keys from `runner.env`; the child then receives only the loopback proxy URL and an ephemeral key inside the input JSON.
 Do not place credentials in `engineConfig` because run settings are persisted.
 
 `describeScenario()` controls the train and selection data sent to GEPA.
@@ -347,6 +350,22 @@ Neither callback can receive a final test case.
 A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
 Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.
 Use `readExternalOptimizerObservationArtifact()` for every distinct callback submission, including proposals that GEPA rejected or the callback refused.
+`provenance.evaluationCount` is the callback-metered evaluation total.
+`provenance.upstreamReportedEvaluations` is GEPA's self-reported total; a difference means upstream skipped, cached, or double-counted work.
+
+## Runtime Knobs
+
+Each knob below has a default that works for small text campaigns and fails for agentic or slow-settling runs.
+The table names the failure so you can set the knob before the run dies mid-spend.
+
+| Knob | Default | What breaks when wrong | Where to set it |
+|---|---|---|---|
+| `timeoutMs` | 30 minutes | The whole bridge process tree is killed with `GEPA bridge exceeded 1800000ms`. An agentic run (40 evaluations over 45 s each) exceeds the default mid-spend. The same value bounds each callback POST and the runtime inspect pass. | `gepaOptimizationMethod({ timeoutMs })`, `skillOptOptimizationMethod({ timeoutMs })` |
+| `dispatchShutdownTimeoutMs` | 5 seconds | A dispatch that cancels or settles paid calls slowly fails the cell with `CostAccountingIncompleteError` after the evaluations completed. | `runCampaign({ dispatchShutdownTimeoutMs })`; for comparisons, `compareOptimizationMethods` `optimizationRunOptions` |
+| `servedModelPolicy` | `'exact'` | A router that substitutes a same-family model fails every proxied reflection call with a 502 `model substitution` error. `'allow-within-family'` accepts the substitute, keeps family-level claims, and forfeits per-model claims. | `optimizer.servedModelPolicy` |
+| `reflection_lm_kwargs.num_retries` | litellm default (3) | Each failed reflection request retries 3 times inside litellm, so the proxy meters 4 request attempts per logical call and `budget.maxRequests` exhausts 4x early. Set `num_retries: 0`; the proxy already accounts each attempt. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
+| `reflection_lm_kwargs.max_tokens` | `budget.maxOutputTokensPerRequest` | Every reflection request ships the full budget cap as `max_tokens`. A provider family with a lower completion cap rejects every call. A reasoning model also needs headroom for hidden reasoning tokens. Set a value at or below the smallest family cap; it must not exceed `budget.maxOutputTokensPerRequest`. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
+| `maxProposerCostUsd` | unset | Without it, one engine stage can spend up to `optimizer.budget.maxCostUsd` or the campaign `costCeiling` before any limit fires. Supply it only when the execution owner can enforce billed USD. | `recipe.run.maxProposerCostUsd` |
 
 ## Install Official SkillOpt
 
@@ -480,7 +499,8 @@ Use `reps` when one surface needs repeated measurements.
 - The same dispatch and judges score every method.
 - Missing cost remains unknown.
 - A method must declare bounded work before it starts.
-- Credentials belong in process environment variables.
+- Credentials reach a bridge child only through `runner.env`; the child never inherits the parent process environment.
+- The metered proxy path replaces provider credentials with a loopback URL and an ephemeral key.
 - Resumed state must match every input that can change the result.
 
 These rules make method comparisons inspectable without pretending different optimizers have identical internals.

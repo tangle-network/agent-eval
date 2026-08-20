@@ -370,6 +370,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               recordExecution: executionLog!.observe,
               model: config.optimizer.model,
               budget: config.optimizer.budget,
+              ...(config.optimizer.servedModelPolicy
+                ? { servedModelPolicy: config.optimizer.servedModelPolicy }
+                : {}),
               costLedger,
               phase: 'gepa.optimizer-model',
               actor: name,
@@ -551,6 +554,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           resumed: result.resumed,
           seedApplied: result.seedApplied,
           evaluationCount: runBudget.acceptedEvaluations(),
+          ...(result.upstreamReportedEvaluations !== undefined
+            ? { upstreamReportedEvaluations: result.upstreamReportedEvaluations }
+            : {}),
           artifactDir: outputDir,
           ...(tokenUsage ? { tokenUsage } : {}),
           observations: observationLog.summary(),

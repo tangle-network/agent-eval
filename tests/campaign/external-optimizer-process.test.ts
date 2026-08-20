@@ -952,6 +952,167 @@ describe('external optimizer model proxy', () => {
     }
   })
 
+  it("rejects a within-family substitute under an explicit 'exact' policy", async () => {
+    const servedModel = 'deepseek/deepseek-v3'
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:exact-policy',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'wrong model',
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          costUsd: null,
+          model: servedModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: servedModel,
+          inputTokens: 1,
+          outputTokens: 1,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: servedModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      servedModelPolicy: 'exact',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 1 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain('model substitution')
+      expect(proxy.successfulCompletions()).toBe(0)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it("accepts a within-family substitute under 'allow-within-family'", async () => {
+    const servedModel = 'deepseek/deepseek-v3'
+    const ledger = new CostLedger()
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:within-family-policy',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'substituted answer',
+          usage: { promptTokens: 7, completionTokens: 3, totalTokens: 10 },
+          costUsd: null,
+          model: servedModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: servedModel,
+          inputTokens: 7,
+          outputTokens: 3,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: servedModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      servedModelPolicy: 'allow-within-family',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 3 }),
+      costLedger: ledger,
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 3,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ model: servedModel })
+      expect(proxy.successfulCompletions()).toBe(1)
+      expect(ledger.list()).toEqual([
+        expect.objectContaining({ model: servedModel, inputTokens: 7, outputTokens: 3 }),
+      ])
+      proxy.assertExecutionComplete()
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it("rejects a cross-family substitute even under 'allow-within-family'", async () => {
+    const servedModel = 'gpt-4.1-mini'
+    const proxy = await startRuntimeOwnedModelProxy({
+      callRef: 'runtime-profile:within-family-cross-reject',
+      call: async () => ({
+        succeeded: true,
+        response: {
+          content: 'wrong provider',
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+          costUsd: null,
+          model: servedModel,
+          durationMs: 1,
+          finishReason: 'stop',
+          raw: { owner: 'runtime-profile' },
+        },
+        receipt: {
+          model: servedModel,
+          inputTokens: 1,
+          outputTokens: 1,
+          costUnknown: true,
+        },
+        execution: { kind: 'runtime-profile-call', model: servedModel },
+      }),
+      recordExecution: () => {},
+      model: 'deepseek-v4-flash',
+      servedModelPolicy: 'allow-within-family',
+      budget: modelBudget({ maxRequests: 1, maxOutputTokensPerRequest: 1 }),
+      costLedger: new CostLedger(),
+      phase: 'optimizer',
+      actor: 'official-library',
+    })
+
+    try {
+      const response = await postModel(proxy, {
+        model: 'deepseek-v4-flash',
+        messages: [],
+        max_tokens: 1,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.text()).toContain('model substitution')
+      expect(proxy.successfulCompletions()).toBe(0)
+    } finally {
+      await proxy.close()
+    }
+  })
+
+  it('rejects an unknown servedModelPolicy value', async () => {
+    await expect(
+      startRuntimeOwnedModelProxy({
+        callRef: 'runtime-profile:invalid-policy',
+        call: async () => {
+          throw new Error('never called')
+        },
+        recordExecution: () => {},
+        model: 'deepseek-v4-flash',
+        servedModelPolicy: 'within-family' as never,
+        budget: modelBudget({ maxRequests: 1 }),
+        costLedger: new CostLedger(),
+        phase: 'optimizer',
+        actor: 'official-library',
+      }),
+    ).rejects.toThrow("servedModelPolicy must be 'exact' or 'allow-within-family'")
+  })
+
   it('rejects different served snapshots in the response and receipt', async () => {
     const responseModel = 'deepseek/deepseek-v4-flash@fp_response'
     const receiptModel = 'deepseek/deepseek-v4-flash@fp_receipt'

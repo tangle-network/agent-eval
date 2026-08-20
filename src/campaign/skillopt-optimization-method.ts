@@ -261,6 +261,9 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
             recordExecution: executionLog.observe,
             model: config.optimizer.model,
             budget: config.optimizer.budget,
+            ...(config.optimizer.servedModelPolicy
+              ? { servedModelPolicy: config.optimizer.servedModelPolicy }
+              : {}),
             costLedger,
             phase: 'skillopt.optimizer-model',
             actor: name,
