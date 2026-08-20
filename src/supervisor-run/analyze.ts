@@ -69,9 +69,10 @@ export function analyzeSupervisorRunSources(
   }
 
   const journalMissing =
-    src.supRunDir === null
+    src.journalMissingReason ??
+    (src.supRunDir === null
       ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
-      : 'journal.jsonl absent'
+      : 'journal.jsonl absent')
   const haveJournal = src.journal !== null
   const tree = parseSupervisorTree(src)
   const state = tree.state

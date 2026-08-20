@@ -65,6 +65,7 @@ export {
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
 export {
   isRuntimeSupervisorRunDir,
+  type RuntimeReaderOptions,
   readRuntimeSupervisorRun,
   runtimeSupervisorRunReader,
 } from './runtime-reader'

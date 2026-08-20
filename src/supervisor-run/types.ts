@@ -145,6 +145,12 @@ export interface SupervisorRunSources {
    * settled `verdict` may be a legacy string or `{ valid, score, ... }`.
    */
   readonly journal: string | null
+  /**
+   * Source-specific reason `journal` is null. The analyzer uses it verbatim as
+   * the `unavailable` reason on every journal-dependent metric, so a non-loops
+   * layout names its own journal file instead of inheriting the loops paths.
+   */
+  readonly journalMissingReason?: string
   /** Per-brain-call tap (JSONL): finish_reason, completion tokens, requested max tokens. */
   readonly brainLog: string | null
   /** Source-specific reason `brainLog` is absent. */
