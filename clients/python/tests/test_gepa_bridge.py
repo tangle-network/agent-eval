@@ -983,6 +983,90 @@ def test_proxied_gepa_rejects_proxy_transport_overrides(tmp_path: Path) -> None:
         gepa_bridge._validate_input(input_value)
 
 
+def _agent_model_proxy(anthropic_endpoint: bool = True) -> dict[str, Any]:
+    proxy: dict[str, Any] = {
+        "baseUrl": "http://127.0.0.1:1234/v1",
+        "apiKey": "local-token",
+        "model": "test-model",
+        "budget": {
+            "maxCostUsd": 1,
+            "maxRequests": 10,
+            "maxRequestBytes": 100_000,
+            "maxResponseBytes": 100_000,
+            "maxOutputTokensPerRequest": 100,
+            "requestTimeoutMs": 1_000,
+            "pricing": {
+                "inputUsdPerMillion": 1,
+                "outputUsdPerMillion": 2,
+            },
+        },
+    }
+    if anthropic_endpoint:
+        proxy["anthropicEndpoint"] = True
+    return proxy
+
+
+def test_model_proxy_admits_agent_cli_engines_with_anthropic_endpoint(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    input_value["recipe"] = {
+        "kind": "engine",
+        "run": _run("autoresearch", 1, 1.0, {"model": "test-model"}),
+    }
+    input_value["modelProxy"] = _agent_model_proxy()
+    gepa_bridge._validate_input(input_value)
+
+    input_value["modelProxy"] = _agent_model_proxy(anthropic_endpoint=False)
+    with pytest.raises(ValueError, match="supports only the standard gepa engine"):
+        gepa_bridge._validate_input(input_value)
+
+    input_value["modelProxy"] = _agent_model_proxy()
+    input_value["recipe"]["run"]["engineConfig"]["model"] = "claude-sonnet-4-6"
+    with pytest.raises(ValueError, match="engineConfig.model to the proxied model"):
+        gepa_bridge._validate_input(input_value)
+
+    input_value["recipe"]["run"]["engineConfig"]["model"] = "test-model"
+    input_value["modelProxy"]["anthropicEndpoint"] = "yes"
+    with pytest.raises(ValueError, match="anthropicEndpoint must be a boolean"):
+        gepa_bridge._validate_input(input_value)
+
+
+def test_agent_cli_engine_config_skips_reflection_wiring(tmp_path: Path) -> None:
+    api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="engine",
+    )
+    run = _run("autoresearch", 1, 1.0, {"model": "test-model"})
+    config = gepa_bridge._engine_config(
+        api,
+        run,
+        tmp_path / "external",
+        seed=42,
+        model_proxy=_agent_model_proxy(),
+        proxy_usage=_ProxyUsage(),
+    )
+    assert "reflection" not in config["engine_config"]
+
+    with pytest.raises(ValueError, match="supports only the standard gepa engine"):
+        gepa_bridge._engine_config(
+            api,
+            run,
+            tmp_path / "external",
+            seed=42,
+            model_proxy=_agent_model_proxy(anthropic_endpoint=False),
+            proxy_usage=_ProxyUsage(),
+        )
+
+
+def test_recipe_agent_cli_engine_detection() -> None:
+    assert gepa_bridge_contract.recipe_has_agent_cli_engine(
+        {"kind": "engine", "run": {"engine": "meta_harness"}}
+    )
+    assert not gepa_bridge_contract.recipe_has_agent_cli_engine(
+        {"kind": "engine", "run": {"engine": "gepa"}}
+    )
+
+
 def test_proxied_gepa_identity_excludes_local_credentials(
     tmp_path: Path,
 ) -> None:

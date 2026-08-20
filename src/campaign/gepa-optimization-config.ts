@@ -12,12 +12,27 @@ import type {
   GepaOptimizationMethodConfig,
   GepaOptimizationRecipe,
 } from './gepa-optimization-method'
-import { assertOptimizerModel, snapshotOptimizerModel } from './optimizer-model'
+import {
+  assertOptimizerModel,
+  type OpenAICompatibleOptimizerModel,
+  snapshotOptimizerModel,
+} from './optimizer-model'
 import type { Scenario } from './types'
 
 export const GEPA_DEFAULT_MAX_CANDIDATE_CHARS = 200_000
 export const GEPA_DEFAULT_MAX_EVIDENCE_CHARS = 100_000
 export const GEPA_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * GEPA engines that drive a `claude` CLI subprocess. With
+ * `optimizer.anthropicEndpoint: true` their model traffic is metered through
+ * the loopback proxy's Anthropic route instead of being refused.
+ */
+export const GEPA_AGENT_CLI_ENGINES: ReadonlySet<string> = new Set(['autoresearch', 'meta_harness'])
+
+export function gepaRecipeHasAgentCliEngine(recipe: GepaOptimizationRecipe): boolean {
+  return recipeEngineOptions(recipe).some((run) => GEPA_AGENT_CLI_ENGINES.has(run.engine))
+}
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -133,7 +148,7 @@ export function assertGepaOptimizationConfig<TScenario extends Scenario, TArtifa
         'gepaOptimizationMethod: optimizer cannot be combined with engineModules because proxied reflection requires the built-in GEPA engine',
       )
     }
-    assertProxiedGepaRecipe(config.recipe)
+    assertProxiedGepaRecipe(config.recipe, config.optimizer)
   }
 }
 
@@ -325,8 +340,15 @@ function assertEngineOptions(run: GepaEngineOptions, label: string): void {
   }
 }
 
-function assertProxiedGepaRecipe(recipe: GepaOptimizationRecipe): void {
+function assertProxiedGepaRecipe(
+  recipe: GepaOptimizationRecipe,
+  optimizer: OpenAICompatibleOptimizerModel,
+): void {
   for (const [index, run] of recipeEngineOptions(recipe).entries()) {
+    if (GEPA_AGENT_CLI_ENGINES.has(run.engine)) {
+      assertProxiedAgentCliEngine(run, index, optimizer)
+      continue
+    }
     if (run.engine !== 'gepa') {
       throw new Error(
         `gepaOptimizationMethod: optimizer requires GEPA's 'gepa' engine; recipe engine ${index} is '${run.engine}'`,
@@ -360,6 +382,34 @@ function assertProxiedGepaRecipe(recipe: GepaOptimizationRecipe): void {
         'gepaOptimizationMethod: proxied reflection transport settings belong in optimizer',
       )
     }
+  }
+}
+
+function assertProxiedAgentCliEngine(
+  run: GepaEngineOptions,
+  index: number,
+  optimizer: OpenAICompatibleOptimizerModel,
+): void {
+  if (optimizer.anthropicEndpoint !== true) {
+    throw new Error(
+      `gepaOptimizationMethod: agent engine '${run.engine}' (recipe engine ${index}) requires optimizer.anthropicEndpoint: true so the claude CLI meters through the loopback proxy`,
+    )
+  }
+  // Both agent engines pass `--model engineConfig.model` to the CLI and the
+  // flag beats the injected ANTHROPIC_MODEL, so a mismatch would 400 on every
+  // CLI call at run time. Require the exact proxied model at config time.
+  if (run.engineConfig?.model !== optimizer.model) {
+    throw new Error(
+      `gepaOptimizationMethod: recipe engine ${index} ('${run.engine}') must set engineConfig.model to the optimizer model '${optimizer.model}'`,
+    )
+  }
+  // Anthropic extended thinking has no canonical execution-owner mapping. The
+  // injected environment disables adaptive thinking; a fixed thinking budget
+  // would force the CLI to request it and fail every call.
+  if (run.engineConfig && Object.hasOwn(run.engineConfig, 'max_thinking_tokens')) {
+    throw new Error(
+      `gepaOptimizationMethod: recipe engine ${index} ('${run.engine}') cannot set engineConfig.max_thinking_tokens through the Anthropic endpoint`,
+    )
   }
 }
 

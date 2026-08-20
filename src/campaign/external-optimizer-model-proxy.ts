@@ -16,6 +16,14 @@ import {
 } from '../integrity/served-model'
 import { canonicalJson } from '../verdict-cache'
 import {
+  AnthropicRequestRefusal,
+  anthropicErrorEnvelope,
+  anthropicErrorTypeForStatus,
+  encodeAnthropicMessage,
+  renderAnthropicSseStream,
+  translateAnthropicMessagesRequest,
+} from './external-optimizer-anthropic'
+import {
   assertExternalOptimizerModelBudget,
   assertJsonValue,
   type ExternalOptimizerChatRequest,
@@ -24,12 +32,14 @@ import {
   type ExternalOptimizerModelCall,
   type ExternalOptimizerModelExecutionObservation,
   type ExternalOptimizerModelProxy,
+  type ExternalOptimizerWireCounts,
   isRecord,
 } from './external-optimizer-contracts'
 import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
 
 const MODEL_PROXY_PATHS = new Set(['/v1/chat/completions', '/v1/responses'])
-type ModelProxyPath = '/v1/chat/completions' | '/v1/responses'
+type ModelProxyPath = '/v1/chat/completions' | '/v1/responses' | '/v1/messages'
+type ModelProxyWire = 'openai' | 'anthropic'
 
 type UnsequencedExecutionObservation = ExternalOptimizerModelExecutionObservation extends infer T
   ? T extends ExternalOptimizerModelExecutionObservation
@@ -65,6 +75,12 @@ type ExternalOptimizerModelProxyArgs = {
   tags?: Record<string, string>
   /** Deterministic ledger identity for a single-request proxy. */
   callId?: string
+  /**
+   * Also serve `POST /v1/messages` (Anthropic Messages API) for `claude` CLI
+   * children. The route translates onto the same owner call and receipt
+   * pipeline; without the flag it stays 404. Default: false.
+   */
+  anthropicEndpoint?: boolean
   initialUsage?: {
     requests: number
     /** Known billed subtotal. Omit when prior billed USD is unknown. */
@@ -90,6 +106,10 @@ export async function startExternalOptimizerModelProxy(
   const token = randomLocalToken()
   let requestCount = 0
   let successfulCompletionCount = 0
+  const wireCounts: Record<ModelProxyWire, ExternalOptimizerWireCounts> = {
+    openai: { requestAttempts: 0, successfulCompletions: 0 },
+    anthropic: { requestAttempts: 0, successfulCompletions: 0 },
+  }
   let modelCallInvocations = 0
   let executionRecordCount = 0
   let executionSequence = 0
@@ -123,7 +143,7 @@ export async function startExternalOptimizerModelProxy(
       controller,
       token,
       args,
-      nextReservation: (maximumCostUsd) => {
+      nextReservation: (maximumCostUsd, wire) => {
         if (totalRequestCount >= args.budget.maxRequests) {
           return { accepted: false as const, reason: 'optimizer model request limit reached' }
         }
@@ -136,6 +156,7 @@ export async function startExternalOptimizerModelProxy(
           return { accepted: false as const, reason: 'optimizer model cost limit reached' }
         }
         requestCount += 1
+        wireCounts[wire].requestAttempts += 1
         totalRequestCount += 1
         reservedForBudget += maximumCostUsd ?? 0
         return { accepted: true as const }
@@ -144,8 +165,9 @@ export async function startExternalOptimizerModelProxy(
         reservedForBudget = Math.max(0, reservedForBudget - (maximumCostUsd ?? 0))
         committedForBudget += chargedCostUsd ?? 0
       },
-      recordSuccessfulCompletion: () => {
+      recordSuccessfulCompletion: (wire) => {
         successfulCompletionCount += 1
+        wireCounts[wire].successfulCompletions += 1
       },
       recordExecutionReceipt: (observation) => {
         try {
@@ -195,6 +217,10 @@ export async function startExternalOptimizerModelProxy(
     apiKey: token,
     requestAttempts: () => requestCount,
     successfulCompletions: () => successfulCompletionCount,
+    wireUsage: () => ({
+      openai: { ...wireCounts.openai },
+      anthropic: { ...wireCounts.anthropic },
+    }),
     assertExecutionComplete,
     failures: () => [...failures],
     close,
@@ -247,8 +273,12 @@ async function handleModelProxyRequest(args: {
     channel?: CostChannel
     tags?: Record<string, string>
     callId?: string
+    anthropicEndpoint?: boolean
   }
-  nextReservation: (maximumCostUsd: number | undefined) =>
+  nextReservation: (
+    maximumCostUsd: number | undefined,
+    wire: ModelProxyWire,
+  ) =>
     | { accepted: true }
     | {
         accepted: false
@@ -258,21 +288,44 @@ async function handleModelProxyRequest(args: {
     maximumCostUsd: number | undefined,
     chargedCostUsd: number | undefined,
   ) => void
-  recordSuccessfulCompletion: () => void
+  recordSuccessfulCompletion: (wire: ModelProxyWire) => void
   recordExecutionReceipt: (observation: UnsequencedExecutionObservation) => void
   recordModelCallInvocation: () => void
   recordFailure: (error: Error) => void
 }): Promise<void> {
   const { controller, request, response } = args
+  let wire: ModelProxyWire = 'openai'
+  // The `claude` CLI retries only 408/409/429/5xx. A budget or ledger refusal
+  // must therefore surface as 402 on the Anthropic wire: retrying an exhausted
+  // budget burns wall clock with no possible recovery.
+  const respondError = (status: number, message: string, errorType?: string): void => {
+    if (wire === 'anthropic') {
+      const mapped = status === 429 ? 402 : status
+      sendJsonIfOpen(
+        response,
+        mapped,
+        anthropicErrorEnvelope(errorType ?? anthropicErrorTypeForStatus(mapped), message),
+      )
+      return
+    }
+    sendJsonIfOpen(response, status, { error: message })
+  }
   try {
     const path = request.url ? new URL(request.url, 'http://127.0.0.1').pathname : ''
-    if (request.method !== 'POST' || !MODEL_PROXY_PATHS.has(path)) {
+    const anthropicPath = path === '/v1/messages' && args.args.anthropicEndpoint === true
+    if (request.method !== 'POST' || !(MODEL_PROXY_PATHS.has(path) || anthropicPath)) {
       sendJsonIfOpen(response, 404, { error: 'not found' })
       return
     }
+    if (anthropicPath) wire = 'anthropic'
     const modelPath = path as ModelProxyPath
-    if (request.headers.authorization !== `Bearer ${args.token}`) {
-      sendJsonIfOpen(response, 401, { error: 'unauthorized' })
+    const bearerAuthorized = request.headers.authorization === `Bearer ${args.token}`
+    // The Anthropic SDK spells ANTHROPIC_AUTH_TOKEN as a bearer and
+    // ANTHROPIC_API_KEY as x-api-key; both carry the same ephemeral token.
+    const authorized =
+      bearerAuthorized || (wire === 'anthropic' && request.headers['x-api-key'] === args.token)
+    if (!authorized) {
+      respondError(401, 'unauthorized')
       return
     }
 
@@ -286,9 +339,9 @@ async function handleModelProxyRequest(args: {
     const maximumCostUsd = args.args.budget.pricing
       ? costForTokenPricing(args.args.budget.pricing, maximumUsage)
       : undefined
-    const reservation = args.nextReservation(maximumCostUsd)
+    const reservation = args.nextReservation(maximumCostUsd, wire)
     if (!reservation.accepted) {
-      sendJsonIfOpen(response, 429, { error: reservation.reason })
+      respondError(429, reservation.reason)
       return
     }
 
@@ -298,12 +351,14 @@ async function handleModelProxyRequest(args: {
     )
     let chargedForBudget = maximumCostUsd
     try {
+      const requestTags =
+        wire === 'anthropic' ? { ...(args.args.tags ?? {}), wire: 'anthropic' } : args.args.tags
       const paid = await args.args.costLedger.runPaidCall<ProviderProxyResponse>({
         ...(args.args.callId ? { callId: args.args.callId } : {}),
         channel: args.args.channel ?? 'optimizer',
         phase: args.args.phase,
         actor: args.args.actor,
-        ...(args.args.tags ? { tags: args.args.tags } : {}),
+        ...(requestTags ? { tags: requestTags } : {}),
         model: args.args.model,
         ...(args.args.budget.pricing
           ? {
@@ -323,6 +378,7 @@ async function handleModelProxyRequest(args: {
             recordModelCallInvocation: args.recordModelCallInvocation,
             path: modelPath,
             request: parsed.request,
+            ...(parsed.stream === undefined ? {} : { anthropicStream: parsed.stream }),
             model: args.args.model,
             allowWithinFamily: args.args.servedModelPolicy === 'allow-within-family',
             maxOutputTokens: parsed.maxOutputTokens,
@@ -348,23 +404,25 @@ async function handleModelProxyRequest(args: {
             ? maximumCostUsd
             : paid.receipt.costUsd
           : undefined
-        sendJsonIfOpen(
-          response,
+        respondError(
           isAbortError(paid.error)
             ? 504
-            : paid.error instanceof ProviderResponseTooLargeError ||
-                paid.error instanceof MissingModelExecutionError ||
-                paid.error instanceof ModelExecutionPersistenceError ||
-                paid.error instanceof OwnerModelContractError ||
-                paid.error instanceof ModelSubstitutionError
-              ? 502
-              : 429,
-          { error: paid.error.message },
+            : paid.error instanceof AnthropicRequestRefusal
+              ? paid.error.status
+              : paid.error instanceof ProviderResponseTooLargeError ||
+                  paid.error instanceof MissingModelExecutionError ||
+                  paid.error instanceof ModelExecutionPersistenceError ||
+                  paid.error instanceof OwnerModelContractError ||
+                  paid.error instanceof ModelSubstitutionError
+                ? 502
+                : 429,
+          paid.error.message,
+          paid.error instanceof AnthropicRequestRefusal ? paid.error.errorType : undefined,
         )
         return
       }
       if (paid.value.modelCallFailed) {
-        sendJsonIfOpen(response, 502, { error: paid.value.modelCallFailed })
+        respondError(502, paid.value.modelCallFailed)
         return
       }
       chargedForBudget = paid.value.usageComplete ? paid.receipt.costUsd : maximumCostUsd
@@ -373,11 +431,11 @@ async function handleModelProxyRequest(args: {
       // charged at the reservation maximum, so the analysis keeps its usable
       // completion and the ledger holds an honest upper-bound charge.
       if (paid.value.usageRejected) {
-        sendJsonIfOpen(response, 502, { error: paid.value.usageRejected })
+        respondError(502, paid.value.usageRejected)
         return
       }
       if (paid.value.status >= 200 && paid.value.status < 300) {
-        args.recordSuccessfulCompletion()
+        args.recordSuccessfulCompletion(wire)
       }
       if (response.destroyed || response.writableEnded) return
       response.writeHead(paid.value.status, {
@@ -391,12 +449,18 @@ async function handleModelProxyRequest(args: {
     }
   } catch (error) {
     const status =
-      error instanceof RequestBodyTooLargeError
-        ? 413
-        : error instanceof Error && isAbortError(error)
-          ? 503
-          : 400
-    sendJsonIfOpen(response, status, { error: toErrorMessage(error) })
+      error instanceof AnthropicRequestRefusal
+        ? error.status
+        : error instanceof RequestBodyTooLargeError
+          ? 413
+          : error instanceof Error && isAbortError(error)
+            ? 503
+            : 400
+    respondError(
+      status,
+      toErrorMessage(error),
+      error instanceof AnthropicRequestRefusal ? error.errorType : undefined,
+    )
   }
 }
 
@@ -419,6 +483,8 @@ async function forwardModelProxyRequest(args: {
   recordModelCallInvocation: () => void
   path: ModelProxyPath
   request: ExternalOptimizerChatRequest
+  /** Anthropic-wire SSE request; the stream is synthesized after completion. */
+  anthropicStream?: boolean
   model: string
   /** True when the proxy's servedModelPolicy is 'allow-within-family'. */
   allowWithinFamily: boolean
@@ -504,17 +570,28 @@ async function forwardModelProxyRequest(args: {
             reasoningTokens > args.maxReasoningTokens
           ? `optimizer model execution reported ${reasoningTokens} reasoning tokens, exceeding the declared budget ${args.maxReasoningTokens}`
           : undefined
-    const responseBody = encodeCanonicalModelResponse({
-      path: args.path,
-      callId: args.callId,
-      response: canonicalResponse,
-      receipt: authoritativeReceipt,
-      maxBytes: args.maxResponseBytes,
-    })
+    const encoded =
+      args.path === '/v1/messages'
+        ? encodeAnthropicResponseBody({
+            callId: args.callId,
+            response: canonicalResponse,
+            stream: args.anthropicStream === true,
+            maxBytes: args.maxResponseBytes,
+          })
+        : {
+            contentType: 'application/json',
+            body: encodeCanonicalModelResponse({
+              path: args.path,
+              callId: args.callId,
+              response: canonicalResponse,
+              receipt: authoritativeReceipt,
+              maxBytes: args.maxResponseBytes,
+            }),
+          }
     return {
       status: 200,
-      contentType: 'application/json',
-      body: responseBody,
+      contentType: encoded.contentType,
+      body: encoded.body,
       receipt: authoritativeReceipt,
       usageComplete: authoritativeReceipt.usageUnknown !== true,
       ...(usageRejected ? { usageRejected } : {}),
@@ -636,7 +713,22 @@ function parseModelProxyRequest(
   path: ModelProxyPath,
   expectedModel: string,
   budget: ExternalOptimizerModelBudget,
-): { maxOutputTokens: number; request: ExternalOptimizerChatRequest } {
+): { maxOutputTokens: number; request: ExternalOptimizerChatRequest; stream?: boolean } {
+  if (path === '/v1/messages') {
+    const translated = translateAnthropicMessagesRequest(
+      body,
+      expectedModel,
+      budget.maxOutputTokensPerRequest,
+    )
+    return {
+      maxOutputTokens: translated.maxOutputTokens,
+      stream: translated.stream,
+      request: freezeJsonSnapshot(
+        translated.request,
+        'optimizer model canonical request',
+      ) as ExternalOptimizerChatRequest,
+    }
+  }
   let value: unknown
   try {
     value = JSON.parse(Buffer.from(body).toString('utf8'))
@@ -1072,8 +1164,25 @@ function snapshotChatResponse(
   }) as ChatResponse
 }
 
+function encodeAnthropicResponseBody(args: {
+  callId: string
+  response: ChatResponse
+  stream: boolean
+  maxBytes: number
+}): { contentType: string; body: Uint8Array } {
+  const message = encodeAnthropicMessage(args.response, args.callId)
+  const body = new TextEncoder().encode(
+    args.stream ? renderAnthropicSseStream(message) : JSON.stringify(message),
+  )
+  if (body.byteLength > args.maxBytes) throw new ProviderResponseTooLargeError()
+  return {
+    contentType: args.stream ? 'text/event-stream; charset=utf-8' : 'application/json',
+    body,
+  }
+}
+
 function encodeCanonicalModelResponse(args: {
-  path: ModelProxyPath
+  path: '/v1/chat/completions' | '/v1/responses'
   callId: string
   response: ChatResponse
   receipt: CostReceiptInput
@@ -1130,11 +1239,12 @@ function encodeCanonicalModelResponse(args: {
 }
 
 function endpointFormat(path: ModelProxyPath): ExternalOptimizerEndpointFormat {
+  if (path === '/v1/messages') return 'anthropic-messages'
   return path === '/v1/responses' ? 'responses' : 'chat-completions'
 }
 
 function encodeProtocolUsage(
-  path: ModelProxyPath,
+  path: '/v1/chat/completions' | '/v1/responses',
   response: ChatResponse,
   receipt: CostReceiptInput,
 ): Record<string, unknown> | undefined {

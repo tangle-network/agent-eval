@@ -300,7 +300,7 @@ const method = gepaOptimizationMethod({
 
 Replace the rates with the exact rates charged by your endpoint.
 If billed USD is unknown, omit `maxCostUsd`, `pricing`, and `maxProposerCostUsd`; the recorded cost remains unknown rather than becoming a guessed zero.
-With `optimizer`, every recipe stage must use the standard `gepa` engine.
+With `optimizer`, every recipe stage must use the standard `gepa` engine or a metered agent CLI engine (below).
 Agent Eval receives no provider key, enforces the declared request and token budget, and records the execution owner's exact usage and opaque finite JSON evidence.
 `maxProposerCostUsd` also limits each individual GEPA engine stage.
 
@@ -319,6 +319,18 @@ const call = createOpenAiCompatibleExecutionOwner({
 
 It executes each admitted request against any OpenAI-compatible `/chat/completions` endpoint and returns the typed outcome with a JSON-clean receipt.
 The credential stays inside the owner closure; the proxy still enforces every budget and identity check.
+
+### Metered agent CLI engines
+
+The `autoresearch` and `meta_harness` engines drive a `claude` CLI subprocess.
+Set `optimizer.anthropicEndpoint: true` to admit them in proxied mode.
+The loopback proxy then also serves `POST /v1/messages` (Anthropic Messages API) and the bridge child receives `ANTHROPIC_BASE_URL`, an ephemeral `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` in its environment.
+Every CLI call becomes one canonical execution-owner call with the same reservation, receipt, and budget pipeline as reflection traffic; the run fails if the receipt count differs from the admitted call count.
+Each agent engine run must set `engineConfig.model` to `optimizer.model`, because the engines pass `--model` and that flag beats the injected environment.
+The endpoint translates text conversations only; it refuses tool use, thinking, images, `top_p`, `top_k`, and `stop_sequences` with a loud Anthropic error envelope.
+A budget refusal surfaces to the CLI as HTTP 402, which the CLI treats as terminal instead of retrying.
+Agent sessions are chatty: size `budget.maxRequests` for tens of calls per engine run.
+Without the flag, agent engines stay rejected in proxied mode.
 
 Other official engines can still receive their own settings:
 

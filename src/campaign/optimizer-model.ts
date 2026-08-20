@@ -22,6 +22,13 @@ export interface OpenAICompatibleOptimizerModel {
    * family; it keeps family-level claims valid and forfeits per-model claims.
    */
   servedModelPolicy?: ServedModelPolicy
+  /**
+   * Also expose this metered model over the Anthropic Messages API
+   * (`POST /v1/messages`) on the loopback proxy. Required for GEPA agent
+   * engines that drive a `claude` CLI subprocess. Agent engines are chatty:
+   * size `budget.maxRequests` for tens of calls per engine run. Default: false.
+   */
+  anthropicEndpoint?: boolean
 }
 
 export function assertOptimizerModel(value: OpenAICompatibleOptimizerModel, label: string): void {
@@ -38,6 +45,9 @@ export function assertOptimizerModel(value: OpenAICompatibleOptimizerModel, labe
   }
   if (typeof value.call !== 'function') throw new Error(`${label}.call must be a function`)
   assertServedModelPolicy(value.servedModelPolicy, `${label}.servedModelPolicy`)
+  if (value.anthropicEndpoint !== undefined && typeof value.anthropicEndpoint !== 'boolean') {
+    throw new Error(`${label}.anthropicEndpoint must be a boolean`)
+  }
   assertExternalOptimizerModelBudget(value.budget, `${label}.budget`)
 }
 
@@ -50,5 +60,8 @@ export function snapshotOptimizerModel(
     call: value.call,
     callRef: value.callRef,
     ...(value.servedModelPolicy ? { servedModelPolicy: value.servedModelPolicy } : {}),
+    ...(value.anthropicEndpoint === undefined
+      ? {}
+      : { anthropicEndpoint: value.anthropicEndpoint }),
   }
 }

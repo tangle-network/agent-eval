@@ -49,6 +49,7 @@ import {
   GEPA_DEFAULT_MAX_EVIDENCE_CHARS,
   GEPA_DEFAULT_TIMEOUT_MS,
   gepaRecipeEvaluationLimit,
+  gepaRecipeHasAgentCliEngine,
   gepaRecipeSupportsResume,
   snapshotGepaOptimizationConfig,
 } from './gepa-optimization-config'
@@ -196,6 +197,40 @@ export interface GepaOptimizationMethodConfig<TScenario extends Scenario, TArtif
  * method without a test-set field. The local callback routes every candidate
  * evaluation through the same dispatch and judges used by other methods.
  */
+/**
+ * Environment for a bridge child that spawns `claude` CLI subprocesses.
+ *
+ * Both agent CLI engines start the CLI with the bridge's own environment, so
+ * these variables travel bridge → engine → CLI. They merge AFTER
+ * `removeCredentialEnvironment`: the ephemeral loopback token is the only
+ * credential the child may see, and a caller-supplied ANTHROPIC_AUTH_TOKEN is
+ * stripped like any other credential.
+ */
+function anthropicShimEnvironment(
+  proxy: Pick<ExternalOptimizerModelProxy, 'baseUrl' | 'apiKey'>,
+  optimizer: OpenAICompatibleOptimizerModel,
+): Record<string, string> {
+  return {
+    // The Anthropic SDK appends /v1/messages itself; inject the origin.
+    ANTHROPIC_BASE_URL: new URL(proxy.baseUrl).origin,
+    ANTHROPIC_AUTH_TOKEN: proxy.apiKey,
+    ANTHROPIC_MODEL: optimizer.model,
+    // Background haiku-class calls must carry the one admitted model id.
+    ANTHROPIC_SMALL_FAST_MODEL: optimizer.model,
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    // The proxy refuses thinking requests; adaptive thinking stays off.
+    CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: '1',
+    // Align the CLI's requested max_tokens with the per-request cap. The
+    // engines only setdefault this variable, so the injected value wins.
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(
+      Math.min(optimizer.budget.maxOutputTokensPerRequest, 64_000),
+    ),
+    // The synthesized SSE sends its first byte after the owner call
+    // completes; keep the CLI deadline above the proxy's request deadline.
+    API_TIMEOUT_MS: String((optimizer.budget.requestTimeoutMs ?? 300_000) + 60_000),
+  }
+}
+
 export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
   config: GepaOptimizationMethodConfig<TScenario, TArtifact>,
 ): OptimizationMethod<TScenario, TArtifact> {
@@ -285,6 +320,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               model: config.optimizer.model,
               callRef: config.optimizer.callRef,
               budget: config.optimizer.budget,
+              // Included only when enabled so pre-existing run keys keep
+              // their identity.
+              ...(config.optimizer.anthropicEndpoint === true ? { anthropicEndpoint: true } : {}),
             }
           : null,
         runner: externalOptimizerRunnerIdentity(bridgeRunner, 'agent_eval_rpc.gepa_bridge'),
@@ -349,6 +387,23 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
 
       const runnerEnv = bridgeRunner?.env ?? {}
       let modelProxy: ExternalOptimizerModelProxy | undefined
+      // Injected at spawn time only, after the run keys are computed, so the
+      // per-run port and ephemeral token never enter run identity.
+      const bridgeRunnerForSpawn = (): GepaRunnerCommand | undefined => {
+        if (!modelProxy) return bridgeRunner
+        const anthropicChildEnv =
+          config.optimizer?.anthropicEndpoint === true && gepaRecipeHasAgentCliEngine(config.recipe)
+            ? anthropicShimEnvironment(modelProxy, config.optimizer)
+            : undefined
+        if (!bridgeRunner && !anthropicChildEnv) return bridgeRunner
+        return {
+          ...(bridgeRunner ?? {}),
+          env: {
+            ...removeCredentialEnvironment(runnerEnv),
+            ...(anthropicChildEnv ?? {}),
+          },
+        }
+      }
       const closeResources = () =>
         closeExternalOptimizerResources({
           label: name,
@@ -373,6 +428,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
               ...(config.optimizer.servedModelPolicy
                 ? { servedModelPolicy: config.optimizer.servedModelPolicy }
                 : {}),
+              ...(config.optimizer.anthropicEndpoint === true ? { anthropicEndpoint: true } : {}),
               costLedger,
               phase: 'gepa.optimizer-model',
               actor: name,
@@ -422,17 +478,14 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
                       apiKey: modelProxy.apiKey,
                       model: config.optimizer.model,
                       budget: config.optimizer.budget,
+                      ...(config.optimizer.anthropicEndpoint === true
+                        ? { anthropicEndpoint: true }
+                        : {}),
                     },
                   }
                 : {}),
             },
-            runner:
-              modelProxy && bridgeRunner
-                ? {
-                    ...bridgeRunner,
-                    env: removeCredentialEnvironment(runnerEnv),
-                  }
-                : bridgeRunner,
+            runner: bridgeRunnerForSpawn(),
             timeoutMs,
             ...(signal ? { signal } : {}),
           })
@@ -499,13 +552,28 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
       const reportedProposerCost = result.proposerCostUsd ?? 0
       if (modelProxy) {
         modelProxy.assertExecutionComplete()
+        // The bridge's httpx hooks observe exactly the reflection (OpenAI-wire)
+        // traffic. Anthropic-wire calls come from the claude CLI, which cannot
+        // self-report counts; their receipts are cross-checked below.
+        const wires = modelProxy.wireUsage()
         assertExternalOptimizerCompletionCount(
           result.tokenUsage,
-          modelProxy.requestAttempts(),
-          modelProxy.successfulCompletions(),
+          wires.openai.requestAttempts,
+          wires.openai.successfulCompletions,
           name,
           'GEPA',
         )
+        if (config.optimizer?.anthropicEndpoint === true) {
+          const anthropicReceipts = costLedger.list({
+            phase: 'gepa.optimizer-model',
+            tags: { ...runBudget.attemptTags, wire: 'anthropic' },
+          })
+          if (anthropicReceipts.length !== wires.anthropic.requestAttempts) {
+            throw new Error(
+              `${name}: the Anthropic endpoint admitted ${wires.anthropic.requestAttempts} model calls but the ledger holds ${anthropicReceipts.length} receipts`,
+            )
+          }
+        }
       }
       const tokenUsage = modelProxy
         ? optimizationTokenUsageFromSummary(optimizerSummary, optimizerReceipts)
@@ -548,6 +616,9 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
                 optimizerModel: config.optimizer.model,
                 optimizerCallRef: config.optimizer.callRef,
               }
+            : {}),
+          ...(modelProxy && config.optimizer?.anthropicEndpoint === true
+            ? { anthropicEndpoint: modelProxy.wireUsage().anthropic }
             : {}),
           compatibleRunId,
           runId,

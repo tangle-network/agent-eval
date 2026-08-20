@@ -19,6 +19,10 @@ import httpx
 
 from agent_eval_rpc.gepa_api import GepaApi, load_gepa_api
 from agent_eval_rpc.gepa_bridge_contract import (
+    AGENT_CLI_ENGINES,
+    recipe_has_agent_cli_engine,
+)
+from agent_eval_rpc.gepa_bridge_contract import (
     _import_engine_modules as _import_engine_modules,
 )
 from agent_eval_rpc.gepa_bridge_contract import _read_json as _read_json
@@ -234,7 +238,10 @@ def _main() -> None:
         )
         proposer_cost = _reported_proposer_cost(phase_results)
         proxy_snapshot = proxy_usage.snapshot() if proxy_usage is not None else None
-        if proxy_snapshot is not None:
+        # Agent CLI engines self-report adapter cost from claude output that the
+        # reflection proxy hooks never observe, so the equality holds only for
+        # pure reflection recipes. The TS ledger stays the cost authority.
+        if proxy_snapshot is not None and not recipe_has_agent_cli_engine(recipe):
             proxy_cost = proxy_snapshot["costUsd"]
             if proposer_cost is not None and (
                 not isinstance(proxy_cost, float)
@@ -730,7 +737,12 @@ def _engine_config(
     proxy_usage: _ProxyUsage | None,
 ) -> Any:
     engine_config = copy.deepcopy(run["engineConfig"])
-    if model_proxy is not None:
+    agent_cli_run = run["engine"] in AGENT_CLI_ENGINES and bool(
+        model_proxy is not None and model_proxy.get("anthropicEndpoint")
+    )
+    if model_proxy is not None and not agent_cli_run:
+        # Agent CLI runs receive no reflection model: their claude subprocess
+        # meters through the proxy's Anthropic route via the process env.
         if run["engine"] != "gepa" or proxy_usage is None:
             raise ValueError("GEPA modelProxy supports only the standard gepa engine")
         reflection = engine_config.setdefault("reflection", {})

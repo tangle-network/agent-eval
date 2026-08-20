@@ -16,6 +16,7 @@ import type {
 import { pairedBootstrap } from '../../statistics'
 import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign } from '../coverage'
+import type { ExternalOptimizerWireCounts } from '../external-optimizer-contracts'
 import type {
   ExternalOptimizerExecutionSummary,
   ExternalOptimizerObservationSummary,
@@ -131,6 +132,8 @@ export interface OptimizationMethodProvenance {
   gepaCandidatePopulation?: GepaCandidatePopulationSummary
   /** Opaque Runtime execution evidence for every invoked optimizer-model call. */
   modelExecutions?: ExternalOptimizerExecutionSummary
+  /** Anthropic-endpoint proxy traffic from agent CLI engines, when enabled. */
+  anthropicEndpoint?: ExternalOptimizerWireCounts
 }
 
 /** Shared inputs for one optimization method. Final test data is absent. */
