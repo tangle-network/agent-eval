@@ -20,6 +20,7 @@ The agent echoes the candidate surface and the judge checks for one required dir
 - The exact selected change is available as `promotedDiff`.
 
 The expected decision is `ship` because the candidate scores `1` and the baseline scores `0` on every holdout case.
+The holdout holds six cases because the gate's exact paired test cannot reach 95% significance below six paired wins on a 0/1 judge.
 This proves the wiring, not the quality of a production evaluation.
 
 Replace `dispatchWithSurface` with your agent call, replace the judge with a calibrated check, and replace the proposer with your product-specific candidate logic.

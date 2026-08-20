@@ -18,10 +18,16 @@ const SCENARIOS: Scenario[] = [
 ]
 // Only the release rule scores this disjoint holdout. A candidate ships
 // only if it beats baseline HERE, not just on the search set it was selected on.
+// Six cases is the floor for a 0/1 judge: the gate's exact paired test
+// cannot reach 95% significance below six paired wins, so a smaller
+// holdout always returns 'hold'.
 const HOLDOUT: Scenario[] = [
   { id: 'holdout-brief', kind: 'chat' },
   { id: 'holdout-code-review', kind: 'chat' },
   { id: 'holdout-research', kind: 'chat' },
+  { id: 'holdout-refactor', kind: 'chat' },
+  { id: 'holdout-migration', kind: 'chat' },
+  { id: 'holdout-incident', kind: 'chat' },
 ]
 
 // The directive the optimizer is meant to introduce. The weak baseline lacks it
@@ -66,14 +72,17 @@ try {
     proposer,
     populationSize: 1,
     maxGenerations: 1,
-    // Ship only when the held-out lift meets this release rule.
+    // Ship only when the paired held-out lift is significantly positive:
+    // the CI lower bound on the success-rate delta must clear the threshold.
     gate: defaultProductionGate<DemoArtifact, Scenario>({
       holdoutScenarios: HOLDOUT,
-      deltaThreshold: 0.5,
+      deltaThreshold: 0,
     }),
     autoOnPromote: 'none',
     runDir,
     seed: 7,
+    // The echo dispatch makes no paid call, so no usage receipt can exist.
+    expectUsage: 'off',
   })
 
   console.log({

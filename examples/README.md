@@ -39,12 +39,14 @@ Run one official optimizer:
 
 ```sh
 OPTIMIZERS=gepa \
-LLM_BASE_URL=https://api.openai.com/v1 \
-LLM_API_KEY="$OPENAI_API_KEY" \
+LLM_BASE_URL=https://router.tangle.tools/v1 \
+LLM_API_KEY="$TANGLE_API_KEY" \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
 ```
+
+Any OpenAI-compatible endpoint works; point `LLM_BASE_URL` at it and set `LLM_MODEL` to a model it serves.
 
 The optimizer's reflection calls run through a default execution owner built from `LLM_BASE_URL` and `LLM_API_KEY` (`createOpenAiCompatibleExecutionOwner` from `/campaign`).
 Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to route them through your own execution package instead.

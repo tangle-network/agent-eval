@@ -20,7 +20,7 @@
  *                                     replaces the default OpenAI-compatible owner
  *   LLM_MODEL (default deepseek-v4-pro), GEPA_MODEL, SKILLOPT_MODEL, OPTIMIZER_PYTHON,
  *   PRICE_CACHED_IN_PER_M, PRICE_CACHE_WRITE_IN_PER_M, CALL_TIMEOUT_MS,
- *   TRAIN_N, SELECTION_N, TEST_N, REPS, SMOKE=1 (baseline smoke only),
+ *   WORKER_MAX_TOKENS, TRAIN_N, SELECTION_N, TEST_N, REPS, SMOKE=1 (baseline smoke only),
  *   MAX_SMOKE_COST_USD, MAX_OPTIMIZER_MODEL_COST_USD, MAX_TOTAL_COST_USD,
  *   GEPA_* and SKILLOPT_* budget limits, OPTIMIZATION_CONCURRENCY, TASK_CONCURRENCY.
  *
@@ -73,6 +73,7 @@ import {
   positiveIntegerEnv,
   positiveNumberEnv,
 } from '../../_shared/env'
+import { GEPA_REFLECTION_ENGINE_CONFIG } from '../../_shared/gepa-reflection'
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
 import { loadOptimizerExecutionOwner } from '../../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
@@ -129,7 +130,9 @@ const SMOKE = process.env.SMOKE === '1'
 const SEED = 42
 const RESAMPLES = 4_000
 const CONFIDENCE = 0.95
-const WORKER_MAX_TOKENS = 1_024
+// Reasoning models spend thinking tokens against this cap; raise it for
+// families that reason, or answers arrive truncated.
+const WORKER_MAX_TOKENS = positiveIntegerEnv('WORKER_MAX_TOKENS', 1_024)
 
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
@@ -358,6 +361,7 @@ async function main() {
           engine: 'gepa',
           maxEvaluations: GEPA_MAX_EVALUATIONS,
           maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+          engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
         },
       },
       optimizer: {

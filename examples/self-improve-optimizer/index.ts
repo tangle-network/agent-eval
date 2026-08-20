@@ -6,7 +6,8 @@
  * held-out split GEPA never received, and returns a release decision.
  *
  * Required:
- *   LLM_API_KEY=$OPENAI_API_KEY
+ *   LLM_BASE_URL=<OpenAI-compatible endpoint>
+ *   LLM_API_KEY=<key for that endpoint>
  *   GEPA_PRICE_IN_PER_M=0.4 GEPA_PRICE_OUT_PER_M=1.6   # exact endpoint rates
  *
  * Run: pnpm tsx examples/self-improve-optimizer/index.ts
@@ -32,6 +33,7 @@ import {
   extractionJudge,
   makeExtractionWorker,
 } from '../_shared/extraction-task'
+import { GEPA_REFLECTION_ENGINE_CONFIG } from '../_shared/gepa-reflection'
 import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 // ── Environment, validated before any paid call ─────────────────────────
@@ -39,15 +41,19 @@ const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
 if (!API_KEY) {
   throw new Error('Set LLM_API_KEY, or TANGLE_API_KEY with TANGLE_ROUTER_URL.')
 }
-const BASE_URL = (
-  process.env.LLM_BASE_URL ||
-  process.env.TANGLE_ROUTER_URL ||
-  'https://api.openai.com/v1'
-).trim()
-const MODEL = process.env.LLM_MODEL || 'gpt-4.1-mini'
+const BASE_URL = (process.env.LLM_BASE_URL || process.env.TANGLE_ROUTER_URL || '').trim()
+if (!BASE_URL) {
+  throw new Error('Set LLM_BASE_URL (or TANGLE_ROUTER_URL) to an OpenAI-compatible endpoint.')
+}
+const MODEL = process.env.LLM_MODEL || 'deepseek-v4-flash'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
+// Reasoning models spend thinking tokens against this cap; raise it for
+// families that reason, or the worker returns truncated JSON.
+const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 400)
+// Keep this at or above the train partition size. One aggregate evaluation
+// registers the whole train set, so a smaller budget scores -inf.
 const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 12)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 2)
 const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 10)
@@ -142,6 +148,7 @@ const worker = makeExtractionWorker({
   model: MODEL,
   records,
   timeoutMs: CALL_TIMEOUT_MS,
+  maxTokens: LLM_MAX_TOKENS,
   experimentId: 'self-improve-optimizer',
 })
 
@@ -170,6 +177,7 @@ const gepa = gepaOptimizationMethod<ExtractScenario, Artifact>({
       engine: 'gepa',
       maxEvaluations: GEPA_MAX_EVALUATIONS,
       maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+      engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
     },
   },
   optimizer: {

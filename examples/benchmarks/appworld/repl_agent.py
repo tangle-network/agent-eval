@@ -133,10 +133,10 @@ def otlp_line(
     otlp-flatten.ts (trace_id/span_id/parent_span_id/name/kind/start_time/
     end_time/status/resource/attributes). store-otlp.ts indexes these directly."""
     # Roots use "" (not null) for parent_span_id and carry an instrumentation
-    # `scope`: both are standard OTLP fields that the halo-engine SpanRecord
-    # schema requires (parent_span_id: str, scope required). Our own
-    # OtlpFileTraceStore normalizes "" → null (otlp-span.ts), so emitting the
-    # halo-complete shape keeps ONE corpus both analysis engines read.
+    # `scope`: both are standard OTLP fields, and strict external OTLP
+    # consumers require them (parent_span_id: str, scope present). Our own
+    # OtlpFileTraceStore normalizes "" -> null (otlp-span.ts), so emitting the
+    # strict shape keeps ONE corpus every analysis engine can read.
     line: dict[str, Any] = {
         "trace_id": trace_id,
         "span_id": span_id,

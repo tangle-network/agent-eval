@@ -14,6 +14,8 @@ interface CopyScenario extends Scenario {
   brief: string
 }
 
+// Twelve cases so the 50% holdout split keeps six: the gate cannot claim
+// 95% significance on fewer paired holdout observations at this effect size.
 const scenarios: CopyScenario[] = [
   { id: 'launch', kind: 'copy', brief: 'announce a new pricing tier' },
   { id: 'feature', kind: 'copy', brief: 'highlight a new collaboration feature' },
@@ -23,6 +25,10 @@ const scenarios: CopyScenario[] = [
   { id: 'churn', kind: 'copy', brief: 'win back an inactive account' },
   { id: 'case-study', kind: 'copy', brief: 'promote a customer case study' },
   { id: 'security', kind: 'copy', brief: 'explain a new security feature' },
+  { id: 'integration', kind: 'copy', brief: 'announce a new CRM integration' },
+  { id: 'pricing-faq', kind: 'copy', brief: 'clarify a pricing question' },
+  { id: 'onboarding', kind: 'copy', brief: 'welcome a new workspace admin' },
+  { id: 'downtime', kind: 'copy', brief: 'apologize for a brief outage' },
 ]
 
 // Synthetic agent: better surfaces produce higher-quality artifacts.

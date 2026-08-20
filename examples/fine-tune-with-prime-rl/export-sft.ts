@@ -6,7 +6,7 @@
  * completions, projects through `toSftRows` into the messages-list format
  * prime-rl's SFT trainer consumes, and writes:
  *   - `<out>` — the JSONL training file
- *   - `prime-rl-sft.toml` — a runnable prime-rl SFT config
+ *   - `<out-basename>.prime-rl-sft.toml` — a runnable prime-rl SFT config
  *
  * Usage:
  *   pnpm tsx examples/fine-tune-with-prime-rl/export-sft.ts \\
@@ -29,6 +29,10 @@ import { toSftJsonl, toSftRows } from '../../src/rl/exporters'
 import { mintRolloutRows } from '../../src/rollout/mint'
 import { type RunRecord, runTaskScore } from '../../src/run-record'
 import { InMemoryTraceStore } from '../../src/trace/store'
+
+/** RunRecord plus the top-level trajectory-text fields the exporter reads.
+ *  `outcome.raw` is numeric-only by contract, so text never lives there. */
+type WithText = RunRecord & Record<string, unknown>
 
 interface CliArgs {
   runs: string
@@ -91,9 +95,9 @@ function printHelp(): void {
       '  --out <path>           output JSONL path (default: sft-data.jsonl)\n' +
       '  --min-score <float>    drop runs scoring below this (default: 0.7)\n' +
       '  --model-name <id>      HuggingFace model id for the TOML (default: Qwen/Qwen3-0.6B)\n' +
-      '  --prompt-key <key>     where prompt text lives in outcome.raw (default: prompt)\n' +
-      '  --completion-key <key> where completion text lives in outcome.raw (default: completion)\n' +
-      '  --system-key <key>     optional system message key in outcome.raw\n',
+      '  --prompt-key <key>     top-level record key holding the prompt (default: prompt)\n' +
+      '  --completion-key <key> top-level record key holding the completion (default: completion)\n' +
+      '  --system-key <key>     optional top-level system message key\n',
   )
 }
 
@@ -109,7 +113,7 @@ async function readNdjson<T>(path: string): Promise<T[]> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
-  const runs = await readNdjson<RunRecord>(args.runs)
+  const runs = await readNdjson<WithText>(args.runs)
   process.stdout.write(`✓ read ${runs.length} runs from ${args.runs}\n`)
 
   // Filter to high-quality runs (rejection-sampling SFT). The score floor
@@ -135,26 +139,36 @@ async function main(): Promise<void> {
 
   // The lookups read prompt/completion text from the records. Production
   // callers can resolve the same ids from their trace store.
+  // A missing text field throws instead of exporting a placeholder row:
+  // a silent blank would train the model on garbage.
+  const textOf = (runId: string, key: string): string => {
+    const text = byId.get(runId)![key]
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new Error(
+        `run ${runId} has no non-empty outcome.raw.${key}; ` +
+          'capture trajectory text before exporting (see README)',
+      )
+    }
+    return text
+  }
   const rows = await toSftRows(rolloutLines, {
-    promptOf: (runId) => {
-      const run = byId.get(runId)!
-      const text = run.outcome.raw[args.promptKey]
-      return typeof text === 'string' ? text : `<no prompt for ${runId}>`
-    },
-    completionOf: (runId) => {
-      const run = byId.get(runId)!
-      const text = run.outcome.raw[args.completionKey]
-      return typeof text === 'string' ? text : `<no completion for ${runId}>`
-    },
+    promptOf: (runId) => textOf(runId, args.promptKey),
+    completionOf: (runId) => textOf(runId, args.completionKey),
     systemOf: args.systemKey
       ? (line) => {
-          const run = byId.get(line.run_id)!
-          const text = run.outcome.raw[args.systemKey!]
+          const text = byId.get(line.run_id)![args.systemKey!]
           return typeof text === 'string' ? text : null
         }
       : undefined,
   })
 
+  if (rows.length === 0) {
+    // The exporter is fail-closed on splits: holdout, dev, and canary rows
+    // never train by default. An empty file must stop the pipeline here.
+    throw new Error(
+      'no exportable SFT rows: check splitTag (only search trains by default) and the score filter',
+    )
+  }
   const jsonl = toSftJsonl(rows)
   await fs.writeFile(args.out, jsonl, 'utf8')
   process.stdout.write(`✓ wrote ${rows.length} SFT rows to ${args.out}\n`)

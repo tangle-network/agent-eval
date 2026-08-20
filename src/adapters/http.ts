@@ -280,7 +280,11 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
       const chunks: Buffer[] = []
       let totalBytes = 0
       const aborter = new AbortController()
-      req.on('close', () => {
+      // The request stream's 'close' fires when the BODY completes, so it
+      // cannot signal disconnection. The response stream's 'close' fires
+      // once per exchange: with `writableEnded` still false it means the
+      // client went away before the dispatch answered.
+      res.on('close', () => {
         if (!res.writableEnded) aborter.abort()
       })
 

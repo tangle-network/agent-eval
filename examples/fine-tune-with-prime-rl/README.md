@@ -48,35 +48,37 @@ Requirements:
 Steps:
 
 ```bash
-# 1. From this directory in agent-eval:
+# 1. From the agent-eval repository root:
 pnpm tsx examples/fine-tune-with-prime-rl/export-sft.ts \
-  --runs ./synthetic-runs.jsonl \
-  --out ./sft-data.jsonl \
+  --runs examples/fine-tune-with-prime-rl/synthetic-runs.jsonl \
+  --out /tmp/prime-rl-demo/sft-data.jsonl \
   --min-score 0.7
 
 # Output:
-#   ✓ read 80 runs from synthetic-runs.jsonl
-#   ✓ filtered to 32 high-quality (score ≥ 0.7) runs
-#   ✓ wrote 32 SFT rows to sft-data.jsonl
-#   ✓ wrote prime-rl config to prime-rl-sft.toml
+#   ✓ read 8 runs from examples/fine-tune-with-prime-rl/synthetic-runs.jsonl
+#   ✓ filtered to 6 high-quality (score ≥ 0.7) runs
+#   ✓ wrote 6 SFT rows to /tmp/prime-rl-demo/sft-data.jsonl
+#   ✓ wrote prime-rl config to /tmp/prime-rl-demo/sft-data.prime-rl-sft.toml
 
 # 2. Run prime-rl SFT (in a clone of prime-rl):
 cd ~/code/prime-rl
-uv run sft @ /path/to/agent-eval/examples/fine-tune-with-prime-rl/prime-rl-sft.toml
+uv run sft @ /tmp/prime-rl-demo/sft-data.prime-rl-sft.toml
 
 # Output: a checkpoint at outputs/weights/step_<N>
 ```
 
+Create the output directory first (`mkdir -p /tmp/prime-rl-demo`), or point `--out` anywhere else.
+
 ## What the example produces
 
-`export-sft.ts` produces three artifacts:
+`export-sft.ts` produces two artifacts:
 
 1. **`sft-data.jsonl`**: one row per filtered run, in the messages-list format
    prime-rl's SFT trainer consumes:
    ```json
    {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
    ```
-2. **`prime-rl-sft.toml`**: a 15-line config pointing at the JSONL file:
+2. **`sft-data.prime-rl-sft.toml`**: a 15-line config pointing at the JSONL file:
    ```toml
    max_steps = 100
    [model]
@@ -88,8 +90,8 @@ uv run sft @ /path/to/agent-eval/examples/fine-tune-with-prime-rl/prime-rl-sft.t
    [optim]
    lr = 2e-5
    ```
-3. **A README in this dir** explaining how to swap the synthetic input for
-   real campaign output.
+
+Only `search`-split rows export by default; the exporter is fail-closed, and the script stops on an empty export instead of writing a blank training file.
 
 ## Adapting for your real campaign
 
@@ -97,10 +99,12 @@ Replace `synthetic-runs.jsonl` with the `RunRecord` rows from a real `runEvalCam
 The script reads NDJSON and mints each scored record into the canonical rollout format before export.
 Every record needs a `runId`, either `outcome.searchScore` or `outcome.holdoutScore`, and one of:
 
-- `outcome.raw.prompt` + `outcome.raw.completion` (if you stash the text on the record), OR
-- a custom `--prompt-key` and `--completion-key` flag pointing at where the
-  text lives in your run's metadata, OR
+- top-level `prompt` + `completion` fields on the record, OR
+- a custom `--prompt-key` and `--completion-key` flag naming other top-level
+  fields, OR
 - a custom lookup callback (read the source: this is a 5-line change).
+
+`outcome.raw` is numeric-only by contract, so trajectory text never lives there.
 
 Most consumers store prompt/completion text in their `TraceStore` or raw
 event log, not on the `RunRecord` directly (which only carries hashes). For
@@ -123,6 +127,5 @@ event log and join it back to the run records by `runId`.
 
 - `README.md`: this file.
 - `export-sft.ts`: the export script.
-- `synthetic-runs.jsonl`: example input data; replace with your own
-  campaign output.
-- `prime-rl-sft.toml`: generated config; not checked in (see `.gitignore`).
+- `synthetic-runs.jsonl`: example input data (`search`-split, current
+  `RunRecord` shape); replace with your own campaign output.

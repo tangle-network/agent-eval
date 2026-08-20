@@ -33,7 +33,7 @@ function holdoutRun(
     candidateId,
     scenarioId: `${experimentId}-scenario`,
     seed,
-    model: 'claude-sonnet-4-6@2025-04-15',
+    model: 'deepseek-v4-flash@2026-07-01',
     promptHash: candidateId,
     configHash: 'cfg',
     commitSha: 'sha',

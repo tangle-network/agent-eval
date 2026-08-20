@@ -35,10 +35,10 @@ import {
 } from '../../src/index'
 
 // ── Two profiles you might benchmark side-by-side ────────────────────────
-const sonnet: AgentProfile = {
-  name: 'sonnet-v3',
+const flash: AgentProfile = {
+  name: 'flash-v3',
   version: 'v3',
-  model: { default: 'claude-sonnet-4-6@2025-04-15' },
+  model: { default: 'deepseek-v4-flash' },
   resources: {
     skills: [
       { kind: 'inline', name: 'intake', content: 'intake skill' },
@@ -46,15 +46,15 @@ const sonnet: AgentProfile = {
     ],
   },
 }
-const opus: AgentProfile = {
-  name: 'opus-v3',
+const glm: AgentProfile = {
+  name: 'glm-v3',
   version: 'v3',
-  model: { default: 'claude-opus-4-7@2025-04-15' },
-  resources: sonnet.resources,
+  model: { default: 'glm-5.3' },
+  resources: flash.resources,
 }
 
-console.log('sonnet hash:', agentProfileHash(sonnet).slice(0, 12))
-console.log('opus   hash:', agentProfileHash(opus).slice(0, 12))
+console.log('flash hash:', agentProfileHash(flash).slice(0, 12))
+console.log('glm   hash:', agentProfileHash(glm).slice(0, 12))
 
 // ── A minimal RunRecord-shaped object. Real harnesses build these via
 //    `runEvalCampaign`; here we hand-roll them so the example runs offline. ──
@@ -86,53 +86,53 @@ console.log('log path:   ', log)
 recordRunsToScorecard(
   log,
   [
-    makeRun('persona-a', 0, 0.7, agentProfileModelId(sonnet)),
-    makeRun('persona-a', 1, 0.72, agentProfileModelId(sonnet)),
-    makeRun('persona-a', 2, 0.71, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 0, 0.6, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 1, 0.61, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 2, 0.59, agentProfileModelId(sonnet)),
+    makeRun('persona-a', 0, 0.7, agentProfileModelId(flash)),
+    makeRun('persona-a', 1, 0.72, agentProfileModelId(flash)),
+    makeRun('persona-a', 2, 0.71, agentProfileModelId(flash)),
+    makeRun('persona-b', 0, 0.6, agentProfileModelId(flash)),
+    makeRun('persona-b', 1, 0.61, agentProfileModelId(flash)),
+    makeRun('persona-b', 2, 0.59, agentProfileModelId(flash)),
   ],
-  { profile: sonnet, commitSha: 'c1', timestamp: '2026-05-20T00:00:00Z' },
+  { profile: flash, commitSha: 'c1', timestamp: '2026-05-20T00:00:00Z' },
 )
 recordRunsToScorecard(
   log,
   [
-    makeRun('persona-a', 0, 0.78, agentProfileModelId(opus)),
-    makeRun('persona-a', 1, 0.8, agentProfileModelId(opus)),
-    makeRun('persona-a', 2, 0.79, agentProfileModelId(opus)),
-    makeRun('persona-b', 0, 0.55, agentProfileModelId(opus)),
-    makeRun('persona-b', 1, 0.58, agentProfileModelId(opus)),
-    makeRun('persona-b', 2, 0.56, agentProfileModelId(opus)),
+    makeRun('persona-a', 0, 0.78, agentProfileModelId(glm)),
+    makeRun('persona-a', 1, 0.8, agentProfileModelId(glm)),
+    makeRun('persona-a', 2, 0.79, agentProfileModelId(glm)),
+    makeRun('persona-b', 0, 0.55, agentProfileModelId(glm)),
+    makeRun('persona-b', 1, 0.58, agentProfileModelId(glm)),
+    makeRun('persona-b', 2, 0.56, agentProfileModelId(glm)),
   ],
-  { profile: opus, commitSha: 'c1', timestamp: '2026-05-20T00:00:00Z' },
+  { profile: glm, commitSha: 'c1', timestamp: '2026-05-20T00:00:00Z' },
 )
 
-// ── Commit 2: a feature lands. sonnet improves on persona-a; opus
+// ── Commit 2: a feature lands. flash improves on persona-a; glm
 //             regresses on persona-b — exactly what an aggregate misses. ──
 recordRunsToScorecard(
   log,
   [
-    makeRun('persona-a', 0, 0.88, agentProfileModelId(sonnet)),
-    makeRun('persona-a', 1, 0.9, agentProfileModelId(sonnet)),
-    makeRun('persona-a', 2, 0.89, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 0, 0.6, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 1, 0.62, agentProfileModelId(sonnet)),
-    makeRun('persona-b', 2, 0.61, agentProfileModelId(sonnet)),
+    makeRun('persona-a', 0, 0.88, agentProfileModelId(flash)),
+    makeRun('persona-a', 1, 0.9, agentProfileModelId(flash)),
+    makeRun('persona-a', 2, 0.89, agentProfileModelId(flash)),
+    makeRun('persona-b', 0, 0.6, agentProfileModelId(flash)),
+    makeRun('persona-b', 1, 0.62, agentProfileModelId(flash)),
+    makeRun('persona-b', 2, 0.61, agentProfileModelId(flash)),
   ],
-  { profile: sonnet, commitSha: 'c2', timestamp: '2026-05-21T00:00:00Z' },
+  { profile: flash, commitSha: 'c2', timestamp: '2026-05-21T00:00:00Z' },
 )
 recordRunsToScorecard(
   log,
   [
-    makeRun('persona-a', 0, 0.79, agentProfileModelId(opus)),
-    makeRun('persona-a', 1, 0.81, agentProfileModelId(opus)),
-    makeRun('persona-a', 2, 0.8, agentProfileModelId(opus)),
-    makeRun('persona-b', 0, 0.4, agentProfileModelId(opus)), // ← regression
-    makeRun('persona-b', 1, 0.42, agentProfileModelId(opus)),
-    makeRun('persona-b', 2, 0.41, agentProfileModelId(opus)),
+    makeRun('persona-a', 0, 0.79, agentProfileModelId(glm)),
+    makeRun('persona-a', 1, 0.81, agentProfileModelId(glm)),
+    makeRun('persona-a', 2, 0.8, agentProfileModelId(glm)),
+    makeRun('persona-b', 0, 0.4, agentProfileModelId(glm)), // ← regression
+    makeRun('persona-b', 1, 0.42, agentProfileModelId(glm)),
+    makeRun('persona-b', 2, 0.41, agentProfileModelId(glm)),
   ],
-  { profile: opus, commitSha: 'c2', timestamp: '2026-05-21T00:00:00Z' },
+  { profile: glm, commitSha: 'c2', timestamp: '2026-05-21T00:00:00Z' },
 )
 
 // ── The PR-facing diff: per-cell verdict with Cohen's d + p-value. ───────

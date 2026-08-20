@@ -36,7 +36,7 @@ function synthesise(): TraceSpanEvent[] {
       endTimeUnixNano: (baseTime + duration).toString(),
       attributes: {
         'tangle.runId': runId,
-        'tangle.model': 'gpt-4o@2025-04-15',
+        'tangle.model': 'deepseek-v4-flash@2026-07-01',
         'tangle.cost.usd': cost,
         'gen_ai.usage.input_tokens': inputTokens,
         'gen_ai.usage.output_tokens': outputTokens,
@@ -85,20 +85,11 @@ async function main() {
   )
   console.log()
 
-  // Failure surface
-  const failureCount = runs.filter((r) => r.failureMode !== undefined).length
-  if (failureCount > 0) {
-    console.log('Failures')
-    const byName = new Map<string, number>()
-    for (const r of runs) {
-      if (r.failureMode) byName.set(r.failureMode, (byName.get(r.failureMode) ?? 0) + 1)
-    }
-    console.log(`${failureCount} runs with status=ERROR or failureMode set:`)
-    for (const [name, count] of byName) {
-      console.log(`  ${name.padEnd(12)} (${count}x)`)
-    }
-    console.log()
-  }
+  // Failure surface: the intake counts error spans per run; the report's
+  // recommendations name the dominant failure class.
+  const failed = runs.filter((r) => Number(r.outcome.raw.error_span_count ?? 0) > 0)
+  console.log(`Runs with error spans: ${failed.length}`)
+  console.log()
 
   console.log('Cost and quality')
   console.log(
@@ -114,19 +105,10 @@ async function main() {
   console.log()
 
   console.log('Recommendations')
-  if (report.recommendations.length === 0) {
-    console.log(
-      `[medium] expand-corpus: Mean composite ${formatMetric(report.composite.mean)} has room`,
-    )
-    console.log(
-      '  Composite distribution sits below 0.80; investigate the failures and the lower tail',
-    )
-    console.log('  of the histogram before claiming the agent is healthy.')
-  } else {
-    for (const r of report.recommendations) {
-      console.log(`[${r.priority}] ${r.kind}: ${r.title}`)
-      console.log(`  ${r.detail}`)
-    }
+  if (report.recommendations.length === 0) console.log('(none)')
+  for (const r of report.recommendations) {
+    console.log(`[${r.priority}] ${r.kind}: ${r.title}`)
+    console.log(`  ${r.detail}`)
   }
   console.log()
   console.log('End')

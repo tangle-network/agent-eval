@@ -7,11 +7,16 @@
  *   TENANT_KEY=dev-token TENANT_ID=acme pnpm tsx examples/hosted-ingest-server/server.ts
  *
  * Then point any `selfImprove({ hostedTenant: { endpoint: 'http://localhost:8080', ... } })`
- * at it and watch eval-runs land. Inspect with:
+ * at it and watch eval-runs land. Inspect with (all three headers are
+ * required; a missing wire version is a 400):
  *
  *   curl -H 'Authorization: Bearer dev-token' \
  *        -H 'X-Tangle-Tenant-Id: acme' \
+ *        -H "X-Tangle-Wire-Version: $WIRE_VERSION" \
  *        http://localhost:8080/v1/runs
+ *
+ * where $WIRE_VERSION is HOSTED_WIRE_VERSION from src/hosted/types.ts; the
+ * startup banner prints the accepted value.
  *
  * This IS the executable spec. Any orchestrator (ours included) must
  * behave the same way. When the production orchestrator at

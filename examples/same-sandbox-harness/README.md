@@ -18,10 +18,12 @@ inside one workspace so later checks can inspect the artifacts.
 
 ```sh
 pnpm install
+mkdir -p /tmp/sandbox-demo
 pnpm exec tsx -e "
-  import { runSameSandboxExample } from './examples/same-sandbox-harness/index.ts'
-  const r = await runSameSandboxExample('/tmp/sandbox-demo')
-  console.log(r.result.passed, r.result.score)
+  import('./examples/same-sandbox-harness/index.ts').then(async ({ runSameSandboxExample }) => {
+    const r = await runSameSandboxExample('/tmp/sandbox-demo')
+    console.log(r.result.passed, r.result.score)
+  })
 "
 ```
 

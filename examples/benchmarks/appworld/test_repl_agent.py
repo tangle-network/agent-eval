@@ -6,7 +6,7 @@ REPL loop, code extraction, OTLP span emission, RunRecord shaping, cost,
 fail-loud on a stalled call) runs for real. Run inside the demo venv where
 `appworld` + `openai` import:
 
-  cd /tmp/halo-repo/demo/appworld
+  cd "$APPWORLD_DIR"
   OPENAI_BASE_URL=x OPENAI_API_KEY=x .venv/bin/python -m pytest \
       /path/to/examples/benchmarks/appworld/test_repl_agent.py -q
 """
