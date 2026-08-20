@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Added
+
+- Two evidence records for the agent-engine integration arc. `agent-engine-shim-live-proof` (MEASURED-ONCE): the Anthropic loopback shim serves an unmodified Claude Code CLI driving a GEPA autoresearch optimization on the published 0.150.2 npm + PyPI packages, fully metered — 8/8 anthropic-wire requests admitted and completed, totalCostUsd 0.029778336 with accountingComplete true, baseline 0.286 -> winner 1.0 on the deterministic toy objective. `gepa-bridge-machinery-certification` (MEASURED-ONCE, negative disclosed): the GEPA bridge machinery is certified on AIME-2025 (150/150 evaluations, 22 proposals, measured-worse candidates rejected, dual-count integrity held), while the lift verdict is NOT measured — two held-out items exceed glm-5.3's 16000-token reasoning envelope / 480s dispatch wall, and the fail-loud comparison refuses partial verdicts by design.
+
 ---
 
 ## [0.150.2] — 2026-08-20

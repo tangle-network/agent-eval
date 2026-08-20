@@ -1,0 +1,27 @@
+{
+  "id": "agent-engine-shim-live-proof",
+  "date": "2026-08-20",
+  "claim": "The Anthropic loopback shim serves an unmodified Claude Code CLI driving a GEPA autoresearch optimization on published packages, fully metered.",
+  "domain": "agent-engine",
+  "instrument": "live proof against npm @tangle-network/agent-eval@0.150.2 + PyPI agent-eval-rpc==0.150.2, gepa 0.1.4@f919db0a; autoresearch engine drives the real claude CLI through the loopback Anthropic route; deepseek-v4-flash via router.tangle.tools; deterministic length-closeness evaluator (no LLM in the eval loop)",
+  "command": "SHIM_PROOF_ROUTER_KEY=… SHIM_PROOF_PYTHON=… tsx proof.ts (session 099bc10a scratchpad/shim-proof-3; installs the published npm + PyPI 0.150.2 artifacts, no interposer, no tool disallow-list, no budget-flag stripping)",
+  "arms": [],
+  "n": {
+    "value": 8,
+    "unit": "anthropic-wire requests",
+    "detail": "single run; 12 optimizer evaluations, 2 submitted candidates, 8/8 model executions succeeded"
+  },
+  "result": "8/8 anthropic-wire requests admitted and completed, zero 400s; totalCostUsd 0.029778336 with accountingComplete true; strippedFields 'context_management,output_config,thinking' on all 8 receipts; 12 evaluations, baseline 0.286 -> winner 1.0 on the deterministic toy objective; wall 39.7s.",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "session 099bc10a scratchpad/shim-proof-3/ (proof.ts, proof-run2.log, per-wire receipts, observation + model-execution ledgers with sha256)",
+    "session 099bc10a scratchpad/shim-proof-2/ (0.150.1 tools round-trip; captured wire bodies that became the #661 test fixtures)"
+  ],
+  "costUsd": 0.029778336,
+  "confounds": [
+    "toy objective (deterministic length-closeness): the 0.286 -> 1.0 lift is not a benchmark claim; the metered-path claim is the claim",
+    "single run, not replicated"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "0.150.2 carries the system-role translation fix (#661); this run proves the interposer wrapper from shim-proof-2 is unnecessary on the published packages."
+}

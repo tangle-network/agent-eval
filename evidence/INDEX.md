@@ -4,12 +4,14 @@
      Edit the records, run `pnpm run evidence:render`, and commit both.
      `pnpm run evidence:check` (inside verify:package) fails when this file drifts. -->
 
-7 records. States: CERTIFIED > MEASURED-ONCE > RESOLVED-NULL > UNVERIFIED > KILLED.
+9 records. States: CERTIFIED > MEASURED-ONCE > RESOLVED-NULL > UNVERIFIED > KILLED.
 
 | state | date | id | claim | result |
 | --- | --- | --- | --- | --- |
 | CERTIFIED | 2026-08-16 | [`multishot-golden-oracle-v1`](#multishot-golden-oracle-v1) | The multishot loop's behaviour is frozen as deterministic golden records that any engine can be verified against, and the records are load-bearing: they detect every field-level and engine-level deviation. | Consumer parity proven before freezing: tax 4/4 deep-equal, gtm 4/4 shot-level and 8/8 matrix-level. Oracle load-bearing: every single leaf of {outcome, requests} (and {matrix, requests, judgeRequests, files}) mutated one at a time is reported for all 14 records; 8/8 engine mutants detected, each naming the deviating field. |
 | CERTIFIED | 2026-08-02 | [`ctb-analyst-gepa-certified-prompt`](#ctb-analyst-gepa-certified-prompt) | The GEPA-optimized DSPy-RLM analyst prompt (sha d3829fb8) is the certified shipping prompt on CodeTraceBench: challengers lose on pooled sealed splits under the pre-registered rule. | G2 REJECTED by rule 1: pooled-cert micro-F1 stock 0.2489 vs G2 0.1928 (-5.6pp). Per-family stock OH 0.2896 / T2 0.2162. Paired CIs [-0.126, 0.058] OH, [-0.143, 0.023] T2. G2's selection-split edge (+0.064 weighted) did not transfer - third consecutive tuning-split-vs-fresh-split reversal in the campaign. The shipping prompt stands, defended twice (round-1 and round-2 challengers). |
+| MEASURED-ONCE | 2026-08-20 | [`agent-engine-shim-live-proof`](#agent-engine-shim-live-proof) | The Anthropic loopback shim serves an unmodified Claude Code CLI driving a GEPA autoresearch optimization on published packages, fully metered. | 8/8 anthropic-wire requests admitted and completed, zero 400s; totalCostUsd 0.029778336 with accountingComplete true; strippedFields 'context_management,output_config,thinking' on all 8 receipts; 12 evaluations, baseline 0.286 -> winner 1.0 on the deterministic toy objective; wall 39.7s. |
+| MEASURED-ONCE | 2026-08-20 | [`gepa-bridge-machinery-certification`](#gepa-bridge-machinery-certification) | agent-eval's GEPA bridge executes real optimization end-to-end with honest accounting: proposals generated, worse candidates rejected, dual-counted evaluations, integrity gates that refuse to fabricate scores. | Machinery certified; lift verdict NOT MEASURED. Attempt 11: GEPA consumed its full 150-evaluation budget, generated 22 proposals, and rejected measured-worse candidates (iteration log). Independent shim-proof-2 B8 on published 0.150.1: full autoresearch engine run, 13/13 counted requests, accountingComplete true, $0.0398, baseline 0.2857 -> winner 0.9762 on the toy objective. Every missing held-out score was a refusal by the fail-loud comparison, never a fabricated zero. Blocker: two AIME held-out items (aime2025-15 consistently; aime2025-12 intermittently) drive glm-5.3 past the 480s dispatch wall or the 16000-token family cap, and the comparison tool refuses partial verdicts by design. |
 | MEASURED-ONCE | 2026-08-15 | [`tb-gated-stop-ab-confirm`](#tb-gated-stop-ab-confirm) | At one matched total token budget on TB-Repair, an agent that may stop only after an executable held-out check passes finishes more rows than the same agent on unconditional continuation. | +0.0596 pass-rate delta (best intermediate state in both arms), 95% cluster-bootstrap CI [-0.0061, +0.1210]. The interval crosses zero: direction positive, not significant at the registered level. |
 | MEASURED-ONCE | 2026-08-10 | [`tb-repair-free-lunch`](#tb-repair-free-lunch) | Unconditional continuation from the recorded end state with a real model budget (no analyst, no hint, no gate) rescues failed TB-Repair rows, so admission condition 3 has a free lunch to subtract. | 3 of 64 rollouts rescued (4.7%); 2 of 32 rows rescued at least once (6.2%). Zero-call control: 0 passes in 96 rollouts. Exit statuses: 15 submitted, 46 step-budget-exhausted, 3 model-error. |
 | MEASURED-ONCE | 2026-08-08 | [`prime-vs-dspy-analyst-38-rows`](#prime-vs-dspy-analyst-38-rows) | Prime-agent as a one-shot trace analyst beats the GEPA-certified DSPy-RLM analyst on stored-baseline CodeTraceBench rows. | Prime wins the dev-pool comparison: mean per-case scored F1 0.3218 vs 0.1833; 18W/4L/16T (all ties 0-0); two-sided sign test p=0.0043. Direction consistent across both baseline sources including the derivation-verified stock-smoke slice (OH 0.377 vs 0.231, T2 0.416 vs 0.163). |
@@ -60,6 +62,52 @@
   - gold-mass-weighted selection metric recorded as overfit-prone at n=12
   - CodeTraceBench frozen as an optimization target on 2026-08-04: ~60% of residual misses are missing labels (H1, n=20 adjudication), so absolute F1 under-reads the analyst
 - **Notes**: Companion baseline: dev-pool scored-F1 baseline for the dspy-rlm analyst stack is 32.73%/30.99% (retired direct runner excluded). Prime-agent comparison against these stored baselines is recorded separately (prime-vs-dspy-analyst-38-rows).
+
+## agent-engine-shim-live-proof
+
+**MEASURED-ONCE** · 2026-08-20 · agent-engine · source repo `agent-eval`
+
+**Claim.** The Anthropic loopback shim serves an unmodified Claude Code CLI driving a GEPA autoresearch optimization on published packages, fully metered.
+
+**Result.** 8/8 anthropic-wire requests admitted and completed, zero 400s; totalCostUsd 0.029778336 with accountingComplete true; strippedFields 'context_management,output_config,thinking' on all 8 receipts; 12 evaluations, baseline 0.286 -> winner 1.0 on the deterministic toy objective; wall 39.7s.
+
+- **Instrument**: live proof against npm @tangle-network/agent-eval@0.150.2 + PyPI agent-eval-rpc==0.150.2, gepa 0.1.4@f919db0a; autoresearch engine drives the real claude CLI through the loopback Anthropic route; deepseek-v4-flash via router.tangle.tools; deterministic length-closeness evaluator (no LLM in the eval loop)
+- **Command**: `SHIM_PROOF_ROUTER_KEY=… SHIM_PROOF_PYTHON=… tsx proof.ts (session 099bc10a scratchpad/shim-proof-3; installs the published npm + PyPI 0.150.2 artifacts, no interposer, no tool disallow-list, no budget-flag stripping)`
+- **Arms**: single-arm
+- **n**: 8 anthropic-wire requests (single run; 12 optimizer evaluations, 2 submitted candidates, 8/8 model executions succeeded)
+- **Cost**: $0.03
+- **Artifacts**:
+  - session 099bc10a scratchpad/shim-proof-3/ (proof.ts, proof-run2.log, per-wire receipts, observation + model-execution ledgers with sha256)
+  - session 099bc10a scratchpad/shim-proof-2/ (0.150.1 tools round-trip; captured wire bodies that became the #661 test fixtures)
+- **Confounds**:
+  - toy objective (deterministic length-closeness): the 0.286 -> 1.0 lift is not a benchmark claim; the metered-path claim is the claim
+  - single run, not replicated
+- **Notes**: 0.150.2 carries the system-role translation fix (#661); this run proves the interposer wrapper from shim-proof-2 is unnecessary on the published packages.
+
+## gepa-bridge-machinery-certification
+
+**MEASURED-ONCE** · 2026-08-20 · optimization · source repo `agent-eval`
+
+**Claim.** agent-eval's GEPA bridge executes real optimization end-to-end with honest accounting: proposals generated, worse candidates rejected, dual-counted evaluations, integrity gates that refuse to fabricate scores.
+
+**Result.** Machinery certified; lift verdict NOT MEASURED. Attempt 11: GEPA consumed its full 150-evaluation budget, generated 22 proposals, and rejected measured-worse candidates (iteration log). Independent shim-proof-2 B8 on published 0.150.1: full autoresearch engine run, 13/13 counted requests, accountingComplete true, $0.0398, baseline 0.2857 -> winner 0.9762 on the toy objective. Every missing held-out score was a refusal by the fail-loud comparison, never a fabricated zero. Blocker: two AIME held-out items (aime2025-15 consistently; aime2025-12 intermittently) drive glm-5.3 past the 480s dispatch wall or the 16000-token family cap, and the comparison tool refuses partial verdicts by design.
+
+- **Instrument**: examples/benchmarks/gsm8k/compare-optimization-methods.ts on AIME-2025 (train 8 / selection 8 / held-out 10), worker z-ai/glm-5.3, optimizer seats deepseek-v4-flash, via router.tangle.tools; plus the independent live shim proof (shim-proof-2 B8) on published 0.150.1
+- **Command**: `scratchpad/run-wiring/run-aime-v2.sh (WORKER_MAX_TOKENS=16000 CALL_TIMEOUT_MS=480000 WORKER_MAX_ATTEMPTS=6 TASK_CONCURRENCY=2)`
+- **Arms**: baseline vs gepa vs skillopt
+- **n**: 14 launch attempts (2026-08-19/20; optimization phases completed fully in attempts 11-14 (GEPA 150/150 evaluations, 22 proposals in attempt 11); held-out comparison never emitted a verdict)
+- **Cost**: $4.00
+- **Artifacts**:
+  - session 099bc10a scratchpad/run-wiring/gepa-rerun-a*.log (attempt logs)
+  - session 099bc10a scratchpad/main-ro/.evolve/benchmarks/gsm8k-proposer-comparison/ (campaign records, per-cell receipts, failure receipts)
+  - session 099bc10a scratchpad/shim-proof-2/ (independent live-proof artifacts)
+  - https://github.com/tangle-network/agent-eval/pull/648
+  - https://github.com/tangle-network/agent-eval/pull/661
+- **Confounds**:
+  - shared box under 20-60 concurrent agent processes for most attempts; baseline selection accuracy varied 0.125-0.875 across attempts at n=8
+  - attempts 1-10 died on since-fixed wiring/environment defects (8 distinct, 3 upstreamed as agent-eval PRs #648 #661 and the run-wiring fixes); those attempts are machinery evidence, not lift evidence
+  - worker model (glm-5.3) reasons against the same token budget as its answer; hard AIME items are at the edge of the family cap
+- **Notes**: A clean lift verdict needs either a quiet box plus a worker model with reasoning headroom (deepseek-v4-flash worker) or a held-out set screened for items scoreable within the family cap. The two unscoreable items are themselves a finding: AIME-2025 hard items exceed glm-5.3's 16000-token reasoning envelope. Cost ~$4 across the 14 attempts (deepseek seats near-zero; glm worker calls dominated).
 
 ## tb-gated-stop-ab-confirm
 
