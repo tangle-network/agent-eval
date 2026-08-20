@@ -100,7 +100,7 @@ GET /v1/version
 ```json
 {
   "package": "@tangle-network/agent-eval",
-  "version": "0.140.1",
+  "version": "0.150.1",
   "wireVersion": "1.0.0",
   "apiSurface": ["judge", "listRubrics", "version", "feedback.ingest", "traces.ingest"]
 }
