@@ -40,7 +40,6 @@ export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 export LLM_API_KEY="$OPENAI_API_KEY"
 export LLM_BASE_URL=https://api.openai.com/v1
 export LLM_MODEL=gpt-4.1-mini
-export OPTIMIZER_EXECUTION_OWNER_MODULE=@acme/runtime-optimizer-owner
 export GEPA_PRICE_IN_PER_M=0.4
 export GEPA_PRICE_OUT_PER_M=1.6
 
@@ -50,6 +49,8 @@ OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
 Replace the example rates with the current exact endpoint rates.
 GEPA uses `LLM_MODEL` by default.
 Set `GEPA_MODEL` when reflection should use another model.
+Optimizer reflection calls run through a default execution owner built from `LLM_BASE_URL` and `LLM_API_KEY`.
+Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to replace it with your own execution package.
 
 ### Choose a GEPA recipe
 
@@ -87,9 +88,10 @@ OPTIMIZERS=skillopt pnpm tsx examples/compare-optimization-methods/index.ts
 ```
 
 Set `SKILLOPT_PRICE_IN_PER_M` and `SKILLOPT_PRICE_OUT_PER_M` to the current exact rates for your endpoint before running SkillOpt.
-The execution-owner module must export `createOptimizerExecutionOwner(model)` and return `{ call, callRef }`.
+The example passes SkillOpt's `openai_compatible` traffic through Agent Eval's local proxy and then through the execution owner.
+By default that owner is `createOpenAiCompatibleExecutionOwner` from `/campaign`, built from `LLM_BASE_URL` and `LLM_API_KEY`.
+An `OPTIMIZER_EXECUTION_OWNER_MODULE` override must export `createOptimizerExecutionOwner(model)` and return `{ call, callRef }`.
 Discovery uses this module boundary to execute the model through Runtime with one exact AgentProfile.
-The example passes SkillOpt's `openai_compatible` traffic through Agent Eval's local proxy and then through that owner.
 Set `SKILLOPT_MODEL` to use a different optimizer model.
 
 ## Compare Both
@@ -99,7 +101,6 @@ OPTIMIZERS=gepa,skillopt \
 LLM_API_KEY="$OPENAI_API_KEY" \
 LLM_BASE_URL=https://api.openai.com/v1 \
 LLM_MODEL=gpt-4.1-mini \
-OPTIMIZER_EXECUTION_OWNER_MODULE=@acme/runtime-optimizer-owner \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 SKILLOPT_PRICE_IN_PER_M=0.4 \
@@ -107,7 +108,7 @@ SKILLOPT_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
 ```
 
-The execution-owner module controls the optimizer endpoint and credentials; Agent Eval never receives them.
+The execution owner controls the optimizer endpoint and credentials; Agent Eval's proxy never receives them.
 Replace all four example rates with the exact rates charged by that endpoint.
 
 ## Controls
@@ -116,7 +117,7 @@ Replace all four example rates with the exact rates charged by that endpoint.
 |---|---:|---|
 | `OPTIMIZERS` | `gepa,skillopt` | Comma-separated methods to run. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
-| `OPTIMIZER_EXECUTION_OWNER_MODULE` | required | Module exporting `createOptimizerExecutionOwner(model)`; use Runtime for Discovery. |
+| `OPTIMIZER_EXECUTION_OWNER_MODULE` | built-in OpenAI-compatible owner | Module exporting `createOptimizerExecutionOwner(model)`; use Runtime for Discovery. |
 | `GEPA_MODEL` | `LLM_MODEL` | Endpoint model used by GEPA reflection. |
 | `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-case calls. Must match SkillOpt when both run. |
 | `GEPA_MAX_PROPOSER_COST_USD` | `5` | Maximum GEPA model spend inside one engine stage. |

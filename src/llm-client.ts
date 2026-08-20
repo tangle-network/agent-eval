@@ -179,7 +179,11 @@ export interface LlmCallResult {
 
 export type LlmCallMetadata = Pick<LlmCallResult, 'usage' | 'costUsd' | 'model' | 'durationMs'>
 
-/** Convert a provider result into the canonical paid-call receipt input. */
+/** Convert a provider result into the canonical paid-call receipt input.
+ * The receipt is JSON-clean: absent optional fields are omitted, never carried
+ * as explicit-undefined keys. Receipts cross JSON boundaries (the external
+ * optimizer's loopback proxy validates them with `assertJsonValue`), where an
+ * explicit-undefined value is rejected as non-serializable. */
 export function costReceiptFromLlm(
   result: LlmCallResult,
   customTokenPricing?: CustomTokenPricing,
@@ -191,8 +195,10 @@ export function costReceiptFromLlm(
     model: result.model,
     inputTokens,
     outputTokens: result.usage.completionTokens,
-    reasoningTokens: result.usage.reasoningTokens,
-    cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
+    ...(result.usage.reasoningTokens === undefined
+      ? {}
+      : { reasoningTokens: result.usage.reasoningTokens }),
+    ...(cachedTokens > 0 ? { cachedTokens } : {}),
     ...(providerCostUsd === undefined
       ? customTokenPricing && result.usage.captured !== false
         ? { customTokenPricing }

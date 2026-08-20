@@ -37,12 +37,15 @@ Run one official optimizer:
 
 ```sh
 OPTIMIZERS=gepa \
+LLM_BASE_URL=https://api.openai.com/v1 \
 LLM_API_KEY="$OPENAI_API_KEY" \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/compare-optimization-methods/index.ts
 ```
 
+The optimizer's reflection calls run through a default execution owner built from `LLM_BASE_URL` and `LLM_API_KEY` (`createOpenAiCompatibleExecutionOwner` from `/campaign`).
+Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to route them through your own execution package instead.
 Replace the example rates with the exact rates for your endpoint.
 Use `OPTIMIZERS=skillopt` for SkillOpt, or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
 Set `GEPA_RECIPE` to run a composed GEPA recipe — `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` — instead of one engine run.
@@ -72,6 +75,27 @@ Read the [optimizer install instructions](./compare-optimization-methods/README.
 | Run public benchmark adapters | [`benchmarks`](./benchmarks/) |
 | Export supervised and preference rows | [`publish-rl-dataset`](./publish-rl-dataset/) |
 | Fine-tune through Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl/) |
+
+The GSM8K comparison reads a local dataset file from `AGENT_EVAL_GSM8K_PATH`.
+Produce it from the GSM8K test split with Python and `datasets`:
+
+```sh
+mkdir -p ~/.cache/agent-eval
+python -c "from datasets import load_dataset; import json; \
+  [print(json.dumps({'id': f'gsm8k-test-{i}', 'question': r['question'], 'answer': r['answer']})) \
+   for i, r in enumerate(load_dataset('openai/gsm8k', 'main', split='test'))]" \
+  > ~/.cache/agent-eval/gsm8k.jsonl
+```
+
+or, without Python, from the upstream source of the Hugging Face dataset:
+
+```sh
+curl -L https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl \
+  | jq -c '{id: ("gsm8k-test-" + (input_line_number | tostring)), question, answer}' \
+  > ~/.cache/agent-eval/gsm8k.jsonl
+```
+
+Each output line holds `{id, question, answer}` — the exact shape [`benchmarks/gsm8k/index.ts`](./benchmarks/gsm8k/index.ts) loads.
 
 ## Execution
 

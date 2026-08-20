@@ -3,10 +3,42 @@
  * selection, and final data. Candidate generation uses a model endpoint; final
  * scoring uses deterministic numeric answer matching.
  *
+ * Required environment, validated before the first paid call:
+ *   AGENT_EVAL_GSM8K_PATH     JSONL dataset; one {id, question, answer} row per line
+ *   LLM_API_KEY               worker and optimizer credential (or TANGLE_API_KEY)
+ *   LLM_BASE_URL              OpenAI-compatible endpoint (or TANGLE_ROUTER_URL);
+ *                             the default optimizer execution owner requires it
+ *   GEPA_PRICE_IN_PER_M       exact GEPA reflection input rate per million tokens
+ *   GEPA_PRICE_OUT_PER_M      exact GEPA reflection output rate per million tokens
+ *   SKILLOPT_PRICE_IN_PER_M   exact SkillOpt input rate per million tokens
+ *   SKILLOPT_PRICE_OUT_PER_M  exact SkillOpt output rate per million tokens
+ * Shared PRICE_IN_PER_M + PRICE_OUT_PER_M satisfy both optimizer rate pairs and
+ * also price the worker when its endpoint omits billed cost.
+ *
+ * Optional environment:
+ *   OPTIMIZER_EXECUTION_OWNER_MODULE  module exporting createOptimizerExecutionOwner(model);
+ *                                     replaces the default OpenAI-compatible owner
+ *   LLM_MODEL (default deepseek-v4-pro), GEPA_MODEL, SKILLOPT_MODEL, OPTIMIZER_PYTHON,
+ *   PRICE_CACHED_IN_PER_M, PRICE_CACHE_WRITE_IN_PER_M, CALL_TIMEOUT_MS,
+ *   TRAIN_N, SELECTION_N, TEST_N, REPS, SMOKE=1 (baseline smoke only),
+ *   MAX_SMOKE_COST_USD, MAX_OPTIMIZER_MODEL_COST_USD, MAX_TOTAL_COST_USD,
+ *   GEPA_* and SKILLOPT_* budget limits, OPTIMIZATION_CONCURRENCY, TASK_CONCURRENCY.
+ *
+ * Dataset acquisition — the GSM8K test split, converted to the loader's shape:
+ *   mkdir -p ~/.cache/agent-eval
+ *   python -c "from datasets import load_dataset; import json; \
+ *     [print(json.dumps({'id': f'gsm8k-test-{i}', 'question': r['question'], 'answer': r['answer']})) \
+ *      for i, r in enumerate(load_dataset('openai/gsm8k', 'main', split='test'))]" \
+ *     > ~/.cache/agent-eval/gsm8k.jsonl
+ * or, without Python, from the upstream source of the Hugging Face dataset:
+ *   curl -L https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl \
+ *     | jq -c '{id: ("gsm8k-test-" + (input_line_number | tostring)), question, answer}' \
+ *     > ~/.cache/agent-eval/gsm8k.jsonl
+ *
  * Run with an OpenAI-compatible endpoint:
  *   AGENT_EVAL_GSM8K_PATH=~/.cache/agent-eval/gsm8k.jsonl \
  *   LLM_BASE_URL=https://api.deepseek.com/v1 LLM_API_KEY=$DEEPSEEK_API_KEY \
- *   LLM_MODEL=deepseek-v4-pro \
+ *   LLM_MODEL=deepseek-v4-pro PRICE_IN_PER_M=0.27 PRICE_OUT_PER_M=1.1 \
  *   pnpm tsx examples/benchmarks/gsm8k/compare-optimization-methods.ts
  */
 
@@ -44,7 +76,18 @@ import {
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
 import { loadOptimizerExecutionOwner } from '../../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
+import { missingGsm8kEnv } from './env-validation'
 import { evaluate, loadDataset } from './index'
+
+// Every required variable is checked here, before the first paid call, and a
+// failure reports the complete missing list in one message.
+const missingEnv = missingGsm8kEnv(process.env)
+if (missingEnv.length > 0) {
+  console.error(
+    `FATAL: missing required environment variables:\n  - ${missingEnv.join('\n  - ')}`,
+  )
+  process.exit(1)
+}
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
 const BASE_URL = (
@@ -113,10 +156,6 @@ const CUSTOM_TOKEN_PRICING =
         outputUsdPerMillion: PRICE_OUT_PER_M,
       }
 
-if (!API_KEY) {
-  console.error('FATAL: set LLM_API_KEY (+ LLM_BASE_URL + LLM_MODEL) or TANGLE_API_KEY.')
-  process.exit(1)
-}
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(`SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS}`)
 }
@@ -252,6 +291,26 @@ async function main() {
     )
   }
 
+  // Resolve optimizer budgets and execution owners before the paid smoke
+  // pass, so a configuration fault cannot spend anything.
+  const gepaModelBudget = optimizerModelBudgetFromEnv(
+    'GEPA',
+    MAX_OPTIMIZER_MODEL_COST_USD,
+    CUSTOM_TOKEN_PRICING,
+  )
+  const skillOptModelBudget = optimizerModelBudgetFromEnv(
+    'SKILLOPT',
+    MAX_OPTIMIZER_MODEL_COST_USD,
+    CUSTOM_TOKEN_PRICING,
+  )
+  const runner = {
+    command: OPTIMIZER_PYTHON,
+  }
+  const [gepaOwner, skillOptOwner] = await Promise.all([
+    loadOptimizerExecutionOwner(GEPA_MODEL),
+    loadOptimizerExecutionOwner(SKILLOPT_MODEL),
+  ])
+
   const worker = makeWorker()
   const outputRoot = join(process.cwd(), '.evolve', 'benchmarks', 'gsm8k-proposer-comparison')
   const runRoot = join(outputRoot, String(Date.now()))
@@ -289,23 +348,6 @@ async function main() {
     return
   }
 
-  const gepaModelBudget = optimizerModelBudgetFromEnv(
-    'GEPA',
-    MAX_OPTIMIZER_MODEL_COST_USD,
-    CUSTOM_TOKEN_PRICING,
-  )
-  const skillOptModelBudget = optimizerModelBudgetFromEnv(
-    'SKILLOPT',
-    MAX_OPTIMIZER_MODEL_COST_USD,
-    CUSTOM_TOKEN_PRICING,
-  )
-  const runner = {
-    command: OPTIMIZER_PYTHON,
-  }
-  const [gepaOwner, skillOptOwner] = await Promise.all([
-    loadOptimizerExecutionOwner(GEPA_MODEL),
-    loadOptimizerExecutionOwner(SKILLOPT_MODEL),
-  ])
   const methods: OptimizationMethod<GsmScenario, Artifact>[] = [
     gepaOptimizationMethod<GsmScenario, Artifact>({
       name: 'gepa',
