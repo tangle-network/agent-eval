@@ -68,6 +68,7 @@ const EXPECTED_FILES = [
   'src/analyst/trace-tool-callback.ts',
   'src/analyst/types.ts',
   'src/analyst/usage-receipt.ts',
+  'src/campaign/external-optimizer-anthropic.ts',
   'src/campaign/external-optimizer-callback.ts',
   'src/campaign/external-optimizer-contracts.ts',
   'src/campaign/external-optimizer-http.ts',

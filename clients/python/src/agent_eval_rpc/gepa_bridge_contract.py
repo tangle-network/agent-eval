@@ -19,6 +19,16 @@ from agent_eval_rpc.optimizer_bridge_common import (
 
 MAX_TIMER_DELAY_MS = 2_147_483_647
 
+# GEPA engines that drive a `claude` CLI subprocess. Their model traffic is
+# metered through the loopback proxy's Anthropic route when the caller sets
+# modelProxy.anthropicEndpoint; the bridge process env carries the loopback
+# coordinates into the CLI.
+AGENT_CLI_ENGINES = frozenset({"autoresearch", "meta_harness"})
+
+
+def recipe_has_agent_cli_engine(recipe: dict[str, Any]) -> bool:
+    return any(run["engine"] in AGENT_CLI_ENGINES for run in _recipe_engine_runs(recipe))
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text())
@@ -261,11 +271,31 @@ def _validate_model_proxy(value: Any, recipe: dict[str, Any]) -> None:
         value.get("budget"),
         "GEPA bridge input modelProxy.budget",
     )
+    anthropic_endpoint = value.get("anthropicEndpoint", False)
+    if not isinstance(anthropic_endpoint, bool):
+        raise ValueError("GEPA bridge input modelProxy.anthropicEndpoint must be a boolean")
 
     for index, run in enumerate(_recipe_engine_runs(recipe)):
+        if run["engine"] in AGENT_CLI_ENGINES and anthropic_endpoint:
+            engine_config = run["engineConfig"]
+            validate_no_secrets(
+                engine_config,
+                f"recipe engine {index}.engineConfig",
+                "GEPA",
+            )
+            # The engine passes --model engineConfig.model to the CLI and the
+            # flag beats the injected ANTHROPIC_MODEL; the proxy admits only
+            # the proxied model id.
+            if engine_config.get("model") != value["model"]:
+                raise ValueError(
+                    f"GEPA agent engine {index} ({run['engine']!r}) must set "
+                    "engineConfig.model to the proxied model"
+                )
+            continue
         if run["engine"] != "gepa":
             raise ValueError(
-                "GEPA bridge modelProxy supports only the standard gepa engine; "
+                "GEPA bridge modelProxy supports only the standard gepa engine "
+                "or an agent CLI engine with modelProxy.anthropicEndpoint; "
                 f"recipe engine {index} is {run['engine']!r}"
             )
         engine_config = run["engineConfig"]

@@ -118,7 +118,10 @@ export type ExternalOptimizerChatRequest = DeepReadonly<
   Omit<ChatRequest, 'model'> & { model: string }
 >
 
-export type ExternalOptimizerEndpointFormat = 'chat-completions' | 'responses'
+export type ExternalOptimizerEndpointFormat =
+  | 'chat-completions'
+  | 'responses'
+  | 'anthropic-messages'
 
 /** One exact model request admitted by the loopback proxy. */
 export interface ExternalOptimizerModelCallRequest {
@@ -177,7 +180,7 @@ export type ExternalOptimizerModelExecutionObservation =
       readonly sequence: number
       readonly callId: string
       readonly callRef: string
-      readonly path: '/v1/chat/completions' | '/v1/responses'
+      readonly path: '/v1/chat/completions' | '/v1/responses' | '/v1/messages'
       readonly model: string
       readonly succeeded: true
       readonly responseStatus: number
@@ -187,7 +190,7 @@ export type ExternalOptimizerModelExecutionObservation =
       readonly sequence: number
       readonly callId: string
       readonly callRef: string
-      readonly path: '/v1/chat/completions' | '/v1/responses'
+      readonly path: '/v1/chat/completions' | '/v1/responses' | '/v1/messages'
       readonly model: string
       readonly succeeded: false
       readonly error: string
@@ -261,6 +264,14 @@ export interface ExternalOptimizerModelBudget {
   requestTimeoutMs?: number
 }
 
+/** Per-wire request accounting for the loopback proxy. */
+export interface ExternalOptimizerWireCounts {
+  /** Execution-owner calls admitted on this wire, including failures. */
+  requestAttempts: number
+  /** Successful 2xx responses recorded on this wire. */
+  successfulCompletions: number
+}
+
 export interface ExternalOptimizerModelProxy {
   /** OpenAI-compatible base URL supplied to the optimizer process. */
   baseUrl: string
@@ -270,6 +281,12 @@ export interface ExternalOptimizerModelProxy {
   requestAttempts: () => number
   /** Successful 2xx responses recorded during this proxy process. */
   successfulCompletions: () => number
+  /**
+   * Per-wire traffic breakdown of the totals above. The `openai` wire carries
+   * the optimizer process's own client calls; the `anthropic` wire carries
+   * `claude` CLI traffic when the Anthropic endpoint is enabled.
+   */
+  wireUsage: () => { openai: ExternalOptimizerWireCounts; anthropic: ExternalOptimizerWireCounts }
   /** Fail if an invoked caller-owned model path omitted its execution record. */
   assertExecutionComplete: () => void
   /** Failures retained by the proxy after converting them to loopback responses. */
