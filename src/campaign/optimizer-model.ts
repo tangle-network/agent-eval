@@ -1,7 +1,4 @@
-import {
-  assertServedModelPolicy,
-  type ServedModelPolicy,
-} from '../integrity/served-model'
+import { assertServedModelPolicy, type ServedModelPolicy } from '../integrity/served-model'
 import {
   assertExternalOptimizerModelBudget,
   type ExternalOptimizerModelBudget,

@@ -462,7 +462,11 @@ async function forwardModelProxyRequest(args: {
     let authoritativeReceipt: CostReceiptInput
     let canonicalResponse: ChatResponse
     try {
-      authoritativeReceipt = snapshotModelReceipt(called.receipt, args.model, args.allowWithinFamily)
+      authoritativeReceipt = snapshotModelReceipt(
+        called.receipt,
+        args.model,
+        args.allowWithinFamily,
+      )
       canonicalResponse = snapshotChatResponse(called.response, args.model, args.allowWithinFamily)
       assertResponseUsageMatchesReceipt(canonicalResponse, authoritativeReceipt)
     } catch (error) {
