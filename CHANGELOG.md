@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+---
+
+## [0.150.0] — 2026-08-20
+
 ### Fixed
 
 - The GEPA bridge forwards the required `seed` input into every standard `gepa` engine configuration (`engine.seed`) on both supported GEPA generations: the published 0.1.4 launcher config and the pinned source revision's engine config. The bridge previously hashed the seed into the run identity but never passed it to GEPA, so two runs differing only in seed got different `compatibleRunId`s with identically-distributed unseeded behavior. Agent engines (`autoresearch`, `best_of_n`, `meta_harness`) accept no seed parameter; the bridge output now reports that asymmetry as `seedApplied` (false when a recipe includes an agent engine), `GepaBridgeOutput` requires the flag, and `gepaOptimizationMethod` surfaces it in the returned `provenance.seedApplied`. A caller-supplied `engineConfig.engine.seed` is rejected on both sides of the wire because the run seed owns that field — set the seed once at the comparison level. TypeScript from this release requires an `agent-eval-rpc` build that emits `seedApplied`; the packages release in lockstep.
