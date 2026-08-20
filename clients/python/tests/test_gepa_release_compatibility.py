@@ -176,6 +176,7 @@ def test_published_gepa_accepts_evaluation_limit_without_guessed_usd_cap(
             "maxEvaluations": 4,
         },
         tmp_path / "uncapped-cost",
+        seed=7,
         model_proxy=None,
         proxy_usage=None,
     )
