@@ -18,8 +18,8 @@ import { join } from 'node:path'
 import {
   compareOptimizationMethods,
   type GepaEngineRun,
-  gepaOptimizationMethod,
   type GepaOptimizationRecipe,
+  gepaOptimizationMethod,
   type OptimizationMethod,
   skillOptOptimizationMethod,
 } from '../../src/campaign'

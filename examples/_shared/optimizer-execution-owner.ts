@@ -28,9 +28,7 @@ interface OptimizerExecutionOwnerModule {
  * Optional `PRICE_IN_PER_M` and `PRICE_OUT_PER_M` supply cost estimates when
  * the endpoint omits billed cost.
  */
-export async function loadOptimizerExecutionOwner(
-  model: string,
-): Promise<OptimizerExecutionOwner> {
+export async function loadOptimizerExecutionOwner(model: string): Promise<OptimizerExecutionOwner> {
   const moduleSpecifier = process.env.OPTIMIZER_EXECUTION_OWNER_MODULE?.trim()
   if (!moduleSpecifier) return defaultExecutionOwner(model)
   const loaded = (await import(moduleSpecifier)) as OptimizerExecutionOwnerModule

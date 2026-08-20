@@ -11,9 +11,9 @@
  */
 
 import {
+  defineEquivalenceCheck,
   type EquivalenceArm,
   type EquivalenceChecker,
-  defineEquivalenceCheck,
   runEquivalenceCheck,
   VERIFICATION_STRATEGIES,
 } from '../../src/index'

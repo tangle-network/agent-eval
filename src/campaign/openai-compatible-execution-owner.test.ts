@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CostReceiptInput } from '../cost-ledger'
-import {
-  assertJsonValue,
-  type ExternalOptimizerChatRequest,
-} from './external-optimizer-contracts'
+import { assertJsonValue, type ExternalOptimizerChatRequest } from './external-optimizer-contracts'
 import { createOpenAiCompatibleExecutionOwner } from './openai-compatible-execution-owner'
 
 const REQUEST = Object.freeze({
@@ -15,7 +12,9 @@ const REQUEST = Object.freeze({
 function okBody(): object {
   return {
     model: 'router/optimizer-model',
-    choices: [{ message: { role: 'assistant', content: 'improved prompt' }, finish_reason: 'stop' }],
+    choices: [
+      { message: { role: 'assistant', content: 'improved prompt' }, finish_reason: 'stop' },
+    ],
     usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 },
   }
 }

@@ -83,9 +83,7 @@ import { evaluate, loadDataset } from './index'
 // failure reports the complete missing list in one message.
 const missingEnv = missingGsm8kEnv(process.env)
 if (missingEnv.length > 0) {
-  console.error(
-    `FATAL: missing required environment variables:\n  - ${missingEnv.join('\n  - ')}`,
-  )
+  console.error(`FATAL: missing required environment variables:\n  - ${missingEnv.join('\n  - ')}`)
   process.exit(1)
 }
 

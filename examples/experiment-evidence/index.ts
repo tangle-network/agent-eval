@@ -76,7 +76,9 @@ async function main(): Promise<void> {
 
   const candidate = log.find((e) => e.id === 'tighter-prompt')
   const firstRep = candidate?.reps[0]
-  console.log(`evidence for ${firstRep?.runId}: ${firstRep?.evidence?.map((e) => e.uri).join(', ')}`)
+  console.log(
+    `evidence for ${firstRep?.runId}: ${firstRep?.evidence?.map((e) => e.uri).join(', ')}`,
+  )
   console.log(`log persisted at ${storePath}`)
 }
 

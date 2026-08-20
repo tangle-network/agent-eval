@@ -11,9 +11,9 @@
 
 import {
   type EvidenceRecord,
-  renderFunnelTable,
   type ExperimentSpec,
   openSealedExperiment,
+  renderFunnelTable,
   sealExperiment,
   verifySealedExperiment,
 } from '../../src/experiment'

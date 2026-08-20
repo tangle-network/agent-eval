@@ -3,12 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RunRecord } from '../../src/run-record'
-import {
-  collectTrajectoryText,
-  parseArgs,
-  readNdjson,
-  type WithText,
-} from './build-dataset'
+import { collectTrajectoryText, parseArgs, readNdjson, type WithText } from './build-dataset'
 
 const tempDirs: string[] = []
 
