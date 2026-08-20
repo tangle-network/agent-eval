@@ -18,7 +18,7 @@ function record(candidateId: string, scenarioId: string, score: number): RunReco
     experimentId: 'support-reply-v3',
     candidateId,
     seed: 42,
-    model: 'openai/gpt-4.1@2025-04-14',
+    model: 'deepseek-v4-flash@2026-07-01',
     promptHash: candidateId === 'baseline' ? 'a'.repeat(64) : 'b'.repeat(64),
     configHash: 'c'.repeat(64),
     commitSha: 'deadbeef',

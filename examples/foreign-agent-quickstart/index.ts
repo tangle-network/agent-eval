@@ -71,9 +71,12 @@ interface MarketingArtifact {
   modelUsed: string
 }
 
-const apiKey = process.env.OPENAI_API_KEY
-const baseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
-const modelId = process.env.MODEL_ID ?? 'gpt-4o-mini'
+const apiKey = process.env.LLM_API_KEY
+const baseUrl = process.env.LLM_BASE_URL
+const modelId = process.env.LLM_MODEL ?? 'deepseek-v4-flash'
+if (apiKey && !baseUrl) {
+  throw new Error('LLM_API_KEY is set but LLM_BASE_URL is not; set both to go online.')
+}
 
 const baselineSystemPrompt = `You are a senior copywriter. Rewrite the given product blurb for the surface (landing-hero / tweet / email-subject) and audience. One sentence for tweets and email subjects, two for landing hero. Be concrete, not generic; no AI slop ("revolutionary", "powerful", "seamless"). Lead with the value, not the technology.`
 
@@ -228,7 +231,7 @@ Rewrite: ${artifact.rewrite}`
 
 // 4. Helpers.
 
-function meanComposite<TA, TS extends Scenario>(result: {
+function meanComposite(result: {
   aggregates: { byScenario: Record<string, { meanComposite: number }> }
 }): number {
   const vs = Object.values(result.aggregates.byScenario).map((s) => s.meanComposite)
@@ -249,6 +252,10 @@ async function main() {
     storage,
     runDir,
     dispatchRef: 'foreign-agent-baseline',
+    // This demo's callLLM does not report usage through ctx.cost.runPaidCall,
+    // so no cell can carry a receipt. Wire runPaidCall and keep the default
+    // 'assert' when you adapt it to a metered production agent.
+    expectUsage: 'off',
   })
   const baselineScore = meanComposite(baseline)
   console.log(`Baseline composite mean: ${baselineScore.toFixed(3)}`)
@@ -280,6 +287,7 @@ async function main() {
     storage,
     runDir: `${runDir}/improve`,
     dispatchRef: 'foreign-agent-with-surface',
+    expectUsage: 'off',
   })
 
   const winnerScore = meanComposite(result.winnerOnHoldout)

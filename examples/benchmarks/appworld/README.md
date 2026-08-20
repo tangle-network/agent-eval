@@ -125,7 +125,7 @@ It does not mean the estimate was reconciled to a provider invoice.
 cd "$APPWORLD_DIR"
 .venv/bin/python /path/to/agent-eval/examples/benchmarks/appworld/repl_agent.py \
   --task-id 50e1ac9_1 \
-  --model gpt-4o-mini-2024-07-18 \
+  --model gpt-5.1 \
   --max-steps 25 \
   --call-timeout 45 \
   --rate-limit-budget 120 \

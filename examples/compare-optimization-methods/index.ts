@@ -2,7 +2,8 @@
  * Run official GEPA, official SkillOpt, or both on one extraction task.
  *
  * Required:
- *   LLM_API_KEY=$OPENAI_API_KEY
+ *   LLM_BASE_URL=<OpenAI-compatible endpoint>
+ *   LLM_API_KEY=<key for that endpoint>
  *
  * Select methods:
  *   OPTIMIZERS=gepa
@@ -37,6 +38,7 @@ import {
   PROPOSER_TARGET,
   SEARCH,
 } from '../_shared/extraction-task'
+import { GEPA_REFLECTION_ENGINE_CONFIG } from '../_shared/gepa-reflection'
 import { assertMatchedMethodLimits } from '../_shared/matched-method-limits'
 import {
   loadOptimizerExecutionOwner,
@@ -45,12 +47,8 @@ import {
 import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 const API_KEY = (process.env.LLM_API_KEY || process.env.TANGLE_API_KEY)?.trim()
-const BASE_URL = (
-  process.env.LLM_BASE_URL ||
-  process.env.TANGLE_ROUTER_URL ||
-  'https://api.openai.com/v1'
-).trim()
-const MODEL = process.env.LLM_MODEL || 'gpt-4.1-mini'
+const BASE_URL = (process.env.LLM_BASE_URL || process.env.TANGLE_ROUTER_URL || '').trim()
+const MODEL = process.env.LLM_MODEL || 'deepseek-v4-flash'
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
@@ -59,6 +57,9 @@ const PRICE_CACHED_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_
 const PRICE_CACHE_WRITE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
 const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
+// Reasoning models spend thinking tokens against this cap; raise it for
+// families that reason, or the worker returns truncated JSON.
+const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 400)
 const MAX_OPTIMIZER_MODEL_COST_USD = positiveNumberEnv('MAX_OPTIMIZER_MODEL_COST_USD', 5)
 const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 20)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv(
@@ -109,6 +110,7 @@ function gepaStage(stages: number): GepaEngineRun {
     engine: 'gepa',
     maxEvaluations: Math.max(1, Math.floor(GEPA_MAX_EVALUATIONS / stages)),
     maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / stages,
+    engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
   }
 }
 
@@ -122,8 +124,16 @@ function buildGepaRecipe(kind: GepaRecipeKind): GepaOptimizationRecipe {
       return {
         kind,
         runs: [
-          { engine: 'gepa', maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2 },
-          { engine: 'gepa', maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2 },
+          {
+            engine: 'gepa',
+            maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2,
+            engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
+          },
+          {
+            engine: 'gepa',
+            maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD / 2,
+            engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
+          },
         ],
         maxEvaluations: GEPA_MAX_EVALUATIONS,
         plateauEvaluations: Math.max(2, Math.floor(GEPA_MAX_EVALUATIONS / 4)),
@@ -139,6 +149,9 @@ function buildGepaRecipe(kind: GepaRecipeKind): GepaOptimizationRecipe {
 
 if (!API_KEY) {
   throw new Error('Set LLM_API_KEY, or TANGLE_API_KEY with TANGLE_ROUTER_URL, for the worker.')
+}
+if (!BASE_URL) {
+  throw new Error('Set LLM_BASE_URL (or TANGLE_ROUTER_URL) to an OpenAI-compatible endpoint.')
 }
 if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
   throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
@@ -216,6 +229,7 @@ const worker = makeExtractionWorker({
   records,
   ...(customTokenPricing ? { customTokenPricing } : {}),
   timeoutMs: CALL_TIMEOUT_MS,
+  maxTokens: LLM_MAX_TOKENS,
   experimentId: 'compare-official-optimization-methods',
 })
 

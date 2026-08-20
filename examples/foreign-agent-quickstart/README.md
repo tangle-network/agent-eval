@@ -18,7 +18,8 @@ pnpm tsx examples/foreign-agent-quickstart/index.ts
 ```
 
 The default path is offline and deterministic.
-Set `OPENAI_API_KEY` to run the agent and judge through an OpenAI-compatible endpoint.
+Set `LLM_API_KEY` and `LLM_BASE_URL` to run the agent and judge through an OpenAI-compatible endpoint.
+`LLM_MODEL` selects the model; the default is `deepseek-v4-flash`.
 
 ## Adapt Your Agent
 

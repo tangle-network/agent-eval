@@ -36,12 +36,14 @@ export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ## Run
 
 ```sh
-LLM_API_KEY="$OPENAI_API_KEY" \
+LLM_BASE_URL=https://router.tangle.tools/v1 \
+LLM_API_KEY="$TANGLE_API_KEY" \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 pnpm tsx examples/self-improve-optimizer/index.ts
 ```
 
+Any OpenAI-compatible endpoint works; set `LLM_MODEL` to a model that endpoint serves.
 Replace the two rates with the exact rates charged by your endpoint.
 The script validates every required variable before it makes a paid call.
 
@@ -56,7 +58,7 @@ The script validates every required variable before it makes a paid call.
 ## Cost
 
 A default run makes roughly 20 to 40 worker calls and up to 12 GEPA candidate evaluations plus reflection calls.
-With `gpt-4.1-mini` at the example rates, expect $0.10 to $0.50.
+With a flash-tier model at the example rates, expect $0.10 to $0.50.
 Hard limits: `MAX_TOTAL_COST_USD` (default 10) caps the whole run and `GEPA_MAX_PROPOSER_COST_USD` (default 2) caps reflection spend.
 
 ## Read The Result
@@ -70,12 +72,13 @@ Grow the case list and set `budget.reps` above 1 before treating the decision as
 | Variable | Default | Meaning |
 |---|---:|---|
 | `LLM_API_KEY` | required | Key for the worker and optimizer endpoint. |
-| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible endpoint. |
-| `LLM_MODEL` | `gpt-4.1-mini` | Worker model. |
+| `LLM_BASE_URL` | required | OpenAI-compatible endpoint. |
+| `LLM_MODEL` | `deepseek-v4-flash` | Worker model. |
+| `LLM_MAX_TOKENS` | `400` | Output cap per worker call; raise it for reasoning models. |
 | `GEPA_MODEL` | `LLM_MODEL` | Reflection model. |
 | `GEPA_PRICE_IN_PER_M` | required | Exact input rate per million tokens. |
 | `GEPA_PRICE_OUT_PER_M` | required | Exact output rate per million tokens. |
-| `GEPA_MAX_EVALUATIONS` | `12` | Maximum GEPA candidate-case calls. |
+| `GEPA_MAX_EVALUATIONS` | `12` | Maximum GEPA candidate-case calls. Keep it at or above the train partition size. |
 | `GEPA_MAX_PROPOSER_COST_USD` | `2` | Maximum reflection spend. |
 | `MAX_TOTAL_COST_USD` | `10` | Hard cap across the whole run. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and GEPA. |

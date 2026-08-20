@@ -2,12 +2,13 @@
  * Compare official GEPA and SkillOpt on AppWorld with separate train,
  * selection, and final tasks. AppWorld's world.evaluate() supplies scores.
  *
- * Run (overnight):
- *   export OPENAI_BASE_URL=https://router.tangle.tools/v1 OPENAI_API_KEY=$(cat /tmp/.tk)
- *   APPWORLD_DIR=/tmp/halo-repo/demo/appworld \
- *   BENCH_MODEL=gpt-5-mini TRAIN_N=4 SELECTION_N=4 TEST_N=6 \
- *   pnpm tsx examples/benchmarks/appworld/run-bench.ts > /tmp/appworld-bench/run.log 2>&1
+ * Run:
+ *   export OPENAI_BASE_URL=https://router.tangle.tools/v1 OPENAI_API_KEY=<key>
+ *   APPWORLD_DIR=/path/to/appworld \
+ *   TRAIN_N=4 SELECTION_N=4 TEST_N=6 \
+ *   pnpm tsx examples/benchmarks/appworld/run-bench.ts
  *
+ * The README documents installation and every control.
  * Output: a Markdown report and the comparison JSON under OUT_DIR.
  */
 
@@ -37,6 +38,7 @@ import {
   safeIntegerEnv,
   stringEnv,
 } from '../../_shared/env'
+import { GEPA_REFLECTION_ENGINE_CONFIG } from '../../_shared/gepa-reflection'
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
 import {
   loadOptimizerExecutionOwner,
@@ -47,12 +49,15 @@ import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budge
 const execFileAsync = promisify(execFile)
 
 // ── Config (env-overridable so the overnight run can be tuned) ───────────────
-const APPWORLD_DIR = stringEnv('APPWORLD_DIR', '/tmp/halo-repo/demo/appworld')
+const APPWORLD_DIR = process.env.APPWORLD_DIR?.trim() ?? ''
+if (!APPWORLD_DIR) {
+  throw new Error('Set APPWORLD_DIR to your AppWorld checkout; see the README install steps.')
+}
 const PYTHON = stringEnv('BENCH_PYTHON', `${APPWORLD_DIR}/.venv/bin/python`)
 const OPTIMIZER_PYTHON = stringEnv('OPTIMIZER_PYTHON', 'python')
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WORKER = join(HERE, 'repl_agent.py')
-const MODEL = stringEnv('BENCH_MODEL', 'gpt-5.1-2025-11-13')
+const MODEL = stringEnv('BENCH_MODEL', 'gpt-5.1')
 const GEPA_MODEL = stringEnv('GEPA_MODEL', MODEL)
 const SKILLOPT_MODEL = stringEnv('SKILLOPT_MODEL', MODEL)
 const BASE_URL = stringEnv('OPENAI_BASE_URL', 'https://router.tangle.tools/v1')
@@ -293,6 +298,7 @@ function officialMethods(
             engine: 'gepa',
             maxEvaluations: GEPA_MAX_EVALUATIONS,
             maxProposerCostUsd: GEPA_MAX_PROPOSER_COST_USD,
+            engineConfig: GEPA_REFLECTION_ENGINE_CONFIG,
           },
         },
         optimizer: {

@@ -223,6 +223,10 @@ export interface ExtractionWorkerOptions {
   /** Optional token rates used when the provider omits billed cost. */
   customTokenPricing?: CustomTokenPricing
   timeoutMs?: number
+  /** Output-token cap per call. Default 400 fits the JSON answer on a chat
+   *  model. Reasoning models spend thinking tokens against this cap and can
+   *  starve even at 4096, so raise it for those families. */
+  maxTokens?: number
   experimentId?: string
 }
 
@@ -249,7 +253,7 @@ export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
       ],
       jsonMode: true,
       temperature: 0,
-      maxTokens: 400,
+      maxTokens: opts.maxTokens ?? 400,
       timeoutMs,
     }
     const paid = await ctx.cost.runPaidCall({

@@ -37,14 +37,16 @@ export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ## Run GEPA
 
 ```sh
-export LLM_API_KEY="$OPENAI_API_KEY"
-export LLM_BASE_URL=https://api.openai.com/v1
-export LLM_MODEL=gpt-4.1-mini
+export LLM_BASE_URL=https://router.tangle.tools/v1
+export LLM_API_KEY="$TANGLE_API_KEY"
+export LLM_MODEL=deepseek-v4-flash
 export GEPA_PRICE_IN_PER_M=0.4
 export GEPA_PRICE_OUT_PER_M=1.6
 
 OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
 ```
+
+Any OpenAI-compatible endpoint works; point `LLM_BASE_URL` at it and name a model it serves.
 
 Replace the example rates with the current exact endpoint rates.
 GEPA uses `LLM_MODEL` by default.
@@ -78,9 +80,9 @@ The composed kinds require the tested GEPA source revision from the install step
 ## Run SkillOpt
 
 ```sh
-export LLM_API_KEY="$OPENAI_API_KEY"
-export LLM_BASE_URL=https://api.openai.com/v1
-export LLM_MODEL=gpt-4.1-mini
+export LLM_BASE_URL=https://router.tangle.tools/v1
+export LLM_API_KEY="$TANGLE_API_KEY"
+export LLM_MODEL=deepseek-v4-flash
 export SKILLOPT_PRICE_IN_PER_M=0.4
 export SKILLOPT_PRICE_OUT_PER_M=1.6
 
@@ -98,9 +100,9 @@ Set `SKILLOPT_MODEL` to use a different optimizer model.
 
 ```sh
 OPTIMIZERS=gepa,skillopt \
-LLM_API_KEY="$OPENAI_API_KEY" \
-LLM_BASE_URL=https://api.openai.com/v1 \
-LLM_MODEL=gpt-4.1-mini \
+LLM_BASE_URL=https://router.tangle.tools/v1 \
+LLM_API_KEY="$TANGLE_API_KEY" \
+LLM_MODEL=deepseek-v4-flash \
 GEPA_PRICE_IN_PER_M=0.4 \
 GEPA_PRICE_OUT_PER_M=1.6 \
 SKILLOPT_PRICE_IN_PER_M=0.4 \
@@ -116,6 +118,8 @@ Replace all four example rates with the exact rates charged by that endpoint.
 | Variable | Default | Meaning |
 |---|---:|---|
 | `OPTIMIZERS` | `gepa,skillopt` | Comma-separated methods to run. |
+| `LLM_MODEL` | `deepseek-v4-flash` | Worker model; must be served by `LLM_BASE_URL`. |
+| `LLM_MAX_TOKENS` | `400` | Output cap per worker call; raise it for reasoning models. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
 | `OPTIMIZER_EXECUTION_OWNER_MODULE` | built-in OpenAI-compatible owner | Module exporting `createOptimizerExecutionOwner(model)`; use Runtime for Discovery. |
 | `GEPA_MODEL` | `LLM_MODEL` | Endpoint model used by GEPA reflection. |

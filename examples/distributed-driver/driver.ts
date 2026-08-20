@@ -128,10 +128,16 @@ async function main() {
   const result = await runEval<MarketingScenario, MarketingArtifact>({
     scenarios,
     dispatch,
+    // httpDispatch returns an anonymous function, so name the dispatch
+    // explicitly; the campaign manifest requires a non-empty reference.
+    dispatchRef: 'http-marketing-worker',
     judges: [judge],
     storage: inMemoryCampaignStorage(),
     runDir: `mem://distributed-coordinator-${Date.now()}`,
     maxConcurrency: 4,
+    // The demo worker is a stub that reports no usage. Keep the default
+    // 'assert' once workers meter real calls through ctx.cost.runPaidCall.
+    expectUsage: 'off',
     cellPlacement: IS_MULTIREGION
       ? ({ scenario }) => {
           const tag = scenario.tags?.find((t) => t === 'us' || t === 'eu' || t === 'ap')

@@ -14,24 +14,24 @@ The agent, judge, and candidate generator are deterministic local functions.
 
 ## What It Demonstrates
 
-1. Define eight representative tasks.
+1. Define twelve representative tasks.
 2. Run the starting prompt on a training split.
 3. Generate two candidate prompts.
 4. Score every candidate with the same judge.
-5. Evaluate the selected candidate on four held-back tasks.
+5. Evaluate the selected candidate on six held-back tasks.
 6. Return the selected prompt, measured score change, cost, and release decision.
 
 The stable part of the output is:
 
 ```text
 Release decision:     ship
-Raw lift:             +0.361
+Raw lift:             +0.351
 Generations explored: 1
 Total cost:           $0.000
 ```
 
 This is a wiring example, not statistical evidence.
-Only four tasks are held back, so do not use its release decision as a production threshold.
+Only six tasks are held back, so do not use its release decision as a production threshold.
 
 The release decision comes from the held-out promotion gate, not from the search score.
 The gate holds a candidate that is byte-identical to the baseline, requires the bootstrap confidence interval on the paired holdout delta to clear the threshold, and refuses a candidate whose search-to-holdout gap says it won the optimizer but lost the exam.
