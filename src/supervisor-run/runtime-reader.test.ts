@@ -455,6 +455,10 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(report.economics.workers.tokensIn).toBe(25)
     expect(report.economics.workers.tokensOut).toBe(5)
     expect(report.economics.totalUsd).toBe(0.035)
+    // Two spend measurements: journal metered + settled (2 records) and the
+    // result.json spentTotal close record (1 record). They agree on this run.
+    expect(report.economics.spend.journalDerived).toEqual({ usd: 0.035, records: 2 })
+    expect(report.economics.spend.closeRecord).toEqual({ usd: 0.035, records: 1 })
     expect(report.outcome.supStatus).toBe('completed')
     // No completion stamp in Runtime's layout: the wall derives from the
     // journal event span (begin at(0) → child settled at(4)) and says so.

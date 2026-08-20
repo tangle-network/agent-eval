@@ -82,6 +82,8 @@ export {
   type RoleSpend,
   type RollupCellRow,
   type SourceLimits,
+  type SpendMeasurement,
+  type SpendMeasurements,
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,

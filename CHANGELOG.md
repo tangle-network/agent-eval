@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `economics.spend` on the supervisor-run report and `spendUsd` on the rollup (#660): both total-spend measurements as named fields with their denominators, never one bare number. `spend.journalDerived` (journal `metered` + `settled` rows) answers execution accounting — what execution observably consumed; `spend.closeRecord` (loops `state.json` `result.spentUsd`, or Runtime `result.json` `spentTotal.usd`, which the analyzer now reads) answers billing — what the store recorded as settled at close. Each run-level measurement carries its record count; each rollup measurement carries `runs`, its own denominator, because the two sums cover different run sets (measured in discovery-lab: 4.762B input tokens journal-derived over 918 runs vs 4.780B close-record over 868 runs, ~0.4% apart). Divergence is a signal to read, not an error. `totalUsd` stays as the collapsed compatibility field; its docstring names the pick order and points to `spend`.
 - `summarizeNumberSeries(values)` on the statistics surface (#659): the distribution fold (`n` / `min` / `p50` / `p90` / `max` / `sum`, nearest-rank quantiles) that previously lived only inside the supervisor-run analyzer as the worker-wall summary. Returns the exported `SeriesDistribution`, or `null` for an empty series. `WallDistribution` is now a type alias of `SeriesDistribution` and the analyzer reuses the helper in place, so the two folds cannot drift.
 
 ### Fixed

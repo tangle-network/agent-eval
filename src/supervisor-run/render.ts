@@ -153,6 +153,10 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
     )
   }
   out.push(`- Total USD: ${showMeasured(e.totalUsd)} (source: ${e.totalUsdSource})`)
+  out.push(
+    `- Spend measured two ways: journal-derived $${showMeasured(e.spend.journalDerived.usd)} over ${e.spend.journalDerived.records} journal record(s) (execution accounting) · ` +
+      `close-record $${showMeasured(e.spend.closeRecord.usd)} over ${e.spend.closeRecord.records} close record(s) (billing-shaped). Divergence is a signal, not an error.`,
+  )
   out.push(`- Cost per accepted patch: ${showMeasured(e.costPerAcceptedPatchUsd)}`)
   if (isUnavailable(e.workerWallMsDistribution)) {
     out.push(`- Worker wall distribution: unavailable — ${e.workerWallMsDistribution.unavailable}`)
@@ -241,6 +245,10 @@ export function renderSupervisorRollupMarkdown(
   )
   out.push(
     `- Spend: $${showMeasured(rollup.usdTotal)} · judged resolved: ${showMeasured(rollup.resolvedCount)}/${rollup.cells}`,
+  )
+  out.push(
+    `- Spend measured two ways: journal-derived $${showMeasured(rollup.spendUsd.journalDerived.value)} over ${rollup.spendUsd.journalDerived.runs}/${rollup.cells} runs (execution accounting) · ` +
+      `close-record $${showMeasured(rollup.spendUsd.closeRecord.value)} over ${rollup.spendUsd.closeRecord.runs}/${rollup.cells} runs (billing-shaped)`,
   )
   out.push('')
   out.push('| Instance | Arm | Steers | Waves | Utilization | Idle % | Resolved | USD |')

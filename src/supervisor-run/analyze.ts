@@ -25,6 +25,7 @@ import {
   type PatchStats,
   type PerWorkerRow,
   type RollupCellRow,
+  type SpendMeasurements,
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
@@ -481,6 +482,13 @@ export function analyzeSupervisorRunSources(
 
   const stateResult = asRecord(state?.result)
   const stateUsd = typeof stateResult.spentUsd === 'number' ? stateResult.spentUsd : null
+  const resultSpentTotal = asRecord(result?.spentTotal)
+  const resultCloseUsd =
+    typeof resultSpentTotal.usd === 'number' && Number.isFinite(resultSpentTotal.usd)
+      ? resultSpentTotal.usd
+      : null
+  // The close record: what the store wrote as settled when the run closed.
+  const closeUsd = stateUsd ?? resultCloseUsd
   // A store that logs tokens but never a price yields usd 0 from every sum. That
   // 0 is the store's silence, not a free run, so the limit outranks the sum.
   const usdLimit = src.limits.spendUsd
@@ -492,6 +500,28 @@ export function analyzeSupervisorRunSources(
         : haveJournal
           ? round(tree.brain.usd + journalWorkerUsd, 6)
           : gap('totalUsd', journalMissing)
+
+  const journalSpendRecords =
+    tree.brain.meteredCount + rootChildCloses.filter((close) => close.hasSpend).length
+  const journalDerivedAvailable = usdLimit === null && haveJournal
+  const closeRecordAvailable = usdLimit === null && closeUsd !== null
+  const spend: SpendMeasurements = {
+    journalDerived: {
+      usd: journalDerivedAvailable
+        ? round(tree.brain.usd + journalWorkerUsd, 6)
+        : unavailable(usdLimit ?? journalMissing),
+      records: journalDerivedAvailable ? journalSpendRecords : 0,
+    },
+    closeRecord: {
+      usd: closeRecordAvailable
+        ? round(closeUsd as number, 6)
+        : unavailable(
+            usdLimit ??
+              'no close record: neither state.json result.spentUsd nor result.json spentTotal.usd is present',
+          ),
+      records: closeRecordAvailable ? 1 : 0,
+    },
+  }
 
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
     const f = tree.workerLogs.get(workerSourceKey(w))
@@ -618,6 +648,7 @@ export function analyzeSupervisorRunSources(
             ? `journal settled spend + ${sq.store} sessions (n=${sq.sessions})`
             : `journal settled spend only — ${src.harnessMissingReason ?? 'harness session store unavailable'}`,
     },
+    spend,
     totalUsd,
     totalUsdSource:
       usdLimit !== null
@@ -812,6 +843,8 @@ export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): S
   const spawnVals = known(reports.map((r) => r.orchestration.workersSpawned))
   const acceptVals = known(reports.map((r) => r.decision.accepted))
   const usdVals = known(reports.map((r) => r.economics.totalUsd))
+  const journalSpendVals = known(reports.map((r) => r.economics.spend.journalDerived.usd))
+  const closeSpendVals = known(reports.map((r) => r.economics.spend.closeRecord.usd))
   const resolvedVals = known(reports.map((r) => r.outcome.judgeResolved))
   const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0)
   const mean = (xs: readonly number[]): Measured<number> =>
@@ -848,6 +881,22 @@ export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): S
     acceptedTotal:
       acceptVals.length === 0 ? unavailable('no cell reported acceptance') : sum(acceptVals),
     usdTotal: usdVals.length === 0 ? unavailable('no cell reported spend') : round(sum(usdVals), 6),
+    spendUsd: {
+      journalDerived: {
+        value:
+          journalSpendVals.length === 0
+            ? unavailable('no cell measured journal-derived spend')
+            : round(sum(journalSpendVals), 6),
+        runs: journalSpendVals.length,
+      },
+      closeRecord: {
+        value:
+          closeSpendVals.length === 0
+            ? unavailable('no cell carried a close record')
+            : round(sum(closeSpendVals), 6),
+        runs: closeSpendVals.length,
+      },
+    },
     resolvedCount:
       resolvedVals.length === 0
         ? unavailable('no cell reported a judge verdict')
