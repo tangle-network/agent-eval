@@ -23,6 +23,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { agentProfileModelId } from '../../src/agent-profile'
 import {
   type AgentProfile,
   agentProfileHash,
@@ -32,7 +33,6 @@ import {
   type RunRecord,
   recordRunsToScorecard,
 } from '../../src/index'
-import { agentProfileModelId } from '../../src/agent-profile'
 
 // ── Two profiles you might benchmark side-by-side ────────────────────────
 const sonnet: AgentProfile = {

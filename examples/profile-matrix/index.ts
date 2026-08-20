@@ -16,8 +16,8 @@ import { execSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '../../src/index'
 import { runProfileMatrix } from '../../src/campaign/index'
+import type { AgentProfile } from '../../src/index'
 
 interface TicketScenario {
   id: string
@@ -54,9 +54,7 @@ async function main(): Promise<void> {
     // the profile and reports usage via ctx.cost.runPaidCall; this one is a
     // deterministic offline stand-in.
     dispatch: async (profile, scenario) =>
-      profile.name === 'support-cited'
-        ? `Ticket ${scenario.id}: handled.`
-        : 'Handled.',
+      profile.name === 'support-cited' ? `Ticket ${scenario.id}: handled.` : 'Handled.',
     judges: [
       {
         name: 'ticket-id',

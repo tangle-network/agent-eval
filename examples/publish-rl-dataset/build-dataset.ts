@@ -272,10 +272,7 @@ async function main(): Promise<void> {
     args.promptKey,
     args.completionKey,
   )
-  const { rows: rolloutLines } = await mintRolloutRows(
-    scoredRecords,
-    new InMemoryTraceStore(),
-  )
+  const { rows: rolloutLines } = await mintRolloutRows(scoredRecords, new InMemoryTraceStore())
   const verifiableRewardFilterPassed =
     args.rewardKind === 'deterministic' &&
     rolloutLines.every((line) => line.outcome.reward !== null)

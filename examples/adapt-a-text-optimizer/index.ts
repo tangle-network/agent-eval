@@ -15,10 +15,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  compareOptimizationMethods,
-  externalTextOptimizationMethod,
-} from '../../src/campaign'
+import { compareOptimizationMethods, externalTextOptimizationMethod } from '../../src/campaign'
 import type { JudgeConfig, Scenario } from '../../src/contract'
 
 interface SupportCase extends Scenario {

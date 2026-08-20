@@ -304,6 +304,22 @@ With `optimizer`, every recipe stage must use the standard `gepa` engine.
 Agent Eval receives no provider key, enforces the declared request and token budget, and records the execution owner's exact usage and opaque finite JSON evidence.
 `maxProposerCostUsd` also limits each individual GEPA engine stage.
 
+When no execution package owns the call, build the callback with `createOpenAiCompatibleExecutionOwner` from `/campaign`:
+
+```ts
+import { createOpenAiCompatibleExecutionOwner } from '@tangle-network/agent-eval/campaign'
+
+const call = createOpenAiCompatibleExecutionOwner({
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: process.env.LLM_API_KEY!,
+  model: 'gpt-4.1-mini',
+  pricing: { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 },
+})
+```
+
+It executes each admitted request against any OpenAI-compatible `/chat/completions` endpoint and returns the typed outcome with a JSON-clean receipt.
+The credential stays inside the owner closure; the proxy still enforces every budget and identity check.
+
 Other official engines can still receive their own settings:
 
 ```ts

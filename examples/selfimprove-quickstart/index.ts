@@ -123,9 +123,7 @@ async function main() {
     console.log(`Statistical comparison (paired bootstrap, n=${i.lift.n})`)
     console.log(`delta:    ${signed(i.lift.delta)}`)
     console.log(`CI95:     [${i.lift.ci95[0].toFixed(3)}, ${i.lift.ci95[1].toFixed(3)}]`)
-    console.log(
-      `pValue:   ${i.lift.pValue === null ? 'not estimable' : i.lift.pValue.toFixed(4)}`,
-    )
+    console.log(`pValue:   ${i.lift.pValue === null ? 'not estimable' : i.lift.pValue.toFixed(4)}`)
     console.log(
       `Paired Cohen's dz: ${i.lift.cohensD === null ? 'not estimable' : i.lift.cohensD.toFixed(2)}`,
     )

@@ -11,8 +11,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import { AnalystRegistry } from '../../src/analyst'
 import type { AnalystFinding, ExactCapableAnalyst } from '../../src/analyst'
+import { AnalystRegistry } from '../../src/analyst'
 
 interface ToolCall {
   spanId: string

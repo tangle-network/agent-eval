@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { assertJsonValue } from './campaign/external-optimizer-contracts'
 import { CostLedger } from './cost-ledger'
 import { ModelSubstitutionError } from './integrity/served-model'
 import {
   callLlm,
   callLlmJson,
   costReceiptFromLlm,
+  costReceiptFromLlmError,
   extractJsonPayload,
   isTransientLlmError,
   LlmCallError,
@@ -356,6 +358,48 @@ describe('costReceiptFromLlm', () => {
 
     expect(result.usage.captured).toBe(false)
     expect(costReceiptFromLlm(result).usageUnknown).toBe(true)
+  })
+
+  it('omits absent optional fields instead of carrying explicit-undefined keys', async () => {
+    const result = await callLlm(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
+      {
+        maximumAttempts: 1,
+        fetch: async () =>
+          mkOkResponse({
+            model: 'gpt-4o',
+            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+      },
+    )
+
+    const receipt = costReceiptFromLlm(result)
+    expect('reasoningTokens' in receipt).toBe(false)
+    expect('cachedTokens' in receipt).toBe(false)
+    expect(Object.values(receipt)).not.toContain(undefined)
+    expect(() => assertJsonValue(receipt, 'receipt')).not.toThrow()
+  })
+
+  it('keeps error-path receipts JSON-clean through costReceiptFromLlmError', async () => {
+    const result = await callLlm(
+      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
+      {
+        maximumAttempts: 1,
+        fetch: async () =>
+          mkOkResponse({
+            model: 'gpt-4o',
+            choices: [{ message: { content: 'not json' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          }),
+      },
+    )
+
+    const receipt = costReceiptFromLlmError(new LlmResponseError('bad payload', result))
+    expect(receipt).toBeDefined()
+    expect(Object.values(receipt!)).not.toContain(undefined)
+    expect(() => assertJsonValue(receipt, 'receipt')).not.toThrow()
+    expect(costReceiptFromLlmError(new Error('transport fault'))).toBeUndefined()
   })
 })
 

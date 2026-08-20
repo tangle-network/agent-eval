@@ -386,9 +386,7 @@ async function main(): Promise<void> {
       : {}),
   }
   const owners = {
-    ...(selected.has('gepa')
-      ? { gepa: await loadOptimizerExecutionOwner(GEPA_MODEL) }
-      : {}),
+    ...(selected.has('gepa') ? { gepa: await loadOptimizerExecutionOwner(GEPA_MODEL) } : {}),
     ...(selected.has('skillopt')
       ? { skillopt: await loadOptimizerExecutionOwner(SKILLOPT_MODEL) }
       : {}),

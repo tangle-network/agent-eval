@@ -8,7 +8,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `createOpenAiCompatibleExecutionOwner` in `/campaign`: a shipped `ExternalOptimizerModelCall` for the metered optimizer-model path, backed by any OpenAI-compatible `/chat/completions` endpoint via the package's own `callLlm` + `costReceiptFromLlm`. The examples' `loadOptimizerExecutionOwner` now defaults to it, built from `LLM_BASE_URL`/`LLM_API_KEY`, so every documented optimizer example command runs without `OPTIMIZER_EXECUTION_OWNER_MODULE`; the module override path is unchanged.
+- The GSM8K comparison example validates every required environment variable at startup and reports the complete missing list before its first paid call. Its header and `examples/README.md` document dataset acquisition: the exact commands that convert the GSM8K test split into the `{id, question, answer}` JSONL the loader expects.
+
 - The evidence registry: one canonical home for measured claims. `evidence/records/*.json` hold typed records (claim, instrument, exact command, arms, denominator, result, evidence state `CERTIFIED`/`MEASURED-ONCE`/`RESOLVED-NULL`/`UNVERIFIED`/`KILLED`, artifacts, cost, confounds, optional experiment seal digest), validated by `evidenceRecordSchema` from `./experiment`. `pnpm run evidence:render` generates `evidence/INDEX.md` from the records; `pnpm run evidence:check` (inside `verify:package`) fails on an invalid record or a stale index, so the human index can never drift from the data. Initial migration: seven records spanning trace-repair (gated-stop confirm, free-lunch), multishot (golden oracle v1), trace-analysis (GEPA-certified prompt, prime-vs-dspy), creative-cad, and vertical-bench (parity no-flip).
+
+### Fixed
+
+- `costReceiptFromLlm` / `costReceiptFromLlmError` return JSON-clean receipts: absent optional fields (`reasoningTokens`, `cachedTokens`) are omitted instead of carried as explicit-undefined keys, which the external-optimizer proxy's `assertJsonValue` rejects. Execution owners no longer need a `JSON.parse(JSON.stringify(...))` round-trip before returning receipts.
 
 ---
 
