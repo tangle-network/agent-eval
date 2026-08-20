@@ -5,6 +5,7 @@
  * (`loops-reader.ts` is one).
  */
 
+import { summarizeNumberSeries } from '../statistics'
 import {
   asRecord,
   parseJson,
@@ -533,10 +534,9 @@ export function analyzeSupervisorRunSources(
       score: close?.score ?? f?.score ?? null,
     }
   })
-  const walls = perWorker
-    .map((w) => w.wallMs)
-    .filter((w): w is number => w !== null)
-    .sort((a, b) => a - b)
+  const wallDistribution = summarizeNumberSeries(
+    perWorker.map((w) => w.wallMs).filter((w): w is number => w !== null),
+  )
 
   const brainCalls = parseJsonl(src.brainLog)
   const managerTokenLimit = src.limits.managerTokens
@@ -635,18 +635,11 @@ export function analyzeSupervisorRunSources(
           ? unavailable('no accepted worker patch (cost has no denominator)')
           : round(totalUsd / decision.accepted, 6),
     workerWallMsDistribution:
-      walls.length === 0
+      wallDistribution === null
         ? unavailable(
             src.workers === null ? workersGapReason : 'no worker start/finish pairs captured',
           )
-        : {
-            n: walls.length,
-            min: walls[0] as number,
-            p50: quantile(walls, 0.5),
-            p90: quantile(walls, 0.9),
-            max: walls[walls.length - 1] as number,
-            sum: walls.reduce((a, b) => a + b, 0),
-          },
+        : wallDistribution,
     perWorker: src.workers === null ? unavailable(workersGapReason) : perWorker,
   }
 
@@ -758,12 +751,6 @@ function pickString(rec: Record<string, unknown> | null, key: string): string | 
 export function round(v: number, digits: number): number {
   const f = 10 ** digits
   return Math.round(v * f) / f
-}
-
-function quantile(sorted: readonly number[], q: number): number {
-  if (sorted.length === 0) return 0
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))
-  return sorted[idx] as number
 }
 
 /** Unified-diff stats. Counts `+++ b/<path>` targets, body +/- lines, and test-file touches. */

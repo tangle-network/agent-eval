@@ -68,6 +68,38 @@ export function partialCredit(current: number, target: number): number {
   return Math.min(1, Math.max(0, current / target))
 }
 
+/** Distribution summary of a number series: count, extremes, quantiles, sum. */
+export interface SeriesDistribution {
+  readonly n: number
+  readonly min: number
+  readonly p50: number
+  readonly p90: number
+  readonly max: number
+  readonly sum: number
+}
+
+/**
+ * Fold a number series into its distribution summary. Quantiles use the
+ * nearest-rank definition — the `ceil(q·n)`-th order statistic — so every
+ * reported quantile is a value from the series. Returns `null` for an empty
+ * series: an empty series has no distribution, and a zero-filled summary
+ * would read as a measured all-zero series.
+ */
+export function summarizeNumberSeries(values: readonly number[]): SeriesDistribution | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const rank = (q: number): number =>
+    sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] as number
+  return {
+    n: sorted.length,
+    min: sorted[0] as number,
+    p50: rank(0.5),
+    p90: rank(0.9),
+    max: sorted[sorted.length - 1] as number,
+    sum: sorted.reduce((a, b) => a + b, 0),
+  }
+}
+
 // ── Correlation (Pearson / Spearman) ─────────────────────────────────
 //
 // The single source for linear (Pearson) and rank (Spearman) correlation.

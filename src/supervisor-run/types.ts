@@ -25,6 +25,7 @@
  */
 
 import type { RolloutLine } from '../rollout/schema'
+import type { SeriesDistribution } from '../statistics'
 
 // ---------------------------------------------------------------------------
 // Unavailable-aware metric type.
@@ -335,14 +336,12 @@ export interface PerWorkerRow {
   readonly score: number | null
 }
 
-export interface WallDistribution {
-  readonly n: number
-  readonly min: number
-  readonly p50: number
-  readonly p90: number
-  readonly max: number
-  readonly sum: number
-}
+/**
+ * `SeriesDistribution` (from `../statistics`) over per-worker wall
+ * milliseconds. The fold itself is `summarizeNumberSeries`, exported for any
+ * series — fleet wall medians, tokens-per-claim spreads — not only wall.
+ */
+export type WallDistribution = SeriesDistribution
 
 export interface EconomicsMetrics {
   /** Driver/brain inference — journal `metered` events. */

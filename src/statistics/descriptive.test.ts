@@ -5,6 +5,7 @@ import {
   pearsonR,
   ranks,
   spearmanR,
+  summarizeNumberSeries,
   weightedMean,
 } from './index'
 
@@ -147,5 +148,43 @@ describe('spearmanR — rank correlation', () => {
   it('inherits the n<2 / length-mismatch NaN contract', () => {
     expect(spearmanR([1], [2])).toBeNaN()
     expect(spearmanR([1, 2, 3], [1, 2])).toBeNaN()
+  })
+})
+
+describe('summarizeNumberSeries', () => {
+  it('folds a known series into exact n/min/p50/p90/max/sum', () => {
+    expect(summarizeNumberSeries([10, 1, 5, 3, 8, 2, 7, 4, 9, 6])).toEqual({
+      n: 10,
+      min: 1,
+      p50: 5,
+      p90: 9,
+      max: 10,
+      sum: 55,
+    })
+  })
+
+  it('uses the nearest-rank quantile, so every quantile is a series value', () => {
+    expect(summarizeNumberSeries([1, 2, 3])).toEqual({
+      n: 3,
+      min: 1,
+      p50: 2,
+      p90: 3,
+      max: 3,
+      sum: 6,
+    })
+  })
+
+  it('reports the single value for every statistic of a one-element series', () => {
+    expect(summarizeNumberSeries([7])).toEqual({ n: 1, min: 7, p50: 7, p90: 7, max: 7, sum: 7 })
+  })
+
+  it('returns null for an empty series instead of a fabricated all-zero summary', () => {
+    expect(summarizeNumberSeries([])).toBeNull()
+  })
+
+  it('does not mutate the input series', () => {
+    const series = [3, 1, 2]
+    summarizeNumberSeries(series)
+    expect(series).toEqual([3, 1, 2])
   })
 })
