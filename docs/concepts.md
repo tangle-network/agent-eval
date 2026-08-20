@@ -275,10 +275,9 @@ That drop is the signal.
 
 Every reported interval is a bootstrap 95 % interval: the statistic is recomputed on many resamples of the data, and the middle 95 % of those values is the interval.
 
-Three bias probes cover three separate failure modes.
-`positionalBias` finds a judge that scores by position.
-`verbosityBias` finds one that scores by length.
-`selfPreference` finds one that prefers output from its own model family.
+`verbosityBias` is the one exported bias probe: it finds a judge that rewards length regardless of quality.
+The `JudgeInsight` report shape also carries optional `positionalBias` and `selfPreference` fields for caller-computed probes.
+No built-in computes those two fields.
 
 ## Trace Model
 

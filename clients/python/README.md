@@ -183,8 +183,9 @@ Every engine run requires an evaluation limit and an optimizer-model dollar limi
 Agent Eval enforces callback counts before executing an agent or judge.
 For standard GEPA engines, the TypeScript `optimizer` option routes reflection through Agent Eval's local model proxy.
 The proxy enforces whole-run request and dollar limits, keeps the provider key out of Python, and records exact provider usage in the shared cost log.
-Other official GEPA engines can still receive their native configuration.
-Their external model spend remains incomplete unless that engine reports it.
+With `optimizer.anthropicEndpoint: true`, the AutoResearch and Meta Harness agent engines run fully metered too: the proxy serves an Anthropic Messages route, and every `claude` CLI call is admitted, receipted, and budget-enforced.
+The canonical description of that path is [`docs/campaign-proposers.md`](../../docs/campaign-proposers.md#metered-agent-cli-engines).
+An unproxied engine can still receive its native configuration; its external model spend remains incomplete unless that engine reports it.
 
 ### SkillOpt
 

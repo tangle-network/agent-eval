@@ -41,26 +41,13 @@ it*. Unified at the trace level, you see both as one timeline per cell.
 - Compose: register TraceAI's instrumentations on the global tracer
   provider, then either point both at your OTLP collector or at
   TraceAI's hosted backend if you want their UI.
-- **A bridge exists in source but is not published:** `createOtelBridge`
-  (`src/adapters/otel.ts`) converts finished OTel spans (`ReadableSpan`
-  shape) and forwards them into the hosted-tier ingest, lifting
-  `tangle.runId` / `tangle.scenarioId` / `tangle.cellId` /
-  `tangle.generation` to first-class wire fields so the dashboard pivots
-  correctly. As of 0.140.x there is no `./adapters/otel` entry in
-  `package.json` `exports`, so it is not importable from the published
-  package — the snippet below documents the design; it will throw
-  `ERR_PACKAGE_PATH_NOT_EXPORTED` against `@tangle-network/agent-eval`
-  installed from npm.
-  ```ts
-  // (not currently published — see status note above)
-  import { createHostedClient } from '@tangle-network/agent-eval/hosted'
-  import { createOtelBridge } from '@tangle-network/agent-eval/adapters/otel'
-
-  const client = createHostedClient({ endpoint, apiKey, tenantId })
-  const bridge = createOtelBridge({ client, defaultRunId: substrateRunId })
-  processor.onEnd = (span) => { void bridge.ingest([span]) }
-  // ...or call `bridge.ingest(batch)` from a SpanProcessor.onShutdown.
-  ```
+- **No OTel-span-to-hosted-ingest bridge ships.** To land finished OTel
+  spans in the hosted tier, write your own mapping from the span shape to
+  `TraceEvent` rows and post them through `createHostedClient` from
+  `@tangle-network/agent-eval/hosted` or the `/v1/traces/ingest` wire
+  route ([wire-protocol.md](./wire-protocol.md#tracesingest-batch-ingest-production-trace-events)).
+  For run records that already exist, `fromOtelSpans` from `/contract`
+  converts collector output into `RunRecord[]` for `analyzeRuns()`.
 
 ### Langfuse SDK
 
@@ -131,9 +118,8 @@ OTel-protocol composition:
 1. **Cost-aware judging.** Your observability tool's auto-instrumented
    spans carry token counts + cost. A custom `JudgeConfig` can read
    them via the OTel context and refuse to score artifacts that
-   exceeded a per-call budget. Easy to write yourself; we'll ship a
-   reference helper (`costAwareJudgeFromOtel`) when a partner pulls on
-   this.
+   exceeded a per-call budget. Easy to write yourself; no reference
+   helper ships today.
 2. **Tool-aware judging.** Your instrumentation captures the tool-call
    sequence (`langchain.tool.invoked`, `openai.function.called`, etc.).
    A judge that scores "did the agent use the right tool" reads those

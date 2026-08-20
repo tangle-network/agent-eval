@@ -332,23 +332,28 @@ The credential stays inside the owner closure; the proxy still enforces every bu
 ### Metered agent CLI engines
 
 The `autoresearch` and `meta_harness` engines drive a `claude` CLI subprocess.
+They ship only in the tested official source revision, not in the published `gepa` package (see [Install Official GEPA](#install-official-gepa)).
 Set `optimizer.anthropicEndpoint: true` to admit them in proxied mode.
+This path is measured live: a real `claude` CLI session completes with every tool call translated and every call metered.
 The loopback proxy then also serves `POST /v1/messages` (Anthropic Messages API) and the bridge child receives `ANTHROPIC_BASE_URL`, an ephemeral `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` in its environment.
 Every CLI call becomes one canonical execution-owner call with the same reservation, receipt, and budget pipeline as reflection traffic; the run fails if the receipt count differs from the admitted call count.
 Each agent engine run must set `engineConfig.model` to `optimizer.model`, because the engines pass `--model` and that flag beats the injected environment.
 The endpoint translates text and tool-use conversations.
 Anthropic `tools`, `tool_choice`, `tool_use`, and `tool_result` map onto the canonical execution-owner contract, and a tool-calling response is synthesized back as the Anthropic stream shape the CLI expects.
+System text translates from both slots the CLI uses: the top-level `system` field and system-role turns injected inside `messages`.
 Claude-specific control fields (`thinking`, `context_management`, `output_config`) carry no token-billing semantics on the owner wire; the shim strips them and records the names in the ledger tag `strippedFields`.
 It still refuses images, server tools, `top_p`, `top_k`, and `stop_sequences` with a loud Anthropic error envelope.
 A budget refusal surfaces to the CLI as HTTP 402, which the CLI treats as terminal instead of retrying.
 Agent sessions are chatty: size `budget.maxRequests` for tens of calls per engine run.
 Without the flag, agent engines stay rejected in proxied mode.
 
-One measured pothole: `selfImprove` defaults `expectUsage` to `'assert'`.
-A deterministic evaluator that makes no LLM calls records zero usage, so the assertion fails the run.
-Set `expectUsage: 'off'` when the evaluator is deterministic and makes no LLM calls.
+**The `-inf` trap.**
+GEPA scores an agent-engine candidate as one aggregate evaluation over the whole train set.
+That one registering evaluation costs `trainSet.length` callback evaluations against `maxEvaluations`.
+When `maxEvaluations` is below the train-set size, the callback rejects mid-aggregate and GEPA records the candidate score as `-inf`.
+Set `maxEvaluations` to at least the train-set size for every registering evaluation you expect.
 
-Other official engines can still receive their own settings:
+Without `optimizer`, an engine runs unproxied and can receive its own settings:
 
 ```ts
 recipe: {
@@ -364,7 +369,7 @@ recipe: {
 }
 ```
 
-Their external model spend remains incomplete unless that engine reports it.
+Its external model spend remains incomplete unless that engine reports it.
 Supply provider API keys only through `runner.env`.
 An exported shell variable never reaches the bridge child.
 The spawn builds the child environment from a fixed allowlist of benign variables (PATH, HOME, locale, `PYTHONPATH`) plus `runner.env`, so the parent environment is stripped by construction.
@@ -394,6 +399,9 @@ The table names the failure so you can set the knob before the run dies mid-spen
 | `reflection_lm_kwargs.num_retries` | litellm default (3) | Each failed reflection request retries 3 times inside litellm, so the proxy meters 4 request attempts per logical call and `budget.maxRequests` exhausts 4x early. Set `num_retries: 0`; the proxy already accounts each attempt. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
 | `reflection_lm_kwargs.max_tokens` | `budget.maxOutputTokensPerRequest` | Every reflection request ships the full budget cap as `max_tokens`. A provider family with a lower completion cap rejects every call. A reasoning model also needs headroom for hidden reasoning tokens. Set a value at or below the smallest family cap; it must not exceed `budget.maxOutputTokensPerRequest`. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
 | `maxProposerCostUsd` | unset | Without it, one engine stage can spend up to `optimizer.budget.maxCostUsd` or the campaign `costCeiling` before any limit fires. Supply it only when the execution owner can enforce billed USD. | `recipe.run.maxProposerCostUsd` |
+| `maxEvaluations` (agent engines) | required, no default | An agent engine registers one aggregate evaluation that costs the full train set of callback evaluations. A value below the train-set size rejects mid-aggregate and GEPA records the candidate as `-inf`. | `recipe.run.maxEvaluations` |
+| `budget.maxRequests` (agent engines) | required, no default | An agent CLI session makes tens of calls per engine run. A text-campaign-sized limit exhausts mid-run, and the CLI sees a terminal 402. | `optimizer.budget.maxRequests` |
+| `expectUsage` | `'assert'` | A deterministic evaluator that makes no LLM calls records zero usage, so `'assert'` fails the run as a stub. Set `'off'` only for an evaluator with no paid calls. | `selfImprove({ expectUsage })` |
 
 ## Install Official SkillOpt
 
