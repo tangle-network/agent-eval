@@ -456,7 +456,10 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(report.economics.workers.tokensOut).toBe(5)
     expect(report.economics.totalUsd).toBe(0.035)
     expect(report.outcome.supStatus).toBe('completed')
-    expect(isUnavailable(report.orchestration.supervisorWallMs)).toBe(true)
+    // No completion stamp in Runtime's layout: the wall derives from the
+    // journal event span (begin at(0) → child settled at(4)) and says so.
+    expect(report.orchestration.supervisorWallMs).toBe(4_000)
+    expect(report.orchestration.supervisorWallSource).toBe('journal-span')
 
     if (isUnavailable(report.economics.perWorker)) {
       throw new Error(report.economics.perWorker.unavailable)
@@ -577,7 +580,9 @@ describe('Runtime FileRunContext supervisor reader', () => {
 
     const report = await analyzeSupervisorRun(runDir)
     expect(isUnavailable(report.outcome.supStatus)).toBe(true)
-    expect(isUnavailable(report.orchestration.supervisorWallMs)).toBe(true)
+    // The metered row at at(1) is the last stamped event, so it widens the span.
+    expect(report.orchestration.supervisorWallMs).toBe(1_000)
+    expect(report.orchestration.supervisorWallSource).toBe('journal-span')
     expect(report.economics.brain.tokensIn).toBe(8)
     expect(report.economics.totalUsd).toBe(0.004)
     expect(report.orchestration.workersSpawned).toBe(0)

@@ -260,6 +260,15 @@ export interface OrchestrationMetrics {
   readonly delegationDepth: Measured<number>
   readonly timeToFirstSpawnMs: Measured<number>
   readonly supervisorWallMs: Measured<number>
+  /**
+   * Which measurement `supervisorWallMs` holds — never a silent substitution.
+   * `stamps`: explicit start and completion stamps. `journal-span`: the start
+   * stamp (or first stamped event) to the last stamped journal event — a
+   * lower bound, derived when the store wrote no completion stamp. `idleMs`,
+   * `idlePct`, and `workerUtilization` cover the same span. Unavailable
+   * exactly when `supervisorWallMs` is, with the same reason.
+   */
+  readonly supervisorWallSource: Measured<'stamps' | 'journal-span'>
   /** Wall time inside the supervisor run with ZERO live workers. */
   readonly idleMs: Measured<number>
   readonly idlePct: Measured<number>

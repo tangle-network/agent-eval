@@ -783,3 +783,58 @@ describe('rollupSupervisorRuns', () => {
     expect(isUnavailable(rollup.utilizationMean)).toBe(true)
   })
 })
+
+describe('analyzeSupervisorRun — supervisor wall provenance', () => {
+  it('reports stamps as the wall source when start and completion stamps exist', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 0, endSec: 200 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    expect(r.orchestration.supervisorWallMs).toBe(200_000)
+    expect(r.orchestration.supervisorWallSource).toBe('stamps')
+  })
+
+  it('derives a journal-span wall when the completion stamp is missing, and says so', () => {
+    const r = analyze(
+      sources({
+        journal: journal({
+          workers: [['a', 10, 100]],
+          metered: [[150, 5, 1, 0.001]],
+        }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    // Root spawn at 0s; the last stamped journal event is the metered row at 150s.
+    expect(r.orchestration.supervisorWallMs).toBe(150_000)
+    expect(r.orchestration.supervisorWallSource).toBe('journal-span')
+    // Idle integrates to the same bound: [0,10) + [100,150] = 60s of 150s.
+    expect(r.orchestration.idleMs).toBe(60_000)
+    expect(r.orchestration.idlePct).toBe(40)
+    expect(r.orchestration.workerUtilization).toBeCloseTo(90 / 150, 3)
+    expect(renderSupervisorRunHeadline(r)).toContain('(journal-span lower bound)')
+    expect(renderSupervisorRunMarkdown(r)).toContain('(source: journal-span, lower bound)')
+  })
+
+  it('keeps the wall and its source unavailable together without a journal', () => {
+    const r = analyze(sources({ supRunDir: null }))
+    expect(isUnavailable(r.orchestration.supervisorWallMs)).toBe(true)
+    expect(r.orchestration.supervisorWallSource).toEqual(r.orchestration.supervisorWallMs)
+  })
+
+  it('treats an inverted stamp pair as corruption, never a journal-span fallback', () => {
+    const r = analyze(
+      sources({
+        journal: journal({ workers: [['a', 10, 100]] }),
+        state: state({ startSec: 300, endSec: 0 }),
+        workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
+      }),
+    )
+    expect(r.orchestration.supervisorWallMs).toEqual({
+      unavailable: 'no parseable start/complete timestamps in state.json or journal',
+    })
+    expect(r.orchestration.supervisorWallSource).toEqual(r.orchestration.supervisorWallMs)
+  })
+})

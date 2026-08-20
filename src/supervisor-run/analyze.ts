@@ -102,12 +102,36 @@ export function analyzeSupervisorRunSources(
     return matches.length === 1 ? (matches[0] ?? null) : null
   }
 
-  const supervisorWallMs: Measured<number> =
-    startedAt !== null && completedAt !== null && completedAt >= startedAt
-      ? completedAt - startedAt
-      : !haveJournal
-        ? gap('supervisorWallMs', journalMissing)
-        : gap('supervisorWallMs', 'no parseable start/complete timestamps in state.json or journal')
+  // Wall provenance: explicit stamps when the store wrote both; otherwise the
+  // journal event span (a lower bound) when there is no completion stamp at
+  // all. A present-but-inverted stamp pair is corruption, not absence, and
+  // stays unavailable.
+  const wallSpanStart = startedAt ?? tree.firstEventAt
+  const wallSpanEnd = tree.lastEventAt
+  let supervisorWallMs: Measured<number>
+  let supervisorWallSource: Measured<'stamps' | 'journal-span'>
+  if (startedAt !== null && completedAt !== null && completedAt >= startedAt) {
+    supervisorWallMs = completedAt - startedAt
+    supervisorWallSource = 'stamps'
+  } else if (
+    completedAt === null &&
+    wallSpanStart !== null &&
+    wallSpanEnd !== null &&
+    wallSpanEnd >= wallSpanStart
+  ) {
+    supervisorWallMs = wallSpanEnd - wallSpanStart
+    supervisorWallSource = 'journal-span'
+  } else {
+    const reason = !haveJournal
+      ? journalMissing
+      : 'no parseable start/complete timestamps in state.json or journal'
+    supervisorWallMs = gap('supervisorWallMs', reason)
+    supervisorWallSource = unavailable(reason)
+  }
+  // Where the measured wall ends — the completion stamp, or the last stamped
+  // journal event on the journal-span path. Idle and utilization integrate to
+  // this bound so their denominator is the wall they are reported against.
+  const wallEndAt = completedAt ?? (supervisorWallSource === 'journal-span' ? wallSpanEnd : null)
 
   // ── steers (worker inbox + control events) ─────────────────────────────
   const steerRows: SteerBreakdown[] = []
@@ -212,8 +236,8 @@ export function analyzeSupervisorRunSources(
     if (live > maxConcurrency) maxConcurrency = live
     prev = step.at
   }
-  if (prev !== null && completedAt !== null && completedAt >= prev) {
-    const span = completedAt - prev
+  if (prev !== null && wallEndAt !== null && wallEndAt >= prev) {
+    const span = wallEndAt - prev
     if (live === 0) idleMs += span
     sumWorkerWallMs += span * live
   }
@@ -308,6 +332,7 @@ export function analyzeSupervisorRunSources(
           ? unavailable('no worker spawn timestamps')
           : unavailable(journalMissing),
     supervisorWallMs,
+    supervisorWallSource,
     idleMs: isUnavailable(supervisorWallMs) ? unavailable(supervisorWallMs.unavailable) : idleMs,
     idlePct:
       isUnavailable(supervisorWallMs) || supervisorWallMs === 0

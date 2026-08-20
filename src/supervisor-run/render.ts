@@ -30,7 +30,8 @@ export function renderSupervisorRunHeadline(r: SupervisorRunReport): string {
     `  waves=${showMeasured(o.waves)} sizes=${isUnavailable(o.waveSizes) ? `unavailable — ${o.waveSizes.unavailable}` : `[${o.waveSizes.join(',')}]`}` +
       ` workers=${showMeasured(o.workersSpawned)} settled=${showMeasured(o.workersSettled)} cancelled=${showMeasured(o.workersCancelled)}`,
     `  concurrency max=${showMeasured(o.maxConcurrency)} utilization=${showMeasured(o.workerUtilization)}` +
-      ` idle=${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) wall=${fmtMs(o.supervisorWallMs)}`,
+      ` idle=${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) wall=${fmtMs(o.supervisorWallMs)}` +
+      `${o.supervisorWallSource === 'journal-span' ? ' (journal-span lower bound)' : ''}`,
     `  respawns=${showMeasured(o.respawns)} evidence→respawn=${showMeasured(r.decision.observeThenRespawn)}` +
       ` blind-respawn=${showMeasured(r.decision.respawnWithoutEvidence)} depth=${showMeasured(o.delegationDepth)}`,
     `  accepted=${showMeasured(r.decision.accepted)} rejected=${showMeasured(r.decision.rejected)} empty-pass=${showMeasured(r.decision.emptyPass)}`,
@@ -87,7 +88,9 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   )
   out.push(`| Delegation depth | ${showMeasured(o.delegationDepth)} |`)
   out.push(`| Time to first spawn | ${fmtMs(o.timeToFirstSpawnMs)} |`)
-  out.push(`| Supervisor wall | ${fmtMs(o.supervisorWallMs)} |`)
+  out.push(
+    `| Supervisor wall | ${fmtMs(o.supervisorWallMs)}${isUnavailable(o.supervisorWallSource) ? '' : ` (source: ${o.supervisorWallSource}${o.supervisorWallSource === 'journal-span' ? ', lower bound' : ''})`} |`,
+  )
   out.push(`| Idle (zero live workers) | ${fmtMs(o.idleMs)} (${showMeasured(o.idlePct)}%) |`)
   out.push(
     `| Worker utilization (Σ worker wall ÷ supervisor wall) | ${showMeasured(o.workerUtilization)} |`,
