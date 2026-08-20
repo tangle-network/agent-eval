@@ -14,7 +14,14 @@ import type { GepaOptimizationRecipe } from './gepa-optimization-method'
 export interface GepaBridgeOutput {
   bestCandidate: ExternalTextCandidate
   bestScore: number
+  /** Evaluations the local callback metered — the trusted count. */
   totalEvaluations: number
+  /**
+   * Evaluation total GEPA reported from its own counters
+   * (`total_evals`, falling back to `total_metric_calls`). A difference from
+   * `totalEvaluations` means upstream skipped, cached, or double-counted work.
+   */
+  upstreamReportedEvaluations?: number
   recipeKind: GepaOptimizationRecipe['kind']
   proposerCostUsd?: number
   proposerCostAccounting?: 'metered' | 'reported' | 'unavailable'
@@ -59,6 +66,13 @@ export function assertGepaBridgeOutput(
     result.totalEvaluations > maxEvaluations
   ) {
     throw new Error(`${name}: GEPA bridge returned an invalid totalEvaluations`)
+  }
+  if (
+    result.upstreamReportedEvaluations !== undefined &&
+    (!Number.isSafeInteger(result.upstreamReportedEvaluations) ||
+      result.upstreamReportedEvaluations < 0)
+  ) {
+    throw new Error(`${name}: GEPA bridge returned an invalid upstreamReportedEvaluations`)
   }
   if (
     result.proposerCostUsd !== undefined &&

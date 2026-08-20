@@ -231,6 +231,44 @@ describe('gepaOptimizationMethod', () => {
     ).toThrow('engineModules must not contain duplicates')
   })
 
+  it('rejects an unknown optimizer servedModelPolicy value', () => {
+    expect(() =>
+      gepaOptimizationMethod({
+        recipe: {
+          kind: 'engine',
+          run: {
+            engine: 'gepa',
+            maxEvaluations: 1,
+            maxProposerCostUsd: 1,
+          },
+        },
+        objective: 'Return a better policy.',
+        evaluationId: 'test',
+        optimizer: { ...optimizerModel(), servedModelPolicy: 'within-family' as never },
+      }),
+    ).toThrow("servedModelPolicy must be 'exact' or 'allow-within-family'")
+  })
+
+  it('accepts both declared servedModelPolicy values', () => {
+    for (const servedModelPolicy of ['exact', 'allow-within-family'] as const) {
+      expect(() =>
+        gepaOptimizationMethod({
+          recipe: {
+            kind: 'engine',
+            run: {
+              engine: 'gepa',
+              maxEvaluations: 1,
+              maxProposerCostUsd: 1,
+            },
+          },
+          objective: 'Return a better policy.',
+          evaluationId: 'test',
+          optimizer: { ...optimizerModel(), servedModelPolicy },
+        }),
+      ).not.toThrow()
+    }
+  })
+
   it('does not let custom modules replace the metered built-in GEPA engine', () => {
     expect(() =>
       gepaOptimizationMethod({
@@ -375,6 +413,7 @@ describe('gepaOptimizationMethod', () => {
       winnerComposite: 1,
       provenance: {
         evaluationCount: 2,
+        upstreamReportedEvaluations: 2,
         observations: {
           evaluations: 2,
           refusals: 0,
@@ -501,6 +540,27 @@ describe('gepaOptimizationMethod', () => {
     await expect(
       compareOptimizationMethods(gepaComparisonOptions(method, 'execution-a')),
     ).rejects.toThrow('model failed: 429')
+  })
+
+  it('rejects an invalid upstream-reported evaluation count', async () => {
+    const observedInputPath = join(runDir, 'invalid-upstream-count-input.json')
+    const method = gepaOptimizationMethod<TestScenario, TestArtifact>({
+      recipe: {
+        kind: 'engine',
+        run: {
+          engine: 'best_of_n',
+          maxEvaluations: 1,
+          maxProposerCostUsd: 1,
+        },
+      },
+      objective: 'Return the better policy.',
+      evaluationId: 'invalid-upstream-count',
+      runner: fakeGepaRunner(observedInputPath, 'better', { upstreamReportedEvaluations: -1 }),
+    })
+
+    await expect(compareOptimizationMethods(gepaComparisonOptions(method))).rejects.toThrow(
+      'invalid upstreamReportedEvaluations',
+    )
   })
 
   it('exposes only described train and selection cases to the external process', async () => {
@@ -723,8 +783,10 @@ const betterJudge: JudgeConfig<TestArtifact, TestScenario> = {
 function fakeGepaRunner(
   observedInputPath: string,
   candidate: string | Record<string, string> = 'better',
+  outputExtras: Record<string, unknown> = {},
 ) {
   const serializedCandidate = JSON.stringify(candidate)
+  const serializedExtras = JSON.stringify(outputExtras)
   const source = [
     "const fs = require('node:fs')",
     "const crypto = require('node:crypto')",
@@ -761,6 +823,7 @@ function fakeGepaRunner(
     '    runId: input.runId,',
     '    resumed: false,',
     '    candidatePopulation,',
+    `    ...${serializedExtras},`,
     '  }))',
     '})().catch((error) => { console.error(error); process.exit(1) })',
   ].join('\n')
@@ -810,6 +873,7 @@ function fakeGepaRunnerWithFailedEvaluation(observedInputPath: string) {
     '    bestCandidate: "better",',
     '    bestScore: scored.score,',
     '    totalEvaluations: 2,',
+    '    upstreamReportedEvaluations: 2,',
     '    recipeKind: input.recipe.kind,',
     '    seedApplied: input.recipe.run.engine === "gepa",',
     '    proposerCostAccounting: "unavailable",',

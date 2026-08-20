@@ -1,3 +1,4 @@
+import { assertServedModelPolicy, type ServedModelPolicy } from '../integrity/served-model'
 import {
   assertExternalOptimizerModelBudget,
   type ExternalOptimizerModelBudget,
@@ -14,6 +15,13 @@ export interface OpenAICompatibleOptimizerModel {
   call: ExternalOptimizerModelCall
   /** Stable public identity included in resumable-run compatibility. */
   callRef: string
+  /**
+   * Served-model acceptance for every proxied call. Default `'exact'`, which
+   * rejects any substitution with a 502 to the child.
+   * `'allow-within-family'` accepts a different model of the same provider
+   * family; it keeps family-level claims valid and forfeits per-model claims.
+   */
+  servedModelPolicy?: ServedModelPolicy
 }
 
 export function assertOptimizerModel(value: OpenAICompatibleOptimizerModel, label: string): void {
@@ -29,6 +37,7 @@ export function assertOptimizerModel(value: OpenAICompatibleOptimizerModel, labe
     }
   }
   if (typeof value.call !== 'function') throw new Error(`${label}.call must be a function`)
+  assertServedModelPolicy(value.servedModelPolicy, `${label}.servedModelPolicy`)
   assertExternalOptimizerModelBudget(value.budget, `${label}.budget`)
 }
 
@@ -40,5 +49,6 @@ export function snapshotOptimizerModel(
     budget: structuredClone(value.budget),
     call: value.call,
     callRef: value.callRef,
+    ...(value.servedModelPolicy ? { servedModelPolicy: value.servedModelPolicy } : {}),
   }
 }
