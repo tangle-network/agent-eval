@@ -232,8 +232,11 @@ function translateConversation(value: unknown, stripped: Set<string>): Translate
   const out: TranslatedMessage[] = []
   for (const entry of value) {
     if (!isRecord(entry)) throw refuse('each message must be an object')
-    if (entry.role !== 'user' && entry.role !== 'assistant') {
-      throw refuse(`message role must be 'user' or 'assistant'`)
+    // The claude CLI injects `system`-role turns mid-conversation (budget
+    // status lines, session listings, task reminders); the canonical contract
+    // allows the system role at any position, so they translate in place.
+    if (entry.role !== 'system' && entry.role !== 'user' && entry.role !== 'assistant') {
+      throw refuse(`message role must be 'system', 'user', or 'assistant'`)
     }
     if (typeof entry.content === 'string') {
       out.push({ role: entry.role, content: entry.content })
@@ -242,8 +245,13 @@ function translateConversation(value: unknown, stripped: Set<string>): Translate
     if (!Array.isArray(entry.content) || entry.content.length === 0) {
       throw refuse(`${entry.role} message content must be a string or a non-empty block array`)
     }
-    if (entry.role === 'assistant') out.push(translateAssistantBlocks(entry.content, stripped))
-    else out.push(...translateUserBlocks(entry.content, stripped))
+    if (entry.role === 'system') {
+      out.push({ role: 'system', content: joinTextBlocks(entry.content, 'system') })
+    } else if (entry.role === 'assistant') {
+      out.push(translateAssistantBlocks(entry.content, stripped))
+    } else {
+      out.push(...translateUserBlocks(entry.content, stripped))
+    }
   }
   return out
 }
