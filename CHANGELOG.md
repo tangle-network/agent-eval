@@ -6,6 +6,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [Unreleased]
 
+### Added
+
+- Tool calls flow through the Anthropic loopback shim, so the REAL `claude` CLI can be served. Measured blocker: claude CLI 2.1.232 POSTs `/v1/messages` with `tools` (23 entries), `thinking`, `context_management`, and `output_config`; the shipped translation refused all four pre-admission, so every real CLI call failed with a 400. The canonical contract (`LlmCallRequest`/`LlmCallResult`, and therefore `ExternalOptimizerChatRequest` and the execution-owner result) gains optional `tools` (function-calling shape), `toolChoice`, response `toolCalls` (`{id, name, argumentsJson}`), and the `tool` message role. The `/v1/messages` translation maps Anthropic `tools`/`tool_choice` and `tool_use`/`tool_result` blocks in both directions, and the SSE synthesis renders canonical tool calls as `tool_use` content blocks (`content_block_start` + `input_json_delta` + `content_block_stop`, `stop_reason: tool_use`). `createOpenAiCompatibleExecutionOwner` passes tools through to the OpenAI wire and normalizes `finish_reason: tool_calls` to the canonical `tool_use`; a tool-free answer to a tool-carrying request stays a valid answer. A tool-carrying call reserves and settles exactly like a text call.
+- Strip-and-record for Claude control fields on the shim: `thinking`, `context_management`, `output_config`, replayed reasoning blocks, and unknown tool-entry keys have no token-billing semantics on the owner wire, so the shim drops them instead of refusing, and discloses the dropped names in the `strippedFields` ledger tag on the paid call. Refusals stay loud for images, server tools, `top_p`, `top_k`, and `stop_sequences`.
+
+### Fixed
+
+- `projectCampaignCellQuality` names the `JudgeScore` shape mismatch. Two exported types share the name: the campaign verdict (`{dimensions, composite, notes}`) and the root export's flat row (`{judgeName, dimension, score}`). A cell carrying the flat shape now throws `CampaignJudgeScoreShapeError` with both import paths in the message instead of an opaque `TypeError` deep inside aggregation.
+- `docs/campaign-proposers.md` documents the measured `expectUsage` pothole: `selfImprove` defaults to `'assert'`, which fails a run whose evaluator is deterministic and makes no LLM calls — set `expectUsage: 'off'` there.
+
 ---
 
 ## [0.150.0] — 2026-08-20

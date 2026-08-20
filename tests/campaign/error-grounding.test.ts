@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { projectCampaignCellQuality } from '../../src/campaign/run-record'
+import {
+  CampaignJudgeScoreShapeError,
+  projectCampaignCellQuality,
+} from '../../src/campaign/run-record'
 import {
   campaignBreakdown,
   campaignMeanComposite,
@@ -99,6 +102,29 @@ describe('error-grounding — judge notes reach the reflective proposer', () => 
     const bd = campaignBreakdown(campaign)
     expect(bd.scenarios).toEqual([])
     expect(bd.dimensions).toEqual({})
+  })
+
+  it('names the JudgeScore shape mismatch instead of an opaque TypeError', () => {
+    // Two exported types share the name JudgeScore: the campaign verdict
+    // ({ dimensions, composite, notes }) and the root export's flat row
+    // ({ judgeName, dimension, score }). Feeding the flat one previously
+    // crashed with "Cannot convert undefined or null to object".
+    const wrongShape = cell('wrong', 1, 'ok')
+    wrongShape.judgeScores.flat = {
+      judgeName: 'flat',
+      dimension: 'd',
+      score: 1,
+      reasoning: 'flat row',
+    } as unknown as (typeof wrongShape.judgeScores)[string]
+    let caught: unknown
+    try {
+      projectCampaignCellQuality(wrongShape)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(CampaignJudgeScoreShapeError)
+    expect((caught as Error).message).toContain("judge 'flat'")
+    expect((caught as Error).message).toContain('@tangle-network/agent-eval/campaign')
   })
 
   it('buildReflectionPrompt quotes the failure note so the model targets it', () => {

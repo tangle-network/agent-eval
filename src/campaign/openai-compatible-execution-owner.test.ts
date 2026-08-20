@@ -73,6 +73,111 @@ describe('createOpenAiCompatibleExecutionOwner', () => {
     expect(body.messages).toEqual([{ role: 'user', content: 'reflect' }])
   })
 
+  it('passes canonical tools to the wire and returns canonical tool calls', async () => {
+    const seen: Array<{ init: RequestInit }> = []
+    const call = createOpenAiCompatibleExecutionOwner({
+      baseUrl: 'https://endpoint.test/v1',
+      apiKey: 'secret-key',
+      model: 'router/optimizer-model',
+      fetch: (async (_url: string, init: RequestInit) => {
+        seen.push({ init })
+        return new Response(
+          JSON.stringify({
+            model: 'router/optimizer-model',
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name: 'Bash', arguments: '{"command":"ls"}' },
+                    },
+                  ],
+                },
+                finish_reason: 'tool_calls',
+              },
+            ],
+            usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as typeof fetch,
+    })
+
+    const tools = [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'Bash',
+          description: 'Run a command',
+          parameters: { type: 'object', properties: { command: { type: 'string' } } },
+        },
+      },
+    ]
+    const request = Object.freeze({
+      ...REQUEST,
+      tools: Object.freeze(tools),
+      toolChoice: 'auto',
+    }) as unknown as ExternalOptimizerChatRequest
+
+    const result = await call({
+      callId: 'call-tools',
+      request,
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.response.content).toBe('')
+    expect(result.response.toolCalls).toEqual([
+      { id: 'call_1', name: 'Bash', argumentsJson: '{"command":"ls"}' },
+    ])
+    expect(result.response.finishReason).toBe('tool_use')
+    assertNoUndefinedValues(result.receipt)
+
+    const body = JSON.parse(String(seen[0]!.init.body)) as Record<string, unknown>
+    expect(body.tools).toEqual(tools)
+    expect(body.tool_choice).toBe('auto')
+  })
+
+  it('treats a tool-free answer to a tool-carrying request as a valid answer', async () => {
+    const call = createOpenAiCompatibleExecutionOwner({
+      baseUrl: 'https://endpoint.test/v1',
+      apiKey: 'secret-key',
+      model: 'router/optimizer-model',
+      fetch: (async () =>
+        new Response(JSON.stringify(okBody()), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as unknown as typeof fetch,
+    })
+
+    const request = Object.freeze({
+      ...REQUEST,
+      tools: Object.freeze([
+        {
+          type: 'function' as const,
+          function: { name: 'Bash', parameters: { type: 'object' } },
+        },
+      ]),
+    }) as unknown as ExternalOptimizerChatRequest
+
+    const result = await call({
+      callId: 'call-no-tools-used',
+      request,
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.response.content).toBe('improved prompt')
+    expect(result.response.toolCalls).toBeUndefined()
+    expect(result.response.finishReason).toBe('stop')
+  })
+
   it('estimates cost from the configured pricing when the provider omits billed cost', async () => {
     const pricing = { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }
     const call = createOpenAiCompatibleExecutionOwner({

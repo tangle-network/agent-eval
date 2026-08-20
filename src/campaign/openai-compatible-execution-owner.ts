@@ -37,6 +37,11 @@ export interface OpenAiCompatibleExecutionOwnerOptions {
  * JSON-clean receipt on success, or a public error plus an honest receipt
  * on failure. It never rejects, because a rejection loses the execution
  * record and fails the optimizer attempt.
+ *
+ * Canonical `tools`/`toolChoice` pass through to the wire as
+ * `tools`/`tool_choice`; response `tool_calls` come back as canonical
+ * `toolCalls`. A response that carries none when tools were sent is a valid
+ * model answer, not an error.
  */
 export function createOpenAiCompatibleExecutionOwner(
   options: OpenAiCompatibleExecutionOwnerOptions,
@@ -54,7 +59,7 @@ export function createOpenAiCompatibleExecutionOwner(
     // The proxy freezes the canonical request; the transport needs a mutable copy.
     const transportRequest = structuredClone(request) as unknown as LlmCallRequest
     try {
-      const response = await callLlm(transportRequest, {
+      const wireResponse = await callLlm(transportRequest, {
         baseUrl,
         apiKey,
         signal,
@@ -64,6 +69,12 @@ export function createOpenAiCompatibleExecutionOwner(
         ...(pricing ? { customTokenPricing: pricing } : {}),
         ...(fetchImpl ? { fetch: fetchImpl } : {}),
       })
+      // 'tool_calls' is the OpenAI wire echo for a tool-calling stop; the
+      // canonical contract names the same stop cause 'tool_use'.
+      const response =
+        wireResponse.finishReason === 'tool_calls'
+          ? { ...wireResponse, finishReason: 'tool_use' }
+          : wireResponse
       return {
         succeeded: true,
         response,

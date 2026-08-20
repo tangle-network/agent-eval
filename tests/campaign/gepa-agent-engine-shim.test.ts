@@ -214,8 +214,8 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
     expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 2, successfulCompletions: 2 })
   })
 
-  it('refuses tools with a loud envelope naming the owner-contract gap', async () => {
-    const { proxy } = await startAnthropicProxy({ anthropicEndpoint: true })
+  it('serves a real CLI tool-call request end to end and discloses stripped fields', async () => {
+    const { proxy, ledger, executions } = await startAnthropicProxy({ anthropicEndpoint: true })
     const origin = new URL(proxy.baseUrl).origin
     const response = await fetch(`${origin}/v1/messages`, {
       method: 'POST',
@@ -224,14 +224,40 @@ describe('anthropic endpoint on the optimizer model proxy', () => {
         'content-type': 'application/json',
       },
       body: JSON.stringify(
-        messagesRequest({ tools: [{ name: 'run_eval', input_schema: { type: 'object' } }] }),
+        messagesRequest({
+          stream: true,
+          tools: [
+            {
+              name: 'run_eval',
+              description: 'Run one eval case',
+              input_schema: { type: 'object', properties: { case: { type: 'string' } } },
+            },
+          ],
+          tool_choice: { type: 'auto' },
+          thinking: { type: 'adaptive', display: 'omitted' },
+          output_config: { effort: 'xhigh' },
+        }),
       ),
     })
-    expect(response.status).toBe(400)
-    const envelope = (await response.json()) as { error: { type: string; message: string } }
-    expect(envelope.error.type).toBe('invalid_request_error')
-    expect(envelope.error.message).toContain('tool-call extension')
-    expect(proxy.requestAttempts()).toBe(0)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+    const sse = await response.text()
+    expect(sse).toContain(
+      '"content_block":{"type":"tool_use","id":"call_1","name":"run_eval","input":{}}',
+    )
+    expect(sse).toContain(
+      '"delta":{"type":"input_json_delta","partial_json":"{\\"case\\":\\"a\\"}"}',
+    )
+    expect(sse).toContain('"stop_reason":"tool_use"')
+
+    expect(proxy.wireUsage().anthropic).toEqual({ requestAttempts: 1, successfulCompletions: 1 })
+    proxy.assertExecutionComplete()
+    expect(executions).toHaveLength(1)
+    expect(executions[0]).toMatchObject({ path: '/v1/messages', succeeded: true })
+    const receipts = ledger.list({
+      tags: { wire: 'anthropic', strippedFields: 'output_config,thinking' },
+    })
+    expect(receipts).toHaveLength(1)
   })
 
   it('keeps /v1/messages closed unless the endpoint is enabled', async () => {
@@ -560,19 +586,41 @@ function fakeAgentBridgeRunner(upstreamBaseUrl: string, claudeStubDir: string) {
 
 async function startModelServer(): Promise<string> {
   const server = createServer(async (request, response) => {
-    for await (const _chunk of request) {
-      // Drain the request before replying.
+    const chunks: Buffer[] = []
+    for await (const chunk of request) {
+      chunks.push(chunk as Buffer)
     }
     if (request.headers.authorization !== 'Bearer provider-secret') {
       response.writeHead(401)
       response.end()
       return
     }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      tools?: unknown[]
+    }
+    // A tool-carrying request answers with an OpenAI function call so the
+    // shim's full translate → execute → synthesize path is exercised.
+    const choice = Array.isArray(body.tools)
+      ? {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'run_eval', arguments: '{"case":"a"}' },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        }
+      : { message: { role: 'assistant', content: 'better' }, finish_reason: 'stop' }
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(
       JSON.stringify({
         id: 'completion-1',
-        choices: [{ message: { role: 'assistant', content: 'better' }, finish_reason: 'stop' }],
+        choices: [choice],
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       }),
     )

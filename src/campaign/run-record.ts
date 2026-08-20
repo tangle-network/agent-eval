@@ -34,6 +34,28 @@ export interface CampaignCellQualityProjection {
   raw: Record<string, number>
 }
 
+/**
+ * A campaign cell carried a judge score without a `dimensions` record.
+ *
+ * Two exported types share the name `JudgeScore`: the campaign verdict
+ * (`{ dimensions, composite, notes }` from `@tangle-network/agent-eval/campaign`)
+ * and the root export's flat per-dimension row (`{ judgeName, dimension, score }`
+ * from `@tangle-network/agent-eval`). Campaign aggregation accepts only the
+ * campaign shape; the flat shape previously crashed here with an opaque
+ * TypeError deep inside aggregation.
+ */
+export class CampaignJudgeScoreShapeError extends TypeError {
+  constructor(judgeName: string) {
+    super(
+      `campaign cell judge '${judgeName}' carries a score without a 'dimensions' record. ` +
+        `Use the campaign JudgeScore ({ dimensions, composite, notes }) from ` +
+        `'@tangle-network/agent-eval/campaign'; the root export's JudgeScore ` +
+        `({ judgeName, dimension, score }) is a different type with the same name.`,
+    )
+    this.name = 'CampaignJudgeScoreShapeError'
+  }
+}
+
 export interface CampaignCellExecutionEvidence {
   terminalOutcome: RunTerminalOutcome
   executionErrorCount?: number
@@ -222,6 +244,14 @@ export function projectCampaignCellQuality<TArtifact>(
   const raw: Record<string, number> = {}
 
   for (const [judgeName, score] of Object.entries(cell.judgeScores)) {
+    const dimensionsShape = (score as { dimensions?: unknown }).dimensions
+    if (
+      typeof dimensionsShape !== 'object' ||
+      dimensionsShape === null ||
+      Array.isArray(dimensionsShape)
+    ) {
+      throw new CampaignJudgeScoreShapeError(judgeName)
+    }
     const finiteDimensions = Object.values(score.dimensions).every(Number.isFinite)
     if (score.failed || !Number.isFinite(score.composite) || !finiteDimensions) {
       failedJudges.add(judgeName)
