@@ -1,0 +1,31 @@
+{
+  "id": "gepa-bridge-machinery-certification",
+  "date": "2026-08-20",
+  "claim": "agent-eval's GEPA bridge executes real optimization end-to-end with honest accounting: proposals generated, worse candidates rejected, dual-counted evaluations, integrity gates that refuse to fabricate scores.",
+  "domain": "optimization",
+  "instrument": "examples/benchmarks/gsm8k/compare-optimization-methods.ts on AIME-2025 (train 8 / selection 8 / held-out 10), worker z-ai/glm-5.3, optimizer seats deepseek-v4-flash, via router.tangle.tools; plus the independent live shim proof (shim-proof-2 B8) on published 0.150.1",
+  "command": "scratchpad/run-wiring/run-aime-v2.sh (WORKER_MAX_TOKENS=16000 CALL_TIMEOUT_MS=480000 WORKER_MAX_ATTEMPTS=6 TASK_CONCURRENCY=2)",
+  "arms": ["baseline", "gepa", "skillopt"],
+  "n": {
+    "value": 14,
+    "unit": "launch attempts",
+    "detail": "2026-08-19/20; optimization phases completed fully in attempts 11-14 (GEPA 150/150 evaluations, 22 proposals in attempt 11); held-out comparison never emitted a verdict"
+  },
+  "result": "Machinery certified; lift verdict NOT MEASURED. Attempt 11: GEPA consumed its full 150-evaluation budget, generated 22 proposals, and rejected measured-worse candidates (iteration log). Independent shim-proof-2 B8 on published 0.150.1: full autoresearch engine run, 13/13 counted requests, accountingComplete true, $0.0398, baseline 0.2857 -> winner 0.9762 on the toy objective. Every missing held-out score was a refusal by the fail-loud comparison, never a fabricated zero. Blocker: two AIME held-out items (aime2025-15 consistently; aime2025-12 intermittently) drive glm-5.3 past the 480s dispatch wall or the 16000-token family cap, and the comparison tool refuses partial verdicts by design.",
+  "evidenceState": "MEASURED-ONCE",
+  "artifacts": [
+    "session 099bc10a scratchpad/run-wiring/gepa-rerun-a*.log (attempt logs)",
+    "session 099bc10a scratchpad/main-ro/.evolve/benchmarks/gsm8k-proposer-comparison/ (campaign records, per-cell receipts, failure receipts)",
+    "session 099bc10a scratchpad/shim-proof-2/ (independent live-proof artifacts)",
+    "https://github.com/tangle-network/agent-eval/pull/648",
+    "https://github.com/tangle-network/agent-eval/pull/661"
+  ],
+  "costUsd": 4,
+  "confounds": [
+    "shared box under 20-60 concurrent agent processes for most attempts; baseline selection accuracy varied 0.125-0.875 across attempts at n=8",
+    "attempts 1-10 died on since-fixed wiring/environment defects (8 distinct, 3 upstreamed as agent-eval PRs #648 #661 and the run-wiring fixes); those attempts are machinery evidence, not lift evidence",
+    "worker model (glm-5.3) reasons against the same token budget as its answer; hard AIME items are at the edge of the family cap"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "A clean lift verdict needs either a quiet box plus a worker model with reasoning headroom (deepseek-v4-flash worker) or a held-out set screened for items scoreable within the family cap. The two unscoreable items are themselves a finding: AIME-2025 hard items exceed glm-5.3's 16000-token reasoning envelope. Cost ~$4 across the 14 attempts (deepseek seats near-zero; glm worker calls dominated)."
+}
