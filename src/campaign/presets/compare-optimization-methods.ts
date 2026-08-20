@@ -113,6 +113,8 @@ export interface OptimizationMethodProvenance {
   /** Content identity shared by compatible resumptions. */
   compatibleRunId?: string
   resumed: boolean
+  /** Whether the run seed reached every external engine configuration. */
+  seedApplied?: boolean
   evaluationCount: number
   artifactDir: string
   tokenUsage?: OptimizationTokenUsage
@@ -643,6 +645,9 @@ function assertOptimizationProvenance(
     fail('optimizerCallRef')
   }
   if (typeof value.resumed !== 'boolean') fail('resumed')
+  if (value.seedApplied !== undefined && typeof value.seedApplied !== 'boolean') {
+    fail('seedApplied')
+  }
   if (!Number.isSafeInteger(value.evaluationCount) || value.evaluationCount < 0) {
     fail('evaluationCount')
   }

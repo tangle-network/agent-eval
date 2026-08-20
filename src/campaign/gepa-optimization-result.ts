@@ -22,6 +22,11 @@ export interface GepaBridgeOutput {
   upstream: ExternalOptimizerPackageSource<'gepa'>
   runId: string
   resumed: boolean
+  /**
+   * Whether the run seed reached every engine configuration in the recipe.
+   * False when the recipe includes an agent engine, which accepts no seed.
+   */
+  seedApplied: boolean
   candidatePopulation?: GepaCandidatePopulationSummary
 }
 
@@ -88,6 +93,11 @@ export function assertGepaBridgeOutput(
   }
   if (typeof result.resumed !== 'boolean') {
     throw new Error(`${name}: GEPA bridge returned an invalid resumed flag`)
+  }
+  if (typeof result.seedApplied !== 'boolean') {
+    throw new Error(
+      `${name}: GEPA bridge returned an invalid seedApplied flag; upgrade agent-eval-rpc to a release that forwards the run seed`,
+    )
   }
   if (result.candidatePopulation !== undefined) {
     assertGepaCandidatePopulationSummary(result.candidatePopulation)

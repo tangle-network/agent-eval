@@ -454,7 +454,6 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
                         "max_workers": 1,
                         "parallel": False,
                         "raise_on_exception": True,
-                        "seed": 7,
                     },
                     "reflection": {
                         "reflection_minibatch_size": 1,
@@ -465,6 +464,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
                 "maxProposerCostUsd": 1.0,
             },
             tmp_path / "proxied-gepa",
+            seed=7,
             model_proxy={
                 "apiKey": "local-test-key",
                 "baseUrl": base_url,
@@ -485,6 +485,7 @@ def test_agent_eval_gepa_proxy_drives_the_official_engine(
             proxy_usage=usage,
         )
         assert isinstance(config.engine_config["reflection"]["reflection_lm"], LM)
+        assert config.engine_config["engine"]["seed"] == 7
         result = optimize_anything(
             "BASELINE",
             evaluator=evaluate,
@@ -577,7 +578,6 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
                             "max_workers": 1,
                             "parallel": False,
                             "raise_on_exception": True,
-                            "seed": 7,
                         },
                         "reflection": {
                             "reflection_minibatch_size": 1,
@@ -647,6 +647,7 @@ def test_agent_eval_gepa_bridge_resumes_state_from_a_real_prior_run(
         second = run_bridge("second-run")
 
     assert first["resumed"] is False
+    assert first["seedApplied"] is True
     assert first["bestCandidate"] == "ALWAYS_RETURN_READY"
     assert second["resumed"] is True
     assert second["runId"] == first["runId"]

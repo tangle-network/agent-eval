@@ -170,6 +170,9 @@ uv sync --frozen --group gepa-source
 
 The bridge calls GEPA's official engine and composition functions.
 It supports direct engine, sequential, adaptive sequential, best-of, vote, and Omni recipes.
+The bridge forwards the run seed into every standard `gepa` engine configuration at `engine.seed`.
+Agent engines accept no seed parameter, so the output reports `seedApplied: false` for recipes that include one.
+A caller-supplied `engineConfig.engine.seed` is rejected because the run seed owns that field.
 GEPA receives only the serialized train and selection cases supplied by the caller.
 `compareOptimizationMethods()` keeps final cases in TypeScript and evaluates them only after GEPA exits.
 For a direct standard engine, the bridge writes a digest-addressed candidate population artifact.

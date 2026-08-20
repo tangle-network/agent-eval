@@ -22,6 +22,9 @@ from agent_eval_rpc.gepa_bridge_contract import (
     _import_engine_modules as _import_engine_modules,
 )
 from agent_eval_rpc.gepa_bridge_contract import _read_json as _read_json
+from agent_eval_rpc.gepa_bridge_contract import (
+    _recipe_engine_runs as _recipe_engine_runs,
+)
 from agent_eval_rpc.gepa_bridge_contract import _validate_input as _validate_input
 from agent_eval_rpc.gepa_bridge_contract import (
     _validate_selected_candidate as _validate_selected_candidate,
@@ -178,6 +181,7 @@ def _main() -> None:
         if restore_tracker is None:
             result, phase_results = _run_recipe(
                 recipe=recipe,
+                seed=input_value["seed"],
                 seed_candidate=input_value["seedCandidate"],
                 evaluator=evaluate,
                 train_set=input_value["trainSet"],
@@ -194,6 +198,7 @@ def _main() -> None:
             with restore_tracker:
                 result, phase_results = _run_recipe(
                     recipe=recipe,
+                    seed=input_value["seed"],
                     seed_candidate=input_value["seedCandidate"],
                     evaluator=evaluate,
                     train_set=input_value["trainSet"],
@@ -272,6 +277,11 @@ def _main() -> None:
         "totalEvaluations": evaluation_count,
         "upstreamReportedEvaluations": upstream_evaluations,
         "recipeKind": recipe["kind"],
+        # The run seed reaches only standard gepa engine configs; agent engines
+        # (autoresearch, best_of_n, meta_harness) accept no seed parameter.
+        "seedApplied": all(
+            engine_run["engine"] == "gepa" for engine_run in _recipe_engine_runs(recipe)
+        ),
         "proposerCostAccounting": (
             "metered"
             if proxy_snapshot is not None
@@ -307,6 +317,7 @@ def _main() -> None:
 def _run_recipe(
     *,
     recipe: dict[str, Any],
+    seed: int,
     seed_candidate: str,
     evaluator: Any,
     train_set: list[Any],
@@ -337,6 +348,7 @@ def _run_recipe(
             api,
             bounded_run,
             path,
+            seed=seed,
             model_proxy=model_proxy,
             proxy_usage=proxy_usage,
         )
@@ -690,11 +702,30 @@ def _missing_composition(kind: str) -> RuntimeError:
     )
 
 
+def _forward_seed(engine_config: dict[str, Any], seed: int) -> None:
+    """Write the run seed into a GEPAConfig-shaped dict's nested engine settings.
+
+    Both supported GEPA generations read the seed at ``engine.seed``:
+    the published 0.1.4 launcher config and the pinned source revision's
+    ``engine_config`` pass-through for the standard gepa engine.
+    """
+    nested_engine = engine_config.setdefault("engine", {})
+    if not isinstance(nested_engine, dict):
+        raise ValueError("GEPA engineConfig.engine must be an object")
+    if "seed" in nested_engine:
+        raise ValueError(
+            "GEPA engineConfig.engine.seed conflicts with the bridge seed input; "
+            "the bridge forwards the run seed"
+        )
+    nested_engine["seed"] = seed
+
+
 def _engine_config(
     api: GepaApi,
     run: dict[str, Any],
     output_dir: Path,
     *,
+    seed: int,
     model_proxy: dict[str, Any] | None,
     proxy_usage: _ProxyUsage | None,
 ) -> Any:
@@ -719,6 +750,10 @@ def _engine_config(
         )
 
     if api.config_shape == "engine":
+        # Agent engines construct strict config dataclasses without a seed
+        # field, so the seed reaches only the standard gepa engine.
+        if run["engine"] == "gepa":
+            _forward_seed(engine_config, seed)
         kwargs: dict[str, Any] = {
             "engine": run["engine"],
             "max_evals": run.get("maxEvaluations"),
@@ -740,9 +775,8 @@ def _engine_config(
             f"GEPA engine '{run['engine']}' requires the documented official source revision; "
             "the published package supports the standard 'gepa' engine"
         )
-    nested_engine = engine_config.setdefault("engine", {})
-    if not isinstance(nested_engine, dict):
-        raise ValueError("GEPA engineConfig.engine must be an object")
+    _forward_seed(engine_config, seed)
+    nested_engine = engine_config["engine"]
     nested_engine["max_metric_calls"] = run.get("maxEvaluations")
     if run.get("maxProposerCostUsd") is not None:
         nested_engine["max_reflection_cost"] = run["maxProposerCostUsd"]

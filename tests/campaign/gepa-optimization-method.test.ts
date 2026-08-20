@@ -109,6 +109,24 @@ describe('gepaOptimizationMethod', () => {
     ).toThrow('resumable GEPA pickle state requires trustResumeState: true')
   })
 
+  it('rejects a duplicate seed in GEPA engine settings', () => {
+    expect(() =>
+      gepaOptimizationMethod({
+        recipe: {
+          kind: 'engine',
+          run: {
+            engine: 'gepa',
+            maxEvaluations: 1,
+            maxProposerCostUsd: 1,
+            engineConfig: { engine: { seed: 7 } },
+          },
+        },
+        objective: 'Return a better policy.',
+        evaluationId: 'test',
+      }),
+    ).toThrow('engineConfig.engine.seed conflicts with the comparison seed')
+  })
+
   it('rejects credentials in persisted GEPA settings', () => {
     expect(() =>
       gepaOptimizationMethod({
@@ -276,6 +294,7 @@ describe('gepaOptimizationMethod', () => {
     })
     expect(result.scores[0]!.provenance).toMatchObject({
       optimizerModel: 'model',
+      seedApplied: true,
       tokenUsage: {
         inputTokens: 10,
         outputTokens: 5,
@@ -587,6 +606,7 @@ describe('gepaOptimizationMethod', () => {
       compatibleRunId: expect.stringMatching(/^[0-9a-f]{64}$/),
       runId: expect.stringMatching(/^[0-9a-f]{64}-[0-9a-f]{32}$/),
       resumed: false,
+      seedApplied: false,
       evaluationCount: 1,
     })
     expect(result.scores[0]!.provenance?.runId).toMatch(
@@ -735,6 +755,7 @@ function fakeGepaRunner(
     '    bestScore: scored.score,',
     '    totalEvaluations: 1,',
     '    recipeKind: input.recipe.kind,',
+    '    seedApplied: input.recipe.run.engine === "gepa",',
     '    proposerCostAccounting: "unavailable",',
     '    upstream: runtime.optimizer,',
     '    runId: input.runId,',
@@ -790,6 +811,7 @@ function fakeGepaRunnerWithFailedEvaluation(observedInputPath: string) {
     '    bestScore: scored.score,',
     '    totalEvaluations: 2,',
     '    recipeKind: input.recipe.kind,',
+    '    seedApplied: input.recipe.run.engine === "gepa",',
     '    proposerCostAccounting: "unavailable",',
     '    upstream: runtime.optimizer,',
     '    runId: input.runId,',
@@ -849,6 +871,7 @@ function fakeMeteredGepaRunner(upstreamBaseUrl: string, resumeMarker?: string) {
     '    bestScore: scored.score,',
     '    totalEvaluations: 1,',
     '    recipeKind: input.recipe.kind,',
+    '    seedApplied: input.recipe.run.engine === "gepa",',
     '    proposerCostUsd: 0.00002,',
     '    proposerCostAccounting: "metered",',
     '    tokenUsage: { inputTokens: completion.usage.prompt_tokens, outputTokens: completion.usage.completion_tokens, totalTokens: completion.usage.total_tokens, calls: 1, requestAttempts: 1 },',

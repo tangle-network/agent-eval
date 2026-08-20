@@ -349,6 +349,13 @@ def _validate_engine_options(value: Any, label: str) -> None:
     if not isinstance(engine_config, dict):
         raise ValueError(f"GEPA bridge input {label}.engineConfig must be an object")
     validate_no_secrets(engine_config, f"{label}.engineConfig", "GEPA")
+    if engine == "gepa":
+        nested_engine = engine_config.get("engine")
+        if isinstance(nested_engine, dict) and "seed" in nested_engine:
+            raise ValueError(
+                f"GEPA bridge input {label}.engineConfig.engine.seed conflicts with the "
+                "top-level seed; the bridge forwards the run seed"
+            )
     if value.get("maxConcurrency") is not None:
         _validate_positive_int(value["maxConcurrency"], f"{label}.maxConcurrency")
     stop_at_score = value.get("stopAtScore")

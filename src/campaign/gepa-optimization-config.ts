@@ -315,6 +315,14 @@ function assertEngineOptions(run: GepaEngineOptions, label: string): void {
   }
   assertJsonValue(run.engineConfig ?? {}, `gepaOptimizationMethod: ${label}.engineConfig`)
   assertNoCredentialValues(run.engineConfig ?? {}, `gepaOptimizationMethod: ${label}.engineConfig`)
+  if (run.engine === 'gepa') {
+    const nestedEngine = isRecord(run.engineConfig?.engine) ? run.engineConfig.engine : undefined
+    if (nestedEngine && Object.hasOwn(nestedEngine, 'seed')) {
+      throw new Error(
+        `gepaOptimizationMethod: ${label}.engineConfig.engine.seed conflicts with the comparison seed; the bridge forwards the run seed`,
+      )
+    }
+  }
 }
 
 function assertProxiedGepaRecipe(recipe: GepaOptimizationRecipe): void {
