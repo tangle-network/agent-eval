@@ -150,7 +150,13 @@ describe('public analyst benchmark implementation digest', () => {
     expect(analystBenchmarkDependencyLockDigest()).toBe(ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256)
   })
 
-  it('recomputes the pinned digest from the repository sources', () => {
+  // The checker is a Node subprocess that hashes 100+ copied files and walks
+  // the transitive module graph: 6-10s under load, so the 5s default flakes.
+  const CHECKER_TIMEOUT_MS = 60_000
+
+  it('recomputes the pinned digest from the repository sources', {
+    timeout: CHECKER_TIMEOUT_MS,
+  }, () => {
     const result = runChecker(REPOSITORY_ROOT)
 
     expect(result.status, result.stderr).toBe(0)
@@ -159,7 +165,9 @@ describe('public analyst benchmark implementation digest', () => {
     expect(result.stdout).toContain(`(${EXPECTED_FILES.length} files)`)
   })
 
-  it('fails when any bound source changes without a new digest', async () => {
+  it('fails when any bound source changes without a new digest', {
+    timeout: CHECKER_TIMEOUT_MS,
+  }, async () => {
     const sourceRoot = await copyImplementationSources()
     try {
       await appendFile(join(sourceRoot, EXPECTED_FILES[0]), '\n// digest mutation proof\n')
@@ -173,7 +181,9 @@ describe('public analyst benchmark implementation digest', () => {
     }
   })
 
-  it('fails when a transitive runtime source is missing from the manifest', async () => {
+  it('fails when a transitive runtime source is missing from the manifest', {
+    timeout: CHECKER_TIMEOUT_MS,
+  }, async () => {
     const sourceRoot = await copyImplementationSources()
     try {
       const extraSource = 'src/analyst/benchmark-unlisted-proof.ts'
