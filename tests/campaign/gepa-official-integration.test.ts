@@ -46,7 +46,6 @@ officialIt(
                 max_workers: 1,
                 parallel: false,
                 raise_on_exception: true,
-                seed: 7,
               },
               reflection: {
                 reflection_minibatch_size: 1,
@@ -98,6 +97,7 @@ officialIt(
         provenance: {
           source: { package: 'gepa', evidence: 'observed' },
           bridge: { package: 'agent-eval-rpc', evidence: 'observed' },
+          seedApplied: true,
           tokenUsage: {
             inputTokens: 11,
             outputTokens: 13,

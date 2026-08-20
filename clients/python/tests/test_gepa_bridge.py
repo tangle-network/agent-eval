@@ -99,7 +99,6 @@ def test_published_gepa_config_maps_budgets_and_result_fields(
             "engineConfig": {
                 "engine": {
                     "parallel": False,
-                    "seed": 7,
                 },
                 "reflection": {
                     "reflection_minibatch_size": 1,
@@ -111,6 +110,7 @@ def test_published_gepa_config_maps_budgets_and_result_fields(
             "stopAtScore": 0.9,
         },
         tmp_path / "published",
+        seed=7,
         model_proxy=None,
         proxy_usage=None,
     )
@@ -257,9 +257,80 @@ def test_published_gepa_rejects_source_only_engines(tmp_path: Path) -> None:
                 "maxProposerCostUsd": 1,
             },
             tmp_path,
+            seed=7,
             model_proxy=None,
             proxy_usage=None,
         )
+
+
+@pytest.mark.parametrize("config_shape", ["engine", "launcher"])
+def test_engine_config_rejects_a_conflicting_engine_seed(
+    tmp_path: Path,
+    config_shape: str,
+) -> None:
+    api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape=config_shape,  # type: ignore[arg-type]
+    )
+    with pytest.raises(ValueError, match="engine.seed conflicts with the bridge seed input"):
+        gepa_bridge._engine_config(
+            api,
+            {
+                "engine": "gepa",
+                "engineConfig": {"engine": {"seed": 9}},
+                "maxEvaluations": 2,
+                "maxProposerCostUsd": 1,
+            },
+            tmp_path,
+            seed=7,
+            model_proxy=None,
+            proxy_usage=None,
+        )
+
+
+def test_input_rejects_a_conflicting_engine_seed(tmp_path: Path) -> None:
+    input_value = _valid_input(tmp_path)
+    input_value["recipe"] = {
+        "kind": "engine",
+        "run": _run("gepa", 1, 1.0, {"engine": {"seed": 9}}),
+    }
+    with pytest.raises(ValueError, match="engineConfig.engine.seed conflicts"):
+        gepa_bridge._validate_input(input_value)
+
+
+def test_engine_config_forwards_the_run_seed_on_both_config_shapes(tmp_path: Path) -> None:
+    run = _run("gepa", 4, 1.0, {"reflection": {"reflection_minibatch_size": 1}})
+
+    engine_api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="engine",
+    )
+    engine_shape_config = gepa_bridge._engine_config(
+        engine_api,
+        run,
+        tmp_path / "engine-shape",
+        seed=42,
+        model_proxy=None,
+        proxy_usage=None,
+    )
+    assert engine_shape_config["engine_config"]["engine"]["seed"] == 42
+
+    launcher_api = GepaApi(
+        module=types.ModuleType("gepa.optimize_anything"),
+        config_class=lambda **kwargs: kwargs,
+        config_shape="launcher",
+    )
+    launcher_config = gepa_bridge._engine_config(
+        launcher_api,
+        run,
+        tmp_path / "launcher-shape",
+        seed=42,
+        model_proxy=None,
+        proxy_usage=None,
+    )
+    assert launcher_config["engine"]["seed"] == 42
 
 
 def test_model_proxy_requires_full_gepa_dependencies(
@@ -395,6 +466,7 @@ def test_bridge_calls_gepa_and_writes_a_cost_report(
         "totalEvaluations": 1,
         "upstreamReportedEvaluations": 1,
         "recipeKind": "engine",
+        "seedApplied": False,
         "proposerCostAccounting": "reported",
         "proposerCostUsd": 0.12,
         "upstream": UPSTREAM,
@@ -512,6 +584,10 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
         {"id": "selection", "data": {"prompt": "also-visible"}}
     ]
     assert "test_set" not in calls["explore"]["arguments"]
+    assert calls["configs"][0]["engine_config"]["engine"]["seed"] == 42
+    assert calls["configs"][1]["engine_config"] == {}
+    assert calls["configs"][2]["engine_config"] == {}
+    assert calls["configs"][3]["engine_config"]["engine"]["seed"] == 42
     output = json.loads(output_path.read_text())
     assert output.pop("runId") == f"{COMPATIBLE_RUN_ID}-attempt-two"
     assert output.pop("resumed") is False
@@ -521,6 +597,7 @@ def test_bridge_calls_gepa_omni_recipe_without_reimplementing_its_search(
         "totalEvaluations": 0,
         "upstreamReportedEvaluations": 10,
         "recipeKind": "omni",
+        "seedApplied": False,
         "proposerCostAccounting": "reported",
         "proposerCostUsd": 1.0,
         "upstream": UPSTREAM,
@@ -586,6 +663,7 @@ def test_bridge_runs_source_pinned_gepa_omni_recipe_without_a_model(
     assert output["recipeKind"] == "omni"
     assert output["totalEvaluations"] == 0
     assert output["resumed"] is False
+    assert output["seedApplied"] is False
 
     input_value = json.loads(input_path.read_text())
     input_value["attemptId"] = "attempt-four"
@@ -644,6 +722,7 @@ def test_bridge_dispatches_best_of_and_vote_to_distinct_official_functions(
     monkeypatch.setitem(sys.modules, "gepa.optimize_anything", optimize_module)
 
     common = {
+        "seed": 42,
         "seed_candidate": "baseline",
         "evaluator": lambda *_args: (0.0, {}),
         "train_set": [],
@@ -777,10 +856,12 @@ def test_input_allows_evaluation_bounded_run_without_guessed_usd_cap(
         api,
         input_value["recipe"]["run"],
         tmp_path / "external",
+        seed=42,
         model_proxy=None,
         proxy_usage=None,
     )
     assert "max_token_cost" not in config
+    assert config["engine_config"] == {}
 
     input_value["recipe"]["run"]["engine"] = "gepa"
     launcher_api = GepaApi(
@@ -792,10 +873,12 @@ def test_input_allows_evaluation_bounded_run_without_guessed_usd_cap(
         launcher_api,
         input_value["recipe"]["run"],
         tmp_path / "launcher",
+        seed=42,
         model_proxy=None,
         proxy_usage=None,
     )
     assert "max_reflection_cost" not in launcher_config["engine"]
+    assert launcher_config["engine"]["seed"] == 42
 
 
 def test_proxied_gepa_accepts_official_retry_configuration(tmp_path: Path) -> None:
@@ -1089,6 +1172,7 @@ def test_if_compatible_gepa_archives_unrestorable_state_and_starts_fresh(
 
     output = json.loads(output_path.read_text())
     assert output["resumed"] is False
+    assert output["seedApplied"] is True
     assert output["bestCandidate"] == "baseline"
     archived = list(expected_run_dir.glob("engine.unrestorable-*"))
     assert len(archived) == 1

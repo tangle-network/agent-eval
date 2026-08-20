@@ -549,6 +549,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           compatibleRunId,
           runId,
           resumed: result.resumed,
+          seedApplied: result.seedApplied,
           evaluationCount: runBudget.acceptedEvaluations(),
           artifactDir: outputDir,
           ...(tokenUsage ? { tokenUsage } : {}),
