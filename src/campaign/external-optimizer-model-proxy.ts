@@ -351,8 +351,18 @@ async function handleModelProxyRequest(args: {
     )
     let chargedForBudget = maximumCostUsd
     try {
+      // `strippedFields` discloses the Anthropic control fields the shim
+      // removed before metering, so accounting shows the exact served request.
       const requestTags =
-        wire === 'anthropic' ? { ...(args.args.tags ?? {}), wire: 'anthropic' } : args.args.tags
+        wire === 'anthropic'
+          ? {
+              ...(args.args.tags ?? {}),
+              wire: 'anthropic',
+              ...(parsed.strippedFields === undefined
+                ? {}
+                : { strippedFields: parsed.strippedFields.join(',') }),
+            }
+          : args.args.tags
       const paid = await args.args.costLedger.runPaidCall<ProviderProxyResponse>({
         ...(args.args.callId ? { callId: args.args.callId } : {}),
         channel: args.args.channel ?? 'optimizer',
@@ -713,7 +723,13 @@ function parseModelProxyRequest(
   path: ModelProxyPath,
   expectedModel: string,
   budget: ExternalOptimizerModelBudget,
-): { maxOutputTokens: number; request: ExternalOptimizerChatRequest; stream?: boolean } {
+): {
+  maxOutputTokens: number
+  request: ExternalOptimizerChatRequest
+  stream?: boolean
+  /** Anthropic control fields the translation dropped, disclosed in ledger tags. */
+  strippedFields?: readonly string[]
+} {
   if (path === '/v1/messages') {
     const translated = translateAnthropicMessagesRequest(
       body,
@@ -723,6 +739,9 @@ function parseModelProxyRequest(
     return {
       maxOutputTokens: translated.maxOutputTokens,
       stream: translated.stream,
+      ...(translated.strippedFields.length > 0
+        ? { strippedFields: translated.strippedFields }
+        : {}),
       request: freezeJsonSnapshot(
         translated.request,
         'optimizer model canonical request',
@@ -1080,6 +1099,7 @@ function snapshotChatResponse(
       'optimizer model callback response finishReason must be a string or null',
     )
   }
+  const toolCalls = snapshotResponseToolCalls(value.toolCalls)
   if (
     value.contentEmpty !== undefined &&
     (typeof value.contentEmpty !== 'boolean' ||
@@ -1145,6 +1165,7 @@ function snapshotChatResponse(
   }
   return deepFreezeJson({
     content: value.content,
+    ...(toolCalls === undefined ? {} : { toolCalls }),
     usage: {
       promptTokens,
       completionTokens,
@@ -1162,6 +1183,33 @@ function snapshotChatResponse(
     ...(value.contentEmpty === undefined ? {} : { contentEmpty: value.contentEmpty }),
     raw,
   }) as ChatResponse
+}
+
+/** Snapshot the owner's canonical tool calls onto the allowlisted response. */
+function snapshotResponseToolCalls(
+  value: unknown,
+): Array<{ id: string; name: string; argumentsJson: string }> | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new OwnerModelContractError(
+      'optimizer model callback response toolCalls must be a non-empty array when present',
+    )
+  }
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== 'string' ||
+      !entry.id ||
+      typeof entry.name !== 'string' ||
+      !entry.name ||
+      typeof entry.argumentsJson !== 'string'
+    ) {
+      throw new OwnerModelContractError(
+        'optimizer model callback response toolCalls entries require string id, name, and argumentsJson',
+      )
+    }
+    return { id: entry.id, name: entry.name, argumentsJson: entry.argumentsJson }
+  })
 }
 
 function encodeAnthropicResponseBody(args: {

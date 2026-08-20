@@ -1,0 +1,58 @@
+{
+  "url": "/v1/messages?beta=true",
+  "keys": [
+    "model",
+    "messages",
+    "system",
+    "tools",
+    "metadata",
+    "max_tokens",
+    "thinking",
+    "context_management",
+    "output_config",
+    "stream"
+  ],
+  "thinking": {
+    "type": "adaptive",
+    "display": "omitted"
+  },
+  "context_management": {
+    "edits": [
+      {
+        "type": "clear_thinking_20251015",
+        "keep": "all"
+      }
+    ]
+  },
+  "output_config": {
+    "effort": "xhigh"
+  },
+  "stream": true,
+  "max_tokens": 16000,
+  "model": "deepseek-v4-flash",
+  "toolNames": [
+    "Agent",
+    "Bash",
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "Edit",
+    "EnterWorktree",
+    "ExitWorktree",
+    "LSP",
+    "NotebookEdit",
+    "Read",
+    "ReportFindings",
+    "ScheduleWakeup",
+    "SendMessage",
+    "Skill",
+    "TaskCreate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "TaskUpdate",
+    "Workflow",
+    "Write"
+  ]
+}

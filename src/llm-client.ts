@@ -44,7 +44,7 @@ import {
 // ─── Types ──────────────────────────────────────────────────────────────
 
 export interface LlmMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   /**
    * Either a plain text content string OR a multimodal content array
    * (text + image_url parts) for vision-capable models.
@@ -55,9 +55,38 @@ export interface LlmMessage {
         | { type: 'text'; text: string }
         | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
       >
+  /** Tool invocations made by an `assistant` message earlier in the turn. */
+  toolCalls?: LlmToolCall[]
+  /** The invocation a `tool` message answers. Required when role is `tool`. */
+  toolCallId?: string
 }
 
 export type LlmThinkingMode = 'enabled' | 'disabled'
+
+/** Canonical function-tool definition offered to the model. */
+export interface LlmToolDefinition {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters: Record<string, unknown>
+  }
+}
+
+/** Canonical tool-choice policy; meaningful only when `tools` is present. */
+export type LlmToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } }
+
+/** One tool invocation on a response or an assistant history message. */
+export interface LlmToolCall {
+  id: string
+  name: string
+  /** JSON-encoded arguments, exactly as the provider produced them. */
+  argumentsJson: string
+}
 
 export interface LlmCallRequest {
   model: string
@@ -66,6 +95,10 @@ export interface LlmCallRequest {
   jsonMode?: boolean
   /** Optional structured output via JSON Schema. Falls back to json_object on 400. */
   jsonSchema?: { name: string; schema: Record<string, unknown> }
+  /** Function tools offered to the model for this call. */
+  tools?: LlmToolDefinition[]
+  /** Tool-choice policy for `tools`. */
+  toolChoice?: LlmToolChoice
   temperature?: number
   maxTokens?: number
   /** OpenAI-compatible reasoning mode. Omitted when the provider default should apply. */
@@ -79,7 +112,10 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export function maximumChargeForLlmRequest(
-  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens' | 'thinking'>,
+  request: Pick<
+    LlmCallRequest,
+    'model' | 'messages' | 'jsonSchema' | 'tools' | 'toolChoice' | 'maxTokens' | 'thinking'
+  >,
   options: LlmClientOptions = {},
 ): MaximumCharge | undefined {
   if (request.maxTokens === undefined) return undefined
@@ -128,6 +164,8 @@ export interface LlmUsage {
 export interface LlmCallResult {
   /** The text content of the first choice. Empty string if none. */
   content: string
+  /** Tool invocations from the first choice, when the model called tools. */
+  toolCalls?: LlmToolCall[]
   usage: LlmUsage
   /**
    * Cost in USD. Uses the provider's reported cost when present, otherwise
@@ -473,13 +511,15 @@ function buildBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
-    messages: req.messages,
+    messages: req.messages.map(encodeWireMessage),
     temperature: req.temperature ?? 0,
   }
   if (req.maxTokens != null) {
     if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
     else body.max_tokens = req.maxTokens
   }
+  if (req.tools !== undefined) body.tools = req.tools
+  if (req.toolChoice !== undefined) body.tool_choice = req.toolChoice
   const thinking = req.thinking ?? defaultThinking
   if (thinking !== undefined) {
     body.thinking = { type: thinking }
@@ -499,6 +539,60 @@ function buildBody(
 
 function usesMaxCompletionTokens(model: string): boolean {
   return /^gpt-5(?:[.-]|$)/i.test(model)
+}
+
+/** Encode one canonical message as its OpenAI chat-completions wire shape. */
+function encodeWireMessage(message: LlmMessage): Record<string, unknown> {
+  if (message.role === 'tool') {
+    return { role: 'tool', tool_call_id: message.toolCallId, content: message.content }
+  }
+  if (message.toolCalls === undefined) {
+    return { role: message.role, content: message.content }
+  }
+  return {
+    role: message.role,
+    content: message.content,
+    tool_calls: message.toolCalls.map((call) => ({
+      id: call.id,
+      type: 'function',
+      function: { name: call.name, arguments: call.argumentsJson },
+    })),
+  }
+}
+
+/** Parse provider tool_calls into the canonical shape. A malformed entry is a
+ * provider-contract violation and throws rather than degrading silently. */
+function parseWireToolCalls(value: unknown, model: string): LlmToolCall[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) {
+    throw new Error(`LLM response tool_calls must be an array (model=${model})`)
+  }
+  if (value.length === 0) return undefined
+  return value.map((entry, index) => {
+    const record = entry as {
+      id?: unknown
+      type?: unknown
+      function?: { name?: unknown; arguments?: unknown } | null
+    } | null
+    const fn = record && typeof record === 'object' ? record.function : undefined
+    if (
+      !record ||
+      typeof record !== 'object' ||
+      typeof record.id !== 'string' ||
+      record.id.length === 0 ||
+      (record.type !== undefined && record.type !== 'function') ||
+      !fn ||
+      typeof fn !== 'object' ||
+      typeof fn.name !== 'string' ||
+      fn.name.length === 0 ||
+      typeof fn.arguments !== 'string'
+    ) {
+      throw new Error(
+        `LLM response tool_calls[${index}] is not a function call with string arguments (model=${model})`,
+      )
+    }
+    return { id: record.id, name: fn.name, argumentsJson: fn.arguments }
+  })
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -788,9 +882,13 @@ export async function callLlm(
       }
       const choice = (
         json.choices as
-          | Array<{ message?: { content?: string }; finish_reason?: string | null }>
+          | Array<{
+              message?: { content?: string | null; tool_calls?: unknown }
+              finish_reason?: string | null
+            }>
           | undefined
       )?.[0]
+      const toolCalls = parseWireToolCalls(choice?.message?.tool_calls, req.model)
       const usageRaw =
         json.usage && typeof json.usage === 'object' && !Array.isArray(json.usage)
           ? (json.usage as Record<string, unknown>)
@@ -848,6 +946,7 @@ export async function callLlm(
 
       return {
         content,
+        ...(toolCalls === undefined ? {} : { toolCalls }),
         finishReason: choice?.finish_reason ?? null,
         contentEmpty: content.trim().length === 0,
         usage: {
