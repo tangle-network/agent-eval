@@ -42,7 +42,7 @@ The gate holds a candidate that is byte-identical to the baseline, requires the 
 - Replace `agent` with the product call you want to improve.
 - Replace `judge.score` with a deterministic check or a calibrated model-based judge.
 - Replace the synthetic candidate generator with your own `SurfaceProposer` or delegate candidate creation to agent-runtime.
-- Use `compareOptimizationMethods()` for official GEPA or SkillOpt instead of wrapping either complete optimizer as a proposer.
+- Pass an official GEPA or SkillOpt method to `selfImprove()` instead of wrapping either complete optimizer as a proposer; [`self-improve-optimizer`](../self-improve-optimizer/) is the runnable version. Use `compareOptimizationMethods()` only to benchmark methods against each other.
 - Increase the task corpus and repetitions until the score can distinguish known-good from known-bad behavior.
 
 The complete implementation is [`index.ts`](./index.ts).

@@ -44,6 +44,23 @@ Execution profiles, worker control, streaming turns, and product storage transac
 Use the canonical `AgentProfile` from `@tangle-network/agent-interface`.
 Do not create package-local profile or run-record shapes.
 
+## Optimization Surface
+
+Three public entry points improve or benchmark a surface. Route by intent.
+
+| Intent | Call | Required pieces |
+|---|---|---|
+| Improve one surface against scenarios, with a release decision, in one call | `selfImprove({ method })` from `/contract` | agent dispatch, judge, scenarios, baseline surface, budget |
+| Benchmark two or more optimizers at equal budget | `compareOptimizationMethods()` from `/campaign` | methods, dispatch, judges, train + selection + final cases, cost ceiling |
+| Compose an official optimizer for either entry above | `gepaOptimizationMethod()` / `skillOptOptimizationMethod()` from `/campaign` | objective, `evaluationId`, recipe or trainer, execution owner (`optimizer.call` + `callRef`), optimizer-model budget |
+
+`selfImprove()` is the agent entry: it gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
+`compareOptimizationMethods()` is the measurement entry: it gives every method equal inputs and scores the selected surfaces on final cases no method received.
+Neither entry ever passes final comparison cases to a method.
+
+The canonical doc is `docs/campaign-proposers.md`.
+Runnable paths: `examples/self-improve-optimizer/` (selfImprove + official GEPA) and `examples/compare-optimization-methods/` (method comparison).
+
 ## Integrity Rules
 
 - Missing backend use, output, trace evidence, usage, or required identity fails loudly.
