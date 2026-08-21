@@ -15,6 +15,7 @@ import {
   OPENINFERENCE_SPAN_KIND,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
+import { msToUnixNano, toOtlpAttributes } from './otlp-encoding'
 import type { Run, Span, TraceEvent } from './schema'
 import type { TraceStore } from './store'
 import { spanIdForWire, traceIdForWire } from './wire-ids'
@@ -71,7 +72,7 @@ export async function exportRunAsOtlp(
     resourceSpans: [
       {
         resource: {
-          attributes: toAttributes({
+          attributes: toOtlpAttributes({
             'service.name': 'agent-eval',
             'run.id': run.runId,
             'run.scenario_id': run.scenarioId,
@@ -96,13 +97,13 @@ function spanToOtlp(span: Span, traceId: string, events: TraceEvent[]): OtlpSpan
     parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : undefined,
     name: span.name,
     kind: 1, // SPAN_KIND_INTERNAL
-    startTimeUnixNano: msToNs(span.startedAt),
-    endTimeUnixNano: msToNs(endedAt),
-    attributes: toAttributes(flattenSpanAttributes(span)),
+    startTimeUnixNano: msToUnixNano(span.startedAt),
+    endTimeUnixNano: msToUnixNano(endedAt),
+    attributes: toOtlpAttributes(flattenSpanAttributes(span)),
     events: events.map((e) => ({
-      timeUnixNano: msToNs(e.timestamp),
+      timeUnixNano: msToUnixNano(e.timestamp),
       name: e.kind,
-      attributes: toAttributes(flattenPayload(e.payload)),
+      attributes: toOtlpAttributes(flattenPayload(e.payload)),
     })),
     status: span.status === 'error' ? { code: 2, message: span.error } : { code: 1 },
   }
@@ -146,24 +147,6 @@ function flattenPayload(
     else out[k] = JSON.stringify(v)
   }
   return out
-}
-
-function toAttributes(record: Record<string, string | number | boolean>): OtlpSpan['attributes'] {
-  return Object.entries(record).map(([key, value]) => ({
-    key,
-    value:
-      typeof value === 'number'
-        ? Number.isInteger(value)
-          ? { intValue: value.toString() }
-          : { doubleValue: value }
-        : typeof value === 'boolean'
-          ? { boolValue: value }
-          : { stringValue: value },
-  }))
-}
-
-function msToNs(ms: number): string {
-  return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
 }
 
 function runToTraceId(run: Run): string {

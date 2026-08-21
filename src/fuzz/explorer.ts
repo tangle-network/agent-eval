@@ -16,6 +16,7 @@
 import { CostLedger, type CostLedgerHandle, CostReceiptCaptureError } from '../cost-ledger'
 import { ValidationError } from '../errors'
 import { varianceBasedCurriculum } from '../rl/active-curriculum'
+import { mulberry32 } from '../statistics/random'
 import { buildCapsule } from './capsule'
 import type { EvalRecord } from './cube'
 import { enumerateCells } from './cube'
@@ -69,7 +70,7 @@ export class BehaviorExplorer<S> {
   private evalErrors = 0
   private consecutiveEvalErrors = 0
   private stoppedEarly: { reason: 'eval-errors'; detail: string } | undefined
-  private rngState: number
+  private readonly rng: () => number
   private readonly costLedger?: CostLedgerHandle
   private readonly costPhase = 'fuzz.explore'
 
@@ -120,16 +121,7 @@ export class BehaviorExplorer<S> {
       this.cells.length * this.floorPerCell,
       Math.ceil(opts.budget / 4),
     )
-    this.rngState = (opts.seed ?? 1) >>> 0
-  }
-
-  // mulberry32 — deterministic per session.
-  private rng = (): number => {
-    this.rngState = (this.rngState + 0x6d2b79f5) | 0
-    let t = this.rngState
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    this.rng = mulberry32(opts.seed ?? 1)
   }
 
   private binId(cell: Cell, descriptor: Record<string, string> | undefined): string {

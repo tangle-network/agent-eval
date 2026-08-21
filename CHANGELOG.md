@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.163.1] — 2026-08-21
+
+### Changed
+
+- Every byte-identical private copy of a shared primitive now routes through one owner. No public export changes and no behavior changes.
+  - `mulberry32` had five implementations: the exported owner in `src/statistics/random.ts`, named private copies in `src/trajectory-replay/batch.ts` and `src/judge-calibration.ts`, and unnamed inline copies in `src/rl/contamination.ts` (`shuffleOrder`) and `src/fuzz/explorer.ts` (`FuzzExplorer.rng`). The copies used `seed >>> 0` where the owner uses `seed | 0` — the same 32 bits, so the streams are identical (verified over 150,000 draws across 15 seeds). All four are deleted. The replay fix-case sample, the judge-calibration bootstrap, the contamination probe's order-shuffle perturbation, and the fuzz explorer now inherit the owner's refusal of a non-finite seed instead of silently seeding from `NaN >>> 0 === 0`. `src/statistics/random.test.ts` pins the stream with known-answer vectors, so a future edit to the PRNG cannot silently move an already-published statistic.
+  - `toAttributes` and `msToNs` were byte-identical in `src/trace/otel.ts` and `src/trace/otel-export.ts`. Both exporters emit the same `OtlpSpan`, so two copies of the value-tagging rule meant the same attribute could be typed differently depending on which exporter ran. They are now `toOtlpAttributes` and `msToUnixNano` in the private `src/trace/otlp-encoding.ts`.
+  - `cryptoRandomId` / `cryptoEventId` / `cryptoId` were three byte-identical id mints in `src/trace/emitter.ts`, `src/llm-client.ts`, and `src/builder-eval/builder-session.ts`. Each carried a `Date.now()`-plus-`Math.random()` fallback that is unreachable on every runtime this package supports (`engines.node >= 20`, where `globalThis.crypto.randomUUID` is always present). One private `newRecordId` in `src/record-id.ts` replaces all three, and the weaker id path is gone.
+
+---
+
 ## [0.163.0] — 2026-08-21
 
 ### Fixed

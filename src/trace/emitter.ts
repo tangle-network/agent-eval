@@ -9,6 +9,7 @@
  * explicitly.
  */
 
+import { newRecordId } from '../record-id'
 import type {
   Artifact,
   BudgetLedgerEntry,
@@ -76,7 +77,7 @@ export class TraceEmitter {
   constructor(store: TraceStore, options: TraceEmitterOptions = {}) {
     this.store = store
     this.now = options.now ?? (() => Date.now())
-    this.id = options.id ?? (() => cryptoRandomId())
+    this.id = options.id ?? (() => newRecordId())
     this._runId = options.runId ?? this.id()
     this.hooks = options.onRunComplete ?? []
     this.hookErrors = options.hookErrors ?? 'swallow'
@@ -343,8 +344,3 @@ export class TraceEmitter {
 }
 
 // Helpers -------------------------------------------------------------
-
-function cryptoRandomId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}

@@ -99,6 +99,7 @@ const EXPECTED_FILES = [
   'src/math/special-functions.ts',
   'src/math/student-t.ts',
   'src/metrics.ts',
+  'src/record-id.ts',
   'src/statistics/agreement-irr.ts',
   'src/statistics/descriptive.ts',
   'src/statistics/effect-sizes.ts',
