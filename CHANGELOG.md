@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.161.1] — 2026-08-21
+
+### Changed
+
+- Declare `@tangle-network/agent-interface` as `^1.4.0` instead of `^1.1.0`. The lockfile resolved 1.1.0, so the packed dist was compiled and tested against 1.1.0 while the range invited a consumer to resolve any later 1.x. The floor is now the copy this release was built against, which is what `verify:package` asserts for every first-party dependency.
+- `ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256` is `657957f8…a0cbdcc8`. The digest covers the four manifests this release changed (`package.json`, `pnpm-lock.yaml`, `clients/python/pyproject.toml`, `clients/python/uv.lock`), so a benchmark artifact produced by this release records the new value. The historical `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256` is unchanged: it states a fact about already-published evidence.
+
+---
+
 ## [0.161.0] — 2026-08-21
 
 ### Added
