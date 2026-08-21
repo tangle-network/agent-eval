@@ -1,0 +1,6 @@
+{
+  "why": "an explicitly empty array is a valid empty result — the ONLY way to get one",
+  "input": [],
+  "acceptedIndexes": [],
+  "rejections": []
+}

@@ -264,6 +264,21 @@ Agent Eval also runs the official `dspy.RLM` for recursive trace analysis.
 The TypeScript API starts the Python bridge, provides authenticated trace tools, calls a caller-owned model execution path, enforces model and trace-read limits, and validates cited findings.
 The Python bridge owns no trace storage or model credentials.
 
+### The raw-finding wire contract
+
+Both languages decode a findings array with the same rules.
+`agent_eval_rpc.finding_codec.decode_raw_finding_array(value)` returns `(accepted, rejected)`.
+It validates against `finding_contract.json`, which `pnpm run contract:finding` generates from the TypeScript schema and CI checks byte-for-byte, so neither side keeps a hand-written copy.
+
+- A row TypeScript rejects, Python rejects, with the same field path and rejection code.
+- A malformed row does not remove its valid siblings; each refused row reports its index, field path, and code.
+- A list or mapping is canonical-JSON encoded before it crosses the string boundary. A Python repr is not JSON and is refused.
+- A value that is not a findings array raises `TypeError`. Only an explicitly empty array is an empty result.
+
+`canonical_findings_json(value)` writes the string form: sorted keys, tight separators, no ASCII escaping.
+That is RFC 8785 for the finite integers and strings a finding carries.
+Number formatting is not RFC 8785, so use this to cross the string boundary, never to compute a digest.
+
 ```ts
 import {
   createDspyRlmTraceEngine,

@@ -411,27 +411,46 @@ def test_fixed_trace_tools_send_authenticated_callback_payloads(
     ]
 
 
-def test_parse_findings_json_recovers_and_drops() -> None:
+def test_parse_findings_json_recovers_and_reports_defects() -> None:
     # a fenced or prose-wrapped array is recovered
     fenced = "```json\n[{\"severity\": \"high\", \"claim\": \"c\", \"confidence\": 0.5, \"evidence\": [{\"uri\": \"trace://t/span/s\"}]}]\n```"
-    rows = dspy_rlm_bridge._parse_findings_json(fenced)
+    rows, rejected = dspy_rlm_bridge._parse_findings_json(fenced)
     assert len(rows) == 1 and rows[0]["claim"] == "c"
+    assert rejected == []
 
-    # non-JSON becomes an empty result, never a crash
-    assert dspy_rlm_bridge._parse_findings_json("no findings here") == []
+    # non-JSON is a defect to report, never a silent empty result
+    with pytest.raises(TypeError):
+        dspy_rlm_bridge._parse_findings_json("no findings here")
 
-    # a malformed row is dropped while a valid sibling survives
-    mixed = json.dumps(
+    # a list crosses the string boundary as canonical JSON instead of a repr
+    rows, rejected = dspy_rlm_bridge._parse_findings_json(
         [
-            {"severity": "high", "claim": "bad", "confidence": 0.5,
-             "evidence": [{"uri": "trace://t/span/s"}], "extra": True},
-            {"severity": "low", "claim": "good", "confidence": 0.5,
-             "evidence": [{"uri": "trace://t/span/s"}]},
+            {
+                "severity": "high",
+                "claim": "c",
+                "confidence": 0.5,
+                "evidence": [{"uri": "trace://t/span/s"}],
+            }
         ]
     )
-    rows = dspy_rlm_bridge._parse_findings_json(mixed)
-    assert [r["claim"] for r in rows] == ["good"]
+    assert len(rows) == 1 and rejected == []
 
+    # a malformed row is dropped while a valid sibling survives, and the
+    # dropped row is reported with its index and field
+    mixed = json.dumps(
+        [
+            {
+                "severity": "high",
+                "claim": "keep me",
+                "confidence": 0.5,
+                "evidence": [{"uri": "trace://t/span/s"}],
+            },
+            {"severity": "nope", "claim": "", "evidence": []},
+        ]
+    )
+    rows, rejected = dspy_rlm_bridge._parse_findings_json(mixed)
+    assert [row["claim"] for row in rows] == ["keep me"]
+    assert [(row.index, row.path) for row in rejected] == [(1, "severity")]
 
 def test_analyze_strips_model_output_whitespace(
     monkeypatch: pytest.MonkeyPatch,
@@ -536,11 +555,14 @@ def test_recover_control_fields_partial_markers_default_missing_field() -> None:
     assert recovered["code"] == ""
 
 
-def test_recover_final_fields_default_findings_to_empty() -> None:
+def test_recover_final_fields_omits_unrecoverable_findings() -> None:
+    # An unrecoverable findings field is left absent so the caller reports it
+    # by name. Defaulting it to "[]" made a lost field indistinguishable from a
+    # model that found nothing citable, which is how paid work vanished.
     completion = "The best model was copied to the required location."
     recovered = dspy_rlm_bridge._recover_control_fields(completion, ["answer", "findings_json"])
     assert "best model" in recovered["answer"]
-    assert recovered["findings_json"] == "[]"
+    assert "findings_json" not in recovered
 
 
 def test_recover_never_returns_none_and_never_fabricates() -> None:
@@ -785,3 +807,82 @@ def _fake_dspy(
         OutputField=lambda **kwargs: {"kind": "output", **kwargs},
         context=fake_context,
     )
+
+
+def test_a_list_valued_submission_survives_the_string_boundary() -> None:
+    # #636: DSPy could hand the bridge a list. Forcing it through str() made a
+    # Python repr, which is not JSON, and the array parsed to zero rows while
+    # the run still reported success. The codec encodes it as canonical JSON.
+    rows = [
+        {
+            "severity": "high",
+            "claim": "the retry loop never backs off",
+            "confidence": 0.9,
+            "evidence": [{"uri": "trace://t1/span/s1"}],
+        }
+    ]
+    accepted, rejected = dspy_rlm_bridge._parse_findings_json(rows)
+    assert accepted == rows
+    assert rejected == []
+
+    # The repr of that same list is refused rather than silently emptied.
+    with pytest.raises(TypeError):
+        dspy_rlm_bridge._parse_findings_json(str(rows))
+
+
+def test_the_generic_repair_prompt_does_not_ask_for_incorrect_steps() -> None:
+    # #579: the generic path reused CodeTrace's "no incorrect steps means []"
+    # rule, which erased valid factual findings from a generic analysis.
+    assert "Return [] only when the answer contains no citable claim" in (
+        dspy_rlm_bridge._FINDINGS_REPAIR_PROMPT
+    )
+    assert "incorrect steps" not in dspy_rlm_bridge._FINDINGS_REPAIR_PROMPT
+    # CodeTrace keeps its own vocabulary.
+    assert "incorrect steps" in dspy_rlm_bridge._CODETRACE_FINDINGS_REPAIR_PROMPT
+
+
+def test_the_repair_turn_carries_the_exact_row_defects() -> None:
+    prompts: list[str] = []
+
+    def fake_lm(messages: list[dict[str, str]]) -> list[str]:
+        prompts.append(messages[0]["content"])
+        return [
+            json.dumps(
+                [
+                    {
+                        "severity": "high",
+                        "claim": "repaired",
+                        "confidence": 0.5,
+                        "evidence": [{"uri": "trace://t/span/s"}],
+                    }
+                ]
+            )
+        ]
+
+    _, rejected = dspy_rlm_bridge._parse_findings_json(
+        json.dumps([{"severity": "nope", "claim": "", "evidence": []}])
+    )
+    accepted, still_rejected, error = dspy_rlm_bridge._repair_findings_turn(
+        fake_lm,
+        "the answer prose",
+        dspy_rlm_bridge.describe_rejected_rows(rejected),
+    )
+
+    assert error is None
+    assert [row["claim"] for row in accepted] == ["repaired"]
+    assert still_rejected == []
+    # Exactly one turn, and it was told which row and field were wrong.
+    assert len(prompts) == 1
+    assert "row 0 field 'severity'" in prompts[0]
+
+
+def test_a_repair_failure_keeps_the_defects_and_the_answer() -> None:
+    def failing_lm(messages: list[dict[str, str]]) -> list[str]:
+        raise RuntimeError("provider refused")
+
+    accepted, rejected, error = dspy_rlm_bridge._repair_findings_turn(
+        failing_lm, "the answer prose", "row 0 field 'severity': bad"
+    )
+    assert accepted == []
+    assert rejected == []
+    assert error is not None and "provider refused" in error

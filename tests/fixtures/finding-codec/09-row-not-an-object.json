@@ -1,0 +1,47 @@
+{
+  "why": "a scalar or nested array in the row position is named, not coerced",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    "a string row",
+    42,
+    null,
+    [
+      "nested"
+    ]
+  ],
+  "acceptedIndexes": [
+    0
+  ],
+  "rejections": [
+    {
+      "index": 1,
+      "path": "",
+      "code": "not-an-object"
+    },
+    {
+      "index": 2,
+      "path": "",
+      "code": "not-an-object"
+    },
+    {
+      "index": 3,
+      "path": "",
+      "code": "not-an-object"
+    },
+    {
+      "index": 4,
+      "path": "",
+      "code": "not-an-object"
+    }
+  ]
+}

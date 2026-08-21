@@ -1,0 +1,24 @@
+{
+  "why": "an all-invalid array yields zero accepted rows and one diagnostic each — never a silent []",
+  "input": [
+    {
+      "claim": "no evidence"
+    },
+    {
+      "severity": "high"
+    }
+  ],
+  "acceptedIndexes": [],
+  "rejections": [
+    {
+      "index": 0,
+      "path": "severity",
+      "code": "schema"
+    },
+    {
+      "index": 1,
+      "path": "claim",
+      "code": "schema"
+    }
+  ]
+}

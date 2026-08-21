@@ -4,6 +4,27 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.161.0] — 2026-08-21
+
+### Added
+
+- One raw-finding wire codec for both languages (#636, supersedes #567, #579, #606). `decodeRawFindingArray(value)` (TypeScript, `/analyst`) and `decode_raw_finding_array(value)` (Python, `agent_eval_rpc.finding_codec`) decode a findings array under one set of rules and return the accepted rows plus a diagnostic per refused row — index, field path, rejection code, message. Python validates against `finding_contract.json`, which `pnpm run contract:finding` generates from the TypeScript schema (`z.toJSONSchema` plus the subject grammar as acceptance patterns) and CI checks byte-for-byte, so neither side keeps a hand-maintained copy of the other's schema. A shared corpus in `tests/fixtures/finding-codec/` runs in both CI lanes and asserts the same accepted rows and the same rejection paths and codes.
+- `FINDING_SUBJECT_PATTERNS` and `isFindingSubject()`: the subject grammar as portable acceptance patterns, proven equal to `parseFindingSubject` over every kind's valid and invalid forms. Python now enforces the subject grammar it previously ignored, so it can no longer report success for a row TypeScript rejects.
+
+### Fixed
+
+- A findings submission can no longer become a silent empty result. Measured on the previous release: a list handed to the bridge raised an unhelpful "must be a non-empty trimmed string" and discarded the completed investigation, while the Python repr of that same list parsed to zero rows and reported success. A list or mapping is now canonical-JSON encoded before it crosses the string boundary; a repr, unparseable text, or any non-array type raises with the type it received. Only an explicitly empty array is an empty result. `_SAFE_FIELD_DEFAULTS["findings_json"] = "[]"` is deleted, and an unrecoverable findings field is now reported by name instead of defaulting to an empty array.
+- The generic repair prompt no longer carries CodeTrace's "return [] if the answer reports no incorrect steps" rule, which erased valid factual findings from a generic analysis; it asks for citable claims and returns `[]` only when the answer contains none. CodeTrace keeps its own prompt. The one declared repair turn now receives the exact row defects, and a repair failure preserves both the defects and the prose answer.
+- Rejected rows travel in `runtime.rejectedFindings` from Python under the same key TypeScript already used, so a caller sees per-row diagnostics from both sides rather than a bare count from one.
+
+### Removed
+
+- `coerceToFindingRows` (no consumer outside its own test). It promoted a single object to a one-row array and turned any unrecognized value into `[]` — both widened what TypeScript accepted past what Python does, which is how one language reported findings the other dropped. `decodeRawFindingArray` replaces it and reports what it refused.
+
+---
+
+---
+
 ## [0.160.0] — 2026-08-21
 
 ### Removed

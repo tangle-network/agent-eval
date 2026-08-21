@@ -1,0 +1,25 @@
+{
+  "why": "an unknown field is refused: the schema is strict on both sides",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "area": "performance"
+    }
+  ],
+  "acceptedIndexes": [],
+  "rejections": [
+    {
+      "index": 0,
+      "path": "",
+      "code": "schema"
+    }
+  ]
+}

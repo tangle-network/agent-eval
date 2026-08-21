@@ -321,7 +321,7 @@ export {
   emitSkillUsageFindings,
   SKILL_USAGE_ANALYST,
 } from './kinds/skill-usage'
-export { coerceJson, coerceToFindingRows, stripCodeFences } from './parse-tolerant'
+export { coerceJson, stripCodeFences } from './parse-tolerant'
 export {
   analystUsageReceiptFromPrimeUsage,
   buildPrimePrompt,

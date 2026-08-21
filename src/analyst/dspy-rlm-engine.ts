@@ -14,7 +14,7 @@ import { runExternalOptimizerProcess } from '../campaign/external-optimizer-subp
 import type { CustomTokenPricing } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
 import type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './engine'
-import { type RawAnalystFinding, RawAnalystFindingSchema } from './finding-signature'
+import { decodeRawFindingArray } from './finding-codec'
 import { startTraceToolCallback, type TraceToolCallbackLimits } from './trace-tool-callback'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
@@ -289,26 +289,22 @@ function parseBridgeOutput(
   if (typeof value.answer !== 'string' || !value.answer.trim()) {
     throw new Error('DSPy RLM bridge returned no answer')
   }
-  if (!Array.isArray(value.findings)) {
-    throw new Error('DSPy RLM bridge findings must be an array')
-  }
   // Findings are model output: one malformed row is model noise, not a bridge
-  // fault, and the rest of the paid investigation must survive it. Rejected
-  // rows are logged per row and counted in runtime.rejectedFindings.
-  let rejectedFindings = 0
-  const findings: RawAnalystFinding[] = []
-  value.findings.forEach((finding, index) => {
-    const parsed = RawAnalystFindingSchema.safeParse(finding)
-    if (!parsed.success) {
-      rejectedFindings += 1
-      onRejectedFinding(
-        index,
-        parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; '),
-      )
-      return
-    }
-    findings.push(parsed.data)
-  })
+  // fault, and the rest of the paid investigation must survive it. The codec
+  // is the same decoder the Python side runs, so a row this bridge accepts is
+  // a row the optimizer could report, and vice versa.
+  const decoded = decodeRawFindingArray(value.findings)
+  if (decoded.topLevelError !== undefined) {
+    throw new Error(`DSPy RLM bridge findings must be an array: ${decoded.topLevelError}`)
+  }
+  const findings = decoded.accepted
+  const rejectedFindings = decoded.rejected.length
+  for (const rejection of decoded.rejected) {
+    onRejectedFinding(
+      rejection.index,
+      `${rejection.code}${rejection.path ? ` at ${rejection.path}` : ''}: ${rejection.message}`,
+    )
+  }
   if (!Array.isArray(value.trajectory)) {
     throw new Error('DSPy RLM bridge trajectory must be an array')
   }

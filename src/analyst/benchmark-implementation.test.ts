@@ -57,6 +57,7 @@ const EXPECTED_FILES = [
   'src/analyst/engine.ts',
   'src/analyst/equal-terms.ts',
   'src/analyst/exact-types.ts',
+  'src/analyst/finding-codec.ts',
   'src/analyst/finding-signature.ts',
   'src/analyst/finding-subject.ts',
   'src/analyst/kind-factory.ts',

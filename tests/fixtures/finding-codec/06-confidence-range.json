@@ -1,0 +1,97 @@
+{
+  "why": "confidence must be a finite number in [0,1]; a bool is not a number",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 1
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 1.5
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": -0.1
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": "0.9"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": true
+    }
+  ],
+  "acceptedIndexes": [
+    0,
+    1
+  ],
+  "rejections": [
+    {
+      "index": 2,
+      "path": "confidence",
+      "code": "schema"
+    },
+    {
+      "index": 3,
+      "path": "confidence",
+      "code": "schema"
+    },
+    {
+      "index": 4,
+      "path": "confidence",
+      "code": "schema"
+    },
+    {
+      "index": 5,
+      "path": "confidence",
+      "code": "schema"
+    }
+  ]
+}
