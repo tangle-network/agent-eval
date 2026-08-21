@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.170.0] — 2026-08-21
+
+### Added
+
+- `pnpm check:collation-ordering`, wired into `verify:package`. It reports a `localeCompare` comparator inside a function that also canonicalizes or hashes — the shape that let eleven orderings decide a digest from the host's collation rather than from the value. The rule is narrow on purpose: ordering a table a human reads is not this gate's business, and a Markdown renderer that sorts rows does not canonicalize, so it is not reported. An allowlist entry matching nothing fails the gate, so a stale waiver cannot hide a new one.
+- `scripts/source-scan.mjs` holds the reading primitives both source gates share — walking `src/`, naming a function by its binding, locating an offset, visiting a tree. A second gate with its own copies would have re-created the duplication these releases removed, and sharing them means the naming fix in 0.168.1 reaches both gates rather than one.
+
+---
+
 ## [0.169.0] — 2026-08-21
 
 ### Fixed
