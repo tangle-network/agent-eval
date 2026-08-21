@@ -4,6 +4,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.163.0] — 2026-08-21
+
+### Fixed
+
+- `calibrationCurve` measured the metric the caller named instead of always reading the run score. Its private extractor returned `run.outcome.score` whenever a score was present, for every metric id, and the report was then stamped with the requested `evalMetric` — so a curve labelled `costUsd` or `durationMs` plotted the score. `correlationStudy`'s separate copy returned `null` for `outputTokens` and `failureClass`, which dropped the pair from the study rather than reporting it, and an unrecognized metric id produced an empty study in both entry points instead of a refusal. Three private copies of one extractor had drifted; `runMetricExtractor` in `src/trace/query.ts` is now the only one, and an id outside `RUN_METRICS` raises `ValidationError` naming the built-in metrics.
+
+### Added
+
+- `RUN_METRICS`, `RunMetric`, `isRunMetric`, and `runMetricExtractor` on `/traces`. `RUN_METRICS` is the vocabulary `regressionView`, `correlationStudy`, and `calibrationCurve` read without a caller-supplied `extract`: `score`, `overallScore`, `pass`, `durationMs`, `costUsd`, `inputTokens`, `outputTokens`, `failureClass`. `RunMetric` derives from the array, so a metric cannot be declared without an extractor arm.
+
+### Changed
+
+- `ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256` is `114f0786…eeb69400` for this release's manifests. The historical `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256` is unchanged.
+
+---
+
 ## [0.161.1] — 2026-08-21
 
 ### Changed

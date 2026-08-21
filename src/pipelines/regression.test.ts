@@ -26,7 +26,7 @@ function metricMean(report: Awaited<ReturnType<typeof regressionView>>, metric: 
   return { baselineMean: m.baselineMean, candidateMean: m.candidateMean }
 }
 
-describe('regressionView defaultExtract metric mapping', () => {
+describe('regressionView built-in metric mapping', () => {
   it('extracts the correct scalar for each metric name (score/pass/durationMs)', async () => {
     const store = new InMemoryTraceStore()
     const tag = (v: string) => ({ tags: { slice: v } })
@@ -137,12 +137,12 @@ describe('regressionView defaultExtract metric mapping', () => {
     expect(candidateMean).toBeCloseTo(0.9, 10)
   })
 
-  it('throws for an unknown metric because all samples extract to null and get dropped', async () => {
+  it('refuses an unknown metric instead of measuring an empty sample', async () => {
     const store = new InMemoryTraceStore()
     await store.appendRun(run('b1', { tags: { slice: 'base' }, outcome: { score: 1 } }))
     await store.appendRun(run('c1', { tags: { slice: 'cand' }, outcome: { score: 1 } }))
-    // 'banana' is not a known metric -> defaultExtract returns null for every
-    // run -> extractAll yields [] -> compareToBaseline needs >=2 samples.
+    // 'banana' is not a built-in metric and the spec carries no `extract`, so
+    // the refusal happens before any run is read.
     await expect(
       regressionView(store, [{ metric: 'banana', higherIsBetter: true }], {
         baseline: { tag: { key: 'slice', value: 'base' } },

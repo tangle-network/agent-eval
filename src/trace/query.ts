@@ -7,6 +7,7 @@
  * tooling works out of the box.
  */
 
+import { ValidationError } from '../errors'
 import { canonicalString } from '../ledger-core/canonical'
 import type { FailureClass, JudgeSpan, LlmSpan, Run, ToolSpan } from './schema'
 import { isJudgeSpan, isLlmSpan, isToolSpan } from './schema'
@@ -103,4 +104,63 @@ export function runFailureClass(run: Run): FailureClass {
   if (run.status === 'completed' && run.outcome?.pass !== false) return 'success'
   if (run.status === 'aborted') return 'budget_exceeded'
   return 'unknown'
+}
+
+/**
+ * Metrics `regressionView`, `correlationStudy`, and `calibrationCurve` can
+ * read from a run without a caller-supplied extractor. The type derives from
+ * this array, so a new metric cannot be declared without an extractor arm.
+ */
+export const RUN_METRICS = [
+  'score',
+  'overallScore',
+  'pass',
+  'durationMs',
+  'costUsd',
+  'inputTokens',
+  'outputTokens',
+  'failureClass',
+] as const
+
+export type RunMetric = (typeof RUN_METRICS)[number]
+
+export function isRunMetric(metric: string): metric is RunMetric {
+  return (RUN_METRICS as readonly string[]).includes(metric)
+}
+
+/**
+ * The extractor for one built-in metric. `null` means this run carries no
+ * value for the metric — the caller drops that run from the sample.
+ *
+ * Throws `ValidationError` on a metric name this package does not define:
+ * an unrecognized name would otherwise read as "every run is missing this
+ * value" and produce an empty study instead of a refusal.
+ */
+export function runMetricExtractor(
+  metric: string,
+): (run: Run, store: TraceStore) => Promise<number | null> {
+  if (!isRunMetric(metric)) {
+    throw new ValidationError(
+      `unknown run metric '${metric}' — pass an \`extract\` function or use one of: ${RUN_METRICS.join(', ')}`,
+    )
+  }
+  return async (run, store) => {
+    switch (metric) {
+      case 'score':
+      case 'overallScore':
+        return run.outcome?.score ?? null
+      case 'pass':
+        return run.outcome?.pass === true ? 1 : 0
+      case 'durationMs':
+        return run.endedAt && run.startedAt ? run.endedAt - run.startedAt : null
+      case 'costUsd':
+        return aggregateLlm(await llmSpans(store, run.runId)).costUsd
+      case 'inputTokens':
+        return aggregateLlm(await llmSpans(store, run.runId)).inputTokens
+      case 'outputTokens':
+        return aggregateLlm(await llmSpans(store, run.runId)).outputTokens
+      case 'failureClass':
+        return runFailureClass(run) === 'success' ? 1 : 0
+    }
+  }
 }
