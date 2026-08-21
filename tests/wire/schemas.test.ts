@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { canonicalString } from '../../src/ledger-core/canonical'
 import {
   hashRubric,
   JudgeRequestSchema,
@@ -136,6 +137,35 @@ describe('hashRubric', () => {
 
   it('starts with the rubric name for human-readability', () => {
     expect(hashRubric(r).startsWith('r@')).toBe(true)
+  })
+
+  it('names its digest scheme so a scheme change is not read as a rubric change', () => {
+    expect(hashRubric(r)).toMatch(/^r@sha256-rfc8785:[a-f0-9]{64}$/)
+  })
+
+  /**
+   * The encoder this replaced ordered keys with `localeCompare`, which is a
+   * property of the runtime's collation rather than of the value. RFC 8785
+   * orders by UTF-16 code unit, so a rubric whose keys differ only in case
+   * hashes the same everywhere. Mixed-case dimension ids are the shape that
+   * separates the two orderings.
+   */
+  it('orders keys by code unit, not by the runtime collation', () => {
+    const mixedCase = {
+      ...r,
+      dimensions: [
+        { id: 'Accuracy', description: 'a', weight: 1, min: 0, max: 1 },
+        { id: 'brevity', description: 'b', weight: 1, min: 0, max: 1 },
+      ],
+    }
+    const digest = hashRubric(mixedCase)
+    expect(digest).toBe(hashRubric(structuredClone(mixedCase)))
+    expect(canonicalString(mixedCase)).toBe(canonicalString(structuredClone(mixedCase)))
+    // Code-unit order puts every capitalised key before every lower-case one;
+    // an en-US collation interleaves them.
+    const keys = ['Accuracy', 'brevity', 'Clarity']
+    expect([...keys].sort()).toEqual(['Accuracy', 'Clarity', 'brevity'])
+    expect([...keys].sort((a, b) => a.localeCompare(b))).toEqual(['Accuracy', 'brevity', 'Clarity'])
   })
 })
 

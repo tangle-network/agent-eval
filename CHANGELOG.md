@@ -4,6 +4,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.167.0] — 2026-08-21
+
+### Changed
+
+- `rubricVersion` is now `<name>@sha256-rfc8785:<hex>` and comes from `hashCanonical`, this package's only canonical-JSON encoder. It was a 32-bit djb2 hash over a private `stableStringify` — the twelfth canonical-JSON encoder in the tree, and the only one whose key order came from `localeCompare`. `localeCompare` orders by the runtime's collation rather than by the value, so a rubric whose dimension ids differ only in case (`Accuracy`, `brevity`) could serialize in a different order under a different collation and produce a different tag for the same rubric. RFC 8785 orders by UTF-16 code unit, which depends on the value alone.
+  - The scheme is named inside the value. A consumer holding a tag from an earlier release reads a different scheme and can tell "this package changed how it hashes" from "the rubric changed"; with a bare hex string the two are indistinguishable. Tags minted before this release (`anti-slop@a4f2b8c1`) are not comparable with these, and nothing in this package verifies a stored tag — `rubricVersion` is compared for equality, never recomputed against a record — so no legacy encoder is retained.
+  - `WIRE_VERSION` is `1.1.0`. The request and response shapes are unchanged, so the major stays `1` and every client that checks the major (`clients/python/src/agent_eval_rpc/client.py:139`) keeps working; the minor moves because a response value changed meaning.
+  - The Python client carries `rubricVersion` as an opaque `str` and never computes or parses it, so it needs no change beyond the version lockstep.
+- `RUBRIC_VERSION_SCHEME` is exported from `/wire` for a caller that wants to compare a tag's scheme without parsing the string.
+
+---
+
 ## [0.166.1] — 2026-08-21
 
 ### Changed

@@ -53,7 +53,7 @@ POST /v1/judge
   "failureModes": [],
   "wins": ["specific-component", "earned-detail"],
   "rationale": "Specific architectural detail, no AI cadence, technical voice.",
-  "rubricVersion": "anti-slop@a4f2b8c1",
+  "rubricVersion": "anti-slop@sha256-rfc8785:2307e4f3f0948d20275a1521515c36635b37ba848149d3f603b6dfde07f7ea1c",
   "model": "claude-sonnet-4-6",
   "durationMs": 1840
 }
@@ -65,7 +65,9 @@ Pass either `rubricName` (built-in) or `rubric` (inline definition). Not both. T
 3. Computes `composite = Σ(weight_i × normalized_score_i) / Σ(weight_i)`.
 4. Returns a typed `JudgeResult`.
 
-`rubricVersion` is the stable hash of the rubric used. Scores are only comparable across runs when this matches.
+`rubricVersion` is the stable identity of the rubric used, as `<name>@<scheme>:<hex>`. Scores are only comparable across runs when it matches exactly.
+The scheme is named inside the value: `sha256-rfc8785` is the SHA-256 of the rubric's RFC 8785 canonical JSON, which orders keys by UTF-16 code unit and so does not depend on the server's locale.
+A tag whose scheme differs from the one you hold says this package changed how it hashes, not that the rubric changed — re-read the rubric rather than treating the series as broken. Releases before 0.167.0 emitted an untagged 32-bit value (`anti-slop@a4f2b8c1`); those tags are not comparable with these.
 
 ### `listRubrics`: discover what's registered
 
@@ -85,7 +87,7 @@ GET /v1/rubrics
         { "id": "signal", "description": "Non-obvious detail or constraint?", "weight": 0.2 }
       ],
       "failureModes": ["ai-cadence", "marketing-tone", "vague-claim", "no-hook", "engagement-bait", "off-icp", "stale-claim"],
-      "rubricVersion": "anti-slop@a4f2b8c1"
+      "rubricVersion": "anti-slop@sha256-rfc8785:2307e4f3f0948d20275a1521515c36635b37ba848149d3f603b6dfde07f7ea1c"
     }
   ]
 }

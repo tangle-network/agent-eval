@@ -92,7 +92,7 @@ describe('failureClusterView', () => {
   })
 
   it('does NOT merge a tool whose argHash differs only by a 17th+ char (argPrefix is first 16)', async () => {
-    // argHash is stableStringify of args; pick two arg objects whose stringify
+    // argHash is the canonical JSON of args; pick two arg objects whose encoding
     // shares the first 16 chars but diverges later -> SAME prefix -> SAME cluster.
     const shared = 'aaaaaaaaaaaaaa' // padding inside a shared key
     const store = await storeWith([
