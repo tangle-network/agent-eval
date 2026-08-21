@@ -153,6 +153,7 @@ and [DSPy](./docs/campaign-proposers.md#use-official-dspy-optimizers).
 | `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
 | `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
 | `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |
+| `@tangle-network/agent-eval/adapters/http` | Run campaign cells on remote workers over HTTP. |
 
 Use the root import for common primitives.
 Use a subpath when you want an explicit capability boundary.

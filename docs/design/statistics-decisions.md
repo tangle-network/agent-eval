@@ -354,6 +354,6 @@ Result:
 - **3 fences were not TypeScript** and are now marked `text`: an object fragment in `campaign-proposers.md`, a call elided as `{ ... }` in `feedback-trajectories.md`, and a method sketch in `examples/benchmarks/README.md`.
 - **2 fences imported a path that cannot resolve** — `@tangle-network/agent-eval/../src/trace-repair` in `trace-repair-admission.md` and `trace-repair-continuation.md` — now `@tangle-network/agent-eval/trace-repair`.
 - **0 of the remaining 63 name an export that does not exist.** Every symbol a fence imports is on the current surface.
-- The remaining compiler complaints are inherent to an excerpt: a name declared in the prose around it, a shorthand property, top-level `await` outside a module. Three fences import a deliberate placeholder (`your-text-optimizer`, `./my-engine`), and three import `@tangle-network/agent-eval/adapters/http`, which `distributed-driver.md` already declares as source-only and unpublished.
+- The remaining compiler complaints are inherent to an excerpt: a name declared in the prose around it, a shorthand property, top-level `await` outside a module. Three fences import a deliberate placeholder (`your-text-optimizer`, `./my-engine`).
 
 There is no fence checker in `scripts/` and no CI job. Compiling illustrative snippets fails builds for prose edits, and the failure mode it catches — a doc naming a symbol that no longer exists — is what the export census and review already cover. Repeat this pass by hand after a large surface change.

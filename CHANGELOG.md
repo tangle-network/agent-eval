@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.165.0] — 2026-08-21
+
+### Added
+
+- `@tangle-network/agent-eval/adapters/http` is published. `httpDispatch` (coordinator side) and `runDispatchServer` (worker side) have existed in `src/adapters/http.ts` with a test, a two-process runnable example under `examples/distributed-driver/`, and a design document since 0.130.x, but no `exports` entry — so every `import` line in `docs/distributed-driver.md` threw `ERR_PACKAGE_PATH_NOT_EXPORTED` against an installed copy, and the example could only be run from a checkout. The document's status note and the three "not currently published" fence comments are removed because they are no longer true.
+
+---
+
 ## [0.164.2] — 2026-08-21
 
 ### Changed

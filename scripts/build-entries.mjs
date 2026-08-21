@@ -21,6 +21,7 @@ export const buildEntries = {
   'contract/index': 'src/contract/index.ts',
   'rollout/index': 'src/rollout/index.ts',
   'storyboard/index': 'src/storyboard/index.ts',
+  'adapters/http': 'src/adapters/http.ts',
   'supervisor-run/index': 'src/supervisor-run/index.ts',
   'trajectory-replay/index': 'src/trajectory-replay/index.ts',
   'trace-repair/index': 'src/trace-repair/index.ts',
