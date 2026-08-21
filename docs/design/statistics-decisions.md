@@ -269,3 +269,91 @@ Any bootstrap interval recorded from a release at or before 0.133.0 through `ana
 Re-running it against the old release will not give the same interval. From this release the seed is derived from the data when the caller supplies none, so it is reproducible either way — but an interval recorded earlier cannot be reconstructed.
 
 Mirror this section into `CHANGELOG.md` at the release that carries the fix, with the affected version range and the re-check bands, so a consumer who never reads this file still gets the notice.
+
+## Random-source audit
+
+Every `Math.random` reference in `src/`, what it feeds, and whether a reported number depends on it.
+The rule this audit enforces: **no result-bearing draw may come from an unseeded source.**
+A result-bearing draw is one whose value reaches a reported statistic, an interval, a gate verdict, or an allocation a caller acts on.
+
+The canonical seeded generator is `mulberry32` in `src/statistics/random.ts`, reached through `makeRng(seed, ...series)` in `src/statistics/internal.ts`.
+`makeRng` derives the seed from the observations when the caller supplies none, so an unseeded call is still reproducible: same input, same interval.
+That is why the option stays optional — a required seed would push the caller into inventing one, and an invented seed is not more honest than a derived one.
+
+### Result-bearing draws — all seeded
+
+| Site | Formula | Consumer | Seed source |
+| --- | --- | --- | --- |
+| `statistics/internal.ts` `makeRng` | mulberry32 | every resampling path in `src/statistics` | caller seed, else FNV-1a over the IEEE-754 bytes of the observations |
+| `statistics/descriptive.ts` `confidenceInterval` | percentile bootstrap | reported interval | `makeRng(opts.seed, scores)` |
+| `statistics/paired-tests.ts` `pairedBootstrap` | paired percentile bootstrap | promotion intervals | `makeRng(opts.seed, deltas)` |
+| `statistics/rank-tests.ts` `mannWhitneyU`, `wilcoxonSignedRank` | permutation null | exact rank-test p | `makeRng(opts.seed, …)`, order-independent for the symmetric two-sample case |
+| `promotion-gate.ts` | bootstrap over the two arms | ship / hold verdict | `options.seed`, else `hashSeed(baseline, candidate)` |
+| `held-out-gate.ts` | delegates to `pairedBootstrap` | held-out gate verdict | caller seed, else the paired observations |
+| `summary-report.ts` `bayesianBootstrapMeanSamples` | Dirichlet-weight bootstrap | reported posterior and gain histogram | `makeRng(seed, deltas)` |
+| `meta-eval/rubric-predictive-validity.ts` `bootstrapCi` | percentile bootstrap of Pearson r | rubric verdict (`load_bearing` / `informative`) | `makeRng(input.seed, xs, ys)` |
+| `meta-eval/correlation-study.ts` `bootstrapPearsonCi` | percentile bootstrap of Pearson r | reported correlation CI | `makeRng(options.seed, xs, ys)` |
+| `rl/active-curriculum.ts` `thompsonCurriculum` | Beta posterior sampling | sample-budget allocation | `makeRng(opts.seed, scores)` |
+| `rl/adaptation-eval.ts` `compareAdaptationCurves` | bootstrap of per-k mean deltas | per-k CI and AUC delta | `makeRng(opts.seed, a-means, b-means)` |
+| `campaign/gates/sequential.ts` | seeded Fisher-Yates over paired deltas | exchangeability guard before the e-process | `shuffleSeed`, default 1337, data-independent by construction |
+
+### Draws that reach no result
+
+These stay on `Math.random`. Each produces an identifier or a retry delay; no reported number reads them, and seeding them would make two concurrent runs collide on the same identifier.
+
+| Site | Formula | What it feeds |
+| --- | --- | --- |
+| `llm-client.ts:1050` | `Date.now().toString(36)` + random suffix | per-call identifier in the ledger tag |
+| `trace/emitter.ts:350` | same | span identifier |
+| `builder-eval/builder-session.ts:255` | same | builder session identifier |
+| `campaign/worktree/index.ts:697` | same, 4-character suffix | worktree branch name |
+| `matrix/runner.ts:67` | 8 hex characters | matrix run identifier |
+| `adapters/http.ts:152,162` | `2^attempt * 200 + random * 200` | retry backoff jitter |
+| `hosted/client.ts:128,138` | same | retry backoff jitter |
+
+### What changed in this pass
+
+Five byte-identical private copies of mulberry32 existed alongside the canonical one, in `meta-eval/rubric-predictive-validity.ts`, `rl/active-curriculum.ts`, `rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`.
+Four of them fell back to `Math.random` when the caller passed no seed, so four reported statistics were silently non-reproducible.
+`meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and had no seed option at all.
+All six now route through `makeRng`, and `correlationStudy` gained the `seed` option its sibling already had.
+`Math.random` references in `src/` fell from 19 to 10, and none of the remaining ten is result-bearing.
+
+## Test and documentation classification
+
+The audit in #411 counted assertions that prove nothing, module mocks, and conditional skips. The disposition:
+
+**No-throw assertions.** 66 `expect(...).not.toThrow()` sites across 36 files. They split in two:
+
+- *A guard's accept case.* `assertLlmRoute`, `assertNoHiddenLeak`, `assertCapabilityHeadroom`, `assertMultishotShotResult`, `assertMatchedMethodLimits`, `assertGateReport`, `assertAnalystBenchmarkObservation`, `assertDeterministicOracle`, `assertDenominatorIntact`, and `assertJsonValue` return nothing. For these the no-throw IS the assertion: it pins the false-positive boundary of a fail-closed gate, and a gate that refuses a legal input is as broken as one that admits an illegal one. Each sits next to a `toThrow` sibling that proves the refusal. Kept.
+- *A value-returning call.* `validateRunRecord` and friends return the validated value, so the no-throw discarded the only thing worth checking. Converted to assert the returned value.
+
+**Module mocks.** 5 sites, each now carrying a one-line justification in its file header: four wrap a `node:` builtin to reproduce a race or an absent native binding that a real filesystem cannot be timed into (`trace/store.test.ts`, `analyst/benchmark-verification-artifacts.test.ts`, `analyst/benchmark-command-public-data.test.ts`, `rollout/readers/opencode-sqlite-lazy.test.ts`); one replaces the provider call in the wire handler test, which is about request validation and error mapping (`tests/wire/handlers.test.ts`).
+
+**Conditional skips.** 6 sites, all environment-gated, none silent:
+
+| Site | Gate | Why |
+| --- | --- | --- |
+| `command-runner.test.ts:148` | `process.platform === 'win32' \|\| getuid() === 0` | POSIX permission bits do not constrain root or Windows |
+| `ledger-core/trusted-head.test.ts:473` | same, as `runIf` | the same permission assumption |
+| `analyst/benchmark-command-public-data.test.ts:72` | `process.platform === 'win32'` | POSIX path semantics |
+| `analyst/kinds/skill-usage.test.ts:198` | `SKILL_USAGE_REAL` | needs a real skill corpus on disk |
+| `tests/campaign/gepa-official-integration.test.ts:22` | `AGENT_EVAL_TEST_PYTHON` | needs the official GEPA python environment; CI sets it |
+| `tests/campaign/skillopt-official-integration.test.ts:22` | `AGENT_EVAL_TEST_PYTHON` | needs the official SkillOpt python environment; CI sets it |
+
+The two python-gated files run in CI, which installs the environment; the platform gates never skip on CI's Linux runner.
+
+## Runnable-fence sweep
+
+A one-time pass, not a build gate. The 73 Markdown files under `docs/`, `examples/`, the two READMEs, `CLAUDE.md`, and the maintainer skill hold 66 fences marked `ts`.
+Each was extracted to a file and compiled with the examples compiler options, with `@tangle-network/agent-eval` and every subpath mapped to `src/`, so the check reads the surface this repository ships rather than the version installed in `node_modules`.
+Reading the installed copy is the trap: it reports every export added since the last release as missing, which is how a fence check produces false alarms and gets switched off.
+
+Result:
+
+- **3 fences were not TypeScript** and are now marked `text`: an object fragment in `campaign-proposers.md`, a call elided as `{ ... }` in `feedback-trajectories.md`, and a method sketch in `examples/benchmarks/README.md`.
+- **2 fences imported a path that cannot resolve** — `@tangle-network/agent-eval/../src/trace-repair` in `trace-repair-admission.md` and `trace-repair-continuation.md` — now `@tangle-network/agent-eval/trace-repair`.
+- **0 of the remaining 63 name an export that does not exist.** Every symbol a fence imports is on the current surface.
+- The remaining compiler complaints are inherent to an excerpt: a name declared in the prose around it, a shorthand property, top-level `await` outside a module. Three fences import a deliberate placeholder (`your-text-optimizer`, `./my-engine`), and three import `@tangle-network/agent-eval/adapters/http`, which `distributed-driver.md` already declares as source-only and unpublished.
+
+There is no fence checker in `scripts/` and no CI job. Compiling illustrative snippets fails builds for prose edits, and the failure mode it catches — a doc naming a symbol that no longer exists — is what the export census and review already cover. Repeat this pass by hand after a large surface change.

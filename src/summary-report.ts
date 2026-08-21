@@ -37,6 +37,7 @@ import {
   pairedMde,
   wilcoxonSignedRank,
 } from './statistics'
+import { makeRng } from './statistics/internal'
 
 // ── summaryTable ───────────────────────────────────────────────────────
 
@@ -677,7 +678,7 @@ function bayesianBootstrapMeanSamples(
   const n = deltas.length
   if (n === 0) return []
   if (n === 1) return new Array<number>(resamples).fill(deltas[0]!)
-  const rng = seedRng(seed)
+  const rng = makeRng(seed, deltas)
   const samples = new Array<number>(resamples)
   for (let b = 0; b < resamples; b++) {
     let weightedSum = 0
@@ -690,18 +691,6 @@ function bayesianBootstrapMeanSamples(
     samples[b] = weightedSum / weightSum
   }
   return samples
-}
-
-function seedRng(seed?: number): () => number {
-  if (seed === undefined) return Math.random
-  let s = seed >>> 0
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0
-    let t = s
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 function stdev(xs: number[], mean: number): number {

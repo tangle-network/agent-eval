@@ -33,6 +33,7 @@
 
 import { observedScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
+import { makeRng } from '../statistics/internal'
 
 export interface CellObservation {
   variantId: string
@@ -142,7 +143,8 @@ export interface ThompsonCurriculumOptions {
   /** Beta prior parameters. Default α=β=1 (uniform). */
   priorAlpha?: number
   priorBeta?: number
-  /** Seed the Thompson sampler. Default unset (Math.random). */
+  /** Seed the Thompson sampler. Absent, the seed is derived from the observed
+   *  scores, so the same observations reproduce the same allocation. */
   seed?: number
 }
 
@@ -165,7 +167,10 @@ export function thompsonCurriculum(
   const threshold = opts.decisionThreshold ?? 0.5
   const alpha0 = opts.priorAlpha ?? 1
   const beta0 = opts.priorBeta ?? 1
-  const rng = makeRng(opts.seed)
+  const rng = makeRng(
+    opts.seed,
+    observations.map((observation) => observation.score),
+  )
 
   const grouped = new Map<string, { passes: number; failures: number }>()
   for (const o of observations) {
@@ -244,18 +249,6 @@ export function observationsFromRunRecords(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-function makeRng(seed?: number): () => number {
-  if (seed === undefined) return Math.random
-  let s = seed >>> 0
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0
-    let t = s
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 /**
  * Sample from Beta(α, β) via the Marsaglia–Tsang method using two Gamma

@@ -10,6 +10,7 @@
  */
 
 import { pearsonR, spearmanR } from '../statistics'
+import { makeRng } from '../statistics/internal'
 import { aggregateLlm, llmSpans } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
@@ -53,6 +54,9 @@ export interface CorrelationStudyOptions {
   reduction?: 'latest' | 'mean' | 'max'
   /** Bootstrap iterations for the CI. Default 500. */
   bootstrapIterations?: number
+  /** Seed for the bootstrap resampler. Absent, the seed is derived from the
+   *  paired observations, so the same study reproduces the same interval. */
+  seed?: number
 }
 
 export async function correlationStudy(
@@ -120,7 +124,12 @@ export async function correlationStudy(
     .map((p) => {
       const pearson = pearsonR(p.xs, p.ys)
       const spearman = spearmanR(p.xs, p.ys)
-      const pearsonCi95 = bootstrapPearsonCi(p.xs, p.ys, options.bootstrapIterations ?? 500)
+      const pearsonCi95 = bootstrapPearsonCi(
+        p.xs,
+        p.ys,
+        options.bootstrapIterations ?? 500,
+        options.seed,
+      )
       const verdict: CorrelationResult['verdict'] =
         Math.abs(pearson) >= 0.7 ? 'strong' : Math.abs(pearson) >= 0.4 ? 'moderate' : 'weak'
       return {
@@ -170,15 +179,17 @@ function bootstrapPearsonCi(
   xs: number[],
   ys: number[],
   iterations: number,
+  seed: number | undefined,
 ): { lower: number; upper: number } {
   const n = xs.length
   if (n < 3) return { lower: NaN, upper: NaN }
+  const rng = makeRng(seed, xs, ys)
   const rs: number[] = []
   for (let b = 0; b < iterations; b++) {
     const rx: number[] = new Array(n)
     const ry: number[] = new Array(n)
     for (let i = 0; i < n; i++) {
-      const idx = Math.floor(Math.random() * n)
+      const idx = Math.floor(rng() * n)
       rx[i] = xs[idx]!
       ry[i] = ys[idx]!
     }

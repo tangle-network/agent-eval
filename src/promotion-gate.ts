@@ -23,6 +23,8 @@
  *   - INCONCLUSIVE: not enough samples or CI straddles zero with no signal
  */
 
+import { mulberry32 } from './statistics'
+
 export type Verdict = 'ADVANCE' | 'KEEP' | 'REVERT' | 'INCONCLUSIVE'
 
 export interface BootstrapResult {
@@ -51,7 +53,8 @@ export interface BootstrapOptions {
    * Default 6 (combined).
    */
   minTotalSamples?: number
-  /** RNG seed for reproducibility. Default: Math.random. */
+  /** RNG seed for reproducibility. Absent, the seed is derived from the
+   *  compared arms, so the same inputs reproduce the same verdict. */
   seed?: number
 }
 
@@ -141,18 +144,6 @@ function resample(xs: number[], rng: () => number): number[] {
   const out = new Array(xs.length)
   for (let i = 0; i < xs.length; i++) out[i] = xs[Math.floor(rng() * xs.length)]
   return out
-}
-
-/** Mulberry32 — fast deterministic PRNG. Stable across runs given the same seed. */
-function mulberry32(seed: number): () => number {
-  let t = seed >>> 0
-  return () => {
-    t += 0x6d2b79f5
-    let r = t
-    r = Math.imul(r ^ (r >>> 15), r | 1)
-    r ^= r + Math.imul(r ^ (r >>> 7), r | 61)
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 /** Stable seed derived from the inputs — same data → same CI bounds. */

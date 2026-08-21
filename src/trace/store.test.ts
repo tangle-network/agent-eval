@@ -1,3 +1,6 @@
+/** `node:fs/promises` is wrapped, not replaced: `readdir` returns real entries
+ *  in a hostile order so the store's ordering guarantee is tested against
+ *  filesystem enumeration this machine will not produce by itself. */
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

@@ -32,6 +32,7 @@
 
 import type { RunRecord } from '../run-record'
 import { pearsonR, spearmanR } from '../statistics'
+import { makeRng } from '../statistics/internal'
 import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
 
 export interface RubricPredictiveValidityInput {
@@ -57,7 +58,8 @@ export interface RubricPredictiveValidityInput {
   minSamples?: number
   /** Bootstrap resamples for CI. Default 500. */
   bootstrapResamples?: number
-  /** Random seed for the bootstrap (mulberry32). Default unset (Math.random). */
+  /** Seed for the bootstrap. Absent, the seed is derived from the paired
+   *  observations, so the same input reproduces the same interval. */
   seed?: number
   /**
    * Reduction when multiple outcomes attach to one runId. Default `'latest'`
@@ -108,7 +110,6 @@ export async function rubricPredictiveValidity(
   const minSamples = input.minSamples ?? 8
   const reduction = input.reduction ?? 'latest'
   const resamples = input.bootstrapResamples ?? 500
-  const rng = makeRng(input.seed)
 
   const outcomes = await input.outcomes.list()
   const outcomesByRun = new Map<string, DeploymentOutcome[]>()
@@ -168,7 +169,7 @@ export async function rubricPredictiveValidity(
     if (b.xs.length < minSamples) continue
     const pearson = pearsonR(b.xs, b.ys)
     const spearman = spearmanR(b.xs, b.ys)
-    const ci = bootstrapCi(b.xs, b.ys, resamples, rng)
+    const ci = bootstrapCi(b.xs, b.ys, resamples, input.seed)
     const verdict: RubricOutcomePair['verdict'] =
       Math.abs(spearman) >= 0.7
         ? 'load_bearing'
@@ -233,10 +234,11 @@ function bootstrapCi(
   xs: number[],
   ys: number[],
   iterations: number,
-  rng: () => number,
+  seed: number | undefined,
 ): { low: number; high: number } {
   const n = xs.length
   if (n < 3) return { low: Number.NaN, high: Number.NaN }
+  const rng = makeRng(seed, xs, ys)
   const samples: number[] = []
   for (let b = 0; b < iterations; b++) {
     const rx = new Array<number>(n)
@@ -254,17 +256,5 @@ function bootstrapCi(
   return {
     low: samples[Math.floor(0.025 * samples.length)]!,
     high: samples[Math.min(samples.length - 1, Math.floor(0.975 * samples.length))]!,
-  }
-}
-
-function makeRng(seed?: number): () => number {
-  if (seed === undefined) return Math.random
-  let s = seed >>> 0
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0
-    let t = s
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
