@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.164.1] — 2026-08-21
+
+### Changed
+
+- The analyst-benchmark pin is authored by the tool that checks it. `pnpm analyst:pin` (`--write`) rewrites `ANALYST_BENCHMARK_IMPLEMENTATION_FILES` from the import graph and both live digests from the sources; it refuses a `--source-root` and never writes `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` or `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256`, which state facts about already-published evidence. Every check the gate made still runs unchanged in every other mode.
+- `src/analyst/benchmark-implementation.test.ts` no longer keeps a second hand-copied copy of the 108-entry source manifest. `assertCompleteSourceManifest` in the checker already proves the manifest equals the import graph on every `pnpm build` and `pnpm verify:package`; the test's `EXPECTED_FILES` restated the constant it imported, so adding one source file meant editing the same list in two places. The two tests that prove the gate actually fails — a mutated bound source, and a transitive source missing from the manifest — are unchanged and now read the constant.
+
+---
+
 ## [0.164.0] — 2026-08-21
 
 ### Removed
