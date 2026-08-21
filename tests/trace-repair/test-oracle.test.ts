@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { RepairSession } from '../../src/trace-repair/ports'
 import {
@@ -123,6 +124,29 @@ describe('suite digest', () => {
       { path: '/tests/b.py', contents: 'b' },
     ]
     expect(testSuiteDigest(a)).toBe(testSuiteDigest(b))
+    /**
+     * Paths that a collation orders differently from code units. The digest's
+     * contract is "two suites with the same digest are the same suite", so it
+     * must not move with the host's ICU data: `Accuracy` before `Clarity`
+     * before `brevity`, never `Accuracy, brevity, Clarity`.
+     */
+    const mixedCase = [
+      { path: '/tests/brevity.py', contents: '1' },
+      { path: '/tests/Accuracy.py', contents: '2' },
+      { path: '/tests/Clarity.py', contents: '3' },
+    ]
+    const codeUnitOrder = [
+      { path: '/tests/Accuracy.py', contents: '2' },
+      { path: '/tests/Clarity.py', contents: '3' },
+      { path: '/tests/brevity.py', contents: '1' },
+    ]
+    const collationOrder = [
+      { path: '/tests/Accuracy.py', contents: '2' },
+      { path: '/tests/brevity.py', contents: '1' },
+      { path: '/tests/Clarity.py', contents: '3' },
+    ]
+    expect(testSuiteDigest(mixedCase)).toBe(testSuiteDigest(codeUnitOrder))
+    expect(testSuiteDigest(codeUnitOrder)).not.toBe(digestInGivenOrder(collationOrder))
     expect(testSuiteDigest(a)).not.toBe(
       testSuiteDigest([
         { path: '/tests/a.py', contents: 'a' },
@@ -149,3 +173,16 @@ describe('suite digest', () => {
     )
   })
 })
+
+/** The digest a suite would get if its files were folded in the given order —
+ *  what `testSuiteDigest` produced while its sort read the host collation. */
+function digestInGivenOrder(files: readonly { path: string; contents: string }[]): string {
+  const hash = createHash('sha256')
+  for (const file of files) {
+    hash.update(file.path)
+    hash.update('\0')
+    hash.update(Buffer.from(file.contents, 'utf8'))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}

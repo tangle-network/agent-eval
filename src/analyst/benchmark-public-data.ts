@@ -1,6 +1,7 @@
 import { constants } from 'node:fs'
 import { type FileHandle, open, readdir } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
+import { compareCodeUnits } from '../ledger-core/canonical'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import {
   createOtlpBufferTraceStore,
@@ -96,8 +97,8 @@ export function selectPublicBenchmarkRows(
   return [...byId]
     .sort(
       ([left], [right]) =>
-        selectionKey(options.seed, left).localeCompare(selectionKey(options.seed, right)) ||
-        left.localeCompare(right),
+        compareCodeUnits(selectionKey(options.seed, left), selectionKey(options.seed, right)) ||
+        compareCodeUnits(left, right),
     )
     .slice(0, Math.min(options.limit, byId.size))
     .map(([, row]) => row)

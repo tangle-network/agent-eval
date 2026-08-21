@@ -2,7 +2,12 @@ import { createHash } from 'node:crypto'
 import { canonicalCandidateJson } from '@tangle-network/agent-interface'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { canonicalString, hashCanonical, LedgerCanonicalizationError } from './canonical'
+import {
+  canonicalString,
+  compareCodeUnits,
+  hashCanonical,
+  LedgerCanonicalizationError,
+} from './canonical'
 
 describe('canonicalString refuses values with no faithful JSON form', () => {
   it('refuses a non-finite number instead of encoding it as null', () => {
@@ -173,5 +178,41 @@ describe('canonicalString replaces the key-sorting encoders byte-for-byte', () =
     expect(sortThenStringify({ at })).toBe('{"at":{}}')
     expect(() => canonicalString({ at })).toThrow('$.at is a Date instance')
     expect(canonicalString({ at: at.toISOString() })).toBe('{"at":"2026-06-07T00:00:00.000Z"}')
+  })
+})
+
+describe('compareCodeUnits', () => {
+  /**
+   * The whole point: `localeCompare` reads the host's collation, so an array
+   * sorted with it can reach `canonicalString`/`hashCanonical` in an order that
+   * is a property of the machine. RFC 8785 canonicalizes an array BY POSITION,
+   * so that order decides the digest bytes.
+   */
+  it('orders by code unit where a collation orders differently', () => {
+    const names = ['brevity', 'Accuracy', 'Clarity']
+
+    expect([...names].sort(compareCodeUnits)).toEqual(['Accuracy', 'Clarity', 'brevity'])
+    expect([...names].sort((a, b) => a.localeCompare(b))).toEqual([
+      'Accuracy',
+      'brevity',
+      'Clarity',
+    ])
+  })
+
+  it('gives an array a digest that a collation cannot move', () => {
+    const rows = ['brevity', 'Accuracy', 'Clarity'].map((id) => ({ id }))
+    const byCodeUnit = [...rows].sort((a, b) => compareCodeUnits(a.id, b.id))
+    const byCollation = [...rows].sort((a, b) => a.id.localeCompare(b.id))
+
+    expect(hashCanonical(byCodeUnit)).not.toBe(hashCanonical(byCollation))
+    expect(hashCanonical(byCodeUnit)).toBe(
+      hashCanonical([...rows].reverse().sort((a, b) => compareCodeUnits(a.id, b.id))),
+    )
+  })
+
+  it('is a total order on equal values', () => {
+    expect(compareCodeUnits('a', 'a')).toBe(0)
+    expect(compareCodeUnits('a', 'b')).toBe(-1)
+    expect(compareCodeUnits('b', 'a')).toBe(1)
   })
 })
