@@ -130,3 +130,81 @@ describe('calibrationCurve', () => {
     expect(report).toBeNull()
   })
 })
+
+/**
+ * A run whose LLM spans carry a known cost and output-token count, so a
+ * metric other than `score` reads a value the score cannot be mistaken for.
+ */
+async function seedCostedRun(
+  store: InMemoryTraceStore,
+  score: number,
+  outcomeStore: InMemoryOutcomeStore,
+  retention: number,
+  usage: { costUsd: number; outputTokens: number },
+): Promise<void> {
+  const e = new TraceEmitter(store)
+  await e.startRun({ scenarioId: 's' })
+  const call = await e.span({
+    kind: 'llm',
+    name: 'call',
+    model: 'm',
+    messages: [],
+    outputTokens: usage.outputTokens,
+    costUsd: usage.costUsd,
+  })
+  await call.end()
+  await e.endRun({ pass: true, score })
+  await outcomeStore.append({
+    runId: e.runId,
+    capturedAt: Date.now() + 1000,
+    metrics: { retention_7d: retention },
+  })
+}
+
+describe('built-in run metrics across the meta-eval entry points', () => {
+  it('calibrates the metric the caller named, not the run score', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    // score and costUsd move in OPPOSITE directions: a curve built from the
+    // score is monotonically increasing, one built from cost is decreasing.
+    for (let i = 0; i < 20; i++) {
+      const x = i / 20
+      await seedCostedRun(trace, x, out, x, { costUsd: 1 - x, outputTokens: 100 + i })
+    }
+    const byCost = await calibrationCurve(trace, out, { id: 'costUsd' }, 'retention_7d', {
+      bins: 4,
+    })
+    expect(byCost).not.toBeNull()
+    const bins = byCost!.bins.filter((b) => b.n > 0)
+    expect(bins.length).toBeGreaterThan(1)
+    expect(bins[bins.length - 1]!.outcomeMean).toBeLessThan(bins[0]!.outcomeMean)
+    expect(byCost!.evalMetric).toBe('costUsd')
+  })
+
+  it('correlates a token metric instead of dropping the pair', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 12; i++) {
+      await seedCostedRun(trace, 0.5, out, 0.2 + i * 0.05, {
+        costUsd: 0.01,
+        outputTokens: 100 + i * 10,
+      })
+    }
+    const report = await correlationStudy(trace, out, [{ id: 'outputTokens' }], ['retention_7d'])
+    expect(report.pairs).toHaveLength(1)
+    expect(report.pairs[0].n).toBe(12)
+    expect(report.pairs[0].pearson).toBeGreaterThan(0.9)
+  })
+
+  it('refuses an unknown metric instead of reporting an empty study', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 5; i++) await seedRun(trace, i * 0.1, out, i * 0.1)
+    await expect(
+      correlationStudy(trace, out, [{ id: 'tokens' }], ['retention_7d']),
+    ).rejects.toThrow(/unknown run metric 'tokens'/)
+    await expect(calibrationCurve(trace, out, { id: 'tokens' }, 'retention_7d')).rejects.toThrow(
+      /unknown run metric 'tokens'/,
+    )
+  })
+})

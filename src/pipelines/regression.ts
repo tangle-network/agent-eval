@@ -8,14 +8,15 @@
  */
 
 import { type BaselineOptions, type BaselineReport, compareToBaseline } from '../baseline'
-import { aggregateLlm, llmSpans, runFailureClass } from '../trace/query'
+import { runMetricExtractor } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { RunFilter, TraceStore } from '../trace/store'
 
 export interface RegressionSpec {
   metric: string
   higherIsBetter: boolean
-  /** Extract a scalar from a run. Default extractors handle common metrics. */
+  /** Extract a scalar from a run. Omit it and `metric` must name one of
+   *  `RUN_METRICS`; any other name is refused. */
   extract?: (run: Run, store: TraceStore) => Promise<number | null>
 }
 
@@ -33,7 +34,7 @@ export async function regressionView(
   const candidateRuns = await store.listRuns(options.candidate)
   const samples = await Promise.all(
     metrics.map(async (m) => {
-      const extract = m.extract ?? defaultExtract(m.metric)
+      const extract = m.extract ?? runMetricExtractor(m.metric)
       const baseline = await extractAll(baselineRuns, extract, store)
       const candidate = await extractAll(candidateRuns, extract, store)
       return { metric: m.metric, higherIsBetter: m.higherIsBetter, baseline, candidate }
@@ -53,35 +54,4 @@ async function extractAll(
     if (v !== null && Number.isFinite(v)) out.push(v)
   }
   return out
-}
-
-function defaultExtract(metric: string): (run: Run, store: TraceStore) => Promise<number | null> {
-  return async (run, store) => {
-    switch (metric) {
-      case 'score':
-      case 'overallScore':
-        return run.outcome?.score ?? null
-      case 'pass':
-        return run.outcome?.pass === true ? 1 : 0
-      case 'durationMs':
-        return run.endedAt && run.startedAt ? run.endedAt - run.startedAt : null
-      case 'costUsd': {
-        const llm = await llmSpans(store, run.runId)
-        return aggregateLlm(llm).costUsd
-      }
-      case 'inputTokens': {
-        const llm = await llmSpans(store, run.runId)
-        return aggregateLlm(llm).inputTokens
-      }
-      case 'outputTokens': {
-        const llm = await llmSpans(store, run.runId)
-        return aggregateLlm(llm).outputTokens
-      }
-      case 'failureClass': {
-        return runFailureClass(run) === 'success' ? 1 : 0
-      }
-      default:
-        return null
-    }
-  }
 }

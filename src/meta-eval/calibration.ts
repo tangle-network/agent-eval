@@ -7,7 +7,7 @@
  * mean outcome per bucket, reports expected-calibration-error (ECE).
  */
 
-import type { Run } from '../trace/schema'
+import { runMetricExtractor } from '../trace/query'
 import type { TraceStore } from '../trace/store'
 import type { EvalMetricSpec } from './correlation-study'
 import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
@@ -62,7 +62,7 @@ export async function calibrationCurve(
     byRun.set(o.runId, arr)
   }
 
-  const extract = evalMetric.extract ?? defaultExtract(evalMetric.id)
+  const extract = evalMetric.extract ?? runMetricExtractor(evalMetric.id)
   const pairs: Array<{ x: number; y: number }> = []
   for (const run of runs) {
     const os = byRun.get(run.runId)
@@ -146,9 +146,4 @@ function toBin(chunk: CalibrationPair[], lower?: number, upper?: number): Calibr
 
 function mean(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0) / xs.length
-}
-
-function defaultExtract(metric: string): (run: Run, store: TraceStore) => Promise<number | null> {
-  return async (run) =>
-    run.outcome?.score ?? (metric === 'pass' ? (run.outcome?.pass === true ? 1 : 0) : null)
 }

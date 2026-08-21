@@ -11,14 +11,15 @@
 
 import { pearsonR, spearmanR } from '../statistics'
 import { makeRng } from '../statistics/internal'
-import { aggregateLlm, llmSpans } from '../trace/query'
+import { runMetricExtractor } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import type { DeploymentOutcome, OutcomeFilter, OutcomeStore } from './outcome-store'
 
 export interface EvalMetricSpec {
   id: string
-  /** Extract a scalar from a run (defaults cover score/pass/durationMs/costUsd/tokens). */
+  /** Extract a scalar from a run. Omit it and `id` must name one of
+   *  `RUN_METRICS`; any other `id` is refused. */
   extract?: (run: Run, store: TraceStore) => Promise<number | null>
 }
 
@@ -100,7 +101,7 @@ export async function correlationStudy(
     }
 
     for (const em of evalMetrics) {
-      const extract = em.extract ?? defaultExtract(em.id)
+      const extract = em.extract ?? runMetricExtractor(em.id)
       const x = await extract(run, traceStore)
       if (x === null || !Number.isFinite(x)) continue
 
@@ -201,29 +202,5 @@ function bootstrapPearsonCi(
   return {
     lower: rs[Math.floor(0.025 * rs.length)]!,
     upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))]!,
-  }
-}
-
-function defaultExtract(metric: string): (run: Run, store: TraceStore) => Promise<number | null> {
-  return async (run, store) => {
-    switch (metric) {
-      case 'score':
-      case 'overallScore':
-        return run.outcome?.score ?? null
-      case 'pass':
-        return run.outcome?.pass === true ? 1 : 0
-      case 'durationMs':
-        return run.endedAt && run.startedAt ? run.endedAt - run.startedAt : null
-      case 'costUsd': {
-        const llm = await llmSpans(store, run.runId)
-        return aggregateLlm(llm).costUsd
-      }
-      case 'inputTokens': {
-        const llm = await llmSpans(store, run.runId)
-        return aggregateLlm(llm).inputTokens
-      }
-      default:
-        return null
-    }
   }
 }
