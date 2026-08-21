@@ -222,8 +222,9 @@ function endpoint(
 }
 
 function wireBody(request: ChatRequest | ExternalOptimizerChatRequest): Record<string, unknown> {
+  if (!request.model) throw new Error('openAiCompatibleExecutionOwner: request.model is required')
   const body: Record<string, unknown> = {
-    ...(request.model === undefined ? {} : { model: request.model }),
+    model: request.model,
     messages: request.messages.map((message) =>
       message.role === 'tool'
         ? { role: 'tool', tool_call_id: message.toolCallId, content: message.content }

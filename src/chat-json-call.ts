@@ -43,7 +43,7 @@ export type PaidJsonChatResult<T> =
   | { succeeded: false; error: Error; receipt?: CostReceipt }
 
 /** Parse a JSON answer out of a model response. The transport may fence it. */
-export function parseJsonAnswer<T>(response: ChatResponse, actor: string): T {
+function parseJsonAnswer<T>(response: ChatResponse, actor: string): T {
   try {
     return JSON.parse(extractJsonPayload(response.content)) as T
   } catch (error) {
