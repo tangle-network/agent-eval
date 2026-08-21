@@ -8,87 +8,47 @@
  * destroy — same artifact + same rubric ⇒ same verdict is the desired
  * property, not a bug.)
  *
- * The cache key is a sha-256 over the canonical JSON of everything that can
- * change a verdict: the artifact content, the scenario id, the judge name,
- * the full dimension list (key + description — the description IS the rubric
- * text shown to the judge), and a caller-supplied `judgeVersion`.
+ * The cache key is `v2:` + a sha-256 over the canonical JSON of everything
+ * that can change a verdict: the artifact content, the scenario id, the judge
+ * name, the full dimension list (key + description — the description IS the
+ * rubric text shown to the judge), and a caller-supplied `judgeVersion`.
  * `judgeVersion` is REQUIRED: a judge whose prompt/model/ensemble changes
  * without a version bump would otherwise silently serve stale verdicts.
+ * The `v2:` prefix names the key scheme; a store written under another scheme
+ * misses once and repopulates.
  *
- * Strict canonicalization (`canonicalJson`) throws on undefined / function /
- * symbol / non-finite numbers — an artifact that cannot be unambiguously
- * serialized cannot be content-addressed, and coercing it would let two
- * different artifacts collide on one key.
+ * Canonical JSON is RFC 8785 from `ledger-core/canonical` — the package's one
+ * identity scheme. It refuses `undefined`, functions, symbols, non-finite
+ * numbers, class instances (including `Date`), `Map`, `Set`, cycles, and
+ * unpaired surrogates: an artifact that cannot be unambiguously serialized
+ * cannot be content-addressed, and coercing it would let two different
+ * artifacts collide on one key. Pass timestamps as ISO strings.
  */
 
-import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import type { JudgeConfig, JudgeScore, Scenario } from './campaign/types'
+import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 // ── canonical JSON + content hash ─────────────────────────────────────────
 
-function canonicalizeAt(value: unknown, path: string): string {
-  if (value === null) return 'null'
-  switch (typeof value) {
-    case 'boolean':
-      return value ? 'true' : 'false'
-    case 'number':
-      if (!Number.isFinite(value)) {
-        throw new Error(
-          `canonicalJson: non-finite number (${value}) at ${path} — ambiguity is an error, not a coercion`,
-        )
-      }
-      return JSON.stringify(value)
-    case 'string':
-      return JSON.stringify(value)
-    case 'undefined':
-    case 'function':
-    case 'symbol':
-      throw new Error(
-        `canonicalJson: ${typeof value} at ${path} — ambiguity is an error, not a coercion`,
-      )
-    case 'bigint':
-      throw new Error(`canonicalJson: bigint at ${path} — not representable in JSON`)
-    case 'object':
-      break
-  }
-  const obj = value as Record<string, unknown>
-  // Honor toJSON (Date → ISO string) before structural checks — without it a
-  // Date would canonicalize to '{}' and every timestamp would collide.
-  if (typeof obj.toJSON === 'function') {
-    return canonicalizeAt((obj as { toJSON(): unknown }).toJSON(), path)
-  }
-  if (Array.isArray(obj)) {
-    return `[${obj.map((item, i) => canonicalizeAt(item, `${path}[${i}]`)).join(',')}]`
-  }
-  if (obj instanceof Map || obj instanceof Set) {
-    throw new Error(
-      `canonicalJson: ${obj instanceof Map ? 'Map' : 'Set'} at ${path} — would serialize as '{}'; convert to a plain object/array first`,
-    )
-  }
-  const keys = Object.keys(obj).sort()
-  const parts = keys.map((k) => `${JSON.stringify(k)}:${canonicalizeAt(obj[k], `${path}.${k}`)}`)
-  return `{${parts.join(',')}}`
-}
+/** Key scheme of every entry `cachedJudge` writes. */
+export const VERDICT_CACHE_KEY_SCHEME = 'v2'
 
 /**
- * Stable JSON stringify: object keys sorted recursively, so two semantically
- * equal values produce byte-identical output regardless of key insertion
- * order. Throws on undefined / function / symbol / NaN / ±Infinity / bigint /
- * Map / Set — anything JSON.stringify would coerce or drop silently.
- *
- * Distinct from `pre-registration.ts`'s `canonicalize`/`hashJson`, which are
- * permissive (coercion allowed) and async (web-crypto). Use THIS pair when a
- * hash collision or silent coercion would corrupt a cache key or attestation.
+ * Canonical JSON (RFC 8785): object keys sorted recursively, so two
+ * semantically equal values produce byte-identical output regardless of key
+ * insertion order. Throws `LedgerCanonicalizationError` on any value with no
+ * faithful JSON form — see `ledger-core/canonical`.
  */
 export function canonicalJson(value: unknown): string {
-  return canonicalizeAt(value, '$')
+  return canonicalString(value)
 }
 
 /** Hex sha-256 over `canonicalJson(value)`. The content address used by the
- *  verdict cache and report attestation. */
+ *  verdict cache and report attestation. Equals `hashCanonical(value)` with
+ *  the `sha256:` prefix removed. */
 export function contentHash(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+  return hashCanonical(value).slice('sha256:'.length)
 }
 
 // ── store contract ─────────────────────────────────────────────────────────
@@ -214,13 +174,13 @@ export function cachedJudge<TArtifact, TScenario extends Scenario = Scenario>(
     dimensions: judge.dimensions,
     judgeVersion: options.judgeVersion,
     async score(input) {
-      const key = contentHash({
+      const key = `${VERDICT_CACHE_KEY_SCHEME}:${contentHash({
         artifact: canonicalJson(input.artifact),
         scenarioId: input.scenario.id,
         judgeName: judge.name,
         dimensions: judge.dimensions,
         judgeVersion: options.judgeVersion,
-      })
+      })}`
       const cached = await store.get(key)
       if (cached !== undefined) {
         stats.hits += 1

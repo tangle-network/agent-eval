@@ -42,8 +42,9 @@ describe('attest', () => {
   })
 
   it('throws on a report that cannot be unambiguously serialized', () => {
-    expect(() => attest({ broken: NaN }, provenance)).toThrow(/non-finite/)
-    expect(() => attest({ broken: undefined }, provenance)).toThrow(/undefined/)
+    expect(() => attest({ broken: NaN }, provenance)).toThrow(/\$\.broken is NaN/)
+    expect(() => attest({ broken: undefined }, provenance)).toThrow(/\$\.broken is undefined/)
+    expect(() => attest({ at: new Date(0) }, provenance)).toThrow(/\$\.at is a Date instance/)
   })
 })
 
@@ -111,6 +112,6 @@ describe('verifyAttestation', () => {
     const attested = attest(report, provenance)
     const result = verifyAttestation({ broken: NaN }, attested)
     expect(result.valid).toBe(false)
-    expect(result.reason).toMatch(/not canonicalizable: .*non-finite/)
+    expect(result.reason).toMatch(/not canonicalizable: .*\$\.broken is NaN/)
   })
 })

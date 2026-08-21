@@ -11,6 +11,7 @@ import {
   snapshotAnalystRun,
   validateAnalystReviewDecisions,
 } from './feedback-trajectory-review'
+import { canonicalString } from './ledger-core/canonical'
 
 export type {
   AnalystFindingDigest,
@@ -730,11 +731,14 @@ export function renderPreferenceMemoryMarkdown(entries: PreferenceMemoryEntry[])
   return `${lines.join('\n').trim()}\n`
 }
 
+/** One RFC 8785 canonical JSON row per trajectory, sorted by id, so two exports
+ * of equal stores are byte-equal. Each row is the trajectory's JSON document
+ * form — the same form every store persists. */
 export function serializeFeedbackTrajectoriesJsonl(trajectories: FeedbackTrajectory[]): string {
   return `${trajectories
     .slice()
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((trajectory) => JSON.stringify(canonicalize(trajectory)))
+    .map((trajectory) => canonicalString(cloneTrajectory(trajectory)))
     .join('\n')}\n`
 }
 
@@ -910,14 +914,4 @@ function stableHash(input: string): number {
     hash = Math.imul(hash, 16777619)
   }
   return hash >>> 0
-}
-
-function canonicalize(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(canonicalize)
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = canonicalize((value as Record<string, unknown>)[key])
-  }
-  return out
 }

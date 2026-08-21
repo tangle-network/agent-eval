@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { canonicalString, LedgerCanonicalizationError } from '../ledger-core/canonical'
 import { aggregateLlm, argHash } from './query'
 import type { LlmSpan } from './schema'
 
@@ -34,20 +35,26 @@ describe('aggregateLlm', () => {
 })
 
 describe('argHash', () => {
-  it('always returns a string — even for undefined / functions', () => {
-    // Regression: JSON.stringify(undefined) returns the value `undefined`,
-    // which made argHash non-string and broke de-dup keys downstream.
-    expect(typeof argHash(undefined)).toBe('string')
-    expect(typeof argHash(null)).toBe('string')
-    expect(typeof argHash(() => 1)).toBe('string')
+  it('keys uncaptured args and null args to distinct strings', () => {
+    expect(argHash(undefined)).toBe('undefined')
+    expect(argHash(null)).toBe('null')
+    expect(argHash(undefined)).not.toBe(argHash(null))
+  })
+
+  it('is the RFC 8785 canonical JSON of the args', () => {
+    expect(argHash({ b: 2, a: 1 })).toBe(canonicalString({ a: 1, b: 2 }))
+    expect(argHash({ b: 2, a: 1 })).toBe('{"a":1,"b":2}')
   })
 
   it('is stable across object key insertion order', () => {
     expect(argHash({ a: 1, b: 2 })).toBe(argHash({ b: 2, a: 1 }))
   })
 
-  it('treats an undefined-valued key like an absent key (JSON semantics)', () => {
-    expect(argHash({ a: 1 })).toBe(argHash({ a: 1, b: undefined }))
+  it('refuses args with no canonical JSON form instead of keying them loosely', () => {
+    expect(() => argHash({ a: 1, b: undefined })).toThrow(LedgerCanonicalizationError)
+    expect(() => argHash({ a: 1, b: undefined })).toThrow(/\$\.b is undefined/)
+    expect(() => argHash(() => 1)).toThrow(LedgerCanonicalizationError)
+    expect(() => argHash({ n: Number.NaN })).toThrow(/\$\.n is NaN/)
   })
 
   it('distinguishes null, the string "null", and distinct args', () => {

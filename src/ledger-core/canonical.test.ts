@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { canonicalCandidateJson } from '@tangle-network/agent-interface'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
@@ -66,5 +67,111 @@ describe('canonicalString is the RFC 8785 encoder', () => {
     expect(canonicalString({ b: 1, a: { d: 2, c: 3 } })).toBe(
       canonicalString({ a: { c: 3, d: 2 }, b: 1 }),
     )
+  })
+})
+
+/**
+ * The key-sorting encoders this package used to carry, kept here only as
+ * oracles: `canonicalString` must agree with each of them byte-for-byte on
+ * every plain JSON value, so delegating to it changes no digest of persisted
+ * plain data, while the values they coerced are refused instead.
+ */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}
+const sortThenStringify = (value: unknown): string => JSON.stringify(sortKeysDeep(value))
+/** Keys on which the old sort-into-a-new-object encoders were not faithful:
+ * integer-like keys re-enumerate numerically first, and an own `__proto__` key
+ * vanishes through plain assignment. Both divergences have explicit tests. */
+function hasNonParityKey(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false
+  if (Array.isArray(value)) return value.some(hasNonParityKey)
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, entry]) =>
+      String(Number.parseInt(key, 10)) === key || key === '__proto__' || hasNonParityKey(entry),
+  )
+}
+function recursiveSortedEncoder(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(recursiveSortedEncoder).join(',')}]`
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${recursiveSortedEncoder(record[key])}`).join(',')}}`
+}
+
+describe('canonicalString replaces the key-sorting encoders byte-for-byte', () => {
+  it('agrees with sort-then-JSON.stringify on plain JSON values without integer-like keys', () => {
+    // JS object enumeration puts integer-like keys first in numeric order, so
+    // the old sort-into-a-new-object encoders never actually sorted those keys
+    // and diverge from RFC 8785 on them — covered by the next test.
+    fc.assert(
+      fc.property(
+        fc.jsonValue().filter((value) => !hasNonParityKey(value)),
+        (value) => {
+          expect(canonicalString(value)).toBe(sortThenStringify(value))
+        },
+      ),
+      { numRuns: 1000 },
+    )
+  })
+
+  it('sorts integer-like keys as strings where sort-then-stringify emitted them numerically', () => {
+    const value = JSON.parse('{"10":1,"2":2,"":0}') as Record<string, unknown>
+    expect(sortThenStringify(value)).toBe('{"2":2,"10":1,"":0}')
+    expect(canonicalString(value)).toBe('{"":0,"10":1,"2":2}')
+  })
+
+  it('keeps the own __proto__ key sort-then-stringify silently dropped', () => {
+    const value = JSON.parse('{"__proto__":1,"a":2}') as Record<string, unknown>
+    expect(sortThenStringify(value)).toBe('{"a":2}')
+    expect(canonicalString(value)).toBe('{"__proto__":1,"a":2}')
+  })
+
+  it('agrees with the recursive sorted encoder on every plain JSON value', () => {
+    fc.assert(
+      fc.property(fc.jsonValue(), (value) => {
+        expect(canonicalString(value)).toBe(recursiveSortedEncoder(value))
+      }),
+      { numRuns: 1000 },
+    )
+  })
+
+  it('keeps the hex digest of sort-then-stringify for plain data', () => {
+    const value = {
+      scenarios: [
+        { id: 'b', payload: { q: 1 } },
+        { id: 'a', payload: null },
+      ],
+    }
+    const legacyHex = createHash('sha256').update(sortThenStringify(value)).digest('hex')
+    expect(hashCanonical(value)).toBe(`sha256:${legacyHex}`)
+  })
+
+  it('refuses the undefined-valued field both old encoders silently dropped', () => {
+    const withUndefined = { a: 1, b: undefined }
+    expect(sortThenStringify(withUndefined)).toBe(sortThenStringify({ a: 1 }))
+    expect(recursiveSortedEncoder(withUndefined)).toBe(recursiveSortedEncoder({ a: 1 }))
+    expect(() => canonicalString(withUndefined)).toThrow(LedgerCanonicalizationError)
+    expect(() => hashCanonical(withUndefined)).toThrow('$.b is undefined')
+    expect(canonicalString({ a: 1, b: null })).not.toBe(canonicalString({ a: 1 }))
+  })
+
+  it('refuses the Date the old encoders coerced', () => {
+    const at = new Date('2026-06-07T00:00:00.000Z')
+    // JSON.stringify honors toJSON (the verdict-cache encoder did too); the
+    // sort-into-a-new-object encoders flattened a Date to {}. Both coercions
+    // are refused: a timestamp travels as an ISO string.
+    expect(JSON.stringify({ at })).toBe('{"at":"2026-06-07T00:00:00.000Z"}')
+    expect(sortThenStringify({ at })).toBe('{"at":{}}')
+    expect(() => canonicalString({ at })).toThrow('$.at is a Date instance')
+    expect(canonicalString({ at: at.toISOString() })).toBe('{"at":"2026-06-07T00:00:00.000Z"}')
   })
 })

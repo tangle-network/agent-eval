@@ -52,7 +52,7 @@ export interface DatasetProvenance {
 export interface DatasetManifest {
   name: string
   provenance: DatasetProvenance
-  /** sha256 hex over canonicalized scenarios. */
+  /** sha256 hex over the RFC 8785 canonical JSON of the id-sorted scenarios. */
   contentHash: string
   scenarioCount: number
   splitCounts: Record<DatasetSplit, number>
@@ -71,6 +71,7 @@ export interface SliceOptions {
 }
 
 import { ValidationError } from './errors'
+import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 /** Locked holdouts — throws on mutate. Callers that need a mutable dataset fork it. */
 export class HoldoutLockedError extends ValidationError {
@@ -180,14 +181,15 @@ export class Dataset {
   }
 
   /**
-   * Stable JSON-Lines serialization — deterministic byte-for-byte.
-   * Write to disk for contamination-verifiable archives.
+   * Stable JSON-Lines serialization — one RFC 8785 canonical row per scenario,
+   * sorted by id, deterministic byte-for-byte. Write to disk for
+   * contamination-verifiable archives.
    */
   toJsonl(): string {
     return `${this.scenarios
       .slice()
       .sort((a, b) => a.id.localeCompare(b.id))
-      .map((s) => JSON.stringify(canonicalize(s)))
+      .map((s) => canonicalString(s))
       .join('\n')}\n`
   }
 
@@ -207,26 +209,16 @@ export class Dataset {
 
 // ── Hashing + seeded shuffle ─────────────────────────────────────────
 
+/**
+ * Hex sha-256 over the RFC 8785 canonical JSON of the scenarios sorted by id,
+ * so the digest is independent of insertion order. A scenario with no
+ * canonical JSON form (an `undefined`-valued field, a non-finite number, a
+ * class instance) is refused: the digest is the dataset's identity and a
+ * coerced field would let two different datasets share one.
+ */
 export async function hashScenarios(scenarios: DatasetScenario[]): Promise<string> {
-  const canonical = scenarios
-    .slice()
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map(canonicalize)
-  const text = JSON.stringify(canonical)
-  const bytes = new TextEncoder().encode(text)
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-function canonicalize(v: unknown): unknown {
-  if (v === null || typeof v !== 'object') return v
-  if (Array.isArray(v)) return v.map(canonicalize)
-  const keys = Object.keys(v as Record<string, unknown>).sort()
-  const out: Record<string, unknown> = {}
-  for (const k of keys) out[k] = canonicalize((v as Record<string, unknown>)[k])
-  return out
+  const sorted = scenarios.slice().sort((a, b) => a.id.localeCompare(b.id))
+  return hashCanonical(sorted).slice('sha256:'.length)
 }
 
 /** Splitmix-ish deterministic shuffle — small, self-contained, no deps. */

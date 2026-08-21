@@ -7,6 +7,7 @@
  * tooling works out of the box.
  */
 
+import { canonicalString } from '../ledger-core/canonical'
 import type { FailureClass, JudgeSpan, LlmSpan, Run, ToolSpan } from './schema'
 import { isJudgeSpan, isLlmSpan, isToolSpan } from './schema'
 import type { TraceStore } from './store'
@@ -50,32 +51,21 @@ export function groupBy<T, K extends string | number>(items: T[], key: (t: T) =>
   return map
 }
 
-/** Hash tool arguments to an orderless-key-stable string for de-duplication. */
+/**
+ * Key tool arguments for de-duplication: RFC 8785 canonical JSON, so key
+ * order cannot split one call into two keys. Uncaptured args (`undefined`)
+ * key to the string `'undefined'` so every call still keys to a string; an
+ * args value with no canonical JSON form (a nested `undefined`, a function, a
+ * non-finite number) throws `LedgerCanonicalizationError`.
+ */
 export function argHash(args: unknown): string {
-  return stableStringify(args)
+  if (args === undefined) return 'undefined'
+  return canonicalString(args)
 }
 
 /** Whether argument-based comparisons are valid for this tool call. */
 export function hasCapturedToolArgs(span: ToolSpan): boolean {
   return span.argsCaptured !== false
-}
-
-function stableStringify(value: unknown): string {
-  // Must ALWAYS return a string: JSON.stringify(undefined) — and stringify of
-  // functions/symbols — yields the JS value `undefined`, which would make
-  // argHash return a non-string and silently break the de-dup keys behind
-  // stuck-loop and failure-cluster.
-  if (value === undefined) return 'undefined'
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined'
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  // Drop undefined-valued keys to match JSON.stringify semantics, so
-  // `{a:1}` and `{a:1,b:undefined}` hash identically.
-  const obj = value as Record<string, unknown>
-  const keys = Object.keys(obj)
-    .filter((k) => obj[k] !== undefined)
-    .sort()
-  const parts = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
-  return `{${parts.join(',')}}`
 }
 
 /** Sum an LLM-span array into aggregate token + cost. */

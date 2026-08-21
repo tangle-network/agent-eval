@@ -11,6 +11,7 @@
  */
 
 import { noProgressDetector, repeatedActionDetector } from './detectors'
+import { canonicalString } from './ledger-core/canonical'
 import { type SpanHandle, TraceEmitter } from './trace/emitter'
 import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
@@ -1081,25 +1082,16 @@ function fingerprintAction<TState, TAction>(
   return stableFingerprint(action)
 }
 
+/** Default state/action fingerprint: the value itself for a string, `String(value)`
+ * for a number, boolean, null or undefined, and RFC 8785 canonical JSON for
+ * everything else. A value with no canonical JSON form (an `undefined`-valued
+ * field, a non-finite number, a class instance) throws: two states that differ
+ * in such a field must not fingerprint alike, and a caller with such state
+ * supplies `stopPolicies.stateFingerprint` / `actionFingerprint`. */
 function stableFingerprint(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean' || value == null) return String(value)
-  try {
-    return JSON.stringify(sortForFingerprint(value))
-  } catch {
-    return String(value)
-  }
-}
-
-function sortForFingerprint(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortForFingerprint)
-  if (!value || typeof value !== 'object') return value
-  const record = value as Record<string, unknown>
-  const sorted: Record<string, unknown> = {}
-  for (const key of Object.keys(record).sort()) {
-    sorted[key] = sortForFingerprint(record[key])
-  }
-  return sorted
+  return canonicalString(value)
 }
 
 function abortReason(signal: AbortSignal): string {
