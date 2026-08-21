@@ -4,6 +4,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.164.0] — 2026-08-21
+
+### Removed
+
+- `createVerifierAdapter`, `createRunCriticAdapter`, and `createJudgeAdapter` from `/analyst`, with their `VerifierAdapterOpts`, `RunCriticAdapterOpts`, and `JudgeAdapterOpts`. Every channel was silent: no import or mention across the 31 repositories the census sweeps on their default branches, no hit in a GitHub code search across the organisation outside this repository's own source and changelog, nothing in the published `dist/` of `@tangle-network/agent-runtime@0.153.1`, `@tangle-network/agent-knowledge@10.6.0`, or `@tangle-network/braid@0.2.0`, and no test, example, doc, or in-repository caller. `createSemanticConceptJudgeAdapter` is the remaining adapter and is unchanged.
+
+### Added
+
+- `docs/code-agent-intake.md`. The per-harness intake functions — `fromCodexSession`, `fromClaudeCodeSession`, `fromOpenCodeSession`, `fromKimiCodeSession`, `fromPiSession` — plus `parseCodeAgentJsonl`, `parseCodeAgentJsonlFile`, `streamCodeAgentJsonlFile`, `observeCodeAgentSession`, `parseAgentTrace`, and `partitionRunsByAuthoringModel` had no Markdown front door, which is the only reason the census read them as unused. The document states the three steps, names the fields on `CodeAgentSessionDiagnostic` and `CodeAgentSessionMetrics` that a caller must read before aggregating, and says which path to use above V8's string ceiling. Linked from the README documentation index.
+
+### Fixed
+
+- `pnpm api:census` counted `scripts/` and `benchmarks/` as no evidence at all. Neither directory was walked, so a symbol whose only caller is a maintenance script read as a deletion candidate — including `renderEvidenceIndex`, which `pnpm evidence:check` calls inside `pnpm verify:package`. Acting on that row would have failed the release gate. Both directories are now walked and count as in-package production callers, and `SOURCE_FILE` accepts `.mjs`/`.cjs`/`.js` so a `.mjs` script is read at all. Eleven symbols moved from `none` to `production` on this pass.
+- `docs/public-api.md` now records the four rules that decided the `none` review, so the next reader inherits the judgment rather than repeating the sweep. Totals moved from 903/211/238 (production/planned/none) to 926/205/220.
+
+---
+
 ## [0.163.2] — 2026-08-21
 
 ### Fixed

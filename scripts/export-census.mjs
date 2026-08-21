@@ -48,10 +48,13 @@ const DOC_ROOTS = ['docs', 'examples']
 const DOC_FILES = ['README.md', 'CLAUDE.md', '.claude/skills/agent-eval/SKILL.md', 'clients/python/README.md']
 
 /** Production modules inside this package that are not part of the library
- *  barrel: the CLI and the wire server bind the surface as a caller does. */
-const IN_PACKAGE_CALLER_ROOTS = ['src/cli.ts', 'src/cli-config.ts', 'src/wire']
+ *  barrel: the CLI, the wire server, and the maintenance scripts bind the
+ *  surface as a caller does. `scripts/` is not incidental — `evidence:check`,
+ *  `contract:finding:check`, and `check:analyst-benchmark` run inside
+ *  `verify:package`, so a symbol only they import is release-gating. */
+const IN_PACKAGE_CALLER_ROOTS = ['src/cli.ts', 'src/cli-config.ts', 'src/wire', 'scripts/', 'benchmarks/']
 
-const SOURCE_FILE = /\.(ts|tsx|mts|cts)$/
+const SOURCE_FILE = /\.(ts|tsx|mts|cts|mjs|cjs|js)$/
 const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/
 const CONSUMER_SOURCE_FILE = /\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/
 const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'build', '.git', 'coverage', '.next', 'out'])
@@ -208,7 +211,7 @@ function inRepositoryEvidence(names) {
     entry[channel].push(where)
     evidence.set(name, entry)
   }
-  for (const root of ['src', 'tests', 'examples']) {
+  for (const root of ['src', 'tests', 'examples', 'scripts', 'benchmarks']) {
     const directory = join(REPOSITORY_ROOT, root)
     if (!existsSync(directory)) continue
     for (const file of walk(directory, SOURCE_FILE)) {
@@ -476,6 +479,13 @@ function render({ rows, consumers }) {
   lines.push('## Why a `none` can still be published')
   lines.push('')
   lines.push('A `none` row is a deletion candidate, not a deletion order. A symbol stays when removing it would lose something the census cannot weigh: a documented historical constant, a value another module of this package still needs, or a name whose only reference is a contract test over an on-disk artifact. Those are kept deliberately and stay listed here as `none`, so the next reader sees the same evidence and can decide again.')
+  lines.push('')
+  lines.push('The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided most of it; each is recorded so the next reader inherits the judgment instead of redoing it.')
+  lines.push('')
+  lines.push('1. **A typed error constructor stays.** A caller discriminates a failure with `instanceof`, and a consumer that catches broadly binds no name for the import graph to see. Un-exporting one removes the only way to tell a named refusal from a bug, which contradicts this package\'s typed-outcome rule.')
+  lines.push('2. **A wire schema or a contract-version constant stays.** `docs/wire-protocol.md`, `clients/python/`, and the OpenAPI document bind the same contract without binding a TypeScript symbol. That is blind spot 4 above, and it applies to every `*Schema`, `*_VERSION`, and `*_SCHEMA` row.')
+  lines.push('3. **A published entry point with no doc is a documentation defect, not a dead export.** The per-harness coding-agent intake functions read `none` only because no Markdown front door named them; `docs/code-agent-intake.md` now does.')
+  lines.push('4. **A symbol is deleted only when every channel is silent.** The 31-repository default-branch sweep, a GitHub code search across the organisation, the published `dist/` of every downstream package on npm, this repository\'s own source, tests, scripts, examples, and Markdown must all return nothing. Two symbols survived exactly this sweep: `runProposeReviewAsControlLoop`, whose caller is an uncommitted tool in `discovery-lab` but whose generated `.PROPOSAL.md` artifacts are committed there, and `shuffleOrder`, one of three stock contamination perturbations the changelog documents as a set.')
   lines.push('')
   lines.push('## Exports')
   lines.push('')
