@@ -527,6 +527,28 @@ This includes the baseline, an earlier generation, and another candidate in the 
 The complete proposal is checked before candidate dispatch, so duplicates cannot consume candidate cells.
 Use `reps` when one surface needs repeated measurements.
 
+### Choose The Parent
+
+`runOptimization()` is incumbent-anchored by default.
+Every generation mutates the single best complete surface seen so far, and only a candidate that beats the incumbent becomes the next incumbent.
+The recorded `parentSurfaceHash` lineage is then a chain.
+Pass `selectParent` to draw the parent from the Pareto frontier instead.
+The selector receives the frontier so far, the measured incumbent, the generation history, and the generation index, and returns one frontier parent.
+The loop hands that parent to the proposer as `ctx.currentSurface` and `ctx.parentOutcome`, and records it as every candidate's `parentSurfaceHash`.
+`ctx.incumbentOutcome` stays the global promotion bar, and a candidate still has to beat the incumbent to promote.
+`crowdedFrontierParent({ seed })` is the provided policy: a seeded NSGA-II crowded tournament that prefers isolated frontier parents.
+The loop refuses a parent it has not measured to completion.
+`selfImprove({ selectParent })` forwards the same policy in proposer mode.
+
+```ts
+import { crowdedFrontierParent, runOptimization } from '@tangle-network/agent-eval/campaign'
+
+const result = await runOptimization({
+  // ...scenarios, dispatchWithSurface, judges, proposer, populationSize, maxGenerations, runDir
+  selectParent: crowdedFrontierParent({ seed: 42 }),
+})
+```
+
 ## Data And Cost Rules
 
 - Train and selection cases are visible to complete optimization methods.

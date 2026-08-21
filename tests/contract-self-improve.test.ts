@@ -244,6 +244,33 @@ describe('selfImprove — forwarded loop knobs', () => {
     expect(observedAbort).toBe(true)
   })
 
+  it('forwards selectParent — the parent policy fires once per generation', async () => {
+    const generationsSeen: number[] = []
+    const parentsSeen: string[] = []
+    await selfImprove<S, A>({
+      ...base,
+      budget: { generations: 2, populationSize: 1 },
+      expectUsage: 'off',
+      selectParent: ({ frontier, generation }) => {
+        generationsSeen.push(generation)
+        const parent = frontier[0]!
+        parentsSeen.push(String(parent.surface))
+        return parent
+      },
+      proposer: {
+        kind: 'fake:marker',
+        async propose({ currentSurface }) {
+          // The loop hands the selected parent to the proposer as currentSurface.
+          expect(String(currentSurface)).toBe(parentsSeen.at(-1))
+          return [
+            { surface: `${String(currentSurface)} ${MARKER}`, label: LABEL, rationale: RATIONALE },
+          ]
+        },
+      },
+    })
+    expect(generationsSeen).toEqual([0, 1])
+  })
+
   it('forwards analyzeGeneration — the per-generation findings producer fires', async () => {
     let calls = 0
     await selfImprove<S, A>({

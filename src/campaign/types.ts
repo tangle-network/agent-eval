@@ -300,6 +300,8 @@ export interface ScoredSurfaceOutcome {
 /** Search state supplied to one candidate-generation call.
  *  Final evaluation data is not represented in this contract. */
 export interface ProposeContext<TFindings = ProposalFinding> {
+  /** The parent surface this proposal mutates: the global incumbent by
+   *  default, or the frontier parent a `selectParent` policy drew. */
   readonly currentSurface: MutableSurface
   readonly history: ReadonlyArray<GenerationRecord>
   readonly findings: ReadonlyArray<TFindings>
@@ -312,9 +314,13 @@ export interface ProposeContext<TFindings = ProposalFinding> {
   /** Measured baseline for this optimization run. `runOptimization` always
    *  supplies it; optional for standalone proposer callers. */
   readonly baselineOutcome?: ScoredSurfaceOutcome
-  /** Measured result for `currentSurface`, the complete global incumbent every
-   *  new candidate mutates. `runOptimization` always supplies it. */
+  /** Measured result for the complete global incumbent, the surface a
+   *  candidate must beat to promote. `runOptimization` always supplies it. */
   readonly incumbentOutcome?: ScoredSurfaceOutcome
+  /** Measured result for `currentSurface`, the parent this proposal mutates.
+   *  Equal to `incumbentOutcome` unless the run draws parents from the Pareto
+   *  frontier through `selectParent`. `runOptimization` always supplies it. */
+  readonly parentOutcome?: ScoredSurfaceOutcome
   /** DEPTH: max iterations the agentic generator may take per candidate.
    *  1 = single-shot; >1 = it may iterate on its own change before handing it
    *  back to be measured. */

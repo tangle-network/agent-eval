@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { crowdedFrontierParent, type ParentSelector } from '../parent-selection'
 import { runCampaign } from '../run-campaign'
 import { campaignMeanComposite, compareRankKeys } from '../score-utils'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../storage'
@@ -7,6 +8,7 @@ import type {
   CampaignResult,
   JudgeConfig,
   MutableSurface,
+  ProposeContext,
   Scenario,
   SurfaceProposer,
 } from '../types'
@@ -708,5 +710,218 @@ describe('runOptimization candidate concurrency', () => {
 
     await expect(pending).rejects.toBe(callerError)
     expect(candidateSignalAborted).toBe(true)
+  })
+})
+
+describe('runOptimization parent selection', () => {
+  // Two scenarios so the frontier can hold non-dominated ties: A and B each
+  // win one scenario and lose the other, so neither beats the baseline mean
+  // and neither dominates the other. C beats the baseline on both.
+  const twoScenarios: TestScenario[] = [
+    { id: 's1', kind: 'test', prompt: 's1' },
+    { id: 's2', kind: 'test', prompt: 's2' },
+  ]
+  const SCORES: Record<string, Record<string, number>> = {
+    BASELINE: { s1: 0.5, s2: 0.5 },
+    A: { s1: 1, s2: 0 },
+    B: { s1: 0, s2: 1 },
+    C: { s1: 0.7, s2: 0.7 },
+    D: { s1: 0.8, s2: 0.1 },
+    E: { s1: 0.1, s2: 0.9 },
+  }
+  const tableJudge: JudgeConfig<TestArtifact, TestScenario> = {
+    name: 'table',
+    dimensions: [{ key: 'quality', description: 'table score' }],
+    score: ({ artifact, scenario }) => {
+      const composite = SCORES[artifact.surface]?.[scenario.id]
+      if (composite === undefined) throw new Error(`no score for ${artifact.surface}`)
+      return { composite, dimensions: { quality: composite }, notes: '' }
+    },
+  }
+  /** Proposes the listed surfaces per generation and records every context. */
+  function scriptedProposer(plan: string[][]): {
+    proposer: SurfaceProposer
+    contexts: ProposeContext[]
+  } {
+    const contexts: ProposeContext[] = []
+    return {
+      contexts,
+      proposer: {
+        kind: 'scripted',
+        async propose(ctx) {
+          contexts.push(ctx)
+          return plan[ctx.generation] ?? []
+        },
+      },
+    }
+  }
+  async function runWithParentPolicy(args: {
+    plan: string[][]
+    selectParent?: ParentSelector
+    runDir: string
+  }) {
+    const { proposer, contexts } = scriptedProposer(args.plan)
+    const result = await runOptimization<TestScenario, TestArtifact>({
+      baselineSurface: 'BASELINE',
+      scenarios: twoScenarios,
+      dispatchWithSurface: async (surface) => ({ surface: String(surface) }),
+      dispatchRef: 'test:parent-selection',
+      judges: [tableJudge],
+      proposer,
+      populationSize: 2,
+      maxGenerations: args.plan.length,
+      seed: 7,
+      reps: 1,
+      resumable: false,
+      runDir: args.runDir,
+      storage: inMemoryCampaignStorage(),
+      tracing: 'off',
+      expectUsage: 'off',
+      ...(args.selectParent ? { selectParent: args.selectParent } : {}),
+    })
+    return { result, contexts }
+  }
+  const baselineHash = surfaceHash('BASELINE')
+  /** Draws the first frontier parent that is not the incumbent, or the
+   *  incumbent when the frontier holds nothing else. */
+  const nonIncumbent: ParentSelector = ({ frontier, incumbent }) =>
+    frontier.find((p) => p.surfaceHash !== incumbent.surfaceHash) ?? frontier[0]!
+
+  it('mutates the selected frontier parent while promotion stays incumbent-vs-top', async () => {
+    const { result, contexts } = await runWithParentPolicy({
+      plan: [['A', 'B'], ['C']],
+      selectParent: nonIncumbent,
+      runDir: '/parent/frontier',
+    })
+    // Generation 0: only the baseline is scored, so the selector has one
+    // choice and the parent is the baseline.
+    expect(contexts[0]!.currentSurface).toBe('BASELINE')
+    expect(contexts[0]!.parentOutcome).toEqual(contexts[0]!.incumbentOutcome)
+    // A and B tie the baseline mean, so nothing promoted and the incumbent is
+    // still the baseline. The selector draws A or B from the frontier.
+    expect(result.generations[0]!.record.promoted).toEqual([])
+    const gen1 = contexts[1]!
+    const parentSurface = String(gen1.currentSurface)
+    expect(['A', 'B']).toContain(parentSurface)
+    const parentHash = surfaceHash(parentSurface)
+    expect(gen1.parentOutcome?.surfaceHash).toBe(parentHash)
+    expect(gen1.parentOutcome?.composite).toBe(0.5)
+    expect(gen1.parentOutcome?.generation).toBe(0)
+    expect(gen1.incumbentOutcome?.surfaceHash).toBe(baselineHash)
+    // The recorded lineage is a tree: generation 0 hangs off the baseline,
+    // generation 1 off a non-incumbent frontier parent.
+    const gen0Parents = result.generations[0]!.record.candidates.map((c) => c.parentSurfaceHash)
+    expect(gen0Parents).toEqual([baselineHash, baselineHash])
+    const cRecord = result.generations[1]!.record.candidates[0]!
+    expect(cRecord.parentSurfaceHash).toBe(parentHash)
+    expect(cRecord.parentSurfaceHash).not.toBe(baselineHash)
+    expect(cRecord.parentComposite).toBe(0.5)
+    expect(cRecord.observedDeltaFromParent).toBeCloseTo(0.2, 10)
+    const distinctParents = new Set(
+      result.generations.flatMap((g) => g.record.candidates.map((c) => c.parentSurfaceHash)),
+    )
+    expect(distinctParents.size).toBe(2)
+    // C beats the incumbent (baseline 0.5) and promotes, even though its
+    // parent was a non-incumbent surface.
+    expect(result.winnerSurface).toBe('C')
+    expect(result.generations[1]!.record.promoted).toEqual([surfaceHash('C')])
+  })
+
+  it('anchors on the incumbent by default and matches an incumbent-returning selector', async () => {
+    const plan = [['A', 'B'], ['C'], ['D', 'E']]
+    const byDefault = await runWithParentPolicy({ plan, runDir: '/parent/default' })
+    // Every generation mutates the incumbent: the baseline until C promotes,
+    // then C.
+    const incumbentPerGeneration = [baselineHash, baselineHash, surfaceHash('C')]
+    byDefault.result.generations.forEach((g, i) => {
+      for (const candidate of g.record.candidates) {
+        expect(candidate.parentSurfaceHash).toBe(incumbentPerGeneration[i])
+      }
+    })
+    byDefault.contexts.forEach((ctx, i) => {
+      expect(ctx.parentOutcome).toEqual(ctx.incumbentOutcome)
+      expect(ctx.parentOutcome?.surfaceHash).toBe(incumbentPerGeneration[i])
+      expect(surfaceHash(ctx.currentSurface)).toBe(incumbentPerGeneration[i])
+    })
+    // A selector that returns the incumbent from the frontier reproduces the
+    // default records exactly.
+    const explicit = await runWithParentPolicy({
+      plan,
+      runDir: '/parent/explicit-incumbent',
+      selectParent: ({ frontier, incumbent }) => {
+        const self = frontier.find((p) => p.surfaceHash === incumbent.surfaceHash)
+        if (!self) throw new Error('test selector: incumbent is off the frontier')
+        return self
+      },
+    })
+    expect(explicit.result.generations.map((g) => g.record)).toEqual(
+      byDefault.result.generations.map((g) => g.record),
+    )
+    expect(explicit.result.winnerSurfaceHash).toBe(byDefault.result.winnerSurfaceHash)
+    expect(explicit.result.paretoFrontier.map((p) => p.surfaceHash)).toEqual(
+      byDefault.result.paretoFrontier.map((p) => p.surfaceHash),
+    )
+  })
+
+  it('a seeded crowded-frontier selector is deterministic across runs', async () => {
+    const plan = [['A', 'B'], ['C'], ['D', 'E']]
+    const first = await runWithParentPolicy({
+      plan,
+      runDir: '/parent/seeded-1',
+      selectParent: crowdedFrontierParent({ seed: 5 }),
+    })
+    const second = await runWithParentPolicy({
+      plan,
+      runDir: '/parent/seeded-2',
+      selectParent: crowdedFrontierParent({ seed: 5 }),
+    })
+    const lineage = (run: typeof first) =>
+      run.result.generations.map((g) => g.record.candidates.map((c) => c.parentSurfaceHash))
+    expect(lineage(first)).toEqual(lineage(second))
+    expect(first.result.generations.map((g) => g.record)).toEqual(
+      second.result.generations.map((g) => g.record),
+    )
+    // Generation 0 has a one-member frontier, so its parent is the baseline;
+    // later parents are frontier members.
+    expect(lineage(first)[0]).toEqual([baselineHash, baselineHash])
+    // From generation 1 on, the crowded tournament prefers boundary frontier
+    // parents, so the interior baseline is never drawn again.
+    for (const hash of lineage(first).flat().slice(2)) {
+      expect(hash).not.toBe(baselineHash)
+    }
+  })
+
+  it('refuses a parent the run never measured to completion', async () => {
+    await expect(
+      runWithParentPolicy({
+        plan: [['A', 'B'], ['C']],
+        runDir: '/parent/unmeasured',
+        selectParent: ({ frontier }) => ({
+          ...frontier[0]!,
+          surface: 'Z',
+          surfaceHash: surfaceHash('Z'),
+        }),
+      }),
+    ).rejects.toThrow(/has not measured to completion/)
+  })
+
+  it('refuses a parent whose surface does not match its hash', async () => {
+    await expect(
+      runWithParentPolicy({
+        plan: [['A', 'B'], ['C']],
+        runDir: '/parent/mismatch',
+        selectParent: ({ frontier }) => ({ ...frontier[0]!, surface: 'TAMPERED' }),
+      }),
+    ).rejects.toThrow(/surface does not match its surfaceHash/)
+  })
+
+  it('refuses a selector that does not return a ParetoParent', async () => {
+    await expect(
+      runWithParentPolicy({
+        plan: [['A', 'B']],
+        runDir: '/parent/not-a-parent',
+        selectParent: (() => undefined) as unknown as ParentSelector,
+      }),
+    ).rejects.toThrow(/selectParent must return a ParetoParent/)
   })
 })

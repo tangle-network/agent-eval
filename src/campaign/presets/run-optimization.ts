@@ -1,7 +1,9 @@
 /**
  * `runOptimization` runs a caller-owned candidate generator for a bounded
  * number of rounds. Each candidate is measured on the same cases, and only a
- * candidate that beats the current best becomes the next parent.
+ * candidate that beats the current best becomes the incumbent. By default the
+ * incumbent is also the parent every generation mutates; a `selectParent`
+ * policy draws the parent from the Pareto frontier instead.
  * The same loop accepts deterministic, model-backed, or agent-backed
  * proposers; they differ only in how `propose()` picks candidates.
  *
@@ -21,6 +23,7 @@ import {
   campaignSplitDigest,
   formatCoverageFailures,
 } from '../coverage'
+import type { ParentSelector } from '../parent-selection'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import {
@@ -124,6 +127,19 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    * vectors are untouched, so proposer diversity and reporting are unaffected.
    */
   selectionRankKey?: (campaign: CampaignResult<TArtifact, TScenario>) => number[]
+  /**
+   * Optional policy for which scored surface the next generation MUTATES.
+   * Absent, every generation mutates the global incumbent, so the recorded
+   * `parentSurfaceHash` lineage is a chain. Present, the selector receives the
+   * Pareto frontier so far, the measured incumbent, the generation history,
+   * and the generation index, and returns one frontier parent; the loop hands
+   * that parent to `propose()` as `currentSurface` + `parentOutcome` and
+   * records it as every candidate's `parentSurfaceHash`. Promotion is
+   * unchanged: a candidate still has to beat the incumbent. The loop refuses
+   * a parent it has not measured to completion. `crowdedFrontierParent` is
+   * the provided seeded policy.
+   */
+  selectParent?: ParentSelector
 }
 
 export type RunOptimizationOptions<
@@ -164,7 +180,7 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
 }
 
 /**
- * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations.
+ * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations. The parent each generation mutates is the incumbent unless `selectParent` draws it from the frontier.
  */
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
@@ -261,6 +277,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const scored: ParetoParent[] = [
     toParetoParent(baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
   ]
+  // Every complete scored surface by hash, so a parent a `selectParent` policy
+  // returns resolves to the exact measured record this run holds for it.
+  const measuredByHash = new Map<string, MeasuredSurface>([
+    [winnerSurfaceHash, { parent: scored[0]!, outcome: baselineOutcome }],
+  ])
 
   // Diagnose the BASELINE traces before generation 0 proposes. The
   // between-generation producer call below only fires after gen g to feed gen
@@ -295,17 +316,36 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     // Decide: the proposer may stop early based on accumulated history.
     if (proposer.decide?.({ history: proposalHistory }).stop) break
 
-    // Plan: the proposer proposes N candidates from the current best surface,
-    // the accumulated generation history, the Pareto frontier so far, and any
+    // Plan: the proposer proposes N candidates from the parent surface, the
+    // accumulated generation history, the Pareto frontier so far, and any
     // external findings.
-    const paretoParents = computeParetoFrontier(scored)
-    const parentSurfaceHash = winnerSurfaceHash
-    const parentComposite = winnerComposite
+    const paretoParents = immutableProposalSnapshot(computeParetoFrontier(scored), 'Pareto parents')
+    const incumbentOutcome = immutableProposalSnapshot(winnerOutcome, 'incumbent outcome')
+    // The mutation anchor. By default it is the best complete surface seen
+    // across the whole run: exploratory losers remain in history/Pareto
+    // evidence, but a later generation never compounds a candidate already
+    // known to regress. A `selectParent` policy draws the anchor from the
+    // frontier instead; promotion below still compares against the incumbent.
+    const selected = opts.selectParent
+      ? resolveSelectedParent(
+          opts.selectParent(
+            Object.freeze({
+              frontier: paretoParents,
+              incumbent: incumbentOutcome,
+              history: proposalHistory,
+              generation: gen,
+            }),
+          ),
+          measuredByHash,
+          gen,
+        )
+      : undefined
+    const parentSurface = selected ? selected.parent.surface : winnerSurface
+    const parentSurfaceHash = selected ? selected.parent.surfaceHash : winnerSurfaceHash
+    const parentComposite = selected ? selected.outcome.composite : winnerComposite
+    const parentOutcome = selected ? selected.outcome : winnerOutcome
     const proposalContext: ProposeContext<ProposalFinding> = Object.freeze({
-      // The mutation anchor is always the best complete surface seen across the
-      // whole run. Exploratory losers remain in history/Pareto evidence, but a
-      // later generation never compounds a candidate already known to regress.
-      currentSurface: immutableProposalSnapshot(winnerSurface, 'current surface'),
+      currentSurface: immutableProposalSnapshot(parentSurface, 'current surface'),
       history: proposalHistory,
       findings: immutableProposalSnapshot(
         assertProposalFindings(currentFindings, 'runOptimization proposal findings'),
@@ -315,9 +355,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       generation: gen,
       signal: opts.signal ?? new AbortController().signal,
       baselineOutcome: immutableProposalSnapshot(baselineOutcome, 'baseline outcome'),
-      incumbentOutcome: immutableProposalSnapshot(winnerOutcome, 'incumbent outcome'),
+      incumbentOutcome,
+      parentOutcome: immutableProposalSnapshot(parentOutcome, 'parent outcome'),
       maxImprovementShots: opts.maxImprovementShots,
-      paretoParents: immutableProposalSnapshot(paretoParents, 'Pareto parents'),
+      paretoParents,
       costLedger,
       costPhase: 'search.proposal',
     })
@@ -408,9 +449,19 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       if (coverage.complete) {
         // Incomplete candidates retain their raw campaign and history row but
         // cannot gain Pareto value by avoiding a difficult cell.
-        scored.push(
-          toParetoParent(surface, hash, campaign, gen, label || undefined, rationale || undefined),
+        const parent = toParetoParent(
+          surface,
+          hash,
+          campaign,
+          gen,
+          label || undefined,
+          rationale || undefined,
         )
+        scored.push(parent)
+        measuredByHash.set(hash, {
+          parent,
+          outcome: toScoredSurfaceOutcome(hash, campaign, coverage, gen),
+        })
       }
     }
 
@@ -513,6 +564,44 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     paretoFrontier: computeParetoFrontier(scored),
     cost: costLedger.summary(),
   }
+}
+
+/** One complete scored surface: its frontier record and its measured outcome. */
+interface MeasuredSurface {
+  parent: ParetoParent
+  outcome: ScoredSurfaceOutcome
+}
+
+/** Resolve the parent a `selectParent` policy returned to the measured record
+ *  this run holds for it. Refuses a surface the run never measured to
+ *  completion, and a parent whose surface does not hash to its `surfaceHash`. */
+function resolveSelectedParent(
+  returned: unknown,
+  measuredByHash: ReadonlyMap<string, MeasuredSurface>,
+  generation: number,
+): MeasuredSurface {
+  if (
+    typeof returned !== 'object' ||
+    returned === null ||
+    typeof (returned as { surfaceHash?: unknown }).surfaceHash !== 'string'
+  ) {
+    throw new TypeError(
+      `runOptimization: selectParent must return a ParetoParent (generation ${generation})`,
+    )
+  }
+  const parent = returned as ParetoParent
+  const measured = measuredByHash.get(parent.surfaceHash)
+  if (!measured) {
+    throw new Error(
+      `runOptimization: selectParent returned surface "${parent.surfaceHash}" in generation ${generation}, which this run has not measured to completion; a parent must be a scored surface from the frontier`,
+    )
+  }
+  if (surfaceHash(parent.surface) !== parent.surfaceHash) {
+    throw new Error(
+      `runOptimization: selectParent returned a parent whose surface does not match its surfaceHash "${parent.surfaceHash}" (generation ${generation})`,
+    )
+  }
+  return measured
 }
 
 function immutableProposalSnapshot<T>(value: T, label: string): T {
