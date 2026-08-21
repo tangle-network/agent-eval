@@ -1212,12 +1212,20 @@ threshold and should be re-run on this release.
 
 ## [0.130.1] - 2026-07-26 - safe DSPy disk caching
 
+### Changed
+
+- Doc comments on the public campaign search APIs: `FileSearchLedger`, the three search-ledger error classes, `canonicalDigest` in provenance, and the surface-identity helpers (`87c02e6`, #444).
+
 ### Fixed
 
 - `DspyJudgeMetric` now rejects DSPy's unrestricted disk-cache pickle mode at construction and on every metric call.
 - Configure DSPy's official restricted cache with `dspy.configure_cache(restrict_pickle=True)`, or disable disk caching before creating the metric.
 
 ## [0.130.0] - 2026-07-26 - current dependency and build cohort
+
+### Added
+
+- `./ledger-core` subpath: the generic journal machinery extracted from `search-ledger` (`25ce61b`, #441). It holds the canonical-JSON SHA-256 hash chain, idempotent append by `eventId`, chain verification, replay to projection, the per-path mutex with an atomic lock file, and the fsync discipline, with no campaign vocabulary. `search-ledger` is now the campaign codec bound to `FileLedgerJournal`; files, error classes, messages, and check order are unchanged.
 
 ### Changed
 
