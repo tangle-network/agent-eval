@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.155.0] — 2026-08-21
+
+### Added
+
+- `runOptimization({ searchLedger })` and `selfImprove({ searchLedger })` record the candidate search into the canonical `SearchLedger` and return a bounded `searchHistory` receipt (#633). The loop emits the plan (slots = generations x populationSize, one candidate-generation operation per generation, one selection operation, one task per designed scenario-replicate cell), one registration per candidate carrying the exact parent surface it mutated, one attempt per scored cell with the cell's own outcome and accounting, one decision per candidate, and the terminal event. `FileSearchLedger` now has a first-party caller in its own package. The terminal event is appended only when canonical replay accounts for the whole planned denominator, so an interrupted or partly unscored search reports the gap instead of claiming a closed search.
+- `search-plan-extended`: a rolling search appends candidate slots and operations to an existing plan instead of opening a second ledger. Replay merges the first plan with every extension, the generation invariant continues across rounds, and the planless refusal is unchanged. The planned task denominator stays frozen.
+- `gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's own candidate population — its parent graph and per-scenario selection scores — into the same ledger through `recordCandidatePopulationSearch()`. `compareOptimizationMethods({ searchHistoryPolicy: 'require-complete' })` now accepts a first-party method, which is what `docs/search-history-receipts.md` promised.
+
+---
+
 ## [0.154.0] — 2026-08-21
 
 ### Added

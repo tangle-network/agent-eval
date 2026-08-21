@@ -213,6 +213,18 @@ export interface SearchPlannedEvent extends SearchLedgerEventBase {
   plan: SearchPlan
 }
 
+/** Additional candidate slots and operations for a search whose length is not
+ * known when it starts. The plan stays the first event and the planned task
+ * denominator stays frozen: extending tasks would retroactively reopen
+ * candidates that already closed theirs. */
+export interface SearchPlanExtendedEvent extends SearchLedgerEventBase {
+  kind: 'search-plan-extended'
+  extension: {
+    candidateSlots: SearchCandidateSlot[]
+    operations: SearchPlannedOperation[]
+  }
+}
+
 export interface SearchCandidateRegisteredEvent extends SearchLedgerEventBase {
   kind: 'candidate-registered'
   slotId: string
@@ -295,6 +307,7 @@ export interface SearchCompletedEvent extends SearchLedgerEventBase {
 
 export type SearchLedgerEvent =
   | SearchPlannedEvent
+  | SearchPlanExtendedEvent
   | SearchCandidateRegisteredEvent
   | SearchCandidateSlotClosedEvent
   | SearchTaskAttemptedEvent
@@ -356,6 +369,9 @@ export interface SearchLedgerAudit {
 export interface SearchLedgerReplay {
   entries: SearchLedgerEntry[]
   plan: SearchPlannedEvent | null
+  /** Appended plan extensions, in ledger order. The effective plan is the
+   *  first plan event merged with these; `audit.expected` counts the merge. */
+  planExtensions: SearchPlanExtendedEvent[]
   candidates: SearchCandidateRegisteredEvent[]
   closedCandidateSlots: SearchCandidateSlotClosedEvent[]
   attempts: SearchTaskAttemptedEvent[]
@@ -425,22 +441,45 @@ const OperationKindSchema = z.enum([
   'other',
 ])
 
+const CandidateSlotSchema = z
+  .object({
+    slotId: NON_EMPTY,
+    generationOperationId: NON_EMPTY,
+  })
+  .strict()
+
+const PlannedOperationSchema = z
+  .object({
+    operationId: NON_EMPTY,
+    kind: OperationKindSchema,
+  })
+  .strict()
+
+const SearchPlanExtendedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('search-plan-extended'),
+    extension: z
+      .object({
+        candidateSlots: z.array(CandidateSlotSchema),
+        operations: z.array(PlannedOperationSchema),
+      })
+      .strict()
+      .superRefine((extension, ctx) => {
+        if (extension.candidateSlots.length === 0 && extension.operations.length === 0) {
+          ctx.addIssue({ code: 'custom', message: 'a plan extension must add slots or operations' })
+        }
+      }),
+  })
+  .strict()
+
 const SearchPlannedSchema = z
   .object({
     ...EventBaseShape,
     kind: z.literal('search-planned'),
     plan: z
       .object({
-        candidateSlots: z
-          .array(
-            z
-              .object({
-                slotId: NON_EMPTY,
-                generationOperationId: NON_EMPTY,
-              })
-              .strict(),
-          )
-          .min(1),
+        candidateSlots: z.array(CandidateSlotSchema).min(1),
         tasks: z
           .array(
             z
@@ -453,16 +492,7 @@ const SearchPlannedSchema = z
               .strict(),
           )
           .min(1),
-        operations: z
-          .array(
-            z
-              .object({
-                operationId: NON_EMPTY,
-                kind: OperationKindSchema,
-              })
-              .strict(),
-          )
-          .min(1),
+        operations: z.array(PlannedOperationSchema).min(1),
       })
       .strict(),
   })
@@ -763,6 +793,7 @@ const SearchCompletedSchema = z
 
 const EventSchema = z.discriminatedUnion('kind', [
   SearchPlannedSchema,
+  SearchPlanExtendedSchema,
   CandidateRegisteredSchema,
   CandidateSlotClosedSchema,
   TaskAttemptedSchema,
@@ -950,6 +981,12 @@ function createSearchLedgerProjector(
   campaignId: string,
 ): LedgerProjector<SearchLedgerEntry, SearchLedgerReplay> {
   const candidates = new Map<string, CandidateState>()
+  // The effective plan: the first plan event merged with every later
+  // extension. Every slot and operation lookup reads these, so a rolling
+  // search that appends slots keeps one plan, one denominator, one audit.
+  const plannedSlots = new Map<string, SearchCandidateSlot>()
+  const plannedOperations = new Map<string, SearchPlannedOperation>()
+  const planExtensions: SearchPlanExtendedEvent[] = []
   const candidateBySlot = new Map<string, string>()
   const closedSlots = new Map<string, SearchCandidateSlotClosedEvent>()
   const lineageNodes = new Map<string, string>()
@@ -1000,15 +1037,12 @@ function createSearchLedgerProjector(
         'planned operationId',
         event.eventId,
       )
+      for (const operation of event.plan.operations) {
+        plannedOperations.set(operation.operationId, operation)
+      }
       for (const slot of event.plan.candidateSlots) {
-        const generationOperation = event.plan.operations.find(
-          (operation) => operation.operationId === slot.generationOperationId,
-        )
-        if (generationOperation?.kind !== 'candidate-generation') {
-          throw new SearchLedgerIntegrityError(
-            `candidate slot ${slot.slotId} references unplanned candidate-generation operation ${slot.generationOperationId}`,
-          )
-        }
+        assertSlotGenerationOperation(slot, plannedOperations)
+        plannedSlots.set(slot.slotId, slot)
       }
       planEvent = event
       return
@@ -1020,11 +1054,43 @@ function createSearchLedgerProjector(
       )
     }
 
+    if (event.kind === 'search-plan-extended') {
+      assertUnique(
+        event.extension.candidateSlots.map((slot) => slot.slotId),
+        'candidate slot',
+        event.eventId,
+      )
+      assertUnique(
+        event.extension.operations.map((operation) => operation.operationId),
+        'planned operationId',
+        event.eventId,
+      )
+      for (const operation of event.extension.operations) {
+        if (plannedOperations.has(operation.operationId)) {
+          throw new SearchLedgerIntegrityError(
+            `plan extension ${event.eventId} re-plans operation ${operation.operationId}`,
+          )
+        }
+        plannedOperations.set(operation.operationId, operation)
+      }
+      for (const slot of event.extension.candidateSlots) {
+        if (plannedSlots.has(slot.slotId)) {
+          throw new SearchLedgerIntegrityError(
+            `plan extension ${event.eventId} re-plans candidate slot ${slot.slotId}`,
+          )
+        }
+        assertSlotGenerationOperation(slot, plannedOperations)
+        plannedSlots.set(slot.slotId, slot)
+      }
+      planExtensions.push(event)
+      return
+    }
+
     if (event.kind === 'candidate-registered') {
       if (candidates.has(event.candidateId)) {
         throw new SearchLedgerIntegrityError(`candidate ${event.candidateId} was registered twice`)
       }
-      const plannedSlot = planEvent.plan.candidateSlots.find((slot) => slot.slotId === event.slotId)
+      const plannedSlot = plannedSlots.get(event.slotId)
       if (!plannedSlot) {
         throw new SearchLedgerIntegrityError(
           `candidate ${event.candidateId} binds unknown slot ${event.slotId}`,
@@ -1177,9 +1243,7 @@ function createSearchLedgerProjector(
     }
 
     if (event.kind === 'search-operation-recorded') {
-      const plannedOperation = planEvent.plan.operations.find(
-        (operation) => operation.operationId === event.operationId,
-      )
+      const plannedOperation = plannedOperations.get(event.operationId)
       if (!plannedOperation) {
         throw new SearchLedgerIntegrityError(
           `operation ${event.operationId} was not declared in the search plan`,
@@ -1199,7 +1263,7 @@ function createSearchLedgerProjector(
     }
 
     if (event.kind === 'candidate-slot-closed') {
-      const plannedSlot = planEvent.plan.candidateSlots.find((slot) => slot.slotId === event.slotId)
+      const plannedSlot = plannedSlots.get(event.slotId)
       if (!plannedSlot) {
         throw new SearchLedgerIntegrityError(
           `candidate slot closure ${event.eventId} references unknown slot ${event.slotId}`,
@@ -1259,7 +1323,7 @@ function createSearchLedgerProjector(
       return
     }
 
-    const missingCandidateSlots = planEvent.plan.candidateSlots
+    const missingCandidateSlots = [...plannedSlots.values()]
       .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
       .map((slot) => slot.slotId)
     if (missingCandidateSlots.length > 0) {
@@ -1273,7 +1337,7 @@ function createSearchLedgerProjector(
         `search completed with missing task outcomes: ${missingTaskOutcomes.join(', ')}`,
       )
     }
-    const missingOperations = planEvent.plan.operations
+    const missingOperations = [...plannedOperations.values()]
       .filter((operation) => !operationsById.has(operation.operationId))
       .map((operation) => operation.operationId)
     if (missingOperations.length > 0) {
@@ -1281,10 +1345,10 @@ function createSearchLedgerProjector(
         `search completed with missing search operations: ${missingOperations.join(', ')}`,
       )
     }
-    for (const operation of planEvent.plan.operations) {
+    for (const operation of plannedOperations.values()) {
       if (operation.kind !== 'candidate-generation') continue
       const generationOutcome = operationsById.get(operation.operationId)!.outcome.status
-      const slots = planEvent.plan.candidateSlots.filter(
+      const slots = [...plannedSlots.values()].filter(
         (slot) => slot.generationOperationId === operation.operationId,
       )
       if (slots.length === 0) continue
@@ -1388,18 +1452,17 @@ function createSearchLedgerProjector(
         : completion?.result.status === 'all-rejected'
           ? 'all-rejected'
           : 'in-progress'
-    const missingCandidateSlots =
-      planEvent?.plan.candidateSlots
-        .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
-        .map((slot) => slot.slotId) ?? []
+    const missingCandidateSlots = [...plannedSlots.values()]
+      .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
+      .map((slot) => slot.slotId)
     const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
-    const missingOperations =
-      planEvent?.plan.operations
-        .filter((operation) => !operationsById.has(operation.operationId))
-        .map((operation) => operation.operationId) ?? []
+    const missingOperations = [...plannedOperations.values()]
+      .filter((operation) => !operationsById.has(operation.operationId))
+      .map((operation) => operation.operationId)
     return {
       entries: [...entries],
       plan: planEvent,
+      planExtensions,
       candidates: candidateEvents,
       closedCandidateSlots: closedSlotEvents,
       attempts,
@@ -1421,9 +1484,9 @@ function createSearchLedgerProjector(
           pending: candidates.size - decisions.length,
         },
         expected: {
-          candidateSlots: planEvent?.plan.candidateSlots.length ?? 0,
+          candidateSlots: plannedSlots.size,
           taskOutcomes: candidates.size * (planEvent?.plan.tasks.length ?? 0),
-          operations: planEvent?.plan.operations.length ?? 0,
+          operations: plannedOperations.size,
           missingCandidateSlots,
           missingTaskOutcomes,
           missingOperations,
@@ -1437,6 +1500,19 @@ function createSearchLedgerProjector(
   }
 
   return { apply, finish }
+}
+
+/** Every candidate slot must name a planned candidate-generation operation,
+ * whether it arrives with the plan or with a later extension. */
+function assertSlotGenerationOperation(
+  slot: SearchCandidateSlot,
+  plannedOperations: ReadonlyMap<string, SearchPlannedOperation>,
+): void {
+  if (plannedOperations.get(slot.generationOperationId)?.kind !== 'candidate-generation') {
+    throw new SearchLedgerIntegrityError(
+      `candidate slot ${slot.slotId} references unplanned candidate-generation operation ${slot.generationOperationId}`,
+    )
+  }
 }
 
 function plannedTaskOutcomeKeys(
@@ -1471,6 +1547,20 @@ function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
         ),
         tasks: [...event.plan.tasks].sort((a, b) => compareStrings(a.taskId, b.taskId)),
         operations: [...event.plan.operations].sort((a, b) =>
+          compareStrings(a.operationId, b.operationId),
+        ),
+      },
+    }
+  }
+  if (event.kind === 'search-plan-extended') {
+    return {
+      ...event,
+      artifacts,
+      extension: {
+        candidateSlots: [...event.extension.candidateSlots].sort((a, b) =>
+          compareStrings(a.slotId, b.slotId),
+        ),
+        operations: [...event.extension.operations].sort((a, b) =>
           compareStrings(a.operationId, b.operationId),
         ),
       },

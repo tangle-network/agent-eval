@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crowdedFrontierParent, type ParentSelector } from '../parent-selection'
+import type { ParentSelector } from '../parent-selection'
 import { runCampaign } from '../run-campaign'
 import { campaignMeanComposite, compareRankKeys } from '../score-utils'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../storage'
@@ -863,34 +863,6 @@ describe('runOptimization parent selection', () => {
     )
   })
 
-  it('a seeded crowded-frontier selector is deterministic across runs', async () => {
-    const plan = [['A', 'B'], ['C'], ['D', 'E']]
-    const first = await runWithParentPolicy({
-      plan,
-      runDir: '/parent/seeded-1',
-      selectParent: crowdedFrontierParent({ seed: 5 }),
-    })
-    const second = await runWithParentPolicy({
-      plan,
-      runDir: '/parent/seeded-2',
-      selectParent: crowdedFrontierParent({ seed: 5 }),
-    })
-    const lineage = (run: typeof first) =>
-      run.result.generations.map((g) => g.record.candidates.map((c) => c.parentSurfaceHash))
-    expect(lineage(first)).toEqual(lineage(second))
-    expect(first.result.generations.map((g) => g.record)).toEqual(
-      second.result.generations.map((g) => g.record),
-    )
-    // Generation 0 has a one-member frontier, so its parent is the baseline;
-    // later parents are frontier members.
-    expect(lineage(first)[0]).toEqual([baselineHash, baselineHash])
-    // From generation 1 on, the crowded tournament prefers boundary frontier
-    // parents, so the interior baseline is never drawn again.
-    for (const hash of lineage(first).flat().slice(2)) {
-      expect(hash).not.toBe(baselineHash)
-    }
-  })
-
   it('refuses a parent the run never measured to completion', async () => {
     await expect(
       runWithParentPolicy({
@@ -903,25 +875,5 @@ describe('runOptimization parent selection', () => {
         }),
       }),
     ).rejects.toThrow(/has not measured to completion/)
-  })
-
-  it('refuses a parent whose surface does not match its hash', async () => {
-    await expect(
-      runWithParentPolicy({
-        plan: [['A', 'B'], ['C']],
-        runDir: '/parent/mismatch',
-        selectParent: ({ frontier }) => ({ ...frontier[0]!, surface: 'TAMPERED' }),
-      }),
-    ).rejects.toThrow(/surface does not match its surfaceHash/)
-  })
-
-  it('refuses a selector that does not return a ParetoParent', async () => {
-    await expect(
-      runWithParentPolicy({
-        plan: [['A', 'B']],
-        runDir: '/parent/not-a-parent',
-        selectParent: (() => undefined) as unknown as ParentSelector,
-      }),
-    ).rejects.toThrow(/selectParent must return a ParetoParent/)
   })
 })

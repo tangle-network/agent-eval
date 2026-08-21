@@ -33,6 +33,8 @@ import {
   campaignMeanCompositeOrNull,
   compareRankKeys,
 } from '../score-utils'
+import type { SearchHistoryReceipt } from '../search-history-receipt'
+import { type SearchLedgerBinding, SearchRecorder } from '../search-ledger-recording'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceHash } from '../surface-identity'
 import {
@@ -140,6 +142,18 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    * the provided seeded policy.
    */
   selectParent?: ParentSelector
+  /**
+   * Record this search into a durable `SearchLedger`. The loop emits the plan,
+   * each candidate-generation operation, each candidate registration with its
+   * measured parent, one task attempt per designed cell, one decision per
+   * candidate, and the terminal event, then returns a bounded
+   * `searchHistory` receipt over the exact ledger bytes.
+   *
+   * `identity` declares what the ledger requires and a campaign cannot infer:
+   * immutable revisions for the agent, proposer, and search implementations,
+   * and the model the agent runs when a cell reports none.
+   */
+  searchLedger?: SearchLedgerBinding
 }
 
 export type RunOptimizationOptions<
@@ -171,6 +185,10 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   baselineCampaign: CampaignResult<TArtifact, TScenario>
   /** Run-wide spend, including agents, proposers, analysts, and judges. */
   cost: CostLedgerSummary
+  /** Bounded proof envelope over the canonical search ledger. Present only
+   *  when `searchLedger` was supplied. `complete` is false when the search was
+   *  interrupted or a candidate left a designed cell unscored. */
+  searchHistory?: SearchHistoryReceipt
   /** The GEPA Pareto frontier across every scored surface (baseline + all
    *  generations) by per-scenario objective vector — the non-dominated set.
    *  Each generation's `propose()` received the frontier-so-far as
@@ -237,6 +255,21 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       `runOptimization: ${label} is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
     )
   }
+
+  const recorder = opts.searchLedger
+    ? await SearchRecorder.open<TScenario, TArtifact>({
+        binding: opts.searchLedger,
+        storage,
+        runDir: opts.runDir,
+        scenarios: opts.scenarios,
+        reps,
+        maxGenerations: opts.maxGenerations,
+        populationSize: opts.populationSize,
+        splitDigest: baselineCampaign.splitDigest,
+        proposerLabel: proposer.kind,
+        costLedger,
+      })
+    : undefined
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const history: GenerationRecord[] = []
@@ -390,6 +423,15 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       generationHashes.add(hash)
     }
     for (const hash of generationHashes) admittedCandidateHashes.add(hash)
+    await recorder?.recordGeneration({
+      generation: gen,
+      parentSurfaceHash,
+      candidates: candidates.map(({ surface, label }) => ({
+        surface,
+        surfaceHash: surfaceHash(surface),
+        ...(label ? { label } : {}),
+      })),
+    })
 
     // Run each candidate as its own campaign.
     type SurfaceResult = {
@@ -464,6 +506,16 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         })
       }
     }
+
+    await recorder?.recordResults(
+      surfaceResults.map((result) => ({
+        surface: result.surface,
+        surfaceHash: result.surfaceHash,
+        cells: result.campaign.cells,
+        runDir: result.campaign.runDir,
+        coverageComplete: result.coverage.complete,
+      })),
+    )
 
     // Rank only candidates with the complete designed denominator. Incomplete
     // rows follow the eligible rows for auditability but never promote.
@@ -553,6 +605,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     }
   }
 
+  const searchHistory = await recorder?.finish({
+    winnerSurfaceHash,
+    generationsRun: generations.length,
+    runId: opts.runDir,
+  })
+
   return {
     generations,
     baselineSurface,
@@ -561,6 +619,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerLabel,
     winnerRationale,
     baselineCampaign,
+    ...(searchHistory ? { searchHistory } : {}),
     paretoFrontier: computeParetoFrontier(scored),
     cost: costLedger.summary(),
   }

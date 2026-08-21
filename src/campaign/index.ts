@@ -396,6 +396,7 @@ export {
   type SearchOperationKind,
   type SearchOperationRecordedEvent,
   type SearchPlan,
+  type SearchPlanExtendedEvent,
   type SearchPlannedEvent,
   type SearchPlannedOperation,
   type SearchPlannedTask,
@@ -408,6 +409,16 @@ export {
   type SearchTokenAccounting,
   validateSearchLedgerEvent,
 } from './search-ledger'
+export {
+  type MeasuredSearchCandidate,
+  type ProposedSearchCandidate,
+  recordCandidatePopulationSearch,
+  type SearchExecutionIdentity,
+  type SearchLedgerBinding,
+  SearchRecorder,
+  type SearchRecorderOptions,
+  type SearchRunIdentity,
+} from './search-ledger-recording'
 export {
   acquireSingleRunLock,
   type SingleRunLock,
