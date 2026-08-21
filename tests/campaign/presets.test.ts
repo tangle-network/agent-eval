@@ -29,6 +29,7 @@ import {
   type SurfaceProposer,
   surfaceContentHash,
   surfaceHash,
+  transientDispatchFailure,
 } from '../../src/campaign/index'
 import { campaignCellToRunRecord } from '../../src/campaign/run-record'
 import { campaignMeanComposite } from '../../src/campaign/score-utils'
@@ -374,6 +375,88 @@ describe('SurfaceProposer → runImprovementLoop → defaultProductionGate', () 
     expect(result.gateResult.delta).toBeCloseTo(0)
     expect(result.gateResult.decision).toBe('hold')
     expect(String(result.winnerSurface)).toBe('BASE')
+  })
+
+  it('cellRetry recovers a transient holdout dispatch failure instead of refusing the comparison', async () => {
+    const proposer = candidateProposer(`BASE ${SCHEMA_MARKER}`)
+    const holdoutIds = new Set(PROMOTION_HOLDOUT.map((s) => s.id))
+    let transientFailures = 0
+    const result = await runImprovementLoop<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS,
+      holdoutScenarios: PROMOTION_HOLDOUT,
+      baselineSurface: 'BASE',
+      // The first holdout dispatch dies on a router 503; every other dispatch
+      // echoes the surface. The bounded retry re-runs that one slot.
+      dispatchWithSurface: async (surface, scenario) => {
+        if (holdoutIds.has(scenario.id) && transientFailures === 0) {
+          transientFailures += 1
+          throw new Error('router returned HTTP 503 Service Unavailable')
+        }
+        return { text: String(surface) }
+      },
+      judges: [judge],
+      proposer,
+      populationSize: 1,
+      maxGenerations: 1,
+      cellRetry: { attempts: 2, retryable: transientDispatchFailure() },
+      gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+        holdoutScenarios: PROMOTION_HOLDOUT,
+        deltaThreshold: 0,
+      }),
+      autoOnPromote: 'none',
+      runDir,
+      seed: 7,
+    })
+
+    expect(transientFailures).toBe(1)
+    expect(result.gateResult.decision).toBe('ship')
+    const retried = [...result.baselineOnHoldout.cells, ...result.winnerOnHoldout.cells].filter(
+      (cell) => cell.retryAttempts !== undefined,
+    )
+    expect(retried).toHaveLength(1)
+    expect(retried[0]!.retryAttempts).toBe(1)
+    expect(retried[0]!.error).toBeUndefined()
+  })
+
+  it('still refuses the incomplete holdout when cellRetry attempts are exhausted', async () => {
+    const proposer = candidateProposer(`BASE ${SCHEMA_MARKER}`)
+    let h1Attempts = 0
+    const exhaustedRunDir = mkdtempSync(join(tmpdir(), 'holdout-retry-exhausted-'))
+    await expect(
+      runImprovementLoop<FakeScenario, FakeArtifact>({
+        scenarios: SCENARIOS,
+        holdoutScenarios: HOLDOUT,
+        baselineSurface: 'BASE',
+        dispatchWithSurface: async (surface, scenario) => {
+          if (scenario.id === 'h1') {
+            h1Attempts += 1
+            throw new Error('router returned HTTP 503 Service Unavailable')
+          }
+          return { text: String(surface) }
+        },
+        judges: [judge],
+        proposer,
+        populationSize: 1,
+        maxGenerations: 1,
+        cellRetry: { attempts: 2, retryable: transientDispatchFailure() },
+        gate: defaultProductionGate<FakeArtifact, FakeScenario>({
+          holdoutScenarios: HOLDOUT,
+          deltaThreshold: 0.5,
+        }),
+        autoOnPromote: 'none',
+        runDir: exhaustedRunDir,
+        seed: 7,
+      }),
+    ).rejects.toThrow(/baseline holdout is incomplete \(2\/3 designed cells scorable\)/)
+    // Both holdout arms run before the completeness check, and each arm
+    // exhausts the 2-attempt policy on h1: 4 dispatches, receipts in each arm.
+    expect(h1Attempts).toBe(4)
+    for (const arm of ['holdout-baseline', 'holdout-winner']) {
+      const cellDir = join(exhaustedRunDir, arm, 'h1_0')
+      expect(existsSync(join(cellDir, 'failure-receipt.attempt-1.json'))).toBe(true)
+      expect(existsSync(join(cellDir, 'failure-receipt.json'))).toBe(true)
+    }
+    rmSync(exhaustedRunDir, { recursive: true, force: true })
   })
 
   function mean(campaign: {

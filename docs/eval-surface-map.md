@@ -43,6 +43,20 @@ is `runCampaign` with capture inverted; `runAgentMatrix` is the scheduler undern
 Merging any two of these conflates distinct mental models (measure ≠ search ≠
 release-gate). Keep them separate; pick by the table.
 
+## Failed cells: receipts and bounded retry
+
+A failed cell writes `<cell>/failure-receipt.json` before the campaign can abort.
+The receipt records the stage (`dispatch` or `judge`), the serialized error, the exact cell result, and the settled cost of that cell.
+`abortOnCellError: true` stops the campaign on the first failed cell; the default keeps the remaining schedule running and returns the failed cell.
+
+`cellRetry: { attempts, retryable }` opts in to bounded in-run retry.
+A failed attempt that `retryable` accepts is dispatched again in the same slot (same `cellId`, same seed) until it succeeds or `attempts` is exhausted.
+Use `transientDispatchFailure()` as the predicate to retry only dispatch-stage transport failures (502/503/504, dropped streams, admission rejections) and never judge-stage failures.
+Every attempt charges the shared cost ledger, so the final cell's `costUsd` and `costCallIds` cover all attempts.
+A retried attempt keeps its receipt at `<cell>/failure-receipt.attempt-<n>.json`, and the final cell records the retry count as `retryAttempts`.
+With `abortOnCellError`, the abort fires only when a cell's final attempt fails.
+Without `cellRetry`, a failed cell is final: one transient 503 leaves campaign coverage incomplete, and `runImprovementLoop` then refuses the holdout comparison.
+
 ## Produced-state grading: there is NO persona-dispatch wrapper
 
 To grade what an agent actually **produced** (filed the proposal, wrote the

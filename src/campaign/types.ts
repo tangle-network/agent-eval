@@ -601,6 +601,10 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
+  /** Failed attempts dispatched before this result under `cellRetry`.
+   *  Missing when the first attempt produced this result. Each earlier
+   *  attempt keeps its own `<cell>/failure-receipt.attempt-<n>.json`. */
+  retryAttempts?: number
   /** Stage that produced `error`. Missing on successful cells. */
   errorStage?: 'dispatch' | 'judge'
   /** Judge that threw when `errorStage` is `judge`. */

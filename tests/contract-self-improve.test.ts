@@ -28,6 +28,7 @@ import {
   provenanceSpansPath,
 } from '../src/campaign/provenance'
 import { surfaceContentHash } from '../src/campaign/surface-identity'
+import { transientDispatchFailure } from '../src/campaign/transient-failure'
 import type {
   DispatchContext,
   JudgeConfig,
@@ -269,6 +270,43 @@ describe('selfImprove — forwarded loop knobs', () => {
       },
     })
     expect(generationsSeen).toEqual([0, 1])
+  })
+
+  it('forwards cellRetry — a transient holdout hiccup is retried instead of failing the loop', async () => {
+    const train = SCENARIOS[0]!
+    const holdout = SCENARIOS[1]!
+    const flakyOnce = () => {
+      let failed = false
+      return async (surface: MutableSurface, scenario: S): Promise<A> => {
+        if (scenario.id === holdout.id && !failed) {
+          failed = true
+          throw new Error('router returned HTTP 503 Service Unavailable')
+        }
+        return { text: String(surface) }
+      }
+    }
+
+    // Without the policy the transient failure leaves the holdout incomplete.
+    await expect(
+      selfImprove<S, A>({
+        ...base,
+        agent: flakyOnce(),
+        scenarios: [train, holdout],
+        budget: { generations: 0, holdoutScenarios: [holdout] },
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(/holdout is incomplete/)
+
+    // With it, the same slot is re-dispatched and the loop completes.
+    const ok = await selfImprove<S, A>({
+      ...base,
+      agent: flakyOnce(),
+      scenarios: [train, holdout],
+      budget: { generations: 0, holdoutScenarios: [holdout] },
+      cellRetry: { attempts: 2, retryable: transientDispatchFailure() },
+      expectUsage: 'off',
+    })
+    expect(ok.gateDecision).toBe('hold')
   })
 
   it('forwards analyzeGeneration — the per-generation findings producer fires', async () => {
