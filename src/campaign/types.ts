@@ -149,6 +149,17 @@ export interface JudgeScore {
   notes: string
   /** Provider metadata for display and diagnostics; accounting uses CostLedger receipts. */
   llmCall?: LlmCallMetadata
+  /** How the numbers in `dimensions` were produced. `'sampled'` reads the
+   *  score the model emitted. `'expectation'` reads the model's probability
+   *  distribution over the score token and returns its expected value, which
+   *  separates candidates that tie on a sampled grade. Absent for a judge that
+   *  does not report the distinction. Records what actually produced the
+   *  score, so a declared method that fell back reads `'sampled'`. */
+  scoringMethod?: 'sampled' | 'expectation'
+  /** Probability mass over the integer grades the model considered, per
+   *  dimension, on the judge's native scale. Present only under
+   *  `scoringMethod: 'expectation'`. */
+  distribution?: Record<string, Array<{ score: number; probability: number }>>
   /** Set when the judge itself failed (call error, unparseable output).
    *  `composite`/`dimensions` carry no signal — aggregators MUST exclude
    *  failed scores from means instead of folding them into zeros. */

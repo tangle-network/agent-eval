@@ -101,6 +101,11 @@ export interface LlmCallRequest {
   toolChoice?: LlmToolChoice
   temperature?: number
   maxTokens?: number
+  /** Ask the provider for the log-probability of each sampled token and its
+   *  `topLogprobs` most likely alternatives. Sends `logprobs: true` with
+   *  `top_logprobs`. A provider that ignores the field returns
+   *  `LlmCallResult.logprobs === null`; nothing is inferred from its absence. */
+  logprobs?: { topLogprobs: number }
   /** OpenAI-compatible reasoning mode. Omitted when the provider default should apply. */
   thinking?: LlmThinkingMode
   /** Per-call timeout, default 300s. */
@@ -161,6 +166,14 @@ export interface LlmUsage {
   cachedPromptTokens?: number
 }
 
+/** One sampled token with its own log probability and the alternatives the
+ *  provider ranked at that position. */
+export interface LlmTokenLogprob {
+  token: string
+  logprob: number
+  top: ReadonlyArray<{ token: string; logprob: number }>
+}
+
 export interface LlmCallResult {
   /** The text content of the first choice. Empty string if none. */
   content: string
@@ -211,6 +224,14 @@ export interface LlmCallResult {
    * surfaces it but does not throw on it.
    */
   contentEmpty?: boolean
+  /**
+   * Per-token log probabilities for the first choice, in emission order, when
+   * the request asked for them and the provider returned
+   * `choices[0].logprobs.content`. `null` when the provider returned none, so a
+   * caller can tell "not requested or not supported" from "requested and
+   * empty". Absent when the request did not ask for logprobs.
+   */
+  logprobs?: ReadonlyArray<LlmTokenLogprob> | null
   /** Raw response body. */
   raw: Record<string, unknown>
 }
@@ -518,6 +539,10 @@ function buildBody(
     if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
     else body.max_tokens = req.maxTokens
   }
+  if (req.logprobs !== undefined) {
+    body.logprobs = true
+    body.top_logprobs = req.logprobs.topLogprobs
+  }
   if (req.tools !== undefined) body.tools = req.tools
   if (req.toolChoice !== undefined) body.tool_choice = req.toolChoice
   const thinking = req.thinking ?? defaultThinking
@@ -558,6 +583,58 @@ function encodeWireMessage(message: LlmMessage): Record<string, unknown> {
       function: { name: call.name, arguments: call.argumentsJson },
     })),
   }
+}
+
+/**
+ * Parse `choices[0].logprobs.content` into the canonical per-token shape.
+ * `null` when the provider returned nothing for a request that asked: a
+ * provider that ignores `logprobs` is a fact the caller must be able to read,
+ * not an error. A malformed entry is a contract violation and throws.
+ */
+function parseWireLogprobs(value: unknown, model: string): ReadonlyArray<LlmTokenLogprob> | null {
+  if (value === undefined || value === null) return null
+  if (!Array.isArray(value)) {
+    throw new Error(`LLM response logprobs.content must be an array (model=${model})`)
+  }
+  return value.map((entry, index) => {
+    const record = entry as { token?: unknown; logprob?: unknown; top_logprobs?: unknown } | null
+    if (
+      !record ||
+      typeof record !== 'object' ||
+      typeof record.token !== 'string' ||
+      typeof record.logprob !== 'number' ||
+      !Number.isFinite(record.logprob)
+    ) {
+      throw new Error(
+        `LLM response logprobs.content[${index}] is not a token with a finite logprob (model=${model})`,
+      )
+    }
+    const top = record.top_logprobs
+    if (top !== undefined && top !== null && !Array.isArray(top)) {
+      throw new Error(
+        `LLM response logprobs.content[${index}].top_logprobs must be an array (model=${model})`,
+      )
+    }
+    return {
+      token: record.token,
+      logprob: record.logprob,
+      top: (Array.isArray(top) ? top : []).map((alternative, position) => {
+        const candidate = alternative as { token?: unknown; logprob?: unknown } | null
+        if (
+          !candidate ||
+          typeof candidate !== 'object' ||
+          typeof candidate.token !== 'string' ||
+          typeof candidate.logprob !== 'number' ||
+          !Number.isFinite(candidate.logprob)
+        ) {
+          throw new Error(
+            `LLM response logprobs.content[${index}].top_logprobs[${position}] is not a token with a finite logprob (model=${model})`,
+          )
+        }
+        return { token: candidate.token, logprob: candidate.logprob }
+      }),
+    }
+  })
 }
 
 /** Parse provider tool_calls into the canonical shape. A malformed entry is a
@@ -885,6 +962,7 @@ export async function callLlm(
           | Array<{
               message?: { content?: string | null; tool_calls?: unknown }
               finish_reason?: string | null
+              logprobs?: { content?: unknown } | null
             }>
           | undefined
       )?.[0]
@@ -947,6 +1025,9 @@ export async function callLlm(
       return {
         content,
         ...(toolCalls === undefined ? {} : { toolCalls }),
+        ...(req.logprobs === undefined
+          ? {}
+          : { logprobs: parseWireLogprobs(choice?.logprobs?.content, req.model) }),
         finishReason: choice?.finish_reason ?? null,
         contentEmpty: content.trim().length === 0,
         usage: {

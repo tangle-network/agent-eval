@@ -34,6 +34,30 @@ Two producers certify conditionally, on purpose:
 - `gradeRepairRow` certifies only a `measured` outcome — a funnel gate that closed before the suite ran has nothing to vouch for.
 - `verifyFindings` certifies only when at least one proof executed — a batch where nothing was replayable measured nothing.
 
+## Reading a score out of a judge
+
+A model judge emits one grade per dimension. Discrete grades tie: two candidates that both score `8` carry no ranking signal between them, and a best-of-N selection then picks arbitrarily.
+
+`llmJudge({ scoring })` chooses how the number is read:
+
+| `scoring` | What it reads | Requires |
+|---|---|---|
+| `{ method: 'sampled' }` (default) | the grade the model emitted | nothing |
+| `{ method: 'expectation', whenUnavailable }` | the expected grade over the integer grades the model considered at the score token | `scale: 'ten'` and a provider that returns log probabilities |
+
+Expectation scoring asks the provider for `logprobs` with `top_logprobs`, finds the token that carried each dimension's grade, and averages the integer grades in that token's probability window, weighted by probability. Two answers that both sample `8` separate by how much mass sat on `7` versus `9`.
+
+It needs one integer in one token, which is why `scale: 'ten'` is required: a `[0,1]` float is several tokens, and no single position carries its distribution. A grade that did not land in exactly one token — a two-token `10` — is refused rather than approximated.
+
+`whenUnavailable` decides what happens when the provider returns no log probabilities, or the grade spans tokens:
+
+- `'fail'` throws, and the campaign records a failed cell.
+- `'sampled'` reads the emitted grade instead.
+
+`JudgeScore.scoringMethod` reports what actually produced the number, so a declared expectation run that fell back reads `'sampled'` and stays auditable. `JudgeScore.distribution` carries the probability mass per grade, and is present only for an expectation score. Panels are unchanged: `ensembleJudge` consumes the composite either way.
+
+Whether a given endpoint returns `logprobs.content` is a property of that provider and model, not of this package. `LlmCallResult.logprobs` is `null` when the provider returned none — never an inferred distribution. See `evidence/records/judge-logprob-wire-support.json` for the current verification state of that wire behavior.
+
 ## Consuming a certification
 
 Read `certification.strategy`, then weigh the member's documented failure mode — `VERIFICATION_STRATEGIES[strategy].failureMode` carries it at runtime.

@@ -1,0 +1,29 @@
+{
+  "id": "judge-logprob-wire-support",
+  "date": "2026-08-21",
+  "claim": "An OpenAI-compatible chat-completions endpoint returns per-token `choices[0].logprobs.content` with `top_logprobs` alternatives for a JSON-mode judge call, so expectation scoring reads a real distribution rather than a reconstructed one.",
+  "domain": "judges",
+  "instrument": "single chat-completions request with response_format json_object, logprobs true, top_logprobs 8, max_tokens 24, temperature 0",
+  "command": "curl -sS https://api.openai.com/v1/chat/completions -H 'Authorization: Bearer $OPENAI_API_KEY' -H 'Content-Type: application/json' -d '{\"model\":\"gpt-4o-mini\",\"messages\":[...],\"response_format\":{\"type\":\"json_object\"},\"max_tokens\":24,\"temperature\":0,\"logprobs\":true,\"top_logprobs\":8}'",
+  "arms": [],
+  "n": {
+    "value": 1,
+    "unit": "requests",
+    "detail": "one probe attempted on 2026-08-21; the endpoint rejected it before any token was generated"
+  },
+  "result": "UNVERIFIED LIVE. The one probe returned HTTP 401 (`Incorrect API key provided`) from the only OpenAI-compatible credential reachable in this environment, so no response body was produced and the wire behavior is not measured here. The parser is written against the documented field shape and is covered by unit tests over recorded shapes only. A caller must treat a null `LlmCallResult.logprobs` as a real possibility: the client returns null rather than inferring a distribution, and `scoring.whenUnavailable` decides whether that throws or falls back to the sampled grade.",
+  "evidenceState": "UNVERIFIED",
+  "artifacts": [
+    "src/llm-client.ts (parseWireLogprobs)",
+    "src/llm-judge.ts (expectedDimensionScores)",
+    "tests/llm-judge.test.ts (llmJudge — logprob-expectation scoring)"
+  ],
+  "costUsd": 0,
+  "confounds": [
+    "the probe never reached the model: an expired key produced a 401 before generation, so this record measures credential state, not provider behavior",
+    "no non-OpenAI OpenAI-compatible endpoint (router, cli-bridge) was reachable with a valid credential in this environment",
+    "provider support varies by model and endpoint; one endpoint returning logprobs would not prove another does"
+  ],
+  "sourceRepo": "agent-eval",
+  "notes": "Flip this record to MEASURED-ONCE by re-running the command with a valid key and recording the grade token, its logprob, and its top_logprobs window."
+}

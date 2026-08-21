@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.156.0] — 2026-08-21
+
+### Added
+
+- Logprob-expectation judge scoring (#637). `llmJudge({ scoring: { method: 'expectation', whenUnavailable } })` asks the provider for the log probabilities of the score token and returns the expected grade over the integer grades the model considered, so two answers that both sample `8` separate by how much mass sat on `7` versus `9`. It requires `scale: 'ten'` — an integer grade is one token and a `[0,1]` float is not — and refuses a grade that did not land in exactly one token instead of approximating it. `whenUnavailable` decides the provider-returns-nothing case: `'fail'` throws, `'sampled'` reads the emitted grade. `JudgeScore` gains `scoringMethod` (what actually produced the number, so a run that fell back reads `'sampled'`) and `distribution` (probability mass per grade). Panels are unchanged; `ensembleJudge` consumes the composite either way. No new dependency: the technique is a scoring-loop change, not a package.
+- `LlmCallRequest.logprobs: { topLogprobs }` sends `logprobs: true` with `top_logprobs`, and `LlmCallResult.logprobs` carries the parsed per-token window from `choices[0].logprobs.content`, or `null` when the provider returned none. A provider that ignores the field is a fact the caller can read, never an inferred distribution. `wrapLlmClient` forwards both, so every `ChatClient` transport carries them.
+
+---
+
 ## [0.155.0] — 2026-08-21
 
 ### Added

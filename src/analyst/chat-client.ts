@@ -188,6 +188,7 @@ function wrapLlmClient(
         messages: req.messages,
         jsonMode: req.jsonMode,
         jsonSchema: req.jsonSchema,
+        logprobs: req.logprobs,
         temperature: req.temperature,
         maxTokens: req.maxTokens,
         thinking: req.thinking,
