@@ -137,6 +137,8 @@ export function continuationPolicyDigest(policy: PinnedContinuationPolicy): stri
  */
 export function continuationSeed(policySeed: number, rowId: string, rolloutIndex: number): number {
   const input = `${policySeed}:${rowId}:${rolloutIndex}`
+  // 32-bit FNV-1a over raw UTF-16 code units. Frozen: it derives the
+  // continuation seed a recorded rollout replays under.
   let hash = 0x811c9dc5
   for (let i = 0; i < input.length; i += 1) {
     hash ^= input.charCodeAt(i)

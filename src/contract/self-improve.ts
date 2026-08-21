@@ -506,6 +506,13 @@ function safeRunComponent(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
+/** 32-bit FNV-1a over raw UTF-16 code units, read as an unsigned int and used
+ *  only to order scenarios deterministically.
+ *
+ *  Frozen: the order it produces assigns scenarios to partitions, so a change
+ *  re-partitions decisions already recorded. It masks no byte, unlike
+ *  `fnv1a32` in `src/partition-held-out.ts`, so the two disagree on any
+ *  non-ASCII id and cannot be shared. */
 function stableScenarioHash(value: string): number {
   let hash = 2166136261 >>> 0
   for (let index = 0; index < value.length; index++) {
@@ -1023,6 +1030,11 @@ function averageComposite(
   return aggs.length === 0 ? 0 : aggs.reduce((s, a) => s + a.meanComposite, 0) / aggs.length
 }
 
+/** 32-bit FNV-1a over raw UTF-16 code units, rendered as hex for a cell key.
+ *
+ *  Frozen: the key names a persisted cell, so a change orphans every cell
+ *  already written. Same loop as `stableScenarioHash` above but a different
+ *  return form; neither is a general-purpose hash. */
 function hashString(s: string): string {
   let h = 2166136261 >>> 0
   for (let i = 0; i < s.length; i++) {
