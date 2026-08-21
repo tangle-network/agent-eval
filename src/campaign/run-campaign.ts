@@ -10,6 +10,7 @@
  */
 
 import type { CostLedgerHandle, CostLedgerSummary } from '../cost-ledger'
+import { compareCodeUnits } from '../ledger-core/canonical'
 import { computeManifestHash, dispatchRefFor } from './campaign-manifest'
 import { computeAggregates } from './cell-aggregates'
 import { assertScheduleCachesReusable } from './cell-cache'
@@ -399,7 +400,7 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   if (failedLane) throw firstLaneError ?? failedLane.reason
 
   const endedAt = now()
-  cellsRef.sort((a, b) => a.cellId.localeCompare(b.cellId))
+  cellsRef.sort((a, b) => compareCodeUnits(a.cellId, b.cellId))
 
   const campaignCost = costLedger.summary({ tags: { runDir: opts.runDir } })
   const aggregates = computeAggregates(

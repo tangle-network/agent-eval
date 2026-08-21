@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.169.0] — 2026-08-21
+
+### Fixed
+
+- Eleven orderings that reach a digest, a stable serialization, or a stored identity no longer read the host's collation. RFC 8785 canonicalizes an array **by position**, so a `localeCompare` sort in front of `canonicalString` or `hashCanonical` let the machine decide the digest bytes: the ids `Accuracy, brevity, Clarity` order as `Accuracy,brevity,Clarity` under an en-US collation and as `Accuracy,Clarity,brevity` by code unit, and the two produce different digests for the same data. `compareCodeUnits` in `src/ledger-core/canonical.ts` is now the one comparator for an ordering whose result is hashed.
+  - Three of the ten carried a docstring asserting an invariant the code did not hold: `hashScenarios` ("independent of insertion order" — it was not independent of collation), `Dataset.toJsonl` ("deterministic byte-for-byte"), and `serializeFeedbackTrajectoriesJsonl` ("two exports of equal stores are byte-equal"). `testSuiteDigest`'s "two suites with the same digest are the same suite" was in the same position.
+  - Digest and serialization sites: `src/dataset.ts` (`hashScenarios`, `toJsonl`), `src/feedback-trajectory.ts` (`serializeFeedbackTrajectoriesJsonl`), `src/trace-repair/test-oracle.ts` (`testSuiteDigest`), `src/campaign/provenance.ts` (`costReceiptsDigest`, `campaignMeasurementDigest` cells), `src/analyst/benchmark-summary.ts` (finding signature), `src/analyst/benchmark-verification-artifacts.ts` (artifact order, which reaches a verification span id), `src/rl/verified-findings-dataset.ts` (dataset rows), `src/campaign/run-campaign.ts` (the campaign's retained cell order).
+  - Ordering-only sites fixed for the same reason, since each decides which records a caller sees: `src/campaign/labeled-store/fs-adapter.ts` (which records a `slice(0, count)` returns) and `src/analyst/benchmark-public-data.ts` (which rows a seeded public-benchmark sample selects).
+  - No retention window is added, and that is a per-site finding rather than an assumption: nothing in this package stores one of these values and later recomputes it from source data to compare. `verifyLoopProvenanceRecord` re-hashes the record's stored fields, and `assertCampaignSplitIdentity` recomputes a split digest whose builder never sorted. The values move once, like `rubricVersion` in 0.167.0, rather than needing the dual-verify `surfaceHash` required.
+  - A comparator for a report a human reads is left alone; `renderSurfaceDiff` and the Markdown renderers keep `localeCompare`.
+
+---
+
 ## [0.168.1] — 2026-08-21
 
 ### Fixed

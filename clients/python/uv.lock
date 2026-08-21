@@ -34,7 +34,7 @@ conflicts = [[
 
 [[package]]
 name = "agent-eval-rpc"
-version = "0.168.1"
+version = "0.169.0"
 source = { editable = "." }
 dependencies = [
     { name = "filelock" },
