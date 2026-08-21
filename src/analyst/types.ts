@@ -66,7 +66,11 @@ export interface AnalystFinding {
   metadata?: Record<string, unknown>
 }
 
-export type AnalystSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+/** Finding severity. `AnalystSeverity` derives from this array, so the type
+ *  and the schema that validates a finding cannot name different levels. */
+export const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
+
+export type AnalystSeverity = (typeof ANALYST_SEVERITIES)[number]
 
 /** Data sources that candidate generation may intentionally learn from. */
 export type ProposalFindingOrigin = 'search' | 'production'

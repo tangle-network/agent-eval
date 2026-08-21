@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AnalystBenchmarkObservation } from './benchmark'
 import type { AnalystBenchmarkArtifact } from './benchmark-command-artifact'
+import { ANALYST_COMPARISON_METRICS } from './benchmark-comparison'
 
 const nonEmptyString = z.string().refine((value) => value.trim().length > 0, {
   message: 'must be a non-empty string',
@@ -270,26 +271,7 @@ const resultSchema = z.strictObject({
 })
 
 const comparisonMetricSchema = z.strictObject({
-  metric: z.enum([
-    'completion',
-    'issueRecall',
-    'findingPrecision',
-    'f1',
-    'criticalStepAccuracy',
-    'citationCoverage',
-    'citationExcerptCoverage',
-    'citationLabelAgreement',
-    'citationResolution',
-    'trustedNegativeAccuracy',
-    'latencyMs',
-    'calls',
-    'inputTokens',
-    'outputTokens',
-    'reasoningTokens',
-    'cachedTokens',
-    'cacheWriteTokens',
-    'costUsd',
-  ]),
+  metric: z.enum(ANALYST_COMPARISON_METRICS),
   direction: z.enum(['higher', 'lower']),
   pairedCases: nonNegativeInteger,
   pairedClusters: nonNegativeInteger,

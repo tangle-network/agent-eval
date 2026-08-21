@@ -227,44 +227,11 @@ export interface Artifact {
 
 // ── Failure taxonomy ─────────────────────────────────────────────────
 
-export type FailureClass =
-  | 'success'
-  | 'reasoning_error'
-  | 'tool_selection_error'
-  | 'tool_argument_error'
-  | 'tool_recovery_failure'
-  | 'hallucination'
-  | 'instruction_following'
-  | 'safety_refusal_miss'
-  | 'policy_violation'
-  | 'budget_exceeded'
-  | 'format_drift'
-  | 'permission_escalation'
-  | 'pii_leak'
-  | 'cost_overrun'
-  | 'timeout'
-  | 'sandbox_failure'
-  | 'missing_user_data'
-  | 'missing_domain_data'
-  | 'missing_codebase_context'
-  | 'missing_runtime_context'
-  | 'missing_credentials'
-  | 'missing_integration_connection'
-  | 'missing_integration_scope'
-  | 'integration_approval_required'
-  | 'integration_auth_expired'
-  | 'integration_provider_failure'
-  | 'bad_integration_manifest'
-  | 'unsafe_integration_write_denied'
-  | 'stale_external_data'
-  | 'bad_retrieval'
-  | 'insufficient_evidence'
-  | 'contradictory_evidence'
-  | 'ambiguous_user_intent'
-  | 'knowledge_readiness_blocked'
-  | 'unknown'
-
-export const FAILURE_CLASSES: readonly FailureClass[] = [
+/**
+ * The failure taxonomy. `FailureClass` derives from this array, so the type
+ * and the runtime list cannot name different sets.
+ */
+export const FAILURE_CLASSES = [
   'success',
   'reasoning_error',
   'tool_selection_error',
@@ -301,6 +268,8 @@ export const FAILURE_CLASSES: readonly FailureClass[] = [
   'knowledge_readiness_blocked',
   'unknown',
 ] as const
+
+export type FailureClass = (typeof FAILURE_CLASSES)[number]
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
