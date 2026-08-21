@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.166.1] — 2026-08-21
+
+### Changed
+
+- The seven FNV-1a loops in this package each say what they hash and why they are frozen. They look interchangeable and are not: one hashes IEEE-754 bytes rather than a string (`src/statistics/internal.ts`), one masks each code unit to a byte and the rest do not (`src/partition-held-out.ts`), one is deliberately left signed so subtracting two results is a valid comparator (`src/analyst/benchmark.ts`), and one runs two accumulators with different offsets to make a 64-bit-wide id (`src/eval-campaign.ts`). Unifying them would move held-out splits, cell keys, replay seeds, and published bootstrap intervals that were already decided under the current values, so each now carries the one line that stops the next reader from "fixing" it. No behavior change.
+
+---
+
 ## [0.165.0] — 2026-08-21
 
 ### Added

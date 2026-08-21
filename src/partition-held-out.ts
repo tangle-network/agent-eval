@@ -18,8 +18,15 @@
 
 import { ValidationError } from './errors'
 
-/** 32-bit FNV-1a hash. Stable, allocation-free, deterministic across runtimes —
- *  the same id+seed maps to the same bucket on every machine and process. */
+/** 32-bit FNV-1a over UTF-16 code units masked to a byte. Stable,
+ *  allocation-free, deterministic across runtimes — the same id+seed maps to
+ *  the same bucket on every machine and process.
+ *
+ *  Frozen: this value picks the held-out bucket, so changing the masking or
+ *  the accumulator re-partitions every split already decided under it and
+ *  silently invalidates the comparisons made against them. The other FNV-1a
+ *  loops in this package mask differently and are not interchangeable with
+ *  this one. */
 export function fnv1a32(input: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < input.length; i++) {

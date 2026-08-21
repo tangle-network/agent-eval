@@ -690,6 +690,12 @@ function assertUniqueNonEmpty(values: readonly string[], label: string): void {
   }
 }
 
+/** 32-bit FNV-1a over raw UTF-16 code units, left SIGNED so subtracting two
+ *  results is a valid comparator.
+ *
+ *  Frozen: it fixes the runner order a benchmark reports. Adding the `>>> 0`
+ *  the other variants carry would change that order, which is why this one
+ *  does not have it. */
 function stableHash(value: string): number {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {

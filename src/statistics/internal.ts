@@ -139,6 +139,10 @@ export function makeRng(
 /** FNV-1a over the IEEE-754 bytes of every observation. */
 function seedFromData(series: readonly (readonly number[])[]): number {
   const view = new DataView(new ArrayBuffer(8))
+  // 32-bit FNV-1a over the IEEE-754 BYTES of each observation, not over a
+  // string. Frozen: it seeds the unseeded bootstrap from the data itself, so a
+  // change moves every interval this package has already published. The
+  // string-input variants elsewhere cannot be substituted here.
   let hash = 0x811c9dc5
   for (const xs of series) {
     for (const x of xs) {

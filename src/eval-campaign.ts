@@ -710,7 +710,11 @@ function defaultRunId(params: CampaignFactoryParams): string {
   // Stable across re-runs: fingerprint of (campaignId, variantId, scenarioId, seed).
   // Caller can override via opts.runId for non-deterministic IDs.
   const base = `${params.campaignId}::${params.variantId}::${params.scenarioId}::${params.seed}`
-  // Lightweight hex: we don't need crypto-grade here, just stability + uniqueness.
+  // TWO 32-bit FNV-1a accumulators with different offsets, concatenated for a
+  // 64-bit-wide id. Not crypto-grade; stability and uniqueness are what this
+  // needs. Frozen: the value names a persisted cell, and the second
+  // accumulator's offset is part of the identity, so no single-accumulator
+  // helper can replace it.
   let h1 = 0x811c9dc5
   let h2 = 0x12345678
   for (let i = 0; i < base.length; i++) {
