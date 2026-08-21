@@ -29,6 +29,7 @@ import {
   type LoopProvenanceRecord,
   loopProvenanceArgsFromResult,
 } from '../campaign/provenance'
+import type { CampaignCellRetryPolicy } from '../campaign/run-campaign'
 import { resolveRunDir } from '../campaign/run-dir'
 import {
   campaignCellExecutionEvidence,
@@ -221,6 +222,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Per-cell agent dispatch deadline, applied to baseline, candidate, and
    *  held-out campaigns. Default 600_000 ms. Set 0 to disable. */
   dispatchTimeoutMs?: number
+
+  /** Bounded in-run retry of failed cells — same as
+   *  `RunCampaignOptions.cellRetry`, applied to baseline, candidate, and
+   *  held-out campaigns. Pair with `transientDispatchFailure()` so a
+   *  transport hiccup (a router 503, a dropped stream) is re-dispatched in
+   *  the same slot instead of leaving holdout coverage incomplete. Absent by
+   *  default: a failed cell is final. */
+  cellRetry?: CampaignCellRetryPolicy
 
   /** Streaming hook — fires on baseline + each generation + gate decision.
    *  Consumer routes events wherever (UI, dashboard, logs). */
@@ -666,6 +675,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
                 maxConcurrency,
                 reps: budget.reps,
                 dispatchTimeoutMs: opts.dispatchTimeoutMs,
+                cellRetry: opts.cellRetry,
                 expectUsage,
                 costCeiling: budget.dollars,
               }),
@@ -723,6 +733,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     maxConcurrency,
     cellPlacement: opts.cellPlacement,
     dispatchTimeoutMs: opts.dispatchTimeoutMs,
+    cellRetry: opts.cellRetry,
     costLedger,
     expectUsage,
     labeledStore: opts.labeledStore,

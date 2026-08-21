@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { campaignCoverage } from '../../src/campaign/coverage'
 import {
   type CampaignCellFailureReceipt,
   campaignSplitDigestFromIdentities,
@@ -14,6 +15,7 @@ import {
   planCampaignRun,
   runCampaign,
   type Scenario,
+  transientDispatchFailure,
 } from '../../src/campaign/index'
 import { CostLedger } from '../../src/cost-ledger'
 import { BackendIntegrityError } from '../../src/integrity/backend-integrity'
@@ -1861,4 +1863,247 @@ describe('runCampaign — dispatchTimeoutMs (the no-silent-hang guard)', () => {
     expect(result.cells[0]!.error).toBeUndefined()
     expect(result.cells[0]!.artifact).not.toBeNull()
   }, 5_000)
+})
+describe('runCampaign — cellRetry (bounded in-run cell retry)', () => {
+  const RETRY_SCENARIOS: FakeScenario[] = [
+    { id: 'flaky', kind: 'chat', intent: 'flaky' },
+    { id: 'steady', kind: 'chat', intent: 'steady' },
+  ]
+
+  it('retries a transient dispatch failure to success, keeps its receipt, and sums the cost', async () => {
+    const ledger = new CostLedger()
+    const attempts: Array<{ cellId: string; seed: number; runAttemptId: string }> = []
+    let flakyCalls = 0
+    const dispatch: DispatchFn<FakeScenario, FakeArtifact> = async (scenario, ctx) => {
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          if (scenario.id === 'flaky') {
+            attempts.push({ cellId: ctx.cellId, seed: ctx.seed, runAttemptId: ctx.runAttemptId })
+            flakyCalls += 1
+            if (flakyCalls === 1) throw new Error('router returned HTTP 503 Service Unavailable')
+          }
+          return { text: `ok-${scenario.id}`, intent: scenario.intent }
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 10,
+          outputTokens: 5,
+          actualCostUsd: 0.01,
+        }),
+        receiptFromError: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 0.01,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
+    }
+
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: RETRY_SCENARIOS,
+      dispatch,
+      cellRetry: { attempts: 3, retryable: transientDispatchFailure() },
+      costLedger: ledger,
+      runDir,
+    })
+
+    const flaky = result.cells.find((c) => c.scenarioId === 'flaky')!
+    expect(flaky.error).toBeUndefined()
+    expect(flaky.retryAttempts).toBe(1)
+    expect(flaky.artifact).toEqual({ text: 'ok-flaky', intent: 'flaky' })
+    expect(flaky.costUsd).toBeCloseTo(0.02, 9)
+    expect(flaky.costCallIds).toHaveLength(2)
+    expect(result.cells.find((c) => c.scenarioId === 'steady')?.retryAttempts).toBeUndefined()
+
+    expect(attempts).toHaveLength(2)
+
+    // The failed attempt keeps its own receipt, so the 503 stays auditable
+    // after the retry succeeded.
+    const attemptReceipt = JSON.parse(
+      readFileSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'), 'utf8'),
+    ) as CampaignCellFailureReceipt<FakeArtifact>
+    expect(attemptReceipt).toMatchObject({
+      schemaVersion: 1,
+      failure: {
+        stage: 'dispatch',
+        error: { message: 'router returned HTTP 503 Service Unavailable' },
+      },
+      cell: { cellId: 'flaky:0', errorStage: 'dispatch' },
+    })
+
+    // The retry closed the coverage gap: the full design is scorable.
+    expect(campaignCoverage(result.cells, RETRY_SCENARIOS, 1, false).complete).toBe(true)
+    expect(result.aggregates.cellsFailed).toBe(0)
+    expect(ledger.list({ tags: { cellId: 'flaky:0' } })).toHaveLength(2)
+
+    // A rerun reuses the retried cell from cache without dispatching again.
+    const rerun = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: RETRY_SCENARIOS,
+      dispatch,
+      cellRetry: { attempts: 3, retryable: transientDispatchFailure() },
+      costLedger: ledger,
+      runDir,
+    })
+    expect(flakyCalls).toBe(2)
+    expect(rerun.cells.find((c) => c.scenarioId === 'flaky')).toMatchObject({
+      cached: true,
+      retryAttempts: 1,
+    })
+  })
+
+  it('exhausted attempts leave a failed cell, every receipt, and incomplete coverage', async () => {
+    const ledger = new CostLedger()
+    let calls = 0
+    const alwaysBroken: DispatchFn<FakeScenario, FakeArtifact> = async (_scenario, ctx) => {
+      const paid = await ctx.cost.runPaidCall({
+        actor: 'worker',
+        model: 'fake-model',
+        execute: async () => {
+          calls += 1
+          throw new Error(`HTTP 503 upstream unavailable (attempt ${calls})`)
+        },
+        receipt: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 0.01,
+        }),
+        receiptFromError: () => ({
+          model: 'fake-model',
+          inputTokens: 0,
+          outputTokens: 0,
+          actualCostUsd: 0.01,
+        }),
+      })
+      if (!paid.succeeded) throw paid.error
+      return paid.value
+    }
+
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: RETRY_SCENARIOS.slice(0, 1),
+      dispatch: alwaysBroken,
+      cellRetry: { attempts: 3, retryable: transientDispatchFailure() },
+      costLedger: ledger,
+      runDir,
+    })
+
+    expect(calls).toBe(3)
+    const cell = result.cells[0]!
+    expect(cell).toMatchObject({ cellId: 'flaky:0', errorStage: 'dispatch', retryAttempts: 2 })
+    expect(cell.error).toContain('HTTP 503')
+    expect(cell.costUsd).toBeCloseTo(0.03, 9)
+    // Every attempt's spend stays auditable, not just the last one.
+    expect(existsSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'))).toBe(true)
+    expect(existsSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-2.json'))).toBe(true)
+    const finalReceipt = JSON.parse(
+      readFileSync(join(runDir, 'flaky_0', 'failure-receipt.json'), 'utf8'),
+    ) as CampaignCellFailureReceipt<FakeArtifact>
+    expect(finalReceipt.cell.retryAttempts).toBe(2)
+    expect(finalReceipt.cost.totalCostUsd).toBeCloseTo(0.03, 9)
+    expect(campaignCoverage(result.cells, RETRY_SCENARIOS.slice(0, 1), 1, false).complete).toBe(
+      false,
+    )
+    expect(result.aggregates.cellsFailed).toBe(1)
+  })
+
+  it('does not retry a judge-stage failure under transientDispatchFailure()', async () => {
+    let dispatches = 0
+    const judge: JudgeConfig<FakeArtifact, FakeScenario> = {
+      name: 'unstable-judge',
+      dimensions: [{ key: 'quality', description: 'quality' }],
+      score: () => {
+        throw new Error('judge backend returned HTTP 503')
+      },
+    }
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS.slice(0, 1),
+      dispatch: async (scenario) => {
+        dispatches += 1
+        return { text: 'answer', intent: scenario.intent }
+      },
+      judges: [judge],
+      cellRetry: { attempts: 3, retryable: transientDispatchFailure() },
+      runDir,
+      expectUsage: 'off',
+    })
+    expect(dispatches).toBe(1)
+    expect(result.cells[0]).toMatchObject({ errorStage: 'judge', errorJudge: 'unstable-judge' })
+    expect(result.cells[0]!.retryAttempts).toBeUndefined()
+    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.json'))).toBe(true)
+    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.attempt-1.json'))).toBe(false)
+  })
+
+  it('abortOnCellError does not fire while a retryable failure has attempts left', async () => {
+    let calls = 0
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: RETRY_SCENARIOS.slice(0, 1),
+      abortOnCellError: true,
+      cellRetry: { attempts: 2, retryable: transientDispatchFailure() },
+      dispatch: async (scenario) => {
+        calls += 1
+        if (calls === 1) throw new Error('fetch failed')
+        return { text: 'recovered', intent: scenario.intent }
+      },
+      runDir,
+      expectUsage: 'off',
+    })
+    expect(calls).toBe(2)
+    expect(result.cells[0]!.error).toBeUndefined()
+    expect(result.cells[0]!.retryAttempts).toBe(1)
+  })
+
+  it('abortOnCellError rejects with the final attempt error once cellRetry is exhausted', async () => {
+    const attemptErrors = [new Error('HTTP 503 first'), new Error('HTTP 503 second')]
+    let calls = 0
+    const pending = runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: RETRY_SCENARIOS.slice(0, 1),
+      abortOnCellError: true,
+      cellRetry: { attempts: 2, retryable: transientDispatchFailure() },
+      dispatch: async () => {
+        const error = attemptErrors[calls]!
+        calls += 1
+        throw error
+      },
+      runDir,
+      expectUsage: 'off',
+    })
+    const outcome = await pending.then(
+      () => ({ kind: 'resolved' as const }),
+      (error: unknown) => ({ kind: 'rejected' as const, error }),
+    )
+    expect(outcome).toEqual({ kind: 'rejected', error: attemptErrors[1] })
+    expect(calls).toBe(2)
+    expect(
+      JSON.parse(readFileSync(join(runDir, 'flaky_0', 'failure-receipt.attempt-1.json'), 'utf8')),
+    ).toMatchObject({ failure: { error: { message: 'HTTP 503 first' } } })
+    expect(
+      JSON.parse(readFileSync(join(runDir, 'flaky_0', 'failure-receipt.json'), 'utf8')),
+    ).toMatchObject({ failure: { error: { message: 'HTTP 503 second' } } })
+  })
+
+  it('never retries an attempt that failed because the campaign was cancelled', async () => {
+    const owner = new AbortController()
+    let calls = 0
+    const result = await runCampaign<FakeScenario, FakeArtifact>({
+      scenarios: SCENARIOS.slice(0, 1),
+      signal: owner.signal,
+      cellRetry: { attempts: 5, retryable: transientDispatchFailure() },
+      dispatch: async () => {
+        calls += 1
+        owner.abort(new Error('operator cancelled'))
+        throw new Error('This operation was aborted')
+      },
+      runDir,
+      expectUsage: 'off',
+    })
+    expect(calls).toBe(1)
+    expect(result.cells[0]!.error).toBeDefined()
+    expect(result.cells[0]!.retryAttempts).toBeUndefined()
+    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.json'))).toBe(true)
+    expect(existsSync(join(runDir, 'a_0', 'failure-receipt.attempt-1.json'))).toBe(false)
+  })
 })

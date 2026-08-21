@@ -8,6 +8,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.152.0] — 2026-08-21
+
+### Added
+
+- `runCampaign({ cellRetry })` — opt-in bounded in-run retry of failed cells. A cell whose failure the caller's `retryable` predicate accepts is dispatched again in the same slot (same `cellId`, same seed, same cost tags) until it succeeds or `attempts` is exhausted, so one router 503 no longer leaves campaign coverage incomplete and forces `runImprovementLoop` to refuse the holdout comparison. Every attempt charges the shared cost ledger (`costUsd` and `costCallIds` on the final cell cover all attempts); a retried attempt keeps its evidence at `<cell>/failure-receipt.attempt-<n>.json` while a final failure keeps `failure-receipt.json`; the final cell records `retryAttempts`; `abortOnCellError` fires only after the last attempt fails, and a cancelled campaign never retries. The exported `transientDispatchFailure()` predicate retries only dispatch-stage failures that `isTransientTransportFailure` classifies as infrastructure hiccups — a judge-stage failure is never transport. `selfImprove({ cellRetry })` forwards the policy to baseline, candidate, and holdout campaigns. Fail-closed default: no retry unless opted in.
+
+---
+
 ## [0.151.0] — 2026-08-20
 
 ### Added

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isTransientTransportFailure } from './transient-failure'
+import type { CampaignCellFailureReceipt } from './run-campaign'
+import { isTransientTransportFailure, transientDispatchFailure } from './transient-failure'
 
 describe('isTransientTransportFailure', () => {
   it.each([
@@ -37,5 +38,24 @@ describe('isTransientTransportFailure', () => {
       true,
     )
     expect(isTransientTransportFailure('agent gave a wrong answer')).toBe(false)
+  })
+})
+
+describe('transientDispatchFailure', () => {
+  const failure = (
+    stage: 'dispatch' | 'judge',
+    message: string,
+  ): CampaignCellFailureReceipt['failure'] => ({ stage, error: { name: 'Error', message } })
+
+  it('retries a dispatch-stage transport hiccup', () => {
+    expect(transientDispatchFailure()(failure('dispatch', 'router returned HTTP 503'))).toBe(true)
+  })
+
+  it('never retries a judge-stage failure, even with a transient-looking message', () => {
+    expect(transientDispatchFailure()(failure('judge', 'HTTP 503 from judge backend'))).toBe(false)
+  })
+
+  it('scores a non-transport dispatch failure instead of retrying it', () => {
+    expect(transientDispatchFailure()(failure('dispatch', 'agent gave a wrong answer'))).toBe(false)
   })
 })

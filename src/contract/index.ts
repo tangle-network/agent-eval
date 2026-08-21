@@ -60,9 +60,11 @@ export {
 } from '../campaign/presets/run-improvement-loop'
 export {
   type CampaignCellFailureReceipt,
+  type CampaignCellRetryPolicy,
   type RunCampaignOptions,
   runCampaign,
 } from '../campaign/run-campaign'
+export { transientDispatchFailure } from '../campaign/transient-failure'
 
 // ── Reference-answer judge ───────────────────────────────────────────
 

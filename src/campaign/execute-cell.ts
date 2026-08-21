@@ -18,7 +18,11 @@ import {
 } from './cell-cache'
 import { cellDirectory, stableCostTagsFor } from './cell-schedule'
 import { runJudgeCell } from './judge-cell'
-import type { CampaignCellFailureReceipt, RunCampaignOptions } from './run-campaign'
+import type {
+  CampaignCellFailureReceipt,
+  CampaignCellRetryPolicy,
+  RunCampaignOptions,
+} from './run-campaign'
 import type { CampaignStorage } from './storage'
 import type {
   CampaignArtifactWriter,
@@ -46,6 +50,11 @@ export interface ExecuteCellArgs<TScenario extends Scenario, TArtifact> {
   costLedger: CostLedgerHandle
   costPhase: string
   runAttemptId: string
+  /** 1-based attempt number for this slot under `cellRetry`. */
+  attempt: number
+  cellRetry?: CampaignCellRetryPolicy
+  /** Fires when the cell's failure is final — never for an attempt that
+   *  `cellRetry` will dispatch again. */
   onFailure?: (failure: CellFailure) => void
 }
 
@@ -59,6 +68,9 @@ export interface ExecuteCellResult<TArtifact> {
   cell: CampaignCellResult<TArtifact>
   artifactsByPath: Record<string, string>
   failure?: CellFailure
+  /** True when `cellRetry` will dispatch this slot again: `cell` is not final
+   *  and must not enter the campaign result. */
+  retry?: boolean
 }
 
 export async function executeCell<TScenario extends Scenario, TArtifact>(
@@ -331,13 +343,14 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
     durationMs: Date.now() - startMs,
     seed: args.slot.cellSeed,
     cached: false,
+    ...(args.attempt > 1 ? { retryAttempts: args.attempt - 1 } : {}),
     ...(failure ? { errorStage: failure.stage } : {}),
     ...(failure?.judge ? { errorJudge: failure.judge } : {}),
     error: errorMessage,
   }
 
+  let retry = false
   if (failure) {
-    const failurePath = join(cellDir, 'failure-receipt.json')
     const receipt: CampaignCellFailureReceipt<TArtifact> = {
       schemaVersion: 1,
       runAttemptId: args.runAttemptId,
@@ -350,9 +363,24 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
       cell,
       cost: args.costLedger.summary({ phase: args.costPhase, tags: costTags }),
     }
+    // The retry decision is made where the receipt is written so the receipt
+    // name records it: a retried attempt keeps its evidence at
+    // `failure-receipt.attempt-<n>.json` and never fires `onFailure` — a
+    // retryable failure is not a campaign error until attempts are exhausted.
+    // A cancelled campaign and a fatal accounting error are never retried.
+    retry =
+      args.cellRetry !== undefined &&
+      args.attempt < args.cellRetry.attempts &&
+      !args.signal.aborted &&
+      fatalCellError === undefined &&
+      args.cellRetry.retryable(receipt.failure)
+    const receiptName = retry
+      ? `failure-receipt.attempt-${args.attempt}.json`
+      : 'failure-receipt.json'
+    const failurePath = join(cellDir, receiptName)
     storage.write(failurePath, JSON.stringify(receipt, null, 2))
-    artifactsByPath[`${args.slot.cellId}/failure-receipt.json`] = failurePath
-    args.onFailure?.(failure)
+    artifactsByPath[`${args.slot.cellId}/${receiptName}`] = failurePath
+    if (!retry) args.onFailure?.(failure)
   }
 
   await trace.flush()
@@ -362,7 +390,7 @@ export async function executeCell<TScenario extends Scenario, TArtifact>(
   }
 
   if (fatalCellError !== undefined) throw fatalCellError
-  return { cell, artifactsByPath, ...(failure ? { failure } : {}) }
+  return { cell, artifactsByPath, ...(failure ? { failure } : {}), ...(retry ? { retry } : {}) }
 }
 
 async function waitForFailedCellCostSettlement(input: {

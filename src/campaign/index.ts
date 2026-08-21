@@ -324,6 +324,7 @@ export {
 } from './provenance'
 export {
   type CampaignCellFailureReceipt,
+  type CampaignCellRetryPolicy,
   type CampaignRunPlan,
   type CampaignRunPlanCell,
   type PlanCampaignRunOptions,
@@ -433,7 +434,11 @@ export {
   surfaceContentHash,
   surfaceHash,
 } from './surface-identity'
-export { isTransientTransportFailure, type TransientFailureOptions } from './transient-failure'
+export {
+  isTransientTransportFailure,
+  type TransientFailureOptions,
+  transientDispatchFailure,
+} from './transient-failure'
 export type {
   CampaignAggregates,
   CampaignArtifactWriter,

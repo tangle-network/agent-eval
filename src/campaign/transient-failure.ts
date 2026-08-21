@@ -17,6 +17,8 @@
  * option instead of hardcoding either.
  */
 
+import type { CampaignCellFailureReceipt } from './run-campaign'
+
 export interface TransientFailureOptions {
   /**
    * Treat full-duration timeouts ("timeout after 180000ms") as transient.
@@ -47,4 +49,20 @@ export function isTransientTransportFailure(
   if ((opts.retryFullDurationTimeouts ?? false) && TIMEOUT_PATTERN.test(message)) return true
   for (const p of opts.extraPatterns ?? []) if (p.test(message)) return true
   return false
+}
+
+/**
+ * Ready-made `cellRetry.retryable` predicate: true for a dispatch-stage
+ * failure whose error message `isTransientTransportFailure` classifies as an
+ * infrastructure hiccup. A judge-stage failure is never retried here — the
+ * dispatch already produced an artifact, so re-dispatching would score a
+ * different sample. A per-cell dispatch deadline ("dispatch exceeded <N>ms")
+ * is not transient by default; opt in via `extraPatterns` or
+ * `retryFullDurationTimeouts` when queue starvation eats the clock.
+ */
+export function transientDispatchFailure(
+  opts: TransientFailureOptions = {},
+): (failure: CampaignCellFailureReceipt['failure']) => boolean {
+  return (failure) =>
+    failure.stage === 'dispatch' && isTransientTransportFailure(failure.error.message, opts)
 }

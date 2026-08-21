@@ -15,7 +15,12 @@ import { computeAggregates } from './cell-aggregates'
 import { assertScheduleCachesReusable } from './cell-cache'
 import { buildCellSchedule } from './cell-schedule'
 import { assertCampaignDesign, campaignScenarioIdentity, campaignSplitDigest } from './coverage'
-import { type CellFailure, defaultBuildTraceWriter, executeCell } from './execute-cell'
+import {
+  type CellFailure,
+  defaultBuildTraceWriter,
+  type ExecuteCellResult,
+  executeCell,
+} from './execute-cell'
 import { resolveRunDir } from './run-dir'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from './storage'
 import type {
@@ -95,8 +100,18 @@ export interface RunCampaignOptions<TScenario extends Scenario, TArtifact> {
    * rejects with the exact error thrown by that dispatch or judge.
    * Default false preserves the normal behavior of returning failed cells and
    * continuing the remaining schedule.
+   * With `cellRetry`, a retryable failure is not an error yet: this abort
+   * fires only when a cell's final attempt fails.
    */
   abortOnCellError?: boolean
+  /**
+   * Opt-in bounded in-run retry of a failed cell. Absent by default: a failed
+   * cell is final on its first attempt. A retried attempt re-runs the SAME
+   * slot — same `cellId`, same `seed`, same cost tags — so the schedule,
+   * manifest, and pairing are unchanged. An attempt that failed because the
+   * campaign was cancelled is never retried.
+   */
+  cellRetry?: CampaignCellRetryPolicy
   /**
    * Per-cell dispatch deadline in ms. A `dispatch` that neither resolves nor
    * rejects within this window is a hang (a stalled model request, an
@@ -184,6 +199,26 @@ export interface CampaignCellFailureReceipt<TArtifact = unknown> {
 }
 
 /**
+ * Bounded in-run retry of failed cells. Every attempt dispatches the same
+ * slot and charges the shared cost ledger, so the final cell's `costUsd`,
+ * `tokenUsage`, and `costCallIds` cover all attempts. Each retried attempt
+ * keeps its failure receipt at `<cell>/failure-receipt.attempt-<n>.json`; a
+ * final failed attempt keeps the usual `<cell>/failure-receipt.json`. The
+ * final cell records the retry count as `retryAttempts`. Artifacts and trace
+ * spans written by a later attempt replace those of the retried attempt; the
+ * per-attempt failure receipts are the durable evidence.
+ */
+export interface CampaignCellRetryPolicy {
+  /** Total attempts per cell, including the first. A positive safe integer. */
+  attempts: number
+  /** Decides whether a failed attempt is dispatched again. Receives the
+   *  receipt's `failure` record. `transientDispatchFailure()` is the
+   *  ready-made predicate for infrastructure hiccups (502/503/504, dropped
+   *  streams, admission rejections). */
+  retryable: (failure: CampaignCellFailureReceipt['failure']) => boolean
+}
+
+/**
  * Core campaign orchestrator: fan scenarios through dispatch, score with judges, aggregate bootstrap CIs, and persist reproducible `CampaignResult` records.
  */
 export async function runCampaign<TScenario extends Scenario, TArtifact>(
@@ -201,6 +236,17 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
   assertCampaignDesign(opts.scenarios, reps)
   if (!Number.isSafeInteger(dispatchShutdownTimeoutMs) || dispatchShutdownTimeoutMs <= 0) {
     throw new Error('runCampaign: dispatchShutdownTimeoutMs must be a positive safe integer')
+  }
+  const cellRetry = opts.cellRetry
+  if (cellRetry !== undefined) {
+    if (!Number.isSafeInteger(cellRetry.attempts) || cellRetry.attempts < 1) {
+      throw new Error(
+        'runCampaign: cellRetry.attempts must be a positive safe integer (total attempts, including the first)',
+      )
+    }
+    if (typeof cellRetry.retryable !== 'function') {
+      throw new Error('runCampaign: cellRetry.retryable must be a function')
+    }
   }
 
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
@@ -277,31 +323,43 @@ export async function runCampaign<TScenario extends Scenario, TArtifact>(
             const myIdx = nextIdx++
             if (myIdx >= schedule.length) return
             const slot = schedule[myIdx]!
-            const result = await executeCell({
-              slot,
-              opts,
-              manifestHash,
-              resumable,
-              now,
-              storage,
-              buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
-              signal: campaignSignal,
-              dispatchTimeoutMs: opts.dispatchTimeoutMs,
-              dispatchShutdownTimeoutMs,
-              costLedger,
-              costPhase,
-              runAttemptId,
-              onFailure: opts.abortOnCellError
-                ? (failure) => {
-                    if (firstCellFailure === undefined) {
-                      firstCellFailure = failure
-                      campaignAbort.abort(failure.cause)
+            // A retried attempt re-runs the same slot until it succeeds, the
+            // policy is exhausted, or the campaign is cancelled. Each attempt
+            // registers its own artifacts (including per-attempt failure
+            // receipts); only the final attempt's cell enters the result.
+            let attempt = 1
+            let result: ExecuteCellResult<TArtifact>
+            while (true) {
+              result = await executeCell({
+                slot,
+                opts,
+                manifestHash,
+                resumable,
+                now,
+                storage,
+                buildTraceWriter: opts.buildTraceWriter ?? defaultBuildTraceWriter(storage),
+                signal: campaignSignal,
+                dispatchTimeoutMs: opts.dispatchTimeoutMs,
+                dispatchShutdownTimeoutMs,
+                costLedger,
+                costPhase,
+                runAttemptId,
+                attempt,
+                cellRetry,
+                onFailure: opts.abortOnCellError
+                  ? (failure) => {
+                      if (firstCellFailure === undefined) {
+                        firstCellFailure = failure
+                        campaignAbort.abort(failure.cause)
+                      }
                     }
-                  }
-                : undefined,
-            })
+                  : undefined,
+              })
+              Object.assign(artifactsByPath, result.artifactsByPath)
+              if (!result.retry) break
+              attempt += 1
+            }
             cellsRef.push(result.cell)
-            Object.assign(artifactsByPath, result.artifactsByPath)
             // Capture into LabeledScenarioStore unless explicitly disabled.
             if (opts.labeledStore && opts.labeledStore !== 'off' && !result.cell.error) {
               await captureToStore({

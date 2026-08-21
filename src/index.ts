@@ -262,8 +262,13 @@ export { buildTrajectory } from './trajectory'
 export type { ActiveLearningOptions, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
 
-export type { CampaignCellFailureReceipt, RunCampaignOptions } from './campaign/run-campaign'
+export type {
+  CampaignCellFailureReceipt,
+  CampaignCellRetryPolicy,
+  RunCampaignOptions,
+} from './campaign/run-campaign'
 export { runCampaign } from './campaign/run-campaign'
+export { transientDispatchFailure } from './campaign/transient-failure'
 
 export type { CampaignResult } from './campaign/types'
 
