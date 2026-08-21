@@ -1,0 +1,333 @@
+{
+  "why": "one accepted subject per grammar family; extraction stays TypeScript-side",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-knowledge:wiki:retry-policy"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-knowledge:wiki:retry-policy#backoff"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-knowledge:claim:the router retries twice"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-knowledge:raw:source-42"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-knowledge:stale:retry-policy"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "system-prompt:tool use"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "skill:agent-eval"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "tool-doc:bash"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "tool-doc:bash:timeout semantics"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "new-tool:diff-apply"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "mcp:github"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "mcp:github:create_issue"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "hook:pre-commit"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "subagent:reviewer"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "workflow:release"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "rollout-policy:temperature"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "agent-profile:model.default"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "code:src/analyst/engine.ts"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "rag:corpus-a:doc-7"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "memory:last-run"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "scaffolding:retry loop"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "output-schema:findings"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "websearch:outdated:pricing"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "prior-run-summary:cost"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "appworld.task.530b157_1"
+    }
+  ],
+  "acceptedIndexes": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "rejections": []
+}

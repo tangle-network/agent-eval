@@ -35,26 +35,3 @@ export function coerceJson(text: string): unknown {
     return undefined
   }
 }
-
-/**
- * Coerce arbitrary actor/structurer output into an array of candidate finding
- * rows: a JSON string → parse; a single object → 1-element array; an array →
- * as-is; anything else → []. Callers still run each row through Zod
- * (`parseRawFinding`) — this only fixes the shape and never invents fields.
- */
-export function coerceToFindingRows(raw: unknown): unknown[] {
-  let value = raw
-  if (typeof value === 'string') {
-    const parsed = coerceJson(value)
-    if (parsed === undefined) return []
-    value = parsed
-  }
-  if (Array.isArray(value)) return value
-  if (value && typeof value === 'object') {
-    // Some models wrap the array as { findings: [...] } — unwrap that one case.
-    const inner = (value as Record<string, unknown>).findings
-    if (Array.isArray(inner)) return inner
-    return [value]
-  }
-  return []
-}

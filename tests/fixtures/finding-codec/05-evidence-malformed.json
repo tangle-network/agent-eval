@@ -1,0 +1,61 @@
+{
+  "why": "evidence must be a non-empty array of {uri, excerpt?}",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [],
+      "confidence": 0.9
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": ""
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t/span/s",
+          "note": "x"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": "trace://t/span/s",
+      "confidence": 0.9
+    }
+  ],
+  "acceptedIndexes": [],
+  "rejections": [
+    {
+      "index": 0,
+      "path": "evidence",
+      "code": "schema"
+    },
+    {
+      "index": 1,
+      "path": "evidence.0.uri",
+      "code": "schema"
+    },
+    {
+      "index": 2,
+      "path": "evidence.0",
+      "code": "schema"
+    },
+    {
+      "index": 3,
+      "path": "evidence",
+      "code": "schema"
+    }
+  ]
+}

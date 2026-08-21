@@ -37,6 +37,9 @@ jobs:
       - name: Model id request gate
         run: pnpm run check:model-ids
 
+      - name: Finding wire contract is generated from the schema
+        run: pnpm run contract:finding:check
+
       - name: Typecheck
         run: pnpm typecheck
 

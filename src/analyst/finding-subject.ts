@@ -98,6 +98,59 @@ export const FINDING_SUBJECT_KINDS: ReadonlyArray<FindingSubjectKind> = [
   'cluster',
 ]
 
+// ── acceptance grammar ────────────────────────────────────────────────
+
+/**
+ * The subject grammar as pure acceptance patterns, in the parser's own order.
+ *
+ * `parseFindingSubject` below decides acceptance AND extracts typed
+ * components; only acceptance can cross a process boundary, because the typed
+ * components are consumed by TypeScript adapters. These patterns are the
+ * portable half: `scripts/emit-finding-contract.mjs` writes them into the
+ * contract the Python client validates against, so one grammar governs both
+ * sides. `finding-subject.test.ts` proves the table and the parser agree on
+ * every kind's valid and invalid forms — a branch added to one and not the
+ * other fails there.
+ */
+export const FINDING_SUBJECT_PATTERNS: ReadonlyArray<{
+  readonly kind: FindingSubjectKind
+  readonly pattern: string
+}> = [
+  {
+    kind: 'knowledge.wiki',
+    pattern: '^agent-knowledge:wiki:[a-z0-9][a-z0-9-]*(?:#[a-z0-9][a-z0-9-]*)?$',
+  },
+  { kind: 'knowledge.claim', pattern: '^agent-knowledge:claim:\\s*\\S[\\s\\S]*$' },
+  { kind: 'knowledge.raw', pattern: '^agent-knowledge:raw:\\s*\\S[\\s\\S]*$' },
+  { kind: 'knowledge.stale', pattern: '^agent-knowledge:stale:[a-z0-9][a-z0-9-]*$' },
+  { kind: 'system-prompt', pattern: '^system-prompt:\\s*\\S[\\s\\S]*$' },
+  { kind: 'skill', pattern: '^skill:[a-z0-9][a-z0-9_.-]*$' },
+  { kind: 'tool-doc', pattern: '^tool-doc:[a-z0-9][a-z0-9_-]*(?::\\s*\\S[\\s\\S]*)?$' },
+  { kind: 'new-tool', pattern: '^new-tool:[a-z0-9][a-z0-9_-]*$' },
+  { kind: 'mcp', pattern: '^mcp:[a-z0-9][a-z0-9_.-]*(?::[a-z0-9][a-z0-9_.-]*)?$' },
+  { kind: 'hook', pattern: '^hook:[a-z0-9][a-z0-9_.-]*$' },
+  { kind: 'subagent', pattern: '^subagent:[a-z0-9][a-z0-9_.-]*$' },
+  { kind: 'workflow', pattern: '^workflow:[a-z0-9][a-z0-9_.-]*$' },
+  { kind: 'rollout-policy', pattern: '^rollout-policy:\\s*\\S[\\s\\S]*$' },
+  { kind: 'agent-profile', pattern: '^agent-profile:\\s*\\S[\\s\\S]*$' },
+  { kind: 'code', pattern: '^code:\\s*\\S[\\s\\S]*$' },
+  { kind: 'rag', pattern: '^rag:[a-z0-9][a-z0-9_-]*:\\s*\\S[\\s\\S]*$' },
+  { kind: 'memory', pattern: '^memory:\\s*\\S[\\s\\S]*$' },
+  { kind: 'scaffolding', pattern: '^scaffolding:\\s*\\S[\\s\\S]*$' },
+  { kind: 'output-schema', pattern: '^output-schema:\\s*\\S[\\s\\S]*$' },
+  { kind: 'websearch.outdated', pattern: '^websearch:outdated:\\s*\\S[\\s\\S]*$' },
+  { kind: 'prior-run-summary', pattern: '^prior-run-summary:\\s*\\S[\\s\\S]*$' },
+  { kind: 'cluster', pattern: '^[a-z0-9][a-z0-9._-]{0,79}$' },
+]
+
+/** True when `subject` matches the grammar. The portable half of the parser:
+ *  the same decision the Python client makes from the emitted contract. */
+export function isFindingSubject(subject: string): boolean {
+  const trimmed = subject.trim()
+  if (trimmed.length === 0) return false
+  return FINDING_SUBJECT_PATTERNS.some((entry) => new RegExp(entry.pattern).test(trimmed))
+}
+
 // ── parser ────────────────────────────────────────────────────────────
 
 /**

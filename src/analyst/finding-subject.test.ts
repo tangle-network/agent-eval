@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   FINDING_SUBJECT_KINDS,
+  FINDING_SUBJECT_PATTERNS,
   FINDING_SUBJECT_SYNTAX,
   type FindingSubject,
   findingSubjectGrammarPromptFor,
+  isFindingSubject,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
   renderFindingSubject,
@@ -350,5 +352,71 @@ describe('KIND_EXPECTED_SUBJECTS', () => {
 
   it('rejects an unknown analyst kind instead of emitting an empty grammar', () => {
     expect(() => findingSubjectGrammarPromptFor('unknown')).toThrow(/unknown analyst kind/)
+  })
+})
+
+describe('the portable acceptance table', () => {
+  /**
+   * Subjects covering every kind's accepted form plus the shapes each branch
+   * must refuse. The table crosses the process boundary; the parser stays in
+   * TypeScript. If they disagree on any of these, Python and TypeScript accept
+   * different findings, which is the defect this contract exists to prevent.
+   */
+  const CORPUS = [
+    'agent-knowledge:wiki:retry-policy',
+    'agent-knowledge:wiki:retry-policy#backoff',
+    'agent-knowledge:wiki:Retry-Policy',
+    'agent-knowledge:wiki:',
+    'agent-knowledge:claim:the router retries twice',
+    'agent-knowledge:claim:   ',
+    'agent-knowledge:raw:source-42',
+    'agent-knowledge:stale:retry-policy',
+    'agent-knowledge:stale:retry policy',
+    'system-prompt:tool use',
+    'system-prompt:',
+    'skill:agent-eval',
+    'skill:Agent Eval',
+    'tool-doc:bash',
+    'tool-doc:bash:timeout semantics',
+    'tool-doc:bash:',
+    'new-tool:diff-apply',
+    'mcp:github',
+    'mcp:github:create_issue',
+    'hook:pre-commit',
+    'subagent:reviewer',
+    'workflow:release',
+    'rollout-policy:temperature',
+    'agent-profile:model.default',
+    'code:src/analyst/engine.ts',
+    'rag:corpus-a:doc-7',
+    'rag:corpus-a:',
+    'memory:last-run',
+    'scaffolding:retry loop',
+    'output-schema:findings',
+    'websearch:outdated:pricing',
+    'prior-run-summary:cost',
+    'appworld.task.530b157_1',
+    'failure-cluster',
+    'Not A Subject',
+    'has spaces',
+    '',
+    '   ',
+    'a'.repeat(81),
+    'unknown-prefix:value',
+  ]
+
+  it.each(CORPUS)('agrees with parseFindingSubject on %j', (subject) => {
+    expect(isFindingSubject(subject)).toBe(parseFindingSubject(subject) !== null)
+  })
+
+  it('names every kind the parser can return, so a new branch cannot skip the table', () => {
+    const tabled = new Set(FINDING_SUBJECT_PATTERNS.map((entry) => entry.kind))
+    expect([...tabled].sort()).toEqual([...FINDING_SUBJECT_KINDS].sort())
+  })
+
+  it('compiles every pattern', () => {
+    for (const entry of FINDING_SUBJECT_PATTERNS) {
+      expect(() => new RegExp(entry.pattern)).not.toThrow()
+    }
   })
 })

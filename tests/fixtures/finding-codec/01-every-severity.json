@@ -1,0 +1,68 @@
+{
+  "why": "every severity the schema names is accepted",
+  "input": [
+    {
+      "severity": "critical",
+      "claim": "claim critical",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "high",
+      "claim": "claim high",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "medium",
+      "claim": "claim medium",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "low",
+      "claim": "claim low",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "info",
+      "claim": "claim info",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    }
+  ],
+  "acceptedIndexes": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "rejections": []
+}

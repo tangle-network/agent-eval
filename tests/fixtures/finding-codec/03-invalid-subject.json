@@ -1,0 +1,59 @@
+{
+  "why": "a subject outside the grammar is refused with its own code, not silently lifted",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "Not A Subject"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "unknown-prefix:value"
+    },
+    {
+      "severity": "high",
+      "claim": "the retry loop never backs off",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9,
+      "subject": "has spaces"
+    }
+  ],
+  "acceptedIndexes": [],
+  "rejections": [
+    {
+      "index": 0,
+      "path": "subject",
+      "code": "invalid-subject"
+    },
+    {
+      "index": 1,
+      "path": "subject",
+      "code": "invalid-subject"
+    },
+    {
+      "index": 2,
+      "path": "subject",
+      "code": "invalid-subject"
+    }
+  ]
+}

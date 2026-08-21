@@ -443,7 +443,6 @@ A `none` row is a deletion candidate, not a deletion order. A symbol stays when 
 | `codeTraceBenchCase` | production | this package: src/analyst/benchmark-public-data.ts:11 |
 | `codeTracerPredictionsToFindings` | none | only this package's tests: src/analyst/benchmark-datasets.test.ts:3 |
 | `coerceJson` | production | this package: src/analyst/finding-signature.ts:10 |
-| `coerceToFindingRows` | none | only this package's tests: src/analyst/parse-tolerant.test.ts:2 |
 | `compareAnalystRunners` | production | this package: src/analyst/benchmark-command-result.ts:15 |
 | `computeFindingId` | production | agent-runtime:src/runtime/index.ts |
 | `CONTROL_INTEGRITY_ANALYST` | none | only this package's tests: src/analyst/kinds/control-integrity.test.ts:5 |

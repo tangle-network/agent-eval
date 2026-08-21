@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import inspect
 import json
-import math
 import os
 import platform
 import re
@@ -26,23 +25,15 @@ from urllib.parse import quote, urlparse
 import httpx
 import pydantic
 
+from agent_eval_rpc.finding_codec import (
+    RejectedFindingRow,
+    canonical_findings_json,
+    decode_raw_finding_array,
+    describe_rejected_rows,
+)
 from agent_eval_rpc.optimizer_bridge_common import atomic_write_json
 
 _DEFAULT_MAX_INPUT_BYTES = 4 * 1024 * 1024
-_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
-_FINDING_KEYS = frozenset(
-    {
-        "severity",
-        "claim",
-        "subject",
-        "confidence",
-        "rationale",
-        "recommended_action",
-        "evidence",
-    }
-)
-_REQUIRED_FINDING_KEYS = frozenset({"severity", "claim", "confidence", "evidence"})
-_EVIDENCE_KEYS = frozenset({"uri", "excerpt"})
 _TRACE_ANALYSIS_PROMPT = """
 Investigate the supplied question using the enabled trace tools and Python for aggregation.
 Follow analyst_instructions as task-specific policy.
@@ -523,6 +514,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
     findings_salvage: str | None = None
     format_repair_used = False
     repair_error: str | None = None
+    rejected_rows: list[RejectedFindingRow] = []
     if typed_findings is not None:
         # The typed SUBMIT path emits no findings_json marker to salvage and no
         # prose to repair; its only recovery is the bounded typed repair inside
@@ -539,23 +531,48 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         findings = []
         runtime = {**runtime, "repair": repair_diagnostics}
     else:
-        raw_findings_json = _prediction_string(prediction, "findings_json")
-        findings = _parse_findings_json(raw_findings_json)
+        # The submitted value, NOT a string forced through str(): a list or
+        # mapping is canonical-JSON encoded by the codec, and any other type
+        # raises rather than becoming an empty result.
+        raw_findings_json = _prediction_field(prediction, "findings_json")
+        if isinstance(raw_findings_json, str):
+            raw_findings_json = raw_findings_json.strip()
+        findings, rejected_rows = _parse_findings_json(raw_findings_json)
         # The recovered-answer placeholder is adapter output, not model text, so
         # it never feeds salvage and never earns a repair turn.
         answer_text = "" if answer == _SAFE_FIELD_DEFAULTS["answer"] else answer
         if not findings:
-            for source_text in (raw_findings_json, answer_text):
-                salvaged = _salvage_findings_json(source_text) if source_text else None
+            salvage_sources = [
+                source
+                for source in (raw_findings_json, answer_text)
+                if isinstance(source, str) and source
+            ]
+            for source_text in salvage_sources:
+                salvaged = _salvage_findings_json(source_text)
                 if salvaged:
                     findings, findings_salvage = salvaged
+                    rejected_rows = []
                     break
         if not findings and findings_salvage is None and answer_text:
-            # EXACTLY one repair turn on the same LM handle: the model re-emits
-            # the strict array from its own answer. The call is visible in
-            # modelCalls (counted below) and flagged in the runtime record.
+            # EXACTLY one repair turn on the same LM handle, carrying the exact
+            # row defects. A valid submission never reaches here. The call is
+            # visible in modelCalls (counted below) and flagged in the runtime
+            # record.
             format_repair_used = True
-            findings, repair_error = _repair_findings_turn(lm, answer_text)
+            findings, repaired_rejections, repair_error = _repair_findings_turn(
+                lm,
+                answer_text,
+                describe_rejected_rows(rejected_rows),
+            )
+            if findings:
+                rejected_rows = repaired_rejections
+            elif repair_error is None and not rejected_rows and repaired_rejections:
+                rejected_rows = repaired_rejections
+        if rejected_rows:
+            runtime = {
+                **runtime,
+                "rejectedFindings": [row.to_dict() for row in rejected_rows],
+            }
     model_calls = _lm_history_length(lm) - history_before
     if model_calls < 0:
         raise RuntimeError("DSPy LM history shrank during trace analysis")
@@ -1162,9 +1179,16 @@ def _build_block_findings(
         }
         if block.rationale is not None and block.rationale.strip():
             finding["rationale"] = block.rationale
-        # Invariant check on code-built output: a violation is a bridge bug and
-        # must crash, not flow downstream as model noise.
-        findings.append(_validate_finding(finding, index))
+        # Invariant check on code-built output, through the same codec the
+        # model path uses: a violation is a bridge bug and must crash, not flow
+        # downstream as model noise.
+        accepted, rejected = decode_raw_finding_array([finding])
+        if rejected:
+            raise ValueError(
+                f"typed SUBMIT block {index} built an invalid finding: "
+                f"{describe_rejected_rows(rejected)}"
+            )
+        findings.extend(accepted)
     return findings
 
 
@@ -1454,28 +1478,19 @@ def _validate_analyze_input(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _parse_findings_json(value: str) -> list[dict[str, Any]]:
-    # findings_json is model output. A model that wraps the array in a fenced
-    # block or leaves prose around it should not void a completed investigation,
-    # so the array is extracted before parsing. A genuinely absent array means
-    # "no citable finding", which is a valid empty result, not a crash. Each
-    # surviving row is still validated strictly.
-    return _validated_rows(_extract_json_array(value))
+def _parse_findings_json(value: Any) -> tuple[list[dict[str, Any]], list[RejectedFindingRow]]:
+    """Decode a submitted findings value through the shared wire codec.
 
-
-def _validated_rows(parsed: list[Any] | None) -> list[dict[str, Any]]:
-    if parsed is None:
-        return []
-    rows: list[dict[str, Any]] = []
-    for index, row in enumerate(parsed):
-        # One malformed finding row is dropped, not fatal: the TypeScript
-        # boundary re-validates every surviving row, so nothing invalid reaches
-        # the score, and a completed investigation keeps its usable findings.
-        try:
-            rows.append(_validate_finding(row, index))
-        except ValueError:
-            continue
-    return rows
+    The codec is generated from the TypeScript schema, so a row accepted here
+    is a row TypeScript accepts. A list or mapping is canonical-JSON encoded
+    before it crosses the string boundary, because a Python repr is not JSON
+    and parsing one used to yield zero rows and report success. A value that is
+    not a findings array raises; only an explicitly empty array is an empty
+    result.
+    """
+    if isinstance(value, (list, dict)):
+        value = canonical_findings_json(value)
+    return decode_raw_finding_array(value)
 
 
 # The findings_json marker family with damaged brackets — a truncated final
@@ -1498,10 +1513,10 @@ def _salvage_findings_json(text: str) -> tuple[list[dict[str, Any]], str] | None
         return None
     markers = list(_FINDINGS_MARKER_FAMILY.finditer(stripped))
     if markers:
-        rows = _validated_rows(_extract_json_array(stripped[markers[-1].end() :]))
+        rows, _ = decode_raw_finding_array_or_empty(stripped[markers[-1].end() :])
         if rows:
             return rows, "malformed-marker"
-    rows = _validated_rows(_last_findings_array(stripped))
+    rows = _accepted_rows(_last_findings_array(stripped))
     if rows:
         return rows, "trailing-json-array"
     return None
@@ -1531,31 +1546,72 @@ def _looks_like_finding(row: Any) -> bool:
     return isinstance(row, dict) and "claim" in row and "evidence" in row
 
 
-_FINDINGS_REPAIR_PROMPT = """Your previous trace-analysis answer is below.
-Re-emit ONLY the strict findings_json JSON array for that answer: no prose, no Markdown fences, no field markers.
+_FINDINGS_REPAIR_SHAPE = """Re-emit ONLY the strict findings_json JSON array for that answer: no prose, no Markdown fences, no field markers.
 Each element must contain only severity, claim, optional subject, confidence, optional rationale, optional recommended_action, and evidence (a non-empty array of objects with uri and optional excerpt).
-Use only identifiers and quotes already present in the answer; never invent evidence.
+Use only identifiers and quotes already present in the answer; never invent evidence."""
+
+# The generic analysis contract: a finding is a citable claim of any kind.
+# CodeTrace's "incorrect step" vocabulary belongs to the CodeTrace contract
+# only -- asking a generic analysis for incorrect steps erased valid factual
+# findings, because an answer with no incorrect step still has citable claims.
+_FINDINGS_REPAIR_PROMPT = f"""Your previous trace-analysis answer is below.
+{_FINDINGS_REPAIR_SHAPE}
+Return [] only when the answer contains no citable claim.
+
+ANSWER:
+"""
+
+_CODETRACE_FINDINGS_REPAIR_PROMPT = f"""Your previous trace-analysis answer is below.
+{_FINDINGS_REPAIR_SHAPE}
 Return [] if the answer reports no incorrect steps.
 
 ANSWER:
 """
 
 
-def _repair_findings_turn(lm: Any, answer_text: str) -> tuple[list[dict[str, Any]], str | None]:
+def decode_raw_finding_array_or_empty(
+    value: Any,
+) -> tuple[list[dict[str, Any]], list[RejectedFindingRow]]:
+    """Decode salvaged text, treating "not a findings array" as nothing found.
+
+    Salvage runs over arbitrary model prose that may hold no array at all, so a
+    missing array here is the expected outcome, not a defect. Every row it does
+    find is still validated by the codec.
+    """
+    try:
+        return decode_raw_finding_array(value)
+    except TypeError:
+        return [], []
+
+
+def _accepted_rows(value: Any) -> list[dict[str, Any]]:
+    accepted, _ = decode_raw_finding_array_or_empty(value)
+    return accepted
+
+
+def _repair_findings_turn(
+    lm: Any,
+    answer_text: str,
+    defects: str,
+    prompt: str = _FINDINGS_REPAIR_PROMPT,
+) -> tuple[list[dict[str, Any]], list[RejectedFindingRow], str | None]:
     # A repair failure must not void the already-completed investigation: the
     # error is returned for the runtime record instead of being raised, and the
-    # findings stay empty.
+    # findings stay empty. The exact row defects go INTO the turn, so the model
+    # is told what to fix rather than asked to guess.
+    instruction = f"{prompt}{answer_text}"
+    if defects:
+        instruction = f"{instruction}\n\nThe previous submission was refused:\n{defects}"
     try:
-        completions = lm(
-            messages=[{"role": "user", "content": f"{_FINDINGS_REPAIR_PROMPT}{answer_text}"}]
-        )
+        completions = lm(messages=[{"role": "user", "content": instruction}])
     except Exception as error:  # noqa: BLE001 — recorded in runtime, never silent
         summary = " ".join(str(error).split())[:200]
-        return [], f"{type(error).__name__}: {summary}"
+        return [], [], f"{type(error).__name__}: {summary}"
     completion = completions[0] if isinstance(completions, list) and completions else completions
     if not isinstance(completion, str):
-        return [], f"repair completion has unexpected type {type(completion).__name__}"
-    return _validated_rows(_extract_json_array(completion)), None
+        return [], [], f"repair completion has unexpected type {type(completion).__name__}"
+    accepted, rejected = decode_raw_finding_array_or_empty(completion)
+    return accepted, rejected, None
 
 
 def _extract_json_array(value: str) -> list[Any] | None:
@@ -1582,57 +1638,6 @@ def _first_bracketed_array(text: str) -> str | None:
         return None
     return text[start : end + 1]
 
-
-def _validate_finding(value: Any, index: int) -> dict[str, Any]:
-    finding = _require_object(value, f"findings[{index}]")
-    keys = set(finding)
-    if not _REQUIRED_FINDING_KEYS <= keys or not keys <= _FINDING_KEYS:
-        raise ValueError(f"findings[{index}] has missing or unknown fields")
-    if finding["severity"] not in _SEVERITIES:
-        raise ValueError(f"findings[{index}].severity is invalid")
-    _require_bounded_string(finding["claim"], f"findings[{index}].claim", 2_000)
-    if "subject" in finding:
-        _require_bounded_string(finding["subject"], f"findings[{index}].subject", 400)
-    confidence = finding["confidence"]
-    if (
-        isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not math.isfinite(confidence)
-        or confidence < 0
-        or confidence > 1
-    ):
-        raise ValueError(f"findings[{index}].confidence must be a finite number from 0 to 1")
-    for key, maximum in (("rationale", 4_000), ("recommended_action", 2_000)):
-        if key in finding:
-            _require_optional_bounded_string(
-                finding[key],
-                f"findings[{index}].{key}",
-                maximum,
-            )
-    evidence = finding["evidence"]
-    if not isinstance(evidence, list) or not evidence:
-        raise ValueError(f"findings[{index}].evidence must be a non-empty array")
-    for evidence_index, raw_evidence in enumerate(evidence):
-        item = _require_object(
-            raw_evidence,
-            f"findings[{index}].evidence[{evidence_index}]",
-        )
-        if set(item) not in ({"uri"}, _EVIDENCE_KEYS):
-            raise ValueError(
-                f"findings[{index}].evidence[{evidence_index}] has missing or unknown fields"
-            )
-        _require_bounded_string(
-            item["uri"],
-            f"findings[{index}].evidence[{evidence_index}].uri",
-            2_000,
-        )
-        if "excerpt" in item:
-            _require_optional_bounded_string(
-                item["excerpt"],
-                f"findings[{index}].evidence[{evidence_index}].excerpt",
-                2_000,
-            )
-    return finding
 
 
 def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
@@ -1759,10 +1764,11 @@ _CODE_FENCE = re.compile(r"```(?:[A-Za-z0-9_+-]*)\n(.*?)```", re.DOTALL)
 _FIELD_HEADER = re.compile(r"\[\[ ## (\w+) ## \]\]")
 
 # Missing a field must never fabricate an action or a finding. Empty code is a
-# no-op REPL turn; an empty findings array is a valid "nothing citable" result.
+# no-op REPL turn. `findings_json` has NO default: an absent findings field is
+# a defect to report, and defaulting it to "[]" made a lost field
+# indistinguishable from a model that found nothing citable.
 _SAFE_FIELD_DEFAULTS = {
     "code": "",
-    "findings_json": "[]",
     "answer": "(no answer was produced from the trace investigation)",
     "reasoning": "(no stated reasoning)",
 }
@@ -1785,8 +1791,11 @@ def _recover_control_fields(completion: str, output_fields: list[str]) -> dict[s
             recovered[name] = "\n\n".join(blocks)
         elif name in ("answer", "reasoning") and prose:
             recovered[name] = prose
-        else:
-            recovered[name] = _SAFE_FIELD_DEFAULTS.get(name, "")
+        elif name in _SAFE_FIELD_DEFAULTS:
+            recovered[name] = _SAFE_FIELD_DEFAULTS[name]
+        # A field with no safe default -- findings_json -- is LEFT OUT. The
+        # caller then reports it missing by name. Defaulting it to "[]" made an
+        # unrecoverable field look like a model that found nothing citable.
     return recovered
 
 

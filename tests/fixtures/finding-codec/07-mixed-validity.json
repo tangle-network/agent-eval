@@ -1,0 +1,43 @@
+{
+  "why": "one malformed sibling does not erase the valid rows",
+  "input": [
+    {
+      "severity": "high",
+      "claim": "first",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    },
+    {
+      "severity": "nope",
+      "claim": "",
+      "evidence": []
+    },
+    {
+      "severity": "high",
+      "claim": "third",
+      "evidence": [
+        {
+          "uri": "trace://t1/span/s1",
+          "excerpt": "retry immediately"
+        }
+      ],
+      "confidence": 0.9
+    }
+  ],
+  "acceptedIndexes": [
+    0,
+    2
+  ],
+  "rejections": [
+    {
+      "index": 1,
+      "path": "severity",
+      "code": "schema"
+    }
+  ]
+}
