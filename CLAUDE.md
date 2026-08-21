@@ -47,6 +47,7 @@ When in doubt, lean substrate. Subtracting a consumer dep is always cheaper than
 pnpm build        # tsup
 pnpm test         # vitest
 pnpm typecheck    # tsc --noEmit
+pnpm analyst:pin  # rewrite the analyst-benchmark manifest + live digests from source
 ```
 
 ## Authorship

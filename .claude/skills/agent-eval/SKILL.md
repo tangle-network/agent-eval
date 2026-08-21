@@ -162,6 +162,10 @@ Run the full test suite for shared contracts, campaign logic, statistics, trace 
 Run example typechecking when examples or their imports change.
 Report exact commands, result counts, and any check not run.
 
+If `pnpm build` or `pnpm verify:package` reports an analyst-benchmark digest or source-manifest mismatch, run `pnpm analyst:pin`.
+It rewrites `ANALYST_BENCHMARK_IMPLEMENTATION_FILES` from the import graph and both live digests from the sources, then re-run the check.
+Never hand-edit those three values, and never touch `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` or `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256`: they state facts about already-published evidence, and `pnpm analyst:pin` does not write them.
+
 ## Then consider
 
 - `eval-engineering` when the change needs a new production-derived case.

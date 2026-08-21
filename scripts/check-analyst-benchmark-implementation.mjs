@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -25,15 +25,16 @@ const options = parseOptions(process.argv.slice(2))
 try {
   assertImplementationModule(implementation)
   const discoveredFiles = await discoverImplementationFiles(options.sourceRoot)
-  assertCompleteSourceManifest(
-    implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
-    discoveredFiles,
-  )
-  const actual = await computeDigest(
-    options.sourceRoot,
-    implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
-    DIGEST_DOMAIN,
-  )
+  // `--write` authors the manifest from the import graph instead of asserting
+  // a hand-copied one matches it. Every other mode still asserts.
+  const manifest = options.write
+    ? discoveredFiles
+    : (assertCompleteSourceManifest(
+        implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
+        discoveredFiles,
+      ),
+      implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES)
+  const actual = await computeDigest(options.sourceRoot, manifest, DIGEST_DOMAIN)
   const actualDependencyLock = await computeDigest(
     options.sourceRoot,
     implementation.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
@@ -42,6 +43,13 @@ try {
   if (options.printOnly) {
     console.log(actual)
     console.log(actualDependencyLock)
+    process.exit(0)
+  }
+  if (options.write) {
+    await writePin(manifest, actual, actualDependencyLock)
+    console.log(
+      `wrote src/analyst/benchmark-implementation.ts: implementation ${actual} (${manifest.length} files), dependency lock ${actualDependencyLock} (${implementation.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES.length} files)`,
+    )
     process.exit(0)
   }
   const expected = implementation.ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
@@ -120,9 +128,14 @@ function parseOptions(args) {
   let sourceRoot = REPOSITORY_ROOT
   let printOnly = false
   let sourceOnly = false
+  let write = false
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--print') {
       printOnly = true
+      continue
+    }
+    if (args[index] === '--write') {
+      write = true
       continue
     }
     if (args[index] === '--source-only') {
@@ -135,10 +148,13 @@ function parseOptions(args) {
       continue
     }
     throw new Error(
-      'usage: node scripts/check-analyst-benchmark-implementation.mjs [--source-root PATH] [--print] [--source-only]',
+      'usage: node scripts/check-analyst-benchmark-implementation.mjs [--source-root PATH] [--print] [--source-only] [--write]',
     )
   }
-  return { sourceRoot, printOnly, sourceOnly }
+  if (write && sourceRoot !== REPOSITORY_ROOT) {
+    throw new Error('--write rewrites this repository\'s pin module; it cannot target --source-root')
+  }
+  return { sourceRoot, printOnly, sourceOnly, write }
 }
 
 function assertImplementationModule(value) {
@@ -223,6 +239,49 @@ async function computeDigest(root, files, domain) {
   return createHash('sha256')
     .update(JSON.stringify({ domain, files: entries }))
     .digest('hex')
+}
+
+/**
+ * Rewrite the two live pins and the source manifest in place.
+ *
+ * `ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256` and
+ * `ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256` are NOT touched: they
+ * state facts about already-published evidence, so a tool that refreshed them
+ * would erase the record it exists to preserve. Each replacement is anchored to
+ * its own `export const` name for that reason.
+ */
+async function writePin(manifest, implementationDigest, dependencyLockDigest) {
+  const source = await readFile(IMPLEMENTATION_MODULE_PATH, 'utf8')
+  let next = replaceExportedHex(
+    source,
+    'ANALYST_BENCHMARK_IMPLEMENTATION_SHA256',
+    implementationDigest,
+  )
+  next = replaceExportedHex(
+    next,
+    'ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256',
+    dependencyLockDigest,
+  )
+  next = replaceExportedManifest(next, 'ANALYST_BENCHMARK_IMPLEMENTATION_FILES', manifest)
+  await writeFile(IMPLEMENTATION_MODULE_PATH, next)
+}
+
+function replaceExportedHex(source, name, digest) {
+  const pattern = new RegExp(`(export const ${name} =\\s*\\n\\s*')[a-f0-9]{64}(')`)
+  if (!pattern.test(source)) {
+    throw new Error(`cannot rewrite ${name}: no single-line hex literal found`)
+  }
+  return source.replace(pattern, `$1${digest}$2`)
+}
+
+function replaceExportedManifest(source, name, files) {
+  const start = source.indexOf(`export const ${name} = Object.freeze([`)
+  if (start === -1) throw new Error(`cannot rewrite ${name}: declaration not found`)
+  const open = source.indexOf('[', start)
+  const close = source.indexOf('])', open)
+  if (close === -1) throw new Error(`cannot rewrite ${name}: unterminated array`)
+  const body = files.map((file) => `  '${file}',\n`).join('')
+  return `${source.slice(0, open + 1)}\n${body}${source.slice(close)}`
 }
 
 function assertContained(root, path, label) {
