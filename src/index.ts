@@ -315,7 +315,7 @@ export type {
 } from './experiment-tracker'
 export { computeExperimentStats, improvementVerdict } from './experiment-tracker'
 
-export { canonicalize, hashJson } from './pre-registration'
+export { hashJson, manifestContentDigest } from './pre-registration'
 
 export type {
   LlmReviewerConfig,

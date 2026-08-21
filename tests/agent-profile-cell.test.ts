@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_PROFILE_KINDS,
@@ -43,7 +44,7 @@ describe('agent profile cells', () => {
       dimensions: { approvalsEnabled: true, personaSuite: 'business-owner' },
     })
 
-    expect(a.cellId).toMatch(/^agent-profile-cell:sha256:[0-9a-f]{64}$/)
+    expect(a.cellId).toMatch(/^agent-profile-cell:sha256-rfc8785:[0-9a-f]{64}$/)
     expect(a.sourceProfile.hash).toMatch(/^[0-9a-f]{64}$/)
     expect(a.cellId).toBe(b.cellId)
     expect(await verifyAgentProfileCell(a)).toBe(true)
@@ -256,3 +257,37 @@ describe('buildAgentInterfaceProfileCell', () => {
     expect(a.cellId).not.toBe(b.cellId)
   })
 })
+
+describe('cell ids minted before the RFC 8785 scheme', () => {
+  it('still verifies, so a stored cell is not invalidated by the release that changed the encoder', async () => {
+    const cell = await buildAgentProfileCell(INPUT)
+    const { cellId: _cellId, ...material } = cell
+    void _cellId
+    const legacyDigest = createHash('sha256')
+      .update(JSON.stringify(sortKeysDeep(material)), 'utf8')
+      .digest('hex')
+    const legacyCell = { ...material, cellId: `agent-profile-cell:sha256:${legacyDigest}` }
+
+    expect(validateAgentProfileCell(legacyCell).cellId).toBe(legacyCell.cellId)
+    expect(await verifyAgentProfileCell(legacyCell)).toBe(true)
+    // A legacy id over different material is still caught.
+    expect(
+      await verifyAgentProfileCell({
+        ...legacyCell,
+        cellId: `agent-profile-cell:sha256:${'0'.repeat(64)}`,
+      }),
+    ).toBe(false)
+  })
+})
+
+/** Key-sorted `JSON.stringify`, the scheme cell ids were minted under before
+ * RFC 8785. Kept here to MINT a legacy id the verifier must still accept. */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}

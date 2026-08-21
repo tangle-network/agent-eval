@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentProfile,
@@ -335,3 +336,45 @@ describe('harnessAxisOf', () => {
     expect(harnessAxisOf({ metadata: { foo: 'bar' } })).toBeUndefined()
   })
 })
+
+describe('agentProfileHash byte stability', () => {
+  it('reproduces the digest the key-sorted JSON.stringify encoder produced — regression: a changed profile hash silently re-keys every matrix row', () => {
+    const profile: AgentProfile = {
+      name: 'labelled',
+      description: 'labels do not affect the hash',
+      version: '2.1.0',
+      prompt: 'do the thing',
+      tags: ['b', 'a'],
+      model: { default: 'deepseek-v4-flash' },
+      permissions: { bash: 'ask' },
+    } as AgentProfile
+
+    const model = agentProfileModelId(profile)
+    const behaviour = {
+      ...profile,
+      name: undefined,
+      description: undefined,
+      tags: [...(profile.tags ?? [])].sort(),
+      model: { ...profile.model, default: model },
+    }
+    const legacy = createHash('sha256')
+      .update(JSON.stringify(sortKeysDeep(behaviour)))
+      .digest('hex')
+
+    expect(agentProfileHash(profile)).toBe(legacy)
+  })
+})
+
+/** Key-sorted `JSON.stringify` — the encoder the profile hash used before it
+ * moved to RFC 8785. Kept here as the oracle that proves the bytes did not move. */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (entry !== undefined) out[key] = entry
+  }
+  const sorted: Record<string, unknown> = {}
+  for (const key of Object.keys(out).sort()) sorted[key] = sortKeysDeep(out[key])
+  return sorted
+}

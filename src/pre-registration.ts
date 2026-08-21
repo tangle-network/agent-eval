@@ -7,7 +7,15 @@
  * + timestamp; the registered record becomes immutable. Post-run,
  * evaluate the manifest against observed results — the library refuses
  * to let you re-interpret a different metric as the declared one.
+ *
+ * A signed manifest is a portable record: it is written once and verified
+ * later, possibly by a different release. `algo` names the digest scheme it
+ * was signed under, and verification selects the encoder by that field, so a
+ * manifest signed by an earlier release still verifies.
  */
+
+import { createHash } from 'node:crypto'
+import { canonicalString, hashCanonical } from './ledger-core/canonical'
 
 export interface HypothesisManifest {
   id: string
@@ -35,12 +43,16 @@ export interface HypothesisManifest {
 /**
  * Identifier for the hashing scheme used to produce `contentHash`.
  *
- * `'sha256-content'` — sha256 hex over the canonicalized manifest with
- * the `contentHash` and `algo` fields stripped. Held as a string union
- * so future schemes can be added without breaking parsers; SignedManifest
- * values without `algo` deserialize cleanly because the field is optional.
+ * Both schemes are sha256 hex over the manifest with `contentHash` and `algo`
+ * stripped, and differ only in how that manifest is serialized:
+ *
+ * - `'sha256-rfc8785'` — RFC 8785 canonical JSON. What {@link signManifest}
+ *   emits.
+ * - `'sha256-content'` — key-sorted `JSON.stringify`. Read-only: manifests
+ *   signed by an earlier release carry it, or carry no `algo` at all, and
+ *   {@link verifyManifest} still verifies them.
  */
-export type SignedManifestAlgo = 'sha256-content'
+export type SignedManifestAlgo = 'sha256-content' | 'sha256-rfc8785'
 
 export interface SignedManifest extends HypothesisManifest {
   /** sha256 hex of canonicalized manifest (everything except contentHash and algo). */
@@ -72,78 +84,77 @@ export interface HypothesisResult {
 }
 
 /**
- * Deterministic JSON canonicalization — sort object keys recursively.
+ * SHA-256 hex (full 64 chars) over the RFC 8785 canonical JSON encoding of
+ * `obj` — the package's one identity scheme, shared with `ledger-core`.
  *
- * Two semantically-equal objects produce byte-identical canonicalized output;
- * this is what makes a content-hash stable across encoders, key insertion
- * orders, and runtime versions. Exported for any consumer that needs the same
- * canonicalization guarantee outside the manifest-signing path (e.g., signing
- * an artifact bundle, hashing a dataset version, etc.).
- */
-export function canonicalize(v: unknown): unknown {
-  if (v === null || typeof v !== 'object') return v
-  if (Array.isArray(v)) return v.map(canonicalize)
-  const keys = Object.keys(v as Record<string, unknown>).sort()
-  const out: Record<string, unknown> = {}
-  for (const k of keys) out[k] = canonicalize((v as Record<string, unknown>)[k])
-  return out
-}
-
-/**
- * SHA-256 hex (full 64 chars) over the canonicalized JSON encoding of `obj`.
- *
- * The same primitive `signManifest` and `verifyManifest` are built on, exposed
- * directly so consumers signing arbitrary structured content (artifact bundles,
- * production packets, dataset manifests, etc.) don't have to re-derive
- * canonicalize+sha256 from scratch.
- *
- * Stable across:
- *   - object key insertion order (canonicalization sorts keys recursively)
- *   - encoder choice (UTF-8 via TextEncoder, fixed)
- *   - runtime (uses the Web Crypto subtle digest, present in Node ≥18 and browsers)
+ * Values canonical JSON cannot represent faithfully — `undefined`, `NaN`,
+ * class instances, cycles — are refused rather than coerced, because a
+ * coercion maps two distinct records onto one digest.
  *
  * Named `hashJson` to disambiguate from `prompt-registry.ts`'s `hashContent`,
  * which takes a string input and returns a truncated 12-char prompt id.
- * Use `hashJson` when you mean "canonicalize then hash."
  *
  * @example
  *   const hash = await hashJson({ id: '1', kind: 'spec' })
  *   // 'a3f1...' (64 hex chars)
  */
 export async function hashJson<T>(obj: T): Promise<string> {
-  const canonical = canonicalize(obj)
-  const bytes = new TextEncoder().encode(JSON.stringify(canonical))
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
+  return hashCanonical(obj).slice('sha256:'.length)
 }
 
 /**
- * Sign a manifest with a SHA-256 content hash.
- *
- * The hash covers the canonicalized manifest with the `contentHash`
- * and `algo` fields stripped; this lets verifiers re-sign the rest and
- * compare. Returned manifest always carries `algo: 'sha256-content'`
- * so downstream consumers can identify the scheme; manifests without
- * `algo` still verify because it is stripped before hashing on both sides.
+ * Key-sorted `JSON.stringify` digest. Private and read-only: it exists so a
+ * manifest signed under `'sha256-content'` still verifies, and nothing that
+ * WRITES a digest may call it.
+ */
+function legacyContentDigest(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(sortKeysDeep(value)), 'utf8')
+    .digest('hex')
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}
+
+/**
+ * Digest of a manifest under its own declared scheme, with `contentHash` and
+ * `algo` stripped. Synchronous, so a caller that must fail before consuming an
+ * observation does not have to await. Throws on an `algo` this release does
+ * not know — an unverifiable manifest must not read as a valid one.
+ */
+export function manifestContentDigest(manifest: SignedManifest): string {
+  const { contentHash: _contentHash, algo, ...rest } = manifest
+  void _contentHash
+  if (algo === undefined || algo === 'sha256-content') return legacyContentDigest(rest)
+  if (algo === 'sha256-rfc8785') {
+    return createHash('sha256').update(canonicalString(rest), 'utf8').digest('hex')
+  }
+  throw new Error(`pre-registration: unrecognized manifest hash algo '${String(algo)}'`)
+}
+
+/**
+ * Sign a manifest with a SHA-256 content hash over its RFC 8785 canonical
+ * JSON, with `contentHash` and `algo` stripped, and stamp the scheme in
+ * `algo` so a later reader knows which encoder to verify with.
  */
 export async function signManifest(m: HypothesisManifest): Promise<SignedManifest> {
-  const hash = await hashJson(m)
-  return { ...m, contentHash: hash, algo: 'sha256-content' }
+  const signed: SignedManifest = { ...m, contentHash: '', algo: 'sha256-rfc8785' }
+  return { ...signed, contentHash: manifestContentDigest(signed) }
 }
 
 /**
- * Verify that a signed manifest has not been tampered with.
- *
- * Strips `contentHash` and `algo` before re-signing so manifests without
- * `algo` verify identically to ones that carry it.
+ * Verify that a signed manifest has not been tampered with, under the scheme
+ * the manifest itself declares.
  */
 export async function verifyManifest(m: SignedManifest): Promise<boolean> {
-  const { contentHash, algo: _algo, ...rest } = m
-  void _algo
-  const resigned = await signManifest(rest)
-  return resigned.contentHash === contentHash
+  return manifestContentDigest(m) === m.contentHash
 }
 
 /**

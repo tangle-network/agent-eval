@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { type HarnessType, harnessSupportsModel } from '@tangle-network/agent-interface'
 import { ValidationError } from './errors'
-import { canonicalize } from './pre-registration'
+import { canonicalString } from './ledger-core/canonical'
 
 export type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 
@@ -190,14 +190,12 @@ function compact<T extends Record<string, unknown>>(input: T): Partial<T> {
  */
 export function agentProfileHash(profile: AgentProfile): string {
   const model = agentProfileModelId(profile)
-  const behaviour = {
+  const behaviour = compact({
     ...profile,
     name: undefined,
     description: undefined,
     tags: profile.tags ? [...profile.tags].sort() : undefined,
     model: compact({ ...profile.model, default: model }),
-  }
-  return createHash('sha256')
-    .update(JSON.stringify(canonicalize(behaviour)))
-    .digest('hex')
+  })
+  return createHash('sha256').update(canonicalString(behaviour)).digest('hex')
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   attributeCounterfactuals,
@@ -5,15 +6,28 @@ import {
   runCounterfactual,
 } from '../src/counterfactual'
 import {
-  canonicalize,
   evaluateHypothesis,
   type HypothesisManifest,
   hashJson,
+  manifestContentDigest,
+  type SignedManifest,
   signManifest,
   verifyManifest,
 } from '../src/pre-registration'
 import type { ToolSpan } from '../src/trace'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
+
+/** Key-sorted `JSON.stringify`, the scheme manifests were signed under before
+ * RFC 8785. Kept here to MINT a legacy manifest the verifier must still accept. */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}
 
 async function seed(
   store: InMemoryTraceStore,
@@ -146,14 +160,32 @@ describe('pre-registration', () => {
     expect(await verifyManifest(a)).toBe(true)
   })
 
-  it('signManifest populates algo and verifies legacy manifests without algo — regression: consumers could not tell which scheme produced contentHash', async () => {
+  it('signs under RFC 8785 and still verifies a manifest signed by the previous scheme — regression: a durable manifest outlives the release that signed it', async () => {
     const signed = await signManifest(base)
-    expect(signed.algo).toBe('sha256-content')
+    expect(signed.algo).toBe('sha256-rfc8785')
+    expect(await verifyManifest(signed)).toBe(true)
 
-    // Legacy serialized form: no `algo` field. Must still verify.
-    const { algo: _drop, ...legacy } = signed
-    void _drop
-    expect(await verifyManifest(legacy as typeof signed)).toBe(true)
+    // A manifest signed by the previous release: key-sorted JSON.stringify,
+    // tagged 'sha256-content' — and the same manifest with no `algo` at all,
+    // which is how the oldest serialized manifests look.
+    const legacyDigest = createHash('sha256')
+      .update(JSON.stringify(sortKeysDeep(base)), 'utf8')
+      .digest('hex')
+    const tagged: SignedManifest = { ...base, contentHash: legacyDigest, algo: 'sha256-content' }
+    const untagged = { ...base, contentHash: legacyDigest } as SignedManifest
+    expect(await verifyManifest(tagged)).toBe(true)
+    expect(await verifyManifest(untagged)).toBe(true)
+
+    // Tampering is still caught under either scheme.
+    expect(await verifyManifest({ ...tagged, minEffect: base.minEffect + 1 })).toBe(false)
+    expect(await verifyManifest({ ...signed, minEffect: base.minEffect + 1 })).toBe(false)
+  })
+
+  it('refuses a manifest whose algo this release cannot verify instead of reading it as valid', () => {
+    const alien = { ...base, contentHash: 'x'.repeat(64), algo: 'sha512-future' } as unknown
+    expect(() => manifestContentDigest(alien as SignedManifest)).toThrow(
+      /unrecognized manifest hash algo 'sha512-future'/,
+    )
   })
 
   it('evaluateHypothesis confirms when all conditions met', async () => {
@@ -179,18 +211,6 @@ describe('pre-registration', () => {
     await expect(
       evaluateHypothesis(tampered, { n: 30, effect: 0.003, pValue: 0.01 }),
     ).rejects.toThrow(/tampered|hash/i)
-  })
-
-  it('canonicalize sorts keys recursively and produces stable encoding', () => {
-    const a = canonicalize({ b: 2, a: { y: [3, 2, 1], x: 'k' } })
-    const b = canonicalize({ a: { x: 'k', y: [3, 2, 1] }, b: 2 })
-    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
-    // Arrays preserve order (canonicalization sorts object keys, not array elements).
-    expect(JSON.stringify(canonicalize([3, 1, 2]))).toBe('[3,1,2]')
-    // Primitives pass through.
-    expect(canonicalize(42)).toBe(42)
-    expect(canonicalize('s')).toBe('s')
-    expect(canonicalize(null)).toBe(null)
   })
 
   it('hashJson is stable across key insertion order — the property signManifest depends on', async () => {

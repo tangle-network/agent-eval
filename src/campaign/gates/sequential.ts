@@ -31,8 +31,7 @@
  * Stratified betting (per-stratum λ) is future work, not implemented here.
  */
 
-import { createHash } from 'node:crypto'
-import { canonicalize, type SignedManifest } from '../../pre-registration'
+import { manifestContentDigest, type SignedManifest } from '../../pre-registration'
 import { type EProcessState, eProcess, mulberry32 } from '../../statistics'
 import type { Gate, GateContext, GateResult, GenerationRecord, Scenario } from '../types'
 import { pairHoldout } from './statistical-heldout'
@@ -119,19 +118,11 @@ interface ResolvedConfig {
   minEffect: number
 }
 
-/** Sync twin of `verifyManifest` — same `sha256-content` scheme
- *  (sha256 over the canonicalized manifest minus contentHash/algo), via
- *  node:crypto so gate construction can stay synchronous and fail loud
- *  before any observation is consumed. */
+/** Sync twin of `verifyManifest`, so gate construction stays synchronous and
+ *  fails loud before any observation is consumed. The digest scheme belongs to
+ *  `pre-registration`; this gate only compares. */
 function verifyManifestSync(m: SignedManifest): boolean {
-  if (m.algo !== undefined && m.algo !== 'sha256-content') {
-    throw new Error(`sequentialPairedGate: unrecognized manifest hash algo '${m.algo}'`)
-  }
-  const { contentHash, algo: _algo, ...rest } = m
-  void _algo
-  const bytes = JSON.stringify(canonicalize(rest))
-  const hash = createHash('sha256').update(bytes, 'utf8').digest('hex')
-  return hash === contentHash
+  return manifestContentDigest(m) === m.contentHash
 }
 
 function resolveConfig(opts: SequentialPairedGateOptions): ResolvedConfig {

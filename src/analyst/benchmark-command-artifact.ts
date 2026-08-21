@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import type { CustomTokenPricing } from '../cost-ledger'
+import { canonicalString, hashCanonical, jsonDocument } from '../ledger-core/canonical'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 import type { AgentRxCalibrationSummary } from './benchmark-agentrx-calibration'
 import type { AnalystRunnerComparison } from './benchmark-comparison'
@@ -225,27 +225,20 @@ export function assertExactKeys(
   }
 }
 
+/**
+ * Digest a benchmark receipt as the artifact file will carry it. Receipts are
+ * digested before they are written and re-digested when they are read back, so
+ * the digest covers the JSON document form (see {@link jsonDocument}); every
+ * other ambiguous value is still refused.
+ */
 export function digestCanonical(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+  return hashCanonical(jsonDocument(value)).slice('sha256:'.length)
 }
 
+/** RFC 8785 canonical JSON of the value's JSON document form — the byte form
+ *  the receipt digests and compares against. */
 export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    return JSON.stringify(value)
-  }
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('cannot hash a non-finite number')
-    return JSON.stringify(value)
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .filter((key) => value[key] !== undefined)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-      .join(',')}}`
-  }
-  throw new TypeError(`cannot hash ${typeof value}`)
+  return canonicalString(jsonDocument(value))
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
