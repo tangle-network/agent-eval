@@ -22,6 +22,57 @@ function run(files, allowlist = []) {
   return checkCanonicalJson({ root, allowlist })
 }
 
+/**
+ * An arrow passed as an argument sits behind the text `helper(`, so naming it
+ * from what precedes it gives it the name of the function it is passed to. That
+ * fabricated name used to enter the module's sorter set, and every caller of the
+ * REAL function of that name then read as sorting — which is how the gate came
+ * to report `runBenchmarkAdapter()` at a line whose function contains no sort
+ * at all, and `runReplayBatch()` at one containing neither `Object.keys` nor
+ * `.sort(`. A gate that names the wrong function teaches the next reader that
+ * it lies.
+ */
+describe('function attribution', () => {
+  // The arrow is the FIRST argument, so the text immediately in front of it is
+  // `sumOver(` — which is what the old fallback read as its name.
+  const moduleWithArrowArgument = [
+    'function sumOver(pick: () => number, times: number): number {',
+    '  let total = 0',
+    '  for (let i = 0; i < times; i++) total += pick()',
+    '  return total',
+    '}',
+    '',
+    'export function report(row: Record<string, unknown>): string {',
+    '  const width = sumOver(() => Object.keys(row).sort().map((k) => k).length, 2)',
+    '  return JSON.stringify({ width })',
+    '}',
+    '',
+    'export function summary(count: number): string {',
+    '  return JSON.stringify({ n: sumOver(() => 1, count) })',
+    '}',
+  ].join('\n')
+
+  test('does not report a function whose only sin is calling a same-named helper', () => {
+    const { offences } = run({ 'batch.ts': moduleWithArrowArgument })
+
+    expect(offences.map((o) => o.fn)).not.toContain('summary')
+  })
+
+  test('still registers a real module-local sorting helper by its binding', () => {
+    const { offences } = run({
+      'digest.ts': [
+        'const sortKeys = (value: Record<string, unknown>): string[] => Object.keys(value).sort().map((k) => k)',
+        '',
+        'export function contentHash(value: Record<string, unknown>): string {',
+        '  return JSON.stringify(sortKeys(value))',
+        '}',
+      ].join('\n'),
+    })
+
+    expect(offences.map((o) => o.fn)).toContain('contentHash')
+  })
+})
+
 describe('a hand-rolled canonical-JSON encoder', () => {
   test('is reported with its file, line, and function name', () => {
     const { offences } = run({

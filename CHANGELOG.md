@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.168.1] — 2026-08-21
+
+### Fixed
+
+- `scripts/check-canonical-json.mjs` no longer names a function after the function it is passed to. An arrow in argument position sits behind the text `helper(`, and the name fallback read that as its name; the fabricated name then entered the module's sorter set, so every caller of the REAL function of that name read as sorting. A gate that reports a file and line whose function contains no sort teaches the next reader that it lies, which is how a useful check gets switched off.
+- Names now come from a binding only — a declaration id, a `const`/`let`/`var` binding, or an object-property key — and a function with no binding is reported as `(anonymous)` and located by its line. Only a bound function can be called by name, so only a bound one is registered as a sorting helper.
+
+---
+
 ## [0.168.0] — 2026-08-21
 
 ### Fixed

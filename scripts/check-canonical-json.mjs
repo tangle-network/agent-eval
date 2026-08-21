@@ -130,8 +130,14 @@ function collect({ file, relativePath, allowlist, usedWaivers, offences }) {
     }
     walk(program, undefined)
   }
+  // Only a BOUND function can be called by name, so only a bound one can be a
+  // sorting helper. Registering a fallback name here is how one anonymous
+  // arrow in a sort chain made every caller of a same-named function read as an
+  // encoder.
   eachFunction((fn) => {
-    if (bodyHas(fn, { sorters: new Set() }).sortsKeys) sorters.add(functionName(fn, source))
+    const name = boundName(fn, source)
+    if (name === undefined) return
+    if (bodyHas(fn, { sorters: new Set() }).sortsKeys) sorters.add(name)
   })
   eachFunction((fn) => {
     const { sortsKeys, serializes } = bodyHas(fn, { sorters })
@@ -221,13 +227,27 @@ function sortsObjectKeys(node) {
   return sortsObjectKeys(callee.object)
 }
 
-function functionName(fn, source) {
+/**
+ * The name a function is BOUND to, or undefined when it has none.
+ *
+ * A declaration id, a `const`/`let`/`var` binding, or an object-property key.
+ * Deliberately NOT the identifier in front of an open paren: an arrow passed as
+ * an argument — `sumOver(rows, (row) => …)` — sits behind the text `sumOver(`,
+ * and reading that as its name gives a function the name of the thing it is
+ * passed to.
+ */
+function boundName(fn, source) {
   if (fn.id?.name) return fn.id.name
   const before = source.slice(Math.max(0, fn.start - 200), fn.start)
   const declared = before.match(/(?:const|let|var|function)\s+([A-Za-z0-9_$]+)\s*(?::[^=]*)?=?\s*$/)
   if (declared) return declared[1]
-  const property = before.match(/([A-Za-z0-9_$]+)\s*[:(]\s*$/)
-  return property ? property[1] : '(anonymous)'
+  const property = before.match(/([A-Za-z0-9_$]+)\s*:\s*$/)
+  return property ? property[1] : undefined
+}
+
+/** The name to print for a function. An unbound one is located by its line. */
+function functionName(fn, source) {
+  return boundName(fn, source) ?? '(anonymous)'
 }
 
 function lineOf(source, offset) {
