@@ -337,6 +337,18 @@ describe('selfImprove — complete optimization methods', () => {
         budget: { generations: 2 },
       }),
     ).rejects.toThrow('method owns its rounds')
+
+    await expect(
+      selfImprove({
+        agent: async (surface) => ({ text: String(surface) }),
+        scenarios,
+        judge: methodJudge,
+        baselineSurface: 'BASE',
+        method,
+        expectUsage: 'off',
+        selectParent: ({ frontier }) => frontier[0]!,
+      }),
+    ).rejects.toThrow('selectParent apply only to proposer mode')
   })
 })
 

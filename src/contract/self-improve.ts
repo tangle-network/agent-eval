@@ -290,6 +290,13 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  winner-selection and the ship-gate rank on the identical metric and cannot
    *  invert. See `RunOptimizationOptions.selectionRankKey`. */
   selectionRankKey?: RunOptimizationOptions<TScenario, TArtifact>['selectionRankKey']
+
+  /** Override which scored surface each generation MUTATES. Defaults to the
+   *  global incumbent (hill-climb; the recorded lineage is a chain). Pass
+   *  `crowdedFrontierParent({ seed })` or a custom policy to draw the parent
+   *  from the Pareto frontier; promotion still compares against the incumbent.
+   *  Proposer mode only. See `RunOptimizationOptions.selectParent`. */
+  selectParent?: RunOptimizationOptions<TScenario, TArtifact>['selectParent']
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -415,10 +422,11 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
     budget?.candidateConcurrency !== undefined ||
     budget?.maxImprovementShots !== undefined ||
     opts.analyzeGeneration !== undefined ||
-    opts.findings !== undefined
+    opts.findings !== undefined ||
+    opts.selectParent !== undefined
   ) {
     throw new Error(
-      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, and findings apply only to proposer mode',
+      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, findings, and selectParent apply only to proposer mode',
     )
   }
 }
@@ -722,6 +730,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     analyzeGeneration: opts.analyzeGeneration,
     findings: opts.findings,
     selectionRankKey: opts.selectionRankKey,
+    selectParent: opts.selectParent,
   })
 
   // Deferred holdout ran zero holdout cells, so the summary stats come from

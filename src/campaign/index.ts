@@ -226,6 +226,12 @@ export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,
 } from './optimizer-model'
+export {
+  type CrowdedFrontierParentOptions,
+  crowdedFrontierParent,
+  type ParentSelectionContext,
+  type ParentSelector,
+} from './parent-selection'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareOptimizationMethodsOptions,
