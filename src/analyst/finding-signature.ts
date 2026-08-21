@@ -8,9 +8,7 @@
 import { z } from 'zod'
 import { parseFindingSubject } from './finding-subject'
 import { coerceJson } from './parse-tolerant'
-import type { EvidenceRef } from './types'
-
-const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
+import { ANALYST_SEVERITIES, type EvidenceRef } from './types'
 
 const RawAnalystEvidenceSchema = z
   .object({

@@ -4,6 +4,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.164.2] — 2026-08-21
+
+### Changed
+
+- Three vocabularies that were declared twice now derive from one array each. No member changes, no reordering, and no public export changes; the schemas that validate them are generated from the same declaration they validate against, so the two halves cannot drift apart.
+  - `AnalystComparisonMetric` was a hand-written 18-member union, `METRICS` repeated the same 18 members as an array, `LOWER_IS_BETTER` repeated 8 of them as a set, and `src/analyst/benchmark-command-validation.ts` repeated all 18 again as a `z.enum` over the persisted artifact. A metric added to the union but missed in that enum would have been rejected at artifact validation with no compile error. One `ANALYST_COMPARISON_METRIC_DIRECTION` table now carries every metric and its direction; the type, the reporting order, the artifact schema, and `analystComparisonMetricDirection` all derive from it.
+  - `FailureClass` was a 35-member union followed by `FAILURE_CLASSES`, a `readonly FailureClass[]` repeating the same 35 members. The array could silently omit a member the type declared. `FAILURE_CLASSES` is now the `as const` owner and the type derives from it.
+  - `AnalystSeverity` was a union in `src/analyst/types.ts` and `ANALYST_SEVERITIES` was a private copy in `src/analyst/finding-signature.ts` feeding the finding schema's `z.enum`. `ANALYST_SEVERITIES` now lives beside the type it defines.
+
+---
+
 ## [0.164.1] — 2026-08-21
 
 ### Changed

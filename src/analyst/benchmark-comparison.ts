@@ -1,25 +1,49 @@
 import { pairedBootstrap } from '../statistics'
 import type { AnalystBenchmarkObservation, AnalystBenchmarkResult } from './benchmark'
 
-export type AnalystComparisonMetric =
-  | 'completion'
-  | 'issueRecall'
-  | 'findingPrecision'
-  | 'f1'
-  | 'criticalStepAccuracy'
-  | 'citationCoverage'
-  | 'citationExcerptCoverage'
-  | 'citationLabelAgreement'
-  | 'citationResolution'
-  | 'trustedNegativeAccuracy'
-  | 'latencyMs'
-  | 'calls'
-  | 'inputTokens'
-  | 'outputTokens'
-  | 'reasoningTokens'
-  | 'cachedTokens'
-  | 'cacheWriteTokens'
-  | 'costUsd'
+/**
+ * Every metric a benchmark comparison reports, mapped to the direction that
+ * is an improvement. This table is the only declaration of the vocabulary:
+ * the type, the reporting order, the artifact schema's accepted values, and
+ * each metric's direction all derive from it, so a metric cannot exist in one
+ * of those four places and be missing from another.
+ */
+const ANALYST_COMPARISON_METRIC_DIRECTION = {
+  completion: 'higher',
+  issueRecall: 'higher',
+  findingPrecision: 'higher',
+  f1: 'higher',
+  criticalStepAccuracy: 'higher',
+  citationCoverage: 'higher',
+  citationExcerptCoverage: 'higher',
+  citationLabelAgreement: 'higher',
+  citationResolution: 'higher',
+  trustedNegativeAccuracy: 'higher',
+  latencyMs: 'lower',
+  calls: 'lower',
+  inputTokens: 'lower',
+  outputTokens: 'lower',
+  reasoningTokens: 'lower',
+  cachedTokens: 'lower',
+  cacheWriteTokens: 'lower',
+  costUsd: 'lower',
+} as const satisfies Record<string, 'higher' | 'lower'>
+
+export type AnalystComparisonMetric = keyof typeof ANALYST_COMPARISON_METRIC_DIRECTION
+
+/** The vocabulary as a non-empty tuple, which is what `z.enum` accepts. Key
+ *  order is the declaration order above, and it is the reporting order. */
+export const ANALYST_COMPARISON_METRICS = Object.keys(ANALYST_COMPARISON_METRIC_DIRECTION) as [
+  AnalystComparisonMetric,
+  ...AnalystComparisonMetric[],
+]
+
+/** `'lower'` when a smaller value is the improvement. */
+export function analystComparisonMetricDirection(
+  metric: AnalystComparisonMetric,
+): 'higher' | 'lower' {
+  return ANALYST_COMPARISON_METRIC_DIRECTION[metric]
+}
 
 export interface AnalystMetricComparison {
   metric: AnalystComparisonMetric
@@ -88,7 +112,7 @@ export function compareAnalystRunners(
   const candidate = observationsByCase(result.observations, options.candidateRunnerId)
   const populationRepresentativenessProven =
     result.provenance.metadata?.populationRepresentativenessProven === true
-  const metrics = METRICS.map((metric) =>
+  const metrics = ANALYST_COMPARISON_METRICS.map((metric) =>
     compareMetric({
       metric,
       baseline,
@@ -202,7 +226,7 @@ function compareMetric(options: {
 
   const comparison: AnalystMetricComparison = {
     metric: options.metric,
-    direction: LOWER_IS_BETTER.has(options.metric) ? 'lower' : 'higher',
+    direction: analystComparisonMetricDirection(options.metric),
     pairedCases: pairedCases.length,
     pairedClusters: before.length,
     eligibleObservations,
@@ -225,38 +249,6 @@ function compareMetric(options: {
   assertValidComparison(comparison)
   return comparison
 }
-
-const METRICS: readonly AnalystComparisonMetric[] = [
-  'completion',
-  'issueRecall',
-  'findingPrecision',
-  'f1',
-  'criticalStepAccuracy',
-  'citationCoverage',
-  'citationExcerptCoverage',
-  'citationLabelAgreement',
-  'citationResolution',
-  'trustedNegativeAccuracy',
-  'latencyMs',
-  'calls',
-  'inputTokens',
-  'outputTokens',
-  'reasoningTokens',
-  'cachedTokens',
-  'cacheWriteTokens',
-  'costUsd',
-]
-
-const LOWER_IS_BETTER = new Set<AnalystComparisonMetric>([
-  'latencyMs',
-  'calls',
-  'inputTokens',
-  'outputTokens',
-  'reasoningTokens',
-  'cachedTokens',
-  'cacheWriteTokens',
-  'costUsd',
-])
 
 function observationsByCase(
   observations: readonly AnalystBenchmarkObservation[],
