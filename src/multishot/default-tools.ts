@@ -5,7 +5,7 @@
 // researcher system prompt at your domain's citation style and the coder
 // at your preferred language.
 
-import { estimateRouterCost, routerCompletion } from './router'
+import { estimateMultishotCost } from './cost'
 import type { MultishotToolDefinition, MultishotToolExecutor } from './types'
 
 const DEFAULT_RESEARCHER_MODEL = 'openai/gpt-4o-mini'
@@ -77,9 +77,7 @@ function createResearchExecutor(config: DefaultResearcherConfig = {}): Multishot
   return async (args, ctx) => {
     const question = String(args.question ?? '')
     const scope = args.scope ? String(args.scope) : undefined
-    const { message, usage } = await routerCompletion({
-      apiKey: ctx.apiKey,
-      baseUrl: ctx.baseUrl,
+    const { message, usage, costUsd } = await ctx.transport({
       model,
       temperature: 0.3,
       maxTokens: 1800,
@@ -89,7 +87,10 @@ function createResearchExecutor(config: DefaultResearcherConfig = {}): Multishot
       ],
       signal: ctx.signal,
     })
-    return { content: message.content ?? '', costUsd: estimateRouterCost(model, usage) }
+    return {
+      content: message.content ?? '',
+      costUsd: costUsd ?? estimateMultishotCost(model, usage),
+    }
   }
 }
 
@@ -99,9 +100,7 @@ function createCodeExecutor(config: DefaultCoderConfig = {}): MultishotToolExecu
   return async (args, ctx) => {
     const goal = String(args.goal ?? '')
     const language = args.language ? String(args.language) : 'TypeScript'
-    const { message, usage } = await routerCompletion({
-      apiKey: ctx.apiKey,
-      baseUrl: ctx.baseUrl,
+    const { message, usage, costUsd } = await ctx.transport({
       model,
       temperature: 0.2,
       maxTokens: 2000,
@@ -111,7 +110,10 @@ function createCodeExecutor(config: DefaultCoderConfig = {}): MultishotToolExecu
       ],
       signal: ctx.signal,
     })
-    return { content: message.content ?? '', costUsd: estimateRouterCost(model, usage) }
+    return {
+      content: message.content ?? '',
+      costUsd: costUsd ?? estimateMultishotCost(model, usage),
+    }
   }
 }
 
@@ -140,5 +142,3 @@ export function defaultDelegationTools(config: DefaultToolsConfig = {}): Default
       name === 'delegate_research' ? 'research' : name === 'delegate_code' ? 'code' : undefined,
   }
 }
-
-export { defaultRouterBaseUrl } from './router'

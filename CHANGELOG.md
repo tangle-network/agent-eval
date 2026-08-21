@@ -4,6 +4,30 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.160.0] — 2026-08-21
+
+### Removed
+
+- Every Eval-owned paid model transport (#539). Agent Eval owns comparison, scoring, and durable evidence; it no longer executes a paid model, accepts a provider URL, or holds a credential. The caller supplies a `ChatClient`, and on Agent Runtime `profileChatClient` / `profileOptimizerModelCall` are that transport, so exact `AgentProfile` identity, retries, usage, cache accounting, and interruption safety stop being optional.
+  - `createChatClient` loses its `router`, `direct-provider`, and `cli-bridge` variants. `custom`, `sandbox-sdk`, and `mock` remain, and `ChatTransport` narrows to those three.
+  - The root barrel no longer exports `callLlm`, `callLlmJson`, `LlmClient`, `LlmClientOptions`, `assertLlmRoute`, `LlmRouteRequirements`, or `probeLlm`. `assertLlmRoute` and `probeLlm` are deleted outright: the caller holds the endpoint, so the caller owns both the route check and the reachability probe. The canonical contract stays public — `LlmCallRequest`, `LlmCallResult` (including `logprobs`, `toolCalls`, `servedModel`), `LlmMessage`, `LlmUsage`, `costReceiptFromLlm`, `costReceiptFromLlmError`, `maximumChargeForLlmRequest`, `isTransientLlmError`, `stripFencedJson`.
+  - `createOpenAiCompatibleExecutionOwner` is gone from `/campaign`. Agent Runtime already owns that role with `profileOptimizerModelCall`, which executes one exact `AgentProfile` and reports profile-digest evidence; two owners for one role was the defect. `examples/_shared/openai-compatible-owner.ts` is the caller-side reference implementation, and it is example code, not a published export.
+  - `multishot/router.ts` is deleted with `routerCompletion`, `requireRouterApiKey`, and `defaultRouterBaseUrl`. `runMultishot`, `runMultishotMatrix`, and `runJudge` now require a caller-supplied `MultishotTransport`; `JudgeConfig.transport` is required and `JUDGE_MODEL` is no longer read from the environment. `MultishotToolExecutor` receives `{ transport, signal }` instead of `{ apiKey, baseUrl, signal }`, and the optional `toolTransport` names the leg the built-in delegate tools run on. `estimateRouterCost` is now `estimateMultishotCost` in `multishot/cost.ts`.
+  - `preflightModels` and `assertModelsServed` take `request: ModelEndpointRequest` instead of `baseUrl` and `apiKey`. Agent Eval asks for a `list-models` or a `probe` check and reads the `Response`, so status, the provider's own `error.message`, `budgetExhausted`, and served-model substitution stay exactly as detectable as before.
+  - `runIntentMatchJudge`, `runSemanticConceptJudge`, `handleJudge`, `dispatchRpc`, and `createApp` take `chat: ChatClient` (plus optional `pricing`) instead of `llm: LlmClientOptions`. `/v1/judge` refuses with `llm_not_configured` (503) when no transport is configured, which replaces the old route assertion.
+  - The internal OpenAI-compatible client has no default endpoint. `DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'` is deleted and `baseUrl` is required, so a misconfigured caller fails loudly instead of silently billing the public router — the failure `assertLlmRoute` existed to catch, now unrepresentable.
+  - `runEvalCampaign` takes `chatFactory: (wiring: CampaignChatWiring) => ChatClient` instead of `llmOpts`, and `CampaignRunContext.chat` replaces `ctx.llmOpts`. The campaign passes each run's `rawSink` and `runId` into the factory, so a transport that binds them still satisfies `assertRunCaptured`'s raw-coverage check. The campaign fingerprint now folds a caller-declared `executionRef` where it previously folded the base URL and provider it can no longer see.
+
+### Added
+
+- `paidJsonChat` collapses the three hand-rolled copies of "reserve the priced maximum, call the transport with a stable call id, settle the receipt, parse the JSON answer" that the two judges and the wire judge endpoint each carried. A malformed answer keeps its settled receipt: the call completed and was billed, so the spend stays known rather than becoming unknown.
+- `LlmChargeBounds`: the narrow bound inputs `maximumChargeForLlmRequest` actually reads, so a caller can price a request without naming a transport options type.
+- `examples/_shared/openai-compatible-owner.ts` exposes one OpenAI-compatible endpoint two ways — `openAiCompatibleChatClient` for judges and workers, `openAiCompatibleExecutionOwner` for the optimizer surface — as the reference for what caller-owned execution looks like.
+
+### Changed
+
+- The `agent-eval` binary is the one place in the package that reads a provider credential, and it is documented as such. `agent-eval serve` / `rpc` / `rpc-batch` build their own `ChatClient` from `AGENT_EVAL_LLM_*` (or the `OPENAI_*` / `TANGLE_*` equivalents) inside `src/cli-config.ts`. Both a base URL and a key are required; a half-configured server refuses instead of calling an unintended endpoint.
+
 ## [0.159.1] — 2026-08-21
 
 ### Added

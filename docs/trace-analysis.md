@@ -18,7 +18,7 @@ DSPy runs the research loop and a sandboxed Python interpreter.
 Agent Eval owns trace access, cancellation, cost accounting, and output validation.
 The calling application owns model execution, credentials, retries, and provider policy.
 
-`callLlmJson()` and `createPublicBenchmarkDirectRunner()` are direct-call baselines.
+`createPublicBenchmarkDirectRunner()` is the direct-call baseline; it runs through the loopback model proxy against a caller-owned execution owner, so agent-eval issues no provider request.
 They are not trace analysts.
 
 ## Install

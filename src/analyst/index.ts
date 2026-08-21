@@ -211,12 +211,9 @@ export type {
   ChatRequest,
   ChatResponse,
   ChatTransport,
-  CliBridgeTransportOpts,
   CreateChatClientOpts,
   CustomTransportOpts,
-  DirectProviderTransportOpts,
   MockTransportOpts,
-  RouterTransportOpts,
   SandboxSdkTransportOpts,
 } from './chat-client'
 export { createChatClient } from './chat-client'

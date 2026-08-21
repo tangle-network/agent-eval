@@ -10,19 +10,11 @@
  *   - Lets unexpected errors bubble — the transport maps them to 500.
  */
 
-import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
+import type { ChatClient } from '../analyst/chat-client'
+import { paidJsonChat } from '../chat-json-call'
+import { CostLedger, type CostLedgerHandle, type CustomTokenPricing } from '../cost-ledger'
 import type { FeedbackTrajectoryStore } from '../feedback-trajectory'
-import {
-  assertLlmRoute,
-  callLlmJson,
-  costReceiptFromLlm,
-  costReceiptFromLlmError,
-  type LlmCallRequest,
-  type LlmClientOptions,
-  LlmRouteAssertionError,
-  type LlmRouteRequirements,
-  maximumChargeForLlmRequest,
-} from '../llm-client'
+import type { LlmCallRequest } from '../llm-client'
 import { packageVersion } from '../package-version'
 import type { TraceEvent as InternalTraceEvent } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
@@ -194,9 +186,15 @@ const DEFAULT_JUDGE_MODEL = 'claude-sonnet-4-6'
 export interface HandleJudgeOptions {
   costLedger?: CostLedgerHandle
   costPhase?: string
-  llm?: LlmClientOptions
+  /**
+   * Caller-owned transport for the judge call. agent-eval holds no provider
+   * credential: the process that serves this endpoint binds its own client.
+   * Omitting it makes `/v1/judge` refuse with `llm_not_configured`.
+   */
+  chat?: ChatClient
   defaultModel?: string
-  routeRequirements?: LlmRouteRequirements
+  /** Endpoint rates used when the transport reports no billed amount. */
+  pricing?: CustomTokenPricing
   signal?: AbortSignal
 }
 
@@ -219,25 +217,17 @@ export async function handleJudge(
     throw new WireError('validation_error', 'Provide either `rubricName` or `rubric`.', 422)
   }
 
-  if (options.routeRequirements) {
-    try {
-      assertLlmRoute(options.llm ?? {}, options.routeRequirements)
-    } catch (error) {
-      if (!(error instanceof LlmRouteAssertionError)) throw error
-      const noEndpoint = error.reason === 'no_explicit_base_url'
-      throw new WireError(
-        noEndpoint ? 'llm_not_configured' : 'llm_route_rejected',
-        noEndpoint
-          ? 'No model endpoint is configured. Pass llm.baseUrl or configure the CLI provider environment variables.'
-          : error.message,
-        503,
-        { reason: error.reason },
-      )
-    }
+  if (!options.chat) {
+    throw new WireError(
+      'llm_not_configured',
+      'No model transport is configured. Pass a ChatClient, or configure the CLI provider environment variables.',
+      503,
+    )
   }
 
   const startedAt = Date.now()
-  const model = req.model ?? options.defaultModel ?? DEFAULT_JUDGE_MODEL
+  const model =
+    req.model ?? options.defaultModel ?? options.chat.defaultModel ?? DEFAULT_JUDGE_MODEL
 
   const request = {
     model,
@@ -250,25 +240,18 @@ export async function handleJudge(
     maxTokens: 4_000,
     timeoutMs: 60_000,
   } satisfies LlmCallRequest
-  const ledger = options.costLedger ?? new CostLedger()
-  const paid = await ledger.runPaidCall({
+  const paid = await paidJsonChat<JudgeOutput>({
+    chat: options.chat,
+    request,
+    ledger: options.costLedger ?? new CostLedger(),
     channel: 'judge',
     phase: options.costPhase ?? 'wire.judge',
     actor: `wire.${req.rubricName ?? 'inline'}`,
-    model,
-    maximumCharge: maximumChargeForLlmRequest(request, options.llm),
-    signal: options.signal,
-    execute: (signal, callId) =>
-      callLlmJson<JudgeOutput>(request, {
-        ...options.llm,
-        signal,
-        idempotencyKey: callId,
-      }),
-    receipt: ({ result }) => costReceiptFromLlm(result),
-    receiptFromError: costReceiptFromLlmError,
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.pricing ? { pricing: options.pricing } : {}),
   })
   if (!paid.succeeded) throw paid.error
-  const { value, result } = paid.value
+  const { value, response } = paid
 
   const output = validateJudgeOutput(value, rubric)
 
@@ -282,7 +265,7 @@ export async function handleJudge(
     wins: output.wins ?? [],
     rationale: output.rationale,
     rubricVersion: hashRubric(rubric),
-    model: result.model,
+    model: response.model,
     durationMs,
   }
 }

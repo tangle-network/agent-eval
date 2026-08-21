@@ -25,6 +25,10 @@ export AGENT_EVAL_LLM_MODEL=gpt-4.1-mini
 `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` are also accepted.
 The endpoint receives the content, rubric, and context passed to `client.judge()`.
 
+The `agent-eval` binary is the only part of the package that reads a provider credential.
+It is a server process, so it configures its own endpoint the way every server does; the TypeScript library holds no key and executes no paid model.
+Without both a base URL and a key, `judge()` fails with `llm_not_configured` instead of calling an unintended endpoint.
+
 ## Judge Content
 
 ```python

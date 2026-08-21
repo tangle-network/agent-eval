@@ -1,5 +1,7 @@
 // Multishot substrate — re-exports for `@tangle-network/agent-eval/multishot`.
 
+export { estimateMultishotCost } from './cost'
+
 export {
   DEFAULT_CODER_MODEL,
   type DefaultCoderConfig,
@@ -32,15 +34,6 @@ export {
   runMultishotMatrix,
 } from './matrix'
 export { type MultishotShot, type RunMultishotOptions, runMultishot } from './multishot'
-export {
-  defaultRouterBaseUrl,
-  estimateRouterCost,
-  type RouterCompletionRequest,
-  type RouterCompletionResponse,
-  type RouterToolCall,
-  requireRouterApiKey,
-  routerCompletion,
-} from './router'
 export {
   defaultMultishotDriverSystemPrompt,
   defaultMultishotOpener,

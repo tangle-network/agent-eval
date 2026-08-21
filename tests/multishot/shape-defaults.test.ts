@@ -94,8 +94,6 @@ describe('runMultishot — pure-profile call (no shape)', () => {
       maxTurns: 2,
       agentTransport,
       driverTransport,
-      apiKey: 'test-key',
-      baseUrl: 'http://localhost:0',
     })
 
     // The derived opener is the first user message the agent sees.

@@ -4,14 +4,18 @@
  * complement to `assertRealBackend` (which inspects RunRecords AFTER the run to
  * catch a stub/unconfigured backend).
  *
+ * The caller owns the endpoint. Agent Eval holds no base URL and no
+ * credential: it asks a caller-supplied `request` function for each check and
+ * reads the `Response` that comes back, so the status and the provider's own
+ * error text stay readable here.
+ *
  * Two checks, increasing in cost:
- *   - membership (free): GET `{baseUrl}/models` once; a model is `listed` when
+ *   - membership (free): one `list-models` request; a model is `listed` when
  *     its id is in the served set.
- *   - probe (spends a tiny number of tokens): POST `{baseUrl}/chat/completions`
- *     per model with a 1-message, `PROBE_MAX_TOKENS`-token request; `served` is
- *     whether the router reached a provider, with the HTTP `status` and the
- *     body's `error.message` captured in `detail`, and `servedModel` recording
- *     WHICH model answered.
+ *   - probe (spends a tiny number of tokens): one `probe` request per model
+ *     with a `maxOutputTokens` budget; `served` is whether the endpoint reached
+ *     a provider, with the HTTP `status` and the body's `error.message`
+ *     captured in `detail`, and `servedModel` recording WHICH model answered.
  *
  * A 2xx is not proof the requested model answered — a gateway can accept one
  * id and route to another. The probe therefore compares the echoed id against
@@ -68,11 +72,27 @@ export interface ModelPreflight {
   substitution: ServedModelCheck | null
 }
 
+/** One check Agent Eval asks the caller's endpoint to perform. */
+export type ModelEndpointCheck =
+  | { readonly kind: 'list-models' }
+  | {
+      readonly kind: 'probe'
+      readonly model: string
+      /** Output-token budget the probe completion may bill. */
+      readonly maxOutputTokens: number
+    }
+
+/**
+ * Caller-owned request into the model endpoint. The caller binds the base URL
+ * and the credential and returns the raw `Response`; a `list-models` request
+ * answers with an OpenAI-compatible `{ data: [{ id }] }` body, and a `probe`
+ * request answers with one minimal chat completion for `model`.
+ */
+export type ModelEndpointRequest = (check: ModelEndpointCheck) => Promise<Response>
+
 export interface PreflightModelsOptions {
-  /** Router base URL, e.g. `https://router.tangle.tools/v1`. Trailing slash tolerated. */
-  baseUrl: string
-  /** Bearer token sent as `Authorization: Bearer <apiKey>`. */
-  apiKey: string
+  /** Caller-owned endpoint request. Agent Eval issues no provider HTTP itself. */
+  request: ModelEndpointRequest
   /** Model ids to check. */
   models: string[]
   /** When true, additionally spend a small chat probe per model. Default false. */
@@ -83,8 +103,6 @@ export interface PreflightModelsOptions {
    * `budgetExhausted` instead of proving their identity.
    */
   probeMaxTokens?: number
-  /** Injectable fetch for tests; defaults to the global. */
-  fetchImpl?: typeof fetch
 }
 
 export interface PreflightOutcome {
@@ -104,10 +122,6 @@ interface ChatErrorBody {
 
 interface ChatProbeBody {
   model?: unknown
-}
-
-function stripSlash(url: string): string {
-  return url.replace(/\/+$/, '')
 }
 
 /** Extract `error.message` (then top-level `message`) from a chat-completions error body. */
@@ -130,9 +144,6 @@ function errorMessage(body: unknown): string | null {
  * unconfigured (a 401 `model_not_found` from the router) is caught.
  */
 export async function preflightModels(opts: PreflightModelsOptions): Promise<PreflightOutcome> {
-  const fetchImpl = opts.fetchImpl ?? fetch
-  const baseUrl = stripSlash(opts.baseUrl)
-  const authHeaders = { authorization: `Bearer ${opts.apiKey}` }
   const maxTokens = opts.probeMaxTokens ?? PROBE_MAX_TOKENS
   if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
     return {
@@ -144,13 +155,13 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
 
   let served: Set<string>
   try {
-    const res = await fetchImpl(`${baseUrl}/models`, { method: 'GET', headers: authHeaders })
+    const res = await opts.request({ kind: 'list-models' })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return {
         succeeded: false,
         value: null,
-        error: `preflightModels: GET ${baseUrl}/models → ${res.status} ${text.slice(0, 400)}`,
+        error: `preflightModels: list-models → ${res.status} ${text.slice(0, 400)}`,
       }
     }
     const body = (await res.json()) as ModelsListBody
@@ -160,7 +171,7 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
     return {
       succeeded: false,
       value: null,
-      error: `preflightModels: GET ${baseUrl}/models failed — ${err instanceof Error ? err.message : String(err)}`,
+      error: `preflightModels: list-models failed — ${err instanceof Error ? err.message : String(err)}`,
     }
   }
 
@@ -180,15 +191,7 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
       continue
     }
     try {
-      const res = await fetchImpl(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { ...authHeaders, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: maxTokens,
-        }),
-      })
+      const res = await opts.request({ kind: 'probe', model, maxOutputTokens: maxTokens })
       let detail: string | null = null
       let substitution: ServedModelCheck | null = null
       let budgetExhausted = false
@@ -220,7 +223,7 @@ export async function preflightModels(opts: PreflightModelsOptions): Promise<Pre
       return {
         succeeded: false,
         value: null,
-        error: `preflightModels: probe POST ${baseUrl}/chat/completions (model ${model}) failed — ${err instanceof Error ? err.message : String(err)}`,
+        error: `preflightModels: probe (model ${model}) failed — ${err instanceof Error ? err.message : String(err)}`,
       }
     }
   }

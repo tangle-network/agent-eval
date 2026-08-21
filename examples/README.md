@@ -48,7 +48,7 @@ pnpm tsx examples/compare-optimization-methods/index.ts
 
 Any OpenAI-compatible endpoint works; point `LLM_BASE_URL` at it and set `LLM_MODEL` to a model it serves.
 
-The optimizer's reflection calls run through a default execution owner built from `LLM_BASE_URL` and `LLM_API_KEY` (`createOpenAiCompatibleExecutionOwner` from `/campaign`).
+The optimizer's reflection calls run through a caller-owned execution owner. These examples supply their own, `_shared/openai-compatible-owner.ts`, built from `LLM_BASE_URL` and `LLM_API_KEY`.
 Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to route them through your own execution package instead.
 Replace the example rates with the exact rates for your endpoint.
 Use `OPTIMIZERS=skillopt` for SkillOpt, or `OPTIMIZERS=gepa,skillopt` for a shared comparison.

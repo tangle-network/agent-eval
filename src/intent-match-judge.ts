@@ -23,15 +23,15 @@
  * treat failure as "judge skipped."
  */
 
-import { CostLedger, type CostLedgerHandle, type CostReceipt } from './cost-ledger'
+import type { ChatClient } from './analyst/chat-client'
+import { paidJsonChat } from './chat-json-call'
 import {
-  callLlmJson,
-  costReceiptFromLlm,
-  costReceiptFromLlmError,
-  type LlmCallRequest,
-  type LlmClientOptions,
-  maximumChargeForLlmRequest,
-} from './llm-client'
+  CostLedger,
+  type CostLedgerHandle,
+  type CostReceipt,
+  type CustomTokenPricing,
+} from './cost-ledger'
+import type { LlmCallRequest } from './llm-client'
 
 export const INTENT_MATCH_JUDGE_VERSION = 'intent-match-judge-v1-2026-04-24'
 
@@ -61,13 +61,16 @@ export interface IntentMatchResult {
 }
 
 export interface IntentMatchOptions {
+  /** Caller-owned transport. Required: agent-eval executes no paid model. */
+  chat: ChatClient
   model?: string
   timeoutMs?: number
   maxTokens?: number
   maxSourceChars?: number
   maxPerFileChars?: number
   maxHtmlChars?: number
-  llm?: LlmClientOptions
+  /** Endpoint rates used when the transport reports no billed amount. */
+  pricing?: CustomTokenPricing
   costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
@@ -96,7 +99,10 @@ function truncate(body: string, cap: number, label: string): string {
   return `${body.slice(0, cap)}\n… [truncated ${body.length - cap} chars of ${label}]`
 }
 
-function buildPrompt(input: IntentMatchInput, opts: Required<IntentMatchOptions>): string {
+function buildPrompt(
+  input: IntentMatchInput,
+  opts: { maxPerFileChars: number; maxSourceChars: number; maxHtmlChars: number },
+): string {
   const sourceBlob = input.sourceFiles
     .filter((f) => f.content.length <= opts.maxPerFileChars)
     .map((f) => `--- FILE: ${f.path} ---\n${f.content}`)
@@ -145,17 +151,18 @@ Return STRICT JSON. No prose outside.`
  */
 export async function runIntentMatchJudge(
   input: IntentMatchInput,
-  options: IntentMatchOptions = {},
+  options: IntentMatchOptions,
 ): Promise<IntentMatchResult> {
   const start = Date.now()
-  const opts: Required<IntentMatchOptions> = {
-    model: options.model ?? DEFAULT_MODEL,
+  const opts = {
+    chat: options.chat,
+    model: options.model ?? options.chat.defaultModel ?? DEFAULT_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,
     maxPerFileChars: options.maxPerFileChars ?? DEFAULT_MAX_PER_FILE,
     maxHtmlChars: options.maxHtmlChars ?? DEFAULT_MAX_HTML,
-    llm: options.llm ?? {},
+    ...(options.pricing ? { pricing: options.pricing } : {}),
     costLedger: options.costLedger ?? new CostLedger(),
     costPhase: options.costPhase ?? 'judge.intent-match',
     costTags: options.costTags ?? {},
@@ -192,26 +199,20 @@ export async function runIntentMatchJudge(
       maxTokens: opts.maxTokens,
       timeoutMs: opts.timeoutMs,
     } satisfies LlmCallRequest
-    const paid = await opts.costLedger.runPaidCall({
+    const paid = await paidJsonChat<{ score: number; evidence: string }>({
+      chat: opts.chat,
+      request,
+      ledger: opts.costLedger,
       channel: 'judge',
       phase: opts.costPhase,
       actor: 'intent-match',
-      model: opts.model,
-      ...(Object.keys(opts.costTags).length > 0 ? { tags: opts.costTags } : {}),
-      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      tags: opts.costTags,
       signal: opts.signal,
-      execute: (signal, callId) =>
-        callLlmJson<{ score: number; evidence: string }>(request, {
-          ...opts.llm,
-          signal,
-          idempotencyKey: callId,
-        }),
-      receipt: ({ result }) => costReceiptFromLlm(result),
-      receiptFromError: costReceiptFromLlmError,
+      ...(opts.pricing ? { pricing: opts.pricing } : {}),
     })
     receipt = paid.receipt
     if (!paid.succeeded) throw paid.error
-    const { value } = paid.value
+    const { value } = paid
 
     const score = Math.max(0, Math.min(1, Number(value?.score ?? 0)))
     return {
@@ -238,10 +239,10 @@ export async function runIntentMatchJudge(
 }
 
 /**
- * Factory: pin LLM options once, return a closure.
+ * Factory: pin the transport and options once, return a closure.
  */
 export function createIntentMatchJudge(
-  options: IntentMatchOptions = {},
+  options: IntentMatchOptions,
 ): (input: IntentMatchInput) => Promise<IntentMatchResult> {
   return (input) => runIntentMatchJudge(input, options)
 }

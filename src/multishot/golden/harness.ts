@@ -178,13 +178,7 @@ export async function checkMultishotMatrixGoldenScenario(opts: {
   const records = opts.records ?? goldenRecords()
   const record = requireMatrixRecord(records, opts.scenario.id)
   const runCase = opts.scenario.build(opts.runDir)
-  const restore = runCase.installJudgeWire()
-  let matrix: RunMultishotMatrixResult
-  try {
-    matrix = await opts.engine(runCase.options)
-  } finally {
-    restore()
-  }
+  const matrix: RunMultishotMatrixResult = await opts.engine(runCase.options)
 
   const mismatches = [
     ...compareJson(record.matrix, stripVolatile(matrix.matrix), 'matrix'),

@@ -99,18 +99,34 @@ function judgeScoreForPrompt(prompt: string): number {
   throw new Error(`unscripted judge prompt: ${prompt.slice(0, 60)}`)
 }
 
+let judgeCalls = 0
+
+const judgeTransport: MultishotTransport = async (req) => {
+  judgeCalls++
+  return {
+    message: {
+      content: JSON.stringify({
+        quality: judgeScoreForPrompt(String(req.messages[1]?.content ?? '')),
+        notes: 'ok',
+      }),
+    },
+    usage: { prompt_tokens: 10, completion_tokens: 5 },
+    model: 'openai/gpt-4o-mini',
+    costUsd: JUDGE_COST_USD,
+  }
+}
+
 function judgeConfig<TInput>(
   name: string,
   buildPrompt: (input: TInput) => string,
 ): JudgeConfig<TInput> {
   return {
     name,
+    transport: judgeTransport,
     model: 'openai/gpt-4o-mini',
     dimensions: [{ key: 'quality', description: 'overall quality' }],
     systemPrompt: 'score the input',
     buildPrompt,
-    apiKey: 'judge-key',
-    baseUrl: 'http://judge.invalid/v1',
   }
 }
 
@@ -152,7 +168,6 @@ const driverTransport = vi.fn<MultishotTransport>(async () => ({
   costUsd: 0.001,
 }))
 
-let judgeCalls = 0
 let tempDirs: string[] = []
 
 function newRunDir(): string {
@@ -184,8 +199,6 @@ function baseOptions(runDir: string): RunMultishotMatrixOptions<TestPersona> {
     judgeMaxTokens: 999,
     agentTransport,
     driverTransport,
-    apiKey: 'agent-key',
-    baseUrl: 'http://agent.invalid/v1',
   }
 }
 
@@ -194,37 +207,9 @@ beforeEach(() => {
   tempDirs = []
   agentTransport.mockClear()
   driverTransport.mockClear()
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_url: string, init?: RequestInit) => {
-      judgeCalls++
-      const body = JSON.parse(String(init?.body)) as {
-        messages: Array<{ role: string; content: string }>
-      }
-      const prompt = body.messages[1]?.content ?? ''
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({ quality: judgeScoreForPrompt(prompt), notes: 'ok' }),
-              },
-            },
-          ],
-          usage: { prompt_tokens: 10, completion_tokens: 5 },
-          model: 'openai/gpt-4o-mini',
-          _response_cost: JUDGE_COST_USD,
-        }),
-        text: async () => 'ok',
-      } as Response
-    }),
-  )
 })
 
 afterEach(() => {
-  vi.unstubAllGlobals()
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -455,8 +440,6 @@ describe('runMultishotMatrix shot seam', () => {
     expect(input.driverMaxTokens).toBe(321)
     expect(input.agentTransport).toBe(agentTransport)
     expect(input.driverTransport).toBe(driverTransport)
-    expect(input.apiKey).toBe('agent-key')
-    expect(input.baseUrl).toBe('http://agent.invalid/v1')
   })
 
   // `maxTurns: 1` never reaches the driver leg, so the case above compares two
@@ -508,6 +491,8 @@ describe('runMultishotMatrix shot seam', () => {
     const reference = await syntheticShot()({
       profile: PROFILES[0]!.value,
       persona: PERSONAS[0]!,
+      agentTransport,
+      driverTransport,
     })
     expect(readCellJson(runDir, 'p1', 'alice', 'transcript.json')).toEqual(reference.transcript)
     expect(readCellJson(runDir, 'p1', 'alice', 'artifacts.json')).toEqual(reference.artifacts)

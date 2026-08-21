@@ -107,12 +107,15 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
   driverMaxTokens?: number
   /** Maximum output tokens for each judge response. */
   judgeMaxTokens?: number
-  /** Execution seam for the agent leg of every cell — replaces the router
-   *  HTTP call when provided (see RunMultishotOptions.agentTransport).
-   *  Judges are unaffected; configure those via MultishotJudges. */
-  agentTransport?: MultishotTransport
-  /** Execution seam for the simulated-user driver leg of every cell. */
-  driverTransport?: MultishotTransport
+  /** Caller-owned execution for the agent leg of every cell (see
+   *  RunMultishotOptions.agentTransport). Judges are unaffected; each judge
+   *  carries its own transport in MultishotJudges. */
+  agentTransport: MultishotTransport
+  /** Caller-owned execution for the simulated-user driver leg of every cell. */
+  driverTransport: MultishotTransport
+  /** Caller-owned execution for the specialist leg the tool executors run in
+   *  every cell. Defaults to `agentTransport`. */
+  toolTransport?: MultishotTransport
   /** Conversation engine for every cell. Defaults to `runMultishot`.
    *
    *  The matrix owns everything around the shot — cell fan-out, concurrency,
@@ -128,9 +131,6 @@ export interface RunMultishotMatrixOptions<TPersona extends MultishotPersona> {
    *  `MultishotShotResultError` for that cell. The default engine is never
    *  used as a fallback. */
   runShot?: MultishotShot<TPersona>
-  /** Pass-thru fields. */
-  apiKey?: string
-  baseUrl?: string
 }
 
 /** Per-cell output the multishot matrix records in `MatrixResult.cells`.
@@ -247,8 +247,7 @@ export async function runMultishotMatrix<TPersona extends MultishotPersona>(
         driverMaxTokens: opts.driverMaxTokens,
         agentTransport: opts.agentTransport,
         driverTransport: opts.driverTransport,
-        apiKey: opts.apiKey,
-        baseUrl: opts.baseUrl,
+        toolTransport: opts.toolTransport,
       })
       // Everything from here on runs with the shot's spend already committed.
       // A throw past this line must carry it, or the money leaves the matrix's

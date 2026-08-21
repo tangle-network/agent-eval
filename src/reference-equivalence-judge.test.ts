@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type ChatRequest, type ChatResponse, createChatClient } from './analyst/chat-client'
+import {
+  type ChatClient,
+  type ChatRequest,
+  type ChatResponse,
+  createChatClient,
+} from './analyst/chat-client'
 import { runCampaign } from './campaign/run-campaign'
 import { inMemoryCampaignStorage } from './campaign/storage'
 import { CostLedger } from './cost-ledger'
@@ -64,12 +69,13 @@ function mockChat(
   })
 }
 
-function directProvider() {
+/** A caller-owned transport: agent-eval issues no provider request itself. */
+function callerTransport(chat: ChatClient['chat']): ChatClient {
   return createChatClient({
-    transport: 'direct-provider',
-    baseUrl: 'https://provider.example/v1',
-    apiKey: 'test-key',
+    transport: 'custom',
     defaultModel: 'judge-model-2026-07-01',
+    maximumAttempts: 1,
+    chat,
   })
 }
 
@@ -162,52 +168,27 @@ describe('createReferenceEquivalenceJudge', () => {
 })
 
 describe('reference-equivalence transport and campaign integration', () => {
-  it('degrades provider 400 json_schema to json_object', async () => {
-    const bodies: Array<Record<string, unknown>> = []
-    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-      if (bodies.length === 1) return new Response('json_schema not supported', { status: 400 })
-      return new Response(
-        JSON.stringify({
-          model: 'judge-model-2026-07-01',
-          choices: [{ message: { content: JSON.stringify(verdict()) }, finish_reason: 'stop' }],
-          usage: { prompt_tokens: 120, completion_tokens: 24, total_tokens: 144 },
-          _response_cost: 0.0042,
-        }),
-        { status: 200 },
-      )
-    }) as unknown as typeof globalThis.fetch
-    vi.stubGlobal('fetch', fetch)
-
-    expect((await runReferenceEquivalenceJudge(INPUT, { chat: directProvider() })).score).toBe(0.9)
-    expect(bodies.map((body) => (body.response_format as { type: string }).type)).toEqual([
-      'json_schema',
-      'json_object',
-    ])
-  })
-
   it('propagates cancellation and records an incomplete receipt after transport termination', async () => {
-    let providerSignal: AbortSignal | null | undefined
+    let transportSignal: AbortSignal | undefined
     let markStarted!: () => void
     const started = new Promise<void>((resolve) => {
       markStarted = resolve
     })
-    const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      providerSignal = init?.signal
+    const chat = vi.fn((_req: ChatRequest, opts?: { signal?: AbortSignal }) => {
+      transportSignal = opts?.signal
       markStarted()
-      return new Promise<Response>((_resolve, reject) => {
-        providerSignal?.addEventListener(
+      return new Promise<ChatResponse>((_resolve, reject) => {
+        transportSignal?.addEventListener(
           'abort',
-          () => reject(new DOMException('provider request aborted', 'AbortError')),
+          () => reject(new DOMException('transport request aborted', 'AbortError')),
           { once: true },
         )
       })
-    }) as unknown as typeof globalThis.fetch
-    vi.stubGlobal('fetch', fetch)
+    })
     const controller = new AbortController()
     const ledger = new CostLedger()
     const pending = createReferenceEquivalenceJudge({
-      chat: directProvider(),
+      chat: callerTransport(chat),
       costLedger: ledger,
     }).score({
       artifact: INPUT.candidateOutput,
@@ -219,8 +200,8 @@ describe('reference-equivalence transport and campaign integration', () => {
     controller.abort(new DOMException('campaign cancelled', 'AbortError'))
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(providerSignal?.aborted).toBe(true)
+    expect(chat).toHaveBeenCalledOnce()
+    expect(transportSignal?.aborted).toBe(true)
     expect(ledger.list()).toEqual([
       expect.objectContaining({ costUnknown: true, usageUnknown: true, error: expect.any(String) }),
     ])

@@ -50,7 +50,7 @@ The script validates every required variable before it makes a paid call.
 ## Why It Is Built This Way
 
 - The ten cases live inline in `index.ts`; `selfImprove()` derives every partition from that one list, so GEPA can never see the held-out cases.
-- The default execution owner (`createOpenAiCompatibleExecutionOwner`) supplies the metered model call GEPA reflection runs through; the provider key never reaches the Python child, and each reflection call is metered against the declared budget.
+- The example execution owner (`_shared/openai-compatible-owner.ts`) supplies the metered model call GEPA reflection runs through; the provider key never reaches Agent Eval or the Python child, and each reflection call is metered against the declared budget.
 - The judge is deterministic field matching, so a score change traces to prompt content, not judge noise.
 - `budget.generations` stays unset because the external method owns its rounds.
 - `assertRealBackend` fails the run when any cell lacks a real backend receipt.

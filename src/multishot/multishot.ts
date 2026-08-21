@@ -1,20 +1,18 @@
 // Multi-turn driver-agent simulation with inline tool execution.
 //
 // The driver = LLM acting as the persona (reactive, non-deterministic).
-// The agent = the product agent under test (router call by default, or an
-// injected transport — with profile's systemPrompt + the configured tools).
+// The agent = the product agent under test, executed by the caller-supplied
+// transport with the profile's systemPrompt + the configured tools.
 // Tool calls execute inline via the configured executors and feed back
 // into the agent's message log so the agent integrates the result.
+//
+// agent-eval owns no model transport: every leg runs on a MultishotTransport
+// the caller supplies, so no provider credential enters this package.
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { withCellSpend } from '../matrix'
+import { estimateMultishotCost } from './cost'
 import { defaultDelegationTools } from './default-tools'
-import {
-  defaultRouterBaseUrl,
-  estimateRouterCost,
-  requireRouterApiKey,
-  routerCompletion,
-} from './router'
 import { defaultShapeFromProfile } from './shape-defaults'
 import {
   type MultishotArtifact,
@@ -56,18 +54,16 @@ export interface RunMultishotOptions<TPersona extends MultishotPersona> {
   driverMaxTokens?: number
   /** Maximum tool calls the agent may dispatch inside one assistant turn. */
   maxToolDispatches?: number
-  /** Execution seam for the agent leg. When provided, every agent inference
-   *  step goes through this function instead of the router HTTP call; the
-   *  string levers (agentModel, apiKey, baseUrl) stop applying to that leg.
-   *  apiKey/baseUrl are still resolved for tool executors and any leg
-   *  without an injected transport. */
-  agentTransport?: MultishotTransport
-  /** Execution seam for the simulated-user driver leg (symmetric to
-   *  agentTransport). Driver model fallback rotation still applies — the
-   *  transport receives each candidate model in turn. */
-  driverTransport?: MultishotTransport
-  apiKey?: string
-  baseUrl?: string
+  /** Caller-owned execution for the agent leg. Every agent inference step
+   *  runs through this function; `agentModel` names the model it receives. */
+  agentTransport: MultishotTransport
+  /** Caller-owned execution for the simulated-user driver leg. Driver model
+   *  fallback rotation still applies — the transport receives each candidate
+   *  model in turn. */
+  driverTransport: MultishotTransport
+  /** Caller-owned execution for the specialist leg the tool executors run.
+   *  Defaults to `agentTransport`. */
+  toolTransport?: MultishotTransport
   signal?: AbortSignal
 }
 
@@ -130,8 +126,6 @@ async function runShotTurns<TPersona extends MultishotPersona>(
   opts: RunMultishotOptions<TPersona>,
   meter: ShotMeter,
 ): Promise<MultishotResult> {
-  const apiKey = opts.apiKey ?? requireRouterApiKey()
-  const baseUrl = opts.baseUrl ?? defaultRouterBaseUrl()
   const maxTurns = opts.maxTurns ?? 10
   const maxToolDispatches = opts.maxToolDispatches ?? 4
   const agentModel = opts.agentModel ?? 'openai/gpt-5.4'
@@ -153,9 +147,9 @@ async function runShotTurns<TPersona extends MultishotPersona>(
   const executors = opts.toolExecutors ?? bundle.executors
   const artifactTypeFor = opts.artifactTypeFor ?? bundle.artifactTypeFor
 
-  const routerTransport: MultishotTransport = (req) => routerCompletion({ apiKey, baseUrl, ...req })
-  const agentTransport = opts.agentTransport ?? routerTransport
-  const driverTransport = opts.driverTransport ?? routerTransport
+  const agentTransport = opts.agentTransport
+  const driverTransport = opts.driverTransport
+  const toolTransport = opts.toolTransport ?? agentTransport
 
   const shape = defaultShapeFromProfile(opts.profile, opts.shape)
 
@@ -191,7 +185,7 @@ async function runShotTurns<TPersona extends MultishotPersona>(
         maxTokens: dispatchesThisTurn === 0 ? agentMaxTokens : toolFollowupMaxTokens,
         signal: opts.signal,
       })
-      meter.costUsd += agentCostUsd ?? estimateRouterCost(agentModel, agentUsage)
+      meter.costUsd += agentCostUsd ?? estimateMultishotCost(agentModel, agentUsage)
       if (agentCostUsd === undefined && agentUsage === undefined) meter.uncaptured = true
 
       const agentText = (agentMsg.content ?? '').trim()
@@ -234,7 +228,7 @@ async function runShotTurns<TPersona extends MultishotPersona>(
           if (!executor) {
             toolResult = JSON.stringify({ error: `unknown tool ${tc.name}` })
           } else {
-            const r = await executor(tc.args, { apiKey, baseUrl, signal: opts.signal })
+            const r = await executor(tc.args, { transport: toolTransport, signal: opts.signal })
             toolResult = r.content
             meter.costUsd += r.costUsd
             const artifactType = artifactTypeFor(tc.name)
@@ -326,7 +320,7 @@ async function driverTurn<TPersona extends MultishotPersona>(opts: {
         maxTokens: opts.maxTokens,
         signal: opts.signal,
       })
-      opts.meter.costUsd += costUsd ?? estimateRouterCost(model, usage)
+      opts.meter.costUsd += costUsd ?? estimateMultishotCost(model, usage)
       if (costUsd === undefined && usage === undefined) opts.meter.uncaptured = true
       const content = (message.content ?? '').trim()
       if (content.length > 0) return { content }

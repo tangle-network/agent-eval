@@ -1,37 +1,27 @@
-/** `callLlmJson` is mocked: this file tests the wire handler's request
- *  validation, dispatch, and error mapping, which a real provider call would
- *  make non-deterministic and paid. Judge behaviour is tested against real
- *  transports elsewhere. */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-const llmMock = vi.hoisted(() => ({
-  value: {
-    dimensions: { quality: 0.8 },
-    failureModes: [],
-    wins: [],
-    rationale: 'Clear enough.',
-  } as unknown,
-}))
-
-vi.mock('../../src/llm-client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/llm-client')>()),
-  callLlmJson: vi.fn(async () => ({
-    value: llmMock.value,
-    result: {
-      model: 'gpt-4o',
-      content: JSON.stringify(llmMock.value),
-      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      costUsd: 0.001,
-      finishReason: 'stop',
-      durationMs: 1,
-      raw: {},
-    },
-  })),
-}))
-
+import { type ChatClient, createChatClient } from '../../src/analyst/chat-client'
 import { CostLedger } from '../../src/cost-ledger'
 import { handleJudge, type WireError } from '../../src/wire/handlers'
 import type { Rubric } from '../../src/wire/schemas'
+
+/** Caller-owned transport: the judge endpoint issues no provider request itself. */
+function answering(value: unknown): ChatClient {
+  return createChatClient({
+    transport: 'custom',
+    defaultModel: 'judge-model',
+    maximumAttempts: 1,
+    chat: async () => ({
+      content: JSON.stringify(value),
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, captured: true },
+      costUsd: 0.001,
+      model: 'judge-model',
+      servedModel: 'judge-model',
+      durationMs: 1,
+      raw: {},
+    }),
+  })
+}
 
 const rubric: Rubric = {
   name: 'test-rubric',
@@ -44,15 +34,19 @@ const rubric: Rubric = {
 
 describe('handleJudge output validation', () => {
   it('returns validated judge output', async () => {
-    llmMock.value = {
-      dimensions: { quality: 0.8 },
-      failureModes: ['bad'],
-      wins: ['good'],
-      rationale: 'Clear enough.',
-    }
-
     const costLedger = new CostLedger()
-    const result = await handleJudge({ rubric, content: 'hello' }, { costLedger })
+    const result = await handleJudge(
+      { rubric, content: 'hello' },
+      {
+        chat: answering({
+          dimensions: { quality: 0.8 },
+          failureModes: ['bad'],
+          wins: ['good'],
+          rationale: 'Clear enough.',
+        }),
+        costLedger,
+      },
+    )
 
     expect(result.composite).toBe(0.8)
     expect(result.failureModes).toEqual(['bad'])
@@ -63,13 +57,19 @@ describe('handleJudge output validation', () => {
     ])
   })
 
-  it('rejects malformed dimension scores before returning wire output', async () => {
-    llmMock.value = {
-      dimensions: { quality: Number.NaN },
-      rationale: 'nope',
-    }
-
+  it('refuses when no ChatClient is configured', async () => {
     await expect(handleJudge({ rubric, content: 'hello' })).rejects.toMatchObject<
+      Partial<WireError>
+    >({
+      code: 'llm_not_configured',
+      status: 503,
+    })
+  })
+
+  it('rejects malformed dimension scores before returning wire output', async () => {
+    const chat = answering({ dimensions: { quality: Number.NaN }, rationale: 'nope' })
+
+    await expect(handleJudge({ rubric, content: 'hello' }, { chat })).rejects.toMatchObject<
       Partial<WireError>
     >({
       code: 'judge_error',
@@ -78,29 +78,32 @@ describe('handleJudge output validation', () => {
   })
 
   it('rejects unknown failure and win ids', async () => {
-    llmMock.value = {
+    const unknownFailure = answering({
       dimensions: { quality: 0.7 },
       failureModes: ['unknown-failure'],
       wins: [],
       rationale: 'bad id',
-    }
-    await expect(handleJudge({ rubric, content: 'hello' })).rejects.toThrow(/unknown failureModes/)
+    })
+    await expect(
+      handleJudge({ rubric, content: 'hello' }, { chat: unknownFailure }),
+    ).rejects.toThrow(/unknown failureModes/)
 
-    llmMock.value = {
+    const unknownWin = answering({
       dimensions: { quality: 0.7 },
       failureModes: [],
       wins: ['unknown-win'],
       rationale: 'bad id',
-    }
-    await expect(handleJudge({ rubric, content: 'hello' })).rejects.toThrow(/unknown wins/)
+    })
+    await expect(handleJudge({ rubric, content: 'hello' }, { chat: unknownWin })).rejects.toThrow(
+      /unknown wins/,
+    )
   })
 
   it('rejects missing rationale', async () => {
-    llmMock.value = {
-      dimensions: { quality: 0.7 },
-      rationale: '',
-    }
+    const chat = answering({ dimensions: { quality: 0.7 }, rationale: '' })
 
-    await expect(handleJudge({ rubric, content: 'hello' })).rejects.toThrow(/missing rationale/)
+    await expect(handleJudge({ rubric, content: 'hello' }, { chat })).rejects.toThrow(
+      /missing rationale/,
+    )
   })
 })

@@ -170,7 +170,6 @@ try {
         type CostLedgerHandle as RootCostLedgerHandle,
         type ExactRegistryRunOpts as RootExactRegistryRunOpts,
         type LlmJudgeOptions as RootLlmJudgeOptions,
-        type LlmClientOptions,
         type Run,
         type RunRecord,
         type RunTokenUsage,
@@ -303,8 +302,10 @@ try {
       // @ts-expect-error provider SDK types are not part of the public API
       type RemovedProviderSdk = import('@tangle-network/agent-eval')[${JSON.stringify(removedSdkType)}]
       const removedProviderSdk: RemovedProviderSdk = {}
-      // @ts-expect-error LlmClientOptions uses total maximumAttempts
-      type RemovedLlmMaxRetries = LlmClientOptions['maxRetries']
+      // @ts-expect-error the credential-bearing transport left the public API (#539)
+      type RemovedLlmClientOptions = import('@tangle-network/agent-eval').LlmClientOptions
+      // @ts-expect-error agent-eval executes no paid model: callLlm left the public API (#539)
+      type RemovedCallLlm = typeof import('@tangle-network/agent-eval').callLlm
       // @ts-expect-error CostLedgerEntry was removed from the current-only API
       type RemovedCostLedgerEntry = import('@tangle-network/agent-eval').CostLedgerEntry
       // @ts-expect-error fixed-prompt judge factories were removed

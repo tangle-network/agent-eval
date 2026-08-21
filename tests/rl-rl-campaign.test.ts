@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createChatClient } from '../src/analyst/chat-client'
 import type { CampaignRunner } from '../src/eval-campaign'
 import { runRLCampaign } from '../src/rl/rl-campaign'
 import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
@@ -7,6 +8,19 @@ import { InMemoryTraceStore } from '../src/trace/store'
 interface VariantPayload {
   prompt: string
 }
+
+const EXECUTION_REF = 'https://api.test/v1'
+
+/** The caller owns execution; every runner here emits its own spans. */
+const chatFactory = () =>
+  createChatClient({
+    transport: 'custom',
+    defaultModel: 'test-model@2026-05-08',
+    maximumAttempts: 1,
+    chat: async () => {
+      throw new Error('no RL campaign test in this file calls the model')
+    },
+  })
 
 const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
   await ctx.emitter.startRun({ scenarioId: ctx.scenarioId, layer: 'app-runtime' })
@@ -23,7 +37,7 @@ const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
     provider: 'test',
     model: 'test-model@2026-05-08',
     endpoint: '/chat/completions',
-    baseUrl: ctx.llmOpts.baseUrl ?? '',
+    baseUrl: EXECUTION_REF,
     attemptIndex: 0,
     direction: 'request',
     timestamp: 1_000,
@@ -55,7 +69,8 @@ describe('runRLCampaign', () => {
       ],
       scenarios: Array.from({ length: 8 }, (_, i) => ({ scenarioId: `task-${i}` })),
       seeds: [0, 1, 2],
-      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner: defaultRunner,
@@ -110,7 +125,7 @@ describe('runRLCampaign', () => {
           provider: 'test',
           model: 'test-model@2026-05-08',
           endpoint: '/chat/completions',
-          baseUrl: ctx.llmOpts.baseUrl ?? '',
+          baseUrl: EXECUTION_REF,
           attemptIndex: 0,
           direction: 'request',
           timestamp: 1_000,
@@ -144,7 +159,8 @@ describe('runRLCampaign', () => {
         ],
         scenarios: Array.from({ length: 8 }, (_, i) => ({ scenarioId: `task-${i}` })),
         seeds: [0],
-        llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+        chatFactory,
+        executionRef: EXECUTION_REF,
         storeFactory: () => new InMemoryTraceStore(),
         rawSinkFactory: () => new InMemoryRawProviderSink(),
         runner: partialRunner(answersUpTo),
@@ -194,7 +210,8 @@ describe('runRLCampaign', () => {
       ],
       scenarios: Array.from({ length: 4 }, (_, i) => ({ scenarioId: `s-${i}` })),
       seeds: [0, 1],
-      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner: defaultRunner,
@@ -234,7 +251,8 @@ describe('runRLCampaign', () => {
       ],
       scenarios: [{ scenarioId: 's-0' }],
       seeds: [0],
-      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner,
@@ -258,7 +276,8 @@ describe('runRLCampaign', () => {
       variants: [{ id: 'only', payload: { prompt: 'x' } }],
       scenarios: [{ scenarioId: 's' }],
       seeds: [0],
-      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner: defaultRunner,
@@ -279,7 +298,8 @@ describe('runRLCampaign', () => {
       seeds: [0],
       splitTag: 'holdout',
       preferences: { allowHeldOutTrainingData: true },
-      llmOpts: { baseUrl: 'https://api.test/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner: defaultRunner,

@@ -190,8 +190,6 @@ function delegationCase(overrides: DelegationOverrides = {}): MultishotGoldenCas
     maxTurns: overrides.maxTurns ?? 3,
     agentModel: 'test/agent-model',
     driverModel: 'test/driver-model',
-    apiKey: 'golden-key',
-    baseUrl: 'http://router.invalid',
     agentTransport: ledgerTransport(requests, 'agent', overrides.agent ?? delegationAgent),
     driverTransport: ledgerTransport(requests, 'driver', overrides.driver ?? delegationDriver),
   }
@@ -384,8 +382,6 @@ function samplingCase(overrides: SamplingOverrides = {}): MultishotGoldenCase {
     agentModel: 'scripted/agent',
     driverModel: 'primary/driver',
     driverFallbackModels: ['fallback/driver'],
-    apiKey: 'golden-key',
-    baseUrl: 'http://router.invalid',
     agentTransport: ledgerTransport(
       requests,
       'agent',

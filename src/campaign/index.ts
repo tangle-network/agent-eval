@@ -219,10 +219,6 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
-export {
-  createOpenAiCompatibleExecutionOwner,
-  type OpenAiCompatibleExecutionOwnerOptions,
-} from './openai-compatible-execution-owner'
 export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,

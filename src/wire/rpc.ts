@@ -11,7 +11,7 @@
  * One request per process invocation. To pipeline many calls, the client
  * writes JSONL to stdin and reads JSONL from stdout — see batch mode below.
  */
-import type { LlmClientOptions, LlmRouteRequirements } from '../llm-client'
+import type { ChatClient } from '../analyst/chat-client'
 import { handleJudge, handleListRubrics, handleVersion, WireError } from './handlers'
 import { JudgeRequestSchema } from './schemas'
 
@@ -29,9 +29,9 @@ interface RpcError {
 }
 
 export interface RpcOptions {
-  llm?: LlmClientOptions
+  /** Caller-owned transport for `/v1/judge`. Without it the method refuses. */
+  chat?: ChatClient
   judgeModel?: string
-  llmRouteRequirements?: LlmRouteRequirements
 }
 
 export async function dispatchRpc(
@@ -53,9 +53,8 @@ export async function dispatchRpc(
         }
         return {
           result: await handleJudge(parsed.data, {
-            llm: options.llm,
+            chat: options.chat,
             defaultModel: options.judgeModel,
-            routeRequirements: options.llmRouteRequirements,
           }),
         }
       }

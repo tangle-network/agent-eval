@@ -60,11 +60,9 @@ import {
   summarizeBackendIntegrity,
 } from '../../../src/integrity/backend-integrity'
 import {
-  callLlm,
   costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
-  type LlmClientOptions,
   maximumChargeForLlmRequest,
 } from '../../../src/llm-client'
 import type { RunRecord } from '../../../src/run-record'
@@ -75,6 +73,7 @@ import {
 } from '../../_shared/env'
 import { GEPA_REFLECTION_ENGINE_CONFIG } from '../../_shared/gepa-reflection'
 import { assertMatchedMethodLimits } from '../../_shared/matched-method-limits'
+import { openAiCompatibleChatClient } from '../../_shared/openai-compatible-owner'
 import { loadOptimizerExecutionOwner } from '../../_shared/optimizer-execution-owner'
 import { optimizerModelBudgetFromEnv } from '../../_shared/optimizer-model-budget'
 import { missingGsm8kEnv } from './env-validation'
@@ -94,7 +93,13 @@ const BASE_URL = (
   process.env.TANGLE_ROUTER_URL ||
   'https://router.tangle.tools/v1'
 ).trim()
+if (!API_KEY) {
+  throw new Error(
+    'LLM_API_KEY (or TANGLE_API_KEY) is required: this example owns its own transport',
+  )
+}
 const MODEL = process.env.LLM_MODEL || 'deepseek-v4-pro'
+const WORKER_MAXIMUM_ATTEMPTS = 2
 const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
 const PRICE_CACHED_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_M')
 const PRICE_CACHE_WRITE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
@@ -182,13 +187,15 @@ interface Artifact {
   text: string
 }
 
-const llm: LlmClientOptions = {
-  apiKey: API_KEY,
+// The worker transport is caller code: Agent Eval holds no provider key.
+const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
-  maximumAttempts: 2,
-  defaultTimeoutMs: CALL_TIMEOUT_MS,
-  ...(CUSTOM_TOKEN_PRICING ? { customTokenPricing: CUSTOM_TOKEN_PRICING } : {}),
-}
+  apiKey: API_KEY,
+  model: MODEL,
+  maximumAttempts: WORKER_MAXIMUM_ATTEMPTS,
+  timeoutMs: CALL_TIMEOUT_MS,
+  ...(CUSTOM_TOKEN_PRICING ? { pricing: CUSTOM_TOKEN_PRICING } : {}),
+})
 
 const records: RunRecord[] = []
 
@@ -211,10 +218,13 @@ function makeWorker() {
     const paid = await ctx.cost.runPaidCall({
       actor: 'worker',
       model: MODEL,
-      maximumCharge: maximumChargeForLlmRequest(request, llm),
-      execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
-      receipt: costReceiptFromLlm,
-      receiptFromError: costReceiptFromLlmError,
+      maximumCharge: maximumChargeForLlmRequest(request, {
+        maximumAttempts: WORKER_MAXIMUM_ATTEMPTS,
+        ...(CUSTOM_TOKEN_PRICING ? { customTokenPricing: CUSTOM_TOKEN_PRICING } : {}),
+      }),
+      execute: (signal, callId) => chat.chat(request, { signal, idempotencyKey: callId }),
+      receipt: (result) => costReceiptFromLlm(result, CUSTOM_TOKEN_PRICING),
+      receiptFromError: (error) => costReceiptFromLlmError(error, CUSTOM_TOKEN_PRICING),
     })
     if (!paid.succeeded) throw paid.error
     const res = paid.value
@@ -477,7 +487,7 @@ async function main() {
       worker: {
         requestTimeoutMs: CALL_TIMEOUT_MS,
         maxOutputTokens: WORKER_MAX_TOKENS,
-        maximumAttempts: llm.maximumAttempts,
+        maximumAttempts: WORKER_MAXIMUM_ATTEMPTS,
         temperature: 0,
         customTokenPricing: CUSTOM_TOKEN_PRICING ?? null,
       },

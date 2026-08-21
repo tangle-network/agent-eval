@@ -4,8 +4,8 @@
 //   1. `runMultishot` declares what the conversation spent when it throws,
 //      including every driver attempt that billed and returned nothing.
 //   2. `runMultishotMatrix` bills a cell whose shot result fails validation.
-//   3. A judge whose cost the router never reported marks the cell's total as
-//      a subtotal instead of presenting it as complete.
+//   3. A judge whose cost the transport never reported marks the cell's total
+//      as a subtotal instead of presenting it as complete.
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -39,19 +39,39 @@ const SHAPE: MultishotShape<TestPersona> = {
   buildDriverSystemPrompt: (p) => `driver for ${p.name}`,
 }
 
-function conversationJudge(): JudgeConfig<ConversationJudgeInput<TestPersona>> {
-  return {
-    name: 'conversation',
-    model: 'openai/gpt-4o-mini',
-    dimensions: [{ key: 'quality', description: 'overall quality' }],
-    systemPrompt: 'score the input',
-    buildPrompt: (input) => `CONVERSATION turns=${input.transcript.length}`,
-    apiKey: 'judge-key',
-    baseUrl: 'http://judge.invalid/v1',
+/** A leg the scenario must never reach — reaching it is the failure. */
+function unreachedTransport(leg: string): MultishotTransport {
+  return async () => {
+    throw new Error(`${leg} leg must not run in this scenario`)
   }
 }
 
-const JUDGES: MultishotJudges<TestPersona> = { conversation: conversationJudge() }
+/** Judge leg: a reply whose cost the transport reports, or withholds. */
+function judgeTransport(options: { reportCost: boolean }): MultishotTransport {
+  return async () => ({
+    message: { content: JSON.stringify({ quality: 8, notes: 'fine' }) },
+    usage: { prompt_tokens: 100, completion_tokens: 50 },
+    ...(options.reportCost ? { costUsd: 0.002 } : {}),
+  })
+}
+
+function conversationJudge(
+  transport: MultishotTransport,
+  model = 'openai/gpt-4o-mini',
+): JudgeConfig<ConversationJudgeInput<TestPersona>> {
+  return {
+    name: 'conversation',
+    transport,
+    model,
+    dimensions: [{ key: 'quality', description: 'overall quality' }],
+    systemPrompt: 'score the input',
+    buildPrompt: (input) => `CONVERSATION turns=${input.transcript.length}`,
+  }
+}
+
+function pricedJudges(): MultishotJudges<TestPersona> {
+  return { conversation: conversationJudge(judgeTransport({ reportCost: true })) }
+}
 
 let tempDirs: string[] = []
 
@@ -61,30 +81,11 @@ function newRunDir(): string {
   return dir
 }
 
-/** Judge leg: a router reply whose cost is reported, or withheld by a model
- *  the ledger cannot price. */
-function stubJudgeFetch(options: { reportCost: boolean; model?: string }): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        choices: [{ message: { content: JSON.stringify({ quality: 8, notes: 'fine' }) } }],
-        model: options.model ?? 'openai/gpt-4o-mini',
-        usage: { prompt_tokens: 100, completion_tokens: 50 },
-        ...(options.reportCost ? { cost_usd: 0.002 } : {}),
-      }),
-    })),
-  )
-}
-
 beforeEach(() => {
   tempDirs = []
 })
 
 afterEach(() => {
-  vi.unstubAllGlobals()
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -111,8 +112,6 @@ describe('runMultishot — a throw declares the conversation spend', () => {
       driverFallbackModels: ['openai/gpt-4.1-mini'],
       agentTransport,
       driverTransport,
-      apiKey: 'agent-key',
-      baseUrl: 'http://agent.invalid/v1',
     }).then(
       () => undefined,
       (e: unknown) => e,
@@ -144,8 +143,6 @@ describe('runMultishot — a throw declares the conversation spend', () => {
       driverModel: 'openai/gpt-4o-mini',
       agentTransport,
       driverTransport,
-      apiKey: 'agent-key',
-      baseUrl: 'http://agent.invalid/v1',
     }).then(
       () => undefined,
       (e: unknown) => e,
@@ -160,7 +157,6 @@ describe('runMultishot — a throw declares the conversation spend', () => {
 
 describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   it('bills the shot that spent before returning a malformed result', async () => {
-    stubJudgeFetch({ reportCost: true })
     const runShot: MultishotShot<TestPersona> = async () =>
       ({
         transcript: 'not an array',
@@ -174,8 +170,10 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
+      agentTransport: unreachedTransport('agent'),
+      driverTransport: unreachedTransport('driver'),
       runShot,
     })
 
@@ -188,7 +186,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   })
 
   it('records the cell as uncaptured when the shot result carries no usable cost', async () => {
-    stubJudgeFetch({ reportCost: true })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const runShot: MultishotShot<TestPersona> = async () =>
       ({
@@ -203,8 +200,10 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
+      agentTransport: unreachedTransport('agent'),
+      driverTransport: unreachedTransport('driver'),
       runShot,
     })
 
@@ -217,7 +216,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   })
 
   it('stops scheduling once failed cells spend past the ceiling', async () => {
-    stubJudgeFetch({ reportCost: true })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let shots = 0
     const runShot: MultishotShot<TestPersona> = async () => {
@@ -240,10 +238,12 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       ],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
       maxConcurrency: 1,
       costCeiling: 0.5,
+      agentTransport: unreachedTransport('agent'),
+      driverTransport: unreachedTransport('driver'),
       runShot,
     })
 
@@ -258,7 +258,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   it('marks a successful cell uncaptured when the SHOT priced a call at nothing', async () => {
     // Judges report their cost; only the agent leg is unpriced, so the cell can
     // only learn its total is a subtotal from the shot itself.
-    stubJudgeFetch({ reportCost: true })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const agentTransport = vi.fn<MultishotTransport>(async () => ({
       message: { content: 'agent answered' },
@@ -268,12 +267,11 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
       maxTurns: 1,
       agentTransport,
-      apiKey: 'agent-key',
-      baseUrl: 'http://agent.invalid/v1',
+      driverTransport: unreachedTransport('driver'),
     })
 
     const run = matrix.cells[0]?.runs[0]
@@ -284,7 +282,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   })
 
   it('reports a fully priced shot as a complete estimate', async () => {
-    stubJudgeFetch({ reportCost: true })
     const agentTransport = vi.fn<MultishotTransport>(async () => ({
       message: { content: 'agent answered' },
       costUsd: 0.2,
@@ -294,12 +291,11 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
       maxTurns: 1,
       agentTransport,
-      apiKey: 'agent-key',
-      baseUrl: 'http://agent.invalid/v1',
+      driverTransport: unreachedTransport('driver'),
     })
 
     const run = matrix.cells[0]?.runs[0]
@@ -308,7 +304,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   })
 
   it('rejects a shot that claims an uncaptured provenance with a total', async () => {
-    stubJudgeFetch({ reportCost: true })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const runShot: MultishotShot<TestPersona> = async () =>
       ({
@@ -324,8 +319,10 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       shape: SHAPE,
-      judges: JUDGES,
+      judges: pricedJudges(),
       runDir: newRunDir(),
+      agentTransport: unreachedTransport('agent'),
+      driverTransport: unreachedTransport('driver'),
       runShot,
     })
 
@@ -338,7 +335,6 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
   })
 
   it('marks a successful cell uncaptured when a judge cost was never reported', async () => {
-    stubJudgeFetch({ reportCost: false, model: 'vendor/unpriced-model' })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const runShot: MultishotShot<TestPersona> = async () => ({
       transcript: [{ role: 'user', content: 'hello' }],
@@ -352,9 +348,16 @@ describe('runMultishotMatrix — a failed cell keeps its spend', () => {
       profiles: [{ id: 'p1', value: PROFILE }],
       personas: [PERSONA],
       // An unpriced model leaves the judge call with no reportable cost.
-      judges: { conversation: { ...conversationJudge(), model: 'vendor/unpriced-model' } },
+      judges: {
+        conversation: conversationJudge(
+          judgeTransport({ reportCost: false }),
+          'vendor/unpriced-model',
+        ),
+      },
       shape: SHAPE,
       runDir: newRunDir(),
+      agentTransport: unreachedTransport('agent'),
+      driverTransport: unreachedTransport('driver'),
       runShot,
     })
 

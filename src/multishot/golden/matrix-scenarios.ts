@@ -26,9 +26,6 @@ export interface MultishotMatrixGoldenCase {
   requests: MultishotRecordedRequest[]
   /** Judge calls, filled while the case runs. Sorted before comparison. */
   judgeRequests: RecordedJudgeRequest[]
-  /** Installs the deterministic judge wire on `globalThis.fetch` and returns
-   *  the function that restores the previous one. */
-  installJudgeWire: () => () => void
 }
 
 export interface MultishotMatrixGoldenScenario {
@@ -36,8 +33,6 @@ export interface MultishotMatrixGoldenScenario {
   readonly description: string
   readonly build: (runDir: string) => MultishotMatrixGoldenCase
 }
-
-const JUDGE_BASE_URL = 'http://router.invalid/v1'
 
 const personas: MultishotPersona[] = [
   { id: 'retail-founder', ask: 'a launch brief' },
@@ -160,23 +155,22 @@ const dimensions = [
   { key: 'specificity', description: 'Was it specific? (0-10)' },
 ]
 
-function judge<TInput>(name: string, buildPrompt: (input: TInput) => string): JudgeConfig<TInput> {
+function judge<TInput>(
+  name: string,
+  buildPrompt: (input: TInput) => string,
+  transport: MultishotTransport,
+): JudgeConfig<TInput> {
   return {
     name,
+    transport,
     model: 'test/judge-model',
     dimensions,
     systemPrompt: `JUDGE:${name}`,
     buildPrompt,
-    apiKey: 'golden-key',
-    baseUrl: JUDGE_BASE_URL,
   }
 }
 
-/** True while some case holds `globalThis.fetch`. Module scope, because the
- *  resource being guarded is the process's own fetch. */
-let judgeWireInstalled = false
-
-/** Scores keyed by judge name, so the wire is a pure function of the request. */
+/** Scores keyed by judge name, so the judge leg is a pure function of the request. */
 const JUDGE_SCORES: Record<string, { usefulness: number; specificity: number }> = {
   conversation: { usefulness: 8, specificity: 7 },
   'code-review': { usefulness: 6, specificity: 9 },
@@ -198,6 +192,33 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
   const requests: MultishotRecordedRequest[] = []
   const judgeRequests: RecordedJudgeRequest[] = []
 
+  // The judge leg is scripted exactly like the agent and driver legs: a pure
+  // function of the request, so the recorded ledger is a property of the
+  // engine under test alone.
+  const judgeTransport: MultishotTransport = async (req) => {
+    judgeRequests.push(
+      recordJudgeRequest({
+        model: req.model,
+        temperature: req.temperature,
+        max_tokens: req.maxTokens,
+        messages: req.messages,
+      }),
+    )
+    const messages = req.messages as Array<{ role?: string; content?: string }>
+    const system = messages.find((m) => m.role === 'system')?.content ?? ''
+    const name = system.replace('JUDGE:', '')
+    const score = JUDGE_SCORES[name]
+    if (!score) {
+      throw new Error(`multishot golden judge transport: unknown judge system prompt ${system}`)
+    }
+    return {
+      message: { content: JSON.stringify({ ...score, notes: `${name} ok` }) },
+      usage: { prompt_tokens: 300, completion_tokens: 25 },
+      model: 'test/judge-model',
+      costUsd: 0.0007,
+    }
+  }
+
   const options: RunMultishotMatrixOptions<MultishotPersona> = {
     profiles,
     personas,
@@ -207,15 +228,18 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
         'conversation',
         (input: { transcript: unknown[] }) =>
           `Score this conversation of ${input.transcript.length} messages.`,
+        judgeTransport,
       ),
       codeReview: judge(
         'code-review',
         (input: { artifact: { content: string } }) => `Score this code: ${input.artifact.content}`,
+        judgeTransport,
       ),
       contentQuality: judge(
         'content-quality',
         (input: { artifact: { content: string } }) =>
           `Score this content: ${input.artifact.content}`,
+        judgeTransport,
       ),
     },
     tools,
@@ -227,8 +251,6 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
     maxConcurrency: 1,
     agentModel: 'test/agent-model',
     driverModel: 'test/driver-model',
-    apiKey: 'golden-key',
-    baseUrl: JUDGE_BASE_URL,
     agentTransport: async (req) => {
       requests.push(recordRequest('agent', req))
       return agentTransport(req)
@@ -239,51 +261,5 @@ function buildMatrixCase(runDir: string): MultishotMatrixGoldenCase {
     },
   }
 
-  const installJudgeWire = (): (() => void) => {
-    // The wire is process-wide, so two matrix checks running at once in one
-    // process would cross their judge ledgers. Refuse the second one instead of
-    // recording a mixture: a golden check that silently reads another run's
-    // calls reports a mismatch nobody can explain.
-    if (judgeWireInstalled) {
-      throw new Error(
-        'multishot golden judge wire: another matrix check already holds globalThis.fetch — run matrix checks serially within one process',
-      )
-    }
-    judgeWireInstalled = true
-    const previous = globalThis.fetch
-    globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
-      // The judge leg is the ONLY call allowed to reach the wire; the agent
-      // and driver legs run on the scripted transports above. Anything else is
-      // a wiring defect in the engine under test, so fail loud.
-      if (String(url) !== `${JUDGE_BASE_URL}/chat/completions`) {
-        throw new Error(`multishot golden judge wire: unexpected request to ${String(url)}`)
-      }
-      const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
-      judgeRequests.push(recordJudgeRequest(body))
-      const messages = (body.messages ?? []) as Array<{ role: string; content: string }>
-      const system = messages.find((m) => m.role === 'system')?.content ?? ''
-      const name = system.replace('JUDGE:', '')
-      const score = JUDGE_SCORES[name]
-      if (!score) {
-        throw new Error(`multishot golden judge wire: unknown judge system prompt ${system}`)
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify({ ...score, notes: `${name} ok` }) } }],
-          usage: { prompt_tokens: 300, completion_tokens: 25 },
-          model: 'test/judge-model',
-          _response_cost: 0.0007,
-        }),
-        text: async () => '',
-      }
-    }) as unknown as typeof globalThis.fetch
-    return () => {
-      globalThis.fetch = previous
-      judgeWireInstalled = false
-    }
-  }
-
-  return { options, requests, judgeRequests, installJudgeWire }
+  return { options, requests, judgeRequests }
 }

@@ -12,12 +12,10 @@
  * `EvalCampaign` is the structural fix — consumers don't wire the
  * integrity surface themselves; the campaign owns it. Specifically:
  *
- *   - calls `assertLlmRoute` once at preflight before any work runs
  *   - constructs a per-run `TraceStore` and `RawProviderSink` via factories
- *   - constructs the `TraceEmitter` with `onRunComplete: [analyst hook]`
- *   - hands the runner an `LlmClientOptions` pre-wired with the sink and
- *     trace context — the runner can't accidentally call an LLM without
- *     capturing the raw HTTP envelope
+ *   - builds the run's `ChatClient` through `chatFactory`, handing it the
+ *     run's raw sink and trace context — a transport built any other way has
+ *     no raw HTTP envelope, and `assertRunCaptured` says so
  *   - calls `assertRunCaptured` after every `endRun` and routes failures
  *     through a configurable policy (`throw` / `mark_failed` / `log`)
  *   - assembles per-run `RunRecord`s and runs `researchReport` at the end
@@ -35,7 +33,7 @@
  *   - Distributed/cluster execution (concurrency is local async)
  *   - Adaptive sampling / sequential interim looks
  *   - Resume from partial state across crashes
- *   - LLM-call retry beyond what `LlmClient` already does
+ *   - LLM-call retry beyond what the caller's transport already does
  */
 
 import {
@@ -44,7 +42,7 @@ import {
   buildAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
-import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
+import type { ChatClient } from './analyst/chat-client'
 import { hashJson } from './pre-registration'
 import type {
   JudgeScoresRecord,
@@ -103,11 +101,21 @@ export interface CampaignRunContext<V> {
   store: TraceStore
   rawSink: RawProviderSink
   /**
-   * Pre-wired LLM client options — `rawSink` and `traceContext` are populated
-   * so any `callLlm(req, ctx.llmOpts)` automatically captures raw HTTP. The
-   * runner can spread additional fields if needed.
+   * The run's model transport, built by `chatFactory` with this run's
+   * `rawSink` and `runId` already bound.
    */
-  llmOpts: LlmClientOptions
+  chat: ChatClient
+}
+
+/** What the campaign binds into the run's transport. */
+export interface CampaignChatWiring {
+  /**
+   * Raw provider sink for this run. Bind it into the transport: the campaign's
+   * integrity check requires every LLM span to carry a matching raw request
+   * event, so a transport built without it fails `assertRunCaptured`.
+   */
+  rawSink: RawProviderSink
+  runId: string
 }
 
 interface CampaignRunOutcomeFields {
@@ -166,17 +174,20 @@ export interface EvalCampaignOptions<V> {
   /** Git SHA the campaign is run against. Mandatory; `RunRecord` rejects unset. */
   commitSha: string
   /**
-   * LLM client config. Augmented per-run with `rawSink` and `traceContext`
-   * before being passed to the runner. The campaign asserts this config
-   * matches `routeRequirements` once at preflight.
+   * Build the model transport for one run. agent-eval executes no paid model:
+   * the caller owns the transport and the credential never enters this
+   * package. The campaign calls this once per run and passes the run's raw
+   * provider sink and `runId`, so a transport that binds them captures the
+   * raw HTTP envelope `assertRunCaptured` checks for.
    */
-  llmOpts: LlmClientOptions
+  chatFactory: (wiring: CampaignChatWiring) => ChatClient
   /**
-   * Default `{ requireExplicitBaseUrl: true, requireAuth: true }` — fail
-   * loud if the campaign would silently fall back to the public router or
-   * run unauthenticated. Override with an empty object to disable.
+   * Caller-declared identity of the execution route, folded into the campaign
+   * fingerprint so two campaigns run against different endpoints do not share
+   * one identity. agent-eval no longer knows the endpoint; the owner of
+   * execution names it.
    */
-  routeRequirements?: LlmRouteRequirements
+  executionRef?: string
   /**
    * Per-run TraceStore factory. Common shape: a fresh store per run keyed
    * on `runId`. Implementations that share a store across the campaign
@@ -273,7 +284,7 @@ export interface FailedRun {
 
 export interface EvalCampaignResult {
   campaignId: string
-  /** SHA-256 over canonicalised `(variantIds, scenarioIds, seeds, comparator, splitTag, baseUrl, provider, preregistrationHash)`. */
+  /** SHA-256 over canonicalised `(variantIds, scenarioIds, seeds, comparator, splitTag, executionRef, preregistrationHash)`. */
   campaignFingerprint: string
   preregistrationHash: string | null
   /** Successful runs only. Failed runs land in `failedRuns`. */
@@ -295,17 +306,10 @@ const DEFAULT_INTEGRITY: RunIntegrityExpectations = {
   requireOutcome: true,
 }
 
-const DEFAULT_ROUTE: LlmRouteRequirements = {
-  requireExplicitBaseUrl: true,
-  requireAuth: true,
-}
-
 export async function runEvalCampaign<V>(
   opts: EvalCampaignOptions<V>,
 ): Promise<EvalCampaignResult> {
   // ── Preflight ──────────────────────────────────────────────────────
-  assertLlmRoute(opts.llmOpts, opts.routeRequirements ?? DEFAULT_ROUTE)
-
   if (opts.variants.length === 0) {
     throw new Error('runEvalCampaign: variants must be non-empty.')
   }
@@ -341,8 +345,7 @@ export async function runEvalCampaign<V>(
   const integrity = { ...DEFAULT_INTEGRITY, ...(opts.integrity ?? {}) }
   const onIntegrityFailure: CampaignIntegrityPolicy = opts.onIntegrityFailure ?? 'mark_failed'
   const now = opts.now ?? (() => Date.now())
-  const baseUrl = (opts.llmOpts.baseUrl ?? '').replace(/\/+$/, '')
-  const provider = opts.llmOpts.provider ?? null
+  const executionRef = opts.executionRef ?? null
   const preregistrationHash = opts.preregistrationHash ?? null
 
   const rawSinkFactory = opts.rawSinkFactory ?? defaultRawSinkFactory(opts.workDir)
@@ -355,8 +358,7 @@ export async function runEvalCampaign<V>(
     seeds: [...seeds].sort((a, b) => a - b),
     splitTag,
     comparator: opts.report?.comparator ?? null,
-    baseUrl,
-    provider,
+    executionRef,
     preregistrationHash,
   })
 
@@ -447,11 +449,7 @@ export async function runEvalCampaign<V>(
     // finalize it instead of orphaning it. Removed in the finally below.
     openRuns.set(runId, emitter)
 
-    const llmOpts: LlmClientOptions = {
-      ...opts.llmOpts,
-      rawSink,
-      traceContext: { runId },
-    }
+    const chat = opts.chatFactory({ rawSink, runId })
 
     const ctx: CampaignRunContext<V> = {
       runId,
@@ -465,7 +463,7 @@ export async function runEvalCampaign<V>(
       emitter,
       store,
       rawSink,
-      llmOpts,
+      chat,
     }
 
     try {

@@ -57,7 +57,7 @@ Three public entry points improve or benchmark a surface. Route by intent.
 `selfImprove()` is the agent entry: it gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
 `compareOptimizationMethods()` is the measurement entry: it gives every method equal inputs and scores the selected surfaces on final cases no method received.
 Neither entry ever passes final comparison cases to a method.
-When no package owns execution, build the owner with `createOpenAiCompatibleExecutionOwner` from `/campaign`.
+The execution owner is always caller code: `profileOptimizerModelCall` from `@tangle-network/agent-runtime/kernel`, or your own `ExternalOptimizerModelCall` (copy `examples/_shared/openai-compatible-owner.ts`).
 
 The canonical doc is `docs/campaign-proposers.md`.
 Runnable paths: `examples/self-improve-optimizer/` (selfImprove + official GEPA) and `examples/compare-optimization-methods/` (method comparison).
