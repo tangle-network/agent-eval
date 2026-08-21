@@ -16,6 +16,7 @@
  * trace data via `resume(store, projectId)`.
  */
 
+import { newRecordId } from '../record-id'
 import type { HarnessConfig, SandboxDriver, SandboxHarnessResult } from '../sandbox-harness'
 import { SandboxHarness } from '../sandbox-harness'
 import type { TestGradedRunResult, TestGradedScenario } from '../test-graded-scenario'
@@ -56,7 +57,7 @@ export class BuilderSession {
   constructor(store: TraceStore, init: BuilderSessionInit, driver?: SandboxDriver) {
     this.store = store
     this.projectId = init.projectId
-    this.chatId = init.chatId ?? cryptoId()
+    this.chatId = init.chatId ?? newRecordId()
     this.defaultDriver = driver
     this.builderEmitter = new TraceEmitter(store)
   }
@@ -248,9 +249,4 @@ export async function resumeBuilderSession(
     lastBuildRun: buildRuns[0],
     lastAppRuntimeRuns: appRuntimeRuns,
   }
-}
-
-function cryptoId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }

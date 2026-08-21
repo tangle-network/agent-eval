@@ -15,6 +15,7 @@ import {
   type ToolSpanOtlpInput,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
+import { msToUnixNano, toOtlpAttributes } from './otlp-encoding'
 import { spanIdForWire, traceIdForWire } from './wire-ids'
 
 export interface OtelExportConfig {
@@ -121,7 +122,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
       resourceSpans: [
         {
           resource: {
-            attributes: toAttributes({
+            attributes: toOtlpAttributes({
               'service.name': serviceName,
               ...resourceAttrs,
             }),
@@ -180,27 +181,9 @@ function toOtlpSpan(span: ExportableSpan): OtlpSpan {
     parentSpanId: span.parentSpanId ? spanIdForWire(span.parentSpanId) : undefined,
     name: span.name,
     kind: 1, // SPAN_KIND_INTERNAL
-    startTimeUnixNano: msToNs(span.startedAt),
-    endTimeUnixNano: msToNs(endedAt),
-    attributes: toAttributes(attrs),
+    startTimeUnixNano: msToUnixNano(span.startedAt),
+    endTimeUnixNano: msToUnixNano(endedAt),
+    attributes: toOtlpAttributes(attrs),
     status: span.status === 'error' ? { code: 2, message: span.error } : { code: 1 },
   }
-}
-
-function toAttributes(record: Record<string, string | number | boolean>): OtlpSpan['attributes'] {
-  return Object.entries(record).map(([key, value]) => ({
-    key,
-    value:
-      typeof value === 'number'
-        ? Number.isInteger(value)
-          ? { intValue: value.toString() }
-          : { doubleValue: value }
-        : typeof value === 'boolean'
-          ? { boolValue: value }
-          : { stringValue: value },
-  }))
-}
-
-function msToNs(ms: number): string {
-  return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
 }

@@ -27,6 +27,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runCounterfactual } from '../counterfactual'
+import { mulberry32 } from '../statistics/random'
 import type { ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import {
@@ -201,18 +202,6 @@ export interface ReplayBatchReport {
   readonly excluded: readonly { corpus: string; trajId: string; reason: string; detail?: string }[]
   readonly pullFailures: readonly { corpus: string; trajId: string; image: string; error: string }[]
   readonly cases: readonly ReplayBatchCaseRow[]
-}
-
-/** Deterministic PRNG for the fix-case sample; the seed lands in the report. */
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 export function seededSample<T>(items: readonly T[], size: number, seed: number): Set<T> {

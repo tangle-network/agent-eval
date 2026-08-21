@@ -42,6 +42,7 @@ import {
   type AssertServedModelOptions,
   assertServedModel as assertServedModelIdentity,
 } from './integrity/served-model'
+import { newRecordId } from './record-id'
 import {
   defaultProviderRedactor,
   type ProviderRedactor,
@@ -842,7 +843,7 @@ export async function callLlm(
     let attemptErrorRecorded = false
     if (sink) {
       await recordRaw(sink, redactor, {
-        eventId: cryptoEventId(),
+        eventId: newRecordId(),
         runId: traceContext?.runId,
         spanId: traceContext?.spanId,
         provider,
@@ -872,7 +873,7 @@ export async function callLlm(
         const body = await res.text()
         if (sink) {
           await recordRaw(sink, redactor, {
-            eventId: cryptoEventId(),
+            eventId: newRecordId(),
             runId: traceContext?.runId,
             spanId: traceContext?.spanId,
             provider,
@@ -927,7 +928,7 @@ export async function callLlm(
       } catch (parseErr) {
         if (sink) {
           await recordRaw(sink, redactor, {
-            eventId: cryptoEventId(),
+            eventId: newRecordId(),
             runId: traceContext?.runId,
             spanId: traceContext?.spanId,
             provider,
@@ -950,7 +951,7 @@ export async function callLlm(
       }
       if (sink) {
         await recordRaw(sink, redactor, {
-          eventId: cryptoEventId(),
+          eventId: newRecordId(),
           runId: traceContext?.runId,
           spanId: traceContext?.spanId,
           provider,
@@ -1063,7 +1064,7 @@ export async function callLlm(
       if (callerSignal?.aborted) {
         if (sink && !attemptErrorRecorded) {
           await recordRaw(sink, redactor, {
-            eventId: cryptoEventId(),
+            eventId: newRecordId(),
             runId: traceContext?.runId,
             spanId: traceContext?.spanId,
             provider,
@@ -1085,7 +1086,7 @@ export async function callLlm(
         // already produced an error event for this attempt. Covers network
         // failures, timeouts, and aborts.
         await recordRaw(sink, redactor, {
-          eventId: cryptoEventId(),
+          eventId: newRecordId(),
           runId: traceContext?.runId,
           spanId: traceContext?.spanId,
           provider,
@@ -1134,11 +1135,6 @@ function headersToObject(h: Headers): Record<string, string> {
     out[key] = value
   })
   return out
-}
-
-function cryptoEventId(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /**

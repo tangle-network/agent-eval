@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '114f0786410870639efbdad3d9d36cf7f1e7686475ff0c183125af6ceeb69400'
+  '3f130f5848ac619ffd526361b9e27248a66d48f03b35ee521e3e3e475bdcf685'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
@@ -108,6 +108,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/math/special-functions.ts',
   'src/math/student-t.ts',
   'src/metrics.ts',
+  'src/record-id.ts',
   'src/statistics/agreement-irr.ts',
   'src/statistics/descriptive.ts',
   'src/statistics/effect-sizes.ts',
@@ -138,7 +139,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '6631709758e46ab562765d81bc16871fa7931ec86ba334cd85918904f3b74196'
+  'f2ba2bf8477be995b305d945a7a5b443b2980f1b9f6756d5cf7759d6fcf708ff'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

@@ -20,6 +20,34 @@ describe('seeding is deterministic, including seed 0', () => {
     expect(() => mulberry32(Number.NaN)).toThrow(/finite/)
   })
 
+  /**
+   * Known-answer vectors for the mulberry32 stream. Every seeded draw this
+   * package reports — bootstrap intervals, e-process shuffles, tournament
+   * parent selection, the replay fix-case sample, the judge-calibration
+   * bootstrap — resolves to this stream, so changing it silently changes an
+   * already-published statistic. Pin it, do not regenerate it.
+   */
+  it('emits the pinned mulberry32 stream', () => {
+    const one = mulberry32(1)
+    expect([one(), one(), one(), one(), one()]).toEqual([
+      0.6270739405881613, 0.002735721180215478, 0.5274470399599522, 0.9810509674716741,
+      0.9683778982143849,
+    ])
+    const fortyTwo = mulberry32(42)
+    expect([fortyTwo(), fortyTwo(), fortyTwo(), fortyTwo(), fortyTwo()]).toEqual([
+      0.6011037519201636, 0.44829055899754167, 0.8524657934904099, 0.6697340414393693,
+      0.17481389874592423,
+    ])
+  })
+
+  it('reads a negative and an out-of-int32-range seed as the same 32 bits', () => {
+    // The copies this owner replaced used `seed >>> 0` where it uses `seed | 0`.
+    // Both keep the same 32 bits, so the streams are identical.
+    const negative = mulberry32(-1)
+    const unsigned = mulberry32(4294967295)
+    expect([negative(), negative(), negative()]).toEqual([unsigned(), unsigned(), unsigned()])
+  })
+
   it('an unseeded bootstrap is reproducible on identical input', () => {
     const scores = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7]
     const first = confidenceInterval(scores)
