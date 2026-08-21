@@ -35,7 +35,12 @@ import {
   type ExternalOptimizerWireCounts,
   isRecord,
 } from './external-optimizer-contracts'
-import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
+import {
+  closeServer,
+  listenLocal,
+  sendJsonIfOpen,
+  waitForActiveHandlers,
+} from './external-optimizer-http'
 
 const MODEL_PROXY_PATHS = new Set(['/v1/chat/completions', '/v1/responses'])
 type ModelProxyPath = '/v1/chat/completions' | '/v1/responses' | '/v1/messages'
@@ -472,17 +477,6 @@ async function handleModelProxyRequest(args: {
       error instanceof AnthropicRequestRefusal ? error.errorType : undefined,
     )
   }
-}
-
-async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
-  while (activeHandlers.size > 0) {
-    await Promise.allSettled([...activeHandlers])
-  }
-}
-
-function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
-  if (response.destroyed || response.writableEnded) return
-  sendJson(response, status, body)
 }
 
 async function forwardModelProxyRequest(args: {

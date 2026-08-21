@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.167.1] — 2026-08-21
+
+### Changed
+
+- `waitForActiveHandlers` and `sendJsonIfOpen` had three byte-identical private copies each, one per local HTTP server (`src/analyst/trace-tool-callback.ts`, `src/campaign/external-optimizer-callback.ts`, `src/campaign/external-optimizer-model-proxy.ts`). Both now live in `src/campaign/external-optimizer-http.ts`, the module all three already imported `closeServer`, `listenLocal`, and `sendJson` from. The drain loop re-reads the handler set on every pass because a running handler can register another; a copy that awaited one snapshot would let the caller close the server with work outstanding. No behavior change and no export change: the helpers are internal to that module's consumers.
+
+---
+
 ## [0.167.0] — 2026-08-21
 
 ### Changed

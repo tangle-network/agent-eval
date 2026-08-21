@@ -25,3 +25,28 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }
+
+/**
+ * Send a JSON body only while the response can still take one.
+ *
+ * A handler that lost its client — the request was aborted, or the response
+ * already ended — must not write again; Node throws `ERR_STREAM_WRITE_AFTER_END`
+ * and the throw escapes into the server's error path rather than the caller's.
+ */
+export function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
+  sendJson(response, status, body)
+}
+
+/**
+ * Wait until every in-flight handler has settled.
+ *
+ * Re-reads the set on each pass: a handler that is still running can register
+ * another, so awaiting one snapshot would return while work is outstanding and
+ * the caller would close the server under it.
+ */
+export async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
+  while (activeHandlers.size > 0) {
+    await Promise.allSettled([...activeHandlers])
+  }
+}
