@@ -45,7 +45,12 @@ import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
 import { campaignCellExecutionEvidence, projectCampaignCellQuality } from './run-record'
 import { campaignMeanComposite, campaignMeanCompositeOrNull } from './score-utils'
 import type { CampaignStorage } from './storage'
-import { renderSurfaceDiff, surfaceContentHash, surfaceHash } from './surface-identity'
+import {
+  renderSurfaceDiff,
+  surfaceContentHash,
+  surfaceHash,
+  surfaceHashMatches,
+} from './surface-identity'
 import type {
   CampaignResult,
   GateContribution,
@@ -348,7 +353,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         throw new Error('buildLoopProvenanceRecord: measured candidate is missing its surface')
       }
       const { surface, campaign } = measured
-      if (surfaceHash(surface) !== c.surfaceHash) {
+      if (!surfaceHashMatches(surface, c.surfaceHash)) {
         throw new Error(
           'buildLoopProvenanceRecord: candidate surface hash does not match its surface bytes',
         )

@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.168.0] — 2026-08-21
+
+### Fixed
+
+- A component surface's stored identity no longer depends on the host's collation. `componentSurfaceIdentityMaterial` ordered component names with `localeCompare`, which reads the runtime's default collation rather than the value, and that material feeds `surfaceContentHash` and `surfaceHash` — identities that are **written down** and later recomputed and compared. Three sites do exactly that (`src/campaign/provenance.ts:351`, `src/campaign/presets/run-optimization.ts:658` and `:693`), each of them a fail-closed refusal, so under a different ICU build or locale a legitimate resume or parent selection could be rejected as a surface that does not match its own identity. The material now comes from `canonicalString`, which orders keys by UTF-16 code unit (RFC 8785) — a property of the value alone.
+- `surfaceHashMatches(surface, storedHash)` is the verify path for the retention window. A stored loop key is 16 hex characters with no room for a scheme tag, so unlike an `agent-profile-cell` id it cannot name the scheme that minted it; the matcher tries the current material and then the retired one, which gives the same property — a key minted by an earlier release still matches its own surface, and an edited surface matches neither. The retired builder is private and reachable only from that matcher; nothing mints from it. The three comparison sites now use the matcher instead of `!==`.
+- Every stored component-surface identity moves, not only one whose names sort differently under a collation: RFC 8785 also orders the two top-level keys, so `components` now precedes `schema`. Prompt and code surfaces are unaffected — neither builds material from an ordered key list.
+
+---
+
 ## [0.167.1] — 2026-08-21
 
 ### Changed

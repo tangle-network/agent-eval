@@ -36,7 +36,7 @@ import {
 import type { SearchHistoryReceipt } from '../search-history-receipt'
 import { type SearchLedgerBinding, SearchRecorder } from '../search-ledger-recording'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
-import { surfaceHash } from '../surface-identity'
+import { surfaceHash, surfaceHashMatches } from '../surface-identity'
 import {
   type CampaignResult,
   type GenerationRecord,
@@ -655,7 +655,7 @@ function resolveSelectedParent(
       `runOptimization: selectParent returned surface "${parent.surfaceHash}" in generation ${generation}, which this run has not measured to completion; a parent must be a scored surface from the frontier`,
     )
   }
-  if (surfaceHash(parent.surface) !== parent.surfaceHash) {
+  if (!surfaceHashMatches(parent.surface, parent.surfaceHash)) {
     throw new Error(
       `runOptimization: selectParent returned a parent whose surface does not match its surfaceHash "${parent.surfaceHash}" (generation ${generation})`,
     )
@@ -690,7 +690,7 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
   seed: number
 }): CampaignResult<TArtifact, TScenario> {
   const { input } = args
-  if (input.surfaceHash !== surfaceHash(args.baselineSurface)) {
+  if (!surfaceHashMatches(args.baselineSurface, input.surfaceHash)) {
     throw new Error(
       'runOptimization: premeasured baseline surface hash does not match baselineSurface',
     )

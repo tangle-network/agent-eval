@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { canonicalString } from '../ledger-core/canonical'
 import type { CodeSurface, ComponentSurface, MutableSurface } from './types'
 
 const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
@@ -69,8 +70,39 @@ function assertComponentSurface(surface: unknown): asserts surface is ComponentS
   }
 }
 
-/** Return deterministic identity material independent of component key order. */
+/**
+ * Deterministic identity material for a component surface.
+ *
+ * `canonicalString` orders keys by UTF-16 code unit (RFC 8785), which is a
+ * property of the value alone. The previous material ordered them with
+ * `localeCompare`, which reads the host's collation — so the same surface
+ * could produce two different identities on two machines, and the stored
+ * identity would stop matching a recomputation of the identical surface.
+ */
 export function componentSurfaceIdentityMaterial(surface: ComponentSurface): string {
+  assertComponentSurface(surface)
+  return canonicalString({
+    schema: 'tangle.component-surface',
+    components: surface.components,
+  })
+}
+
+/**
+ * The retired material builder, kept PRIVATE and reachable only from
+ * {@link surfaceHashMatches}.
+ *
+ * A surface identity recorded before this release was minted from these bytes.
+ * The verify path tries the current material first and falls back to this one,
+ * so a stored identity still matches its own surface; nothing mints from it.
+ *
+ * Every component surface's identity moves, not only one whose names sort
+ * differently under the host's collation: RFC 8785 also orders the two
+ * top-level keys, so `components` precedes `schema` where this builder emitted
+ * them in literal order. The retention window therefore covers every stored
+ * component-surface identity, which is why this builder is kept rather than
+ * scoped to the mixed-case case.
+ */
+function retiredComponentSurfaceIdentityMaterial(surface: ComponentSurface): string {
   assertComponentSurface(surface)
   return JSON.stringify({
     schema: 'tangle.component-surface',
@@ -112,6 +144,29 @@ export function surfaceContentHash(surface: MutableSurface): `sha256:${string}` 
 /** Short loop key derived from the same content identity as provenance. */
 export function surfaceHash(surface: MutableSurface): string {
   return surfaceContentHash(surface).slice('sha256:'.length, 'sha256:'.length + 16)
+}
+
+/**
+ * Whether `storedHash` is the loop key of `surface`, under the current identity
+ * material or the retired one.
+ *
+ * A stored key is 16 hex characters with no room for a scheme tag, so the
+ * scheme cannot be read off the value the way an `agent-profile-cell` id names
+ * its own. The verify path therefore tries both, which gives the same property:
+ * a key minted by an earlier release still matches its own surface, and a
+ * surface that was actually edited matches neither.
+ *
+ * Only a component surface can differ between the two; a prompt or code surface
+ * produces identical material under both, so the second comparison is a no-op
+ * for them.
+ */
+export function surfaceHashMatches(surface: MutableSurface, storedHash: string): boolean {
+  if (surfaceHash(surface) === storedHash) return true
+  if (typeof surface === 'string' || surface.kind !== 'components') return false
+  const retired = createHash('sha256')
+    .update(retiredComponentSurfaceIdentityMaterial(surface))
+    .digest('hex')
+  return retired.slice(0, 16) === storedHash
 }
 
 /** Canonical customer-visible description of the exact before/after surfaces. */
