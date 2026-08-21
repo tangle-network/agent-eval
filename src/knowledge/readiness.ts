@@ -43,7 +43,7 @@ export function scoreKnowledgeReadiness(
     userAnswers: options.userAnswers ?? {},
     missing,
     readinessScore,
-    metadata: options.metadata,
+    ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
   }
   const recommendedAction = chooseRecommendedAction(blockingMissingRequirements, nonBlockingGaps)
   const severity =
@@ -146,7 +146,7 @@ export function acquisitionPlansForKnowledgeGaps(
     mode: mode as DataAcquisitionPlan['mode'],
     description: descriptionForPlan(mode as DataAcquisitionPlan['mode'], requirements),
     priority: maxImportance(requirements.map((r) => r.importance)),
-    questions: mode === 'ask_user' ? userQuestionsForKnowledgeGaps(requirements) : undefined,
+    ...(mode === 'ask_user' ? { questions: userQuestionsForKnowledgeGaps(requirements) } : {}),
   }))
 }
 
