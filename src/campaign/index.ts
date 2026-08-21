@@ -173,6 +173,7 @@ export {
   type SequentialObservation,
   type SequentialPairedGate,
   type SequentialPairedGateOptions,
+  type SequentialStreamState,
   sequentialDecide,
   sequentialPairedGate,
 } from './gates/sequential'

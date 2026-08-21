@@ -75,7 +75,20 @@ export interface SequentialPairedGateOptions {
   preRegistration?: SignedManifest
   /** Override the gate name in reports. */
   name?: string
+  /** Continue the observe-stream from a `state()` snapshot taken before a
+   *  restart. The gate's parameters still resolve from this options object
+   *  (and the manifest); the snapshot must have been recorded under the same
+   *  alpha, maxBet, and null boundary, and its decision must be one this
+   *  configuration could have reached at its n, or construction throws.
+   *  `decide(ctx)` is unaffected — it always runs on a fresh stream. */
+  resume?: SequentialStreamState
 }
+
+/** Snapshot of one observe-stream: the e-process state plus the gate's own
+ *  decision, which applies `minN` and `maxN` on top of the core latch. A
+ *  gate rebuilt with `resume` from this value continues exactly where the
+ *  snapshot was taken. */
+export type SequentialStreamState = EProcessState & { decision: SequentialDecision }
 
 export interface SequentialPairedGate<TArtifact = unknown, TScenario extends Scenario = Scenario>
   extends Gate<TArtifact, TScenario> {
@@ -87,8 +100,9 @@ export interface SequentialPairedGate<TArtifact = unknown, TScenario extends Sce
    *  the result reopens optional stopping — start a NEW pre-registered
    *  test). */
   observe(delta: number): SequentialObservation
-  /** Read-only snapshot of the observe-stream. */
-  state(): EProcessState & { decision: SequentialDecision }
+  /** Read-only snapshot of the observe-stream. Pass it back as
+   *  `resume` to continue the stream after a restart. */
+  state(): SequentialStreamState
 }
 
 interface ResolvedConfig {
@@ -196,13 +210,65 @@ function resolveConfig(opts: SequentialPairedGateOptions): ResolvedConfig {
 
 interface SequentialStream {
   observe(delta: number): SequentialObservation
-  state(): EProcessState & { decision: SequentialDecision }
+  state(): SequentialStreamState
 }
 
-function makeStream(cfg: ResolvedConfig): SequentialStream {
-  const proc = eProcess({ alpha: cfg.alpha, maxBet: cfg.maxBet, nullMean: cfg.nullMean })
+const SEQUENTIAL_DECISIONS: readonly SequentialDecision[] = [
+  'promote',
+  'continue',
+  'undecided-at-maxN',
+]
+
+/** Refuse a snapshot whose gate decision this configuration could not have
+ *  reached at the snapshot's n. The e-process parameters are checked by
+ *  `eProcess` itself; this covers the gate's own stopping rule. */
+function assertResumableStream(resume: SequentialStreamState, cfg: ResolvedConfig): void {
+  const fail = (detail: string): never => {
+    throw new Error(`sequentialPairedGate: cannot resume — ${detail}`)
+  }
+  if (!SEQUENTIAL_DECISIONS.includes(resume.decision)) {
+    fail(`unknown decision '${String(resume.decision)}'`)
+  }
+  if (resume.n > cfg.maxN) {
+    fail(`snapshot n=${resume.n} exceeds the pre-registered maxN=${cfg.maxN}`)
+  }
   const threshold = 1 / cfg.alpha
-  let terminal: SequentialDecision | undefined
+  switch (resume.decision) {
+    case 'promote':
+      if (resume.n < cfg.minN) {
+        fail(`decision 'promote' at n=${resume.n} is below minN=${cfg.minN}`)
+      }
+      break
+    case 'undecided-at-maxN':
+      if (resume.n !== cfg.maxN) {
+        fail(`decision 'undecided-at-maxN' at n=${resume.n} does not match maxN=${cfg.maxN}`)
+      }
+      break
+    case 'continue':
+      if (resume.n >= cfg.maxN) {
+        fail(`decision 'continue' at n=${resume.n} with maxN=${cfg.maxN}; the stream is finished`)
+      }
+      if (resume.n >= cfg.minN && resume.wealth >= threshold) {
+        fail(
+          `decision 'continue' at n=${resume.n} ≥ minN=${cfg.minN} with e-value ` +
+            `${resume.wealth} ≥ 1/α=${threshold}; this stream would have promoted`,
+        )
+      }
+      break
+  }
+}
+
+function makeStream(cfg: ResolvedConfig, resume?: SequentialStreamState): SequentialStream {
+  if (resume !== undefined) assertResumableStream(resume, cfg)
+  const proc = eProcess({
+    alpha: cfg.alpha,
+    maxBet: cfg.maxBet,
+    nullMean: cfg.nullMean,
+    ...(resume === undefined ? {} : { resume }),
+  })
+  const threshold = 1 / cfg.alpha
+  let terminal: SequentialDecision | undefined =
+    resume === undefined || resume.decision === 'continue' ? undefined : resume.decision
   return {
     observe(delta: number): SequentialObservation {
       if (terminal === 'undecided-at-maxN') {
@@ -296,7 +362,7 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
   const cfg = resolveConfig(options)
   const name = options.name ?? 'sequentialPairedGate'
   const manifest = options.preRegistration
-  const observeStream = makeStream(cfg)
+  const observeStream = makeStream(cfg, options.resume)
 
   return {
     name,

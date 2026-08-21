@@ -14,6 +14,14 @@ export interface EProcessOptions {
    *  (the paired-delta encoding x = (d+1)/2 maps "no effect" to 1/2).
    *  A pre-registered minEffect shifts this — see `sequentialPairedGate`. */
   nullMean?: number
+  /** Continue a process from a `state()` snapshot taken before a restart.
+   *  The snapshot never supplies the parameters: `alpha`, `maxBet`, and
+   *  `nullMean` resolve from this options object exactly as for a fresh
+   *  process, and a snapshot recorded under different parameters is refused
+   *  (`ValidationError`) — re-deciding the same stream under new parameters
+   *  would reopen optional stopping. A snapshot whose fields are not
+   *  mutually consistent (tampered or truncated) is refused the same way. */
+  resume?: EProcessState
 }
 
 export interface EProcessStep {
@@ -25,6 +33,14 @@ export interface EProcessStep {
   decided: boolean
 }
 
+/**
+ * Complete snapshot of an e-process. Together with the parameters it is
+ * sufficient to continue the process after a restart: `sumX` and `varSum`
+ * are the running sums the next bet is computed from, so a process rebuilt
+ * from a snapshot produces the same wealth sequence and decision as one that
+ * was never interrupted. Plain data: a JSON round-trip preserves it
+ * (`decidedAtN` is undefined, and therefore omitted, until decided).
+ */
 export interface EProcessState extends EProcessStep {
   alpha: number
   maxBet: number
@@ -33,6 +49,11 @@ export interface EProcessState extends EProcessStep {
   threshold: number
   /** Observation count at the first threshold crossing; undefined until decided. */
   decidedAtN?: number
+  /** Σ x_i over the n observations consumed. */
+  sumX: number
+  /** Σ (x_i − μ̂_i)² over the n observations consumed, μ̂_i the shrunk running
+   *  mean after observation i. */
+  varSum: number
 }
 
 export interface EProcess {
@@ -94,6 +115,15 @@ export function eProcess(opts: EProcessOptions = {}): EProcess {
   // the next x, so every bet is predictable.
   let sumX = 0
   let varSum = 0
+  if (opts.resume !== undefined) {
+    const r = assertResumable(opts.resume, { alpha, maxBet, nullMean, threshold })
+    wealth = r.wealth
+    n = r.n
+    decided = r.decided
+    decidedAtN = r.decidedAtN
+    sumX = r.sumX
+    varSum = r.varSum
+  }
   return {
     update(x: number): EProcessStep {
       if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1) {
@@ -118,7 +148,72 @@ export function eProcess(opts: EProcessOptions = {}): EProcess {
       return { wealth, n, decided }
     },
     state(): EProcessState {
-      return { wealth, n, decided, alpha, maxBet, nullMean, threshold, decidedAtN }
+      return { wealth, n, decided, alpha, maxBet, nullMean, threshold, decidedAtN, sumX, varSum }
     },
   }
+}
+
+interface ResolvedEProcessParameters {
+  alpha: number
+  maxBet: number
+  nullMean: number
+  threshold: number
+}
+
+/**
+ * Refuse a snapshot that was not produced by an e-process with exactly these
+ * parameters, or whose fields cannot all be true at once. Every check names
+ * the field, so a refused restart reports what disagrees.
+ */
+function assertResumable(resume: EProcessState, params: ResolvedEProcessParameters): EProcessState {
+  const fail = (detail: string): never => {
+    throw new ValidationError(`eProcess: cannot resume — ${detail}`)
+  }
+  if (typeof resume !== 'object' || resume === null) {
+    fail(`resume must be an EProcessState object, got ${String(resume)}`)
+  }
+  for (const key of ['alpha', 'maxBet', 'nullMean', 'threshold'] as const) {
+    if (resume[key] !== params[key]) {
+      fail(
+        `snapshot ${key}=${resume[key]} differs from the process ${key}=${params[key]}; ` +
+          'a snapshot continues only the process it was taken from',
+      )
+    }
+  }
+  const { wealth, n, decided, decidedAtN, sumX, varSum } = resume
+  if (!Number.isInteger(n) || n < 0) fail(`n must be a non-negative integer, got ${n}`)
+  if (!Number.isFinite(wealth) || wealth <= 0) {
+    fail(`wealth must be a finite positive number, got ${wealth}`)
+  }
+  if (!Number.isFinite(sumX) || sumX < 0 || sumX > n) {
+    fail(`sumX must lie in [0, n=${n}] for observations in [0,1], got ${sumX}`)
+  }
+  if (!Number.isFinite(varSum) || varSum < 0) {
+    fail(`varSum must be a finite non-negative number, got ${varSum}`)
+  }
+  if (typeof decided !== 'boolean') fail(`decided must be a boolean, got ${String(decided)}`)
+  if (n === 0 && (wealth !== 1 || sumX !== 0 || varSum !== 0 || decided)) {
+    fail('n=0 requires wealth=1, sumX=0, varSum=0, decided=false')
+  }
+  if (decided) {
+    if (
+      decidedAtN === undefined ||
+      !Number.isInteger(decidedAtN) ||
+      decidedAtN < 1 ||
+      decidedAtN > n
+    ) {
+      fail(`decided requires decidedAtN to be an integer in [1, n=${n}], got ${decidedAtN}`)
+    }
+  } else {
+    if (decidedAtN !== undefined) {
+      fail(`decidedAtN=${decidedAtN} is set while decided=false`)
+    }
+    if (wealth >= params.threshold) {
+      fail(
+        `wealth ${wealth} ≥ threshold ${params.threshold} while decided=false; ` +
+          'decided latches at the first crossing',
+      )
+    }
+  }
+  return resume
 }

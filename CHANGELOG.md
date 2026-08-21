@@ -4,7 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [Unreleased]
+## [0.154.0] — 2026-08-21
+
+### Added
+
+- Sequential state reconstruction after a process restart (#411, criterion 2). `EProcessState` now carries the running sums `sumX` and `varSum` next to wealth, n, and the parameters, so the snapshot `state()` returns is sufficient to continue the betting test-martingale. `eProcess({ resume })` rebuilds a process from such a snapshot, and `sequentialPairedGate({ resume })` rebuilds the gate's observe-stream from the new exported `SequentialStreamState` (the e-process state plus the gate decision). A process or gate interrupted at any n and resumed from a JSON round-trip of its state produces the identical wealth sequence, observation sequence, decision, and final state as an uninterrupted run. The snapshot never supplies the parameters: a snapshot recorded under a different alpha, maxBet, null boundary, or threshold is refused with a `ValidationError`, as is one whose fields cannot all be true at once (running sums out of range, a latch without its n, a gate decision this configuration could not have reached). `sequentialDecide` needs no snapshot: it is replayed from the generation history it is handed.
 
 ---
 
