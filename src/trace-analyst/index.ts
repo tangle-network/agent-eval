@@ -65,10 +65,8 @@ export {
   asString,
   extractOtlpAttributes,
   firstStringAttr,
-  inferOtlpKind,
   type ProjectedOtlpSpan,
   projectOtlpFlatLine,
-  readOtlpStatus,
   stringField,
 } from './otlp-span'
 export {

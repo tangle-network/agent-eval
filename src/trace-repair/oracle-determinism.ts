@@ -138,7 +138,7 @@ export interface OracleDeterminismVerdict {
 }
 
 /** Replicates one group needs before a flip is measurable at all. */
-export const MIN_ORACLE_REPLICATES = 2
+const MIN_ORACLE_REPLICATES = 2
 
 /**
  * Reduce measured replicates to a verdict.

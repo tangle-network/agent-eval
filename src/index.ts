@@ -544,10 +544,7 @@ export type {
   RuntimeTrajectoryRecord,
   RuntimeTrajectoryRunRecord,
 } from './runtime-trajectory'
-export {
-  parseRuntimeTrajectoryHookEvent,
-  projectRuntimeTrajectoryEvidence,
-} from './runtime-trajectory'
+export { projectRuntimeTrajectoryEvidence } from './runtime-trajectory'
 
 export type { SeriesConvergenceOptions, SeriesConvergenceResult } from './series-convergence'
 export { analyzeSeries } from './series-convergence'

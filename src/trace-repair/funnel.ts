@@ -199,20 +199,14 @@ export function repairCredit(grade: RepairGrade): RepairCredit {
   }
 }
 
-/** True once the answer is a well-formed, budget-admissible answer. A decline
- *  is well formed, so it parses. */
-export function reachedT0(grade: RepairGrade): boolean {
-  return grade.outcome !== 'rejected'
-}
-
 /** True once the recorded state at k came back. A decline never reaches the
  *  gate, because it names no k. */
-export function reachedT1(grade: RepairGrade): boolean {
+function reachedT1(grade: RepairGrade): boolean {
   return grade.outcome === 'did-not-execute' || grade.outcome === 'measured'
 }
 
 /** True once the intervention ran at k and exited cleanly. */
-export function reachedT2(grade: RepairGrade): boolean {
+function reachedT2(grade: RepairGrade): boolean {
   return grade.outcome === 'measured'
 }
 

@@ -31,7 +31,7 @@ import {
 const PLAN_FILE = 'profile-matrix-plan.json'
 const SEGMENTS_FILE = 'profile-matrix-segments.jsonl'
 
-export class SegmentedProfileMatrixError extends ProfileMatrixError {
+class SegmentedProfileMatrixError extends ProfileMatrixError {
   constructor(message: string) {
     super(`segmented matrix: ${message}`)
   }

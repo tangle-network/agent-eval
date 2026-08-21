@@ -124,7 +124,6 @@ export {
   type DecisionBranch,
   type DecisionOutcome,
   type DecisionRule,
-  DecisionTableNotTotalError,
   type DerivedQuantities,
   type Estimand,
   type EstimandResult,
@@ -203,10 +202,8 @@ export {
 export {
   EVIDENCE_STATES,
   type EvidenceDenominator,
-  EvidenceRegistryError,
   type EvidenceRegistryRecord,
   type EvidenceState,
-  evidenceDenominatorSchema,
   evidenceRegistryRecordSchema,
   parseEvidenceRegistryRecord,
   renderEvidenceIndex,

@@ -84,7 +84,7 @@ export async function calibrationCurve(
   )
 }
 
-export function calibrationFromPairs(
+function calibrationFromPairs(
   inputPairs: CalibrationPair[],
   evalMetric: string,
   outcomeMetric: string,

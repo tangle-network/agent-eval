@@ -17,15 +17,11 @@ export {
   hostedTenantFromEnv,
 } from './client'
 export {
-  EvalRunCellScoreSchema,
   EvalRunEventSchema,
-  EvalRunGenerationSnapshotSchema,
   IngestEvalRunsRequestSchema,
   IngestResponseSchema,
   IngestTracesRequestSchema,
   InsightReportSchema,
-  MutableSurfaceSchema,
-  RunTerminalOutcomeSchema,
   TraceSpanEventSchema,
   UnixNanoTimestampSchema,
 } from './schemas'

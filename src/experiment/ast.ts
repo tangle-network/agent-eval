@@ -34,7 +34,7 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [k: s
 export type EvidenceRecord = Record<string, unknown>
 
 /** A decision rule's branches did not cover the evidence. */
-export class DecisionTableNotTotalError extends ValidationError {}
+class DecisionTableNotTotalError extends ValidationError {}
 
 // ── Predicate ────────────────────────────────────────────────────────
 

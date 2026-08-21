@@ -1000,11 +1000,6 @@ const exactRunDataSchema = z
     }
   })
 
-/** Validate the canonical exact-run policy before any analyst can start. */
-export function assertExactRegistryRunOpts(value: unknown): asserts value is ExactRegistryRunOpts {
-  void snapshotExactRegistryRunOpts(value)
-}
-
 function snapshotExactRunId(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new TypeError('AnalystRegistry.runExact: runId must be a non-empty string')

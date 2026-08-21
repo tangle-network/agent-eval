@@ -4,13 +4,24 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.157.0] — 2026-08-21
+
+### Removed
+
+- 86 published value exports that no consumer binds (#411, criterion 3). Every subpath's named value exports were enumerated mechanically and checked against 31 repositories that depend on this package (each on its default branch, commits recorded in `docs/public-api.md`), this package's own CLI, wire server, examples, tests, and Markdown front doors. A symbol with no evidence in ANY channel left the barrel; 11 whose declaration nothing referenced were deleted outright, and 75 that their own module still uses lost only the `export` keyword. A symbol whose only reference is a test, a doc, a script, or a second module was kept and stays listed as `none` in the census — the census names the five blind spots that make a `none` uncertain, and an uncertain `none` is kept, never deleted. Notable removals: `BUILTIN_RUBRICS` (`./wire`), `otelRunCompleteHook` (`./traces`), `FINDING_SUBJECT_GRAMMAR_PROMPT` and the analyst adapter factories (`./analyst`), the delegate-tool defaults (`./multishot`), and the `EvalRun*` schemas (`./hosted`).
+
+### Added
+
+- `docs/public-api.md` and `pnpm api:census`: every published value export with the consumer that justifies it, classified `production`, `planned`, or `none`, with the evidence for each row and the five blind spots that bound the classification (dynamic imports and namespace binds, repositories outside the sweep, pinned versions, the wire and RPC surfaces, string-keyed dispatch). Consumer evidence lives in `scripts/public-api-consumers.json`, stamped with the commit of every repository read. The census runs on demand: it is a dated reading, not a CI gate.
+
+---
+
 ## [0.156.0] — 2026-08-21
 
 ### Added
 
 - Logprob-expectation judge scoring (#637). `llmJudge({ scoring: { method: 'expectation', whenUnavailable } })` asks the provider for the log probabilities of the score token and returns the expected grade over the integer grades the model considered, so two answers that both sample `8` separate by how much mass sat on `7` versus `9`. It requires `scale: 'ten'` — an integer grade is one token and a `[0,1]` float is not — and refuses a grade that did not land in exactly one token instead of approximating it. `whenUnavailable` decides the provider-returns-nothing case: `'fail'` throws, `'sampled'` reads the emitted grade. `JudgeScore` gains `scoringMethod` (what actually produced the number, so a run that fell back reads `'sampled'`) and `distribution` (probability mass per grade). Panels are unchanged; `ensembleJudge` consumes the composite either way. No new dependency: the technique is a scoring-loop change, not a package.
 - `LlmCallRequest.logprobs: { topLogprobs }` sends `logprobs: true` with `top_logprobs`, and `LlmCallResult.logprobs` carries the parsed per-token window from `choices[0].logprobs.content`, or `null` when the provider returned none. A provider that ignores the field is a fact the caller can read, never an inferred distribution. `wrapLlmClient` forwards both, so every `ChatClient` transport carries them.
-
 ---
 
 ## [0.155.0] — 2026-08-21

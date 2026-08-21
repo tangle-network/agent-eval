@@ -37,7 +37,7 @@ export const RubricDimensionSchema = z
   })
   .openapi('RubricDimension')
 
-export const FailureModeSchema = z
+const FailureModeSchema = z
   .object({
     id: z.string().min(1).describe('Short stable id like "ai-cadence" — used in detection lists.'),
     description: z.string().min(1).describe('Plain-English description of the failure pattern.'),
@@ -138,7 +138,7 @@ export const JudgeResultSchema = z
 
 // ── Rubric listing ──────────────────────────────────────────────────
 
-export const RubricInfoSchema = z
+const RubricInfoSchema = z
   .object({
     name: z.string().describe('Pass this to /v1/judge as `rubricName`.'),
     description: z.string().describe('What this rubric measures.'),
@@ -243,7 +243,7 @@ export const TracesIngestResponseSchema = z
   })
   .openapi('TracesIngestResponse')
 
-export const FeedbackLabelSchema = z
+const FeedbackLabelSchema = z
   .object({
     id: z.string().optional(),
     source: z.enum(['user', 'judge', 'environment', 'metric', 'policy', 'system']),
@@ -267,7 +267,7 @@ export const FeedbackLabelSchema = z
   })
   .openapi('FeedbackLabel')
 
-export const FeedbackAttemptSchema = z
+const FeedbackAttemptSchema = z
   .object({
     id: z.string().min(1),
     stepIndex: z.number().int().nonnegative(),

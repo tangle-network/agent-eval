@@ -233,8 +233,6 @@ export function fromPiSession(
   return fromCodeAgentSession('pi', options)
 }
 
-export const fromPigraphSession = fromPiSession
-
 function fromCodeAgentSession(
   source: CodeAgentSessionSource,
   options: CodeAgentSessionIntakeOptions,

@@ -14,7 +14,7 @@ export interface TraceAnalystLimits {
   maxOutputChars: number
 }
 
-export const DEFAULT_TRACE_ANALYST_LIMITS: Readonly<TraceAnalystLimits> = {
+const DEFAULT_TRACE_ANALYST_LIMITS: Readonly<TraceAnalystLimits> = {
   maxIterations: 12,
   maxLlmCalls: 8,
   maxToolCalls: 48,

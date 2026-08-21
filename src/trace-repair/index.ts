@@ -87,7 +87,6 @@ export {
 export {
   ADMISSION_EXCLUSION_MEANING,
   ADMISSION_EXCLUSION_ORDER,
-  ADMISSION_ROW_KEYS,
   ADMISSION_STRATA,
   type AdmissionCheckRecord,
   type AdmissionControlArm,
@@ -105,7 +104,6 @@ export {
   type DenominatorChain,
   type DenominatorChainArtifact,
   type DenominatorStage,
-  isPreStratumReason,
   stratumOf,
 } from './admission-records'
 export {
@@ -153,11 +151,9 @@ export {
   createDspyRepairArm,
   DSPY_REPAIR_SIGNATURE,
   DSPY_REPAIR_TASK_TOKEN,
-  DSPY_REPAIR_TRAJECTORY_INPUT,
   type DspyRepairArmOptions,
   dspyRepairInstructions,
   type ReadRepairPayloadOptions,
-  readRepairPayload,
 } from './arm-dspy'
 export {
   BLINDED_FIELDS,
@@ -168,7 +164,6 @@ export {
 } from './blinding'
 export {
   assertArmSymmetry,
-  CONTINUATION_POLICY_DEFAULTS,
   type ContinuationEnvironment,
   type ContinuationEnvironmentFactory,
   type ContinuationEnvironmentRequest,
@@ -220,7 +215,6 @@ export {
   type DegenerateDefeatKind,
   type DegenerateStrategy,
   type DegenerateStrategyId,
-  degenerateStrategy,
 } from './degenerate-strategies'
 export {
   type DeltaRepairInterval,
@@ -252,16 +246,12 @@ export {
   type RepairRejection,
   type RepairRolloutEvidence,
   type ReproductionEvidence,
-  reachedT0,
-  reachedT1,
-  reachedT2,
   repairCredit,
   type TestRunEvidence,
 } from './funnel'
 export {
   type GradeRepairOptions,
   gradeRepairRow,
-  RepairArmSymmetryError,
   type RepairRowResult,
 } from './grade'
 export {
@@ -269,7 +259,6 @@ export {
   isRecordedTimeout,
   MINI_SWE_SYSTEM_MESSAGE,
   OUTPUT_ELISION_THRESHOLD,
-  OUTPUT_ELISION_WINDOW,
   type ParsedAction,
   parseAction,
   renderFormatErrorObservation,
@@ -281,7 +270,6 @@ export {
 } from './mini-swe-scaffold'
 export {
   assertDeterministicOracle,
-  MIN_ORACLE_REPLICATES,
   NondeterministicOracleError,
   type OracleAssertionResult,
   type OracleDeterminismEvidence,

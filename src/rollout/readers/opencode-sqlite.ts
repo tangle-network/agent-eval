@@ -110,16 +110,6 @@ export function findOpencodeSessionsByDirectory(
   return rows.map(parseSessionRow)
 }
 
-export function findOpencodeSessionById(
-  db: DatabaseSync,
-  sessionId: string,
-): OpencodeSessionRow | null {
-  const row = db.prepare(`SELECT ${SESSION_COLUMNS} FROM session WHERE id = ?`).get(sessionId) as
-    | Record<string, unknown>
-    | undefined
-  return row === undefined ? null : parseSessionRow(row)
-}
-
 interface OpencodePart {
   type?: string
   text?: string

@@ -51,7 +51,7 @@ import {
 } from '../series-convergence'
 import type { CorpusAgreementReport } from '../statistics'
 
-export const SENTINEL_METRIC_NAMES = ['irr', 'calibrationKappa', 'sentinelPassRate'] as const
+const SENTINEL_METRIC_NAMES = ['irr', 'calibrationKappa', 'sentinelPassRate'] as const
 
 export type SentinelMetricName = (typeof SENTINEL_METRIC_NAMES)[number]
 

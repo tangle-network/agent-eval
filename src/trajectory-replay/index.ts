@@ -112,7 +112,6 @@ export {
   isSubmitOnlyAction,
   parseObservationOutput,
   parseRecordedReturncode,
-  RECORDED_ELISION_PATTERN,
   type RecordedFinalOutcome,
   type RecordedObservationKind,
   type RecordedTrajectoryStep,

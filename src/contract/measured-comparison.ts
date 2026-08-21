@@ -829,15 +829,13 @@ function deriveCandidateBundleDiff(experiment: AgentCandidateExperiment): string
   return changed.join('\n\n')
 }
 
-export function verifyCandidateBenchmarkTask(input: unknown): AgentCandidateBenchmarkTask {
+function verifyCandidateBenchmarkTask(input: unknown): AgentCandidateBenchmarkTask {
   const task = agentCandidateBenchmarkTaskSchema.parse(input)
   verifySelfAddressed(task, 'candidate benchmark task')
   return task
 }
 
-export function verifyCandidateBenchmarkSuiteInputs(
-  input: unknown,
-): AgentCandidateBenchmarkSuiteInputs {
+function verifyCandidateBenchmarkSuiteInputs(input: unknown): AgentCandidateBenchmarkSuiteInputs {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('candidate benchmark suite inputs must be an object')
   }
@@ -855,7 +853,7 @@ export function verifyCandidateBenchmarkSuiteInputs(
   return { suite, tasks: candidate.tasks }
 }
 
-export function verifyCandidateBenchmarkSuite(input: unknown) {
+function verifyCandidateBenchmarkSuite(input: unknown) {
   const suite = agentCandidateBenchmarkSuiteSchema.parse(input)
   verifySelfAddressed(suite, 'candidate benchmark suite')
   return suite

@@ -42,7 +42,7 @@ const ADAPTER_REV = '1'
 
 // ── Severity bridges ───────────────────────────────────────────────
 
-export function liftSeverity(s: LayerSeverity): AnalystSeverity {
+function liftSeverity(s: LayerSeverity): AnalystSeverity {
   switch (s) {
     case 'critical':
       return 'critical'

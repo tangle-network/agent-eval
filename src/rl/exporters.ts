@@ -71,7 +71,7 @@ export interface DpoExportRow {
 /** The minted lines for the runs a `PreferenceTriple` names on each side. */
 export type DpoLineContext = RolloutLineContext
 
-export const DPO_CONTEXT_REQUIREMENT: LineContextRequirement = {
+const DPO_CONTEXT_REQUIREMENT: LineContextRequirement = {
   exporter: 'DPO export',
   contextType: 'DpoLineContext',
   because:
@@ -451,7 +451,7 @@ export async function toPrmRows(
  * existed. Every condition below throws rather than filters, because each one
  * means the CALLER's capture or mint configuration is wrong.
  */
-export function assertPrmTrainableLine(line: MintedRolloutLine, mintedWithMaxSteps?: number): void {
+function assertPrmTrainableLine(line: MintedRolloutLine, mintedWithMaxSteps?: number): void {
   const id = line.rollout_id
   if (line.provenance.gap !== undefined) {
     throw new Error(
@@ -475,7 +475,7 @@ export function assertPrmTrainableLine(line: MintedRolloutLine, mintedWithMaxSte
   }
 }
 
-export const PRM_CONTEXT_REQUIREMENT: LineContextRequirement = {
+const PRM_CONTEXT_REQUIREMENT: LineContextRequirement = {
   exporter: 'PRM export',
   contextType: 'PrmLineContext',
   because:
@@ -517,7 +517,7 @@ export interface StepRewardJsonlRow {
   weight: number
 }
 
-export const STEP_REWARD_CONTEXT_REQUIREMENT: LineContextRequirement = {
+const STEP_REWARD_CONTEXT_REQUIREMENT: LineContextRequirement = {
   exporter: 'step-reward export',
   contextType: 'RolloutLineContext',
   because:

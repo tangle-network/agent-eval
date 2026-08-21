@@ -28,9 +28,6 @@ export {
 export {
   type ClaudeCodeReaderOptions,
   claudeCodeSupervisorRunReader,
-  DEFAULT_CANCEL_TOOLS,
-  DEFAULT_SPAWN_TOOLS,
-  DEFAULT_STEER_TOOLS,
   readClaudeCodeSupervisorRun,
 } from './claude-code-reader'
 export {
@@ -52,7 +49,6 @@ export {
   loopsSupervisorRunReader,
   readLoopsSupervisorRun,
   reportSupervisorRound,
-  supervisorReportStem,
   type WriteSupervisorRunOptions,
   writeSupervisorRunReport,
   writeSupervisorRunReportSafe,

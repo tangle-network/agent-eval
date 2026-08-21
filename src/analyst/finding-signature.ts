@@ -10,9 +10,9 @@ import { parseFindingSubject } from './finding-subject'
 import { coerceJson } from './parse-tolerant'
 import type { EvidenceRef } from './types'
 
-export const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
+const ANALYST_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const
 
-export const RawAnalystEvidenceSchema = z
+const RawAnalystEvidenceSchema = z
   .object({
     uri: z.string().trim().min(1).max(2000),
     excerpt: z.string().max(2000).optional(),

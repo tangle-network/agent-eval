@@ -67,11 +67,11 @@ import {
 import type { SupervisorRunReader, SupervisorRunSources, WorkerLogSource } from './types'
 
 /** Tool names that spawn a child agent. `Task` is the older name for `Agent`. */
-export const DEFAULT_SPAWN_TOOLS = ['Agent', 'Task'] as const
+const DEFAULT_SPAWN_TOOLS = ['Agent', 'Task'] as const
 /** Tool names that deliver a message to an ALREADY-RUNNING child agent. */
-export const DEFAULT_STEER_TOOLS = ['SendMessage'] as const
+const DEFAULT_STEER_TOOLS = ['SendMessage'] as const
 /** Tool names that stop a running child agent. */
-export const DEFAULT_CANCEL_TOOLS = ['TaskStop', 'KillAgent'] as const
+const DEFAULT_CANCEL_TOOLS = ['TaskStop', 'KillAgent'] as const
 
 const SPEND_UNPRICED =
   'Claude Code transcripts record token usage but never a price — usd is not in the store'

@@ -59,7 +59,7 @@ import type {
 } from './ports'
 
 /** Rollouts of the repair arm disagreed with the controls about the policy. */
-export class RepairArmSymmetryError extends CaptureIntegrityError {}
+class RepairArmSymmetryError extends CaptureIntegrityError {}
 
 export interface GradeRepairOptions {
   readonly row: AdmittedRow

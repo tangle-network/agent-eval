@@ -111,7 +111,7 @@ export function isSubmitOnlyAction(action: string): boolean {
  * field that matches is unrecoverable, so a caller rejects the row that holds
  * it rather than replaying the marker.
  */
-export const RECORDED_ELISION_PATTERN = /^\$[0-9a-f]+$/
+const RECORDED_ELISION_PATTERN = /^\$[0-9a-f]+$/
 
 export function isElidedField(value: string | null | undefined): boolean {
   return typeof value === 'string' && RECORDED_ELISION_PATTERN.test(value)

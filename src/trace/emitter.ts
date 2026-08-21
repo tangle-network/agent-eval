@@ -15,7 +15,6 @@ import type {
   EventKind,
   JudgeSpan,
   LlmSpan,
-  Message,
   RetrievalSpan,
   Run,
   RunOutcome,
@@ -348,35 +347,4 @@ export class TraceEmitter {
 function cryptoRandomId(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-/** Helper to build an LLM span handle args object from a provider-shaped response. */
-export function llmSpanFromProvider(args: {
-  name?: string
-  model: string
-  messages: Message[]
-  output: string
-  usage?: {
-    inputTokens?: number
-    outputTokens?: number
-    cachedTokens?: number
-    cacheWriteTokens?: number
-    reasoningTokens?: number
-  }
-  costUsd?: number
-  finishReason?: string
-}): Omit<LlmSpan, 'spanId' | 'runId' | 'kind' | 'startedAt'> {
-  return {
-    name: args.name ?? args.model,
-    model: args.model,
-    messages: args.messages,
-    output: args.output,
-    inputTokens: args.usage?.inputTokens,
-    outputTokens: args.usage?.outputTokens,
-    cachedTokens: args.usage?.cachedTokens,
-    cacheWriteTokens: args.usage?.cacheWriteTokens,
-    reasoningTokens: args.usage?.reasoningTokens,
-    costUsd: args.costUsd,
-    finishReason: args.finishReason,
-  }
 }

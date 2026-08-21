@@ -340,7 +340,7 @@ export async function writeSupervisorRunReport(
  * — so two runs of the same instance from different candidates/reps never
  * overwrite each other.
  */
-export function supervisorReportStem(runDir: string): string {
+function supervisorReportStem(runDir: string): string {
   const parts = runDir.split('/').filter(Boolean)
   const arm = parts[parts.length - 1] ?? 'cell'
   const iid = parts[parts.length - 2] ?? 'instance'

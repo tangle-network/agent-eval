@@ -40,7 +40,7 @@ export function assertCodeSurfaceIdentity(surface: unknown): asserts surface is 
 }
 
 /** Assert that a value is a valid non-empty component surface. */
-export function assertComponentSurface(surface: unknown): asserts surface is ComponentSurface {
+function assertComponentSurface(surface: unknown): asserts surface is ComponentSurface {
   if (!surface || typeof surface !== 'object') {
     throw new TypeError('ComponentSurface must be an object')
   }
