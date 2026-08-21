@@ -35,7 +35,7 @@ import type {
   TraceSpanEvent,
 } from '../hosted/types'
 import { summarizeAgentReceiptIntegrity } from '../integrity/backend-integrity'
-import { canonicalJson, contentHash } from '../verdict-cache'
+import { canonicalString, hashCanonical } from '../ledger-core/canonical'
 import { assertCampaignSplitIdentity } from './coverage'
 import type {
   ComparisonCost,
@@ -475,7 +475,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
     gate: {
       decision: args.gate.decision,
       reasons: args.gate.reasons,
-      delta: args.gate.delta,
+      ...(args.gate.delta === undefined ? {} : { delta: args.gate.delta }),
       contributingGates: args.gate.contributingGates.map((g) => ({
         name: g.name,
         status: g.status,
@@ -543,7 +543,7 @@ function durableOptimizationMethod(
     throw new Error('buildLoopProvenanceRecord: optimization method duration is invalid')
   }
   try {
-    return JSON.parse(canonicalJson(value)) as LoopProvenanceOptimizationMethod
+    return JSON.parse(canonicalString(value)) as LoopProvenanceOptimizationMethod
   } catch (cause) {
     throw new Error('buildLoopProvenanceRecord: optimization method data must be canonical JSON', {
       cause,
@@ -602,31 +602,16 @@ export function verifyLoopProvenanceRecord(record: LoopProvenanceRecord): LoopPr
   return record
 }
 
-/** Return the canonical SHA-256 digest of a JSON-serializable value. */
+/** SHA-256 over the RFC 8785 canonical JSON of `value`. Throws
+ * `LedgerCanonicalizationError` for a value with no canonical form. */
 export function canonicalDigest(value: unknown): `sha256:${string}` {
-  const json = JSON.stringify(value, function strictJson(_key, item: unknown) {
-    if (typeof item === 'number' && !Number.isFinite(item)) {
-      throw new Error('canonical digest cannot encode a non-finite number')
-    }
-    if (typeof item === 'bigint' || typeof item === 'function' || typeof item === 'symbol') {
-      throw new Error(`canonical digest cannot encode ${typeof item}`)
-    }
-    if (item === undefined && Array.isArray(this)) {
-      throw new Error('canonical digest cannot encode an undefined array item')
-    }
-    if (item instanceof Map || item instanceof Set) {
-      throw new Error(`canonical digest cannot encode ${item instanceof Map ? 'Map' : 'Set'}`)
-    }
-    return item
-  })
-  if (json === undefined) throw new Error('canonical digest value is not serializable')
-  return `sha256:${contentHash(JSON.parse(json))}`
+  return hashCanonical(value)
 }
 
 function durableGateDetail(detail: unknown): unknown {
   if (detail === undefined) return null
   try {
-    return JSON.parse(canonicalJson(detail)) as unknown
+    return JSON.parse(canonicalString(detail)) as unknown
   } catch (cause) {
     throw new Error('buildLoopProvenanceRecord: gate detail must be canonical JSON', {
       cause,

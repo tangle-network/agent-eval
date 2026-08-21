@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { JudgeConfig, JudgeScore } from './campaign/types'
+import { hashCanonical, LedgerCanonicalizationError } from './ledger-core/canonical'
 import {
   cachedJudge,
   canonicalJson,
   contentHash,
   fileVerdictCache,
   inMemoryVerdictCache,
+  VERDICT_CACHE_KEY_SCHEME,
 } from './verdict-cache'
 
 const signal = new AbortController().signal
@@ -46,26 +48,29 @@ describe('canonicalJson', () => {
   })
 
   it('throws on undefined, function, and symbol values', () => {
-    expect(() => canonicalJson({ a: undefined })).toThrow(/undefined at \$\.a/)
-    expect(() => canonicalJson({ a: () => 1 })).toThrow(/function at \$\.a/)
-    expect(() => canonicalJson({ a: Symbol('x') })).toThrow(/symbol at \$\.a/)
-    expect(() => canonicalJson([1, undefined])).toThrow(/undefined at \$\[1\]/)
+    expect(() => canonicalJson({ a: undefined })).toThrow(LedgerCanonicalizationError)
+    expect(() => canonicalJson({ a: undefined })).toThrow(/\$\.a is undefined/)
+    expect(() => canonicalJson({ a: () => 1 })).toThrow(/\$\.a is a function/)
+    expect(() => canonicalJson({ a: Symbol('x') })).toThrow(/\$\.a is a symbol/)
+    expect(() => canonicalJson([1, undefined])).toThrow(/\$\[1\] is undefined/)
   })
 
   it('throws on NaN and non-finite numbers', () => {
-    expect(() => canonicalJson({ score: NaN })).toThrow(/non-finite number \(NaN\) at \$\.score/)
-    expect(() => canonicalJson({ score: Infinity })).toThrow(/non-finite/)
-    expect(() => canonicalJson({ score: -Infinity })).toThrow(/non-finite/)
+    expect(() => canonicalJson({ score: NaN })).toThrow(/\$\.score is NaN/)
+    expect(() => canonicalJson({ score: Infinity })).toThrow(/\$\.score is Infinity/)
+    expect(() => canonicalJson({ score: -Infinity })).toThrow(/\$\.score is -Infinity/)
   })
 
   it('throws on Map and Set instead of serializing them as {}', () => {
-    expect(() => canonicalJson({ m: new Map([['k', 1]]) })).toThrow(/Map at \$\.m/)
-    expect(() => canonicalJson({ s: new Set([1]) })).toThrow(/Set at \$\.s/)
+    expect(() => canonicalJson({ m: new Map([['k', 1]]) })).toThrow(/\$\.m is a Map instance/)
+    expect(() => canonicalJson({ s: new Set([1]) })).toThrow(/\$\.s is a Set instance/)
   })
 
-  it('honors toJSON so Dates canonicalize to their ISO string', () => {
+  it('refuses a Date instance; timestamps travel as ISO strings', () => {
     const at = new Date('2026-06-07T00:00:00.000Z')
-    expect(canonicalJson({ at })).toBe('{"at":"2026-06-07T00:00:00.000Z"}')
+    expect(() => canonicalJson({ at })).toThrow(LedgerCanonicalizationError)
+    expect(() => canonicalJson({ at })).toThrow(/\$\.at is a Date instance/)
+    expect(canonicalJson({ at: at.toISOString() })).toBe('{"at":"2026-06-07T00:00:00.000Z"}')
   })
 })
 
@@ -74,6 +79,16 @@ describe('contentHash', () => {
     expect(contentHash({ a: 1, b: 2 })).toBe(contentHash({ b: 2, a: 1 }))
     expect(contentHash({ a: 1 })).not.toBe(contentHash({ a: 2 }))
     expect(contentHash({ a: 1 })).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('is the hex form of the ledger-core digest', () => {
+    const value = { report: ['a', 1, null], nested: { k: true } }
+    expect(`sha256:${contentHash(value)}`).toBe(hashCanonical(value))
+  })
+
+  it('keeps a distinct digest for a record with an undefined field by refusing it', () => {
+    expect(() => contentHash({ a: 1, b: undefined })).toThrow(LedgerCanonicalizationError)
+    expect(contentHash({ a: 1 })).not.toBe(contentHash({ a: 1, b: null }))
   })
 })
 
@@ -149,6 +164,37 @@ describe('cachedJudge', () => {
     await wrapped.score({ artifact: 'same', scenario: { id: 's-2', kind: 'unit' }, signal })
 
     expect(calls()).toBe(2)
+  })
+
+  it('misses an entry stored under the unprefixed key scheme and repopulates', async () => {
+    const { judge, calls } = makeFakeJudge()
+    const store = inMemoryVerdictCache()
+    const legacyKey = contentHash({
+      artifact: canonicalJson('abcd'),
+      scenarioId: scenario.id,
+      judgeName: judge.name,
+      dimensions: judge.dimensions,
+      judgeVersion: 'v1',
+    })
+    await store.set(legacyKey, { dimensions: { clarity: 0 }, composite: 0, notes: 'stale' })
+    const cached = cachedJudge(judge, store, { judgeVersion: 'v1' })
+    const score = await cached.score({ artifact: 'abcd', scenario, signal })
+    expect(calls()).toBe(1)
+    expect(score.notes).toBe('judged 4 chars')
+    expect(cached.stats()).toEqual({ hits: 0, misses: 1 })
+    expect(await store.get(`${VERDICT_CACHE_KEY_SCHEME}:${legacyKey}`)).toEqual(score)
+  })
+
+  it('refuses an artifact that carries a Date instead of content-addressing it', async () => {
+    const judge: JudgeConfig<{ at: Date }> = {
+      name: 'date-judge',
+      dimensions: [{ key: 'clarity', description: 'is the artifact clear' }],
+      score: () => ({ dimensions: { clarity: 1 }, composite: 1, notes: '' }),
+    }
+    const cached = cachedJudge(judge, inMemoryVerdictCache(), { judgeVersion: 'v1' })
+    await expect(cached.score({ artifact: { at: new Date(0) }, scenario, signal })).rejects.toThrow(
+      LedgerCanonicalizationError,
+    )
   })
 
   it('requires a non-empty judgeVersion', () => {

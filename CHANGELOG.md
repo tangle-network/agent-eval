@@ -8,6 +8,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.153.0] — 2026-08-21
+
+### Changed
+
+- One canonical-JSON encoder (#646, part 1 of 3). Every non-durable digest and stable serialization in the package now delegates to `ledger-core/canonical` (RFC 8785): `canonicalJson`/`contentHash` (the verdict-cache pair the attestation, campaign-manifest, coverage, and trace-repair digests build on), `hashScenarios`/`Dataset.toJsonl`, `serializeFeedbackTrajectoriesJsonl`, the `runControl` default state/action fingerprints, the code-agent-session `configHash`, `canonicalDigest` (loop provenance), and `argHash`. For plain JSON data the bytes — and therefore every persisted digest over plain data — do not change. What changes: a value with no faithful canonical form is refused with `LedgerCanonicalizationError` instead of coerced. `Date`/`toJSON` objects no longer serialize (pass ISO strings), an `undefined`-valued field no longer silently drops or collides with the absent field, and integer-like object keys sort as strings where the sort-into-a-new-object encoders emitted them in numeric enumeration order first.
+- The verdict cache key scheme is `v2:` + the content hash (`VERDICT_CACHE_KEY_SCHEME`). Entries a store holds under the unprefixed scheme miss once and repopulate; no verdict is wrong afterward, only cold.
+- `runControl`'s default fingerprint no longer falls back to `String(value)` for an unserializable state or action — two states that differ in such a field must not fingerprint alike, so it throws; callers with such state supply `stopPolicies.stateFingerprint`/`actionFingerprint`. `argHash` likewise refuses args with no canonical form; uncaptured (`undefined`) args still key to `'undefined'`.
+
+---
+
 ## [0.152.0] — 2026-08-21
 
 ### Added

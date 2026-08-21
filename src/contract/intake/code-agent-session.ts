@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
+import { hashCanonical } from '../../ledger-core/canonical'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type {
   RunCostProvenance,
@@ -291,8 +292,8 @@ function fromCodeAgentSession(
     hashJson({
       source,
       model,
-      sourcePath: options.sourcePath,
-      cwd: cwdFromEntries(entries),
+      sourcePath: options.sourcePath ?? null,
+      cwd: cwdFromEntries(entries) ?? null,
       entryCount: entries.length,
     })
   const explicitTerminal = observation.terminal.explicit
@@ -1183,7 +1184,7 @@ function withSnapshot(model: string): string {
 }
 
 function hashJson(value: unknown): string {
-  return hashString(JSON.stringify(value))
+  return hashCanonical(value)
 }
 
 function hashString(value: string): string {

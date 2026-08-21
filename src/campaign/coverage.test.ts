@@ -37,7 +37,7 @@ describe('campaign design identity', () => {
 
   it('rejects ambiguous scenario payloads instead of hashing a lossy coercion', () => {
     expect(() => campaignSplitDigest([{ ...scenarios[0]!, weight: Number.NaN }], 1)).toThrow(
-      /non-finite number/,
+      /\$\.weight is NaN/,
     )
   })
 
