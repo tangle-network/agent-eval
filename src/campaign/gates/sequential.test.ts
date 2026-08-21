@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { type HypothesisManifest, signManifest } from '../../pre-registration'
 import { eProcess, mulberry32 } from '../../statistics'
 import type { GateContext, GenerationRecord, JudgeScore, Scenario } from '../types'
-import { sequentialDecide, sequentialPairedGate } from './sequential'
+import {
+  type SequentialObservation,
+  type SequentialPairedGateOptions,
+  type SequentialStreamState,
+  sequentialDecide,
+  sequentialPairedGate,
+} from './sequential'
 
 // ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -326,6 +332,200 @@ describe('sequentialPairedGate.decide — gate contract', () => {
     await gate.decide(better)
     expect(gate.state().n).toBe(0)
     expect(gate.state().decision).toBe('continue')
+  })
+})
+
+// ── sequentialPairedGate — restart reconstruction ─────────────────────
+
+describe('sequentialPairedGate.resume — reconstruction after a process restart', () => {
+  const opts = { alpha: 0.05, minN: 5, maxN: 80, maxBet: 0.5, scale: 1 }
+
+  /** Paired deltas with a real edge (≈ +0.3 on scale 1) so the reference
+   *  promotes inside the budget. */
+  function deltas(seed: number, length: number): number[] {
+    const rng = mulberry32(seed)
+    return Array.from({ length }, () => Math.min(1, Math.max(-1, 0.3 + (rng() - 0.5) * 1.2)))
+  }
+
+  function observeAll(
+    ds: number[],
+    o: SequentialPairedGateOptions = opts,
+  ): SequentialObservation[] {
+    const gate = sequentialPairedGate(o)
+    const out: SequentialObservation[] = []
+    for (const d of ds) out.push(gate.observe(d))
+    return out
+  }
+
+  /** Observe the first k deltas, persist `state()` through JSON, rebuild
+   *  the gate with `resume`, and observe the rest. */
+  function observeWithRestart(
+    ds: number[],
+    k: number,
+    o: SequentialPairedGateOptions = opts,
+  ): { observations: SequentialObservation[]; final: SequentialStreamState } {
+    const first = sequentialPairedGate(o)
+    const observations: SequentialObservation[] = []
+    for (const d of ds.slice(0, k)) observations.push(first.observe(d))
+    const persisted = JSON.parse(JSON.stringify(first.state())) as SequentialStreamState
+    const second = sequentialPairedGate({ ...o, resume: persisted })
+    for (const d of ds.slice(k)) observations.push(second.observe(d))
+    return { observations, final: second.state() }
+  }
+
+  const ds = deltas(99, 60)
+  const reference = observeAll(ds)
+  const promoteAt = reference.findIndex((o) => o.decision === 'promote') + 1
+
+  it('the reference stream promotes inside the budget (fixture has an edge)', () => {
+    expect(promoteAt).toBeGreaterThan(opts.minN)
+    expect(promoteAt).toBeLessThan(ds.length)
+  })
+
+  it.each([0, 1, 4, 5, 20, 59])(
+    'interrupting at n=%i and resuming from state() yields the identical observation sequence and final state',
+    (k) => {
+      const resumed = observeWithRestart(ds, k)
+      expect(resumed.observations).toEqual(reference)
+      const uninterrupted = sequentialPairedGate(opts)
+      for (const d of ds) uninterrupted.observe(d)
+      expect(resumed.final).toEqual(uninterrupted.state())
+    },
+  )
+
+  it('interrupting around the promote crossing keeps the sticky decision and its n', () => {
+    for (const k of [promoteAt - 1, promoteAt, promoteAt + 1]) {
+      const resumed = observeWithRestart(ds, k)
+      expect(resumed.observations).toEqual(reference)
+      expect(resumed.final.decision).toBe('promote')
+    }
+  })
+
+  it('a stream resumed after promote keeps the sticky decision against contrary evidence', () => {
+    const first = sequentialPairedGate(opts)
+    for (const d of ds.slice(0, promoteAt + 3)) first.observe(d)
+    const second = sequentialPairedGate({ ...opts, resume: first.state() })
+    const next = second.observe(-0.9)
+    expect(next.decision).toBe('promote')
+    expect(next.n).toBe(promoteAt + 4)
+  })
+
+  it('a stream resumed at undecided-at-maxN refuses further observations exactly like the original', () => {
+    const flat = Array.from({ length: 6 }, () => 0)
+    const small = { alpha: 0.05, minN: 5, maxN: 6 }
+    const first = sequentialPairedGate(small)
+    for (const d of flat) first.observe(d)
+    expect(first.state().decision).toBe('undecided-at-maxN')
+    const second = sequentialPairedGate({ ...small, resume: first.state() })
+    expect(second.state()).toEqual(first.state())
+    expect(() => second.observe(0)).toThrow(/optional stopping/)
+  })
+
+  it('a resumed gate reaches undecided-at-maxN at the same n as the uninterrupted gate', () => {
+    const noise = Array.from({ length: 30 }, (_, i) => (i % 2 === 0 ? 0.05 : -0.05))
+    const small = { alpha: 0.05, minN: 5, maxN: 30 }
+    const ref = observeAll(noise, small)
+    expect(ref[ref.length - 1]!.decision).toBe('undecided-at-maxN')
+    const resumed = observeWithRestart(noise, 17, small)
+    expect(resumed.observations).toEqual(ref)
+  })
+
+  it('resume under a bound manifest continues the registered statistic', async () => {
+    const signed = await signManifest(manifestBase())
+    const bound = { preRegistration: signed, minN: 5 }
+    const ref = observeAll(ds.slice(0, 30), bound)
+    const first = sequentialPairedGate(bound)
+    for (const d of ds.slice(0, 9)) first.observe(d)
+    const second = sequentialPairedGate({ ...bound, resume: first.state() })
+    const tail = ds.slice(9, 30).map((d) => second.observe(d))
+    expect([...ds.slice(0, 9).map((_, i) => ref[i]!), ...tail]).toEqual(ref)
+  })
+
+  it('decide(ctx) is unaffected by resume — it always runs its own fresh stream', async () => {
+    const first = sequentialPairedGate(opts)
+    for (const d of ds.slice(0, 10)) first.observe(d)
+    const resumed = sequentialPairedGate({ ...opts, resume: first.state() })
+    const fresh = sequentialPairedGate(opts)
+    const ctx = ctxFrom(
+      Array.from({ length: 12 }, (_, i) => ({
+        scenarioId: `s${i}`,
+        reps: 2,
+        candidate: 0.8,
+        baseline: 0.5,
+      })),
+    )
+    const [a, b] = await Promise.all([resumed.decide(ctx), fresh.decide(ctx)])
+    expect(a).toEqual(b)
+    expect(resumed.state().n).toBe(10)
+  })
+
+  it('refuses a snapshot recorded under different e-process parameters (alpha / minEffect / maxBet)', async () => {
+    const first = sequentialPairedGate(opts)
+    for (const d of ds.slice(0, 10)) first.observe(d)
+    const snap = first.state()
+    expect(() => sequentialPairedGate({ ...opts, alpha: 0.01, resume: snap })).toThrow(
+      /cannot resume — snapshot alpha=0\.05 differs from the process alpha=0\.01/,
+    )
+    expect(() => sequentialPairedGate({ ...opts, maxBet: 0.3, resume: snap })).toThrow(
+      /snapshot maxBet=0\.5 differs/,
+    )
+    // A manifest with minEffect shifts the null boundary: a snapshot taken at
+    // minEffect 0 does not continue a minEffect 0.2 statistic.
+    const shifted = await signManifest({ ...manifestBase(), minEffect: 0.2 })
+    expect(() => sequentialPairedGate({ preRegistration: shifted, minN: 5, resume: snap })).toThrow(
+      /snapshot nullMean=0\.5 differs from the process nullMean=0\.6/,
+    )
+    expect(() => sequentialPairedGate({ ...opts, resume: { ...snap, threshold: 7 } })).toThrow(
+      /snapshot threshold=7 differs/,
+    )
+  })
+
+  it('refuses a snapshot whose gate decision this configuration could not have reached', () => {
+    const first = sequentialPairedGate(opts)
+    for (const d of ds.slice(0, 10)) first.observe(d)
+    const snap = first.state()
+    expect(snap.decision).toBe('continue')
+    expect(() => sequentialPairedGate({ ...opts, maxN: 9, resume: snap })).toThrow(
+      /snapshot n=10 exceeds the pre-registered maxN=9/,
+    )
+    expect(() => sequentialPairedGate({ ...opts, maxN: 10, resume: snap })).toThrow(
+      /decision 'continue' at n=10 with maxN=10; the stream is finished/,
+    )
+    expect(() =>
+      sequentialPairedGate({
+        ...opts,
+        resume: { ...snap, decision: 'promote', n: 3, sumX: 1, varSum: 0.1 },
+      }),
+    ).toThrow(/decision 'promote' at n=3 is below minN=5/)
+    expect(() =>
+      sequentialPairedGate({ ...opts, resume: { ...snap, decision: 'undecided-at-maxN' } }),
+    ).toThrow(/decision 'undecided-at-maxN' at n=10 does not match maxN=80/)
+    expect(() =>
+      sequentialPairedGate({
+        ...opts,
+        resume: { ...snap, decision: 'continue', wealth: 25, decided: true, decidedAtN: 9 },
+      }),
+    ).toThrow(
+      /decision 'continue' at n=10 ≥ minN=5 with e-value 25 ≥ 1\/α=20; this stream would have promoted/,
+    )
+    expect(() =>
+      sequentialPairedGate({
+        ...opts,
+        resume: { ...snap, decision: 'later' as unknown as SequentialStreamState['decision'] },
+      }),
+    ).toThrow(/unknown decision 'later'/)
+  })
+
+  it('refuses a tampered e-process snapshot through the core validator', () => {
+    const first = sequentialPairedGate(opts)
+    for (const d of ds.slice(0, 10)) first.observe(d)
+    const snap = first.state()
+    expect(() => sequentialPairedGate({ ...opts, resume: { ...snap, sumX: 11 } })).toThrow(
+      /eProcess: cannot resume — sumX must lie in \[0, n=10\]/,
+    )
+    expect(() => sequentialPairedGate({ ...opts, resume: { ...snap, wealth: -2 } })).toThrow(
+      /wealth must be a finite positive number/,
+    )
   })
 })
 
