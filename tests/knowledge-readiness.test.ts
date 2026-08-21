@@ -8,6 +8,7 @@ import {
   userQuestionsForKnowledgeGaps,
 } from '../src/knowledge/readiness'
 import type { KnowledgeRequirement } from '../src/knowledge/types'
+import { canonicalString } from '../src/ledger-core/canonical'
 import type { Run, Span, TraceEvent } from '../src/trace/schema'
 
 function req(overrides: Partial<KnowledgeRequirement> = {}): KnowledgeRequirement {
@@ -222,5 +223,19 @@ describe('knowledge failure taxonomy', () => {
     expect(classifyFailure({ run: failedRun, spans, events: [] }).failureClass).toBe(
       'bad_retrieval',
     )
+  })
+  it('scores into a readiness report the control runtime can fingerprint', () => {
+    // `runAgentControlLoop` fingerprints loop state with RFC 8785 canonical JSON,
+    // which refuses an `undefined`-valued field rather than let two different
+    // states hash alike. A report built without the optional inputs therefore
+    // has to omit those keys, not carry them with no value.
+    const report = scoreKnowledgeReadiness({ taskId: 'task-1', requirements: [req()] })
+
+    const bundle = JSON.parse(canonicalString(report.bundle)) as Record<string, unknown>
+    expect('metadata' in bundle).toBe(false)
+
+    const plans = acquisitionPlansForKnowledgeGaps([req({ acquisitionMode: 'inspect_repo' })])
+    const plan = JSON.parse(canonicalString(plans[0])) as Record<string, unknown>
+    expect('questions' in plan).toBe(false)
   })
 })
