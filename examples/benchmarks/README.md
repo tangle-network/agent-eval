@@ -18,7 +18,7 @@ published npm subpaths.
 
 ## What every BenchmarkAdapter exports
 
-```ts
+```text
 loadDataset(split: 'search' | 'dev' | 'holdout'): Promise<DatasetItem[]>
 evaluate(item, response): Promise<{ score: number, raw: Record<string, unknown> }>
 assignSplit(itemId: string): 'search' | 'dev' | 'holdout'

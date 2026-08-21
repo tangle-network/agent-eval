@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.158.0] — 2026-08-21
+
+### Fixed
+
+- Every result-bearing random draw is seeded (#411, criterion 2). Five byte-identical private copies of `mulberry32` lived beside the canonical one, in `meta-eval/rubric-predictive-validity.ts`, `rl/active-curriculum.ts`, `rl/adaptation-eval.ts`, `summary-report.ts`, and `promotion-gate.ts`; four fell back to `Math.random` when the caller passed no seed, so the rubric verdict, the Thompson allocation, the adaptation-curve intervals, and the reported posterior were silently non-reproducible. `meta-eval/correlation-study.ts` called `Math.random` directly inside its bootstrap and offered no seed at all. All six now route through `makeRng`, which derives the seed from the observations when the caller supplies none, so the same input reproduces the same interval; `correlationStudy` gains the `seed` option its sibling already had. `Math.random` references in `src/` fall from 19 to 10, and every remaining one produces an identifier or a retry delay that no reported number reads. The seat-by-seat audit table is in `docs/design/statistics-decisions.md`.
+- Two documentation fences imported `@tangle-network/agent-eval/../src/trace-repair`, which cannot resolve; they now import `@tangle-network/agent-eval/trace-repair`. Three fences that are not TypeScript — an object fragment, a call elided as `{ ... }`, and a method sketch — are marked `text`.
+
+### Changed
+
+- Test classification for #411 criterion 4, recorded in `docs/design/statistics-decisions.md`: the no-throw assertions that discarded a returned value now assert the value; the ones that pin a void guard's accept case are kept, because for a fail-closed gate "does not refuse a legal input" is the assertion. The five module mocks each carry a one-line justification in their file header, and the six conditional skips are tabulated with the environment variable or platform that gates them.
+
+---
+
 ## [0.157.0] — 2026-08-21
 
 ### Removed
@@ -13,7 +26,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Added
 
 - `docs/public-api.md` and `pnpm api:census`: every published value export with the consumer that justifies it, classified `production`, `planned`, or `none`, with the evidence for each row and the five blind spots that bound the classification (dynamic imports and namespace binds, repositories outside the sweep, pinned versions, the wire and RPC surfaces, string-keyed dispatch). Consumer evidence lives in `scripts/public-api-consumers.json`, stamped with the commit of every repository read. The census runs on demand: it is a dated reading, not a CI gate.
-
 ---
 
 ## [0.156.0] — 2026-08-21

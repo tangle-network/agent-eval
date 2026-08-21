@@ -355,7 +355,7 @@ Set `maxEvaluations` to at least the train-set size for every registering evalua
 
 Without `optimizer`, an engine runs unproxied and can receive its own settings:
 
-```ts
+```text
 recipe: {
   kind: 'engine',
   run: {

@@ -26,6 +26,8 @@
  *   - Detect when a policy "memorizes" k=0 inputs vs. genuinely adapts.
  */
 
+import { makeRng } from '../statistics/internal'
+
 export interface AdaptationRunner<S> {
   /**
    * Runs the policy on `scenario` with `k` demonstrations. Returns a
@@ -160,7 +162,11 @@ export function compareAdaptationCurves(
 ): CompareCurvesResult {
   const conf = opts.confidence ?? 0.95
   const resamples = opts.bootstrapResamples ?? 500
-  const rng = makeRng(opts.seed)
+  const rng = makeRng(
+    opts.seed,
+    a.points.flatMap((point) => point.perScenario.map((cell) => cell.meanScore)),
+    b.points.flatMap((point) => point.perScenario.map((cell) => cell.meanScore)),
+  )
 
   const perK: CompareCurvesResult['perK'] = []
   for (const ap of a.points) {
@@ -208,18 +214,6 @@ export function firstPassK(curve: AdaptationCurve, threshold = 0.5): number | nu
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-function makeRng(seed?: number): () => number {
-  if (seed === undefined) return Math.random
-  let s = seed >>> 0
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0
-    let t = s
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 function bootstrapMeanCi(
   xs: number[],

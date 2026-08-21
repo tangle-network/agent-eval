@@ -50,7 +50,7 @@ describe('validateRunRecord — happy path', () => {
       splitTag: 'search',
       outcome: { searchScore: 0.8, raw: { f1: 0.8 } },
     })
-    expect(() => validateRunRecord(r)).not.toThrow()
+    expect(validateRunRecord(r).outcome.searchScore).toBe(0.8)
   })
 
   it('round-trips through JSON without losing fields', () => {
@@ -197,18 +197,22 @@ describe('validateRunRecord — mandatory field enforcement', () => {
   })
 
   it('accepts the explicit unknown model marker only for a non-success row', () => {
-    expect(() =>
-      validateRunRecord(makeRecord({ model: 'unknown', terminalOutcome: 'failed' })),
-    ).not.toThrow()
+    expect(
+      validateRunRecord(makeRecord({ model: 'unknown', terminalOutcome: 'failed' })).model,
+    ).toBe('unknown')
     expect(() => validateRunRecord(makeRecord({ model: 'unknown' }))).toThrow(/snapshot/i)
   })
 
   it('accepts OpenAI-style date suffix (gpt-4o-2024-11-20)', () => {
-    expect(() => validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20' }))).not.toThrow()
+    expect(validateRunRecord(makeRecord({ model: 'gpt-4o-2024-11-20' })).model).toBe(
+      'gpt-4o-2024-11-20',
+    )
   })
 
   it('accepts compact YYYYMMDD suffix (claude-x-20250415)', () => {
-    expect(() => validateRunRecord(makeRecord({ model: 'claude-x-20250415' }))).not.toThrow()
+    expect(validateRunRecord(makeRecord({ model: 'claude-x-20250415' })).model).toBe(
+      'claude-x-20250415',
+    )
   })
 
   it('accepts Router MMDD snapshots without mistaking routing presets for snapshots', () => {
@@ -375,7 +379,7 @@ describe('validateRunRecord — judgeScores', () => {
     const r = makeRecord({
       outcome: { holdoutScore: 0.775, raw: {}, judgeScores: fullJudgeScores },
     })
-    expect(() => validateRunRecord(r)).not.toThrow()
+    expect(validateRunRecord(r).outcome.judgeScores).toEqual(r.outcome.judgeScores)
   })
 
   it('round-trips judgeScores through JSON', () => {
@@ -398,7 +402,7 @@ describe('validateRunRecord — judgeScores', () => {
         },
       },
     })
-    expect(() => validateRunRecord(r)).not.toThrow()
+    expect(validateRunRecord(r).outcome.judgeScores).toEqual(r.outcome.judgeScores)
   })
 
   it('throws on non-finite per-judge score (NaN as silent zero is the bug class we ban)', () => {

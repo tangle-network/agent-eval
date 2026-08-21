@@ -202,8 +202,9 @@ export interface HeldOutGateConfig {
   confidence?: number
   /** Bootstrap resamples. Default 2000. */
   bootstrapResamples?: number
-  /** Optional deterministic seed for the bootstrap. Default undefined
-   *  (Math.random). */
+  /** Optional deterministic seed for the bootstrap. Absent, `pairedBootstrap`
+   *  derives the seed from the paired observations, so the same holdout
+   *  reproduces the same interval. */
   seed?: number
   /**
    * Smallest acceptable `answered / dealt` fraction, required on BOTH splits.

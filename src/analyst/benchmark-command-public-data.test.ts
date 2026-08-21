@@ -1,3 +1,6 @@
+/** `node:fs/promises` is wrapped, not replaced: `open` is counted and the input
+ *  is swapped mid-run to reproduce the input-substitution race the command must
+ *  detect. Every other call goes to the real filesystem. */
 import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

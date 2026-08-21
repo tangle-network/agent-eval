@@ -302,7 +302,7 @@ import {
   definePinnedContinuationPolicy,
   renderAdmissionReport,
   runAdmission,
-} from '@tangle-network/agent-eval/../src/trace-repair'
+} from '@tangle-network/agent-eval/trace-repair'
 
 const policy = definePinnedContinuationPolicy({ model: 'pinned/model-id', seed: 20260808 })
 

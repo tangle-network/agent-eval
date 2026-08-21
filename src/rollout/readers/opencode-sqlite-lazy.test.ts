@@ -1,3 +1,6 @@
+/** `node:module` is mocked so `createRequire` can report the native SQLite
+ *  binding as absent. The lazy-load refusal cannot be reached otherwise on a
+ *  machine where the binding is installed. */
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 

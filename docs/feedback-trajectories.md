@@ -205,7 +205,7 @@ of only "was the final answer good?"
 `controlRunToFeedbackTrajectory` turns a finished control-loop run into a
 trajectory:
 
-```ts
+```text
 const run = await runAgentControlLoop({ ... })
 const trajectory = controlRunToFeedbackTrajectory(run, {
   projectId: 'coding-agent',

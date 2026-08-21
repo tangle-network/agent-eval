@@ -1,3 +1,6 @@
+/** `node:fs/promises` is wrapped, not replaced: the artifact is swapped between
+ *  `open` and the read that follows it, which reproduces the TOCTOU race the
+ *  verification path must refuse. A real filesystem cannot be timed reliably. */
 import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

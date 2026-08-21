@@ -1,3 +1,7 @@
+/** `callLlmJson` is mocked: this file tests the wire handler's request
+ *  validation, dispatch, and error mapping, which a real provider call would
+ *  make non-deterministic and paid. Judge behaviour is tested against real
+ *  transports elsewhere. */
 import { describe, expect, it, vi } from 'vitest'
 
 const llmMock = vi.hoisted(() => ({
