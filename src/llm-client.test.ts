@@ -17,6 +17,9 @@ import {
 } from './llm-client'
 import { InMemoryRawProviderSink } from './trace/raw-provider-sink'
 
+/** The transport has no default endpoint; every call names one. */
+const TEST_BASE_URL = 'https://provider.test/v1'
+
 describe('maximumChargeForLlmRequest', () => {
   it('bounds the exact text request and its enforced output limit', () => {
     const maximum = maximumChargeForLlmRequest(
@@ -155,6 +158,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
@@ -191,6 +195,7 @@ describe('costReceiptFromLlm', () => {
         maxTokens: 8,
       },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
@@ -224,6 +229,7 @@ describe('costReceiptFromLlm', () => {
         maxTokens: 8,
       },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         customTokenPricing: {
           inputUsdPerMillion: 1,
@@ -258,6 +264,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'glm-4.5', messages: [{ role: 'user', content: 'test' }], maxTokens: 3_323 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
@@ -318,6 +325,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
@@ -341,6 +349,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
@@ -364,6 +373,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
@@ -385,6 +395,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
+        baseUrl: TEST_BASE_URL,
         maximumAttempts: 1,
         fetch: async () =>
           mkOkResponse({
@@ -703,6 +714,7 @@ describe('llm-client — callLlm happy path', () => {
         thinking: 'enabled',
       },
       {
+        baseUrl: TEST_BASE_URL,
         fetch: fetch as unknown as typeof globalThis.fetch,
         thinking: 'disabled',
       },
@@ -719,7 +731,7 @@ describe('llm-client — callLlm happy path', () => {
     )
     await callLlm(
       { model: 'glm-5.2', messages: [{ role: 'user', content: 'x' }] },
-      { fetch: fetch as unknown as typeof globalThis.fetch },
+      { baseUrl: TEST_BASE_URL, fetch: fetch as unknown as typeof globalThis.fetch },
     )
 
     const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
@@ -732,6 +744,7 @@ describe('llm-client — callLlm happy path', () => {
     await callLlm(
       { model: 'm', messages: [] },
       {
+        baseUrl: TEST_BASE_URL,
         fetch: fetch as unknown as typeof globalThis.fetch,
         apiKey: 'ignored',
         authHeader: { name: 'X-Custom-Auth', value: 'token-123' },
@@ -759,7 +772,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maximumAttempts: 3 },
+      { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 3 },
     )
     expect(r.content).toBe('ok')
     expect(calls).toEqual([429, 200])
@@ -772,7 +785,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maximumAttempts: 3 },
+      { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 3 },
     )
     expect(r.content).toBe('ok')
   })
@@ -782,7 +795,11 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 3 },
+        {
+          baseUrl: TEST_BASE_URL,
+          fetch: fetch as unknown as typeof globalThis.fetch,
+          maximumAttempts: 3,
+        },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
@@ -807,7 +824,7 @@ describe('llm-client — retry semantics', () => {
         messages: [{ role: 'user', content: 'x' }],
         temperature: 0.2,
       },
-      { fetch, maximumAttempts: 2 },
+      { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 2 },
     )
 
     expect(result.content).toBe('ok')
@@ -824,7 +841,11 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [], temperature: 3 },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
+        {
+          baseUrl: TEST_BASE_URL,
+          fetch: fetch as unknown as typeof globalThis.fetch,
+          maximumAttempts: 2,
+        },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
@@ -835,7 +856,11 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
+        {
+          baseUrl: TEST_BASE_URL,
+          fetch: fetch as unknown as typeof globalThis.fetch,
+          maximumAttempts: 2,
+        },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -852,7 +877,10 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
+    const r = await callLlm(
+      { model: 'm', messages: [] },
+      { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 3 },
+    )
     expect(r.content).toBe('recovered')
   })
 
@@ -870,7 +898,10 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
+    const r = await callLlm(
+      { model: 'm', messages: [] },
+      { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 3 },
+    )
     expect(r.content).toBe('recovered')
     expect(call).toBe(2)
   })
@@ -884,7 +915,10 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(
-      callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal }),
+      callLlm(
+        { model: 'm', messages: [] },
+        { baseUrl: TEST_BASE_URL, fetch, signal: controller.signal },
+      ),
     ).rejects.toThrow(/abort/i)
     expect(fetch as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
@@ -908,7 +942,7 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch, signal: controller.signal, maximumAttempts: 3 },
+        { baseUrl: TEST_BASE_URL, fetch, signal: controller.signal, maximumAttempts: 3 },
       ),
     ).rejects.toThrow(/abort/i)
     expect(calls).toBe(1)
@@ -925,7 +959,10 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
         })
       })) as unknown as typeof globalThis.fetch
 
-    const p = callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal })
+    const p = callLlm(
+      { model: 'm', messages: [] },
+      { baseUrl: TEST_BASE_URL, fetch, signal: controller.signal },
+    )
     controller.abort()
     await expect(p).rejects.toThrow(/abort/i)
   })
@@ -942,7 +979,10 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     }) as unknown as typeof globalThis.fetch
 
     await expect(
-      callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 5, deadlineMs: 10 }),
+      callLlm(
+        { model: 'm', messages: [] },
+        { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 5, deadlineMs: 10 },
+      ),
     ).rejects.toBeInstanceOf(LlmCallError)
     // Without the deadline this would retry up to 5 times; the budget caps it at 1.
     expect(calls).toBe(1)
@@ -958,7 +998,7 @@ describe('llm-client — empty-content + finishReason signals', () => {
           usage: {},
         }),
     ])
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    const r = await callLlm({ model: 'm', messages: [] }, { baseUrl: TEST_BASE_URL, fetch })
     expect(r.content).toBe('')
     expect(r.contentEmpty).toBe(true)
     expect(r.finishReason).toBe('length')
@@ -972,7 +1012,7 @@ describe('llm-client — empty-content + finishReason signals', () => {
           usage: {},
         }),
     ])
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    const r = await callLlm({ model: 'm', messages: [] }, { baseUrl: TEST_BASE_URL, fetch })
     expect(r.contentEmpty).toBe(false)
     expect(r.finishReason).toBe('stop')
   })
@@ -981,7 +1021,7 @@ describe('llm-client — empty-content + finishReason signals', () => {
     const fetch = mockFetch([
       async () => mkOkResponse({ choices: [{ message: { content: '   \n ' } }], usage: {} }),
     ])
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch })
+    const r = await callLlm({ model: 'm', messages: [] }, { baseUrl: TEST_BASE_URL, fetch })
     expect(r.contentEmpty).toBe(true)
     expect(r.finishReason).toBeNull()
   })
@@ -1039,7 +1079,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ])
     const { value } = await callLlmJson<{ foo: number }>(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch },
+      { baseUrl: TEST_BASE_URL, fetch },
     )
     expect(value.foo).toBe(42)
   })
@@ -1060,7 +1100,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
         messages: [{ role: 'user', content: 'x' }],
         jsonSchema: { name: 's', schema: { type: 'object' } },
       },
-      { fetch },
+      { baseUrl: TEST_BASE_URL, fetch },
     )
 
     expect(value.ok).toBe(true)
@@ -1085,7 +1125,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
         messages: [{ role: 'user', content: 'Return the required JSON.' }],
         jsonSchema: { name: 's', schema: { type: 'object' } },
       },
-      { fetch, jsonSchemaTransport: 'json-object' },
+      { baseUrl: TEST_BASE_URL, fetch, jsonSchemaTransport: 'json-object' },
     )
 
     expect(value.ok).toBe(true)
@@ -1102,7 +1142,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
           messages: [],
           jsonSchema: { name: 's', schema: { type: 'object' } },
         },
-        { fetch: fetch as unknown as typeof globalThis.fetch },
+        { baseUrl: TEST_BASE_URL, fetch: fetch as unknown as typeof globalThis.fetch },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
@@ -1114,7 +1154,10 @@ describe('llm-client — callLlmJson + schema degrade', () => {
         mkOkResponse({ choices: [{ message: { content: 'not json at all' } }], usage: {} }),
     ])
     await expect(
-      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
+      callLlmJson(
+        { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+        { baseUrl: TEST_BASE_URL, fetch },
+      ),
     ).rejects.toThrow(/non-JSON/)
   })
 
@@ -1129,7 +1172,10 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ])
 
     try {
-      await callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch })
+      await callLlmJson(
+        { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+        { baseUrl: TEST_BASE_URL, fetch },
+      )
       throw new Error('expected malformed JSON to fail')
     } catch (error) {
       expect(error).toBeInstanceOf(LlmResponseError)
@@ -1147,7 +1193,10 @@ describe('llm-client — callLlmJson + schema degrade', () => {
         }),
     ])
     await expect(
-      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
+      callLlmJson(
+        { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+        { baseUrl: TEST_BASE_URL, fetch },
+      ),
     ).rejects.toThrow(/non-JSON/)
   })
 
@@ -1160,7 +1209,10 @@ describe('llm-client — callLlmJson + schema degrade', () => {
         }),
     ])
     await expect(
-      callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch }),
+      callLlmJson(
+        { model: 'm', messages: [{ role: 'user', content: 'x' }] },
+        { baseUrl: TEST_BASE_URL, fetch },
+      ),
     ).rejects.toThrow(/truncated JSON content.*finishReason=length/)
   })
 
@@ -1174,7 +1226,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ])
     const { value } = await callLlmJson<{ wrapped: boolean }>(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch },
+      { baseUrl: TEST_BASE_URL, fetch },
     )
     expect(value.wrapped).toBe(true)
   })
@@ -1189,7 +1241,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ])
     const { value } = await callLlmJson<{ wrapped: boolean }>(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch },
+      { baseUrl: TEST_BASE_URL, fetch },
     )
     expect(value.wrapped).toBe(true)
   })
@@ -1201,7 +1253,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ])
     const { value } = await callLlmJson<{ wrapped: boolean }>(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch: exactFetch, jsonPayloadMode: 'exact' },
+      { baseUrl: TEST_BASE_URL, fetch: exactFetch, jsonPayloadMode: 'exact' },
     )
     expect(value.wrapped).toBe(true)
 
@@ -1217,7 +1269,7 @@ describe('llm-client — callLlmJson + schema degrade', () => {
       await expect(
         callLlmJson(
           { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-          { fetch, jsonPayloadMode: 'exact' },
+          { baseUrl: TEST_BASE_URL, fetch, jsonPayloadMode: 'exact' },
         ),
       ).rejects.toBeInstanceOf(LlmResponseError)
     }
@@ -1229,7 +1281,7 @@ describe('llm-client — LlmClient wrapper', () => {
     const fetch = vi.fn(async () =>
       mkOkResponse({ choices: [{ message: { content: 'x' } }], usage: {} }),
     ) as unknown as typeof globalThis.fetch
-    const client = new LlmClient({ fetch, apiKey: 'default' })
+    const client = new LlmClient({ baseUrl: TEST_BASE_URL, fetch, apiKey: 'default' })
     await client.call({ model: 'm', messages: [] }, { apiKey: 'override' })
     const call = ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] ??
       []) as unknown as [string, RequestInit]

@@ -3,9 +3,9 @@
  * SAME backend config, so the judge can't silently re-route through a
  * different (often paid) backend than the agent.
  *
- * The bug class: `--backend cli-bridge` rewires the agent, but the judge still
- * reads `process.env.TANGLE_API_KEY` → router. Cost is billed against the
- * router, the eval reports the cli-bridge model, and the data is unusable.
+ * The bug class: a consumer rewires the agent onto one backend but leaves the
+ * judge bound to another. Cost is billed against the second backend, the eval
+ * reports the first backend's model, and the data is unusable.
  * Four consumers hand-roll this comparison (legal at `canonical.ts:702-795`);
  * this is the one substrate copy.
  *

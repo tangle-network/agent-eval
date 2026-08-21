@@ -1,5 +1,18 @@
 /**
- * LLM client with graceful degrade.
+ * INTERNAL OpenAI-compatible client. NOT part of the published surface.
+ *
+ * agent-eval executes no paid model on behalf of a consumer: `createChatClient`
+ * binds a caller-supplied transport, and this module is not reachable through
+ * any export subpath. Two in-repo callers hold it:
+ *   - the `agent-eval` binary (`src/cli-config.ts`), a deployed server whose
+ *     caller is a JSON-RPC client in another language and which therefore
+ *     configures its own endpoint from its own environment;
+ *   - the loopback optimizer proxy path (`src/analyst/benchmark-public-model.ts`,
+ *     `src/analyst/dspy-rlm-engine.ts`), which targets `http://127.0.0.1:<port>/v1`
+ *     with an ephemeral token and executes nothing itself.
+ *
+ * The canonical request/result TYPES it defines ARE public — they are the
+ * contract every caller-owned transport speaks.
  *
  * OpenAI-compatible `/v1/chat/completions` client with:
  *   - Exponential-backoff retry on 429 + 5xx gateway errors (502/503/504).
@@ -13,11 +26,9 @@
  * Usage:
  *   const { value, result } = await callLlmJson<MyType>(
  *     { model: 'gpt-4o', messages: [...], jsonSchema: { name: 'x', schema: {...} } },
- *     { baseUrl: 'https://router.tangle.tools/v1', apiKey: process.env.KEY },
+ *     { baseUrl: process.env.AGENT_EVAL_LLM_BASE_URL, apiKey: process.env.AGENT_EVAL_LLM_API_KEY },
  *   )
  *
- * `createChatClient` wraps this implementation for provider-neutral package
- * entry points. Direct callers can use `callLlm` or `callLlmJson`.
  */
 
 import {
@@ -318,7 +329,7 @@ export class LlmResponseError extends AgentEvalError {
 }
 
 export interface LlmClientOptions extends LlmChargeBounds {
-  /** Base URL (without trailing slash). Must end at the `/v1` prefix. */
+  /** Base URL (without trailing slash), ending at the `/v1` prefix. Required: there is no default endpoint. */
   baseUrl?: string
   /** Bearer token — either `apiKey` or `bearer` populates `Authorization: Bearer ...`. */
   apiKey?: string
@@ -383,7 +394,6 @@ export interface LlmClientOptions extends LlmChargeBounds {
 
 // ─── Internals ──────────────────────────────────────────────────────────
 
-const DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'
 // Flagship / reasoning models routinely take several minutes on large prompts (a
 // reflection over many failures, a long tool transcript). A tight cap aborts a
 // legitimately-slow but healthy call — and because every retry attempt re-uses
@@ -785,7 +795,11 @@ export async function callLlm(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<LlmCallResult> {
-  const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
+  // No default endpoint. This client is internal to the `agent-eval` binary
+  // and the loopback optimizer proxy; both name their endpoint explicitly, and
+  // a fallback would let a misconfigured caller bill an unintended provider.
+  if (!opts.baseUrl) throw new Error('callLlm: opts.baseUrl is required')
+  const baseUrl = opts.baseUrl.replace(/\/+$/, '')
   const url = `${baseUrl}/chat/completions`
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
