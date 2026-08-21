@@ -12,6 +12,7 @@
  */
 import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi'
 import { z } from 'zod'
+import { hashCanonical } from '../ledger-core/canonical'
 
 extendZodWithOpenApi(z)
 
@@ -129,7 +130,7 @@ export const JudgeResultSchema = z
     rubricVersion: z
       .string()
       .describe(
-        'Stable hash of the rubric used. Scores are only comparable across runs when this matches.',
+        'Stable identity of the rubric used, as `<name>@sha256-rfc8785:<hex>`. Scores are only comparable across runs when this matches exactly.',
       ),
     model: z.string().describe('Model that produced the judgement, for reproducibility.'),
     durationMs: z.number().int().nonnegative().describe('End-to-end wall time for this call.'),
@@ -146,7 +147,11 @@ const RubricInfoSchema = z
       .array(z.object({ id: z.string(), description: z.string(), weight: z.number() }))
       .describe('The scoring axes this rubric uses, with weights.'),
     failureModes: z.array(z.string()).default([]).describe('Failure-mode ids this rubric detects.'),
-    rubricVersion: z.string().describe('Stable hash — match this to compare scores across runs.'),
+    rubricVersion: z
+      .string()
+      .describe(
+        'Stable identity, as `<name>@sha256-rfc8785:<hex>` — match this to compare scores across runs.',
+      ),
   })
   .openapi('RubricInfo')
 
@@ -376,32 +381,31 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>
 // ── Wire-protocol version ───────────────────────────────────────────
 
 /**
- * Bump on any breaking change to a request/response schema.
- * Non-breaking (additive) changes don't require a bump.
+ * Bump the major on any breaking change to a request/response schema — the
+ * Python client compares majors and refuses a mismatch. Bump the minor when a
+ * response value changes meaning without changing its shape, which a client
+ * can detect but does not have to act on.
  */
-export const WIRE_VERSION = '1.0.0'
+export const WIRE_VERSION = '1.1.0'
 
 /**
- * Stable hash of a rubric. Used to make scores comparable across runs:
- * if the rubricVersion matches, the rubric was identical.
+ * The digest scheme `hashRubric` mints, named inside the value it produces.
+ * A consumer holding a tag from an earlier release reads a different scheme
+ * here and can tell "this package changed how it hashes" from "the rubric
+ * changed" — the two are indistinguishable when the value is an untagged hex
+ * string.
+ */
+export const RUBRIC_VERSION_SCHEME = 'sha256-rfc8785'
+
+/**
+ * Stable identity of a rubric, as `<name>@sha256-rfc8785:<hex>`. Two scores
+ * are comparable when this matches exactly.
+ *
+ * The digest comes from `hashCanonical`, this package's only canonical-JSON
+ * encoder (RFC 8785). RFC 8785 orders keys by UTF-16 code unit, which is a
+ * property of the value alone — so the same rubric produces the same tag on
+ * every machine, which a locale-collated key order does not guarantee.
  */
 export function hashRubric(rubric: Rubric): string {
-  const stable = stableStringify(rubric)
-  let h = 5381
-  for (let i = 0; i < stable.length; i++) {
-    h = (h * 33) ^ stable.charCodeAt(i)
-  }
-  // Unsigned 32-bit hex, prefixed with rubric name + version slot
-  return `${rubric.name}@${(h >>> 0).toString(16).padStart(8, '0')}`
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-    return `{${entries.join(',')}}`
-  }
-  return JSON.stringify(value)
+  return `${rubric.name}@${RUBRIC_VERSION_SCHEME}:${hashCanonical(rubric).slice('sha256:'.length)}`
 }

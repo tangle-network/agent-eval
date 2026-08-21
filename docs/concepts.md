@@ -214,7 +214,7 @@ A rubric describes:
 Built-in rubrics ship in `src/wire/rubrics.ts`, including `anti-slop` for technical-buyer voice.
 You can also pass the same rubric shape inline at the call site.
 
-A rubric is plain data. The hash of that data is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion`: change the rubric and you start a new comparison series.
+A rubric is plain data. The digest of that data, tagged with the scheme that produced it, is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion`: change the rubric and you start a new comparison series.
 
 ## How verifiers work
 
