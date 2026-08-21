@@ -61,6 +61,10 @@ import {
   type OptimizationMethod,
   optimizationTokenUsageFromSummary,
 } from './presets/compare-optimization-methods'
+import type { SearchHistoryReceipt } from './search-history-receipt'
+import type { SearchAttemptAccounting } from './search-ledger'
+import { openSearchLedger } from './search-ledger'
+import { recordCandidatePopulationSearch, type SearchRunIdentity } from './search-ledger-recording'
 import { fsCampaignStorage } from './storage'
 import type { Scenario } from './types'
 
@@ -187,6 +191,16 @@ export interface GepaOptimizationMethodConfig<TScenario extends Scenario, TArtif
    */
   trustResumeState?: boolean
   runner?: GepaRunnerCommand
+  /**
+   * Record GEPA's own candidate population into the canonical `SearchLedger`
+   * and return the bounded receipt on the method result, so a comparison run
+   * under `searchHistoryPolicy: 'require-complete'` accepts this method.
+   *
+   * `identity` declares the immutable revisions and the model snapshot the
+   * ledger requires and the bridge does not report. `path` defaults to
+   * `<runDir>/search-ledger.jsonl`.
+   */
+  searchLedger?: { identity: SearchRunIdentity; path?: string }
 }
 
 /**
@@ -520,9 +534,11 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           `${name}: GEPA reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
         )
       }
+      let searchHistory: SearchHistoryReceipt | undefined
       if (result.candidatePopulation) {
         const population = readGepaCandidatePopulationArtifact({
           summary: result.candidatePopulation,
+          storage,
         })
         const selected = population.candidates[population.bestIndex]
         const selectedHash = contentHash({
@@ -531,6 +547,22 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         })
         if (selected?.candidateHash !== selectedHash) {
           throw new Error(`${name}: GEPA candidate population identifies a different winner`)
+        }
+        if (config.searchLedger) {
+          searchHistory = await recordCandidatePopulationSearch({
+            ledger: openSearchLedger({
+              path: config.searchLedger.path ?? `${runDir}/search-ledger.jsonl`,
+              campaignId: runId,
+            }),
+            storage,
+            runDir,
+            identity: config.searchLedger.identity,
+            population,
+            scenarios: input.selectionScenarios,
+            generationAccounting: optimizerAccounting(result.tokenUsage, result.proposerCostUsd),
+            producerId: name,
+            runId,
+          })
         }
       }
 
@@ -588,6 +620,7 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
       const externalTotalCostUsd = evaluationCost.totalCostUsd + reportedProposerCost
       return {
         winnerSurface: decodeExternalTextCandidate(result.bestCandidate),
+        ...(searchHistory ? { searchHistory } : {}),
         cost: modelProxy
           ? meteredCost!
           : {
@@ -638,5 +671,32 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         },
       }
     },
+  }
+}
+
+/** Spend the optimizer booked to its own candidate generation. Unknown stays
+ *  unknown: the bridge reports proposer cost only when the engine measured it. */
+function optimizerAccounting(
+  tokenUsage: { inputTokens?: number; outputTokens?: number } | undefined,
+  proposerCostUsd: number | undefined,
+): SearchAttemptAccounting {
+  return {
+    tokens:
+      tokenUsage?.inputTokens === undefined || tokenUsage.outputTokens === undefined
+        ? { status: 'unknown', reason: 'the optimizer bridge reported no token usage' }
+        : {
+            status: 'known',
+            inputTokens: tokenUsage.inputTokens,
+            outputTokens: tokenUsage.outputTokens,
+            cachedTokens: 0,
+          },
+    cost:
+      proposerCostUsd === undefined
+        ? {
+            status: 'unknown',
+            knownLowerBoundUsd: 0,
+            reason: 'the optimizer bridge reported no proposer cost',
+          }
+        : { status: 'known', usd: proposerCostUsd, source: 'provider' },
   }
 }

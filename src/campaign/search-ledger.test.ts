@@ -14,6 +14,7 @@ import {
   SearchLedgerConflictError,
   SearchLedgerIntegrityError,
   type SearchOperationRecordedEvent,
+  type SearchPlanExtendedEvent,
   type SearchPlannedEvent,
   type SearchSurfaceEvidence,
   type SearchTaskAttemptedEvent,
@@ -126,13 +127,13 @@ function candidate(
 function operation(
   cost: SearchCostAccounting = { status: 'known', usd: 0.02, source: 'provider' },
   outcome: SearchOperationRecordedEvent['outcome'] = { status: 'completed' },
-  options: { operationId?: string; eventId?: string } = {},
+  options: { operationId?: string; eventId?: string; occurredAt?: string } = {},
 ): SearchOperationRecordedEvent {
   const operationId = options.operationId ?? 'candidate-generation:a'
   return {
     kind: 'search-operation-recorded',
     eventId: options.eventId ?? `operation:${operationId}`,
-    occurredAt: '2026-07-11T11:59:30.000Z',
+    occurredAt: options.occurredAt ?? '2026-07-11T11:59:30.000Z',
     artifacts: [artifact('operation-receipt', HASHES.proposal)],
     operationId,
     operationKind: 'candidate-generation',
@@ -213,12 +214,13 @@ function attempt(
     outcome?: SearchTaskOutcome
     cost?: SearchCostAccounting
     evidence?: SearchSurfaceEvidence[]
+    occurredAt?: string
   } = {},
 ): SearchTaskAttemptedEvent {
   return {
     kind: 'task-attempted',
     eventId: options.eventId ?? `attempt:${candidateId}:task-1:${options.attemptIndex ?? 0}`,
-    occurredAt: '2026-07-11T12:01:00.000Z',
+    occurredAt: options.occurredAt ?? '2026-07-11T12:01:00.000Z',
     artifacts: [artifact('run-record', HASHES.run), artifact('trace', HASHES.trace)],
     candidateId,
     runId: options.runId ?? `run:${candidateId}:${options.attemptIndex ?? 0}`,
@@ -283,6 +285,30 @@ function completion(
             status: 'all-rejected',
             reason: { code: 'no-eligible-candidate', message: 'every candidate was rejected' },
           },
+  }
+}
+
+function planExtension(
+  options: {
+    eventId?: string
+    slotIds?: string[]
+    operations?: Array<{ operationId: string; kind: 'candidate-generation' | 'analysis' }>
+    generationOperationId?: string
+    occurredAt?: string
+  } = {},
+): SearchPlanExtendedEvent {
+  return {
+    kind: 'search-plan-extended',
+    eventId: options.eventId ?? 'search:plan-extended',
+    occurredAt: options.occurredAt ?? '2026-07-11T12:01:30.000Z',
+    artifacts: [artifact('search-round-manifest', HASHES.report)],
+    extension: {
+      candidateSlots: (options.slotIds ?? []).map((slotId) => ({
+        slotId,
+        generationOperationId: options.generationOperationId ?? 'candidate-generation:b',
+      })),
+      operations: options.operations ?? [],
+    },
   }
 }
 
@@ -1027,5 +1053,119 @@ describe('search ledger evidence completeness', () => {
       'agent-profile:behavior',
       'code:src/router.ts',
     ])
+  })
+})
+
+describe('search ledger rolling extension', () => {
+  it('replays an appended round: merged plan, continued generations, complete audit', async () => {
+    const path = await ledgerPath('rolling')
+    const ledger = openSearchLedger({ path, campaignId: 'campaign-rolling' })
+    await ledger.append(plan())
+    await ledger.append(operation())
+    await ledger.append(candidate('candidate-a'))
+    await ledger.append(attempt('candidate-a'))
+
+    // Round two is authored only after round one produced a parent.
+    await ledger.append(
+      planExtension({
+        slotIds: ['slot-b'],
+        operations: [{ operationId: 'candidate-generation:b', kind: 'candidate-generation' }],
+      }),
+    )
+    await ledger.append(
+      operation(undefined, undefined, {
+        operationId: 'candidate-generation:b',
+        occurredAt: '2026-07-11T12:01:40.000Z',
+      }),
+    )
+    await ledger.append(
+      candidate('candidate-b', {
+        slotId: 'slot-b',
+        generationOperationId: 'candidate-generation:b',
+        lineageNodeId: 'f'.repeat(16),
+        // The generation invariant continues across the extension: the child of
+        // a round-one candidate is generation 1, not a restarted 0.
+        parents: ['candidate-a'],
+        generation: 1,
+        occurredAt: '2026-07-11T12:01:45.000Z',
+      }),
+    )
+    await ledger.append(
+      attempt('candidate-b', {
+        eventId: 'attempt:candidate-b:task-1:0',
+        runId: 'run:candidate-b:0',
+        occurredAt: '2026-07-11T12:01:50.000Z',
+      }),
+    )
+    await ledger.append(decision('candidate-a', 'rejected'))
+    await ledger.append(decision('candidate-b', 'selected'))
+    const terminal = await ledger.append(completion('selected', 'candidate-b'))
+
+    expect(terminal.replay.planExtensions).toHaveLength(1)
+    expect(terminal.replay.audit).toMatchObject({
+      status: 'selected',
+      selectedCandidateId: 'candidate-b',
+      candidateCount: 2,
+      expected: {
+        candidateSlots: 2,
+        operations: 2,
+        taskOutcomes: 2,
+        missingCandidateSlots: [],
+        missingOperations: [],
+        missingTaskOutcomes: [],
+      },
+    })
+
+    // The durable file replays to the same merged plan in a new process.
+    const reopened = await openSearchLedger({ path, campaignId: 'campaign-rolling' }).replay()
+    expect(reopened.audit.expected.candidateSlots).toBe(2)
+    expect(reopened.candidates.map((event) => event.lineage.generation)).toEqual([0, 1])
+  })
+
+  it('still refuses a planless ledger, including one that opens with an extension', async () => {
+    const first = openSearchLedger({
+      path: await ledgerPath('rolling-planless'),
+      campaignId: 'campaign-planless',
+    })
+    await expect(
+      first.append(
+        planExtension({
+          operations: [{ operationId: 'candidate-generation:b', kind: 'candidate-generation' }],
+        }),
+      ),
+    ).rejects.toThrow(/appears before the required search plan/)
+
+    const second = openSearchLedger({
+      path: await ledgerPath('rolling-planless-candidate'),
+      campaignId: 'campaign-planless-candidate',
+    })
+    await expect(second.append(candidate())).rejects.toThrow(
+      /appears before the required search plan/,
+    )
+  })
+
+  it('counts an unfilled extended slot as missing until it is bound or closed', async () => {
+    const ledger = openSearchLedger({
+      path: await ledgerPath('rolling-open-slot'),
+      campaignId: 'campaign-rolling-open',
+    })
+    await ledger.append(plan())
+    await ledger.append(operation())
+    await ledger.append(candidate('candidate-a'))
+    await ledger.append(attempt('candidate-a'))
+    await ledger.append(
+      planExtension({
+        slotIds: ['slot-b'],
+        operations: [{ operationId: 'candidate-generation:b', kind: 'candidate-generation' }],
+      }),
+    )
+    await ledger.append(decision('candidate-a', 'selected'))
+
+    await expect(ledger.append(completion('selected'))).rejects.toThrow(
+      /missing candidate slots: slot-b/,
+    )
+    const replay = await ledger.replay()
+    expect(replay.audit.expected.missingCandidateSlots).toEqual(['slot-b'])
+    expect(replay.audit.expected.missingOperations).toEqual(['candidate-generation:b'])
   })
 })

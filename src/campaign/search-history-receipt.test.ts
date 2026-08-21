@@ -149,6 +149,7 @@ function completeReplay(): SearchLedgerReplay {
   return {
     entries,
     plan: entries[0]!.event as SearchLedgerReplay['plan'],
+    planExtensions: [],
     candidates: [entries[1]!.event as SearchLedgerReplay['candidates'][number]],
     closedCandidateSlots: [],
     attempts: [entries[3]!.event as SearchLedgerReplay['attempts'][number]],

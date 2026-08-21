@@ -37,6 +37,7 @@ import {
   campaignCellTaskScore,
   campaignCellToRunRecord,
 } from '../campaign/run-record'
+import type { SearchHistoryReceipt } from '../campaign/search-history-receipt'
 import {
   type CampaignStorage,
   createRunCostLedger,
@@ -306,6 +307,11 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  from the Pareto frontier; promotion still compares against the incumbent.
    *  Proposer mode only. See `RunOptimizationOptions.selectParent`. */
   selectParent?: RunOptimizationOptions<TScenario, TArtifact>['selectParent']
+
+  /** Record this run's candidate search into a durable `SearchLedger` and
+   *  return the bounded receipt on `searchHistory`. See
+   *  `RunOptimizationOptions.searchLedger`. */
+  searchLedger?: RunOptimizationOptions<TScenario, TArtifact>['searchLedger']
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -357,6 +363,9 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   /** Run-wide receipts across proposal, search, holdout, judging, analysis,
    *  and promotion work, with phase and actor attribution. */
   receipts: CostReceipt[]
+  /** Bounded proof envelope over this run's canonical search ledger. Present
+   *  only when `searchLedger` was supplied. */
+  searchHistory?: SearchHistoryReceipt
   /** Exact external method and source identity, when `method` was used. */
   optimization?: {
     name: string
@@ -742,6 +751,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     findings: opts.findings,
     selectionRankKey: opts.selectionRankKey,
     selectParent: opts.selectParent,
+    searchLedger: opts.searchLedger,
   })
 
   // Deferred holdout ran zero holdout cells, so the summary stats come from
@@ -902,6 +912,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
           },
         }
       : {}),
+    ...(result.searchHistory ? { searchHistory: result.searchHistory } : {}),
     insight,
     ...(power ? { power } : {}),
     raw: result,

@@ -64,7 +64,43 @@ const receipt = createSearchHistoryReceipt({
 })
 ```
 
-First-party optimizer adapters should do this automatically. Application code should not hand-author receipt JSON.
+First-party optimizers do this for you. Application code should not hand-author receipt JSON.
+
+## Record a search from the loop
+
+`runOptimization()` and `selfImprove()` accept `searchLedger` and return the receipt on `searchHistory`:
+
+```ts
+import { openSearchLedger, runOptimization } from '@tangle-network/agent-eval/campaign'
+
+const result = await runOptimization({
+  // ...scenarios, dispatchWithSurface, judges, proposer, populationSize, maxGenerations, runDir
+  searchLedger: {
+    ledger: openSearchLedger({ path: `${runDir}/search-ledger.jsonl`, campaignId: runId }),
+    identity: {
+      agent: { uri: 'git+https://github.com/acme/agent.git', revision: agentCommit },
+      proposer: { kind: 'deterministic', source: { uri: proposerUri, revision: proposerCommit } },
+      search: { uri: searchUri, revision: searchCommit },
+      model: { provider: 'openai', snapshot: 'gpt-5.4@2026-06-01' },
+    },
+  },
+})
+```
+
+The loop emits the plan, one candidate-generation operation per generation, one registration per candidate with the exact parent it mutated, one task attempt per designed cell, one decision per candidate, and the terminal event.
+
+`identity` carries what the ledger requires and a campaign cannot infer: immutable revisions for the agent, proposer, and search implementations, plus the model the agent runs. A measured value wins wherever execution reported one; a cell that ran a moving model alias is refused rather than recorded as an immutable identity.
+
+`gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's own candidate population into the same ledger, so a comparison under `require-complete` accepts it.
+
+## Extend a plan for a rolling search
+
+A search whose length is not known when it starts appends `search-plan-extended` with the extra candidate slots and operations.
+The first plan event stays first, the effective plan is the merge, and the generation invariant continues across rounds: a candidate whose parent is a round-one candidate is generation 2, not a restarted 0.
+
+The planned task denominator does not extend. Extending it would reopen candidates that already closed their tasks.
+
+A search still uses one ledger. A parent from an earlier ledger enters as a generation-0 `candidate-registered` whose surface artifact references the prior ledger, because a cross-file parent cannot be replayed and verified from these bytes.
 
 ## Complete means the planned denominator is closed
 
@@ -77,6 +113,8 @@ A receipt is complete only when canonical replay reports:
 - no missing planned operations;
 - no pending candidate decisions;
 - a terminal status of `selected` or `all-rejected`.
+
+A first-party recorder appends the terminal event only when replay already accounts for the whole planned denominator. An interrupted run, or a candidate that left a designed cell unscored, stays `in-progress` and reports the exact gap.
 
 Cost completeness remains a separate contract. Unknown spend stays unknown; it is never converted into zero merely because search history is complete.
 
