@@ -4,6 +4,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.159.1] — 2026-08-21
+
+### Added
+
+- `pnpm check:canonical-json` (#646, part 3 of 3), wired into `verify:package`. The gate reads every function under `src/` and fails the ones that sort object keys AND serialize in the same body — the shape of a hand-rolled canonical-JSON encoder. Eleven such copies existed before this arc and disagreed on `undefined`-valued keys, `Date`, and integer-like key order, so one value hashed differently depending on which copy ran. Sorting counts through a module-local helper, so splitting the sort into `JSON.stringify(sortKeys(v))` does not evade the gate; a key-SET check that sorts and compares is not reported, because the sorted list is never iterated to build output. An explicit allowlist names the three private legacy verifiers that must keep the retired bytes, and a waiver that matches nothing fails the gate so a stale entry cannot hide a new copy. `CLAUDE.md` names `src/ledger-core/canonical.ts` as the one home.
+
+---
+
 ## [0.159.0] — 2026-08-21
 
 ### Changed

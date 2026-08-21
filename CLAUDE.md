@@ -21,6 +21,7 @@ Update the doc closest to the change. Don't duplicate content across docs; cross
 - TypeScript strict, no semicolons, single quotes, 2-space indent
 - tsup (bundling), vitest (tests)
 - `ChatClient` for provider-neutral LLM calls
+- `src/ledger-core/canonical.ts` is the only canonical-JSON encoder. Every digest and stable serialization calls `canonicalString`/`hashCanonical` (RFC 8785); `pnpm check:canonical-json` fails a second copy.
 
 ## Repo layering — this package is the substrate
 
