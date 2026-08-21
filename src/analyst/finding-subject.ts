@@ -33,8 +33,6 @@
  * findings are evidence, not actionable mutations).
  */
 
-import { z } from 'zod'
-
 // ── canonical grammar ─────────────────────────────────────────────────
 
 /**
@@ -354,8 +352,6 @@ function renderFindingSubjectGrammar(kinds: ReadonlyArray<FindingSubjectKind>): 
   ].join('\n')
 }
 
-export const FINDING_SUBJECT_GRAMMAR_PROMPT = renderFindingSubjectGrammar(FINDING_SUBJECT_KINDS)
-
 // ── kind expects sets ─────────────────────────────────────────────────
 
 /**
@@ -442,20 +438,3 @@ export function findingSubjectGrammarPromptFor(kindId: string): string {
 }
 
 // ── Zod schema for boundary validation ───────────────────────────────
-
-/**
- * Zod schema that validates a raw subject string and returns the parsed
- * `FindingSubject`. Embedded in `RawAnalystFindingSchema` via
- * `transform`, so `subject` arrives at the kind factory either as a
- * typed locus or as a parse error attached to a single Zod issue.
- *
- * Optionality is preserved: subjects ARE optional on the wire (some
- * findings are descriptive, not actionable). When present, they MUST
- * parse — emitting a malformed subject is a contract violation, not a
- * soft signal.
- */
-export const FindingSubjectStringSchema = z
-  .string()
-  .refine((s) => parseFindingSubject(s) !== null, {
-    message: 'subject does not match the finding-subject grammar',
-  })

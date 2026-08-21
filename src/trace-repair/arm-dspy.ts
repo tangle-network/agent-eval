@@ -60,7 +60,7 @@ export const DSPY_REPAIR_TASK_TOKEN = 'tb-repair-typed-'
 export const DSPY_REPAIR_SIGNATURE = 'tb-repair-typed-v1'
 
 /** The name the trajectory is bound to inside the program's environment. */
-export const DSPY_REPAIR_TRAJECTORY_INPUT = 'trajectory'
+const DSPY_REPAIR_TRAJECTORY_INPUT = 'trajectory'
 
 /**
  * The repair contract restated for the typed signature.
@@ -274,7 +274,7 @@ export interface ReadRepairPayloadOptions {
  * k is not a recorded step id is the model's mistake, and it is dropped with
  * its reason instead.
  */
-export function readRepairPayload(
+function readRepairPayload(
   runtime: Record<string, unknown>,
   options: ReadRepairPayloadOptions,
 ): ReadRepairPayload {

@@ -47,7 +47,7 @@ export interface AdmissionRow {
   finalReturncode: number | null
 }
 
-export const ADMISSION_ROW_KEYS: readonly string[] = [
+const ADMISSION_ROW_KEYS: readonly string[] = [
   'rowId',
   'taskName',
   'recordedModel',
@@ -152,7 +152,7 @@ const PRE_STRATUM_REASONS: readonly AdmissionExclusionReason[] = [
   'unparseable-final-returncode',
 ]
 
-export function isPreStratumReason(reason: AdmissionExclusionReason): boolean {
+function isPreStratumReason(reason: AdmissionExclusionReason): boolean {
   return PRE_STRATUM_REASONS.includes(reason)
 }
 

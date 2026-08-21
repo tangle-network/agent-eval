@@ -458,7 +458,7 @@ const sha256Digest = z.custom<`sha256:${string}`>(
   'expected sha256:<64 lowercase hex characters>',
 )
 
-export const MutableSurfaceSchema: z.ZodType<MutableSurface> = z.union([
+const MutableSurfaceSchema: z.ZodType<MutableSurface> = z.union([
   z.string(),
   z
     .object({
@@ -487,7 +487,7 @@ export const MutableSurfaceSchema: z.ZodType<MutableSurface> = z.union([
     .strict(),
 ])
 
-export const RunTerminalOutcomeSchema = z.enum([
+const RunTerminalOutcomeSchema = z.enum([
   'succeeded',
   'failed',
   'cancelled',
@@ -495,7 +495,7 @@ export const RunTerminalOutcomeSchema = z.enum([
   'unknown',
 ])
 
-export const EvalRunCellScoreSchema: z.ZodType<EvalRunCellScore> = z
+const EvalRunCellScoreSchema: z.ZodType<EvalRunCellScore> = z
   .object({
     scenarioId: nonEmptyString,
     rep: nonNegativeInteger,
@@ -507,7 +507,7 @@ export const EvalRunCellScoreSchema: z.ZodType<EvalRunCellScore> = z
   })
   .strict()
 
-export const EvalRunGenerationSnapshotSchema: z.ZodType<EvalRunGenerationSnapshot> = z
+const EvalRunGenerationSnapshotSchema: z.ZodType<EvalRunGenerationSnapshot> = z
   .object({
     index: nonNegativeInteger,
     surfaceHash: nonEmptyString,

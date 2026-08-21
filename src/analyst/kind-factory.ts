@@ -423,7 +423,7 @@ export function renderPriorFindings(prior: AnalystContext['priorFindings']): str
   ].join('\n')
 }
 
-export function renderUpstreamFindings(upstream: AnalystContext['upstreamFindings']): string {
+function renderUpstreamFindings(upstream: AnalystContext['upstreamFindings']): string {
   if (!upstream || upstream.length === 0) return ''
   const maxRows = 40
   const rows = upstream.slice(0, maxRows).map((finding) => {

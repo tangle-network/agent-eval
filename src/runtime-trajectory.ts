@@ -119,7 +119,7 @@ export function projectRuntimeTrajectoryEvidence<TRecord extends RuntimeTrajecto
   }
 }
 
-export function parseRuntimeTrajectoryHookEvent(input: unknown): RuntimeTrajectoryHookEvent | null {
+function parseRuntimeTrajectoryHookEvent(input: unknown): RuntimeTrajectoryHookEvent | null {
   if (!isRecord(input)) return null
   if (typeof input.id !== 'string' || input.id.length === 0) return null
   if (typeof input.runId !== 'string' || input.runId.length === 0) return null

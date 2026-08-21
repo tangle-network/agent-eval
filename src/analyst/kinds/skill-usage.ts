@@ -385,7 +385,7 @@ export function emitSkillUsageFindings(
 
 // ── The Analyst ──────────────────────────────────────────────────────
 
-export class SkillUsageAnalyst implements ExactCapableAnalyst<SkillUsageReport> {
+class SkillUsageAnalyst implements ExactCapableAnalyst<SkillUsageReport> {
   readonly id = ANALYST_ID
   readonly description =
     'Deterministic multi-signal skill-usage analysis: flags dead skills, measurement-invisible (orchestrated) usage, discovery gaps, public-repo leaks, bloat, missing evals, and missing run-logging.'

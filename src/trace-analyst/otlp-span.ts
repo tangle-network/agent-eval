@@ -123,7 +123,7 @@ function normalizeParentSpanId(
     : parentId
 }
 
-export function readOtlpStatus(raw: Record<string, unknown>): {
+function readOtlpStatus(raw: Record<string, unknown>): {
   code: TraceAnalystSpanStatus
   message: string | undefined
 } {
@@ -143,7 +143,7 @@ export function readOtlpStatus(raw: Record<string, unknown>): {
   return { code: 'UNSET', message: undefined }
 }
 
-export function inferOtlpKind(attrs: Record<string, unknown>): TraceAnalystSpanKind {
+function inferOtlpKind(attrs: Record<string, unknown>): TraceAnalystSpanKind {
   const opik = firstStringAttr(attrs, SPAN_KIND_ATTR_KEYS)
   if (opik) {
     const upper = opik.toUpperCase()

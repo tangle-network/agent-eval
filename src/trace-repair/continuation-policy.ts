@@ -68,7 +68,7 @@ export interface PinnedContinuationPolicy {
  * own 30-second environment timeout; a longer limit would let the continuation
  * finish commands the recorded agent could not.
  */
-export const CONTINUATION_POLICY_DEFAULTS = {
+const CONTINUATION_POLICY_DEFAULTS = {
   id: 'tb-repair-continuation-v1',
   stepBudget: 20,
   temperature: 0,

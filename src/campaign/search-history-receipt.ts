@@ -6,8 +6,8 @@ import type {
   SearchLedgerReplay,
 } from './search-ledger'
 
-export const SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
-export const SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
+const SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
+const SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
 
 /** Bounded projection of the canonical replay audit. Exact ids stay in SearchLedger. */
 export interface SearchHistoryAuditSummary {

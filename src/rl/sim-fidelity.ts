@@ -49,17 +49,17 @@ export const ABSENT_CATEGORY = '(absent)'
 
 /** Minimum non-null observations PER SIDE for a feature to enter the
  *  fidelity mean. Below this the JSD estimate is sampling noise. */
-export const DEFAULT_MIN_N_PER_FEATURE = 20
+const DEFAULT_MIN_N_PER_FEATURE = 20
 
 /** Quantile buckets used to discretize numeric features. Quartiles balance
  *  resolution against per-bucket sample size at the default minN. */
-export const DEFAULT_QUANTILE_BUCKETS = 4
+const DEFAULT_QUANTILE_BUCKETS = 4
 
 /** Fidelity at or above this → 'representative'; below → 'skewed'.
  *  1 − 0.8 = mean JSD 0.2 ≈ distributions that mostly overlap with one
  *  clearly shifted mode — the point where per-feature shifts start changing
  *  which failure classes an eval can even observe. */
-export const REPRESENTATIVE_MIN_FIDELITY = 0.8
+const REPRESENTATIVE_MIN_FIDELITY = 0.8
 
 const TOP_SHIFT_COUNT = 5
 

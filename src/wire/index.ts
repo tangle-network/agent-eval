@@ -11,7 +11,7 @@
 export * from './handlers'
 export { buildOpenApi } from './openapi'
 export { dispatchRpc, type RpcOptions, runRpcBatch, runRpcOnce } from './rpc'
-export { BUILTIN_RUBRICS, getBuiltinRubric, listBuiltinRubrics } from './rubrics'
+export { getBuiltinRubric, listBuiltinRubrics } from './rubrics'
 export * from './schemas'
 export {
   createApp,

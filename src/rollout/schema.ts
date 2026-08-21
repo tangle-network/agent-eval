@@ -66,7 +66,7 @@ export const ROLLOUT_ROLES: readonly RolloutRole[] = [
 export type RolloutSplit = 'search' | 'dev' | 'holdout' | 'canary'
 export const ROLLOUT_SPLITS: readonly RolloutSplit[] = ['search', 'dev', 'holdout', 'canary']
 /** Splits that may ship in training exports. Everything else is fail-closed excluded. */
-export const TRAINABLE_SPLITS: readonly RolloutSplit[] = ['search']
+const TRAINABLE_SPLITS: readonly RolloutSplit[] = ['search']
 
 export function isTrainableSplit(split: RolloutSplit): boolean {
   return TRAINABLE_SPLITS.includes(split)
@@ -81,7 +81,7 @@ export const ROLLOUT_CAPTURES: readonly RolloutCapture[] = ['mint', 'settle-time
 // ---------------------------------------------------------------------------
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
-export const CHAT_ROLES: readonly ChatRole[] = ['system', 'user', 'assistant', 'tool']
+const CHAT_ROLES: readonly ChatRole[] = ['system', 'user', 'assistant', 'tool']
 
 export interface ChatToolCall {
   id: string

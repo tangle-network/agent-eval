@@ -310,12 +310,6 @@ export function isLlmSpan(s: Span): s is LlmSpan {
 export function isToolSpan(s: Span): s is ToolSpan {
   return s.kind === 'tool'
 }
-export function isRetrievalSpan(s: Span): s is RetrievalSpan {
-  return s.kind === 'retrieval'
-}
 export function isJudgeSpan(s: Span): s is JudgeSpan {
   return s.kind === 'judge'
-}
-export function isSandboxSpan(s: Span): s is SandboxSpan {
-  return s.kind === 'sandbox'
 }

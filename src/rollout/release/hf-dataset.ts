@@ -167,7 +167,7 @@ export function planPushCommand(repo: string, outDir: string): string[] {
   return ['huggingface-cli', 'upload', repo, outDir, '.', '--repo-type', 'dataset']
 }
 
-export function pushDataset(repo: string, outDir: string): void {
+function pushDataset(repo: string, outDir: string): void {
   const found = spawnSync('which', ['huggingface-cli'], { stdio: 'ignore' })
   if (found.status !== 0) {
     throw new Error(
@@ -188,7 +188,7 @@ export interface RolloutReleaseCliArgs extends BuildOptions {
   push: string | null
 }
 
-export const ROLLOUT_RELEASE_USAGE =
+const ROLLOUT_RELEASE_USAGE =
   'usage: agent-eval rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]'
 
 export function parseRolloutReleaseArgs(argv: string[]): RolloutReleaseCliArgs {

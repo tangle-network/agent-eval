@@ -477,7 +477,7 @@ function accountingError(
   )
 }
 
-export const ANALYST_BENCHMARK_HELP = `agent-eval analyst-benchmark
+const ANALYST_BENCHMARK_HELP = `agent-eval analyst-benchmark
 
 Run the recursive DSPy trace analyst against public AgentRx or CodeTraceBench labels.
 

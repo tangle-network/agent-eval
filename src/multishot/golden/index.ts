@@ -57,7 +57,6 @@ export {
   recordResult,
   sortJudgeRequests,
   stripVolatile,
-  VOLATILE_KEYS,
 } from './recording'
 export {
   CURRENT_MULTISHOT_GOLDEN_VERSION,

@@ -19,7 +19,7 @@ export interface ScrubRule {
   rewrite: (match: string, g1?: string) => string
 }
 
-export const SCRUB_RULES: readonly ScrubRule[] = [
+const SCRUB_RULES: readonly ScrubRule[] = [
   {
     // /home/<user> and /Users/<user> prefixes → $WORK ($HOME-derived paths).
     name: 'home-path',

@@ -91,7 +91,7 @@ Return ONLY JSON matching the response schema. Be conservative — most content 
 
 // ── Registry ────────────────────────────────────────────────────────
 
-export const BUILTIN_RUBRICS: Record<string, Rubric> = {
+const BUILTIN_RUBRICS: Record<string, Rubric> = {
   'anti-slop': ANTI_SLOP,
 }
 

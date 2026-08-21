@@ -58,7 +58,7 @@ export interface RealnessLabels {
   realness_screened: boolean | null
 }
 
-export function realnessLabels(line: MintedRolloutLine): RealnessLabels {
+function realnessLabels(line: MintedRolloutLine): RealnessLabels {
   return {
     realness_gated: line.outcome.realness_gated === true,
     // `?? null` rather than `?? false`: absent means the producer never stated

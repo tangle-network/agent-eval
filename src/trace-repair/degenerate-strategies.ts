@@ -102,9 +102,3 @@ export const DEGENERATE_STRATEGIES = [
 ] as const satisfies readonly DegenerateStrategy[]
 
 export type DegenerateStrategyId = (typeof DEGENERATE_STRATEGIES)[number]['id']
-
-export function degenerateStrategy(id: DegenerateStrategyId): DegenerateStrategy {
-  const found = DEGENERATE_STRATEGIES.find((entry) => entry.id === id)
-  if (!found) throw new Error(`unknown degenerate strategy: ${id}`)
-  return found
-}

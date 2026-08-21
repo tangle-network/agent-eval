@@ -1,12 +1,7 @@
 // Multishot substrate — re-exports for `@tangle-network/agent-eval/multishot`.
 
 export {
-  createCodeExecutor,
-  createResearchExecutor,
   DEFAULT_CODER_MODEL,
-  DEFAULT_DELEGATE_CODE_TOOL,
-  DEFAULT_DELEGATE_RESEARCH_TOOL,
-  DEFAULT_RESEARCHER_MODEL,
   type DefaultCoderConfig,
   type DefaultResearcherConfig,
   type DefaultToolsBundle,

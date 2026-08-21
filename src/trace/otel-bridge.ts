@@ -5,31 +5,13 @@
  * TraceEmitter is also pushed to the exporter for real-time streaming to
  * the user's OTEL collector.
  *
- * The bridge is opt-in: attach via `otelRunCompleteHook(exporter)` as a
- * RunCompleteHook, or wrap the store with `createOtelTracingStore` for
+ * The bridge is opt-in: wrap the store with `createOtelTracingStore` for
  * real-time per-span export.
  */
 
-import type { RunCompleteHook } from './emitter'
 import type { ExportableSpan, OtelExporter } from './otel-export'
 import type { LlmSpan, Span, ToolSpan } from './schema'
 import type { TraceStore } from './store'
-
-/**
- * Create a RunCompleteHook that exports all spans from the completed run
- * to the OTEL exporter, then flushes.
- */
-export function otelRunCompleteHook(exporter: OtelExporter): RunCompleteHook {
-  return async (ctx) => {
-    const spans = await ctx.store.spans({ runId: ctx.runId })
-    for (const span of spans) {
-      if (span.endedAt) {
-        exporter.exportSpan(storeSpanToExportable(span, ctx.runId))
-      }
-    }
-    await exporter.flush()
-  }
-}
 
 /**
  * Create an auto-exporting TraceStore wrapper that intercepts updateSpan

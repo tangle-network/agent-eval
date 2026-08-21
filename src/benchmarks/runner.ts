@@ -187,7 +187,7 @@ export function benchmarkAdapterJudge<TPayload, TArtifact>(
   }
 }
 
-export function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
+function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
   adapter: BenchmarkAdapter<BenchmarkDatasetItem<TPayload>, TPayload, TArtifact>
   scenarios: Array<BenchmarkScenario<TPayload>>
   campaign: CampaignResult<TArtifact, BenchmarkScenario<TPayload>>
@@ -236,7 +236,7 @@ export function summarizeBenchmarkCampaign<TPayload, TArtifact>(input: {
   }
 }
 
-export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
+function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   const splitRows = Object.entries(report.splits)
     .map(([split, summary]) => {
       return `| ${split} | ${summary.n} | ${fmt(summary.meanScore)} | ${fmt(summary.passRate)} | ${fmt(summary.score.p90)} | ${fmt(summary.costUsd.mean)} | ${fmt(summary.latencyMs.p90)} |`

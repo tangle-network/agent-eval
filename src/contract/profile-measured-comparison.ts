@@ -120,17 +120,11 @@ export function sealAgentProfileImprovementExperiment(
   })
 }
 
-export function verifyAgentProfileImprovementTask(input: unknown): AgentProfileImprovementTask {
+function verifyAgentProfileImprovementTask(input: unknown): AgentProfileImprovementTask {
   return agentProfileImprovementTaskSchema.parse(input)
 }
 
-export function verifyAgentProfileImprovementSuiteInputs(
-  input: unknown,
-): AgentProfileImprovementSuiteInputs {
-  return agentProfileImprovementSuiteInputsSchema.parse(input)
-}
-
-export function verifyAgentProfileImprovementExperiment(
+function verifyAgentProfileImprovementExperiment(
   input: unknown,
 ): AgentProfileImprovementExperiment {
   return agentProfileImprovementExperimentSchema.parse(input)

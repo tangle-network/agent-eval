@@ -39,7 +39,7 @@ import { SEARCH_LEDGER_FILE_CONTEXT } from './search-ledger-file'
 
 export { SearchLedgerConflictError, SearchLedgerError, SearchLedgerIntegrityError }
 
-export const SEARCH_LEDGER_SCHEMA = 'tangle.search-ledger.v1' as const
+const SEARCH_LEDGER_SCHEMA = 'tangle.search-ledger.v1' as const
 
 export type SearchLedgerHash = LedgerHash
 

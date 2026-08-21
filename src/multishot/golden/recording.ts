@@ -19,7 +19,7 @@ import type {
 
 /** Keys whose value is wall clock or run identity. Two runs never agree on
  *  them, so they are removed before comparison instead of being compared. */
-export const VOLATILE_KEYS: ReadonlySet<string> = new Set([
+const VOLATILE_KEYS: ReadonlySet<string> = new Set([
   'durationMs',
   'meanDurationMs',
   'matrixId',

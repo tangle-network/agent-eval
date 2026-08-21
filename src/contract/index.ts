@@ -199,9 +199,6 @@ export {
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
   sealCandidateExperiment,
-  verifyCandidateBenchmarkSuite,
-  verifyCandidateBenchmarkSuiteInputs,
-  verifyCandidateBenchmarkTask,
   verifyCandidateExperiment,
   verifyCandidateExperimentComparison,
 } from './measured-comparison'
@@ -216,10 +213,7 @@ export {
   sealAgentProfileImprovementExperiment,
   sealAgentProfileImprovementSuite,
   sealAgentProfileImprovementTask,
-  verifyAgentProfileImprovementExperiment,
   verifyAgentProfileImprovementExperimentComparison,
-  verifyAgentProfileImprovementSuiteInputs,
-  verifyAgentProfileImprovementTask,
 } from './profile-measured-comparison'
 export {
   type SelfImproveBudget,
@@ -325,7 +319,6 @@ export {
   fromKimiCodeSession,
   fromOpenCodeSession,
   fromOtelSpans,
-  fromPigraphSession,
   fromPiSession,
   fromRunRecordDir,
   observeCodeAgentSession,

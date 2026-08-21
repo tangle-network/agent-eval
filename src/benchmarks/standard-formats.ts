@@ -95,7 +95,7 @@ export function parseJsonlRows<T = unknown>(text: string): T[] {
     })
 }
 
-export function parseTsvRows(text: string): string[][] {
+function parseTsvRows(text: string): string[][] {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -259,7 +259,7 @@ export function evaluateStandardRetrieval(
   }
 }
 
-export function normalizeRetrievedDocumentIds(
+function normalizeRetrievedDocumentIds(
   artifact: StandardRetrievalArtifact,
   responseIdPattern: RegExp = /[A-Za-z0-9_.:/-]+/g,
 ): string[] {
@@ -287,7 +287,7 @@ export function normalizeRetrievedDocumentIds(
   )
 }
 
-export function retrievalMetricsAtCutoff(input: {
+function retrievalMetricsAtCutoff(input: {
   rankedDocumentIds: readonly string[]
   expectedScores: Record<string, number>
   cutoff: number

@@ -29,7 +29,7 @@ export const SUBMIT_SENTINEL = SUBMIT_ACTION_SIGNATURE
 export const OUTPUT_ELISION_THRESHOLD = 10_000
 
 /** Characters kept from each end of an elided output. */
-export const OUTPUT_ELISION_WINDOW = 5_000
+const OUTPUT_ELISION_WINDOW = 5_000
 
 export const MINI_SWE_SYSTEM_MESSAGE = `You are a helpful assistant that can interact with a computer.
 

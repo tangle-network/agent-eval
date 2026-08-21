@@ -8,7 +8,7 @@
 import { estimateRouterCost, routerCompletion } from './router'
 import type { MultishotToolDefinition, MultishotToolExecutor } from './types'
 
-export const DEFAULT_RESEARCHER_MODEL = 'openai/gpt-4o-mini'
+const DEFAULT_RESEARCHER_MODEL = 'openai/gpt-4o-mini'
 export const DEFAULT_CODER_MODEL = 'openai/gpt-4o-mini'
 
 export interface DefaultResearcherConfig {
@@ -31,7 +31,7 @@ const GENERIC_RESEARCHER_SYSTEM =
 const GENERIC_CODER_SYSTEM =
   'You are an expert engineer. Output ONE fenced code block containing the complete solution. Inline-comment non-obvious decisions. No explanation outside the block.'
 
-export const DEFAULT_DELEGATE_RESEARCH_TOOL: MultishotToolDefinition = {
+const DEFAULT_DELEGATE_RESEARCH_TOOL: MultishotToolDefinition = {
   type: 'function',
   function: {
     name: 'delegate_research',
@@ -51,7 +51,7 @@ export const DEFAULT_DELEGATE_RESEARCH_TOOL: MultishotToolDefinition = {
   },
 }
 
-export const DEFAULT_DELEGATE_CODE_TOOL: MultishotToolDefinition = {
+const DEFAULT_DELEGATE_CODE_TOOL: MultishotToolDefinition = {
   type: 'function',
   function: {
     name: 'delegate_code',
@@ -71,9 +71,7 @@ export const DEFAULT_DELEGATE_CODE_TOOL: MultishotToolDefinition = {
   },
 }
 
-export function createResearchExecutor(
-  config: DefaultResearcherConfig = {},
-): MultishotToolExecutor {
+function createResearchExecutor(config: DefaultResearcherConfig = {}): MultishotToolExecutor {
   const systemPrompt = config.systemPrompt ?? GENERIC_RESEARCHER_SYSTEM
   const model = config.model ?? DEFAULT_RESEARCHER_MODEL
   return async (args, ctx) => {
@@ -95,7 +93,7 @@ export function createResearchExecutor(
   }
 }
 
-export function createCodeExecutor(config: DefaultCoderConfig = {}): MultishotToolExecutor {
+function createCodeExecutor(config: DefaultCoderConfig = {}): MultishotToolExecutor {
   const systemPrompt = config.systemPrompt ?? GENERIC_CODER_SYSTEM
   const model = config.model ?? DEFAULT_CODER_MODEL
   return async (args, ctx) => {

@@ -17,7 +17,6 @@ export {
   createRunCriticAdapter,
   createSemanticConceptJudgeAdapter,
   createVerifierAdapter,
-  liftSeverity,
 } from './adapters'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
@@ -69,7 +68,6 @@ export type {
 export {
   AGENT_RX_UPSTREAM_REVISION,
   ANALYST_BENCHMARK_COST_LEDGER_FILE,
-  ANALYST_BENCHMARK_HELP,
   ANALYST_BENCHMARK_LOCAL_RECEIPT_FILE,
   ANALYST_BENCHMARK_MANIFEST_FILE,
   ANALYST_BENCHMARK_OBSERVATIONS_FILE,
@@ -115,7 +113,6 @@ export {
   ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_EVIDENCE_DEPENDENCY_LOCK_SHA256,
   ANALYST_BENCHMARK_EVIDENCE_IMPLEMENTATION_SHA256,
-  ANALYST_BENCHMARK_EVIDENCE_PACKAGE_VERSION,
   ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM,
   ANALYST_BENCHMARK_IMPLEMENTATION_FILES,
   ANALYST_BENCHMARK_IMPLEMENTATION_SHA256,
@@ -261,10 +258,7 @@ export type {
   TraceAnalysisEngineResult,
   TraceAnalystLimits,
 } from './engine'
-export {
-  DEFAULT_TRACE_ANALYST_LIMITS,
-  resolveTraceAnalystLimits,
-} from './engine'
+export { resolveTraceAnalystLimits } from './engine'
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,
@@ -283,19 +277,15 @@ export type {
   RawAnalystFinding,
 } from './finding-signature'
 export {
-  ANALYST_SEVERITIES,
   evidenceRefsFromRawFinding,
   parseRawFinding,
   RAW_FINDING_SCHEMA_PROMPT,
-  RawAnalystEvidenceSchema,
   RawAnalystFindingSchema,
 } from './finding-signature'
 export type { FindingSubject, FindingSubjectKind } from './finding-subject'
 export {
-  FINDING_SUBJECT_GRAMMAR_PROMPT,
   FINDING_SUBJECT_KINDS,
   FINDING_SUBJECT_SYNTAX,
-  FindingSubjectStringSchema,
   findingSubjectGrammarPromptFor,
   KIND_EXPECTED_SUBJECTS,
   parseFindingSubject,
@@ -310,7 +300,6 @@ export type {
 export {
   createTraceAnalyst,
   renderPriorFindings,
-  renderUpstreamFindings,
   runTraceAnalyst,
 } from './kind-factory'
 export {
@@ -334,7 +323,6 @@ export {
   buildSkillUsageReport,
   emitSkillUsageFindings,
   SKILL_USAGE_ANALYST,
-  SkillUsageAnalyst,
 } from './kinds/skill-usage'
 export { coerceJson, coerceToFindingRows, stripCodeFences } from './parse-tolerant'
 export {
@@ -376,7 +364,6 @@ export type {
 } from './registry'
 export {
   AnalystRegistry,
-  assertExactRegistryRunOpts,
   ExactAnalystRunExecutionError,
 } from './registry'
 export type {

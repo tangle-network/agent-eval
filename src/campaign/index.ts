@@ -300,7 +300,6 @@ export {
   type ProfileMatrixSegmentResult,
   type RunProfileMatrixSegmentOptions,
   runProfileMatrixSegment,
-  SegmentedProfileMatrixError,
 } from './presets/segmented-profile-matrix'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
@@ -353,8 +352,6 @@ export {
   assertSearchHistoryMatchesReplay,
   type CreateSearchHistoryReceiptInput,
   createSearchHistoryReceipt,
-  SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM,
-  SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION,
   type SearchHistoryAuditSummary,
   type SearchHistoryCoverage,
   type SearchHistoryCoverageRow,
@@ -369,7 +366,6 @@ export {
   FileSearchLedger,
   type OpenSearchLedgerOptions,
   openSearchLedger,
-  SEARCH_LEDGER_SCHEMA,
   type SearchAccountingAudit,
   type SearchArtifactRef,
   type SearchAttemptAccounting,
@@ -439,7 +435,6 @@ export {
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,
-  assertComponentSurface,
   codeSurfaceIdentityMaterial,
   componentSurfaceIdentityMaterial,
   renderSurfaceDiff,
