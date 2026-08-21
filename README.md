@@ -169,6 +169,7 @@ Use a subpath when you want an explicit capability boundary.
 | How do I register an experiment as a sealed object? | [`docs/experiment.md`](./docs/experiment.md) |
 | How is something certified without an answer key? | [`docs/verification-strategies.md`](./docs/verification-strategies.md) |
 | Where does every verifier land its result? | [`docs/verdicts.md`](./docs/verdicts.md) |
+| How do I turn a coding-agent session log into runs? | [`docs/code-agent-intake.md`](./docs/code-agent-intake.md) |
 | How do I score a string from another language? | [`docs/wire-protocol.md`](./docs/wire-protocol.md) |
 
 The [example index](./examples/README.md) lists every runnable example.

@@ -6,18 +6,8 @@
 // tolerant JSON coercion, tool groups, prose-recovery, the judge/verifier
 // adapters — lives here so it has a home without crowding the root surface.
 
-export type {
-  JudgeAdapterOpts,
-  RunCriticAdapterOpts,
-  SemanticConceptJudgeAdapterOpts,
-  VerifierAdapterOpts,
-} from './adapters'
-export {
-  createJudgeAdapter,
-  createRunCriticAdapter,
-  createSemanticConceptJudgeAdapter,
-  createVerifierAdapter,
-} from './adapters'
+export type { SemanticConceptJudgeAdapterOpts } from './adapters'
+export { createSemanticConceptJudgeAdapter } from './adapters'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
 export { behavioralAnalyst, deriveEfficiencyFindings } from './behavioral-analyst'
 export type {
