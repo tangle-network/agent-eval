@@ -78,10 +78,21 @@ export async function paidJsonChat<T>(input: PaidJsonChatInput): Promise<PaidJso
       ...(paid.receipt ? { receipt: paid.receipt } : {}),
     }
   }
-  return {
-    succeeded: true,
-    value: parseJsonAnswer<T>(paid.value, input.actor),
-    response: paid.value,
-    receipt: paid.receipt,
+  // The call completed and was billed. A malformed answer is a contract
+  // failure AFTER the money was spent, so it keeps the settled receipt instead
+  // of reporting the spend as unknown.
+  try {
+    return {
+      succeeded: true,
+      value: parseJsonAnswer<T>(paid.value, input.actor),
+      response: paid.value,
+      receipt: paid.receipt,
+    }
+  } catch (error) {
+    return {
+      succeeded: false,
+      error: error instanceof Error ? error : new Error(String(error)),
+      receipt: paid.receipt,
+    }
   }
 }

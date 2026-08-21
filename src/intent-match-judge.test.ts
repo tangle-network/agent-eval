@@ -5,7 +5,7 @@ import { CostLedger } from './cost-ledger'
 import { runIntentMatchJudge } from './intent-match-judge'
 
 /** Caller-owned transport: agent-eval issues no provider request itself. */
-function answering(answers: Array<object | Error>): ChatClient {
+function answering(answers: Array<object | string | Error>): ChatClient {
   let call = 0
   return createChatClient({
     transport: 'custom',
@@ -16,9 +16,9 @@ function answering(answers: Array<object | Error>): ChatClient {
       call++
       if (spec instanceof Error) throw spec
       return {
-        content: JSON.stringify(spec),
+        content: typeof spec === 'string' ? spec : JSON.stringify(spec),
         usage: { promptTokens: 30, completionTokens: 20, totalTokens: 50, captured: true },
-        costUsd: null,
+        costUsd: 0.004,
         model: 'mock',
         servedModel: 'mock',
         durationMs: 1,
@@ -78,6 +78,19 @@ describe('runIntentMatchJudge', () => {
     )
     expect(r.available).toBe(false)
     expect(r.error).toMatch(/500|upstream/i)
+  })
+
+  it('keeps the settled cost when the model answer is not JSON', async () => {
+    const costLedger = new CostLedger()
+    const r = await runIntentMatchJudge(
+      { userRequest: 'x', sourceFiles: [{ path: 'a.ts', content: 'x' }] },
+      { chat: answering(['not json at all']), costLedger },
+    )
+    // The call completed and was billed; only the answer was unusable. Reporting
+    // the spend as unknown here would hide money the run actually cost.
+    expect(r.available).toBe(false)
+    expect(r.costUsd).toBe(0.004)
+    expect(costLedger.list()).toEqual([expect.objectContaining({ costUsd: 0.004 })])
   })
 
   it('clamps score to [0, 1]', async () => {

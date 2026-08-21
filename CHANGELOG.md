@@ -20,7 +20,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
-- `paidJsonChat` collapses the four hand-rolled copies of "reserve the priced maximum, call the transport with a stable call id, settle the receipt, parse the JSON answer" that the two judges and the wire judge endpoint each carried.
+- `paidJsonChat` collapses the three hand-rolled copies of "reserve the priced maximum, call the transport with a stable call id, settle the receipt, parse the JSON answer" that the two judges and the wire judge endpoint each carried. A malformed answer keeps its settled receipt: the call completed and was billed, so the spend stays known rather than becoming unknown.
 - `LlmChargeBounds`: the narrow bound inputs `maximumChargeForLlmRequest` actually reads, so a caller can price a request without naming a transport options type.
 - `examples/_shared/openai-compatible-owner.ts` exposes one OpenAI-compatible endpoint two ways — `openAiCompatibleChatClient` for judges and workers, `openAiCompatibleExecutionOwner` for the optimizer surface — as the reference for what caller-owned execution looks like.
 
