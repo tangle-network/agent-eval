@@ -4,7 +4,7 @@
      Edit the records, run `pnpm run evidence:render`, and commit both.
      `pnpm run evidence:check` (inside verify:package) fails when this file drifts. -->
 
-9 records. States: CERTIFIED > MEASURED-ONCE > RESOLVED-NULL > UNVERIFIED > KILLED.
+10 records. States: CERTIFIED > MEASURED-ONCE > RESOLVED-NULL > UNVERIFIED > KILLED.
 
 | state | date | id | claim | result |
 | --- | --- | --- | --- | --- |
@@ -17,6 +17,7 @@
 | MEASURED-ONCE | 2026-08-08 | [`prime-vs-dspy-analyst-38-rows`](#prime-vs-dspy-analyst-38-rows) | Prime-agent as a one-shot trace analyst beats the GEPA-certified DSPy-RLM analyst on stored-baseline CodeTraceBench rows. | Prime wins the dev-pool comparison: mean per-case scored F1 0.3218 vs 0.1833; 18W/4L/16T (all ties 0-0); two-sided sign test p=0.0043. Direction consistent across both baseline sources including the derivation-verified stock-smoke slice (OH 0.377 vs 0.231, T2 0.416 vs 0.163). |
 | MEASURED-ONCE | 2026-06-08 | [`cad-gepa-openscad-directive`](#cad-gepa-openscad-directive) | GEPA optimization of the OpenSCAD system directive lifts the CAD agent's held-out build quality over the hand-written directive. | +9.5pp held-out over the baseline directive; the winning directive shipped with automatic video capture of the built models. |
 | RESOLVED-NULL | 2026-08-15 | [`vb-cell-engine-parity-no-flip`](#vb-cell-engine-parity-no-flip) | The VerticalBench graph cell-engine reaches behavioural parity with the loop cell-engine on a live cell, so the default engine can flip to the graph. | NO FLIP. Parity holds on dispatched shot-1 prompt (byte-identical), realness-firewall activation, verification score on the same graded state (blended 0.31 both arms), and toolchain detection. Parity fails on coder turn depth (graph settles recon-only in ~3-4m vs the loop working the full 30m wall; opencode SSE errored 2/4 cells), fixed-budget adherence (structural in the loop vs probabilistic in the graph: 1/3 post-contract cells dispatched shot 2), and board classification (loop 2/2 fair attempts, graph 0/2 - quarantined, never silently scored). |
+| UNVERIFIED | 2026-08-21 | [`judge-logprob-wire-support`](#judge-logprob-wire-support) | An OpenAI-compatible chat-completions endpoint returns per-token `choices[0].logprobs.content` with `top_logprobs` alternatives for a JSON-mode judge call, so expectation scoring reads a real distribution rather than a reconstructed one. | UNVERIFIED LIVE. The one probe returned HTTP 401 (`Incorrect API key provided`) from the only OpenAI-compatible credential reachable in this environment, so no response body was produced and the wire behavior is not measured here. The parser is written against the documented field shape and is covered by unit tests over recorded shapes only. A caller must treat a null `LlmCallResult.logprobs` as a real possibility: the client returns null rather than inferring a distribution, and `scoring.whenUnavailable` decides whether that throws or falls back to the sampled grade. |
 
 ## multishot-golden-oracle-v1
 
@@ -221,3 +222,26 @@
   - the loop's cells were wall-capped at 30m, so its 0.31 grades a half-build
   - glm-5.3 had no rate in SANDBOX_MODEL_COSTS/cost-estimator at run time, so spend did not accumulate against caps (left loud, not guessed)
 - **Notes**: Two structural gaps block the flip and are named in the engine header: TODO(graph-cell/bridge-turn-depth) and TODO(graph-cell/fixed-budget-adherence). The flip is one line once both close. Until this registry, these numbers lived only in the PR body.
+
+## judge-logprob-wire-support
+
+**UNVERIFIED** · 2026-08-21 · judges · source repo `agent-eval`
+
+**Claim.** An OpenAI-compatible chat-completions endpoint returns per-token `choices[0].logprobs.content` with `top_logprobs` alternatives for a JSON-mode judge call, so expectation scoring reads a real distribution rather than a reconstructed one.
+
+**Result.** UNVERIFIED LIVE. The one probe returned HTTP 401 (`Incorrect API key provided`) from the only OpenAI-compatible credential reachable in this environment, so no response body was produced and the wire behavior is not measured here. The parser is written against the documented field shape and is covered by unit tests over recorded shapes only. A caller must treat a null `LlmCallResult.logprobs` as a real possibility: the client returns null rather than inferring a distribution, and `scoring.whenUnavailable` decides whether that throws or falls back to the sampled grade.
+
+- **Instrument**: single chat-completions request with response_format json_object, logprobs true, top_logprobs 8, max_tokens 24, temperature 0
+- **Command**: `curl -sS https://api.openai.com/v1/chat/completions -H 'Authorization: Bearer $OPENAI_API_KEY' -H 'Content-Type: application/json' -d '{"model":"gpt-4o-mini","messages":[...],"response_format":{"type":"json_object"},"max_tokens":24,"temperature":0,"logprobs":true,"top_logprobs":8}'`
+- **Arms**: single-arm
+- **n**: 1 requests (one probe attempted on 2026-08-21; the endpoint rejected it before any token was generated)
+- **Cost**: $0.00
+- **Artifacts**:
+  - src/llm-client.ts (parseWireLogprobs)
+  - src/llm-judge.ts (expectedDimensionScores)
+  - tests/llm-judge.test.ts (llmJudge — logprob-expectation scoring)
+- **Confounds**:
+  - the probe never reached the model: an expired key produced a 401 before generation, so this record measures credential state, not provider behavior
+  - no non-OpenAI OpenAI-compatible endpoint (router, cli-bridge) was reachable with a valid credential in this environment
+  - provider support varies by model and endpoint; one endpoint returning logprobs would not prove another does
+- **Notes**: Flip this record to MEASURED-ONCE by re-running the command with a valid key and recording the grade token, its logprob, and its top_logprobs window.
