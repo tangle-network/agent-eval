@@ -45,13 +45,13 @@ It refuses an `only` id the catalog does not hold, so a stale id after a rename 
 An external conversation engine plugs into the matrix through one seam: `RunMultishotMatrixOptions.runShot`.
 The matrix runs that engine for every cell and reads its result through `MultishotCellOutput`, so the same golden checks grade any engine that implements the seam.
 
-The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into, and both install a deterministic judge wire on `globalThis.fetch` for the duration of the run.
-That wire is process-wide, so run matrix checks serially within one process and keep other fetch traffic out of it.
-Both rules are enforced, not just documented: a second concurrent install throws, and the wire fails loud on any request it does not recognise rather than answering it.
+The matrix pair is `assertMultishotMatrixGoldenScenario` / `checkMultishotMatrixGoldenScenario`; both take a `runDir` the engine may write into.
+Each judge carries a scripted `MultishotTransport`, exactly like the agent and driver legs, so a matrix check owns no process-wide resource and two checks may run at once.
+The judge transport fails loud on a system prompt it does not recognise rather than answering it.
 
 ## Determinism rules
 
-Every scenario is a closed system: scripted transports, scripted tool executors, a fixed persona and profile, fixed token budgets.
+Every scenario is a closed system: scripted transports on every leg including the judges, scripted tool executors, a fixed persona and profile, fixed token budgets.
 No network, no random number, and no clock in a COMPARED field — the fixture envelope carries a `recordedAt` stamp as provenance, and nothing compares it.
 Matrix cells run one at a time, so the request ledger is a property of the conversation engine rather than of how two engines interleave their microtasks.
 

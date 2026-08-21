@@ -1,38 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createSemanticConceptJudgeAdapter } from './adapters'
+import { type ChatResponse, createChatClient } from './chat-client'
 import { AnalystRegistry } from './registry'
 
 describe('createSemanticConceptJudgeAdapter', () => {
   it('records one provider receipt instead of copying one cost onto every finding', async () => {
-    const fetchImpl = (async () =>
-      new Response(
-        JSON.stringify({
-          model: 'gpt-4o',
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  summary: 'all three concepts are absent',
-                  concepts: ['one', 'two', 'three'].map((concept) => ({
-                    concept,
-                    present: false,
-                    score: 0,
-                    evidence: `${concept} is absent from src/App.tsx`,
-                    severity: 'major',
-                  })),
-                }),
-              },
-            },
-          ],
-          usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
-          _response_cost: 0.25,
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as unknown as typeof globalThis.fetch
     const registry = new AnalystRegistry()
     registry.register(
       createSemanticConceptJudgeAdapter({
-        options: { model: 'gpt-4o', llm: { fetch: fetchImpl } },
+        options: {
+          model: 'gpt-4o',
+          chat: callerTransport(async () => judgeResponse(['one', 'two', 'three'], 0.25)),
+        },
       }),
     )
 
@@ -66,8 +45,8 @@ describe('createSemanticConceptJudgeAdapter', () => {
     const started = new Promise<void>((resolve) => {
       markStarted = resolve
     })
-    let finishProvider!: (response: Response) => void
-    const provider = new Promise<Response>((resolve) => {
+    let finishProvider!: (response: ChatResponse) => void
+    const provider = new Promise<ChatResponse>((resolve) => {
       finishProvider = resolve
     })
     const registry = new AnalystRegistry()
@@ -77,14 +56,10 @@ describe('createSemanticConceptJudgeAdapter', () => {
         options: {
           model: 'gpt-4o',
           maxTokens: 64,
-          llm: {
-            baseUrl: 'https://provider.invalid/v1',
-            maximumAttempts: 1,
-            fetch: async () => {
-              markStarted()
-              return provider
-            },
-          },
+          chat: callerTransport(async () => {
+            markStarted()
+            return provider
+          }),
         },
       }),
     )
@@ -104,7 +79,7 @@ describe('createSemanticConceptJudgeAdapter', () => {
     await Promise.resolve()
     expect(completed).toBe(false)
 
-    finishProvider(providerResponse(0.25))
+    finishProvider(judgeResponse(['one'], 0.25))
     const result = await run
 
     expect(result.per_analyst[0]?.usage).toEqual({
@@ -129,14 +104,10 @@ describe('createSemanticConceptJudgeAdapter', () => {
         options: {
           model: 'gpt-4o',
           maxTokens: 64,
-          llm: {
-            baseUrl: 'https://provider.invalid/v1',
-            maximumAttempts: 1,
-            fetch: async () => {
-              markStarted()
-              return new Promise<Response>(() => {})
-            },
-          },
+          chat: callerTransport(async () => {
+            markStarted()
+            return new Promise<ChatResponse>(() => {})
+          }),
         },
       }),
     )
@@ -162,6 +133,16 @@ describe('createSemanticConceptJudgeAdapter', () => {
   })
 })
 
+/** Caller-owned transport: agent-eval issues no provider request itself. */
+function callerTransport(chat: () => Promise<ChatResponse>) {
+  return createChatClient({
+    transport: 'custom',
+    defaultModel: 'gpt-4o',
+    maximumAttempts: 1,
+    chat,
+  })
+}
+
 function semanticInput() {
   return {
     custom: {
@@ -174,31 +155,23 @@ function semanticInput() {
   }
 }
 
-function providerResponse(costUsd: number): Response {
-  return new Response(
-    JSON.stringify({
-      model: 'gpt-4o',
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              summary: 'the requested concept is absent',
-              concepts: [
-                {
-                  concept: 'one',
-                  present: false,
-                  score: 0,
-                  evidence: 'one is absent from src/App.tsx',
-                  severity: 'major',
-                },
-              ],
-            }),
-          },
-        },
-      ],
-      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
-      _response_cost: costUsd,
+function judgeResponse(concepts: string[], costUsd: number): ChatResponse {
+  return {
+    content: JSON.stringify({
+      summary: 'none of the requested concepts are implemented in src/App.tsx',
+      concepts: concepts.map((concept) => ({
+        concept,
+        present: false,
+        score: 0,
+        evidence: `${concept} is absent from src/App.tsx`,
+        severity: 'major',
+      })),
     }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  )
+    usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, captured: true },
+    costUsd,
+    model: 'gpt-4o',
+    servedModel: 'gpt-4o',
+    durationMs: 1,
+    raw: { _response_cost: costUsd },
+  }
 }

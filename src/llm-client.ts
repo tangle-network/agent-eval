@@ -26,12 +26,10 @@ import {
   costForTokenPricing,
   type MaximumCharge,
 } from './cost-ledger'
-import { AgentEvalError, CaptureIntegrityError } from './errors'
+import { AgentEvalError } from './errors'
 import {
   type AssertServedModelOptions,
   assertServedModel as assertServedModelIdentity,
-  checkServedModel,
-  PROBE_MAX_TOKENS,
 } from './integrity/served-model'
 import {
   defaultProviderRedactor,
@@ -116,12 +114,23 @@ export interface LlmCallRequest {
  * Returns undefined when output or multimodal input is not bounded, causing a
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
+export interface LlmChargeBounds {
+  /** Total provider attempts the transport may make for this call. Default 3. */
+  maximumAttempts?: number
+  /** The transport sends JSON mode instead of a response schema. */
+  jsonSchemaTransport?: 'native' | 'json-object'
+  /** Default provider reasoning mode the transport applies. */
+  thinking?: LlmThinkingMode
+  /** Token rates used when the provider omits cost or package pricing does not cover the model. */
+  customTokenPricing?: CustomTokenPricing
+}
+
 export function maximumChargeForLlmRequest(
   request: Pick<
     LlmCallRequest,
     'model' | 'messages' | 'jsonSchema' | 'tools' | 'toolChoice' | 'maxTokens' | 'thinking'
   >,
-  options: LlmClientOptions = {},
+  options: LlmChargeBounds = {},
 ): MaximumCharge | undefined {
   if (request.maxTokens === undefined) return undefined
   if (!Number.isInteger(request.maxTokens) || request.maxTokens <= 0) {
@@ -308,7 +317,7 @@ export class LlmResponseError extends AgentEvalError {
   }
 }
 
-export interface LlmClientOptions {
+export interface LlmClientOptions extends LlmChargeBounds {
   /** Base URL (without trailing slash). Must end at the `/v1` prefix. */
   baseUrl?: string
   /** Bearer token — either `apiKey` or `bearer` populates `Authorization: Bearer ...`. */
@@ -335,25 +344,12 @@ export interface LlmClientOptions {
    * total attempts × `timeoutMs`.
    */
   deadlineMs?: number
-  /** Total provider attempts. Default 3. */
-  maximumAttempts?: number
-  /** Token rates used when the provider omits cost or package pricing does not cover the model. */
-  customTokenPricing?: CustomTokenPricing
-  /**
-   * Transport for requests that declare `jsonSchema`. `native` sends
-   * `response_format: json_schema`; `json-object` sends the broadly supported
-   * JSON mode and relies on the caller to include the schema in model-visible
-   * instructions. Default: `native`.
-   */
-  jsonSchemaTransport?: 'native' | 'json-object'
   /**
    * JSON payload parsing policy. `extract` accepts fenced or prose-prefixed JSON.
    * `exact` requires the complete response content to be one JSON value.
    * Default: `extract`.
    */
   jsonPayloadMode?: 'extract' | 'exact'
-  /** Default provider reasoning mode. A per-call request value takes precedence. */
-  thinking?: LlmThinkingMode
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
   /**
@@ -1195,176 +1191,6 @@ function parseJsonSafely<T>(
     return JSON.parse(payload) as T
   } catch {
     throw new Error(`LLM returned non-JSON content (model=${model})`)
-  }
-}
-
-// ─── Route assertion ────────────────────────────────────────────────────
-
-export type LlmRouteAssertionReason =
-  | 'no_explicit_base_url'
-  | 'base_url_blocked'
-  | 'base_url_not_allowed'
-  | 'no_auth'
-  | 'wrong_provider'
-
-export class LlmRouteAssertionError extends CaptureIntegrityError {
-  constructor(
-    message: string,
-    public readonly reason: LlmRouteAssertionReason,
-    public readonly baseUrl: string,
-  ) {
-    super(message)
-  }
-}
-
-export interface LlmRouteRequirements {
-  /**
-   * Throw if `opts.baseUrl` is undefined, i.e. the call would fall back to
-   * `DEFAULT_BASE_URL`. Set this for evaluation runs where silently using
-   * the public/free-tier router is a defect — the launch reviewer needs to
-   * know exactly which provider answered.
-   */
-  requireExplicitBaseUrl?: boolean
-  /**
-   * Allowlist of acceptable base URLs. Strings match by prefix
-   * (case-insensitive); RegExps test against the full base URL.
-   */
-  allowedBaseUrls?: Array<string | RegExp>
-  /** Blocklist that takes precedence over `allowedBaseUrls`. */
-  blockedBaseUrls?: Array<string | RegExp>
-  /** Throw if no auth header / api key is configured. */
-  requireAuth?: boolean
-  /**
-   * Logical provider id the configured `baseUrl` is expected to match (via
-   * `providerFromBaseUrl`). Mainly useful when paired with `requireExplicitBaseUrl`.
-   */
-  expectedProvider?: string
-}
-
-/**
- * Fail-loud assertion that the configured LLM client points at the route
- * the caller intends. Designed for the matrix-runner preflight: invoke
- * once before any LLM call to catch misconfiguration before a sweep burns
- * dollars on the wrong provider.
- *
- * Throws `LlmRouteAssertionError`. Pure — no I/O — so it's safe to call
- * from constructors and CI gates.
- */
-export function assertLlmRoute(opts: LlmClientOptions, req: LlmRouteRequirements = {}): void {
-  const baseUrlExplicit = opts.baseUrl !== undefined
-  const baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
-
-  if (req.requireExplicitBaseUrl && !baseUrlExplicit) {
-    throw new LlmRouteAssertionError(
-      `assertLlmRoute: requireExplicitBaseUrl set but opts.baseUrl is undefined; would fall back to ${DEFAULT_BASE_URL}.`,
-      'no_explicit_base_url',
-      baseUrl,
-    )
-  }
-
-  if (req.blockedBaseUrls?.some((p) => matchUrl(baseUrl, p))) {
-    throw new LlmRouteAssertionError(
-      `assertLlmRoute: baseUrl ${baseUrl} matches a blocked pattern.`,
-      'base_url_blocked',
-      baseUrl,
-    )
-  }
-
-  if (req.allowedBaseUrls && req.allowedBaseUrls.length > 0) {
-    const ok = req.allowedBaseUrls.some((p) => matchUrl(baseUrl, p))
-    if (!ok) {
-      throw new LlmRouteAssertionError(
-        `assertLlmRoute: baseUrl ${baseUrl} is not in the allowed list (${req.allowedBaseUrls.map(describePattern).join(', ')}).`,
-        'base_url_not_allowed',
-        baseUrl,
-      )
-    }
-  }
-
-  if (req.requireAuth && !opts.apiKey && !opts.bearer && !opts.authHeader) {
-    throw new LlmRouteAssertionError(
-      `assertLlmRoute: requireAuth set but no apiKey, bearer, or authHeader was supplied.`,
-      'no_auth',
-      baseUrl,
-    )
-  }
-
-  if (req.expectedProvider) {
-    const actual = opts.provider ?? providerFromBaseUrl(baseUrl)
-    if (actual !== req.expectedProvider) {
-      throw new LlmRouteAssertionError(
-        `assertLlmRoute: expected provider ${req.expectedProvider} but baseUrl ${baseUrl} resolves to ${actual}.`,
-        'wrong_provider',
-        baseUrl,
-      )
-    }
-  }
-}
-
-function matchUrl(url: string, pattern: string | RegExp): boolean {
-  if (pattern instanceof RegExp) return pattern.test(url)
-  return url.toLowerCase().startsWith(pattern.toLowerCase())
-}
-
-function describePattern(p: string | RegExp): string {
-  return p instanceof RegExp ? p.source : p
-}
-
-/**
- * Probe whether a model is reachable. Returns latency + null error on
- * success; `ok=false` + error message on any failure (HTTP, timeout,
- * network, parse). Designed for sweep preflights — fail loud at the
- * boundary before burning a 30-leaf run on a misconfigured router.
- *
- * Sends a tiny `ping` message with `maxTokens = PROBE_MAX_TOKENS`. Reasoning
- * models (glm-5.1, deepseek-v4) can burn the entire budget on internal
- * reasoning for short prompts, so don't tighten this further — the shared
- * constant keeps this probe and `preflightModels` on one answer. We don't
- * validate content.
- *
- * Reachability and identity are separate answers: `ok` means the route
- * answered, `servedModel` / `substituted` say WHICH model answered. A gateway
- * that serves another provider's model returns `ok: true` with
- * `substituted: true` — inspect both before treating the id as measured.
- */
-export async function probeLlm(
-  model: string,
-  opts: LlmClientOptions & { timeoutMs?: number } = {},
-): Promise<{
-  ok: boolean
-  latencyMs: number
-  error: string | null
-  /** Id echoed by the provider; `null` when it sent none or the probe failed. */
-  servedModel: string | null
-  /** True when the echoed id is a different model than `model` (or absent). */
-  substituted: boolean
-}> {
-  const start = Date.now()
-  try {
-    const result = await callLlm(
-      {
-        model,
-        messages: [{ role: 'user', content: 'ping' }],
-        maxTokens: PROBE_MAX_TOKENS,
-        timeoutMs: opts.timeoutMs ?? 30_000,
-      },
-      opts,
-    )
-    return {
-      ok: true,
-      latencyMs: Date.now() - start,
-      error: null,
-      servedModel: result.servedModel ?? null,
-      substituted: checkServedModel(model, result.servedModel).substituted,
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      latencyMs: Date.now() - start,
-      error: err instanceof Error ? err.message : String(err),
-      servedModel: null,
-      substituted: false,
-    }
   }
 }
 

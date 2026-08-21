@@ -6,7 +6,7 @@ How every fleet agent that consumes `agent-eval` is built. Each rule is mechanic
 
 Every hard-coded model id or endpoint default is verifiable against the live router. Membership in `{baseUrl}/models` is the free check; an optional 1-token probe per model confirms the router will actually serve it. A default the router cannot serve is a config bug caught before the run, not a runtime surprise that silently degrades into a stub. Backend ids are namespaced by binding: cli-bridge ids (`claude-code/*`, `kimi-code/*`, `opencode/*`) never appear as defaults in code reachable from production: bridge use is an explicit env opt-in, never an implicit fallback.
 
-Enforced by: `preflightModels` (membership + optional probe) and `assertModelsServed` (gate that names every unreachable id with status + detail).
+Enforced by: `preflightModels` (membership + optional probe, over a caller-owned `request` function) and `assertModelsServed` (gate that names every unreachable id with status + detail).
 
 ## 1a. Reachable is not the same as identified
 
@@ -20,14 +20,14 @@ Snapshot resolution (`gpt-4o-mini` → `gpt-4o-mini-2024-07-18`) pins a floating
 Substitution (`gpt-4.1-mini` → `gemini-2.5-flash-lite`) mislabels every number the call produces.
 A response that echoes no model id at all is unproven, which fails closed rather than defaulting to agreement.
 
-Enforced by: `assertServedModel` / `assertServedModels` per call, `assertCrossFamilyServed` for panel diversity computed over the ids that answered, `LlmClientOptions.assertServedModel` to enforce it at the transport, and `assertModelsServed` (probe mode), which now fails a substituted id exactly as it fails a dead one.
+Enforced by: `assertServedModel` / `assertServedModels` per call, `assertCrossFamilyServed` for panel diversity computed over the ids that answered, `ChatResponse.servedModel` carrying the identity the caller's transport observed, and `assertModelsServed` (probe mode), which now fails a substituted id exactly as it fails a dead one.
 `assertCrossFamily` reads requested ids and therefore proves configuration only — reach for the served-side check wherever the diversity claim is load-bearing.
 
 ## 2. Probe the platform before peeling client layers
 
 When a request fails, one direct call against the live endpoint bisects platform-versus-client before any code-level debugging begins. A 401 from the router on a `model_not_found` is the platform telling you the default is dead; a connection refused is the platform being unreachable. Establish which side is at fault with a probe first, then debug only the side that is actually broken.
 
-Enforced by: `preflightModels({ probe: true })`: the probe is the platform-side bisection, carrying the router's own `error.message` back to the caller.
+Enforced by: `preflightModels({ probe: true, request })`: the probe is the platform-side bisection, carrying the endpoint's own `error.message` back to the caller.
 
 ## 3. Agent-produced findings are hypotheses
 

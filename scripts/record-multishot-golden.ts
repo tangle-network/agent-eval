@@ -154,13 +154,7 @@ async function captureMatrixScenario(
   const runDir = mkdtempSync(join(tmpdir(), 'multishot-golden-'))
   try {
     const runCase = scenario.build(runDir)
-    const restore = runCase.installJudgeWire()
-    let matrix: Awaited<ReturnType<MultishotMatrixGoldenEngine>>
-    try {
-      matrix = await engine(runCase.options)
-    } finally {
-      restore()
-    }
+    const matrix = await engine(runCase.options)
     return {
       id: scenario.id,
       description: scenario.description,

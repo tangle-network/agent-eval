@@ -19,15 +19,15 @@
  * rather than "layer failed" in a multi-layer pipeline.
  */
 
-import { CostLedger, type CostLedgerHandle, type CostReceipt } from './cost-ledger'
+import type { ChatClient } from './analyst/chat-client'
+import { paidJsonChat } from './chat-json-call'
 import {
-  callLlmJson,
-  costReceiptFromLlm,
-  costReceiptFromLlmError,
-  type LlmCallRequest,
-  type LlmClientOptions,
-  maximumChargeForLlmRequest,
-} from './llm-client'
+  CostLedger,
+  type CostLedgerHandle,
+  type CostReceipt,
+  type CustomTokenPricing,
+} from './cost-ledger'
+import type { LlmCallRequest } from './llm-client'
 import type { Severity } from './multi-layer-verifier'
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -131,8 +131,10 @@ export interface SemanticConceptJudgeOptions {
   maxPerFileChars?: number
   /** HTML cap. Default 30000. */
   maxHtmlChars?: number
-  /** LlmClient config (baseUrl, apiKey, authHeader, …). */
-  llm?: LlmClientOptions
+  /** Caller-owned transport. Required: agent-eval executes no paid model. */
+  chat: ChatClient
+  /** Endpoint rates used when the transport reports no billed amount. */
+  pricing?: CustomTokenPricing
   costLedger?: CostLedgerHandle
   costPhase?: string
   costTags?: Record<string, string>
@@ -190,7 +192,7 @@ function truncate(body: string, cap: number, label: string): string {
 
 function buildPrompt(
   input: SemanticConceptJudgeInput,
-  opts: Required<SemanticConceptJudgeOptions>,
+  opts: { maxPerFileChars: number; maxSourceChars: number; maxHtmlChars: number },
 ): string {
   const sourceBlob = input.sourceFiles
     .filter((f) => f.content.length <= opts.maxPerFileChars)
@@ -249,7 +251,7 @@ Return STRICT JSON. No prose outside the JSON.`
  */
 export async function runSemanticConceptJudge(
   input: SemanticConceptJudgeInput,
-  options: SemanticConceptJudgeOptions = {},
+  options: SemanticConceptJudgeOptions,
 ): Promise<SemanticConceptJudgeResult> {
   const start = Date.now()
   const totalCount = input.expectedConcepts.length
@@ -270,14 +272,15 @@ export async function runSemanticConceptJudge(
     }
   }
 
-  const opts: Required<SemanticConceptJudgeOptions> = {
-    model: options.model ?? DEFAULT_MODEL,
+  const opts = {
+    chat: options.chat,
+    model: options.model ?? options.chat.defaultModel ?? DEFAULT_MODEL,
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT,
     maxTokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
     maxSourceChars: options.maxSourceChars ?? DEFAULT_MAX_SOURCE,
     maxPerFileChars: options.maxPerFileChars ?? DEFAULT_MAX_PER_FILE,
     maxHtmlChars: options.maxHtmlChars ?? DEFAULT_MAX_HTML,
-    llm: options.llm ?? {},
+    ...(options.pricing ? { pricing: options.pricing } : {}),
     costLedger: options.costLedger ?? new CostLedger(),
     costPhase: options.costPhase ?? 'judge.semantic-concept',
     costTags: options.costTags ?? {},
@@ -319,26 +322,20 @@ export async function runSemanticConceptJudge(
       maxTokens: opts.maxTokens,
       timeoutMs: opts.timeoutMs,
     } satisfies LlmCallRequest
-    const paid = await opts.costLedger.runPaidCall({
+    const paid = await paidJsonChat<{ summary: string; concepts: ConceptFinding[] }>({
+      chat: opts.chat,
+      request,
+      ledger: opts.costLedger,
       channel: 'judge',
       phase: opts.costPhase,
       actor: 'semantic-concept',
-      model: opts.model,
-      ...(Object.keys(opts.costTags).length > 0 ? { tags: opts.costTags } : {}),
-      maximumCharge: maximumChargeForLlmRequest(request, opts.llm),
+      tags: opts.costTags,
       signal: opts.signal,
-      execute: (signal, callId) =>
-        callLlmJson<{ summary: string; concepts: ConceptFinding[] }>(request, {
-          ...opts.llm,
-          signal,
-          idempotencyKey: callId,
-        }),
-      receipt: ({ result }) => costReceiptFromLlm(result),
-      receiptFromError: costReceiptFromLlmError,
+      ...(opts.pricing ? { pricing: opts.pricing } : {}),
     })
     receipt = paid.receipt
     if (!paid.succeeded) throw paid.error
-    const { value } = paid.value
+    const { value } = paid
 
     if (!value?.concepts || !Array.isArray(value.concepts)) {
       throw new Error('judge returned malformed response — expected array under "concepts"')
@@ -401,7 +398,7 @@ export async function runSemanticConceptJudge(
  * Convenient for pipelines that want to share a single LlmClient config.
  */
 export function createSemanticConceptJudge(
-  options: SemanticConceptJudgeOptions = {},
+  options: SemanticConceptJudgeOptions,
 ): (input: SemanticConceptJudgeInput) => Promise<SemanticConceptJudgeResult> {
   return (input) => runSemanticConceptJudge(input, options)
 }

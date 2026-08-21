@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
+import { createChatClient } from './analyst/chat-client'
 import type { CampaignRunContext, CampaignRunOutcome, EvalCampaignOptions } from './eval-campaign'
 import { finalizeAbort, runEvalCampaign } from './eval-campaign'
-import { assertLlmRoute, type LlmClientOptions } from './llm-client'
 import { TraceEmitter } from './trace/emitter'
 import { NoopRawProviderSink } from './trace/raw-provider-sink'
 import { InMemoryTraceStore } from './trace/store'
 
-// A minimally-valid LLM config. routeRequirements is set to `{}` in every
-// campaign below so assertLlmRoute does not gate on baseUrl/auth.
-const LLM_OPTS: LlmClientOptions = {
-  baseUrl: 'https://api.example.test/v1',
-  apiKey: 'test-key',
-  provider: 'test',
-}
+/** The caller owns execution; no test here needs a real model answer. */
+const chatFactory = () =>
+  createChatClient({
+    transport: 'custom',
+    defaultModel: 'm@1',
+    maximumAttempts: 1,
+    chat: async () => {
+      throw new Error('no campaign test in this file calls the model')
+    },
+  })
 
 const TOKENS = { input: 1, output: 1 }
 
@@ -45,8 +48,7 @@ function baseOpts(
     scenarios: [{ scenarioId: 's0' }],
     seeds: [0],
     commitSha: 'sha',
-    llmOpts: LLM_OPTS,
-    routeRequirements: {},
+    chatFactory,
     storeFactory: () => new InMemoryTraceStore(),
     rawSinkFactory: () => new NoopRawProviderSink(),
     integrity: {
@@ -232,11 +234,5 @@ describe('runEvalCampaign — genuine-error orphan handling', () => {
     expect(result.runs).toHaveLength(1)
     expect(result.failedRuns).toHaveLength(0)
     expect(result.runs[0]!.outcome.holdoutScore).toBe(1)
-  })
-})
-
-describe('preflight sanity', () => {
-  it('assertLlmRoute is exercised by the campaign (smoke)', () => {
-    expect(() => assertLlmRoute(LLM_OPTS, {})).not.toThrow()
   })
 })

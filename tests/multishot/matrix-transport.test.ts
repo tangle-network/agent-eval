@@ -1,16 +1,16 @@
-// Proves runMultishotMatrix plumbs the transport seams into every cell:
-// agent + driver legs run through the injected transports (no router HTTP),
-// judges keep using the router, and agent/driver/judge cost flows into the
-// matrix cost accounting.
+// Proves runMultishotMatrix plumbs the transport seams into every cell: agent,
+// driver, and judge legs each run on the transport the caller supplied, and
+// every leg's cost flows into the matrix cost accounting.
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   type MultishotPersona,
   type MultishotShape,
+  type MultishotTransport,
   type MultishotTransportRequest,
   type MultishotTransportResponse,
   runMultishotMatrix,
@@ -31,36 +31,25 @@ const SHAPE: MultishotShape<TestPersona> = {
   buildDriverSystemPrompt: (p) => `you are ${p.name}`,
 }
 
-const originalFetch = global.fetch
+/** A leg the scenario must never reach — reaching it is the failure. */
+function unreachedTransport(leg: string): MultishotTransport {
+  return async () => {
+    throw new Error(`${leg} leg must not run in this scenario`)
+  }
+}
 
-afterEach(() => {
-  global.fetch = originalFetch
-})
-
-function judgeOnlyFetch() {
-  // Serves the conversation judge; any other HTTP call is a seam leak.
-  return vi.fn(async (_url: string, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as { messages: Array<{ content?: string }> }
-    if (!String(body.messages[0]?.content).includes('judge')) {
-      throw new Error('unexpected non-judge HTTP call — transport seam leaked')
-    }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        choices: [{ message: { content: '{"helpfulness":8,"notes":"fine"}' } }],
-        usage: { prompt_tokens: 10, completion_tokens: 10 },
-      }),
-      text: async () => 'ok',
-    } as Response
-  })
+function scoringJudgeTransport() {
+  return vi.fn(
+    async (_req: MultishotTransportRequest): Promise<MultishotTransportResponse> => ({
+      message: { content: '{"helpfulness":8,"notes":"fine"}' },
+      usage: { prompt_tokens: 10, completion_tokens: 10 },
+    }),
+  )
 }
 
 describe('runMultishotMatrix transport seam', () => {
   it('passes injected transports into each cell and totals agent, driver, and judge cost', async () => {
-    process.env.TANGLE_API_KEY = 'test-key'
-    const fetchStub = judgeOnlyFetch()
-    global.fetch = fetchStub as unknown as typeof fetch
+    const judgeTransport = scoringJudgeTransport()
 
     const agentTransport = vi.fn(
       async (_req: MultishotTransportRequest): Promise<MultishotTransportResponse> => ({
@@ -84,6 +73,7 @@ describe('runMultishotMatrix transport seam', () => {
         judges: {
           conversation: {
             name: 'conversation',
+            transport: judgeTransport,
             dimensions: [{ key: 'helpfulness', description: 'is it helpful' }],
             systemPrompt: 'you are a judge',
             buildPrompt: () => 'judge this transcript',
@@ -95,11 +85,10 @@ describe('runMultishotMatrix transport seam', () => {
         driverTransport,
       })
 
-      // 2 agent turns + 1 driver turn per cell.
+      // 2 agent turns + 1 driver turn + 1 judge call per cell.
       expect(agentTransport).toHaveBeenCalledTimes(2)
       expect(driverTransport).toHaveBeenCalledTimes(1)
-      // Judge ran over HTTP; the agent/driver legs did not.
-      expect(fetchStub).toHaveBeenCalledTimes(1)
+      expect(judgeTransport).toHaveBeenCalledTimes(1)
       // Transport costUsd (0.2*2 + 0.1) plus the judge's estimated usage cost
       // flows into the cell and matrix totals.
       expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.5000075, 10)
@@ -116,24 +105,18 @@ describe('runMultishotMatrix transport seam', () => {
   })
 
   it('counts conversation, code, and content judge calls, including parse failures', async () => {
-    process.env.TANGLE_API_KEY = 'test-key'
-    const fetchStub = vi.fn(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content?: string }> }
-      const systemPrompt = String(body.messages[0]?.content)
-      const content = systemPrompt.includes('content judge')
-        ? 'not json'
-        : '{"quality":8,"notes":"fine"}'
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content } }],
+    const judgeTransport = vi.fn(
+      async (req: MultishotTransportRequest): Promise<MultishotTransportResponse> => {
+        const systemPrompt = String(req.messages[0]?.content)
+        const content = systemPrompt.includes('content judge')
+          ? 'not json'
+          : '{"quality":8,"notes":"fine"}'
+        return {
+          message: { content },
           usage: { prompt_tokens: 100, completion_tokens: 100 },
-        }),
-        text: async () => 'ok',
-      } as Response
-    })
-    global.fetch = fetchStub as unknown as typeof fetch
+        }
+      },
+    )
 
     const agentTransport = vi
       .fn<(req: MultishotTransportRequest) => Promise<MultishotTransportResponse>>()
@@ -169,18 +152,21 @@ describe('runMultishotMatrix transport seam', () => {
         judges: {
           conversation: {
             name: 'conversation',
+            transport: judgeTransport,
             dimensions: [{ key: 'quality', description: 'conversation quality' }],
             systemPrompt: 'conversation judge',
             buildPrompt: () => 'judge the conversation',
           },
           codeReview: {
             name: 'code',
+            transport: judgeTransport,
             dimensions: [{ key: 'quality', description: 'code quality' }],
             systemPrompt: 'code judge',
             buildPrompt: () => 'judge the code',
           },
           contentQuality: {
             name: 'content',
+            transport: judgeTransport,
             dimensions: [{ key: 'quality', description: 'content quality' }],
             systemPrompt: 'content judge',
             buildPrompt: () => 'judge the content',
@@ -212,13 +198,14 @@ describe('runMultishotMatrix transport seam', () => {
         runDir,
         maxTurns: 1,
         agentTransport,
+        driverTransport: unreachedTransport('driver'),
       })
 
       // Simulation: 2 agent calls + 2 tools = $0.50.
       // Judges: 3 * (100 input + 100 output tokens on gpt-4o-mini) = $0.000225.
       expect(matrix.cells[0]?.runs[0]?.costUsd).toBeCloseTo(0.500225, 10)
       expect(matrix.summary.totalCostUsd).toBeCloseTo(0.500225, 10)
-      expect(fetchStub).toHaveBeenCalledTimes(3)
+      expect(judgeTransport).toHaveBeenCalledTimes(3)
 
       const scores = JSON.parse(
         readFileSync(join(runDir, 'p1', 'alice', 'rep-0', 'scores.json'), 'utf8'),
@@ -246,9 +233,7 @@ describe('runMultishotMatrix transport seam', () => {
   })
 
   it('uses judge cost when deciding whether to schedule another cell', async () => {
-    process.env.TANGLE_API_KEY = 'test-key'
-    const fetchStub = judgeOnlyFetch()
-    global.fetch = fetchStub as unknown as typeof fetch
+    const judgeTransport = scoringJudgeTransport()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const agentTransport = vi.fn(
       async (_req: MultishotTransportRequest): Promise<MultishotTransportResponse> => ({
@@ -270,6 +255,7 @@ describe('runMultishotMatrix transport seam', () => {
         judges: {
           conversation: {
             name: 'conversation',
+            transport: judgeTransport,
             dimensions: [{ key: 'helpfulness', description: 'is it helpful' }],
             systemPrompt: 'you are a judge',
             buildPrompt: () => 'judge this transcript',
@@ -280,13 +266,14 @@ describe('runMultishotMatrix transport seam', () => {
         maxConcurrency: 1,
         costCeiling: 0.000007,
         agentTransport,
+        driverTransport: unreachedTransport('driver'),
       })
 
       expect(matrix.summary.runsExecuted).toBe(1)
       expect(matrix.summary.cellsSkipped).toBe(2)
       expect(matrix.summary.totalCostUsd).toBeCloseTo(0.0000075, 10)
       expect(agentTransport).toHaveBeenCalledOnce()
-      expect(fetchStub).toHaveBeenCalledOnce()
+      expect(judgeTransport).toHaveBeenCalledOnce()
       expect(warn).toHaveBeenCalledWith('[matrix] cost ceiling reached')
     } finally {
       warn.mockRestore()

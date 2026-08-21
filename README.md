@@ -110,20 +110,24 @@ Every row is a function you call. Each links to a runnable example.
 ## Configure Model Calls
 
 Benchmarks, user drivers, executors, built-in judges, completion checkers, and judge adapters all take the same `ChatClient`.
+You own model execution: Agent Eval issues no provider request and never receives a provider credential.
 
 ```ts
 import { createChatClient } from '@tangle-network/agent-eval'
 
 const chat = createChatClient({
-  transport: 'router',
-  apiKey: process.env.TANGLE_API_KEY!,
+  transport: 'custom',
   defaultModel: 'openai/gpt-4.1',
   maximumAttempts: 3,
+  chat: async (request, opts) => myProviderClient(request, opts),
 })
 ```
 
-Use `direct-provider` for an OpenAI-compatible endpoint, `cli-bridge` for a local subscription, `sandbox-sdk` for Sandbox, or `custom` to adapt another SDK.
+On Agent Runtime, `profileChatClient({ profile, executor, context })` from `@tangle-network/agent-runtime/kernel` is that transport: every call runs one exact `AgentProfile` and reports its measured usage, retries, and served model identity.
+Use `sandbox-sdk` for Sandbox and `mock` in tests.
 A custom adapter must return a `ChatResponse` and declare `maximumAttempts` before a capped cost account can dispatch it.
+
+`ChatResponse` carries the whole execution record across that boundary: the served model id, measured input/output/reasoning/cached tokens, billed USD or an explicit unknown, the finish reason, and the per-token log probabilities the expectation judge scores on.
 
 The official GEPA and SkillOpt optimizers run through a Python bridge.
 Install commands, version pins, and the reason for each pin:

@@ -278,13 +278,13 @@ export interface SemanticConceptJudgeAdapterOpts {
   id?: string
   area?: string
   /** Registry context owns cancellation and the per-analyst cost ledger. */
-  options?: Omit<SemanticConceptJudgeOptions, 'costLedger' | 'signal'>
+  options: Omit<SemanticConceptJudgeOptions, 'costLedger' | 'signal'>
   /** Maximum post-cancellation wait for a provider receipt. Default 5 seconds. */
   settlementTimeoutMs?: number
 }
 
 export function createSemanticConceptJudgeAdapter(
-  opts: SemanticConceptJudgeAdapterOpts = {},
+  opts: SemanticConceptJudgeAdapterOpts,
 ): Analyst<SemanticConceptJudgeInput> {
   const id = opts.id ?? 'semantic-concept-judge'
   const area = opts.area ?? 'concept-coverage'
@@ -296,7 +296,7 @@ export function createSemanticConceptJudgeAdapter(
     inputKind: 'custom',
     cost: {
       kind: 'llm',
-      models: opts.options?.model ? [opts.options.model] : undefined,
+      models: opts.options.model ? [opts.options.model] : undefined,
       settlement_timeout_ms: settlementTimeoutMs,
     },
     version: `${SEMANTIC_CONCEPT_JUDGE_VERSION}-adapter-${ADAPTER_REV}`,

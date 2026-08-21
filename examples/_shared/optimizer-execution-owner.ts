@@ -1,9 +1,7 @@
-import {
-  createOpenAiCompatibleExecutionOwner,
-  type ExternalOptimizerModelCall,
-} from '../../src/campaign'
+import type { ExternalOptimizerModelCall } from '../../src/campaign'
 import type { CustomTokenPricing } from '../../src/cost-ledger'
 import { optionalNonNegativeNumberEnv } from './env'
+import { openAiCompatibleExecutionOwner } from './openai-compatible-owner'
 
 export interface OptimizerExecutionOwner {
   /** Stable public identity for the exact execution configuration. */
@@ -21,12 +19,14 @@ interface OptimizerExecutionOwnerModule {
 /**
  * Resolve the execution owner for optimizer-model calls.
  *
- * `OPTIMIZER_EXECUTION_OWNER_MODULE` selects a caller-owned execution package;
- * Discovery supplies a module backed by Runtime and an exact AgentProfile.
- * When it is unset, the owner is the package's OpenAI-compatible transport,
- * built from the `LLM_BASE_URL` and `LLM_API_KEY` the examples already use.
- * Optional `PRICE_IN_PER_M` and `PRICE_OUT_PER_M` supply cost estimates when
- * the endpoint omits billed cost.
+ * Agent Eval owns no model transport, so the owner is always caller code.
+ * `OPTIMIZER_EXECUTION_OWNER_MODULE` selects an execution package — Discovery
+ * supplies a module backed by Runtime and an exact AgentProfile, and
+ * `profileOptimizerModelCall` from `@tangle-network/agent-runtime/kernel` is
+ * the production path. When it is unset, these examples fall back to their own
+ * minimal owner in `openai-compatible-owner.ts`, built from the `LLM_BASE_URL`
+ * and `LLM_API_KEY` they already use. Optional `PRICE_IN_PER_M` and
+ * `PRICE_OUT_PER_M` supply cost estimates when the endpoint omits billed cost.
  */
 export async function loadOptimizerExecutionOwner(model: string): Promise<OptimizerExecutionOwner> {
   const moduleSpecifier = process.env.OPTIMIZER_EXECUTION_OWNER_MODULE?.trim()
@@ -60,7 +60,7 @@ function defaultExecutionOwner(model: string): OptimizerExecutionOwner {
   ]
   if (missing.length > 0) {
     throw new Error(
-      `The default optimizer execution owner requires: ${missing.join(', ')}. ` +
+      `The example optimizer execution owner requires: ${missing.join(', ')}. ` +
         'Set them, or set OPTIMIZER_EXECUTION_OWNER_MODULE to a module exporting createOptimizerExecutionOwner(model).',
     )
   }
@@ -79,7 +79,7 @@ function defaultExecutionOwner(model: string): OptimizerExecutionOwner {
         }
   return {
     callRef: `openai-compatible:${baseUrl}:${model}`,
-    call: createOpenAiCompatibleExecutionOwner({
+    call: openAiCompatibleExecutionOwner({
       baseUrl,
       apiKey,
       model,

@@ -907,7 +907,10 @@ export type { VerdictCacheStore } from './verdict-cache'
 export { canonicalJson, contentHash, fileVerdictCache } from './verdict-cache'
 
 // ── utilities ─────────────────────────────────────────────────────────
-// Provider-neutral LLM clients and shared error types.
+// Provider-neutral model contracts and shared error types. The transport that
+// executes a paid model is NOT part of this surface: a consumer binds its own
+// through `createChatClient({ transport: 'custom' })`, or uses
+// `profileChatClient` from `@tangle-network/agent-runtime/kernel`.
 
 export type {
   ChatCallOpts,
@@ -923,28 +926,28 @@ export { AgentEvalError, ConfigError, JudgeError, NotFoundError, ValidationError
 export type { RunRecordBackend } from './eval-trace-store'
 export { jsonlRunRecordBackend } from './eval-trace-store'
 export { assignFeedbackSplit } from './feedback-trajectory'
+export type { ModelEndpointCheck, ModelEndpointRequest } from './integrity/preflight'
 export { preflightModels } from './integrity/preflight'
 export type { KnowledgeBundle } from './knowledge/types'
 export type {
   LlmCallMetadata,
   LlmCallRequest,
   LlmCallResult,
-  LlmClientOptions,
+  LlmChargeBounds,
   LlmMessage,
-  LlmRouteRequirements,
+  LlmTokenLogprob,
+  LlmToolCall,
+  LlmToolChoice,
+  LlmToolDefinition,
+  LlmUsage,
 } from './llm-client'
 export {
-  assertLlmRoute,
-  callLlm,
-  callLlmJson,
   costReceiptFromLlm,
   costReceiptFromLlmError,
   isTransientLlmError,
   LlmCallError,
-  LlmClient,
   LlmResponseError,
   maximumChargeForLlmRequest,
-  probeLlm,
   stripFencedJson,
 } from './llm-client'
 export type { ModelSeats } from './model-seats'

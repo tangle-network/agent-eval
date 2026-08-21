@@ -65,23 +65,31 @@ export interface MultishotTransportResponse {
   message: { content?: string | null; tool_calls?: MultishotTransportToolCall[] }
   usage?: { prompt_tokens?: number; completion_tokens?: number }
   /** Actual spend for this call. When omitted, the loop meters cost from
-   *  `usage` via the per-model router estimator (estimateRouterCost). */
+   *  `usage` via the per-model estimator (estimateMultishotCost). */
   costUsd?: number
+  /** Model identity the provider reported, when the transport observed one.
+   *  Omitted means unreported, and the requested model is used for
+   *  attribution — which is not proof that model answered. */
+  model?: string
 }
 
-/** Execution seam for one leg of the multishot loop. When provided, it
- *  replaces the internal router HTTP call for that leg — the loop still owns
- *  turn scheduling, tool dispatch, transcript capture, and cost metering.
- *  agent-eval has no dependency on agent-runtime; adapt agent-runtime's
- *  resolveAgentBackend (or any sandbox/cli-bridge/router client) into this
- *  signature product-side. */
+/** Execution seam for one leg of the multishot loop. The caller owns model
+ *  execution: agent-eval issues no provider request and holds no credential.
+ *  The loop still owns turn scheduling, tool dispatch, transcript capture, and
+ *  cost metering. agent-eval has no dependency on agent-runtime; adapt
+ *  agent-runtime's `profileChatClient` (or any sandbox, bridge, or router
+ *  client) into this signature product-side. */
 export type MultishotTransport = (
   req: MultishotTransportRequest,
 ) => Promise<MultishotTransportResponse>
 
 export type MultishotToolExecutor = (
   args: Record<string, unknown>,
-  ctx: { apiKey: string; baseUrl: string; signal?: AbortSignal },
+  ctx: {
+    /** Caller-owned execution seam for the specialist leg this tool runs. */
+    transport: MultishotTransport
+    signal?: AbortSignal
+  },
 ) => Promise<{ content: string; costUsd: number }>
 
 export interface MultishotPersona {

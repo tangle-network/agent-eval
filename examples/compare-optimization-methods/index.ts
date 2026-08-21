@@ -25,7 +25,6 @@ import {
   skillOptOptimizationMethod,
 } from '../../src/campaign'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
-import type { LlmClientOptions } from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
 import { optionalNonNegativeNumberEnv, positiveIntegerEnv, positiveNumberEnv } from '../_shared/env'
 import {
@@ -40,6 +39,7 @@ import {
 } from '../_shared/extraction-task'
 import { GEPA_REFLECTION_ENGINE_CONFIG } from '../_shared/gepa-reflection'
 import { assertMatchedMethodLimits } from '../_shared/matched-method-limits'
+import { openAiCompatibleChatClient } from '../_shared/openai-compatible-owner'
 import {
   loadOptimizerExecutionOwner,
   type OptimizerExecutionOwner,
@@ -214,17 +214,19 @@ const skillOptModelBudget = selectedNames.includes('skillopt')
   ? optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZER_MODEL_COST_USD, customTokenPricing)
   : undefined
 
-const llm: LlmClientOptions = {
-  apiKey: API_KEY,
+// The worker transport is caller code: Agent Eval holds no provider key.
+const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
+  apiKey: API_KEY,
+  model: MODEL,
   maximumAttempts: 2,
-  defaultTimeoutMs: CALL_TIMEOUT_MS,
-  ...(customTokenPricing ? { customTokenPricing } : {}),
-}
+  timeoutMs: CALL_TIMEOUT_MS,
+  ...(customTokenPricing ? { pricing: customTokenPricing } : {}),
+})
 
 const records: RunRecord[] = []
 const worker = makeExtractionWorker({
-  llm,
+  chat,
   model: MODEL,
   records,
   ...(customTokenPricing ? { customTokenPricing } : {}),

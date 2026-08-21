@@ -1,17 +1,13 @@
 /**
  * Provider-neutral chat contract for every model call made by agent-eval.
  *
- * Callers choose the transport at the package boundary with `createChatClient`.
- * Evaluation code receives canonical requests and results without importing a
- * provider SDK.
+ * The caller owns model execution. agent-eval issues no provider request and
+ * holds no provider credential: `createChatClient` binds a transport the
+ * caller supplies, and evaluation code receives canonical requests and results
+ * without importing a provider SDK.
  */
 
-import {
-  type LlmCallRequest,
-  type LlmCallResult,
-  LlmClient,
-  type LlmClientOptions,
-} from '../llm-client'
+import type { LlmCallRequest, LlmCallResult } from '../llm-client'
 
 /**
  * Unified chat interface using the package's canonical LLM request and result.
@@ -29,10 +25,7 @@ export interface ChatClient {
 }
 
 export type ChatTransport =
-  | 'router' // router.tangle.tools — production paid models
   | 'sandbox-sdk' // box.streamPrompt() — chat completion via sandbox SDK
-  | 'cli-bridge' // local cli-bridge for dev / local-only runs
-  | 'direct-provider' // direct OpenAI / Anthropic / etc. — bypass router
   | 'custom' // caller-adapted SDK or transport
   | 'mock' // test-time injection
 
@@ -56,36 +49,12 @@ export interface ChatCallOpts {
 
 // ── Factory ─────────────────────────────────────────────────────────
 
-export type CreateChatClientOpts =
-  | RouterTransportOpts
-  | CliBridgeTransportOpts
-  | DirectProviderTransportOpts
-  | SandboxSdkTransportOpts
-  | CustomTransportOpts
-  | MockTransportOpts
+export type CreateChatClientOpts = SandboxSdkTransportOpts | CustomTransportOpts | MockTransportOpts
 
 interface BaseTransportOpts {
   defaultModel?: string
   /** Total provider attempts. Required for opaque transports used in capped runs. */
   maximumAttempts?: number
-}
-
-export interface RouterTransportOpts extends BaseTransportOpts {
-  transport: 'router'
-  baseUrl?: string
-  apiKey: string
-}
-
-export interface CliBridgeTransportOpts extends BaseTransportOpts {
-  transport: 'cli-bridge'
-  baseUrl?: string
-  bearer?: string
-}
-
-export interface DirectProviderTransportOpts extends BaseTransportOpts {
-  transport: 'direct-provider'
-  baseUrl: string
-  apiKey: string
 }
 
 /**
@@ -118,36 +87,6 @@ export interface MockTransportOpts extends BaseTransportOpts {
  */
 export function createChatClient(opts: CreateChatClientOpts): ChatClient {
   switch (opts.transport) {
-    case 'router':
-      return wrapLlmClient(
-        opts.transport,
-        opts.defaultModel,
-        new LlmClient({
-          baseUrl: opts.baseUrl ?? 'https://router.tangle.tools/v1',
-          apiKey: opts.apiKey,
-          maximumAttempts: opts.maximumAttempts,
-        } as LlmClientOptions),
-      )
-    case 'cli-bridge':
-      return wrapLlmClient(
-        opts.transport,
-        opts.defaultModel,
-        new LlmClient({
-          baseUrl: opts.baseUrl ?? 'http://127.0.0.1:3344/v1',
-          apiKey: opts.bearer ?? '',
-          maximumAttempts: opts.maximumAttempts,
-        } as LlmClientOptions),
-      )
-    case 'direct-provider':
-      return wrapLlmClient(
-        opts.transport,
-        opts.defaultModel,
-        new LlmClient({
-          baseUrl: opts.baseUrl,
-          apiKey: opts.apiKey,
-          maximumAttempts: opts.maximumAttempts,
-        } as LlmClientOptions),
-      )
     case 'sandbox-sdk':
       return {
         transport: 'sandbox-sdk',
@@ -169,36 +108,6 @@ export function createChatClient(opts: CreateChatClientOpts): ChatClient {
         maximumAttempts: 1,
         chat: async (req, callOpts) => opts.handler(resolveModel(req, opts.defaultModel), callOpts),
       }
-  }
-}
-
-function wrapLlmClient(
-  transport: ChatTransport,
-  defaultModel: string | undefined,
-  inner: LlmClient,
-): ChatClient {
-  return {
-    transport,
-    defaultModel,
-    maximumAttempts: inner.maximumAttempts,
-    chat: (req, callOpts) => {
-      const resolved = resolveModel(req, defaultModel)
-      const request: LlmCallRequest = {
-        model: resolved.model!,
-        messages: req.messages,
-        jsonMode: req.jsonMode,
-        jsonSchema: req.jsonSchema,
-        logprobs: req.logprobs,
-        temperature: req.temperature,
-        maxTokens: req.maxTokens,
-        thinking: req.thinking,
-        timeoutMs: req.timeoutMs,
-      }
-      return inner.call(request, {
-        signal: callOpts?.signal,
-        idempotencyKey: callOpts?.idempotencyKey,
-      })
-    },
   }
 }
 

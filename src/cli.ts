@@ -84,7 +84,9 @@ Commands:
 
 Judge provider:
   Set AGENT_EVAL_LLM_BASE_URL, AGENT_EVAL_LLM_API_KEY, and AGENT_EVAL_LLM_MODEL.
-  OPENAI_* and TANGLE_* equivalents are also accepted.
+  OPENAI_* and TANGLE_* equivalents are also accepted. This binary is the only
+  place that reads a provider credential; the library never does. Without both
+  a base URL and a key, /v1/judge refuses with llm_not_configured.
 
 Without arguments, prints this help.`
 
@@ -108,9 +110,8 @@ async function main(): Promise<number> {
       const { server } = await startServerAsync({
         port,
         host,
-        llm: llm.client,
-        judgeModel: llm.model,
-        llmRouteRequirements: { requireExplicitBaseUrl: true },
+        ...(llm.chat ? { chat: llm.chat } : {}),
+        ...(llm.model ? { judgeModel: llm.model } : {}),
       })
       // Keep process alive on SIGINT/SIGTERM
       const shutdown = (sig: string) => {
@@ -130,18 +131,16 @@ async function main(): Promise<number> {
       const [method] = positional
       const llm = resolveCliLlmConfig()
       return await runRpcOnce(method, {
-        llm: llm.client,
-        judgeModel: llm.model,
-        llmRouteRequirements: { requireExplicitBaseUrl: true },
+        ...(llm.chat ? { chat: llm.chat } : {}),
+        ...(llm.model ? { judgeModel: llm.model } : {}),
       })
     }
     case 'rpc-batch': {
       const [method] = positional
       const llm = resolveCliLlmConfig()
       return await runRpcBatch(method, {
-        llm: llm.client,
-        judgeModel: llm.model,
-        llmRouteRequirements: { requireExplicitBaseUrl: true },
+        ...(llm.chat ? { chat: llm.chat } : {}),
+        ...(llm.model ? { judgeModel: llm.model } : {}),
       })
     }
     case 'openapi': {

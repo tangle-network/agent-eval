@@ -7,6 +7,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
+import { createChatClient } from '../../src/analyst/chat-client'
 import { dispatchRpc } from '../../src/wire/rpc'
 
 describe('dispatchRpc', () => {
@@ -44,52 +45,39 @@ describe('dispatchRpc', () => {
     }
   })
 
-  it('refuses CLI judge calls before a provider endpoint is configured', async () => {
-    const out = await dispatchRpc(
-      {
-        method: 'judge',
-        params: { rubricName: 'anti-slop', content: 'hello' },
-      },
-      { llmRouteRequirements: { requireExplicitBaseUrl: true } },
-    )
+  it('refuses CLI judge calls before a model transport is configured', async () => {
+    const out = await dispatchRpc({
+      method: 'judge',
+      params: { rubricName: 'anti-slop', content: 'hello' },
+    })
 
     expect(out).toEqual({
       error: {
         code: 'llm_not_configured',
         message:
-          'No model endpoint is configured. Pass llm.baseUrl or configure the CLI provider environment variables.',
-        details: { reason: 'no_explicit_base_url' },
+          'No model transport is configured. Pass a ChatClient, or configure the CLI provider environment variables.',
       },
     })
   })
 
-  it('forwards provider config and the default model to judge calls', async () => {
-    const fetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const request = JSON.parse(String(init?.body)) as { model: string }
-      expect(request.model).toBe('configured-model')
-      const headers = init?.headers as Record<string, string> | undefined
-      expect(headers?.Authorization).toBe('Bearer provider-key')
-      return new Response(
-        JSON.stringify({
-          model: 'configured-model',
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  dimensions: { quality: 0.75 },
-                  failureModes: [],
-                  wins: [],
-                  rationale: 'Clear.',
-                }),
-              },
-              finish_reason: 'stop',
-            },
-          ],
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  it("forwards the caller's ChatClient and the default model to judge calls", async () => {
+    const chat = vi.fn(async (req: { model?: string }) => {
+      expect(req.model).toBe('configured-model')
+      return {
+        content: JSON.stringify({
+          dimensions: { quality: 0.75 },
+          failureModes: [],
+          wins: [],
+          rationale: 'Clear.',
         }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )
-    }) as typeof globalThis.fetch
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15, captured: true },
+        costUsd: null,
+        model: 'configured-model',
+        servedModel: 'configured-model',
+        durationMs: 1,
+        raw: {},
+      }
+    })
 
     const out = await dispatchRpc(
       {
@@ -107,13 +95,12 @@ describe('dispatchRpc', () => {
         },
       },
       {
-        llm: { baseUrl: 'https://provider.example/v1', apiKey: 'provider-key', fetch },
+        chat: createChatClient({ transport: 'custom', maximumAttempts: 1, chat }),
         judgeModel: 'configured-model',
-        llmRouteRequirements: { requireExplicitBaseUrl: true },
       },
     )
 
-    expect(fetch).toHaveBeenCalledOnce()
+    expect(chat).toHaveBeenCalledOnce()
     expect(out).toMatchObject({
       result: { composite: 0.75, model: 'configured-model' },
     })

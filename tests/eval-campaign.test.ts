@@ -1,14 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { buildAgentProfileCell } from '../src/agent-profile-cell'
+import { createChatClient } from '../src/analyst/chat-client'
 import type { CampaignRunner, EvalCampaignOptions } from '../src/eval-campaign'
 import { runEvalCampaign } from '../src/eval-campaign'
-import { LlmRouteAssertionError } from '../src/llm-client'
 import { InMemoryRawProviderSink, NoopRawProviderSink } from '../src/trace/raw-provider-sink'
 import { InMemoryTraceStore } from '../src/trace/store'
 
 interface VariantPayload {
   prompt: string
 }
+
+const EXECUTION_REF = 'https://api.test.local/v1'
+
+/** The caller owns execution; every runner here emits its own spans. */
+const chatFactory = () =>
+  createChatClient({
+    transport: 'custom',
+    defaultModel: 'test-model@2026-05-08',
+    maximumAttempts: 1,
+    chat: async () => {
+      throw new Error('no campaign test in this file calls the model')
+    },
+  })
 
 function baseOpts(
   overrides: Partial<EvalCampaignOptions<VariantPayload>> = {},
@@ -24,7 +37,8 @@ function baseOpts(
     scenarios: [{ scenarioId: 's1' }, { scenarioId: 's2' }],
     seeds: [0, 1],
     commitSha: 'cafebabe',
-    llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+    chatFactory,
+    executionRef: EXECUTION_REF,
     storeFactory: ({ runId }) => {
       const s = new InMemoryTraceStore()
       stores.set(runId, s)
@@ -58,7 +72,7 @@ const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
     provider: 'test',
     model: 'test-model@2026-05-08',
     endpoint: '/chat/completions',
-    baseUrl: ctx.llmOpts.baseUrl ?? '',
+    baseUrl: EXECUTION_REF,
     attemptIndex: 0,
     direction: 'request',
     timestamp: 1_000,
@@ -176,16 +190,6 @@ describe('runEvalCampaign — happy path', () => {
 })
 
 describe('runEvalCampaign — preflight', () => {
-  it('throws LlmRouteAssertionError when baseUrl is missing under the default policy', async () => {
-    await expect(
-      runEvalCampaign(
-        baseOpts({
-          llmOpts: { apiKey: 'sk-test' }, // no baseUrl
-        }),
-      ),
-    ).rejects.toBeInstanceOf(LlmRouteAssertionError)
-  })
-
   it('throws on duplicate variant ids', async () => {
     await expect(
       runEvalCampaign(
@@ -600,7 +604,7 @@ describe('runEvalCampaign — genuine-error containment (no orphaned workers)', 
         provider: 'test',
         model: 'test-model@2026-05-08',
         endpoint: '/chat/completions',
-        baseUrl: ctx.llmOpts.baseUrl ?? '',
+        baseUrl: EXECUTION_REF,
         attemptIndex: 0,
         direction: 'request',
         timestamp: 1_000,
@@ -631,7 +635,8 @@ describe('runEvalCampaign — genuine-error containment (no orphaned workers)', 
       scenarios: [{ scenarioId: 's1' }],
       seeds: [0],
       commitSha: 'cafebabe',
-      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: ({ runId }) => {
         const s = new InMemoryTraceStore()
         stores.set(runId, s)
@@ -704,7 +709,8 @@ describe('runEvalCampaign — abort failure is surfaced, not swallowed', () => {
       scenarios: [{ scenarioId: 's1' }],
       seeds: [0],
       commitSha: 'cafebabe',
-      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new AbortFailingStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner,
@@ -730,7 +736,8 @@ describe('runEvalCampaign — abort failure is surfaced, not swallowed', () => {
       scenarios: [{ scenarioId: 's1' }],
       seeds: [0],
       commitSha: 'cafebabe',
-      llmOpts: { baseUrl: 'https://api.test.local/v1', apiKey: 'sk-test' },
+      chatFactory,
+      executionRef: EXECUTION_REF,
       storeFactory: () => new InMemoryTraceStore(),
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner,

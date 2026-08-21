@@ -376,6 +376,11 @@ export function runChunkedAnalystDefinition<TRow>(
                 callId: providerCallId,
                 ...(context.signal ? { signal: context.signal } : {}),
               })
+              // The only endpoint this client ever targets is the loopback
+              // model proxy started above: `modelProxy.baseUrl` is
+              // `http://127.0.0.1:<port>/v1` with an ephemeral token, and the
+              // caller-owned execution owner behind it makes the paid call.
+              // agent-eval issues no provider request here.
               const llmOptions: LlmClientOptions = {
                 baseUrl: modelProxy.baseUrl,
                 apiKey: modelProxy.apiKey,

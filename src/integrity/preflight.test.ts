@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { assertModelsServed, ModelsUnreachableError, preflightModels } from './preflight'
+import {
+  assertModelsServed,
+  type ModelEndpointRequest,
+  ModelsUnreachableError,
+  preflightModels,
+} from './preflight'
 import { PROBE_MAX_TOKENS } from './served-model'
-
-const BASE = 'https://router.tangle.tools/v1'
-const KEY = 'test-key'
 
 function listResponse(ids: string[]): Response {
   return new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), {
@@ -13,38 +15,32 @@ function listResponse(ids: string[]): Response {
 }
 
 /**
- * Build a fetch fake whose chat-completions responses are keyed by model id.
- * A 200 with no explicit body echoes the requested model, matching what an
+ * Build an endpoint fake whose probe responses are keyed by model id. A 200
+ * with no explicit body echoes the requested model, matching what an
  * OpenAI-compatible provider sends; pass a body with a different `model` to
  * simulate a gateway substituting one.
  */
-function makeFetch(
+function makeRequest(
   listedIds: string[],
   probeByModel: Record<string, { status: number; body?: unknown }> = {},
-): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input)
-    if (url.endsWith('/models')) return listResponse(listedIds)
-    if (url.endsWith('/chat/completions')) {
-      const model = JSON.parse(String(init?.body)).model as string
-      const spec = probeByModel[model] ?? { status: 200 }
-      const body = spec.body === undefined && spec.status === 200 ? { model } : (spec.body ?? {})
-      return new Response(JSON.stringify(body), {
-        status: spec.status,
-        headers: { 'content-type': 'application/json' },
-      })
-    }
-    throw new Error(`unexpected url ${url}`)
-  }) as typeof fetch
+): ModelEndpointRequest {
+  return async (check) => {
+    if (check.kind === 'list-models') return listResponse(listedIds)
+    const spec = probeByModel[check.model] ?? { status: 200 }
+    const body =
+      spec.body === undefined && spec.status === 200 ? { model: check.model } : (spec.body ?? {})
+    return new Response(JSON.stringify(body), {
+      status: spec.status,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
 }
 
 describe('preflightModels — membership only', () => {
   it('marks listed vs unlisted models, served null when not probed', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['claude-sonnet-4-6', 'opencode/zai-coding-plan/glm-5.1'],
-      fetchImpl: makeFetch(['claude-sonnet-4-6', 'deepseek-v4-pro']),
+      request: makeRequest(['claude-sonnet-4-6', 'deepseek-v4-pro']),
     })
     expect(out.succeeded).toBe(true)
     expect(out.error).toBeNull()
@@ -69,26 +65,14 @@ describe('preflightModels — membership only', () => {
       },
     ])
   })
-
-  it('tolerates a trailing slash on baseUrl', async () => {
-    const out = await preflightModels({
-      baseUrl: `${BASE}/`,
-      apiKey: KEY,
-      models: ['claude-haiku-4-5'],
-      fetchImpl: makeFetch(['claude-haiku-4-5']),
-    })
-    expect(out.value?.[0]?.listed).toBe(true)
-  })
 })
 
 describe('preflightModels — probe', () => {
   it('served true on 200', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['claude-sonnet-4-6'],
       probe: true,
-      fetchImpl: makeFetch(['claude-sonnet-4-6'], { 'claude-sonnet-4-6': { status: 200 } }),
+      request: makeRequest(['claude-sonnet-4-6'], { 'claude-sonnet-4-6': { status: 200 } }),
     })
     expect(out.value).toEqual([
       {
@@ -112,11 +96,9 @@ describe('preflightModels — probe', () => {
 
   it('served false on 401 and captures the body error.message as detail', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['opencode/zai-coding-plan/glm-5.1'],
       probe: true,
-      fetchImpl: makeFetch([], {
+      request: makeRequest([], {
         'opencode/zai-coding-plan/glm-5.1': {
           status: 401,
           body: {
@@ -141,11 +123,9 @@ describe('preflightModels — probe', () => {
 
   it('served false on 503 with no usable body message', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
-      fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
+      request: makeRequest(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
     })
     expect(out.value).toEqual([
       {
@@ -162,11 +142,9 @@ describe('preflightModels — probe', () => {
 
   it('reads error.message nested under error', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['gpt-4.1-mini'],
       probe: true,
-      fetchImpl: makeFetch(['gpt-4.1-mini'], {
+      request: makeRequest(['gpt-4.1-mini'], {
         'gpt-4.1-mini': { status: 429, body: { error: { message: 'rate limited' } } },
       }),
     })
@@ -176,14 +154,12 @@ describe('preflightModels — probe', () => {
 
 describe('preflightModels — network failure', () => {
   it('GET failure returns a typed outcome, never throws', async () => {
-    const fetchImpl = (async () => {
+    const request: ModelEndpointRequest = async () => {
       throw new Error('ECONNREFUSED')
-    }) as typeof fetch
+    }
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['claude-sonnet-4-6'],
-      fetchImpl,
+      request,
     })
     expect(out.succeeded).toBe(false)
     expect(out.value).toBeNull()
@@ -191,29 +167,24 @@ describe('preflightModels — network failure', () => {
   })
 
   it('non-2xx /models returns a typed outcome with the status', async () => {
-    const fetchImpl = (async () => new Response('forbidden', { status: 403 })) as typeof fetch
+    const request: ModelEndpointRequest = async () => new Response('forbidden', { status: 403 })
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['claude-sonnet-4-6'],
-      fetchImpl,
+      request,
     })
     expect(out.succeeded).toBe(false)
     expect(out.error).toContain('403')
   })
 
   it('probe POST failure returns a typed outcome', async () => {
-    const fetchImpl = (async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/models')) return listResponse(['claude-sonnet-4-6'])
+    const request: ModelEndpointRequest = async (check) => {
+      if (check.kind === 'list-models') return listResponse(['claude-sonnet-4-6'])
       throw new Error('socket hang up')
-    }) as typeof fetch
+    }
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['claude-sonnet-4-6'],
       probe: true,
-      fetchImpl,
+      request,
     })
     expect(out.succeeded).toBe(false)
     expect(out.error).toContain('socket hang up')
@@ -224,7 +195,7 @@ describe('assertModelsServed', () => {
   it('passes silently when every model is served', async () => {
     const models = ['claude-sonnet-4-6', 'deepseek-v4-pro', 'gpt-4.1-mini']
     await expect(
-      assertModelsServed({ baseUrl: BASE, apiKey: KEY, models, fetchImpl: makeFetch(models) }),
+      assertModelsServed({ models, request: makeRequest(models) }),
     ).resolves.toHaveLength(3)
   })
 
@@ -238,11 +209,9 @@ describe('assertModelsServed', () => {
     let thrown: unknown
     try {
       await assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models,
         probe: true,
-        fetchImpl: makeFetch(['claude-sonnet-4-6', 'claude-code/dead-c'], {
+        request: makeRequest(['claude-sonnet-4-6', 'claude-code/dead-c'], {
           'claude-sonnet-4-6': { status: 200 },
           'opencode/dead-a': {
             status: 401,
@@ -276,11 +245,9 @@ describe('assertModelsServed', () => {
   it('a listed-but-probe-failed model is dead (no partial silent pass)', async () => {
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek-v4-pro'],
         probe: true,
-        fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
+        request: makeRequest(['deepseek-v4-pro'], { 'deepseek-v4-pro': { status: 503, body: {} } }),
       }),
     ).rejects.toThrow(ModelsUnreachableError)
   })
@@ -292,11 +259,9 @@ describe('assertModelsServed', () => {
     let thrown: unknown
     try {
       await assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['gpt-4.1-mini'],
         probe: true,
-        fetchImpl: makeFetch(['gpt-4.1-mini'], {
+        request: makeRequest(['gpt-4.1-mini'], {
           'gpt-4.1-mini': { status: 200, body: { model: 'gemini-2.5-flash-lite' } },
         }),
       })
@@ -316,11 +281,9 @@ describe('assertModelsServed', () => {
   it('fails a 200 that echoes no model id — reachable is not identified', async () => {
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek-v4-pro'],
         probe: true,
-        fetchImpl: makeFetch(['deepseek-v4-pro'], {
+        request: makeRequest(['deepseek-v4-pro'], {
           'deepseek-v4-pro': { status: 200, body: {} },
         }),
       }),
@@ -330,12 +293,10 @@ describe('assertModelsServed', () => {
   it('accepts an unreported id only when the caller opts in', async () => {
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek-v4-pro'],
         probe: true,
         allowUnreported: true,
-        fetchImpl: makeFetch(['deepseek-v4-pro'], {
+        request: makeRequest(['deepseek-v4-pro'], {
           'deepseek-v4-pro': { status: 200, body: {} },
         }),
       }),
@@ -343,26 +304,22 @@ describe('assertModelsServed', () => {
   })
 
   it('accepts a same-family swap only when the caller opts in', async () => {
-    const fetchImpl = makeFetch(['deepseek/deepseek-v3.2'], {
+    const request = makeRequest(['deepseek/deepseek-v3.2'], {
       'deepseek/deepseek-v3.2': { status: 200, body: { model: 'deepseek-v4-flash' } },
     })
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek/deepseek-v3.2'],
         probe: true,
-        fetchImpl,
+        request,
       }),
     ).rejects.toThrow(ModelsUnreachableError)
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek/deepseek-v3.2'],
         probe: true,
         allowWithinFamily: true,
-        fetchImpl,
+        request,
       }),
     ).resolves.toHaveLength(1)
   })
@@ -370,11 +327,9 @@ describe('assertModelsServed', () => {
   it('treats a provider-prefixed request answered by the bare id as the same model', async () => {
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['zai/glm-5.2'],
         probe: true,
-        fetchImpl: makeFetch(['zai/glm-5.2'], {
+        request: makeRequest(['zai/glm-5.2'], {
           'zai/glm-5.2': { status: 200, body: { model: 'glm-5.2' } },
         }),
       }),
@@ -382,46 +337,42 @@ describe('assertModelsServed', () => {
   })
 
   it('rethrows a network failure rather than reporting a partial pass', async () => {
-    const fetchImpl = (async () => {
+    const request: ModelEndpointRequest = async () => {
       throw new Error('ECONNREFUSED')
-    }) as typeof fetch
-    await expect(
-      assertModelsServed({ baseUrl: BASE, apiKey: KEY, models: ['claude-sonnet-4-6'], fetchImpl }),
-    ).rejects.toThrow(/ECONNREFUSED/)
+    }
+    await expect(assertModelsServed({ models: ['claude-sonnet-4-6'], request })).rejects.toThrow(
+      /ECONNREFUSED/,
+    )
   })
 })
 
 describe('preflightModels — probe budget', () => {
-  /** Capture the max_tokens each probe requested. */
-  function recordingFetch(
+  /** Capture the output-token budget each probe requested. */
+  function recordingRequest(
     sent: number[],
     spec: Record<string, { status: number; body?: unknown }>,
-  ) {
-    return (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
-      if (url.endsWith('/models')) return listResponse(Object.keys(spec))
-      const request = JSON.parse(String(init?.body))
-      sent.push(request.max_tokens)
-      const outcome = spec[request.model as string] ?? { status: 200 }
+  ): ModelEndpointRequest {
+    return async (check) => {
+      if (check.kind === 'list-models') return listResponse(Object.keys(spec))
+      sent.push(check.maxOutputTokens)
+      const outcome = spec[check.model] ?? { status: 200 }
       const body =
         outcome.body === undefined && outcome.status === 200
-          ? { model: request.model }
+          ? { model: check.model }
           : (outcome.body ?? {})
       return new Response(JSON.stringify(body), {
         status: outcome.status,
         headers: { 'content-type': 'application/json' },
       })
-    }) as typeof fetch
+    }
   }
 
   it('spends the shared probe budget, not a budget a reasoning model cannot answer within', async () => {
     const sent: number[] = []
     await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
-      fetchImpl: recordingFetch(sent, { 'deepseek-v4-pro': { status: 200 } }),
+      request: recordingRequest(sent, { 'deepseek-v4-pro': { status: 200 } }),
     })
     expect(sent).toEqual([PROBE_MAX_TOKENS])
     expect(PROBE_MAX_TOKENS).toBeGreaterThanOrEqual(64)
@@ -430,12 +381,10 @@ describe('preflightModels — probe budget', () => {
   it('honours an explicit probeMaxTokens', async () => {
     const sent: number[] = []
     await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
       probeMaxTokens: 512,
-      fetchImpl: recordingFetch(sent, { 'deepseek-v4-pro': { status: 200 } }),
+      request: recordingRequest(sent, { 'deepseek-v4-pro': { status: 200 } }),
     })
     expect(sent).toEqual([512])
   })
@@ -444,12 +393,10 @@ describe('preflightModels — probe budget', () => {
     'refuses probeMaxTokens %s instead of probing with a nonsense budget',
     async (probeMaxTokens) => {
       const out = await preflightModels({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek-v4-pro'],
         probe: true,
         probeMaxTokens,
-        fetchImpl: makeFetch(['deepseek-v4-pro']),
+        request: makeRequest(['deepseek-v4-pro']),
       })
       expect(out.succeeded).toBe(false)
       expect(out.error).toMatch(/probeMaxTokens must be a positive integer/)
@@ -463,12 +410,10 @@ describe('preflightModels — probe budget', () => {
 
   it('reports a reasoning model that ran out of budget as alive, not dead', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
       probeMaxTokens: 5,
-      fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+      request: makeRequest(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
     })
     expect(out.value?.[0]).toMatchObject({
       model: 'deepseek-v4-pro',
@@ -487,11 +432,9 @@ describe('preflightModels — probe budget', () => {
     'upstream error: reasoning_budget_exhausted',
   ])('recognises the budget signature in %j', async (message) => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
-      fetchImpl: makeFetch(['deepseek-v4-pro'], {
+      request: makeRequest(['deepseek-v4-pro'], {
         'deepseek-v4-pro': { status: 503, body: { error: { message } } },
       }),
     })
@@ -501,11 +444,9 @@ describe('preflightModels — probe budget', () => {
 
   it('leaves an ordinary 503 scored as dead', async () => {
     const out = await preflightModels({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['kimi-k2.6'],
       probe: true,
-      fetchImpl: makeFetch(['kimi-k2.6'], {
+      request: makeRequest(['kimi-k2.6'], {
         'kimi-k2.6': { status: 503, body: { error: { message: 'No provider configured' } } },
       }),
     })
@@ -514,12 +455,10 @@ describe('preflightModels — probe budget', () => {
 
   it('still blocks the run, naming the budget rather than declaring the model dead', async () => {
     const failure = await assertModelsServed({
-      baseUrl: BASE,
-      apiKey: KEY,
       models: ['deepseek-v4-pro'],
       probe: true,
       probeMaxTokens: 5,
-      fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+      request: makeRequest(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
     }).catch((err: unknown) => err)
 
     expect(failure).toBeInstanceOf(ModelsUnreachableError)
@@ -532,13 +471,11 @@ describe('preflightModels — probe budget', () => {
   it('accepts a budget-exhausted probe when the caller allows unproven identity', async () => {
     await expect(
       assertModelsServed({
-        baseUrl: BASE,
-        apiKey: KEY,
         models: ['deepseek-v4-pro'],
         probe: true,
         probeMaxTokens: 5,
         allowUnreported: true,
-        fetchImpl: makeFetch(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
+        request: makeRequest(['deepseek-v4-pro'], { 'deepseek-v4-pro': exhausted }),
       }),
     ).resolves.toHaveLength(1)
   })

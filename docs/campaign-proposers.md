@@ -313,21 +313,30 @@ With `optimizer`, every recipe stage must use the standard `gepa` engine or a me
 Agent Eval receives no provider key, enforces the declared request and token budget, and records the execution owner's exact usage and opaque finite JSON evidence.
 `maxProposerCostUsd` also limits each individual GEPA engine stage.
 
-When no execution package owns the call, build the callback with `createOpenAiCompatibleExecutionOwner` from `/campaign`:
+`optimizer.call` is always caller code.
+Agent Eval owns no model transport and never receives a provider credential.
+
+On agent-runtime, use `profileOptimizerModelCall`, which executes one exact `AgentProfile` and reports profile-digest evidence:
 
 ```ts
-import { createOpenAiCompatibleExecutionOwner } from '@tangle-network/agent-eval/campaign'
+import { profileOptimizerModelCall } from '@tangle-network/agent-runtime/kernel'
 
-const call = createOpenAiCompatibleExecutionOwner({
-  baseUrl: 'https://api.openai.com/v1',
-  apiKey: process.env.LLM_API_KEY!,
-  model: 'gpt-4.1-mini',
+const call = profileOptimizerModelCall({
+  profile: optimizerProfile,
+  context: 'prompt optimizer',
+  executor: {
+    backend: 'router',
+    routerBaseUrl: process.env.LLM_BASE_URL!,
+    routerKey: process.env.LLM_API_KEY!,
+  },
   pricing: { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 },
 })
 ```
 
-It executes each admitted request against any OpenAI-compatible `/chat/completions` endpoint and returns the typed outcome with a JSON-clean receipt.
-The credential stays inside the owner closure; the proxy still enforces every budget and identity check.
+Without agent-runtime, implement `ExternalOptimizerModelCall` over the OpenAI-compatible client you already have.
+`examples/_shared/openai-compatible-owner.ts` is a complete minimal implementation to copy.
+The callback resolves with one success or failure result and never rejects, because a rejection loses the execution record and fails the optimizer attempt.
+The credential stays in your process; the proxy still enforces every budget and identity check.
 
 ### Metered agent CLI engines
 

@@ -91,7 +91,7 @@ OPTIMIZERS=skillopt pnpm tsx examples/compare-optimization-methods/index.ts
 
 Set `SKILLOPT_PRICE_IN_PER_M` and `SKILLOPT_PRICE_OUT_PER_M` to the current exact rates for your endpoint before running SkillOpt.
 The example passes SkillOpt's `openai_compatible` traffic through Agent Eval's local proxy and then through the execution owner.
-By default that owner is `createOpenAiCompatibleExecutionOwner` from `/campaign`, built from `LLM_BASE_URL` and `LLM_API_KEY`.
+By default that owner is this repository's example owner, `examples/_shared/openai-compatible-owner.ts`, built from `LLM_BASE_URL` and `LLM_API_KEY`. Agent Eval owns no model transport; on agent-runtime the production owner is `profileOptimizerModelCall`.
 An `OPTIMIZER_EXECUTION_OWNER_MODULE` override must export `createOptimizerExecutionOwner(model)` and return `{ call, callRef }`.
 Discovery uses this module boundary to execute the model through Runtime with one exact AgentProfile.
 Set `SKILLOPT_MODEL` to use a different optimizer model.

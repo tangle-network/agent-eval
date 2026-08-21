@@ -302,21 +302,6 @@ describe('the golden records are load-bearing', () => {
     }
   })
 
-  it('refuses a second matrix judge wire in the same process', () => {
-    const scenario = first(multishotMatrixGoldenScenarios(), 'matrix scenarios')
-    const held = scenario.build('/unused/golden-wire-a')
-    const restore = held.installJudgeWire()
-    try {
-      expect(() => scenario.build('/unused/golden-wire-b').installJudgeWire()).toThrow(
-        /run matrix checks serially within one process/,
-      )
-    } finally {
-      restore()
-    }
-    // Released again after the first check finishes.
-    scenario.build('/unused/golden-wire-c').installJudgeWire()()
-  })
-
   it('refuses an `only` id the catalog does not hold instead of greening zero scenarios', async () => {
     await expect(
       checkMultishotGolden({

@@ -5,14 +5,13 @@
  */
 
 import { createHash } from 'node:crypto'
+import type { ChatClient } from '../../src/analyst/chat-client'
 import type { DispatchContext, JudgeConfig, JudgeScore, Scenario } from '../../src/campaign'
 import type { CustomTokenPricing } from '../../src/cost-ledger'
 import {
-  callLlm,
   costReceiptFromLlm,
   costReceiptFromLlmError,
   type LlmCallRequest,
-  type LlmClientOptions,
   maximumChargeForLlmRequest,
 } from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
@@ -216,7 +215,8 @@ export function parseJsonLoose(raw: string): Record<string, unknown> | null {
 }
 
 export interface ExtractionWorkerOptions {
-  llm: LlmClientOptions
+  /** Caller-owned transport. Agent Eval executes no paid model. */
+  chat: ChatClient
   model: string
   /** Per-call RunRecord sink used by assertRealBackend at the end. */
   records: RunRecord[]
@@ -234,10 +234,6 @@ export interface ExtractionWorkerOptions {
  *  The returned function can be passed to runImprovementLoop or
  *  compareOptimizationMethods. */
 export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
-  const llm = {
-    ...opts.llm,
-    ...(opts.customTokenPricing ? { customTokenPricing: opts.customTokenPricing } : {}),
-  }
   const timeoutMs = opts.timeoutMs ?? 30_000
   const experimentId = opts.experimentId ?? 'extraction-task'
   return async function dispatchWithSurface(
@@ -259,10 +255,15 @@ export function makeExtractionWorker(opts: ExtractionWorkerOptions) {
     const paid = await ctx.cost.runPaidCall({
       actor: 'worker',
       model: opts.model,
-      maximumCharge: maximumChargeForLlmRequest(request, llm),
-      execute: (signal, callId) => callLlm(request, { ...llm, signal, idempotencyKey: callId }),
-      receipt: costReceiptFromLlm,
-      receiptFromError: costReceiptFromLlmError,
+      maximumCharge: maximumChargeForLlmRequest(request, {
+        ...(opts.chat.maximumAttempts === undefined
+          ? {}
+          : { maximumAttempts: opts.chat.maximumAttempts }),
+        ...(opts.customTokenPricing ? { customTokenPricing: opts.customTokenPricing } : {}),
+      }),
+      execute: (signal, callId) => opts.chat.chat(request, { signal, idempotencyKey: callId }),
+      receipt: (result) => costReceiptFromLlm(result, opts.customTokenPricing),
+      receiptFromError: (error) => costReceiptFromLlmError(error, opts.customTokenPricing),
     })
     if (!paid.succeeded) throw paid.error
     const res = paid.value

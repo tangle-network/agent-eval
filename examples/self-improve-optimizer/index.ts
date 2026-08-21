@@ -16,15 +16,13 @@
 // IN-REPO: relative imports so the example typechecks against the workspace.
 // COPY-PASTE INTO YOUR OWN PROJECT: change these to
 //   import { selfImprove } from '@tangle-network/agent-eval/contract'
-//   import {
-//     createOpenAiCompatibleExecutionOwner,
-//     gepaOptimizationMethod,
-//   } from '@tangle-network/agent-eval/campaign'
-// The public subpaths expose these names with the same shapes.
-import { createOpenAiCompatibleExecutionOwner, gepaOptimizationMethod } from '../../src/campaign'
+//   import { gepaOptimizationMethod } from '@tangle-network/agent-eval/campaign'
+// The public subpaths expose these names with the same shapes. The execution
+// owner is yours: copy `_shared/openai-compatible-owner.ts`, or use
+// `profileOptimizerModelCall` from `@tangle-network/agent-runtime/kernel`.
+import { gepaOptimizationMethod } from '../../src/campaign'
 import { selfImprove } from '../../src/contract'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
-import type { LlmClientOptions } from '../../src/llm-client'
 import type { RunRecord } from '../../src/run-record'
 import { positiveIntegerEnv, positiveNumberEnv } from '../_shared/env'
 import {
@@ -34,6 +32,10 @@ import {
   makeExtractionWorker,
 } from '../_shared/extraction-task'
 import { GEPA_REFLECTION_ENGINE_CONFIG } from '../_shared/gepa-reflection'
+import {
+  openAiCompatibleChatClient,
+  openAiCompatibleExecutionOwner,
+} from '../_shared/openai-compatible-owner'
 import { optimizerModelBudgetFromEnv } from '../_shared/optimizer-model-budget'
 
 // ── Environment, validated before any paid call ─────────────────────────
@@ -137,14 +139,16 @@ const BASELINE_SURFACE = 'Extract the transaction info from the message as JSON.
 
 // ── Agent, judge, and the GEPA method ────────────────────────────────────
 const records: RunRecord[] = []
-const llm: LlmClientOptions = {
-  apiKey: API_KEY,
+// The worker transport is caller code: Agent Eval holds no provider key.
+const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
+  apiKey: API_KEY,
+  model: MODEL,
   maximumAttempts: 2,
-  defaultTimeoutMs: CALL_TIMEOUT_MS,
-}
+  timeoutMs: CALL_TIMEOUT_MS,
+})
 const worker = makeExtractionWorker({
-  llm,
+  chat,
   model: MODEL,
   records,
   timeoutMs: CALL_TIMEOUT_MS,
@@ -152,11 +156,11 @@ const worker = makeExtractionWorker({
   experimentId: 'self-improve-optimizer',
 })
 
-// The default execution owner wraps one OpenAI-compatible endpoint as the
-// metered model call every official optimizer requires. Agent Eval's loopback
-// proxy meters each reflection call against `budget`, and the provider key
-// never reaches the Python child.
-const optimizerCall = createOpenAiCompatibleExecutionOwner({
+// The execution owner is caller code: it wraps one OpenAI-compatible endpoint
+// as the metered model call every official optimizer requires. Agent Eval's
+// loopback proxy meters each reflection call against `budget`, and the
+// provider key never reaches Agent Eval or the Python child.
+const optimizerCall = openAiCompatibleExecutionOwner({
   baseUrl: BASE_URL,
   apiKey: API_KEY,
   model: GEPA_MODEL,

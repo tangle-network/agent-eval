@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   ChatCallOpts,
   ChatTransport,
-  CliBridgeTransportOpts,
   CustomTransportOpts,
-  DirectProviderTransportOpts,
-  RouterTransportOpts,
   SandboxSdkTransportOpts,
 } from '../src/analyst/chat-client'
 import * as builderEval from '../src/builder-eval/index'
@@ -60,8 +57,7 @@ const ROOT_RUNTIME_SYMBOLS = [
   // agent-runtime supervise surface imports these from the root
   'isToolSpan',
   'OUTPUT_VALUE',
-  // LLM client + retry
-  'callLlmJson',
+  // Caller-owned model transport + retry
   'withJudgeRetry',
   'createChatClient',
   // Verifier / review / campaign
@@ -232,13 +228,6 @@ describe('public-surface contract for consumers', () => {
     const createOpts: CreateChatClientOpts = mockOpts
     const client: ChatClient = agentEval.createChatClient(createOpts)
 
-    const routerOpts: RouterTransportOpts = { transport: 'router', apiKey: 'test' }
-    const cliBridgeOpts: CliBridgeTransportOpts = { transport: 'cli-bridge' }
-    const directProviderOpts: DirectProviderTransportOpts = {
-      transport: 'direct-provider',
-      baseUrl: 'https://example.invalid/v1',
-      apiKey: 'test',
-    }
     const sandboxSdkOpts: SandboxSdkTransportOpts = {
       transport: 'sandbox-sdk',
       chat: async () => response,
@@ -251,9 +240,6 @@ describe('public-surface contract for consumers', () => {
     }
     const custom = agentEval.createChatClient(customOpts)
 
-    expect(routerOpts.transport).toBe('router')
-    expect(cliBridgeOpts.transport).toBe('cli-bridge')
-    expect(directProviderOpts.transport).toBe('direct-provider')
     expect(sandboxSdkOpts.transport).toBe('sandbox-sdk')
     expect(await client.chat(request, callOpts)).toBe(response)
     expect(await custom.chat(request, callOpts)).toBe(response)

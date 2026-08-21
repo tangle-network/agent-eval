@@ -12,12 +12,7 @@ import type { JudgeScore } from '../campaign/types'
 import type { CostProvenance } from '../cost-ledger'
 import type { LlmCallMetadata, LlmUsage } from '../llm-client'
 import { estimateCost, isModelPriced } from '../metrics'
-import {
-  defaultRouterBaseUrl,
-  type RouterCompletionResponse,
-  requireRouterApiKey,
-  routerCompletion,
-} from './router'
+import type { MultishotTransport, MultishotTransportResponse } from './types'
 
 // Canonical declaration lives in campaign/types.ts. Multishot emits the same
 // shape on its producer-defined 0-10 scale.
@@ -35,6 +30,9 @@ export interface JudgeDimension {
 export interface JudgeConfig<TInput> {
   /** Display name (for trace + log). */
   name: string
+  /** Caller-owned execution for this judge's call. agent-eval issues no
+   *  provider request and holds no credential. */
+  transport: MultishotTransport
   /** Model used for this judge. */
   model?: string
   /** 0-10 scored dimensions. */
@@ -44,9 +42,6 @@ export interface JudgeConfig<TInput> {
   /** Build the user prompt from the typed input. Must include "Respond with
    *  ONLY this JSON: { ... }" listing each dimension key. */
   buildPrompt: (input: TInput) => string
-  /** Optional model + api overrides. */
-  apiKey?: string
-  baseUrl?: string
   /** Maximum output tokens for the judge response. Defaults to 1500. */
   maxTokens?: number
 }
@@ -62,18 +57,14 @@ export async function runJudge<TInput>(
   judge: JudgeConfig<TInput>,
   input: TInput,
 ): Promise<JudgeRunResult> {
-  const apiKey = judge.apiKey ?? requireRouterApiKey()
-  const baseUrl = judge.baseUrl ?? defaultRouterBaseUrl()
-  const model = judge.model ?? process.env.JUDGE_MODEL ?? DEFAULT_JUDGE_MODEL
+  const model = judge.model ?? DEFAULT_JUDGE_MODEL
   const prompt = judge.buildPrompt(input)
   let raw = ''
   let llmCall: LlmCallMetadata
   let cost: CostProvenance
   const startedAt = Date.now()
   try {
-    const response = await routerCompletion({
-      apiKey,
-      baseUrl,
+    const response = await judge.transport({
       model,
       temperature: 0,
       maxTokens: judge.maxTokens ?? 1500,
@@ -82,7 +73,7 @@ export async function runJudge<TInput>(
         { role: 'user', content: prompt },
       ],
     })
-    const call = judgeCallMetadata(response)
+    const call = judgeCallMetadata(response, model, Date.now() - startedAt)
     llmCall = call.llmCall
     cost = call.cost
     raw = (response.message.content ?? '').trim()
@@ -140,31 +131,39 @@ export async function runJudge<TInput>(
   }
 }
 
-function judgeCallMetadata(response: RouterCompletionResponse): {
+function judgeCallMetadata(
+  response: MultishotTransportResponse,
+  requestedModel: string,
+  durationMs: number,
+): {
   llmCall: LlmCallMetadata
   cost: CostProvenance
 } {
   const usage = canonicalUsage(response.usage)
+  // The transport reports the served identity when it observed one. Falling
+  // back to the requested id keeps attribution honest for a transport that
+  // reported none; it is not proof that model answered.
+  const model = response.model ?? requestedModel
   return {
     llmCall: {
       usage,
       costUsd: response.costUsd ?? null,
-      model: response.model,
-      durationMs: response.durationMs,
+      model,
+      durationMs,
     },
     cost:
       response.costUsd !== undefined
         ? { kind: 'observed', usd: response.costUsd }
-        : usage.captured === false || !isModelPriced(response.model)
+        : usage.captured === false || !isModelPriced(model)
           ? { kind: 'uncaptured', usd: null }
           : {
               kind: 'estimated',
-              usd: estimateCost(usage.promptTokens, usage.completionTokens, response.model),
+              usd: estimateCost(usage.promptTokens, usage.completionTokens, model),
             },
   }
 }
 
-function canonicalUsage(usage: RouterCompletionResponse['usage']): LlmUsage {
+function canonicalUsage(usage: MultishotTransportResponse['usage']): LlmUsage {
   const promptTokens = tokenCount(usage?.prompt_tokens)
   const completionTokens = tokenCount(usage?.completion_tokens)
   const captured = promptTokens !== undefined && completionTokens !== undefined
