@@ -28,6 +28,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { compareCodeUnits } from '../../ledger-core/canonical'
 import type {
   LabeledScenarioRecord,
   LabeledScenarioSampleArgs,
@@ -129,8 +130,8 @@ export class FsLabeledScenarioStore implements LabeledScenarioStore {
 
     // Deterministic order: by capturedAt ascending, then recordHash.
     all.sort((a, b) => {
-      if (a.capturedAt !== b.capturedAt) return a.capturedAt.localeCompare(b.capturedAt)
-      return a.recordHash.localeCompare(b.recordHash)
+      if (a.capturedAt !== b.capturedAt) return compareCodeUnits(a.capturedAt, b.capturedAt)
+      return compareCodeUnits(a.recordHash, b.recordHash)
     })
 
     return all.slice(0, args.count)

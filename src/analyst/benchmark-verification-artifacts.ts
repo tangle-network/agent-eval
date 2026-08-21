@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { type FileHandle, open, readdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { TextDecoder } from 'node:util'
+import { compareCodeUnits } from '../ledger-core/canonical'
 import type { CodeTraceBenchRow } from './benchmark-datasets'
 import {
   parseVerificationOutcome,
@@ -446,7 +447,7 @@ async function artifactCandidates(
     .sort(
       (left, right) =>
         artifactRoleOrder(left.role) - artifactRoleOrder(right.role) ||
-        left.relativePath.localeCompare(right.relativePath),
+        compareCodeUnits(left.relativePath, right.relativePath),
     )
 }
 

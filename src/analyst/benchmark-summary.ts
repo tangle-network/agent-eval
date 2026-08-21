@@ -1,8 +1,10 @@
+import { compareCodeUnits } from '../ledger-core/canonical'
 import type {
   AnalystBenchmarkObservation,
   AnalystBenchmarkSummary,
   AnalystLatencyDistribution,
 } from './benchmark'
+
 import { harmonicMeanScore } from './benchmark-scoring'
 
 export function summarizeAnalystBenchmarkRunner(
@@ -273,7 +275,7 @@ function predictionSignature(observation: AnalystBenchmarkObservation): readonly
         finding.finding_id,
         finding.evidence_refs
           .map((evidence) => [evidence.kind, evidence.uri, evidence.excerpt ?? null])
-          .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+          .sort((left, right) => compareCodeUnits(JSON.stringify(left), JSON.stringify(right))),
       ]),
     )
     .sort()

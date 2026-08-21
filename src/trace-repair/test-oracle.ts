@@ -20,6 +20,7 @@
 
 import { createHash } from 'node:crypto'
 import { CaptureIntegrityError, ValidationError } from '../errors'
+import { compareCodeUnits } from '../ledger-core/canonical'
 import type {
   RepairExecResult,
   RepairSession,
@@ -63,7 +64,7 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 900_000
  */
 export function testSuiteDigest(files: readonly TestSuiteFile[]): string {
   const hash = createHash('sha256')
-  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+  for (const file of [...files].sort((a, b) => compareCodeUnits(a.path, b.path))) {
     hash.update(file.path)
     hash.update('\0')
     hash.update(Buffer.from(file.contents, 'utf8'))

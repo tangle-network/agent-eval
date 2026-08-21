@@ -32,6 +32,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { compareCodeUnits } from '../ledger-core/canonical'
 
 export const VERIFIED_FINDING_SCHEMA = 'agent-eval/verified-finding@0'
 
@@ -655,7 +656,7 @@ export function loadVerifiedFindingsDataset(
       }),
     )
   }
-  rows.sort((a, b) => a.caseId.localeCompare(b.caseId))
+  rows.sort((a, b) => compareCodeUnits(a.caseId, b.caseId))
 
   return {
     rows,

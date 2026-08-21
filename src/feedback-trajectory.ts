@@ -11,7 +11,7 @@ import {
   snapshotAnalystRun,
   validateAnalystReviewDecisions,
 } from './feedback-trajectory-review'
-import { canonicalString } from './ledger-core/canonical'
+import { canonicalString, compareCodeUnits } from './ledger-core/canonical'
 
 export type {
   AnalystFindingDigest,
@@ -737,7 +737,7 @@ export function renderPreferenceMemoryMarkdown(entries: PreferenceMemoryEntry[])
 export function serializeFeedbackTrajectoriesJsonl(trajectories: FeedbackTrajectory[]): string {
   return `${trajectories
     .slice()
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => compareCodeUnits(a.id, b.id))
     .map((trajectory) => canonicalString(cloneTrajectory(trajectory)))
     .join('\n')}\n`
 }

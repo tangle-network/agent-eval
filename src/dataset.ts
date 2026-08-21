@@ -71,7 +71,7 @@ export interface SliceOptions {
 }
 
 import { ValidationError } from './errors'
-import { canonicalString, hashCanonical } from './ledger-core/canonical'
+import { canonicalString, compareCodeUnits, hashCanonical } from './ledger-core/canonical'
 
 /** Locked holdouts — throws on mutate. Callers that need a mutable dataset fork it. */
 export class HoldoutLockedError extends ValidationError {
@@ -188,7 +188,7 @@ export class Dataset {
   toJsonl(): string {
     return `${this.scenarios
       .slice()
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => compareCodeUnits(a.id, b.id))
       .map((s) => canonicalString(s))
       .join('\n')}\n`
   }
@@ -217,7 +217,7 @@ export class Dataset {
  * coerced field would let two different datasets share one.
  */
 export async function hashScenarios(scenarios: DatasetScenario[]): Promise<string> {
-  const sorted = scenarios.slice().sort((a, b) => a.id.localeCompare(b.id))
+  const sorted = scenarios.slice().sort((a, b) => compareCodeUnits(a.id, b.id))
   return hashCanonical(sorted).slice('sha256:'.length)
 }
 

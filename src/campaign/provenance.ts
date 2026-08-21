@@ -35,7 +35,7 @@ import type {
   TraceSpanEvent,
 } from '../hosted/types'
 import { summarizeAgentReceiptIntegrity } from '../integrity/backend-integrity'
-import { canonicalString, hashCanonical } from '../ledger-core/canonical'
+import { canonicalString, compareCodeUnits, hashCanonical } from '../ledger-core/canonical'
 import { assertCampaignSplitIdentity } from './coverage'
 import type {
   ComparisonCost,
@@ -473,7 +473,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
           : {}),
       },
       costReceiptsDigest: canonicalDigest(
-        [...args.costReceipts].sort((left, right) => left.callId.localeCompare(right.callId)),
+        [...args.costReceipts].sort((left, right) => compareCodeUnits(left.callId, right.callId)),
       ),
     },
     baselineSearchComposite,
@@ -570,7 +570,7 @@ export function campaignMeasurementDigest<TArtifact, TScenario extends Scenario>
     runDir: campaign.runDir,
     scenarios: campaign.scenarios,
     cells: [...campaign.cells]
-      .sort((left, right) => left.cellId.localeCompare(right.cellId))
+      .sort((left, right) => compareCodeUnits(left.cellId, right.cellId))
       .map((cell) => ({
         manifestHash: cell.manifestHash ?? null,
         cellId: cell.cellId,

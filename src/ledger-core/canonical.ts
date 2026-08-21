@@ -131,3 +131,24 @@ function isWellFormedUtf16(value: string): boolean {
   }
   return true
 }
+
+/**
+ * Compare two strings by UTF-16 code unit — the order RFC 8785 uses for object
+ * keys, and the order any array must be sorted into before it is canonicalized.
+ *
+ * `String.prototype.localeCompare` reads the host's collation, so it is a
+ * property of the machine rather than of the value. RFC 8785 canonicalizes an
+ * array BY POSITION, so a `localeCompare` sort in front of `canonicalString` or
+ * `hashCanonical` lets the collation decide the digest bytes: the ids
+ * `Accuracy, brevity, Clarity` order as `Accuracy,brevity,Clarity` under an
+ * en-US collation and as `Accuracy,Clarity,brevity` by code unit, and the two
+ * produce different digests for the same data.
+ *
+ * Use this for any ordering whose result reaches a digest, a stable
+ * serialization, or a stored identity. A comparator for a report a human reads
+ * is free to keep `localeCompare`.
+ */
+export function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  return left > right ? 1 : 0
+}
