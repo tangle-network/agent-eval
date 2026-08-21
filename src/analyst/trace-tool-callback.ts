@@ -4,7 +4,12 @@ import {
   type ExternalOptimizerCallbackLimits,
   resolveExternalOptimizerCallbackLimits,
 } from '../campaign/external-optimizer-contracts'
-import { closeServer, listenLocal, sendJson } from '../campaign/external-optimizer-http'
+import {
+  closeServer,
+  listenLocal,
+  sendJsonIfOpen,
+  waitForActiveHandlers,
+} from '../campaign/external-optimizer-http'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 
 export interface TraceToolCallback {
@@ -144,12 +149,6 @@ export async function startTraceToolCallback(args: {
   }
 }
 
-async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
-  while (activeHandlers.size > 0) {
-    await Promise.allSettled([...activeHandlers])
-  }
-}
-
 function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0
@@ -172,11 +171,6 @@ function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<un
       }
     })
   })
-}
-
-function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
-  if (response.destroyed || response.writableEnded) return
-  sendJson(response, status, body)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

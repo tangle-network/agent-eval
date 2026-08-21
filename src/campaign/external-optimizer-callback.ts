@@ -10,7 +10,12 @@ import {
   isRecord,
   resolveExternalOptimizerCallbackLimits,
 } from './external-optimizer-contracts'
-import { closeServer, listenLocal, sendJson } from './external-optimizer-http'
+import {
+  closeServer,
+  listenLocal,
+  sendJsonIfOpen,
+  waitForActiveHandlers,
+} from './external-optimizer-http'
 
 type UnsequencedObservation = ExternalOptimizerEvaluationObservation extends infer T
   ? T extends ExternalOptimizerEvaluationObservation
@@ -231,17 +236,6 @@ async function handleCallback<TResponse>(
   } catch {
     sendJsonIfOpen(response, 500, { error: 'evaluation failed' })
   }
-}
-
-async function waitForActiveHandlers(activeHandlers: Set<Promise<void>>): Promise<void> {
-  while (activeHandlers.size > 0) {
-    await Promise.allSettled([...activeHandlers])
-  }
-}
-
-function sendJsonIfOpen(response: ServerResponse, status: number, body: unknown): void {
-  if (response.destroyed || response.writableEnded) return
-  sendJson(response, status, body)
 }
 
 function readJson(request: IncomingMessage, maxRequestBytes: number): Promise<unknown> {
