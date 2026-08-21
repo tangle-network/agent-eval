@@ -26,7 +26,7 @@
 import type { GateDecision } from './held-out-gate'
 import { pairRunRecords } from './paired-arms'
 import type { FailureClusterReport } from './pipelines/failure-cluster'
-import { canonicalize, hashJson } from './pre-registration'
+import { hashJson } from './pre-registration'
 import { observedSplitScore, type ScorePreference } from './rollout/reward'
 import type { RunRecord } from './run-record'
 import {
@@ -847,16 +847,14 @@ export async function researchReport(
     mdeAlpha,
   })
 
-  const runFingerprint = await hashJson(
-    canonicalize({
-      triples: runs
-        .filter((r) => r.splitTag === split)
-        .map((r) => ({ runId: r.runId, candidateId: r.candidateId, splitTag: r.splitTag }))
-        .sort((a, b) => a.runId.localeCompare(b.runId)),
-      comparator,
-      split,
-    }),
-  )
+  const runFingerprint = await hashJson({
+    triples: runs
+      .filter((r) => r.splitTag === split)
+      .map((r) => ({ runId: r.runId, candidateId: r.candidateId, splitTag: r.splitTag }))
+      .sort((a, b) => a.runId.localeCompare(b.runId)),
+    comparator,
+    split,
+  })
 
   const markdown = renderResearchMarkdown({
     title,

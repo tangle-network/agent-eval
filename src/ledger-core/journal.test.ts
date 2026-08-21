@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { canonicalize } from '../pre-registration'
 import { FileLedgerJournal, type LedgerJournalCodec } from './journal'
 
 interface MetricEvent {
@@ -37,9 +36,19 @@ function metricCodec(): LedgerJournalCodec<MetricHeader, MetricEvent, MetricEven
 /** Row bytes as a sorted-key `JSON.stringify` encoder produces them. Object
  * property enumeration puts array-index-like keys first in numeric order, so
  * the sort does not survive the round trip through a plain object. */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}
+
 function sortedStringifyRow(event: MetricEvent): string {
   const material = { journal: 'metric', sequence: 0, previousHash: null, event }
-  const encode = (value: unknown) => JSON.stringify(canonicalize(value))
+  const encode = (value: unknown) => JSON.stringify(sortKeysDeep(value))
   const entryHash = `sha256:${createHash('sha256').update(encode(material)).digest('hex')}`
   return `${encode({ ...material, entryHash })}\n`
 }

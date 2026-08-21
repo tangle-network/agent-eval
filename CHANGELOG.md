@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.159.0] — 2026-08-21
+
+### Changed
+
+- Durable digests name their scheme (#646, part 2 of 3). A signed `HypothesisManifest`, a `SealedExperiment`, and an `AgentProfileCell` id are each written once and verified later, possibly by a different release, so each now records the encoder that produced it and verification selects the encoder from the record. `signManifest` writes `algo: 'sha256-rfc8785'` and `sealExperiment` writes the same tag; an `AgentProfileCell` id is now `agent-profile-cell:sha256-rfc8785:<digest>`. Records written under the previous key-sorted `JSON.stringify` scheme — tagged `'sha256-content'`, carrying no `algo`, or carrying the bare `agent-profile-cell:sha256:` prefix — still verify. Each legacy encoder is private to the module that verifies with it and is unreachable from any path that writes a digest; `docs/experiment.md` records when they can be retired. An `algo` this release does not recognize is refused rather than read as valid.
+- `hashJson`, `agentProfileHash`, and the analyst-benchmark receipt digests route through `ledger-core/canonical`. Benchmark receipts are digested before they are written and re-digested when they are read back, so they digest the JSON document form: the new exported `jsonDocument()` states that rule — a JSON file cannot carry `undefined`, so an undefined-valued key is absent — while every other ambiguous value stays refused, unlike `JSON.stringify`, which turns `NaN` into `null`. Analyst-benchmark receipts need no algorithm tag: the run identity that gates every resume already pins `implementationSha256`, a digest over the implementation sources including the encoder itself, so a receipt written by another release is refused before any digest is compared.
+- `agentProfileHash` is byte-identical to the digest the previous encoder produced, and an AgentRx case definition no longer carries `undefined`-valued metadata keys — both pinned by tests.
+
+### Removed
+
+- `canonicalize` is no longer exported (root and `./experiment`). It was the key-sorting half of the retired digest scheme; `hashJson` canonicalizes internally, and a caller that needs the encoding directly uses `canonicalString` from `./ledger-core`. `manifestContentDigest` is exported in its place: the one synchronous manifest digest, selected by `algo`, that `sequentialPairedGate` now shares instead of re-implementing the rule.
+
+---
+
 ## [0.158.0] — 2026-08-21
 
 ### Fixed

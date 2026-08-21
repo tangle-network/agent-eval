@@ -45,7 +45,7 @@ import {
   verifyAgentProfileCell,
 } from './agent-profile-cell'
 import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from './llm-client'
-import { canonicalize, hashJson } from './pre-registration'
+import { hashJson } from './pre-registration'
 import type {
   JudgeScoresRecord,
   RunCostProvenance,
@@ -348,19 +348,17 @@ export async function runEvalCampaign<V>(
   const rawSinkFactory = opts.rawSinkFactory ?? defaultRawSinkFactory(opts.workDir)
 
   // ── Fingerprint ────────────────────────────────────────────────────
-  const campaignFingerprint = await hashJson(
-    canonicalize({
-      campaignId: opts.campaignId,
-      variants: opts.variants.map((v) => v.id).sort(),
-      scenarios: opts.scenarios.map((s) => s.scenarioId).sort(),
-      seeds: [...seeds].sort((a, b) => a - b),
-      splitTag,
-      comparator: opts.report?.comparator ?? null,
-      baseUrl,
-      provider,
-      preregistrationHash,
-    }),
-  )
+  const campaignFingerprint = await hashJson({
+    campaignId: opts.campaignId,
+    variants: opts.variants.map((v) => v.id).sort(),
+    scenarios: opts.scenarios.map((s) => s.scenarioId).sort(),
+    seeds: [...seeds].sort((a, b) => a - b),
+    splitTag,
+    comparator: opts.report?.comparator ?? null,
+    baseUrl,
+    provider,
+    preregistrationHash,
+  })
 
   // ── Plan the matrix ────────────────────────────────────────────────
   type Cell = { variant: CampaignVariant<V>; scenario: CampaignScenario; seed: number }

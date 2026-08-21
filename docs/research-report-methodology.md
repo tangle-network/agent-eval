@@ -68,7 +68,7 @@ In order: first match wins:
 | Smallest p a rank-test design can produce | `pFloor` on the result | `statistics.ts` |
 | Bayesian-bootstrap Pr(Δ>0), Pr(Δ∈ROPE) | `bayesianBootstrapMeanSamples` | `summary-report.ts` (private) |
 | Minimum detectable paired effect | `pairedMde` | `statistics.ts` |
-| Run fingerprint | `hashJson(canonicalize(...))` | `pre-registration.ts` |
+| Run fingerprint | `hashJson(...)` | `pre-registration.ts` |
 
 The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use Rubin's Bayesian bootstrap.
 Each posterior draw assigns the observed paired deltas Dirichlet(1, ..., 1) weights, implemented as normalized independent Exponential(1) draws.

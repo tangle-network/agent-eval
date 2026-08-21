@@ -785,7 +785,7 @@ try {
             hash: '0'.repeat(64),
           },
         })
-        if (!profileCell.validateAgentProfileCell(cell).cellId.startsWith('agent-profile-cell:sha256:')) {
+        if (!profileCell.validateAgentProfileCell(cell).cellId.startsWith('agent-profile-cell:sha256-rfc8785:')) {
           throw new Error('packed profile-cell entry rejected its generated cell')
         }
       `,

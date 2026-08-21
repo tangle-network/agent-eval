@@ -65,12 +65,13 @@ export {
   pairRunRecords,
 } from '../paired-arms'
 export {
-  canonicalize,
   evaluateHypothesis,
   type HypothesisManifest,
   type HypothesisResult,
   hashJson,
+  manifestContentDigest,
   type SignedManifest,
+  type SignedManifestAlgo,
   signManifest,
   verifyManifest,
 } from '../pre-registration'

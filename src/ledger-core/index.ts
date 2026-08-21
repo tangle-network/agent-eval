@@ -22,6 +22,7 @@ export {
 export {
   canonicalString,
   hashCanonical,
+  jsonDocument,
   LEDGER_HASH_PATTERN,
   LedgerCanonicalizationError,
   type LedgerHash,

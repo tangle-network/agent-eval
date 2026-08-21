@@ -35,7 +35,7 @@ import {
   sealExperiment,
 } from '@tangle-network/agent-eval/experiment'
 
-const sealed = await sealExperiment(spec)      // canonicalize + sha256 over the whole tree
+const sealed = await sealExperiment(spec)      // RFC 8785 + sha256 over the whole tree
 const registered = await openSealedExperiment(sealed) // verifies the digest first
 
 const admission = registered.admit(rows)       // funnel + survivors, from the sealed rule
@@ -43,6 +43,23 @@ const gate = registered.gate('power-floor', { kind: 'power-floor', curve })
 const halt = registered.halt([gate])           // refuse-spend fires before any contrast
 const outcome = registered.decide(quantities)  // the sealed table; non-total tables throw
 ```
+
+#### Digest schemes and retention
+
+A seal and a signed `HypothesisManifest` are durable records: each is written
+once and verified later, possibly by a different release. Both carry an `algo`
+field that names the digest scheme, and verification selects the encoder from
+that field.
+
+| `algo` | Serialization | Status |
+|---|---|---|
+| `sha256-rfc8785` | RFC 8785 canonical JSON, from `ledger-core/canonical` | What `sealExperiment` and `signManifest` write |
+| `sha256-content` | key-sorted `JSON.stringify` | Read-only. Records written before the RFC 8785 scheme carry it, or carry no `algo` at all, and still verify |
+
+The `sha256-content` encoder is private to the module that verifies with it and
+is unreachable from any path that writes a digest. Retire it once no record
+carrying that tag needs to verify; until then, deleting it would make those
+records unverifiable rather than invalid.
 
 `openSealedExperiment` is the only execution surface.
 A rule that is not in the sealed spec cannot run; a rule that is cannot run differently.
@@ -93,7 +110,7 @@ The statistical machinery underneath is re-exported from its existing homes; thi
 | `heldoutSignificance`, `pairHoldout` | `src/campaign/gates/statistical-heldout.ts` |
 | `paretoSignificanceGate`, `buildEvidenceVector` | `src/campaign/gates/promotion-policy.ts` |
 | `pairArms`, `comparePairedArms`, `pairRunRecords` | `src/paired-arms.ts` |
-| `canonicalize`, `hashJson`, `signManifest`, `verifyManifest`, `HypothesisManifest` | `src/pre-registration.ts` |
+| `hashJson`, `manifestContentDigest`, `signManifest`, `verifyManifest`, `HypothesisManifest` | `src/pre-registration.ts` |
 | `ExperimentTracker` (run ledger with KEEP/ITERATE/NOISE/REGRESSION) | `src/experiment-tracker.ts` |
 
 `HypothesisManifest` stays as the lightweight single-metric registration; `sealExperiment` is the full-design registration.

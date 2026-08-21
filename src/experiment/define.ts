@@ -15,8 +15,9 @@
  * registered-vs-ran drift is unrepresentable rather than checked.
  */
 
+import { createHash } from 'node:crypto'
 import { ValidationError } from '../errors'
-import { hashJson } from '../pre-registration'
+import { canonicalString } from '../ledger-core/canonical'
 import {
   type AdmissionRule,
   type BudgetRule,
@@ -287,11 +288,23 @@ export interface SealAmendment {
   digest: string
 }
 
+/**
+ * Digest scheme of a sealed experiment. Both are sha256 hex over the
+ * serialized spec and differ only in the serialization: `'sha256-rfc8785'` is
+ * RFC 8785 canonical JSON, `'sha256-content'` is key-sorted `JSON.stringify`.
+ */
+export type SealAlgo = 'sha256-content' | 'sha256-rfc8785'
+
 export interface SealedExperiment {
   spec: ExperimentSpec
-  /** sha256-content over the canonicalized spec — the current registration. */
+  /** sha256 over the serialized spec, under the scheme `algo` names. */
   digest: string
-  algo: 'sha256-content'
+  /**
+   * Digest scheme of `digest`. `'sha256-rfc8785'` is what {@link sealExperiment}
+   * emits; `'sha256-content'` is read-only, carried by seals from an earlier
+   * release, and still verifies.
+   */
+  algo: SealAlgo
   sealedAt: string
   /** Digest of the original registration, before any amendment. */
   initialDigest: string
@@ -304,11 +317,11 @@ export async function sealExperiment(
   options: { sealedAt?: string } = {},
 ): Promise<SealedExperiment> {
   const validated = defineExperiment(spec)
-  const digest = await hashJson(validated)
+  const digest = specDigest(validated, 'sha256-rfc8785')
   return {
     spec: validated,
     digest,
-    algo: 'sha256-content',
+    algo: 'sha256-rfc8785',
     sealedAt: options.sealedAt ?? new Date().toISOString(),
     initialDigest: digest,
     amendments: [],
@@ -326,11 +339,11 @@ export async function amendExperiment(
 ): Promise<SealedExperiment> {
   await assertSealIntact(sealed)
   const validated = defineExperiment(amendment.spec)
-  const digest = await hashJson(validated)
+  const digest = specDigest(validated, 'sha256-rfc8785')
   return {
     spec: validated,
     digest,
-    algo: 'sha256-content',
+    algo: 'sha256-rfc8785',
     sealedAt: sealed.sealedAt,
     initialDigest: sealed.initialDigest,
     amendments: [
@@ -345,9 +358,31 @@ export async function amendExperiment(
   }
 }
 
-/** True when the sealed digest still matches the spec it carries. */
+/** True when the sealed digest still matches the spec it carries, under the
+ *  scheme the seal declares. */
 export async function verifySealedExperiment(sealed: SealedExperiment): Promise<boolean> {
-  return (await hashJson(sealed.spec)) === sealed.digest
+  return specDigest(sealed.spec, sealed.algo) === sealed.digest
+}
+
+/**
+ * Serialize a spec under `algo` and digest it. `'sha256-content'` is read-only
+ * — it exists so a seal written by an earlier release still verifies, and no
+ * path that WRITES a digest may pass it.
+ */
+function specDigest(spec: ExperimentSpec, algo: SealAlgo): string {
+  const serialized =
+    algo === 'sha256-rfc8785' ? canonicalString(spec) : JSON.stringify(sortKeysDeep(spec))
+  return createHash('sha256').update(serialized, 'utf8').digest('hex')
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
 }
 
 async function assertSealIntact(sealed: SealedExperiment): Promise<void> {

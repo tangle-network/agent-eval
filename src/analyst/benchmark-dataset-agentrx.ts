@@ -94,6 +94,8 @@ export function agentRxBenchmarkCase<TInput>(
     (left, right) => left.step - right.step || left.id.localeCompare(right.id),
   )
 
+  const rootCauseReason = row.root_cause_reason ?? row.root_cause?.reason_for_root_cause
+
   return {
     id: `agentrx:${trajectoryId}`,
     clusterId: `agentrx:${trajectoryId}`,
@@ -107,8 +109,8 @@ export function agentRxBenchmarkCase<TInput>(
     metadata: {
       benchmark: 'AgentRx',
       trajectoryId,
-      failureSummary: row.failure_summary,
-      rootCauseReason: row.root_cause_reason ?? row.root_cause?.reason_for_root_cause,
+      ...(row.failure_summary === undefined ? {} : { failureSummary: row.failure_summary }),
+      ...(rootCauseReason === undefined ? {} : { rootCauseReason }),
       annotatedFailures: row.failures.length,
       target: options.target ?? 'root-cause',
       rootCauseStep: rootCause.step,

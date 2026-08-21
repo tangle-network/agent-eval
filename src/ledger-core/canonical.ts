@@ -46,6 +46,33 @@ export function hashCanonical(value: unknown): LedgerHash {
   }
 }
 
+/**
+ * The JSON document form of `value` — the value as a JSON file carries it.
+ *
+ * A JSON document has no `undefined`, so an undefined-valued key is absent
+ * from the document and absent from its digest. Use this, and say so, when a
+ * record is digested BEFORE being written and re-digested AFTER being read
+ * back: without it the two digests disagree for a record carrying an
+ * undefined-valued key, and the reader cannot verify the writer.
+ *
+ * Only that one rule is applied. Every other non-canonical value — `NaN`, a
+ * class instance, an `undefined` array item, a cycle — reaches
+ * {@link canonicalString} unchanged and is refused there, so this form never
+ * turns an ambiguous value into a valid-looking digest the way
+ * `JSON.stringify` turns `NaN` into `null`.
+ */
+export function jsonDocument(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(jsonDocument)
+  const prototype = Object.getPrototypeOf(value)
+  if (prototype !== Object.prototype && prototype !== null) return value
+  const out: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (entry !== undefined) out[key] = jsonDocument(entry)
+  }
+  return out
+}
+
 /** Name the offending value and path so a refusal is actionable. The RFC 8785
  * encoder above is the sole authority on acceptance; this walk only explains a
  * rejection it already made. */

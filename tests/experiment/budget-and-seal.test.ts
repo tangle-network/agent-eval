@@ -3,6 +3,7 @@
  * the verdict, and changing what is decided requires a new digest.
  */
 
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   assertMatchedBudgets,
@@ -166,6 +167,22 @@ describe('defineExperiment validation', () => {
 })
 
 describe('seal integrity', () => {
+  it('verifies a seal written under the previous digest scheme — regression: a sealed registration outlives the release that sealed it', async () => {
+    const sealed = await sealExperiment(minimalSpec)
+    expect(sealed.algo).toBe('sha256-rfc8785')
+    expect(await verifySealedExperiment(sealed)).toBe(true)
+
+    const legacy = {
+      ...sealed,
+      algo: 'sha256-content' as const,
+      digest: createHash('sha256')
+        .update(JSON.stringify(sortKeysDeep(sealed.spec)), 'utf8')
+        .digest('hex'),
+    }
+    expect(await verifySealedExperiment(legacy)).toBe(true)
+    expect(await verifySealedExperiment({ ...legacy, digest: 'f'.repeat(64) })).toBe(false)
+  })
+
   it('a tampered seal is rejected before any executor is handed out', async () => {
     const sealed = await sealExperiment(minimalSpec)
     const tampered = {
@@ -251,3 +268,15 @@ describe('seal integrity', () => {
     ).toThrow(/registered as identity but received oracle-determinism/)
   })
 })
+
+/** Key-sorted `JSON.stringify` — the scheme seals were digested under before
+ * RFC 8785. Kept here to MINT a legacy seal the verifier must still accept. */
+function sortKeysDeep(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  }
+  return out
+}
