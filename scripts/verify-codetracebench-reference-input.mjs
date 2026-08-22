@@ -61,6 +61,18 @@ function parseJson(bytes, label) {
   }
 }
 
+/**
+ * Order two strings by UTF-16 code unit, the ordering `compareCodeUnits` in
+ * `src/ledger-core/canonical.ts` applies. Every ordering this file compares
+ * against canonical bytes must use it: RFC 8785 canonicalizes an array by
+ * position, so a host collation in front of `canonicalJson` decides the bytes.
+ */
+function compareCodeUnits(left, right) {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 function normalizeTraceFiles(value, expectedCount) {
   assert(Array.isArray(value), 'result inputs.traceFiles must be an array')
   assert(
@@ -105,15 +117,11 @@ function normalizeTraceFiles(value, expectedCount) {
     traceIds.add(traceId)
     relativePaths.add(relativePath)
     return { traceId, relativePath, sha256: expectedSha256 }
-  }).sort((left, right) => {
-    if (left.traceId < right.traceId) return -1
-    if (left.traceId > right.traceId) return 1
-    return 0
-  })
+  }).sort((left, right) => compareCodeUnits(left.traceId, right.traceId))
 }
 
 function sortTraceFiles(traceFiles) {
-  return [...traceFiles].sort((left, right) => left.traceId.localeCompare(right.traceId))
+  return [...traceFiles].sort((left, right) => compareCodeUnits(left.traceId, right.traceId))
 }
 
 function verifyLabels(labelsPath, inputs, traceFiles, expected) {
@@ -419,7 +427,7 @@ function discoverArtifacts(caseDirectory) {
     .sort(
       (left, right) =>
         ARTIFACT_ROLES.indexOf(left.role) - ARTIFACT_ROLES.indexOf(right.role) ||
-        left.relativePath.localeCompare(right.relativePath),
+        compareCodeUnits(left.relativePath, right.relativePath),
     )
 }
 
