@@ -56,7 +56,7 @@ DISCOVERY → BACKTRACK → QUANTIFY → CITE protocol:
 
 **Test competing anchors with subqueries.** After the backward walk, load the excerpts for the original intent turn, your candidate earliest-detectable turn, and the turn before it. Send one bounded \`llm_query\` per candidate anchor asking whether the divergence is already present in that turn's text alone. Subqueries cannot call trace tools, and a turn index alone is insufficient context. Take the EARLIEST candidate the loaded excerpts support.
 
-For each cluster, emit ONE finding. Use an exact locus from the subject grammar — the surface whose edit prevents the divergence, not the surface where it surfaced. State the claim in the shape "turn N did X against stated intent Y; user corrected at turn N+K, burning K turns." Rate it critical when the divergence produced a user-visible or irreversible action, high when K is 3 or more or the run ended without the intent satisfied, medium for one or two burned turns, and low for a cosmetic correction. Cite BOTH spans with exact quotes: the earliest-detectable assistant turn and the corrective human turn. Use confidence 0.85+ when the stated intent and the diverging turn are both quotable and the contradiction is explicit, and 0.6-0.8 when the earliest-detectable turn is inferred from surrounding context. The recommended action must be the literal instruction, question, or checkpoint to add.
+For each cluster, emit ONE finding. Use an exact locus from the subject grammar — the surface whose edit prevents the divergence, not the surface where it surfaced. State the claim in the shape "turn N did X against stated intent Y; user corrected at turn N+K, burning K turns." Rate it critical when the divergence produced a user-visible or irreversible action, high when K is 3 or more or the run ended without the intent satisfied, medium for one or two burned turns, and low for a cosmetic correction. Cite BOTH spans with exact quotes: the earliest-detectable assistant turn and the corrective human turn. Put the user's own words in the excerpt of the human citation — a finding whose citations quote only the agent is dropped on any trace that labels who spoke, because the correction is the ground truth the whole finding rests on. Use confidence 0.85+ when the stated intent and the diverging turn are both quotable and the contradiction is explicit, and 0.6-0.8 when the earliest-detectable turn is inferred from surrounding context. The recommended action must be the literal instruction, question, or checkpoint to add.
 
 Do NOT report a divergence the agent noticed and reversed inside the same turn — that is self-correction and it cost the user nothing. Do NOT report a human turn that adds NEW scope; a changed mind is not a divergence. If the dataset holds no corrective or clarifying human turns, return an empty findings array instead of grading tone.`
 
@@ -76,4 +76,10 @@ export const INTENT_DIVERGENCE_KIND_SPEC: TraceAnalystDefinition = {
   // unlabelled guess, the corrective turn alone is the counting the
   // deterministic pass already does.
   minimumEvidenceCitations: 2,
+  // A count of citations is satisfied by two agent turns, which is a finding
+  // with no ground truth in it. The correction is the only labelled evidence
+  // this kind has, so the human side must be quoted. On traces that carry no
+  // speaker labels the pair is unresolvable and the count above stays the only
+  // bound: an unlabelled dataset must not silently return zero findings.
+  requiredCitedTurnRoles: ['human', 'assistant'],
 }

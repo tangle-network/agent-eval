@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import type { TraceAnalysisEngine, TraceAnalysisEngineRequest } from './engine'
-import { createTraceAnalyst, runTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
+import {
+  createTraceAnalyst,
+  resolveCitedTurnRole,
+  runTraceAnalyst,
+  type TraceAnalystDefinition,
+} from './kind-factory'
 import { makeFinding } from './types'
 
 const spans: TraceAnalystSpan[] = [
@@ -309,6 +314,246 @@ describe('createTraceAnalyst', () => {
     })
   })
 })
+
+/**
+ * Turn roles are carried inside serialized message arrays, not as a span-level
+ * attribute — the shape `tests/fixtures/trace-analyst/tiny-trace.jsonl` and
+ * `src/trace/store-to-otlp.ts` emit. `step-1` / `step-2` above carry no message
+ * array at all, which is how an unlabelled dataset reads.
+ */
+describe('required cited turn roles', () => {
+  const CORRECTION = 'stop rewriting the config, I asked for the parser'
+  const ANCHOR = 'I will rewrite the config file first.'
+  const conversationSpans: TraceAnalystSpan[] = [
+    ...spans,
+    turnSpan('human-1', { 'llm.input_messages': [{ role: 'user', content: CORRECTION }] }),
+    turnSpan('assistant-1', { 'llm.output_messages': [{ role: 'assistant', content: ANCHOR }] }),
+    turnSpan('assistant-2', {
+      'llm.output_messages': [{ role: 'assistant', content: 'Rewriting the config file now.' }],
+    }),
+  ]
+  const conversationStore = traceStore(conversationSpans)
+  const pairDefinition: TraceAnalystDefinition = {
+    ...definition,
+    minimumEvidenceCitations: 2,
+    requiredCitedTurnRoles: ['human', 'assistant'],
+  }
+
+  it('accepts a finding that quotes one human turn and one assistant turn', async () => {
+    const result = await runTraceAnalyst({
+      definition: pairDefinition,
+      engine: citationEngine([
+        { uri: 'trace://run-1/span/assistant-1', excerpt: ANCHOR },
+        { uri: 'trace://run-1/span/human-1', excerpt: CORRECTION },
+      ]),
+      store: conversationStore,
+      context: context(),
+    })
+
+    expect(result.findings).toHaveLength(1)
+  })
+
+  it('rejects two assistant turns, which the citation count alone admits', async () => {
+    const log = vi.fn()
+    const engine = citationEngine([
+      { uri: 'trace://run-1/span/assistant-1', excerpt: ANCHOR },
+      { uri: 'trace://run-1/span/assistant-2', excerpt: 'Rewriting the config file now.' },
+    ])
+    const countOnly = await runTraceAnalyst({
+      definition: { ...definition, minimumEvidenceCitations: 2 },
+      engine,
+      store: conversationStore,
+      context: context(),
+    })
+    // Two distinct URIs satisfy the count while quoting nothing the user said.
+    expect(countOnly.findings).toHaveLength(1)
+
+    const result = await runTraceAnalyst({
+      definition: pairDefinition,
+      engine,
+      store: conversationStore,
+      context: { ...context(), log },
+    })
+
+    expect(result.findings).toEqual([])
+    expect(log).toHaveBeenCalledWith(
+      'finding rejected: citations do not cover the required turn roles',
+      {
+        analyst_id: 'test-research',
+        required: ['human', 'assistant'],
+        resolved: ['assistant', 'assistant'],
+      },
+    )
+  })
+
+  it('rejects a resolvable half of the pair rather than assuming the other half', async () => {
+    const result = await runTraceAnalyst({
+      definition: pairDefinition,
+      engine: citationEngine([
+        { uri: 'trace://run-1/span/human-1', excerpt: CORRECTION },
+        { uri: 'trace://run-1/span/step-1', excerpt: 'candidate' },
+      ]),
+      store: conversationStore,
+      context: context(),
+    })
+
+    expect(result.findings).toEqual([])
+  })
+
+  it('degrades to the citation count when no cited span labels a speaker', async () => {
+    const result = await runTraceAnalyst({
+      definition: pairDefinition,
+      engine: citationEngine([
+        { uri: 'trace://run-1/span/step-1', excerpt: 'candidate' },
+        { uri: 'trace://run-1/span/step-2', excerpt: '401 unauthorized' },
+      ]),
+      store: conversationStore,
+      context: context(),
+    })
+
+    expect(result.findings).toHaveLength(1)
+  })
+
+  it('accepts the pair alongside an unlabelled citation', async () => {
+    const result = await runTraceAnalyst({
+      definition: pairDefinition,
+      engine: citationEngine([
+        { uri: 'trace://run-1/span/step-1', excerpt: 'candidate' },
+        { uri: 'trace://run-1/span/human-1', excerpt: CORRECTION },
+        { uri: 'trace://run-1/span/assistant-1', excerpt: ANCHOR },
+      ]),
+      store: conversationStore,
+      context: context(),
+    })
+
+    expect(result.findings).toHaveLength(1)
+  })
+
+  it('reads no span a kind without the rule would not have read', async () => {
+    const viewSpans = vi.fn(conversationStore.viewSpans.bind(conversationStore))
+    const countingStore = { ...conversationStore, viewSpans } as TraceAnalysisStore
+    const citations = [
+      { uri: 'trace://run-1/span/human-1' },
+      { uri: 'trace://run-1/span/assistant-1' },
+    ]
+
+    await runTraceAnalyst({
+      definition,
+      engine: citationEngine(citations),
+      store: countingStore,
+      context: context(),
+    })
+    expect(viewSpans).not.toHaveBeenCalled()
+
+    await runTraceAnalyst({
+      definition: pairDefinition,
+      engine: citationEngine(citations),
+      store: countingStore,
+      context: context(),
+    })
+    expect(viewSpans).toHaveBeenCalledTimes(2)
+  })
+
+  it('seals the rule into the execution config', () => {
+    expect(
+      createTraceAnalyst(pairDefinition, { engine: stubEngine() }).executionConfig,
+    ).toMatchObject({ required_cited_turn_roles: ['assistant', 'human'] })
+    expect(createTraceAnalyst(definition, { engine: stubEngine() }).executionConfig).toMatchObject({
+      required_cited_turn_roles: [],
+    })
+  })
+
+  it('rejects a role outside the human/assistant vocabulary', () => {
+    expect(() =>
+      createTraceAnalyst(
+        { ...definition, requiredCitedTurnRoles: ['tool'] as unknown as ['human'] },
+        { engine: stubEngine() },
+      ),
+    ).toThrow(/requiredCitedTurnRoles/)
+  })
+})
+
+describe('resolveCitedTurnRole', () => {
+  const conversation = {
+    'llm.input_messages': JSON.stringify([
+      { role: 'system', content: 'You are a careful engineer.' },
+      { role: 'user', content: 'stop touching the config' },
+    ]),
+    'llm.output_messages': JSON.stringify([
+      { role: 'assistant', content: 'Rewriting the config file now.' },
+    ]),
+  }
+
+  it('attributes the quote, not the span, when one span holds both sides', () => {
+    expect(resolveCitedTurnRole(conversation, 'stop touching the config')).toBe('human')
+    expect(resolveCitedTurnRole(conversation, 'Rewriting the config file now.')).toBe('assistant')
+    expect(resolveCitedTurnRole(conversation, undefined)).toBe('unknown')
+  })
+
+  it('reads the alternate role vocabularies producers emit', () => {
+    expect(
+      resolveCitedTurnRole({ messages: [{ role: 'human', content: 'do it again' }] }, undefined),
+    ).toBe('human')
+    expect(
+      resolveCitedTurnRole({ messages: [{ role: 'model', content: 'done' }] }, undefined),
+    ).toBe('assistant')
+  })
+
+  it.each([
+    ['no message array', { content: 'plain attribute text' }],
+    ['a non-conversational role', { 'llm.input_messages': '[{"role":"tool","content":"ok"}]' }],
+    ['a truncated message array', { 'llm.input_messages': '[{"role":"user","content":"stop tou' }],
+    ['a role field on a record that is not a turn', { 'artifact.role': 'user', scope: 'repo' }],
+    ['a bare role with no payload', { meta: [{ role: 'user', id: 'reviewer-1' }] }],
+  ])('returns unknown for %s', (_label, attributes) => {
+    expect(resolveCitedTurnRole(attributes, undefined)).toBe('unknown')
+  })
+
+  it('returns unknown when the excerpt is not in any labelled turn', () => {
+    expect(resolveCitedTurnRole(conversation, 'careful engineer')).toBe('unknown')
+  })
+})
+
+function stubEngine(): TraceAnalysisEngine {
+  return fakeEngine(async () => ({
+    answer: 'none',
+    findings: [],
+    trajectory: [],
+    modelCalls: 0,
+    toolCalls: 0,
+    runtime: {},
+  }))
+}
+
+function turnSpan(
+  spanId: string,
+  messagesByAttribute: Record<string, Array<{ role: string; content: string }>>,
+): TraceAnalystSpan {
+  const span = traceSpan(spanId, 'conversation turn')
+  const attributes: Record<string, unknown> = {}
+  for (const [key, messages] of Object.entries(messagesByAttribute)) {
+    attributes[key] = JSON.stringify(messages)
+  }
+  return { ...span, attributes }
+}
+
+function citationEngine(evidence: Array<{ uri: string; excerpt?: string }>): TraceAnalysisEngine {
+  return fakeEngine(async () => ({
+    answer: 'The agent kept editing the config after being told to stop.',
+    findings: [
+      {
+        severity: 'high',
+        claim: 'The agent kept editing the config after being told to stop.',
+        confidence: 0.9,
+        evidence,
+      },
+    ],
+    trajectory: [],
+    modelCalls: 1,
+    toolCalls: 1,
+    runtime: {},
+  }))
+}
 
 function fakeEngine(analyze: TraceAnalysisEngine['analyze']): TraceAnalysisEngine {
   return {

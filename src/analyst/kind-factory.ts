@@ -17,6 +17,18 @@ import type { AnalystContext, AnalystFinding } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
 
+/**
+ * Who spoke in a cited turn. Distinct from `openinference.span.kind`
+ * (AGENT/LLM/TOOL/…), which types the span rather than the speaker inside it:
+ * one LLM span routinely carries a human turn in `llm.input_messages` and an
+ * assistant turn in `llm.output_messages`.
+ */
+export type CitedTurnRole = 'human' | 'assistant'
+
+/** `'unknown'` is an answer, not a default to either side: it means the cited
+ *  content carries no role label that can be read. */
+type ResolvedTurnRole = CitedTurnRole | 'unknown'
+
 /** A named research question independent of the recursive engine that runs it. */
 export interface TraceAnalystDefinition {
   id: string
@@ -37,6 +49,11 @@ export interface TraceAnalystDefinition {
   limits?: Partial<TraceAnalystLimits>
   postProcess?: (row: RawAnalystFinding, context: AnalystContext) => RawAnalystFinding | null
   minimumEvidenceCitations?: number
+  /** Turn roles the citations must together quote — `['human', 'assistant']`
+   *  for a kind whose ground truth is a human turn about an agent turn.
+   *  A count of distinct URIs cannot express that: two assistant spans satisfy
+   *  `minimumEvidenceCitations: 2` while quoting nothing the user said. */
+  requiredCitedTurnRoles?: readonly CitedTurnRole[]
   requireStructuredFindings?: boolean
 }
 
@@ -79,6 +96,7 @@ export async function runTraceAnalyst(args: {
       minimumEvidenceCitations > 1
         ? `Every finding requires at least ${minimumEvidenceCitations} distinct evidence citations.`
         : '',
+      renderRequiredCitedTurnRoles(definition.requiredCitedTurnRoles),
       preparedContext ? `PREPARED CONTEXT:\n${preparedContext}` : '',
       'Return a direct prose answer and a strict findings array. Use trace tools to investigate. Do not infer trace facts from the question alone.',
     ]
@@ -181,6 +199,7 @@ export function createTraceAnalyst(
       max_tool_calls: limits.maxToolCalls,
       max_output_chars: limits.maxOutputChars,
       minimum_evidence_citations: definition.minimumEvidenceCitations ?? 1,
+      required_cited_turn_roles: canonicalCitedTurnRoles(definition.requiredCitedTurnRoles),
       require_structured_findings: definition.requireStructuredFindings ?? false,
       prepare_context: definition.prepareContext === undefined ? 'disabled' : 'version-bound',
       post_process: definition.postProcess === undefined ? 'disabled' : 'version-bound',
@@ -216,6 +235,7 @@ async function acceptFindings(
   minimumEvidenceCitations: number,
 ): Promise<RawAnalystFinding[]> {
   const expectedSubjects = KIND_EXPECTED_SUBJECTS[definition.id]
+  const requiredTurnRoles = definition.requiredCitedTurnRoles
   const accepted: RawAnalystFinding[] = []
   for (const row of submitted) {
     const parsed = parseRawFinding(row, context.log)
@@ -244,17 +264,39 @@ async function acceptFindings(
       })
       continue
     }
-    if (!(await evidenceIsResolvable(validated, store, context))) continue
+    const turnRoles = await resolveEvidenceCitations(
+      validated,
+      store,
+      context,
+      requiredTurnRoles !== undefined,
+    )
+    if (turnRoles === null) continue
+    if (!citedTurnRolesSatisfied(requiredTurnRoles, turnRoles)) {
+      context.log?.('finding rejected: citations do not cover the required turn roles', {
+        analyst_id: definition.id,
+        required: requiredTurnRoles,
+        resolved: turnRoles,
+      })
+      continue
+    }
     accepted.push(validated)
   }
   return accepted
 }
 
-async function evidenceIsResolvable(
+/**
+ * Verify every citation against the store. Returns `null` when one fails, and
+ * otherwise the turn role of each cited trace span — empty unless the kind
+ * asked for role attribution, because attributing a role costs a span read
+ * that a citation without an excerpt would otherwise skip.
+ */
+async function resolveEvidenceCitations(
   finding: RawAnalystFinding,
   store: TraceAnalysisStore,
   context: AnalystContext,
-): Promise<boolean> {
+  attributeTurnRoles: boolean,
+): Promise<readonly ResolvedTurnRole[] | null> {
+  const turnRoles: ResolvedTurnRole[] = []
   const knownFindings = new Map(
     [...(context.priorFindings ?? []), ...(context.upstreamFindings ?? [])].map((entry) => [
       entry.finding_id,
@@ -264,7 +306,7 @@ async function evidenceIsResolvable(
   for (const citation of finding.evidence) {
     if (citation.excerpt !== undefined && citation.excerpt.trim().length < MINIMUM_EXCERPT_LENGTH) {
       rejectEvidence(context, citation.uri, 'excerpt is too short to verify')
-      return false
+      return null
     }
     const traceLocation = parseTraceSpanEvidenceUri(citation.uri)
     if (traceLocation) {
@@ -278,21 +320,25 @@ async function evidenceIsResolvable(
       )
       if (!existing.includes(traceLocation.spanId)) {
         rejectEvidence(context, citation.uri, 'trace span does not exist')
-        return false
+        return null
       }
+      if (citation.excerpt === undefined && !attributeTurnRoles) continue
+      const viewed = await store.viewSpans(
+        {
+          trace_id: traceLocation.traceId,
+          span_ids: [traceLocation.spanId],
+        },
+        storeContext,
+      )
+      const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
       if (citation.excerpt !== undefined) {
-        const viewed = await store.viewSpans(
-          {
-            trace_id: traceLocation.traceId,
-            span_ids: [traceLocation.spanId],
-          },
-          storeContext,
-        )
-        const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
         if (!span || !containsExactText([span.attributes, span.status_message], citation.excerpt)) {
           rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span content')
-          return false
+          return null
         }
+      }
+      if (attributeTurnRoles) {
+        turnRoles.push(span ? resolveCitedTurnRole(span.attributes, citation.excerpt) : 'unknown')
       }
       continue
     }
@@ -301,7 +347,7 @@ async function evidenceIsResolvable(
     const referenced = findingId ? knownFindings.get(findingId) : undefined
     if (!referenced) {
       rejectEvidence(context, citation.uri, 'citation is not a supplied finding or trace span')
-      return false
+      return null
     }
     if (
       citation.excerpt !== undefined &&
@@ -317,10 +363,10 @@ async function evidenceIsResolvable(
       )
     ) {
       rejectEvidence(context, citation.uri, 'excerpt is not present in the cited finding content')
-      return false
+      return null
     }
   }
-  return true
+  return turnRoles
 }
 
 function parseFindingEvidenceUri(uri: string): string | null {
@@ -359,6 +405,138 @@ function rejectEvidence(context: AnalystContext, uri: string, reason: string): v
   context.log?.('finding rejected: unresolved evidence', { uri, reason })
 }
 
+/**
+ * A turn as the OTLP producers this repo reads actually emit one: a
+ * `{role, content}` object inside a serialized message array
+ * (`llm.input_messages` / `llm.output_messages` in
+ * `tests/fixtures/trace-analyst/tiny-trace.jsonl` and `src/trace/store-to-otlp.ts`;
+ * `llm.output_messages` in the CodeTraceBench-shaped spans of
+ * `src/analyst/benchmark-command.test-support.ts`).
+ *
+ * The scan keys on that SHAPE, never on an attribute name. Attribute keys
+ * differ across datasets and a guessed key resolves every span to `'unknown'`,
+ * which is the failure this rule exists to avoid.
+ */
+interface RoleTaggedTurn {
+  role: string
+  content: string
+}
+
+/** Bounds on the role scan: an attribute can hold a whole serialized
+ *  conversation, and attributing a role must not dominate the cost of
+ *  accepting a finding. */
+const MAXIMUM_SCANNED_TURNS = 200
+const MAXIMUM_TURN_SCAN_DEPTH = 6
+const MAXIMUM_SCANNED_ATTRIBUTE_CHARS = 262_144
+
+/** Producer role vocabularies. `system`, `developer`, `tool`, and `function`
+ *  are deliberately absent: none of them is a party to a human/agent exchange,
+ *  so attributing one to either side would invent the evidence. */
+const HUMAN_TURN_ROLES = new Set(['user', 'human'])
+const ASSISTANT_TURN_ROLES = new Set(['assistant', 'ai', 'model'])
+
+/**
+ * Attribute one citation to the speaker of the turn it quotes.
+ *
+ * The quote is the anchor, not the span: a single LLM span carries the human
+ * turn it was given and the assistant turn it produced, so a span cited
+ * without an excerpt that holds both sides is `'unknown'` rather than a coin
+ * flip between them.
+ */
+export function resolveCitedTurnRole(
+  attributes: Record<string, unknown>,
+  excerpt: string | undefined,
+): ResolvedTurnRole {
+  const turns = collectRoleTaggedTurns(attributes)
+  if (turns.length === 0) return 'unknown'
+  const quoted = excerpt?.trim()
+  const quoting = quoted ? turns.filter((turn) => turn.content.includes(quoted)) : turns
+  const roles = new Set(quoting.map((turn) => normalizeTurnRole(turn.role)))
+  roles.delete('unknown')
+  const [only] = [...roles]
+  return roles.size === 1 && only !== undefined ? only : 'unknown'
+}
+
+function normalizeTurnRole(role: string): ResolvedTurnRole {
+  const normalized = role.trim().toLowerCase()
+  if (HUMAN_TURN_ROLES.has(normalized)) return 'human'
+  if (ASSISTANT_TURN_ROLES.has(normalized)) return 'assistant'
+  return 'unknown'
+}
+
+function collectRoleTaggedTurns(attributes: Record<string, unknown>): RoleTaggedTurn[] {
+  const turns: RoleTaggedTurn[] = []
+  for (const value of Object.values(attributes)) {
+    if (turns.length >= MAXIMUM_SCANNED_TURNS) break
+    collectRoleTaggedTurnsFrom(value, turns, 0)
+  }
+  return turns
+}
+
+function collectRoleTaggedTurnsFrom(value: unknown, out: RoleTaggedTurn[], depth: number): void {
+  if (out.length >= MAXIMUM_SCANNED_TURNS || depth > MAXIMUM_TURN_SCAN_DEPTH) return
+  if (typeof value === 'string') {
+    if (value.length > MAXIMUM_SCANNED_ATTRIBUTE_CHARS) return
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return
+    try {
+      collectRoleTaggedTurnsFrom(JSON.parse(trimmed), out, depth + 1)
+    } catch {
+      // `viewSpans` truncates oversized attributes, so a partial message array
+      // does not parse. Unattributed is the correct read of a truncated turn.
+    }
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectRoleTaggedTurnsFrom(entry, out, depth + 1)
+    return
+  }
+  if (typeof value !== 'object' || value === null) return
+  const record = value as Record<string, unknown>
+  // A speaker plus a payload is a turn; a bare `role` field is some other
+  // record (an artifact role, a permission) and must not be read as one.
+  if (typeof record.role === 'string' && ('content' in record || 'parts' in record)) {
+    // Non-string content (multimodal blocks) still labels a speaker; it just
+    // cannot anchor a quote, so the turn counts with no quotable content.
+    out.push({
+      role: record.role,
+      content: typeof record.content === 'string' ? record.content : '',
+    })
+    return
+  }
+  for (const entry of Object.values(record)) collectRoleTaggedTurnsFrom(entry, out, depth + 1)
+}
+
+/**
+ * Enforce the required pair only where the dataset can answer.
+ *
+ * A dataset that carries no role labels resolves every citation to
+ * `'unknown'`; rejecting there would empty this kind's output on every such
+ * dataset, which is strictly worse than the citation-count bound it replaces.
+ * So the rule fires only once at least one citation resolved — that is the
+ * evidence that roles ARE readable here and a missing side is a real absence
+ * rather than an unlabelled one.
+ */
+function citedTurnRolesSatisfied(
+  required: readonly CitedTurnRole[] | undefined,
+  resolved: readonly ResolvedTurnRole[],
+): boolean {
+  if (required === undefined || required.length === 0) return true
+  const present = new Set(resolved.filter((role) => role !== 'unknown'))
+  if (present.size === 0) return true
+  return required.every((role) => present.has(role))
+}
+
+function canonicalCitedTurnRoles(required: readonly CitedTurnRole[] | undefined): CitedTurnRole[] {
+  return required === undefined ? [] : [...new Set(required)].sort()
+}
+
+function renderRequiredCitedTurnRoles(required: readonly CitedTurnRole[] | undefined): string {
+  const roles = canonicalCitedTurnRoles(required)
+  if (roles.length === 0) return ''
+  return `Your citations must together quote ${roles.join(' and ')} turns, each with the exact wording in excerpt. When the trace labels who spoke, a finding missing one of those roles is rejected.`
+}
+
 function validateDefinition(definition: TraceAnalystDefinition): void {
   for (const [name, value] of [
     ['id', definition.id],
@@ -374,6 +552,11 @@ function validateDefinition(definition: TraceAnalystDefinition): void {
   const minimumEvidenceCitations = definition.minimumEvidenceCitations ?? 1
   if (!Number.isSafeInteger(minimumEvidenceCitations) || minimumEvidenceCitations < 1) {
     throw new TypeError('minimumEvidenceCitations must be a positive safe integer')
+  }
+  for (const role of definition.requiredCitedTurnRoles ?? []) {
+    if (role !== 'human' && role !== 'assistant') {
+      throw new TypeError("requiredCitedTurnRoles accepts only 'human' and 'assistant'")
+    }
   }
   resolveTraceAnalystLimits(definition.limits)
 }

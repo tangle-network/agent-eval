@@ -62,6 +62,30 @@ export interface AnalystFinding {
    *  directly in a trace or artifact. Descriptive only: proposal access is
    *  controlled by `ProposalFinding.proposal_origin`. */
   derived_from_judge?: boolean
+  /**
+   * Agent work this finding's problem threw away, when the analyst measured it.
+   *
+   * Unit is whole agent turns: one model-driven step — an `LLM`-kind span, or
+   * one assistant message in a conversational trace. Tool spans nested under a
+   * turn are part of that turn, not turns of their own.
+   *
+   * Counted half-open across the two spans the finding cites: from the FIRST
+   * turn already off-track (the diverging turn, the erroring turn) up to but
+   * NOT including the turn that corrected or recovered. Adjacent boundary
+   * turns are therefore 1, never 0, so the floor of a measured cost is 1 and a
+   * 0 signals the producer counted with a different convention.
+   *
+   * It is NOT wall-clock, NOT tokens, NOT dollars, NOT tool calls, and NOT how
+   * many times the problem occurred. A finding that clusters N instances
+   * carries the cost of the single instance its cited boundary pair bounds,
+   * never a sum across instances: a summed cost cannot be recomputed from the
+   * evidence attached to the finding.
+   *
+   * Absent means "not measured" and is distinct from any value. Consumers
+   * ranking by cost MUST treat absent as unknown rather than as zero, or the
+   * unmeasured findings sort as the cheapest.
+   */
+  wasted_turns?: number
   /** Analyst-private extras; renderers ignore unless they know the analyst. */
   metadata?: Record<string, unknown>
 }
@@ -222,7 +246,15 @@ export interface AnalystUsageReceipt {
  * Analysts that emit findings whose claim text varies per run (timestamps,
  * counts) SHOULD either: (a) pass an explicit `id_basis` to fix the hash,
  * or (b) move the variable part into `rationale`/`metadata` and keep the
- * `claim` static.
+ * `claim` static. A cost-carrying analyst that spells `wasted_turns` into its
+ * claim text falls under that rule: the number moves between runs, so without
+ * an `id_basis` the same divergence mints a new id each run.
+ *
+ * `wasted_turns` is deliberately NOT part of the hash. Two runs that price the
+ * same divergence at 3 and at 4 turns found the same finding at different
+ * measurement precision; hashing the estimate would make `diffFindings` report
+ * a disappeared/appeared pair on every re-measure. Cost ranks findings, it does
+ * not identify them.
  */
 export function computeFindingId(input: {
   analyst_id: string

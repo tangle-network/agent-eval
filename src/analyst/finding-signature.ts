@@ -34,6 +34,13 @@ const RawAnalystFindingBaseShape = {
   confidence: z.number().min(0).max(1),
   rationale: z.string().max(4000).optional(),
   recommended_action: z.string().max(2000).optional(),
+  // Measured cost in agent turns, as the model emits it. The unit definition
+  // lives on `AnalystFinding.wasted_turns` in ./types and governs both shapes.
+  // The floor is 1, not 0: the half-open count over a finding's two cited
+  // boundary turns cannot be 0, so a 0 means the model counted strictly between
+  // the boundaries instead. Rejecting the finding costs one finding; admitting
+  // it mixes two off-by-one conventions inside a single ranked list.
+  wasted_turns: z.number().int().min(1).optional(),
 }
 
 export const RawAnalystFindingSchema = z
@@ -58,6 +65,7 @@ export const RAW_FINDING_SCHEMA_PROMPT = `Each finding MUST be a strict JSON obj
   - confidence: number 0..1 (0.9+ exact evidence; 0.6-0.8 inferred pattern; <0.5 speculative)
   - rationale?: one or two reasoning sentences
   - recommended_action?: concrete imperative change; omit for descriptive findings
+  - wasted_turns?: integer >= 1 — agent turns thrown away, counted from the first turn already off-track (the diverging turn, the erroring turn) up to but NOT including the turn that corrected or recovered. A correction landing on the very next turn is 1, never 0. Count model-driven turns only; tool calls nested inside a turn are not turns. Never a wall-clock, token, dollar, or occurrence count, and never a sum across clustered instances — report the one instance your two cited spans bound. Omit it entirely unless you measured it against those two citations; a guessed cost is worse than no cost.
 
 Unknown fields are rejected. Do not emit area; the factory assigns it. Emit [] when there are no findings. Never fabricate evidence.`
 
