@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
 import { estimateCost, isModelPriced } from '../../metrics'
 import type {
   RunCostProvenance,
@@ -10,11 +9,9 @@ import type {
 } from '../../run-record'
 import { extractUsage } from '../../trace/extract-usage'
 import {
-  admittedCodexItem,
   type CodeAgentSessionExecutionReceipt,
   type CodeAgentSessionObservation,
   type CodeAgentSessionSource,
-  hasCodexTranscriptStream,
   observeCodeAgentSession,
 } from './code-agent-observation'
 
@@ -122,82 +119,17 @@ export interface CodeAgentSessionIntakeOptions {
   execution?: CodeAgentSessionExecutionReceipt
 }
 
-/** One transcript line after the intake rule ran on it. A blank line produces
- *  nothing, so every value here is either a parsed entry or a counted defect. */
-export type CodeAgentJsonlLine =
-  | { kind: 'entry'; lineNumber: number; entry: unknown }
-  | { kind: 'malformed'; lineNumber: number }
-
-/** The single per-line rule. Both the string path and the file path call this,
- *  so malformed-line handling and entry validation cannot drift apart. */
-function readCodeAgentJsonlLine(line: string, lineNumber: number): CodeAgentJsonlLine | undefined {
-  const trimmed = line.trim()
-  if (!trimmed) return undefined
-  try {
-    return { kind: 'entry', lineNumber, entry: JSON.parse(trimmed) }
-  } catch {
-    return { kind: 'malformed', lineNumber }
-  }
-}
-
 export function parseCodeAgentJsonl(jsonl: string): ParsedCodeAgentJsonl {
   const entries: unknown[] = []
   let malformedLines = 0
-  let lineNumber = 0
   for (const line of jsonl.split('\n')) {
-    lineNumber += 1
-    const read = readCodeAgentJsonlLine(line, lineNumber)
-    if (!read) continue
-    if (read.kind === 'malformed') malformedLines += 1
-    else entries.push(read.entry)
-  }
-  return { entries, malformedLines }
-}
-
-/** Reads a transcript one line at a time and never holds the file as a single
- *  string. `parseCodeAgentJsonl` needs the whole file in one string, so a
- *  session above V8's ~512MB string ceiling throws `ERR_STRING_TOO_LONG` and
- *  cannot be ingested at all; the largest real Codex rollout on record is 695MB.
- *
- *  Lines break on `\n` only, which is what the string path's `split('\n')` does.
- *  `node:readline` also breaks on a bare `\r`, so it is deliberately not used
- *  here: a lone carriage return inside a line must stay inside that line for the
- *  two paths to report the same malformed count. */
-export async function* streamCodeAgentJsonlFile(path: string): AsyncGenerator<CodeAgentJsonlLine> {
-  const stream = createReadStream(path, { encoding: 'utf8' })
-  let pending = ''
-  let lineNumber = 0
-  try {
-    for await (const chunk of stream) {
-      pending += chunk
-      let start = 0
-      for (let at = pending.indexOf('\n'); at !== -1; at = pending.indexOf('\n', start)) {
-        lineNumber += 1
-        const read = readCodeAgentJsonlLine(pending.slice(start, at), lineNumber)
-        if (read) yield read
-        start = at + 1
-      }
-      // Only the unterminated tail is retained, so live memory is bounded by
-      // the longest single line rather than by the file size.
-      pending = pending.slice(start)
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      entries.push(JSON.parse(trimmed))
+    } catch {
+      malformedLines += 1
     }
-  } finally {
-    stream.destroy()
-  }
-  const last = readCodeAgentJsonlLine(pending, lineNumber + 1)
-  if (last) yield last
-}
-
-/** Streaming counterpart to `parseCodeAgentJsonl` for a transcript on disk.
- *  It returns the same shape, so a caller that holds every entry keeps working
- *  above the string ceiling. The entry array still grows with the transcript;
- *  consume `streamCodeAgentJsonlFile` directly when memory must stay flat. */
-export async function parseCodeAgentJsonlFile(path: string): Promise<ParsedCodeAgentJsonl> {
-  const entries: unknown[] = []
-  let malformedLines = 0
-  for await (const read of streamCodeAgentJsonlFile(path)) {
-    if (read.kind === 'malformed') malformedLines += 1
-    else entries.push(read.entry)
   }
   return { entries, malformedLines }
 }
@@ -451,7 +383,6 @@ function metricsFor(
 function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetrics {
   const metrics = emptyMetrics(entries.length)
   const startedToolIds = new Set<string>()
-  const transcriptStream = hasCodexTranscriptStream(entries)
   let startedAt: number | undefined
   let completedAt: number | undefined
 
@@ -473,15 +404,9 @@ function codexMetrics(entries: Record<string, unknown>[]): CodeAgentSessionMetri
     if (entryType === 'turn.failed') metrics.turnsAborted += 1
     if (entryType === 'error') metrics.unclassifiedErrors += 1
 
-    const itemEvent = admittedCodexItem(entry, transcriptStream)
-    if (itemEvent) {
-      addCodexExecItem(
-        metrics,
-        startedToolIds,
-        itemEvent.eventType,
-        itemEvent.item,
-        transcriptStream,
-      )
+    const item = record(entry.item)
+    if (item && (entryType === 'item.started' || entryType === 'item.completed')) {
+      addCodexExecItem(metrics, startedToolIds, entryType, item)
     }
 
     if (entryType === 'response_item') {
@@ -548,19 +473,14 @@ function addCodexExecItem(
   startedToolIds: Set<string>,
   eventType: 'item.started' | 'item.completed',
   item: Record<string, unknown>,
-  transcriptStream: boolean,
 ): void {
   const itemType = stringField(item, 'type')
   const itemId = stringField(item, 'id')
-  // `response_item` owns the tool call accounting wherever the transport
-  // carries it. A rollout file already counts the enclosing call there, so an
-  // item that reaches this point adds only the surface it alone reports.
   const isTool =
-    !transcriptStream &&
-    (itemType === 'command_execution' ||
-      itemType === 'mcp_tool_call' ||
-      itemType === 'collab_tool_call' ||
-      itemType === 'web_search')
+    itemType === 'command_execution' ||
+    itemType === 'mcp_tool_call' ||
+    itemType === 'collab_tool_call' ||
+    itemType === 'web_search'
 
   if (eventType === 'item.started' && isTool) {
     metrics.toolCalls += 1
@@ -573,9 +493,7 @@ function addCodexExecItem(
   if (eventType !== 'item.completed') return
 
   if (itemType === 'agent_message' || itemType === 'message') metrics.assistantMessages += 1
-  if (itemType === 'user_message') metrics.userMessages += 1
   if (itemType === 'reasoning') metrics.reasoningItems += 1
-  if (itemType === 'context_compaction') metrics.contextCompactions += 1
   if (itemType === 'file_change') {
     metrics.patchAttempts += 1
     const status = stringField(item, 'status')
@@ -1120,32 +1038,11 @@ function cwdFromEntries(entries: Record<string, unknown>[]): string | undefined 
   return undefined
 }
 
-/** Join the `text` of every part in a `[{ type: 'text', text }]` content list. */
-function textFromContentParts(content: unknown): string | undefined {
-  if (!Array.isArray(content)) return undefined
-  const text = content
-    .map((part) => {
-      const obj = record(part)
-      return obj ? stringField(obj, 'text') : undefined
-    })
-    .filter((part): part is string => part !== undefined)
-    .join('\n')
-  return text.length > 0 ? text : undefined
-}
-
 function firstUserText(entries: Record<string, unknown>[]): string | undefined {
   for (const entry of entries) {
     const payload = record(entry.payload)
     const payloadType = payload ? stringField(payload, 'type') : undefined
     if (payloadType === 'user_message') return stringField(payload!, 'message')
-
-    // A Codex rollout carries the prompt only as a `UserMessage` item. Without
-    // this, every rollout session hashes the same empty prompt.
-    const itemEvent = payload ? admittedCodexItem(entry, false) : null
-    if (itemEvent && stringField(itemEvent.item, 'type') === 'user_message') {
-      const text = textFromContentParts(itemEvent.item.content)
-      if (text) return text
-    }
 
     if (stringField(entry, 'role') === 'user') {
       const content = entry.content
@@ -1160,8 +1057,16 @@ function firstUserText(entries: Record<string, unknown>[]): string | undefined {
     if (message && stringField(message, 'role') === 'user') {
       const content = message.content
       if (typeof content === 'string') return content
-      const text = textFromContentParts(content)
-      if (text) return text
+      if (Array.isArray(content)) {
+        const text = content
+          .map((part) => {
+            const obj = record(part)
+            return obj ? stringField(obj, 'text') : undefined
+          })
+          .filter((part): part is string => part !== undefined)
+          .join('\n')
+        if (text) return text
+      }
     }
   }
   return undefined

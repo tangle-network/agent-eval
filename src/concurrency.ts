@@ -122,13 +122,11 @@ export async function mapConcurrent<T, R>(
   items: readonly T[],
   concurrency: number,
   map: (item: T, index: number, signal: AbortSignal) => Promise<R>,
-  signal?: AbortSignal,
 ): Promise<R[]> {
   return mapConcurrentRange({
     count: items.length,
     maxConcurrency: concurrency,
     label: 'mapConcurrent',
-    signal,
     map(index, signal) {
       return map(items[index]!, index, signal)
     },

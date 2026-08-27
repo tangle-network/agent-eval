@@ -8,40 +8,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.145.14] — 2026-08-15
-
-### Changed
-
-- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.8.1` and `0.53.0`.
-- Packed consumers now resolve the one-copy `0.8.1` Core and `0.53.0` Interface cohort through Eval's release verification.
-
----
-
-## [0.145.13] — 2026-08-15
-
-### Added
-
-- Add `streamCodeAgentJsonlFile` and `parseCodeAgentJsonlFile`, which read a code-agent transcript one line at a time and retain only the unterminated tail, so a session past V8's 536,870,888-character string ceiling can still be ingested. `parseCodeAgentJsonl` keeps its existing string-entrypoint signature and behavior.
-
----
-
-## [0.145.12] — 2026-08-14
-
-### Fixed
-
-- Concurrent candidate campaigns now cancel active siblings after the first candidate failure while preserving caller cancellation.
-
----
-
-## [0.145.11] — 2026-08-14
-
-### Changed
-
-- Align the exact `@tangle-network/agent-core` and `@tangle-network/agent-interface` dependencies with `0.8.0` and `0.52.0`.
-- Packed consumers now resolve the one-copy `0.8.0` Core and `0.52.0` Interface cohort through Eval's release verification.
-
----
-
 ## [0.145.10] — 2026-08-13
 
 ### Changed
