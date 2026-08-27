@@ -26,6 +26,15 @@ export const REPAIR_QUESTION =
   'This coding agent ran and did not finish the task. Name the ONE recorded step whose action you would replace, and give the single shell action to run instead of it.'
 
 /**
+ * The byte cap as the policy states it. A whole number of kibibytes reads as
+ * `4 KB`; anything else reads in bytes. The value still comes from the budget
+ * the grader enforces, so the stated cap and the rejected action cannot drift.
+ */
+function formatActionCap(maxBytes: number): string {
+  return maxBytes % 1024 === 0 ? `${maxBytes / 1024} KB` : `${maxBytes} bytes`
+}
+
+/**
  * The task definition. Parameterised by the budget so the stated caps are the
  * enforced caps.
  */
@@ -39,9 +48,10 @@ export function repairTaskPolicy(
     'HOW YOUR ACTION IS EXECUTED — read this before writing it:',
     '- The action runs in a FRESH `/bin/sh`, which is dash on this image, not bash. C-style `for ((i=0;i<n;i++))`, `[[ ]]`, arrays, and `local` are bash-only and will fail with a syntax error.',
     `- The scaffold accepts exactly ${budget.maxStatements === 1 ? 'ONE top-level statement' : `${budget.maxStatements} top-level statements`}. Wrap multiple commands in a single \`{ ...; }\` block or chain them with \`&&\`.`,
-    `- The action is at most ${budget.maxBytes} bytes, and must not be a no-op such as \`true\`, \`:\` or an empty string.`,
+    `- The action is at most ${formatActionCap(budget.maxBytes)}, and must not be a no-op such as \`true\`, \`:\` or an empty string.`,
     '- It runs from the task working directory, as root, with the network available.',
     '- Prefer writing a complete correct file with a heredoc over patching in place; you cannot see the result of your own action, so it must work on the first attempt.',
+    '',
     'Name the step whose action you would replace as `k`, using the step_id shown in the trajectory. Choosing the last step means "instead of the last thing the agent did, do this". You are not repairing the agent\'s reasoning; you are producing the state the suite requires.',
     'Return no finding only when no single replacement action could plausibly make the suite pass.',
   ])

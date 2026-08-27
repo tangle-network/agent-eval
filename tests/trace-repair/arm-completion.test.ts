@@ -15,6 +15,7 @@ import type {
 import { SCAFFOLD_INTERVENTION_BUDGET } from '../../src/trace-repair/action-budget'
 import { askRepairArm, repairArmResponse } from '../../src/trace-repair/analyst-arm'
 import { createCompletionRepairArm } from '../../src/trace-repair/arm-completion'
+import { repairTaskPolicy } from '../../src/trace-repair/repair-prompt'
 import { admitted, step } from './fixtures'
 
 const PRICING = { inputUsdPerMillion: 0.6, outputUsdPerMillion: 2.2 }
@@ -103,7 +104,13 @@ describe('completion repair arm', () => {
     const prompt = transport.requests[0]!.body.messages[0]!.content
     expect(prompt).toContain('step_id 2')
     expect(prompt).toContain('python solve.py')
-    expect(prompt).toContain(String(SCAFFOLD_INTERVENTION_BUDGET.maxBytes))
+    // The stated cap is the enforced cap: assert the policy's own rendering of
+    // the budget reaches the arm, not a number the test re-renders itself.
+    const capLine = repairTaskPolicy(SCAFFOLD_INTERVENTION_BUDGET).find((line) =>
+      line.includes('must not be a no-op'),
+    )
+    expect(capLine).toBeDefined()
+    expect(prompt).toContain(capLine)
     for (const leak of [ROW.suiteDigest, ROW.image, ROW.policyDigest]) {
       expect(prompt).not.toContain(leak)
     }
