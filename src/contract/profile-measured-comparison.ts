@@ -1,0 +1,357 @@
+import {
+  type AgentProfileImprovementExperiment,
+  type AgentProfileImprovementExperimentMaterial,
+  type AgentProfileImprovementMeasuredComparison,
+  type AgentProfileImprovementMeasurement,
+  type AgentProfileImprovementRunCell,
+  type AgentProfileImprovementRunReceipt,
+  type AgentProfileImprovementSuiteInputs,
+  type AgentProfileImprovementTask,
+  type AgentProfileImprovementTaskMaterial,
+  agentProfileImprovementExperimentSchema,
+  agentProfileImprovementMeasuredComparisonSchema,
+  agentProfileImprovementRunCellSchema,
+  agentProfileImprovementRunReceiptSchema,
+  agentProfileImprovementSuiteInputsSchema,
+  agentProfileImprovementSuiteSchema,
+  agentProfileImprovementTaskSchema,
+  canonicalCandidateDigest,
+  canonicalCandidateJson,
+  type Sha256Digest,
+} from '@tangle-network/agent-interface'
+import { evaluatePairedMeasurements, type PairedMeasurementAdapter } from './measured-comparison'
+
+export interface SealAgentProfileImprovementSuiteOptions {
+  splitDigest: Sha256Digest
+  tasks: [AgentProfileImprovementTask, ...AgentProfileImprovementTask[]]
+  reps: number
+  seeds: [number, ...number[]]
+}
+
+export interface AgentProfileImprovementExperimentExecutionInput {
+  experiment: AgentProfileImprovementExperiment
+  arm: 'baseline' | 'candidate'
+  stateDigest: Sha256Digest
+  task: AgentProfileImprovementTask
+  runCell: AgentProfileImprovementRunCell
+  seed: number
+  signal?: AbortSignal
+}
+
+export interface RunAgentProfileImprovementExperimentOptions {
+  experiment: AgentProfileImprovementExperiment
+  execute(
+    input: AgentProfileImprovementExperimentExecutionInput,
+  ): Promise<AgentProfileImprovementRunReceipt>
+  maxConcurrency?: number
+  signal?: AbortSignal
+}
+
+export interface CompareAgentProfileImprovementExperimentOptions {
+  experiment: AgentProfileImprovementExperiment
+  measurements: AgentProfileImprovementMeasurement[]
+  runId: string
+  candidate?: AgentProfileImprovementMeasuredComparison['candidate']
+  generationsExplored?: number
+  searchDurationMs?: number
+  searchCostUsd?: number
+  metadata?: AgentProfileImprovementMeasuredComparison['metadata']
+}
+
+/** Content-address one held-out profile task before either state can execute it. */
+export function sealAgentProfileImprovementTask(
+  material: AgentProfileImprovementTaskMaterial,
+): AgentProfileImprovementTask {
+  return agentProfileImprovementTaskSchema.parse({
+    ...material,
+    digest: canonicalCandidateDigest(material),
+  })
+}
+
+/** Freeze profile task order, repetitions, seeds, and the held-out split. */
+export function sealAgentProfileImprovementSuite(
+  options: SealAgentProfileImprovementSuiteOptions,
+): AgentProfileImprovementSuiteInputs {
+  for (const task of options.tasks) verifyAgentProfileImprovementTask(task)
+  const material = {
+    kind: 'agent-profile-improvement-suite' as const,
+    digestAlgorithm: 'rfc8785-sha256' as const,
+    splitDigest: options.splitDigest,
+    taskDigests: options.tasks.map((task) => task.digest) as [Sha256Digest, ...Sha256Digest[]],
+    reps: options.reps,
+    seeds: options.seeds,
+  }
+  const suite = agentProfileImprovementSuiteSchema.parse({
+    ...material,
+    digest: canonicalCandidateDigest(material),
+  })
+  return agentProfileImprovementSuiteInputsSchema.parse({
+    suite,
+    tasks: options.tasks,
+  })
+}
+
+/** Freeze the two host-owned profile states and their exact held-out work. */
+export function sealAgentProfileImprovementExperiment(
+  material: AgentProfileImprovementExperimentMaterial,
+): AgentProfileImprovementExperiment {
+  return verifyAgentProfileImprovementExperiment({
+    ...material,
+    digest: canonicalCandidateDigest(material),
+  })
+}
+
+export function verifyAgentProfileImprovementTask(input: unknown): AgentProfileImprovementTask {
+  return agentProfileImprovementTaskSchema.parse(input)
+}
+
+export function verifyAgentProfileImprovementSuiteInputs(
+  input: unknown,
+): AgentProfileImprovementSuiteInputs {
+  return agentProfileImprovementSuiteInputsSchema.parse(input)
+}
+
+export function verifyAgentProfileImprovementExperiment(
+  input: unknown,
+): AgentProfileImprovementExperiment {
+  return agentProfileImprovementExperimentSchema.parse(input)
+}
+
+/**
+ * Execute each signed profile cell through the host's one exact-state executor.
+ * Eval owns only the cell schedule and receipt checks; the host resolves each
+ * state digest and captures its own run, billing, trace, and grader evidence.
+ */
+export async function runAgentProfileImprovementExperiment(
+  options: RunAgentProfileImprovementExperimentOptions,
+): Promise<AgentProfileImprovementMeasurement[]> {
+  const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
+  const expectedCount =
+    experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
+  const maxConcurrency = options.maxConcurrency ?? 2
+  if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) {
+    throw new Error('profile improvement maxConcurrency must be a positive integer')
+  }
+
+  const measurements = new Array<AgentProfileImprovementMeasurement>(expectedCount)
+  let nextIndex = 0
+  const lanes = Array.from({ length: Math.min(maxConcurrency, expectedCount) }, async () => {
+    while (true) {
+      if (options.signal?.aborted) throw abortError(options.signal)
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= expectedCount) return
+
+      const [baselineInput, candidateInput] = [
+        profileExecutionInput(experiment, 'baseline', index, options.signal),
+        profileExecutionInput(experiment, 'candidate', index, options.signal),
+      ]
+      const [baseline, candidate] = await Promise.all([
+        options.execute(baselineInput),
+        options.execute(candidateInput),
+      ])
+      measurements[index] = verifyProfileMeasurement(experiment, { baseline, candidate }, index)
+    }
+  })
+  await Promise.all(lanes)
+  return measurements
+}
+
+/** Build the only publishable profile comparison from complete host receipts. */
+export function measuredComparisonFromAgentProfileImprovementExperiment(
+  options: CompareAgentProfileImprovementExperimentOptions,
+): AgentProfileImprovementMeasuredComparison {
+  const experiment = verifyAgentProfileImprovementExperiment(options.experiment)
+  const measurements = options.measurements.map((measurement, index) =>
+    verifyProfileMeasurement(experiment, measurement, index),
+  )
+  const expectedCount =
+    experiment.benchmark.suite.taskDigests.length * experiment.benchmark.suite.reps
+  if (measurements.length !== expectedCount) {
+    throw new Error(
+      `profile improvement experiment is incomplete (${measurements.length}/${expectedCount} paired cells)`,
+    )
+  }
+  if (!options.runId.trim()) {
+    throw new Error('profile improvement experiment runId is required')
+  }
+
+  const searchCostUsd = nonNegative(options.searchCostUsd ?? 0, 'searchCostUsd')
+  const searchDurationMs = nonNegative(options.searchDurationMs ?? 0, 'searchDurationMs')
+  const evaluation = evaluatePairedMeasurements({
+    measurements: measurements.map((measurement, index) => ({
+      cellId: profileCellId(experiment, index),
+      ...measurement,
+    })),
+    policy: experiment.policy,
+    adapter: profileReceiptAdapter,
+    sharedScorerChannel: true,
+    additionalCostUsd: searchCostUsd,
+  })
+  const provisional = agentProfileImprovementMeasuredComparisonSchema.parse({
+    kind: 'agent-profile-improvement-measured-comparison',
+    experiment,
+    measurements,
+    overall: evaluation.overall,
+    objectives: evaluation.objectives,
+    ...(options.candidate ? { candidate: options.candidate } : {}),
+    decision: evaluation.decision,
+    power: evaluation.power,
+    provenance: {
+      kind: 'agent-eval-loop',
+      schema: 'agent-profile-improvement-experiment',
+      runId: options.runId,
+      recordDigest: canonicalCandidateDigest({}),
+      baselineContentHash: experiment.baseline.stateDigest,
+      candidateContentHash: experiment.candidate.stateDigest,
+    },
+    diff: canonicalCandidateJson(experiment.change),
+    evaluation: {
+      generationsExplored: options.generationsExplored ?? 0,
+      searchDurationMs,
+      executionDurationMs: evaluation.executionDurationMs,
+      durationMs: evaluation.executionDurationMs + searchDurationMs,
+      searchCostUsd,
+      executionCostUsd: evaluation.executionCostUsd,
+      totalCostUsd: evaluation.totalCostUsd,
+    },
+    ...(options.metadata ? { metadata: options.metadata } : {}),
+  })
+  const { recordDigest: _recordDigest, ...provenance } = provisional.provenance
+  return agentProfileImprovementMeasuredComparisonSchema.parse({
+    ...provisional,
+    provenance: {
+      ...provenance,
+      recordDigest: canonicalCandidateDigest({ ...provisional, provenance }),
+    },
+  })
+}
+
+/** Recompute a profile comparison from the exact sealed experiment and receipts. */
+export function verifyAgentProfileImprovementExperimentComparison(
+  input: unknown,
+): AgentProfileImprovementMeasuredComparison {
+  const comparison = agentProfileImprovementMeasuredComparisonSchema.parse(input)
+  const recomputed = measuredComparisonFromAgentProfileImprovementExperiment({
+    experiment: comparison.experiment,
+    measurements: comparison.measurements,
+    runId: comparison.provenance.runId,
+    ...(comparison.candidate ? { candidate: comparison.candidate } : {}),
+    generationsExplored: comparison.evaluation.generationsExplored,
+    searchDurationMs: comparison.evaluation.searchDurationMs,
+    searchCostUsd: comparison.evaluation.searchCostUsd,
+    ...(comparison.metadata ? { metadata: comparison.metadata } : {}),
+  })
+  if (canonicalCandidateDigest(recomputed) !== canonicalCandidateDigest(comparison)) {
+    throw new Error('profile improvement comparison does not match its Runtime receipts')
+  }
+  return comparison
+}
+
+function profileExecutionInput(
+  experiment: AgentProfileImprovementExperiment,
+  arm: 'baseline' | 'candidate',
+  index: number,
+  signal: AbortSignal | undefined,
+): AgentProfileImprovementExperimentExecutionInput {
+  const { task, taskIndex, repetition, seed } = profileCell(experiment, index)
+  const stateDigest = experiment[arm].stateDigest
+  const runCellMaterial = {
+    kind: 'agent-profile-improvement-run-cell' as const,
+    experimentDigest: experiment.digest,
+    arm,
+    stateDigest,
+    suiteDigest: experiment.benchmark.suite.digest,
+    taskDigest: task.digest,
+    taskIndex,
+    repetition,
+    seed,
+    attempt: 1,
+  }
+  const runCell = agentProfileImprovementRunCellSchema.parse({
+    ...runCellMaterial,
+    digest: canonicalCandidateDigest(runCellMaterial),
+  })
+  return {
+    experiment,
+    arm,
+    stateDigest,
+    task,
+    runCell,
+    seed,
+    ...(signal ? { signal } : {}),
+  }
+}
+
+function verifyProfileMeasurement(
+  experiment: AgentProfileImprovementExperiment,
+  input: unknown,
+  index: number,
+): AgentProfileImprovementMeasurement {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error(`profile improvement measurement ${index} must be an object`)
+  }
+  const material = input as { baseline?: unknown; candidate?: unknown }
+  const expectedBaseline = profileExecutionInput(experiment, 'baseline', index, undefined)
+  const expectedCandidate = profileExecutionInput(experiment, 'candidate', index, undefined)
+  const baseline = agentProfileImprovementRunReceiptSchema.parse(material.baseline)
+  const candidate = agentProfileImprovementRunReceiptSchema.parse(material.candidate)
+  if (
+    baseline.runCell.digest !== expectedBaseline.runCell.digest ||
+    candidate.runCell.digest !== expectedCandidate.runCell.digest
+  ) {
+    throw new Error(`profile improvement measurement ${index} substituted a measured arm`)
+  }
+  if (baseline.executionId === candidate.executionId || baseline.digest === candidate.digest) {
+    throw new Error(`profile improvement measurement ${index} reused one execution across arms`)
+  }
+  return { baseline, candidate }
+}
+
+function profileCell(
+  experiment: AgentProfileImprovementExperiment,
+  index: number,
+): {
+  task: AgentProfileImprovementTask
+  taskIndex: number
+  repetition: number
+  seed: number
+} {
+  const { suite, tasks } = experiment.benchmark
+  const taskIndex = Math.floor(index / suite.reps)
+  const repetition = index % suite.reps
+  const task = tasks[taskIndex]
+  const seed = suite.seeds[index]
+  if (!task || seed === undefined) {
+    throw new Error(`profile improvement experiment cell ${index} is outside the signed suite`)
+  }
+  return { task, taskIndex, repetition, seed }
+}
+
+function profileCellId(experiment: AgentProfileImprovementExperiment, index: number): string {
+  const { task, repetition } = profileCell(experiment, index)
+  return `${task.scenario.id}:${repetition}`
+}
+
+const profileReceiptAdapter: PairedMeasurementAdapter<AgentProfileImprovementRunReceipt> = {
+  score: (receipt) => receipt.grading.score,
+  dimensions: (receipt) => receipt.grading.dimensions,
+  costUsd: (receipt) =>
+    (receipt.usage.costUsdNanos + receipt.grading.usage.costUsdNanos) / 1_000_000_000,
+  latencyMs: (receipt) => receipt.timing.durationMs + receipt.grading.timing.durationMs,
+  completed: (receipt) => receipt.outcome.status === 'succeeded',
+  passed: (receipt) => receipt.grading.passed,
+}
+
+function nonNegative(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number`)
+  }
+  return value
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('profile improvement experiment aborted')
+}
