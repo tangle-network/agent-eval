@@ -129,6 +129,65 @@ Profile digests, runtime tags, terminal reasons, structured verdicts, and metere
 The reader does not derive invocation roles, outcome quality, completion time, provider policy, worker transcripts, or verification results from labels or artifacts.
 Those fields remain unavailable when their source is absent.
 
+### Join Runtime nodes to native provider sessions
+
+Runtime journals identify invocations with caller-owned node ids.
+Provider trace stores identify sessions with adapter-specific ids.
+Current Runtime journals write an exact `providerSession` receipt on each settled invocation, so the reader joins them automatically.
+For historical runs that predate those receipts, pass a complete exact fallback mapping:
+
+```ts
+import {
+  readRuntimeSupervisorRun,
+  type RuntimeTraceSessionBinding,
+} from '@tangle-network/agent-eval/supervisor-run'
+
+const sessionBindings: RuntimeTraceSessionBinding[] = [
+  {
+    provider: 'cli-bridge',
+    backend: 'pi',
+    externalId: 'research-run',
+    nativeSessionId: '00000000-0000-4000-8000-000000000001',
+    cwd: '/workspaces/research-run',
+    nativePromptCount: 1,
+    controllerTurns: [
+      {
+        ordinal: 1,
+        runId: 'research-run:turn:1',
+        bridgeRequestDigest: `sha256:${'a'.repeat(64)}`,
+        promptSha256: `sha256:${'b'.repeat(64)}`,
+        startedAt: 1_785_369_600_000,
+        endedAt: 1_785_369_660_000,
+      },
+    ],
+  },
+  {
+    provider: 'cli-bridge',
+    backend: 'pi',
+    externalId: 'research-run:s0',
+    nativeSessionId: '00000000-0000-4000-8000-000000000002',
+    cwd: '/workspaces/research-run%3As0',
+    nativePromptCount: 1,
+    controllerTurns: [],
+  },
+]
+
+const sources = await readRuntimeSupervisorRun(runDir, { sessionBindings })
+```
+
+The reader prefers each node's journal-native receipt over the historical fallback, refuses ambiguous present receipts or reuse of one native session within the same provider and backend, and derives parent, child, and depth only from the Runtime journal.
+Runtime node ids remain the canonical relationship identities.
+The provider, backend, and native session id are lookup and provenance fields, never parent or child identities.
+`nativePromptCount` is the provider session's total approved prompt count.
+`controllerTurns` carries the subset with exact one-based prompt ordinals, durable Bridge request identity, prompt hashes, and Unix-millisecond time intervals.
+Reports show exact/total prompt coverage and every missing ordinal.
+Missing node identity preserves the Runtime relationship row and appears as an exact node-id coverage gap.
+Missing or empty controller-turn receipts prove no Runtime-attributed provider work.
+The analyzer snapshots, validates, and deeply freezes the complete Runtime relationship tree and every present receipt before reading any other analysis state.
+It does not read provider messages, infer agent roles, or define an adapter-specific mapping format.
+For historical runs, the trace integration converts its own read-only session catalog into `RuntimeTraceSessionBinding[]`, then uses `sources.sessionLineage` with its existing native trace adapters.
+Without journal receipts or a fallback mapping, provider-session lineage remains explicitly unavailable.
+
 Register it as a custom-input analyst and pass the existing value under its stable id:
 
 ```ts

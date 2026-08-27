@@ -49,6 +49,16 @@ function fmtMs(v: Measured<number>): string {
   return `${round(s / 60, 1)}min`
 }
 
+function codeCell(value: string): string {
+  return `<code>${value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('|', '&#124;')
+    .replaceAll('\r', ' ')
+    .replaceAll('\n', ' ')}</code>`
+}
+
 export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   const o = r.orchestration
   const d = r.decision
@@ -65,6 +75,49 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   out.push(`- Supervisor profile: \`${showMeasured(r.supervisorProfileDigest)}\``)
   out.push(`- Generated: ${r.generatedAt}`)
   out.push('')
+
+  if (r.sessionLineage !== undefined) {
+    out.push('## Provider session lineage')
+    out.push('')
+    if (isUnavailable(r.sessionLineage)) {
+      out.push(`unavailable — ${r.sessionLineage.unavailable}`)
+    } else {
+      out.push(
+        '| Runtime node | Parent Runtime node | Depth | Children | Provider | Backend | Native session | Exact prompts | Missing native prompt ordinals | Cwd |',
+      )
+      out.push('|---|---|---:|---:|---|---|---|---:|---|---|')
+      for (const session of r.sessionLineage) {
+        const providerSession = session.providerSession
+        if (providerSession === undefined) {
+          out.push(
+            `| ${codeCell(session.nodeId)} | ` +
+              `${session.parentNodeId === null ? '—' : codeCell(session.parentNodeId)} | ` +
+              `${session.depth} | ${session.childNodeIds.length} | ` +
+              'unavailable | unavailable | unavailable | 0/? | unknown | unavailable |',
+          )
+          continue
+        }
+        const knownOrdinals = new Set(
+          providerSession.controllerTurns.map((receipt) => receipt.ordinal),
+        )
+        const missingOrdinals = Array.from(
+          { length: providerSession.nativePromptCount },
+          (_, index) => index + 1,
+        ).filter((ordinal) => !knownOrdinals.has(ordinal))
+        out.push(
+          `| ${codeCell(session.nodeId)} | ` +
+            `${session.parentNodeId === null ? '—' : codeCell(session.parentNodeId)} | ` +
+            `${session.depth} | ${session.childNodeIds.length} | ` +
+            `${codeCell(providerSession.provider)} | ${codeCell(providerSession.backend)} | ` +
+            `${codeCell(providerSession.nativeSessionId)} | ` +
+            `${providerSession.controllerTurns.length}/${providerSession.nativePromptCount} | ` +
+            `${missingOrdinals.length === 0 ? 'none' : missingOrdinals.join(', ')} | ` +
+            `${codeCell(providerSession.cwd)} |`,
+        )
+      }
+    }
+    out.push('')
+  }
 
   out.push('## Orchestration')
   out.push('')

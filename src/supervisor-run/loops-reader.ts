@@ -25,7 +25,11 @@ import {
   renderSupervisorRunHeadline,
   renderSupervisorRunMarkdown,
 } from './render'
-import { isRuntimeSupervisorRunDir, readRuntimeSupervisorRun } from './runtime-reader'
+import {
+  isRuntimeSupervisorRunDir,
+  type RuntimeReaderOptions,
+  readRuntimeSupervisorRun,
+} from './runtime-reader'
 import {
   NO_SOURCE_LIMITS,
   type SupervisorRunReader,
@@ -56,6 +60,11 @@ export interface LoopsReaderOptions {
   readonly opencodeDb?: string | null
   /** Ledger to fall back to when the run has no `judge.json` (matched on iid + arm + runDir). */
   readonly ledgerPath?: string
+}
+
+export interface AnalyzeSupervisorRunOptions extends LoopsReaderOptions {
+  /** Inputs used only when `input` is a Runtime FileRunContext directory. */
+  readonly runtime?: RuntimeReaderOptions
 }
 
 /**
@@ -268,12 +277,13 @@ function instanceIdFromPath(runDir: string): string | null {
  */
 export async function analyzeSupervisorRun(
   input: string | SupervisorRunReader | SupervisorRunSources,
-  opts: LoopsReaderOptions = {},
+  opts: AnalyzeSupervisorRunOptions = {},
 ): Promise<SupervisorRunReport> {
   if (typeof input === 'string') {
+    const runtimeOptions = opts.runtime
     return analyzeSupervisorRunSources(
       (await isRuntimeSupervisorRunDir(input))
-        ? await readRuntimeSupervisorRun(input)
+        ? await readRuntimeSupervisorRun(input, runtimeOptions)
         : await readLoopsSupervisorRun(input, opts),
     )
   }

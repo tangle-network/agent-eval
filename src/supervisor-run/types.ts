@@ -24,6 +24,10 @@
  * opposite conclusions about the same architecture, so they never collapse.
  */
 
+import type {
+  AgentControllerTurnReceipt,
+  AgentProviderSessionRef,
+} from '@tangle-network/agent-interface'
 import type { RolloutLine } from '../rollout/schema'
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,33 @@ export interface WorkerLogSource {
   readonly tokensOut?: number | null
   readonly cacheRead?: number | null
   readonly cacheWrite?: number | null
+}
+
+/**
+ * One provider session joined to one invocation in the supervision journal.
+ *
+ * This is identity metadata only. Provider messages and spans remain in their
+ * native trace store and are read by the provider's existing trace adapter.
+ */
+/** Canonical Interface-owned receipt for one controller-owned provider turn. */
+export type RuntimeControllerTurnReceipt = AgentControllerTurnReceipt
+
+/** Canonical Interface-owned provider-session receipt written by Runtime. */
+export type SupervisorRunProviderSessionRef = AgentProviderSessionRef
+
+export interface SupervisorRunSessionLineage {
+  /** Stable invocation id from the supervision journal. */
+  readonly nodeId: string
+  readonly parentNodeId: string | null
+  readonly depth: number
+  readonly childNodeIds: readonly string[]
+  /**
+   * Exact provider identity when Runtime recorded it.
+   *
+   * Missing identity is an unavailable measurement for this node, not a reason
+   * to discard the Runtime-owned tree around it.
+   */
+  readonly providerSession?: SupervisorRunProviderSessionRef
 }
 
 /**
@@ -194,6 +225,13 @@ export interface SupervisorRunSources {
    * other store must say, or the row points at a path that never existed.
    */
   readonly rootTranscriptRef?: string | null
+  /**
+   * Provider-session identities joined to journal nodes by exact node id.
+   * The entries carry no transcript or span data.
+   */
+  readonly sessionLineage?: readonly SupervisorRunSessionLineage[]
+  /** Why `sessionLineage` is absent for a source that supports the join. */
+  readonly sessionLineageMissingReason?: string
   /**
    * The `traces` CLI command that covers this run's harness-session layer.
    * Null falls back to the analyzer's default (an opencode worker fleet).
@@ -389,6 +427,12 @@ export interface SupervisorRunReport {
   readonly decision: DecisionMetrics
   readonly economics: EconomicsMetrics
   readonly outcome: OutcomeMetrics
+  /**
+   * Runtime-owned ancestry plus every provider identity Runtime measured.
+   * A row without `providerSession` is retained so partial identity coverage
+   * cannot erase or rewrite the supervision tree.
+   */
+  readonly sessionLineage?: Measured<readonly SupervisorRunSessionLineage[]>
   /** Artifacts that were missing, in read order — the provenance of every `unavailable`. */
   readonly gaps: readonly string[]
   /** The `traces` CLI command that covers the harness-session layer for this run. */

@@ -2,16 +2,43 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { analyzeSupervisorRunSources } from './analyze'
 import { analyzeSupervisorRun, findSupervisorRunDirs } from './loops-reader'
+import { renderSupervisorRunMarkdown } from './render'
 import { supervisorRunRolloutLines } from './rollout-nodes'
-import { readRuntimeSupervisorRun } from './runtime-reader'
-import { isUnavailable } from './types'
+import { type RuntimeTraceSessionBinding, readRuntimeSupervisorRun } from './runtime-reader'
+import { isUnavailable, type SupervisorRunSessionLineage } from './types'
 
 const T0 = Date.parse('2026-07-30T00:00:00.000Z')
 const at = (seconds: number): string => new Date(T0 + seconds * 1_000).toISOString()
 const ROOT_PROFILE = `sha256:${'a'.repeat(64)}`
 const CHILD_PROFILE = `sha256:${'b'.repeat(64)}`
 const LEAF_PROFILE = `sha256:${'c'.repeat(64)}`
+
+function providerSession(
+  externalId: string,
+  nativeSessionId: string,
+  backend = 'pi',
+  cwd = `/workspaces/${encodeURIComponent(externalId)}`,
+  provider = 'cli-bridge',
+): RuntimeTraceSessionBinding {
+  return {
+    provider,
+    backend,
+    externalId,
+    nativeSessionId,
+    cwd,
+    nativePromptCount: 1,
+    controllerTurns: [],
+  }
+}
+
+function measuredProviderSession(row: SupervisorRunSessionLineage): RuntimeTraceSessionBinding {
+  if (row.providerSession === undefined) {
+    throw new Error(`expected provider session for ${row.nodeId}`)
+  }
+  return row.providerSession
+}
 
 function begin(root: string, seconds: number): Record<string, unknown> {
   return { kind: 'begin', root, at: at(seconds) }
@@ -168,7 +195,435 @@ async function nestedRuntimeRun(): Promise<string> {
   return runDir
 }
 
+async function recursiveSteeringRuntimeRun(
+  providerSessions: 'none' | 'all' | 'child-only' = 'none',
+): Promise<string> {
+  const parent = await mkdtemp(join(tmpdir(), 'runtime-steering-run-'))
+  const runDir = join(parent, 'runtime')
+  const root = 'recursive-steering-smoke'
+  const child = `${root}:s0`
+  await writeJournal(runDir, [
+    begin(root, 0),
+    event(root, {
+      kind: 'spawned',
+      id: root,
+      label: ROOT_PROFILE,
+      profileDigest: ROOT_PROFILE,
+      budget: { maxIterations: 6, maxTokens: 250_000 },
+      seq: 0,
+      at: at(0),
+    }),
+    event(root, {
+      kind: 'metered',
+      id: root,
+      spend: {
+        iterations: 1,
+        tokens: { input: 6_508, output: 612 },
+        usd: 0,
+        ms: 0,
+      },
+      seq: 0,
+      at: at(1),
+    }),
+    event(root, {
+      kind: 'spawned',
+      id: child,
+      parent: root,
+      label: 'steering-child',
+      profileDigest: CHILD_PROFILE,
+      runtime: 'driver',
+      budget: { maxIterations: 3, maxTokens: 100_000 },
+      seq: 0,
+      at: at(2),
+    }),
+    begin(child, 2),
+    event(child, {
+      kind: 'spawned',
+      id: child,
+      label: 'steering-child',
+      profileDigest: CHILD_PROFILE,
+      budget: { maxIterations: 3, maxTokens: 100_000 },
+      seq: 0,
+      at: at(2),
+    }),
+    event(child, {
+      kind: 'metered',
+      id: child,
+      spend: {
+        iterations: 2,
+        tokens: { input: 82_466, output: 727 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      },
+      seq: 0,
+      at: at(3),
+    }),
+    event(root, {
+      kind: 'settled',
+      id: child,
+      status: 'done',
+      spent: {
+        iterations: 2,
+        tokens: { input: 82_466, output: 727 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      },
+      ...(providerSessions === 'all' || providerSessions === 'child-only'
+        ? {
+            providerSession:
+              providerSessions === 'child-only'
+                ? providerSession(
+                    child,
+                    'provider-neutral-native-id',
+                    'custom-harness',
+                    '/provider-neutral/workspace',
+                    'custom-provider',
+                  )
+                : providerSession(child, 'same-native-id', 'codex'),
+          }
+        : {}),
+      seq: 0,
+      at: at(4),
+    }),
+    event(root, {
+      kind: 'settled',
+      id: root,
+      status: 'done',
+      spent: {
+        iterations: 1,
+        tokens: { input: 137_484, output: 9_503 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      },
+      ...(providerSessions === 'all'
+        ? {
+            providerSession: {
+              ...providerSession(root, 'same-native-id'),
+              controllerTurns: [
+                {
+                  ordinal: 1,
+                  runId: `${root}:turn:1`,
+                  bridgeRequestDigest: `sha256:${'d'.repeat(64)}`,
+                  promptSha256: `sha256:${'e'.repeat(64)}`,
+                  startedAt: T0,
+                  endedAt: T0 + 1_000,
+                },
+              ],
+            },
+          }
+        : {}),
+      seq: 1,
+      at: at(5),
+    }),
+  ])
+  return runDir
+}
+
 describe('Runtime FileRunContext supervisor reader', () => {
+  it('joins the sanitized successful steering tree to exact provider sessions', async () => {
+    const runDir = await recursiveSteeringRuntimeRun()
+    const root = 'recursive-steering-smoke'
+    const child = `${root}:s0`
+    const rootSession = '00000000-0000-4000-8000-000000000001'
+    const childSession = '00000000-0000-4000-8000-000000000002'
+    const bindings = Object.freeze([
+      Object.freeze(
+        providerSession(root, rootSession, 'pi', '/workspaces/recursive-steering-smoke'),
+      ),
+      Object.freeze(
+        providerSession(child, childSession, 'pi', '/workspaces/recursive-steering-smoke%3As0'),
+      ),
+    ] satisfies RuntimeTraceSessionBinding[])
+
+    const source = await readRuntimeSupervisorRun(runDir, { sessionBindings: bindings })
+    const report = await analyzeSupervisorRun(runDir, {
+      runtime: { sessionBindings: bindings },
+    })
+
+    expect(source.sessionLineage).toEqual([
+      {
+        nodeId: root,
+        parentNodeId: null,
+        depth: 0,
+        childNodeIds: [child],
+        providerSession: bindings[0],
+      },
+      {
+        nodeId: child,
+        parentNodeId: root,
+        depth: 1,
+        childNodeIds: [],
+        providerSession: bindings[1],
+      },
+    ])
+    expect(report.sessionLineage).toEqual(source.sessionLineage)
+    expect(report.orchestration.delegationDepth).toBe(1)
+    const markdown = renderSupervisorRunMarkdown(report)
+    expect(markdown).toContain(
+      `| <code>${root}</code> | — | 0 | 1 | <code>cli-bridge</code> | <code>pi</code> | <code>${rootSession}</code> | 0/1 | 1 |`,
+    )
+    expect(markdown).toContain(
+      `| <code>${child}</code> | <code>${root}</code> | 1 | 0 | <code>cli-bridge</code> | <code>pi</code> | <code>${childSession}</code> | 0/1 | 1 |`,
+    )
+    const escaped = renderSupervisorRunMarkdown({
+      ...report,
+      sessionLineage: source.sessionLineage?.map((row, index) => {
+        if (index !== 0) return row
+        return {
+          ...row,
+          providerSession: {
+            ...measuredProviderSession(row),
+            backend: 'pi|<script>',
+            cwd: '/line/one\nline/two',
+          },
+        }
+      }),
+    })
+    expect(escaped).toContain('<code>pi&#124;&lt;script&gt;</code>')
+    expect(escaped).toContain('<code>/line/one line/two</code>')
+    expect(escaped).not.toContain('<script>')
+  })
+
+  it('uses journal-native provider sessions without a map and prefers them over old-run fallback', async () => {
+    const runDir = await recursiveSteeringRuntimeRun('all')
+    const root = 'recursive-steering-smoke'
+    const child = `${root}:s0`
+    const source = await readRuntimeSupervisorRun(runDir, {
+      sessionBindings: [providerSession(root, 'stale-root'), providerSession(child, 'stale-child')],
+    })
+    const automatic = await readRuntimeSupervisorRun(runDir)
+
+    expect(source.sessionLineage).toEqual(automatic.sessionLineage)
+    expect(
+      source.sessionLineage?.map((row) => ({
+        nodeId: row.nodeId,
+        backend: measuredProviderSession(row).backend,
+        nativeSessionId: measuredProviderSession(row).nativeSessionId,
+        nativePromptCount: measuredProviderSession(row).nativePromptCount,
+        controllerOrdinals: measuredProviderSession(row).controllerTurns.map(
+          (turn) => turn.ordinal,
+        ),
+      })),
+    ).toEqual([
+      {
+        nodeId: root,
+        backend: 'pi',
+        nativeSessionId: 'same-native-id',
+        nativePromptCount: 1,
+        controllerOrdinals: [1],
+      },
+      {
+        nodeId: child,
+        backend: 'codex',
+        nativeSessionId: 'same-native-id',
+        nativePromptCount: 1,
+        controllerOrdinals: [],
+      },
+    ])
+  })
+
+  it('keeps the provider-neutral Runtime tree when only one node has measured identity', async () => {
+    const runDir = await recursiveSteeringRuntimeRun('child-only')
+    const root = 'recursive-steering-smoke'
+    const child = `${root}:s0`
+    const source = await readRuntimeSupervisorRun(runDir)
+    const report = analyzeSupervisorRunSources(source)
+
+    expect(source.sessionLineage).toEqual([
+      {
+        nodeId: root,
+        parentNodeId: null,
+        depth: 0,
+        childNodeIds: [child],
+      },
+      {
+        nodeId: child,
+        parentNodeId: root,
+        depth: 1,
+        childNodeIds: [],
+        providerSession: expect.objectContaining({
+          provider: 'custom-provider',
+          backend: 'custom-harness',
+          nativeSessionId: 'provider-neutral-native-id',
+        }),
+      },
+    ])
+    expect(source.sessionLineageMissingReason).toBe(
+      `1/2 Runtime node(s) lack providerSession identity: ${JSON.stringify(root)}`,
+    )
+    expect(report.sessionLineage).toEqual(source.sessionLineage)
+    expect(report.gaps).toContain(
+      `sessionLineage: 1/2 Runtime node(s) lack providerSession identity: ${JSON.stringify(root)}`,
+    )
+    expect(report.gaps).toContain(
+      `sessionLineage node ${JSON.stringify(child)} controller prompts: 0/1 exact; missing native prompt ordinal(s): 1`,
+    )
+    const markdown = renderSupervisorRunMarkdown(report)
+    expect(markdown).toContain(
+      `| <code>${root}</code> | — | 0 | 1 | unavailable | unavailable | unavailable | 0/? | unknown | unavailable |`,
+    )
+    expect(markdown).toContain(
+      '| <code>custom-provider</code> | <code>custom-harness</code> | <code>provider-neutral-native-id</code> | 0/1 | 1 |',
+    )
+  })
+
+  it('preserves missing identity while refusing ambiguous or reused provider session bindings', async () => {
+    const runDir = await recursiveSteeringRuntimeRun()
+    const root = 'recursive-steering-smoke'
+    const child = `${root}:s0`
+    const rootBinding = providerSession(root, 'session-root')
+
+    const partial = await readRuntimeSupervisorRun(runDir, { sessionBindings: [rootBinding] })
+    expect(partial.sessionLineage).toEqual([
+      expect.objectContaining({ nodeId: root, providerSession: rootBinding }),
+      expect.objectContaining({ nodeId: child }),
+    ])
+    expect(partial.sessionLineage?.[1]).not.toHaveProperty('providerSession')
+    expect(partial.sessionLineageMissingReason).toMatch(
+      /1\/2 Runtime node.*recursive-steering-smoke:s0/,
+    )
+    await expect(
+      readRuntimeSupervisorRun(runDir, {
+        sessionBindings: [
+          rootBinding,
+          { ...rootBinding, nativeSessionId: 'other-root-session' },
+          providerSession(child, 'session-child'),
+        ],
+      }),
+    ).rejects.toThrow(/recursive-steering-smoke".*2 provider session receipts/)
+    await expect(
+      readRuntimeSupervisorRun(runDir, {
+        sessionBindings: [rootBinding, providerSession(child, 'session-root')],
+      }),
+    ).rejects.toThrow(/map to the same "pi" native session/)
+  })
+
+  it('snapshots each provider binding field before file I/O', async () => {
+    const runDir = await recursiveSteeringRuntimeRun()
+    const root = 'recursive-steering-smoke'
+    const child = `${root}:s0`
+    const reads = new Map<string, number>()
+    const binding = (nodeId: string, nativeSessionId: string): RuntimeTraceSessionBinding => {
+      const once = (field: string, value: string): string => {
+        const key = `${nodeId}:${field}`
+        const count = (reads.get(key) ?? 0) + 1
+        reads.set(key, count)
+        if (count > 1) throw new Error(`${key} was read more than once`)
+        return value
+      }
+      return {
+        get provider() {
+          return once('provider', 'cli-bridge')
+        },
+        get backend() {
+          return once('backend', 'pi')
+        },
+        get externalId() {
+          return once('externalId', nodeId)
+        },
+        get nativeSessionId() {
+          return once('nativeSessionId', nativeSessionId)
+        },
+        get cwd() {
+          return once('cwd', `/workspaces/${encodeURIComponent(nodeId)}`)
+        },
+        get nativePromptCount() {
+          once('nativePromptCount', 'read')
+          return 1
+        },
+        get controllerTurns() {
+          once('controllerTurns', 'read')
+          return []
+        },
+      }
+    }
+    const mutable = [binding(root, 'native-root'), binding(child, 'native-child')]
+    const reading = readRuntimeSupervisorRun(runDir, { sessionBindings: mutable })
+    mutable.splice(0, mutable.length)
+    const source = await reading
+
+    expect(
+      source.sessionLineage?.map((row) => measuredProviderSession(row).nativeSessionId),
+    ).toEqual(['native-root', 'native-child'])
+    expect([...reads.values()]).toEqual(Array(14).fill(1))
+  })
+
+  it('snapshots, validates, and deeply freezes lineage once at analysis intake', async () => {
+    const runDir = await recursiveSteeringRuntimeRun()
+    const source = await readRuntimeSupervisorRun(runDir, {
+      sessionBindings: [
+        {
+          ...providerSession('recursive-steering-smoke', 'native-root'),
+        },
+        {
+          ...providerSession('recursive-steering-smoke:s0', 'native-child', 'codex'),
+        },
+      ],
+    })
+    const mutable = source.sessionLineage?.map((row) => {
+      const measured = measuredProviderSession(row)
+      return {
+        ...row,
+        childNodeIds: [...row.childNodeIds],
+        providerSession: {
+          ...measured,
+          controllerTurns: [...measured.controllerTurns],
+        },
+      }
+    })
+    if (mutable === undefined) throw new Error('expected joined lineage')
+    const fieldReads = new Map<string, number>()
+    const tracked = mutable.map(
+      (row) =>
+        new Proxy(row, {
+          get(target, property, receiver) {
+            if (typeof property === 'string' && property in target) {
+              const key = `${target.nodeId}:${property}`
+              const count = (fieldReads.get(key) ?? 0) + 1
+              fieldReads.set(key, count)
+              if (count > 1) throw new Error(`${key} was read more than once`)
+            }
+            return Reflect.get(target, property, receiver)
+          },
+        }),
+    )
+    let lineageReads = 0
+    const report = analyzeSupervisorRunSources({
+      ...source,
+      get sessionLineage() {
+        lineageReads += 1
+        if (lineageReads > 1) throw new Error('sessionLineage was read more than once')
+        return tracked
+      },
+    })
+
+    mutable[0]!.nodeId = 'mutated-root'
+    mutable[0]!.childNodeIds.push('mutated-child')
+    mutable[0]!.providerSession.nativeSessionId = 'mutated-native-session'
+    mutable[0]!.providerSession.controllerTurns.push({
+      ordinal: 1,
+      runId: 'mutated-run',
+      bridgeRequestDigest: `sha256:${'f'.repeat(64)}`,
+      promptSha256: `sha256:${'f'.repeat(64)}`,
+      startedAt: 0,
+      endedAt: 1,
+    })
+    expect(lineageReads).toBe(1)
+    expect([...fieldReads.values()]).toEqual(Array(10).fill(1))
+    expect(report.sessionLineage).toEqual(source.sessionLineage)
+    expect(Object.isFrozen(report.sessionLineage)).toBe(true)
+    if (isUnavailable(report.sessionLineage) || report.sessionLineage === undefined) {
+      throw new Error('expected measured session lineage')
+    }
+    expect(Object.isFrozen(report.sessionLineage[0])).toBe(true)
+    expect(Object.isFrozen(report.sessionLineage[0]?.childNodeIds)).toBe(true)
+    expect(Object.isFrozen(report.sessionLineage[0]?.providerSession)).toBe(true)
+    expect(Object.isFrozen(report.sessionLineage[0]?.providerSession?.controllerTurns)).toBe(true)
+  })
+
   it('flattens nested tree envelopes and reuses the existing analyzer without double-counting', async () => {
     const runDir = await nestedRuntimeRun()
     const source = await readRuntimeSupervisorRun(runDir)

@@ -553,6 +553,7 @@ export {
 // rows joined by `parent_rollout_id` — not a parallel shape.
 // Full surface on the `@tangle-network/agent-eval/supervisor-run` subpath.
 export {
+  type AnalyzeSupervisorRunOptions,
   analyzeSupervisorRun,
   analyzeSupervisorRunIntegrity,
   analyzeSupervisorRunSources,
@@ -560,6 +561,9 @@ export {
   isRuntimeSupervisorRunDir,
   isUnavailable,
   type Measured,
+  type RuntimeControllerTurnReceipt,
+  type RuntimeReaderOptions,
+  type RuntimeTraceSessionBinding,
   readClaudeCodeSupervisorRun,
   readRuntimeSupervisorRun,
   renderSupervisorRunHeadline,
@@ -576,9 +580,11 @@ export {
   type SupervisorRunIntegrityReport,
   type SupervisorRunIntegritySeverity,
   type SupervisorRunNodeRole,
+  type SupervisorRunProviderSessionRef,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
+  type SupervisorRunSessionLineage,
   type SupervisorRunSourceOnlyCheckCode,
   type SupervisorRunSources,
   type SupervisorRunTree,

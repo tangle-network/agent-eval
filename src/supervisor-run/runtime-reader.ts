@@ -11,9 +11,12 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { snapshotSupervisorRunProviderSession } from './session-lineage'
 import type {
   SourceLimits,
+  SupervisorRunProviderSessionRef,
   SupervisorRunReader,
+  SupervisorRunSessionLineage,
   SupervisorRunSources,
   WorkerLogSource,
 } from './types'
@@ -41,6 +44,31 @@ interface NormalizedRuntimeJournal {
   readonly events: readonly Record<string, unknown>[]
 }
 
+/**
+ * Old-run fallback supplied by a provider session catalog.
+ *
+ * The shape is deliberately identical to Runtime's journal-native receipt.
+ */
+export type RuntimeTraceSessionBinding = SupervisorRunProviderSessionRef
+
+export interface RuntimeReaderOptions {
+  /**
+   * Old-run fallback captured by the provider integration. Journal-native
+   * `providerSession` receipts win whenever Runtime recorded them.
+   */
+  readonly sessionBindings?: readonly RuntimeTraceSessionBinding[]
+}
+
+interface RuntimeNode {
+  readonly id: string
+  readonly parentId: string | null
+}
+
+interface JoinedSessionLineage {
+  readonly rows: readonly SupervisorRunSessionLineage[]
+  readonly missingNodeIds: readonly string[]
+}
+
 async function readMaybe(path: string): Promise<string | null> {
   return readFile(path, 'utf8').catch((error: unknown) => {
     if (
@@ -63,6 +91,18 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function snapshotSessionBindings(
+  values: readonly RuntimeTraceSessionBinding[],
+): readonly SupervisorRunProviderSessionRef[] {
+  const snapshots: SupervisorRunProviderSessionRef[] = []
+  for (const [index, value] of Array.from(values).entries()) {
+    snapshots.push(
+      snapshotSupervisorRunProviderSession(value, `Runtime trace session binding ${index}`),
+    )
+  }
+  return Object.freeze(snapshots)
 }
 
 function formatError(path: string, line: number, detail: string): Error {
@@ -223,6 +263,161 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
     journal: `${normalized.map((event) => JSON.stringify(event)).join('\n')}\n`,
     events: normalized,
   }
+}
+
+function runtimeNodes(
+  root: string,
+  events: readonly Record<string, unknown>[],
+): readonly RuntimeNode[] {
+  const nodes: RuntimeNode[] = []
+  const seen = new Set<string>()
+  for (const event of events) {
+    if (event.kind !== 'spawned') continue
+    const id = nonEmptyString(event.id)
+    if (id === null) continue
+    if (seen.has(id)) {
+      throw new Error(`Runtime spawn journal contains duplicate node ${JSON.stringify(id)}`)
+    }
+    seen.add(id)
+    nodes.push({ id, parentId: nonEmptyString(event.parent) })
+  }
+  if (!seen.has(root)) {
+    throw new Error(`Runtime spawn journal has no root node ${JSON.stringify(root)}`)
+  }
+  for (const node of nodes) {
+    if (node.id === root) {
+      if (node.parentId !== null) {
+        throw new Error(`Runtime root node ${JSON.stringify(root)} cannot have a parent`)
+      }
+      continue
+    }
+    if (node.parentId === null || !seen.has(node.parentId)) {
+      throw new Error(`Runtime node ${JSON.stringify(node.id)} has no recorded parent node`)
+    }
+  }
+  return nodes
+}
+
+function journalProviderSessions(
+  events: readonly Record<string, unknown>[],
+): ReadonlyMap<string, SupervisorRunProviderSessionRef> {
+  const byNode = new Map<string, SupervisorRunProviderSessionRef>()
+  for (const [index, event] of events.entries()) {
+    if (event.kind !== 'settled' || event.providerSession === undefined) {
+      continue
+    }
+    const nodeId = nonEmptyString(event.id)
+    if (nodeId === null) {
+      throw new Error(`Runtime settled event ${index} with providerSession has no node id`)
+    }
+    if (byNode.has(nodeId)) {
+      throw new Error(
+        `Runtime node ${JSON.stringify(nodeId)} has multiple journal providerSession receipts`,
+      )
+    }
+    const providerSession = snapshotSupervisorRunProviderSession(
+      event.providerSession,
+      `Runtime settled event ${index}.providerSession`,
+    )
+    if (providerSession.externalId !== nodeId) {
+      throw new Error(
+        `Runtime node ${JSON.stringify(nodeId)} journal providerSession.externalId does not match`,
+      )
+    }
+    byNode.set(nodeId, providerSession)
+  }
+  return byNode
+}
+
+function joinSessionLineage(
+  root: string,
+  events: readonly Record<string, unknown>[],
+  journalByNode: ReadonlyMap<string, SupervisorRunProviderSessionRef>,
+  fallbackBindings: readonly SupervisorRunProviderSessionRef[],
+): JoinedSessionLineage {
+  const nodes = runtimeNodes(root, events)
+  const fallbackByNode = new Map<string, SupervisorRunProviderSessionRef[]>()
+  for (const binding of fallbackBindings) {
+    const rows = fallbackByNode.get(binding.externalId) ?? []
+    rows.push(binding)
+    fallbackByNode.set(binding.externalId, rows)
+  }
+
+  const bindingByNode = new Map<string, SupervisorRunProviderSessionRef>()
+  const sessionOwners = new Map<string, string>()
+  for (const node of nodes) {
+    const journalBinding = journalByNode.get(node.id)
+    let binding: SupervisorRunProviderSessionRef | undefined
+    if (journalBinding !== undefined) {
+      binding = journalBinding
+    } else {
+      const matches = fallbackByNode.get(node.id) ?? []
+      if (matches.length > 1) {
+        throw new Error(
+          `Runtime node ${JSON.stringify(node.id)} has ${matches.length} provider session receipts; expected at most one`,
+        )
+      }
+      binding = matches[0]
+    }
+    if (binding === undefined) continue
+    const sessionKey = `${binding.provider}\u0000${binding.backend}\u0000${binding.nativeSessionId}`
+    const existingOwner = sessionOwners.get(sessionKey)
+    if (existingOwner !== undefined) {
+      throw new Error(
+        `Runtime nodes ${JSON.stringify(existingOwner)} and ${JSON.stringify(node.id)} map to the same ${JSON.stringify(binding.backend)} native session`,
+      )
+    }
+    bindingByNode.set(node.id, binding)
+    sessionOwners.set(sessionKey, node.id)
+  }
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const childIdsByNode = new Map(nodes.map((node) => [node.id, [] as string[]]))
+  for (const node of nodes) {
+    if (node.parentId === null) continue
+    const children = childIdsByNode.get(node.parentId)
+    if (children === undefined) {
+      throw new Error(`Runtime parent node ${JSON.stringify(node.parentId)} is absent`)
+    }
+    children.push(node.id)
+  }
+
+  const depthByNode = new Map<string, number>()
+  const visiting = new Set<string>()
+  const depth = (nodeId: string): number => {
+    const known = depthByNode.get(nodeId)
+    if (known !== undefined) return known
+    if (visiting.has(nodeId)) {
+      throw new Error(`Runtime node ancestry contains a cycle at ${JSON.stringify(nodeId)}`)
+    }
+    const node = nodeById.get(nodeId)
+    if (node === undefined) throw new Error(`Runtime node ${JSON.stringify(nodeId)} is absent`)
+    visiting.add(nodeId)
+    const value = node.parentId === null ? 0 : depth(node.parentId) + 1
+    visiting.delete(nodeId)
+    depthByNode.set(nodeId, value)
+    return value
+  }
+
+  const missingNodeIds: string[] = []
+  const rows = Object.freeze(
+    nodes.map((node) => {
+      const binding = bindingByNode.get(node.id)
+      if (binding === undefined) missingNodeIds.push(node.id)
+      const childNodeIds = Object.freeze([...(childIdsByNode.get(node.id) ?? [])])
+      return Object.freeze({
+        nodeId: node.id,
+        parentNodeId: node.parentId,
+        depth: depth(node.id),
+        childNodeIds,
+        ...(binding === undefined ? {} : { providerSession: binding }),
+      })
+    }),
+  )
+  return Object.freeze({
+    rows,
+    missingNodeIds: Object.freeze(missingNodeIds),
+  })
 }
 
 function parseOptionalRecord(text: string | null, path: string): Record<string, unknown> | null {
@@ -392,7 +587,13 @@ function runtimeState(
  * roles, interpret artifacts, or turn process completion into a quality
  * verdict.
  */
-export async function readRuntimeSupervisorRun(runDir: string): Promise<SupervisorRunSources> {
+export async function readRuntimeSupervisorRun(
+  runDir: string,
+  opts: RuntimeReaderOptions = {},
+): Promise<SupervisorRunSources> {
+  const sessionBindingsInput = opts.sessionBindings
+  const sessionBindings =
+    sessionBindingsInput === undefined ? undefined : snapshotSessionBindings(sessionBindingsInput)
   const journalPath = join(runDir, JOURNAL_FILE)
   const rawJournal = await readFile(journalPath, 'utf8')
   const normalized = parseEnvelopeJournal(rawJournal, journalPath)
@@ -419,6 +620,23 @@ export async function readRuntimeSupervisorRun(runDir: string): Promise<Supervis
     transcriptRef: null,
     patchPath: null,
   }))
+  const journalSessions = journalProviderSessions(normalized.events)
+  const sessionLineageJoin =
+    sessionBindings === undefined && journalSessions.size === 0
+      ? undefined
+      : joinSessionLineage(
+          normalized.root,
+          normalized.events,
+          journalSessions,
+          sessionBindings ?? Object.freeze([]),
+        )
+  const sessionLineage = sessionLineageJoin?.rows
+  const sessionLineageMissingReason =
+    sessionLineageJoin !== undefined && sessionLineageJoin.missingNodeIds.length > 0
+      ? `${sessionLineageJoin.missingNodeIds.length}/${sessionLineageJoin.rows.length} Runtime node(s) lack providerSession identity: ${sessionLineageJoin.missingNodeIds.map((id) => JSON.stringify(id)).join(', ')}`
+      : undefined
+  const measuredProviderSessions =
+    sessionLineage?.filter((row) => row.providerSession !== undefined).length ?? 0
 
   return {
     runRef: runDir,
@@ -449,13 +667,28 @@ export async function readRuntimeSupervisorRun(runDir: string): Promise<Supervis
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
     rootTranscriptRef: null,
-    traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
+    ...(sessionLineage === undefined
+      ? {
+          sessionLineageMissingReason:
+            'Runtime journal has no providerSession receipts and no old-run fallback was supplied',
+        }
+      : {
+          sessionLineage,
+          ...(sessionLineageMissingReason === undefined ? {} : { sessionLineageMissingReason }),
+        }),
+    traceCommand:
+      measuredProviderSessions === 0
+        ? 'unavailable — Runtime FileRunContext records no provider trace-session identity'
+        : 'unavailable — use the joined sessionLineage with the matching trace adapters',
   }
 }
 
 /** The agent-runtime file-backed layout as a `SupervisorRunReader`. */
-export function runtimeSupervisorRunReader(runDir: string): SupervisorRunReader {
-  return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir) }
+export function runtimeSupervisorRunReader(
+  runDir: string,
+  opts: RuntimeReaderOptions = {},
+): SupervisorRunReader {
+  return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir, opts) }
 }
 
 /** True when a directory contains Runtime's canonical file-backed journal. */

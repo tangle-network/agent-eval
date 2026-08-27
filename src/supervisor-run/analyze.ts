@@ -5,6 +5,7 @@
  * (`loops-reader.ts` is one).
  */
 
+import { snapshotSupervisorRunSessionLineage } from './session-lineage'
 import {
   asRecord,
   parseJson,
@@ -61,10 +62,49 @@ export function analyzeSupervisorRunSources(
   src: SupervisorRunSources,
   now: () => number = Date.now,
 ): SupervisorRunReport {
+  const sessionLineageInput = src.sessionLineage
+  const sessionLineageMissingReason = src.sessionLineageMissingReason
+  const sessionLineage =
+    sessionLineageInput === undefined
+      ? undefined
+      : snapshotSupervisorRunSessionLineage(sessionLineageInput)
   const gaps: string[] = []
   const gap = (what: string, reason: string): Unavailable => {
     gaps.push(`${what}: ${reason}`)
     return unavailable(reason)
+  }
+  if (sessionLineage !== undefined) {
+    const missingNodeIds = sessionLineage
+      .filter((row) => row.providerSession === undefined)
+      .map((row) => row.nodeId)
+    if (missingNodeIds.length > 0) {
+      gap(
+        'sessionLineage',
+        `${missingNodeIds.length}/${sessionLineage.length} Runtime node(s) lack providerSession identity: ${missingNodeIds.map((id) => JSON.stringify(id)).join(', ')}`,
+      )
+    } else if (sessionLineageMissingReason !== undefined) {
+      gap('sessionLineage', sessionLineageMissingReason)
+    }
+    for (const row of sessionLineage) {
+      const providerSession = row.providerSession
+      if (
+        providerSession === undefined ||
+        providerSession.controllerTurns.length === providerSession.nativePromptCount
+      ) {
+        continue
+      }
+      const knownOrdinals = new Set(
+        providerSession.controllerTurns.map((receipt) => receipt.ordinal),
+      )
+      const missingOrdinals = Array.from(
+        { length: providerSession.nativePromptCount },
+        (_, index) => index + 1,
+      ).filter((ordinal) => !knownOrdinals.has(ordinal))
+      gap(
+        `sessionLineage node ${JSON.stringify(row.nodeId)} controller prompts`,
+        `${providerSession.controllerTurns.length}/${providerSession.nativePromptCount} exact; missing native prompt ordinal(s): ${missingOrdinals.join(', ')}`,
+      )
+    }
   }
 
   const journalMissing =
@@ -695,6 +735,11 @@ export function analyzeSupervisorRunSources(
     decision,
     economics,
     outcome,
+    ...(sessionLineage !== undefined
+      ? { sessionLineage }
+      : sessionLineageMissingReason !== undefined
+        ? { sessionLineage: gap('sessionLineage', sessionLineageMissingReason) }
+        : {}),
     gaps,
     traceCommand:
       src.traceCommand ??

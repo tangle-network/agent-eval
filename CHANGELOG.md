@@ -8,6 +8,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- Runtime supervisor-run readers automatically consume exact journal-native provider-session receipts and accept an optional historical node-to-native-session fallback.
+  Reports retain every canonical Runtime parent and child identity plus measured native provider/backend/session provenance, total native prompt count, exact one-based controller-turn receipts with Unix-millisecond intervals, depth, and working directory while provider messages remain in their native trace stores.
+  Journal receipts win per node over a supplied historical fallback.
+  Analysis intake validates, snapshots, and deeply freezes the complete relationship tree and every present receipt.
+  Missing node identity and missing prompt ordinals remain explicit coverage gaps without erasing known Runtime relationships.
+  Malformed, ambiguous, or reused present receipts still fail closed.
 - **Breaking:** `AnalystBenchmarkCase` now requires `clusterId` and `labelState`.
   A case must identify its independent source unit and state whether labels prove an issue, prove no issue, or leave the outcome unknown.
   The benchmark no longer guesses either field from an empty issue list.

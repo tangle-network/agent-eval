@@ -44,6 +44,7 @@ export {
   type SupervisorRunSourceOnlyCheckCode,
 } from './integrity'
 export {
+  type AnalyzeSupervisorRunOptions,
   analyzeSupervisorRun,
   findSupervisorRunDirIn,
   findSupervisorRunDirs,
@@ -64,6 +65,8 @@ export {
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
 export {
   isRuntimeSupervisorRunDir,
+  type RuntimeReaderOptions,
+  type RuntimeTraceSessionBinding,
   readRuntimeSupervisorRun,
   runtimeSupervisorRunReader,
 } from './runtime-reader'
@@ -79,14 +82,17 @@ export {
   type PerWorkerRow,
   type RoleSpend,
   type RollupCellRow,
+  type RuntimeControllerTurnReceipt,
   type SourceLimits,
   type SteerBreakdown,
   SUPERVISOR_RUN_ROLLUP_SCHEMA,
   SUPERVISOR_RUN_SCHEMA,
   type SupervisorRunNodeRole,
+  type SupervisorRunProviderSessionRef,
   type SupervisorRunReader,
   type SupervisorRunReport,
   type SupervisorRunRollup,
+  type SupervisorRunSessionLineage,
   type SupervisorRunSources,
   type SupervisorRunTree,
   type SupervisorRunTreeGap,
