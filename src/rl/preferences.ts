@@ -1,5 +1,5 @@
 /**
- * Preference dataset extraction from canonical minted rollout lines.
+ * Preference dataset extraction — bridge from `RunRecord[]` to RL training.
  *
  * Production RLHF / DPO / KTO / SimPO pipelines need preference triples:
  * `(prompt, chosen, rejected)`. The campaign artifact already contains the
@@ -35,24 +35,10 @@
  *
  * The output `PreferenceTriple` is *agent-eval-canonical* but trivially
  * mappable to TRL's `DPODataset` shape (`prompt`, `chosen`, `rejected`)
- * via the `toTRLFormat` helper, which resolves real prompt/completion text
- * through the same lookups `toDpoRows` takes (`./exporters` carries the
- * richer row with margin + metadata).
- *
- * Input discipline: the function accepts only `MintedRolloutLine[]`, whose
- * reward and authenticity fields have already been validated. `search` is the
- * default split; held-out pairing requires an explicit opt-in, while `dev` and
- * `canary` remain evaluation-only.
+ * via the `toTRLFormat` helper.
  */
 
-import type { MintedRolloutLine, RolloutSplit } from '../rollout/schema'
-import type { DpoLookups } from './exporters'
-import {
-  admitUngatedByInvocation,
-  type LineContextRequirement,
-  type RolloutLineContext,
-  trainableLineReward,
-} from './rollout-input'
+import type { RunRecord } from '../run-record'
 
 export type PreferenceStrategy =
   | 'paired-by-scenario-and-seed'
@@ -79,7 +65,7 @@ export interface PreferenceTriple {
   /** Tie-breaker — when multiple seeds match this scenario, the one used. */
   seed?: number
   /**
-   * Free-form metadata propagated from the rollout lines, such as original
+   * Free-form metadata propagated from the run records — e.g. original
    * prompt-hash, model, etc. Lets the RL trainer reconstruct the prompt.
    */
   meta: {
@@ -100,13 +86,16 @@ export interface ExtractPreferencesOptions {
    */
   minMargin?: number
   /**
-   * Optional split filter. Without one, only search is included.
-   * Holdout requires `allowHeldOutTrainingData: true`; dev and canary are
-   * evaluation-only.
+   * Optional split tag filter — restrict to runs from one split. Default
+   * `'holdout'` (the canonical "real" signal).
    */
-  split?: RolloutSplit
-  /** Named opt-in required before held-out lines may be paired. */
-  allowHeldOutTrainingData?: boolean
+  splitTag?: RunRecord['splitTag']
+  /**
+   * Optional reward extractor that overrides `outcome.holdoutScore` /
+   * `outcome.searchScore`. Use to drive preferences off a verifiable
+   * reward instead of the headline score.
+   */
+  rewardOf?: (run: RunRecord) => number | null
 }
 
 export interface PreferenceExtractionReport {
@@ -119,132 +108,63 @@ export interface PreferenceExtractionReport {
   cellsSingleton: number
   /** Strategy used. */
   strategy: PreferenceStrategy
-  /**
-   * Lines dropped before pairing because they carry no `candidate_id`. A
-   * preference is a statement about two candidates, so a line that names none
-   * cannot be paired.
-   */
-  linesWithoutCandidateId: number
 }
 
-/** The split each path pairs by default: training data comes from search. */
-const SPLIT_DEFAULT: RolloutSplit = 'search'
+const SPLIT_TAG_DEFAULT: RunRecord['splitTag'] = 'holdout'
 
-/**
- * The only shape the pairing strategies see.
- */
-interface PairingCandidate {
-  scenarioId: string
-  runId: string
-  candidateId: string
-  /** null when a line records no seed. */
-  seed: number | null
-  score: number
-  promptHash: string
-  configHash: string
-  model: string
+const DEFAULT_REWARD = (run: RunRecord): number | null => {
+  const v = run.outcome.holdoutScore ?? run.outcome.searchScore
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
 /**
- * Convert rollout lines to preference triples for RL training.
+ * Convert `RunRecord[]` to preference triples for RL training.
  *
  * Returns a structured report so callers can see how much data was
  * dropped and why (low-margin pairs, singleton cells). For production
  * pipelines, you usually want to:
  *
  *   1. Run a campaign producing 5–10 variants × 50–200 scenarios × 3 seeds
- *   2. Mint the runs with `mintRolloutRows` and call this with
- *      `strategy: 'paired-by-scenario-and-seed'`
- *   3. Pass `report.pairs` to `toDpoRows` (or `toTRLFormat`) with
- *      prompt/completion resolvers and pipe to your DPO trainer
- *
- * The gate is what makes a preference dataset safe: ordered on an ungated
- * score, a gamed run with an inflated number becomes the `chosen` side and DPO
- * is trained to prefer the gaming trajectory over its honest sibling. A gated
- * line arrives here already scored 0, so it sinks to `rejected`.
+ *   2. Call this with `strategy: 'paired-by-scenario-and-seed'` and a
+ *      verifiable-reward extractor as `rewardOf`
+ *   3. Pass `report.pairs` to `toTRLFormat` and pipe to your DPO trainer
  */
 export function extractPreferences(
-  lines: MintedRolloutLine[],
+  runs: RunRecord[],
   opts: ExtractPreferencesOptions = {},
 ): PreferenceExtractionReport {
   const strategy = opts.strategy ?? 'paired-by-scenario-and-seed'
   const minMargin = opts.minMargin ?? 0.05
-  const requestedSplit = opts.split
-  if (requestedSplit === 'holdout' && opts.allowHeldOutTrainingData !== true) {
-    throw new Error('extractPreferences: split "holdout" requires allowHeldOutTrainingData: true')
-  }
-  if (requestedSplit === 'dev' || requestedSplit === 'canary') {
-    throw new Error(
-      `extractPreferences: split "${requestedSplit}" is evaluation-only; train from "search"`,
-    )
-  }
-  const candidates = candidatesFromLines(lines, opts)
-  const report = pairCandidates(candidates.rows, strategy, minMargin)
-  return { ...report, linesWithoutCandidateId: candidates.withoutCandidateId }
-}
+  const splitTag = opts.splitTag ?? SPLIT_TAG_DEFAULT
+  const rewardOf = opts.rewardOf ?? DEFAULT_REWARD
 
-interface NormalizedInput {
-  rows: PairingCandidate[]
-  withoutCandidateId: number
-}
-
-function candidatesFromLines(
-  lines: MintedRolloutLine[],
-  opts: ExtractPreferencesOptions,
-): NormalizedInput {
-  const split = opts.split ?? SPLIT_DEFAULT
-  const rows: PairingCandidate[] = []
-  let withoutCandidateId = 0
-  for (const line of lines) {
-    if (line.task.split !== split) continue
-    if (!line.outcome.is_completed || line.outcome.is_truncated || line.outcome.error !== null) {
-      continue
-    }
-    const score = trainableLineReward(line)
-    if (score === null) continue
-    const candidateId = line.candidate_id
-    if (candidateId === null || candidateId === undefined || candidateId.length === 0) {
-      withoutCandidateId++
-      continue
-    }
-    rows.push({
-      scenarioId: line.task.instance_id,
-      runId: line.run_id,
-      candidateId,
-      seed: line.task.seed,
-      score,
-      // `policy.*` is nullable on the wire; a minted line always carries these
-      // (RunRecord makes them mandatory). Empty string marks "not recorded" so
-      // `toTRLFormat`'s hash lookup fails visibly instead of silently matching.
-      promptHash: line.policy.prompt_hash ?? '',
-      configHash: line.policy.config_hash ?? '',
-      model: line.policy.model ?? '',
-    })
+  const filtered = runs.filter((r) => r.splitTag === splitTag)
+  const scoredEntries: Array<{ run: RunRecord; score: number }> = []
+  for (const run of filtered) {
+    const s = rewardOf(run)
+    if (s === null) continue
+    scoredEntries.push({ run, score: s })
   }
-  return { rows, withoutCandidateId }
-}
 
-function pairCandidates(
-  scoredEntries: PairingCandidate[],
-  strategy: PreferenceStrategy,
-  minMargin: number,
-): Omit<PreferenceExtractionReport, 'linesWithoutCandidateId'> {
   const pairs: PreferenceTriple[] = []
   let pairsBelowMargin = 0
   let cellsSingleton = 0
   let cellsInspected = 0
 
   if (strategy === 'paired-by-scenario-and-seed') {
-    // Group by the canonical (scenarioId, seed) identity.
-    const groups = new Map<string, PairingCandidate[]>()
+    // Group by (scenarioId, seed). Canonical key is `run.scenarioId`,
+    // populated by `runEvalCampaign` and the adapters; falls back to
+    // `outcome.raw.scenario_id` then `experimentId` when absent.
+    const groups = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
-      const key = `${e.scenarioId}::${e.seed}`
+      const sid = scenarioOf(e.run)
+      const key = `${sid}::${e.run.seed}`
       const arr = groups.get(key) ?? []
       arr.push(e)
       groups.set(key, arr)
     }
 
-    for (const members of groups.values()) {
+    for (const [key, members] of groups.entries()) {
       cellsInspected++
       if (members.length < 2) {
         cellsSingleton++
@@ -254,8 +174,8 @@ function pairCandidates(
         for (let j = i + 1; j < members.length; j++) {
           const a = members[i]!
           const b = members[j]!
-          if (a.candidateId === b.candidateId) continue
-          const result = makePair(a, b, a.scenarioId, minMargin)
+          if (a.run.candidateId === b.run.candidateId) continue
+          const result = makePair(a, b, key.split('::')[0]!, minMargin)
           if (result.kind === 'admit') pairs.push(result.pair)
           else pairsBelowMargin++
         }
@@ -265,25 +185,27 @@ function pairCandidates(
     // Group by scenarioId → average per (variantId, scenarioId) across seeds.
     const byScenarioVariant = new Map<
       string,
-      Map<string, { entry: PairingCandidate; sum: number; n: number }>
+      Map<string, { run: RunRecord; sum: number; n: number }>
     >()
     for (const e of scoredEntries) {
-      let perScenario = byScenarioVariant.get(e.scenarioId)
+      const sid = scenarioOf(e.run)
+      let perScenario = byScenarioVariant.get(sid)
       if (!perScenario) {
         perScenario = new Map()
-        byScenarioVariant.set(e.scenarioId, perScenario)
+        byScenarioVariant.set(sid, perScenario)
       }
-      const cur = perScenario.get(e.candidateId)
+      const cur = perScenario.get(e.run.candidateId)
       if (cur) {
         cur.sum += e.score
         cur.n++
-      } else perScenario.set(e.candidateId, { entry: e, sum: e.score, n: 1 })
+      } else perScenario.set(e.run.candidateId, { run: e.run, sum: e.score, n: 1 })
     }
     for (const [sid, perVariant] of byScenarioVariant.entries()) {
       cellsInspected++
-      const arr = [...perVariant.values()].map((agg) => ({
-        ...agg.entry,
+      const arr = [...perVariant.entries()].map(([vid, agg]) => ({
+        run: agg.run,
         score: agg.sum / agg.n,
+        variantId: vid,
       }))
       if (arr.length < 2) {
         cellsSingleton++
@@ -299,11 +221,12 @@ function pairCandidates(
     }
   } else {
     // top-vs-bottom: per scenario, top vs bottom only.
-    const byScenario = new Map<string, PairingCandidate[]>()
+    const byScenario = new Map<string, Array<{ run: RunRecord; score: number }>>()
     for (const e of scoredEntries) {
-      const arr = byScenario.get(e.scenarioId) ?? []
+      const sid = scenarioOf(e.run)
+      const arr = byScenario.get(sid) ?? []
       arr.push(e)
-      byScenario.set(e.scenarioId, arr)
+      byScenario.set(sid, arr)
     }
     for (const [sid, arr] of byScenario.entries()) {
       cellsInspected++
@@ -314,7 +237,7 @@ function pairCandidates(
       const sorted = [...arr].sort((a, b) => a.score - b.score)
       const top = sorted[sorted.length - 1]!
       const bot = sorted[0]!
-      if (top.candidateId === bot.candidateId) {
+      if (top.run.candidateId === bot.run.candidateId) {
         cellsSingleton++
         continue
       }
@@ -327,90 +250,31 @@ function pairCandidates(
   return { pairs, cellsInspected, pairsBelowMargin, cellsSingleton, strategy }
 }
 
-const PREFERENCE_RUN_IDS = (t: PreferenceTriple): readonly string[] => [
-  t.chosenRunId,
-  t.rejectedRunId,
-]
-
-const TRL_CONTEXT_REQUIREMENT: LineContextRequirement = {
-  exporter: 'TRL preference export',
-  contextType: 'RolloutLineContext',
-  because:
-    'a PreferenceTriple carries only run ids and hashes, so without the minted rollout lines this exporter cannot see the realness gate and will put a run that faked its success on the CHOSEN side of a DPO pair.',
-}
-
-const ANTHROPIC_CONTEXT_REQUIREMENT: LineContextRequirement = {
-  exporter: 'Anthropic preference export',
-  contextType: 'RolloutLineContext',
-  because:
-    'a PreferenceTriple carries only run ids and a bare margin, so without the minted rollout lines this exporter cannot see the realness gate and will name a run that faked its success as the preferred one.',
-}
-
 /**
  * TRL-compatible export. TRL's `DPODataset` is `{ prompt, chosen, rejected }`
- * where `chosen`/`rejected` are completion TEXT — a trainer fed prompt hashes
- * would optimize the policy toward emitting hex digests. Neither the prompt
- * nor the completions live on the triple (it carries only run ids and hashes),
- * so the caller supplies the same `promptOf`/`completionOf` lookups `toDpoRows`
- * takes, keyed by run id, and this function resolves real text.
- *
- * The chosen and rejected sides of a valid pair share one prompt; resolving
- * both and comparing catches lookup bugs (a stale map keyed by the wrong id)
- * before they ship a row whose prompt does not match its rejected completion.
- *
- * `context` is REQUIRED: this is the third exporter over the identical
- * line-less input class, and the round that hardened `toPrmRows` while leaving
- * `toDpoRows` open is why every one of them now takes the same argument and
- * runs the same admission rule.
+ * but the prompt isn't stored on the RunRecord — only its hash. The caller
+ * passes a `promptOf(promptHash)` lookup that the TRL trainer can use.
  */
-export async function toTRLFormat(
+export function toTRLFormat(
   triples: PreferenceTriple[],
-  lookups: DpoLookups,
-  context: RolloutLineContext,
-): Promise<Array<{ prompt: string; chosen: string; rejected: string }>> {
-  const admitted = admitUngatedByInvocation(
-    triples,
-    PREFERENCE_RUN_IDS,
-    context,
-    TRL_CONTEXT_REQUIREMENT,
-  )
-  const out: Array<{ prompt: string; chosen: string; rejected: string }> = []
-  for (const t of admitted) {
-    const [chosenPrompt, rejectedPrompt, chosen, rejected] = await Promise.all([
-      Promise.resolve(lookups.promptOf(t.chosenRunId)),
-      Promise.resolve(lookups.promptOf(t.rejectedRunId)),
-      Promise.resolve(lookups.completionOf(t.chosenRunId)),
-      Promise.resolve(lookups.completionOf(t.rejectedRunId)),
-    ])
-    if (chosenPrompt !== rejectedPrompt) {
-      throw new Error(
-        `toTRLFormat: preference "${t.chosenRunId}"/"${t.rejectedRunId}" resolves to different prompts`,
-      )
-    }
-    out.push({ prompt: chosenPrompt, chosen, rejected })
-  }
-  return out
+  promptOf: (hash: string) => string,
+): Array<{ prompt: string; chosen: string; rejected: string }> {
+  return triples.map((t) => ({
+    prompt: promptOf(t.meta.chosenPromptHash),
+    chosen: t.meta.chosenPromptHash, // caller substitutes the model output via the runId map
+    rejected: t.meta.rejectedPromptHash,
+  }))
 }
 
 /**
  * Anthropic finetuning JSONL export — `{ system, user, assistant_chosen, assistant_rejected }`
  * shape. Same caveat as TRL: prompt + outputs are content the caller has
  * to map back from the run record / raw event log.
- *
- * `context` is REQUIRED — see `toTRLFormat`. The emitted `margin` is a number
- * derived from the two runs' rewards, so this row is training signal even
- * though it ships no completion text.
  */
 export function toAnthropicFormat(
   triples: PreferenceTriple[],
-  context: RolloutLineContext,
 ): Array<{ scenarioId: string; chosenRunId: string; rejectedRunId: string; margin: number }> {
-  return admitUngatedByInvocation(
-    triples,
-    PREFERENCE_RUN_IDS,
-    context,
-    ANTHROPIC_CONTEXT_REQUIREMENT,
-  ).map((t) => ({
+  return triples.map((t) => ({
     scenarioId: t.scenarioId,
     chosenRunId: t.chosenRunId,
     rejectedRunId: t.rejectedRunId,
@@ -421,34 +285,47 @@ export function toAnthropicFormat(
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function makePair(
-  a: PairingCandidate,
-  b: PairingCandidate,
+  a: { run: RunRecord; score: number },
+  b: { run: RunRecord; score: number },
   scenarioId: string,
   minMargin: number,
 ): { kind: 'admit'; pair: PreferenceTriple } | { kind: 'reject' } {
   const margin = Math.abs(a.score - b.score)
   if (margin < minMargin) return { kind: 'reject' }
   const [chosen, rejected] = a.score > b.score ? [a, b] : [b, a]
-  const seed = chosen.seed !== null && chosen.seed === rejected.seed ? chosen.seed : undefined
   return {
     kind: 'admit',
     pair: {
       scenarioId,
-      chosenRunId: chosen.runId,
-      rejectedRunId: rejected.runId,
-      chosenVariantId: chosen.candidateId,
-      rejectedVariantId: rejected.candidateId,
+      chosenRunId: chosen.run.runId,
+      rejectedRunId: rejected.run.runId,
+      chosenVariantId: chosen.run.candidateId,
+      rejectedVariantId: rejected.run.candidateId,
       marginScore: chosen.score - rejected.score,
       scores: { chosen: chosen.score, rejected: rejected.score },
-      seed,
+      seed: chosen.run.seed === rejected.run.seed ? chosen.run.seed : undefined,
       meta: {
-        chosenPromptHash: chosen.promptHash,
-        rejectedPromptHash: rejected.promptHash,
-        chosenConfigHash: chosen.configHash,
-        rejectedConfigHash: rejected.configHash,
-        chosenModel: chosen.model,
-        rejectedModel: rejected.model,
+        chosenPromptHash: chosen.run.promptHash,
+        rejectedPromptHash: rejected.run.promptHash,
+        chosenConfigHash: chosen.run.configHash,
+        rejectedConfigHash: rejected.run.configHash,
+        chosenModel: chosen.run.model,
+        rejectedModel: rejected.run.model,
       },
     },
   }
+}
+
+/**
+ * Canonical scenario key for a RunRecord. Three-tier fallback:
+ *   1. `run.scenarioId` — populated by `runEvalCampaign` and every adapter
+ *   2. `run.outcome.raw.scenario_id` — string or numeric, when present
+ *   3. `run.experimentId` — worst-case bucket
+ */
+function scenarioOf(run: RunRecord): string {
+  if (typeof run.scenarioId === 'string' && run.scenarioId.length > 0) return run.scenarioId
+  const fromRaw = run.outcome.raw.scenario_id
+  if (typeof fromRaw === 'number' && Number.isFinite(fromRaw)) return String(fromRaw)
+  if (typeof fromRaw === 'string') return fromRaw
+  return run.experimentId
 }

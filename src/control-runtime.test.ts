@@ -64,12 +64,7 @@ describe('runAgentControlLoop', () => {
       ],
       decide: ({ history }) =>
         history.length > 0
-          ? {
-              type: 'stop',
-              pass: false,
-              reason: 'worker did not change state',
-              failureClass: 'tool_recovery_failure',
-            }
+          ? { type: 'stop', pass: false, reason: 'worker did not change state' }
           : { type: 'continue', action: { type: 'write_artifact', value: 'x' } },
       act: () => ({ count: 0 }),
     })
@@ -78,7 +73,6 @@ describe('runAgentControlLoop', () => {
     expect(result.completed).toBe(true)
     expect(result.stoppedBy).toBe('policy')
     expect(result.reason).toBe('worker did not change state')
-    expect(result.failureClass).toBe('tool_recovery_failure')
     expect(result.steps).toHaveLength(1)
   })
 
@@ -108,19 +102,6 @@ describe('runAgentControlLoop', () => {
     expect(result.stoppedBy).toBe('stop-policy')
     expect(result.steps).toHaveLength(2)
     expect(result.reason).toBe('all critical evals passed')
-  })
-
-  it('classifies a stop with omitted pass as a failed task', async () => {
-    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
-      intent: 'stop without an explicit pass',
-      observe: () => ({ count: 0 }),
-      validate: () => [],
-      decide: () => ({ type: 'stop', reason: 'cannot continue' }),
-      act: () => ({ count: 0 }),
-    })
-
-    expect(result.pass).toBe(false)
-    expect(result.failureClass).toBe('unknown')
   })
 
   it('records action failures so a policy can recover on the next step', async () => {
@@ -236,39 +217,40 @@ describe('runAgentControlLoop', () => {
     ).rejects.toThrow(message)
   })
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -0.01])(
-    'omits invalid action cost %s',
-    async (costUsd) => {
-      const state: TestState = { count: 0 }
-      const result = await runAgentControlLoop<TestState, TestAction, TestState>({
-        intent: 'ignore invalid cost',
-        budget: { maxSteps: 2, maxCostUsd: 1 },
-        observe: () => ({ ...state }),
-        validate: ({ state }) => [
-          objectiveEval({
-            id: 'count>=1',
-            passed: state.count >= 1,
-            severity: 'critical',
-          }),
-        ],
-        decide: () => ({ type: 'continue', action: { type: 'increment' } }),
-        act: () => {
-          state.count += 1
-          return { ...state }
-        },
-        getActionCostUsd: () => costUsd,
-      })
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    -0.01,
+  ])('omits invalid action cost %s', async (costUsd) => {
+    const state: TestState = { count: 0 }
+    const result = await runAgentControlLoop<TestState, TestAction, TestState>({
+      intent: 'ignore invalid cost',
+      budget: { maxSteps: 2, maxCostUsd: 1 },
+      observe: () => ({ ...state }),
+      validate: ({ state }) => [
+        objectiveEval({
+          id: 'count>=1',
+          passed: state.count >= 1,
+          severity: 'critical',
+        }),
+      ],
+      decide: () => ({ type: 'continue', action: { type: 'increment' } }),
+      act: () => {
+        state.count += 1
+        return { ...state }
+      },
+      getActionCostUsd: () => costUsd,
+    })
 
-      expect(result.pass).toBe(true)
-      expect(result.spentCostUsd).toBe(0)
-      expect(result.steps[0]!.actionOutcome?.costUsd).toBeUndefined()
-      expect(result.runtimeErrors).toContainEqual({
-        phase: 'act',
-        stepIndex: 0,
-        message: `invalid action costUsd: ${String(costUsd)}`,
-      })
-    },
-  )
+    expect(result.pass).toBe(true)
+    expect(result.spentCostUsd).toBe(0)
+    expect(result.steps[0]!.actionOutcome?.costUsd).toBeUndefined()
+    expect(result.runtimeErrors).toContainEqual({
+      phase: 'act',
+      stepIndex: 0,
+      message: `invalid action costUsd: ${String(costUsd)}`,
+    })
+  })
 
   it('stops repeated same-action loops before burning the whole step budget', async () => {
     const result = await runAgentControlLoop<TestState, TestAction, TestState>({

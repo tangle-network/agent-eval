@@ -17,10 +17,6 @@
 
 import { HeldOutGate, type RunRecord } from '../../src/index'
 
-function value(value: number | null): string {
-  return value === null ? 'n/a' : value.toFixed(3)
-}
-
 function holdoutRun(
   experimentId: string,
   seed: number,
@@ -39,12 +35,10 @@ function holdoutRun(
     commitSha: 'sha',
     wallMs: 1,
     costUsd: 0,
-    costProvenance: { kind: 'observed', usd: 0 },
     tokenUsage: { input: 1, output: 1 },
-    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: score, raw: { score } },
     splitTag: 'holdout',
-  }
+  } as RunRecord
 }
 
 function searchRun(
@@ -125,6 +119,6 @@ const gate = new HeldOutGate({
   console.log('case 3 — overfit (high search, low holdout):')
   console.log('  promote:', decision.promote, decision.rejectionCode ?? '')
   console.log('  reason: ', decision.reason)
-  console.log('  overfitGap (candidate):', value(decision.evidence.overfitGap))
-  console.log('  overfitGap (baseline): ', value(decision.evidence.baselineOverfitGap))
+  console.log('  overfitGap (candidate):', decision.evidence.overfitGap.toFixed(3))
+  console.log('  overfitGap (baseline): ', decision.evidence.baselineOverfitGap.toFixed(3))
 }

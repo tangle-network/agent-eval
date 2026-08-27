@@ -62,25 +62,11 @@ export async function evaluateContract(
   }
 
   const samples: MetricSamples[] = []
-  const measurementBreaches: string[] = []
   for (const m of contract.metrics) {
     const extract = m.extract ?? defaultExtract(m.metric)
     const baseline = await extractAll(baselineRuns, extract, store)
     const candidate = await extractAll(candidateRuns, extract, store)
-    if (baseline.length !== baselineRuns.length || candidate.length !== candidateRuns.length) {
-      measurementBreaches.push(
-        `metric "${m.metric}" measured ${candidate.length}/${candidateRuns.length} candidate ` +
-          `and ${baseline.length}/${baselineRuns.length} baseline run(s); every supplied run must report the metric`,
-      )
-      continue
-    }
-    if (baseline.length < 2 || candidate.length < 2) {
-      measurementBreaches.push(
-        `metric "${m.metric}" has too few comparable samples: baseline ${baseline.length}, ` +
-          `candidate ${candidate.length}; need at least 2 per arm`,
-      )
-      continue
-    }
+    if (baseline.length < 2 || candidate.length < 2) continue
     samples.push({ metric: m.metric, higherIsBetter: m.higherIsBetter, baseline, candidate })
   }
 
@@ -96,7 +82,7 @@ export async function evaluateContract(
     sloReport = checkSlos(agg, contract.slos)
   }
 
-  const breaches: string[] = [...measurementBreaches]
+  const breaches: string[] = []
   for (const metric of baselineReport.metrics) {
     const decl = contract.metrics.find((m) => m.metric === metric.metric)
     if (!decl) continue
@@ -104,7 +90,7 @@ export async function evaluateContract(
       const magnitude = Math.abs(metric.delta)
       if (decl.maxRegression === undefined || magnitude > decl.maxRegression) {
         breaches.push(
-          `metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${formatEffectSize(metric.cohensD)}, p=${metric.welchP.toExponential(2)})`,
+          `metric "${metric.metric}" regressed by ${metric.delta.toFixed(4)} (d=${metric.cohensD.toFixed(2)}, p=${metric.welchP.toExponential(2)})`,
         )
       }
     }
@@ -136,7 +122,7 @@ export function renderMarkdownReport(reports: ContractReport[]): string {
       lines.push('|---|---|---|---|---|---|---|')
       for (const m of r.baselineReport.metrics) {
         lines.push(
-          `| ${m.metric} | ${m.baselineMean.toFixed(4)} | ${m.candidateMean.toFixed(4)} | ${m.delta.toFixed(4)} | ${formatEffectSize(m.cohensD)} | ${m.welchP.toExponential(2)} | ${m.verdict} |`,
+          `| ${m.metric} | ${m.baselineMean.toFixed(4)} | ${m.candidateMean.toFixed(4)} | ${m.delta.toFixed(4)} | ${m.cohensD.toFixed(2)} | ${m.welchP.toExponential(2)} | ${m.verdict} |`,
         )
       }
     }
@@ -182,12 +168,6 @@ async function aggregateRunMetrics(
 function average(xs: number[]): number {
   if (xs.length === 0) return 0
   return xs.reduce((a, b) => a + b, 0) / xs.length
-}
-
-/** Cohen's d is null when both samples are constant with unequal means — an
- *  unbounded effect, which must not be rendered as a number. */
-function formatEffectSize(d: number | null): string {
-  return d === null ? 'unbounded (zero pooled spread)' : d.toFixed(2)
 }
 
 async function extractAll(

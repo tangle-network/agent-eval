@@ -25,7 +25,8 @@
  */
 
 import { findingSubjectGrammarPromptFor } from '../finding-subject'
-import type { TraceAnalystDefinition } from '../kind-factory'
+import type { TraceAnalystKindSpec } from '../kind-factory'
+import { buildTraceToolsForGroup } from '../tool-groups'
 
 const subjectGrammar = findingSubjectGrammarPromptFor('knowledge-gap')
 
@@ -37,7 +38,7 @@ ${subjectGrammar}
 
 DISCOVERY → ATTRIBUTE-TO-LAYER → CITE protocol:
 
-1. \`getDatasetOverview({})\` first. Note which agents, tools, and models appear.
+1. \`traces.getDatasetOverview({})\` first. Note which agents, tools, and models appear.
 2. Pull traces where the agent shows gap signals. The strongest signals are:
    - Self-correction turns ("I assumed X but…", "let me re-check", "actually,")
    - Clarifying-question turns where the agent asked the user something the runtime should have surfaced
@@ -46,21 +47,26 @@ DISCOVERY → ATTRIBUTE-TO-LAYER → CITE protocol:
    - Web-search calls returning pages dated before a known cutoff for content that changes (versioned APIs, schemas, policies)
    - Agent quoting a tool's docs / system prompt incorrectly because the actual text was insufficient
    - Fabricated identifiers that don't appear in dataset \`sample_trace_ids\`
-   Use \`searchTrace\` with patterns like \`I (don.?t|do not) know\`, \`assumed\`, \`unclear\`, \`could you (clarify|tell me|provide)\`, \`not found\`, \`undefined\`, \`unknown\`, \`null\`, dates older than the analysis window, or the agent's specific clarification phrases.
+   Use \`traces.searchTrace\` with patterns like \`I (don.?t|do not) know\`, \`assumed\`, \`unclear\`, \`could you (clarify|tell me|provide)\`, \`not found\`, \`undefined\`, \`unknown\`, \`null\`, dates older than the analysis window, or the agent's specific clarification phrases.
 3. For each gap, identify the **layer of the runtime that should have prevented it** and use its exact locus from the subject grammar above.
 4. For each defensible gap, emit ONE finding. Use an exact locus from the subject grammar and name the missing or stale knowledge (for example, "wiki has no page on invoice line-item shape; agent re-derived it from raw spans"). Rate it high when it caused failure or a clarifying question, medium for unnecessary turns, and low for minor inefficiency. Cite the span where the question, correction, retrieval miss, or stale result surfaced and quote it exactly. Use confidence 0.85+ when the agent articulated the gap and 0.6-0.8 when inferred. Recommend a concrete wiki edit for an agent-knowledge locus or a prompt/tool-description edit otherwise.
 
-**Compare layers over loaded evidence.** After the first scan, load the exact excerpts behind candidates across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Use one bounded \`llm_query\` per layer to classify those excerpts. Subqueries cannot call trace tools. Merge their classifications into the final finding set only when the source excerpts support them.
+**Compare layers over loaded evidence.** After the first scan, load the exact excerpts behind candidates across \`agent-knowledge:*\`, \`websearch:outdated\`, \`tool-doc:*\`, \`system-prompt:*\`, and \`memory:*\`. Use one bounded \`llmQuery\` per layer to classify those excerpts. Subqueries cannot call trace tools. Merge their classifications into the final finding set only when the source excerpts support them.
 
-Do NOT report a gap that the agent later recovered from cleanly within the same turn. That is resilience, not a gap. Cite the non-recovery version when both exist.`
+Do NOT report a gap that the agent later recovered from cleanly within the same turn — that's resilience, not a gap. Cite the *non-recovery* version when both exist.
 
-export const KNOWLEDGE_GAP_KIND_SPEC: TraceAnalystDefinition = {
+OBSERVABILITY rules:
+- Each non-final turn must emit at least one \`console.log\` for evidence.`
+
+export const KNOWLEDGE_GAP_KIND_SPEC: TraceAnalystKindSpec = {
   id: 'knowledge-gap',
   description:
     'Identifies missing or stale pieces of knowledge — primarily against the agent-knowledge wiki — and attributes each to the runtime layer (wiki page, claim, raw source, websearch, tool-doc, system-prompt, memory) that should have held it.',
   area: 'knowledge-gap',
   version: '1.2.0',
-  instructions: ACTOR_PROMPT,
-  toolGroup: 'discoveryAndSearch',
-  limits: { maxLlmCalls: 5, maxIterations: 18, maxToolCalls: 48 },
+  actorDescription: ACTOR_PROMPT,
+  buildTools: (store) => buildTraceToolsForGroup('discoveryAndSearch', store),
+  subqueries: { maxCalls: 5, maxParallel: 4 },
+  maxTurns: 18,
+  cost: { kind: 'llm' },
 }

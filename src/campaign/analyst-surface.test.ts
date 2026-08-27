@@ -1,199 +1,140 @@
 import { describe, expect, it } from 'vitest'
-import { makeFinding } from '../analyst/types'
-import type { TraceAnalysisStore } from '../trace-analyst/store'
+import type { AnalyzeTracesResult } from '../trace-analyst/analyst'
 import {
-  buildTraceAnalystSurfaceDispatch,
-  type TraceAnalystScenario,
-  traceAnalystQualityJudge,
+  type AnalystScenario,
+  buildAnalystSurfaceDispatch,
+  failureModeRecallJudge,
 } from './analyst-surface'
 import type { DispatchContext } from './types'
 
-const signal = new AbortController().signal
-const context = { cellId: 'cell-1', signal } as DispatchContext
-const traceStore = {} as TraceAnalysisStore
-const failureUri = 'trace://failed/span/tool-3'
-const scenario: TraceAnalystScenario = {
-  id: 'failed-command',
-  kind: 'trace-analyst',
-  traceStore,
-  labelState: 'positive',
-  expectedIssues: [
+const ctx = {
+  cellId: 'c0',
+  rep: 0,
+  seed: 42,
+  signal: new AbortController().signal,
+} as unknown as DispatchContext
+
+const scenario: AnalystScenario = {
+  id: 'appworld-task-77',
+  kind: 'analyst-surface',
+  source: '/tmp/does-not-matter.jsonl', // stubbed analyze never reads it
+  question: 'Why did the agent fail this task?',
+  expectedFailureModes: [
     {
-      id: 'repeated-command',
-      subjects: ['failure-mode:repeated-command'],
-      evidence: [{ kind: 'span', uri: failureUri }],
-      criticalEvidence: [{ kind: 'span', uri: failureUri }],
+      id: 'missing-prereq-fetch',
+      cues: ['did not fetch', 'skipped the lookup', 'missing prerequisite'],
+    },
+    { id: 'wrong-tool', cues: ['wrong tool', 'called spotify instead of', 'incorrect api'] },
+    {
+      id: 'premature-complete',
+      cues: ['completed early', 'premature', 'called complete_task too soon'],
     },
   ],
-  labeledEvidence: [
-    { kind: 'span', uri: failureUri },
-    { kind: 'span', uri: 'trace://failed/span/tool-1' },
-  ],
+  forbiddenCues: ['network timeout', 'rate limit'], // did NOT occur in this corpus
 }
 
-function finding(input: { subject?: string; uri: string; claim?: string }) {
-  return makeFinding({
-    analyst_id: 'test',
-    area: 'failure-mode',
-    subject: input.subject,
-    claim: input.claim ?? 'The command failed repeatedly',
-    severity: 'high',
-    confidence: 1,
-    evidence_refs: [{ kind: 'span', uri: input.uri }],
-  })
+const RESULT: AnalyzeTracesResult = {
+  answer: 'a',
+  findings: ['the agent did not fetch the playlist before editing it'],
+  turns: [],
+  turnCount: 1,
+  usage: { actor: [], responder: [] },
+  chatLog: { actor: [], responder: [] },
+  actorPromptVersion: 'stub-v0',
 }
 
-describe('buildTraceAnalystSurfaceDispatch', () => {
-  it('passes the candidate prompt and trace store to the configured implementation', async () => {
-    const seen: unknown[] = []
-    const dispatch = buildTraceAnalystSurfaceDispatch({
-      async analyze(input) {
-        seen.push(input)
-        return { findings: [] }
+describe('buildAnalystSurfaceDispatch — runs the analyst with the surface as actorDescription', () => {
+  it('passes the optimized surface through as actorDescription and returns findings', async () => {
+    let seenActor: string | undefined
+    const dispatch = buildAnalystSurfaceDispatch({
+      analystOptions: { ai: {} as never },
+      analyze: async (_input, options) => {
+        seenActor = options.actorDescription
+        return RESULT
       },
     })
-    await dispatch('Inspect failed tool calls.', scenario, context)
-    expect(seen).toEqual([
-      {
-        instructions: 'Inspect failed tool calls.',
-        traceStore,
-        runId: 'cell-1:failed-command',
-        signal,
-      },
-    ])
+    const art = await dispatch('OPTIMIZED ANALYST PROMPT v2', scenario, ctx)
+    expect(seenActor).toBe('OPTIMIZED ANALYST PROMPT v2')
+    expect(art.findings).toHaveLength(1)
+    expect(art.actorPromptVersion).toBe('stub-v0')
   })
 
-  it('rejects code and component surfaces instead of silently stringifying them', async () => {
-    const dispatch = buildTraceAnalystSurfaceDispatch({
-      async analyze() {
-        return { findings: [] }
-      },
-    })
+  it('fails loud if handed a code-tier surface (analyst prompt is prompt-tier)', async () => {
+    const dispatch = buildAnalystSurfaceDispatch({ analystOptions: { ai: {} as never } })
     await expect(
-      dispatch({ kind: 'code', worktreeRef: 'x' } as never, scenario, context),
-    ).rejects.toThrow(/requires a string prompt/)
+      dispatch({ kind: 'code', worktreeRef: 'wt/abc' } as never, scenario, ctx),
+    ).rejects.toThrow(/prompt-tier/)
   })
 })
 
-describe('traceAnalystQualityJudge', () => {
-  const judge = traceAnalystQualityJudge()
+describe('failureModeRecallJudge — deterministic ground-truth scoring', () => {
+  const judge = failureModeRecallJudge()
 
-  it('scores issue identity, causal-step location, and evidence without string cues', async () => {
-    const result = await judge.score({
+  it('rewards an analyst that surfaces more of the real failure modes', async () => {
+    const weak = await judge.score({
       artifact: {
-        findings: [finding({ subject: 'failure-mode:repeated-command', uri: failureUri })],
+        answer: '',
+        findings: ['the agent did not fetch the prereq'],
+        actorPromptVersion: 'v',
       },
       scenario,
-      signal,
+      signal: ctx.signal,
     })
-    expect(result.composite).toBe(1)
-    expect(result.dimensions).toMatchObject({
-      issue_recall: 1,
-      finding_precision: 1,
-      critical_step_accuracy: 1,
-      citation_coverage: 1,
-      citation_label_agreement: 1,
-    })
-  })
-
-  it('penalizes unsupported findings and invalid citations', async () => {
-    const result = await judge.score({
+    const strong = await judge.score({
       artifact: {
+        answer: '',
         findings: [
-          finding({ subject: 'failure-mode:repeated-command', uri: failureUri }),
-          finding({
-            subject: 'failure-mode:network-timeout',
-            uri: 'trace://failed/span/does-not-exist',
-            claim: 'A network timeout occurred',
-          }),
+          'the agent did not fetch the playlist first (missing prerequisite)',
+          'it called spotify instead of the venmo api — wrong tool',
+          'it called complete_task too soon — premature',
         ],
+        actorPromptVersion: 'v',
       },
       scenario,
-      signal,
+      signal: ctx.signal,
     })
-    expect(result.dimensions.issue_recall).toBe(1)
-    expect(result.dimensions.finding_precision).toBe(0.5)
-    expect(result.dimensions.citation_label_agreement).toBe(0.5)
-    expect(result.composite).toBeCloseTo(5 / 6)
+    // weak finds 1/3, strong finds 3/3 → strictly higher composite (the lift signal).
+    expect(weak.dimensions.recall!).toBeCloseTo(1 / 3, 5)
+    expect(strong.dimensions.recall!).toBe(1)
+    expect(strong.composite).toBeGreaterThan(weak.composite)
+    expect(strong.notes).toContain('matched 3/3')
+    expect(weak.notes).toContain('missed [wrong-tool, premature-complete]')
   })
 
-  it('weights issue identity and causal-step location independently', async () => {
-    const independentScenario: TraceAnalystScenario = {
-      ...scenario,
-      expectedIssues: [
-        {
-          id: 'repeated-command',
-          subjects: ['failure-mode:repeated-command'],
-          criticalEvidence: [{ kind: 'span', uri: failureUri }],
-        },
-      ],
-    }
-    const rightIssueWrongStep = await judge.score({
+  it('penalizes precision when a finding names a failure that never happened (anti-hallucination)', async () => {
+    const honest = await judge.score({
+      artifact: { answer: '', findings: ['missing prerequisite fetch'], actorPromptVersion: 'v' },
+      scenario,
+      signal: ctx.signal,
+    })
+    const hallucinating = await judge.score({
       artifact: {
-        findings: [
-          finding({
-            subject: 'failure-mode:repeated-command',
-            uri: 'trace://failed/span/tool-1',
-          }),
-        ],
+        answer: '',
+        findings: ['missing prerequisite fetch', 'a network timeout caused the failure'],
+        actorPromptVersion: 'v',
       },
-      scenario: independentScenario,
-      signal,
+      scenario,
+      signal: ctx.signal,
     })
-    const wrongIssueRightStep = await judge.score({
-      artifact: {
-        findings: [finding({ subject: 'failure-mode:network-timeout', uri: failureUri })],
-      },
-      scenario: independentScenario,
-      signal,
-    })
-
-    expect(rightIssueWrongStep.dimensions).toMatchObject({
-      f1: 1,
-      critical_step_accuracy: 0,
-    })
-    expect(rightIssueWrongStep.composite).toBe(0.5)
-    expect(wrongIssueRightStep.dimensions).toMatchObject({
-      f1: 0,
-      critical_step_accuracy: 1,
-    })
-    expect(wrongIssueRightStep.composite).toBe(0.5)
+    // Same recall (1/3) but the hallucinated forbidden-cue finding drops precision → lower composite.
+    expect(hallucinating.dimensions.recall!).toBeCloseTo(honest.dimensions.recall!, 5)
+    expect(hallucinating.dimensions.precision!).toBeLessThan(honest.dimensions.precision!)
+    expect(hallucinating.composite).toBeLessThan(honest.composite)
   })
 
-  it('treats findings on a clean trace as false positives', async () => {
-    const clean = {
-      ...scenario,
-      id: 'clean',
-      labelState: 'trusted-negative' as const,
-      expectedIssues: [],
-    }
-    const result = await judge.score({
-      artifact: {
-        findings: [finding({ uri: 'trace://failed/span/tool-1' })],
-      },
-      scenario: clean,
-      signal,
-    })
-    expect(result.composite).toBe(0)
-    expect(result.dimensions.clean).toBe(0)
-  })
-
-  it('excludes unlabeled traces from quality scoring', async () => {
-    const unlabeled = {
-      ...scenario,
-      id: 'unlabeled',
-      labelState: 'unlabeled' as const,
-      expectedIssues: [],
-      labeledEvidence: undefined,
-    }
-
-    expect(judge.appliesTo?.(unlabeled)).toBe(false)
+  it('fails loud on a scenario with no ground-truth labels (never a vacuous 1.0)', () => {
+    const bad = { ...scenario, expectedFailureModes: [] }
     expect(() =>
       judge.score({
-        artifact: { findings: [] },
-        scenario: unlabeled,
-        signal,
+        artifact: { answer: '', findings: ['x'], actorPromptVersion: 'v' },
+        scenario: bad,
+        signal: ctx.signal,
       }),
-    ).toThrow(/has no quality labels/)
+    ).toThrow(/no expectedFailureModes/)
+  })
+
+  it('only applies to analyst-surface scenarios', () => {
+    expect(judge.appliesTo!(scenario)).toBe(true)
+    expect(judge.appliesTo!({ id: 'x', kind: 'other' } as never)).toBe(false)
   })
 })

@@ -45,18 +45,7 @@ export function composeGate<TArtifact = unknown, TScenario extends Scenario = Sc
       const contributing = results.flatMap((r) =>
         r.res.contributingGates.length > 0
           ? r.res.contributingGates
-          : [
-              {
-                name: r.gate.name,
-                status:
-                  r.res.decision === 'ship'
-                    ? ('pass' as const)
-                    : r.res.decision === 'need_more_work'
-                      ? ('not_evaluated' as const)
-                      : ('fail' as const),
-                detail: r.res,
-              },
-            ],
+          : [{ name: r.gate.name, passed: r.res.decision === 'ship', detail: r.res }],
       )
 
       const reasons = results.flatMap((r) =>

@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import type { SteeringOptimizationRow } from '../src/steering-optimizer'
-import { PairwiseSteeringOptimizer } from '../src/steering-optimizer'
+import { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from '../src/steering-optimizer'
 
 describe('steering optimizer', () => {
   it('ranks variants by aggregate score', () => {
     const result = new PairwiseSteeringOptimizer().optimize(rows())
     expect(result.recommendedVariantId).toBe('strong')
     expect(result.rankings[0]?.variantId).toBe('strong')
+  })
+
+  it('fails closed to skipped ax mode when data is insufficient', async () => {
+    const result = await new AxGepaSteeringOptimizer({
+      provider: 'openai',
+      apiKey: 'sk-test',
+      model: 'gpt-5.4-mini',
+      minScenarioWinners: 10,
+    }).optimize(rows())
+    expect(result.backend).toBe('ax-gepa')
+    expect(result.skipped).toBe(true)
+    expect(result.recommendedVariantId).toBe('strong')
   })
 
   it('keeps rankings finite when runtime-loaded rows have invalid cost or latency', () => {

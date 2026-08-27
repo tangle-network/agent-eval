@@ -113,12 +113,15 @@ describe('parseFindingSubject — runtime surfaces', () => {
     expect(parseFindingSubject(raw)).toEqual(expected)
   })
 
-  it.each(['skill:CodeReview', 'mcp:Linear', 'hook:', 'subagent:', 'workflow:'])(
-    'rejects malformed runtime subject %s',
-    (raw) => {
-      expect(parseFindingSubject(raw)).toBeNull()
-    },
-  )
+  it.each([
+    'skill:CodeReview',
+    'mcp:Linear',
+    'hook:',
+    'subagent:',
+    'workflow:',
+  ])('rejects malformed runtime subject %s', (raw) => {
+    expect(parseFindingSubject(raw)).toBeNull()
+  })
 
   it('parses rag:<corpus>:<doc>', () => {
     expect(parseFindingSubject('rag:irs-rulings:rev-rul-2024-12')).toEqual({
@@ -339,7 +342,7 @@ describe('KIND_EXPECTED_SUBJECTS', () => {
     ['knowledge-poisoning', KNOWLEDGE_POISONING_KIND_SPEC],
   ])('%s actor prompt embeds its complete allowed grammar', (kindId, spec) => {
     const grammar = findingSubjectGrammarPromptFor(kindId)
-    expect(spec.instructions).toContain(grammar)
+    expect(spec.actorDescription).toContain(grammar)
     for (const subjectKind of KIND_EXPECTED_SUBJECTS[kindId] ?? []) {
       expect(grammar).toContain(FINDING_SUBJECT_SYNTAX[subjectKind])
     }

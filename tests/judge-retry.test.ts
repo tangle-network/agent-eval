@@ -102,7 +102,11 @@ describe('withJudgeRetry — substrate guard against silent-zero judge corruptio
   })
 
   it('retries an HTTP/2 transport fault via the shared classifier', async () => {
-    // Both retry paths use the same classifier, including undici HTTP/2 faults.
+    // Regression: judge-retry and llm-client carried separate retry-pattern
+    // lists; neither matched undici HTTP/2 faults (`terminated`,
+    // NGHTTP2_INTERNAL_ERROR). A TCloud-backed judge hitting one would fail
+    // the trial as a silent non-retry. Both now route through
+    // isTransientLlmError.
     let calls = 0
     const fn = async () => {
       calls += 1

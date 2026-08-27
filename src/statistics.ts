@@ -4,9 +4,6 @@ import {
   type ContinuousAgreementOptions,
   continuousAgreement,
 } from './judge-calibration'
-import { normalCdf } from './math/normal'
-import { lnGamma, regularizedIncompleteBeta } from './math/special-functions'
-import { studentTCdf } from './math/student-t'
 import type { JudgeScore } from './types'
 
 /** Identity: dimensions already follow "higher = better" by prompt convention
@@ -26,14 +23,7 @@ export function weightedMean(scores: { score: number; weight?: number }[]): numb
   return totalWeight > 0 ? weightedSum / totalWeight : 0
 }
 
-/**
- * Percentile bootstrap confidence interval on the mean of `scores`.
- *
- * Descriptive spread. It is not a significance test, and at small n its bounds
- * are anti-conservative in the same way {@link pairedBootstrap}'s are — see
- * {@link BOOTSTRAP_GATE_MIN_N}. With no `seed` the resampling is seeded from
- * the scores themselves, so the interval is reproducible either way.
- */
+/** Bootstrap confidence interval */
 export function confidenceInterval(
   scores: number[],
   confidence = 0.95,
@@ -46,7 +36,7 @@ export function confidenceInterval(
   const mean = scores.reduce((a, b) => a + b, 0) / n
 
   const B = opts.resamples ?? 1000
-  const rng = makeRng(opts.seed, scores)
+  const rng = makeRng(opts.seed)
   const bootstrapMeans: number[] = []
 
   for (let i = 0; i < B; i++) {
@@ -71,53 +61,35 @@ export function confidenceInterval(
 }
 
 /**
- * Inter-rater reliability — Krippendorff's α under the squared-difference
- * metric, pooled across dimensions.
+ * Inter-rater reliability — simplified Krippendorff's alpha.
  *
- * Each inner array is one judge's scores. Items are matched by position
- * WITHIN a dimension: the k-th score a judge supplies carrying dimension
- * `d` is item k of `d`, and the ratings compared against each other are
- * the ones different judges gave to the same item. Every judge that scores
- * a dimension at all must supply the same number of scores for it —
- * ragged input cannot be aligned into items and throws rather than
- * comparing mismatched items.
- *
- * α = 1 − D_observed / D_expected: D_observed averages the squared
- * difference over within-item judge pairs, D_expected over every pair of
- * ratings irrespective of item. α = 1 is perfect agreement, 0 is chance,
- * negative is systematic disagreement.
+ * Each inner array is one judge's scores for all items.
+ * All arrays must have the same length (same items scored).
  */
 export function interRaterReliability(judgeScores: JudgeScore[][]): number {
   if (judgeScores.length < 2) return 1
 
-  // dimension → one score sequence per judge, in that judge's supplied order.
-  const perDimension = new Map<string, number[][]>()
-  for (let judgeIndex = 0; judgeIndex < judgeScores.length; judgeIndex++) {
-    for (const s of judgeScores[judgeIndex]!) {
-      let byJudge = perDimension.get(s.dimension)
-      if (byJudge === undefined) {
-        byJudge = Array.from({ length: judgeScores.length }, () => [] as number[])
-        perDimension.set(s.dimension, byJudge)
+  // Group scores by dimension across judges
+  const dimensionMap = new Map<string, number[][]>()
+  for (const judgeSet of judgeScores) {
+    for (const s of judgeSet) {
+      if (!dimensionMap.has(s.dimension)) dimensionMap.set(s.dimension, [])
+      const arr = dimensionMap.get(s.dimension)!
+      if (arr.length === 0 || arr[arr.length - 1]!.length >= judgeScores.length) {
+        arr.push([s.score])
+      } else {
+        arr[arr.length - 1]!.push(s.score)
       }
-      byJudge[judgeIndex]!.push(s.score)
     }
   }
 
+  // Collect all paired ratings
   const allValues: number[] = []
   const pairDiffs: number[] = []
 
-  for (const [dimension, byJudge] of perDimension) {
-    const scoring = byJudge.filter((scores) => scores.length > 0)
-    if (scoring.length < 2) continue
-    const itemCount = scoring[0]!.length
-    if (scoring.some((scores) => scores.length !== itemCount)) {
-      throw new ValidationError(
-        `interRaterReliability: dimension '${dimension}' has judges supplying ` +
-          `${scoring.map((scores) => scores.length).join('/')} scores — items cannot be aligned`,
-      )
-    }
-    for (let item = 0; item < itemCount; item++) {
-      const ratings = scoring.map((scores) => scores[item]!)
+  for (const items of dimensionMap.values()) {
+    for (const ratings of items) {
+      if (ratings.length < 2) continue
       for (const v of ratings) allValues.push(v)
       for (let i = 0; i < ratings.length; i++) {
         for (let j = i + 1; j < ratings.length; j++) {
@@ -146,170 +118,54 @@ export function interRaterReliability(judgeScores: JudgeScore[][]): number {
   return 1 - observedDisagreement / expectedDisagreement
 }
 
-// ── Rank tests: exact by default ─────────────────────────────────────
-//
-// At 3–10 repetitions per arm the binding constraint on a rank test is
-// combinatorial, not numerical. Three versus three admits only 20 splits, so
-// the attainable two-sided p-grid starts at 0.1000 and α = 0.05 is out of
-// reach at that design; a normal approximation reports 0.0495, a p-value that
-// describes no attainable outcome. No better approximation fixes this — adding
-// the tie correction moves `[0,0,0]` versus `[1,1,1]` from 0.0495 to 0.0469,
-// further from its exact 0.1000, not closer.
-//
-// So both null distributions are enumerated exactly inside bounded state and
-// work budgets, by convolution over the observed midranks (identical to
-// enumerating every split / sign pattern, and cheaper), which conditions on the
-// realised tie pattern for free. Above those budgets the default is a seeded
-// Monte Carlo permutation. The asymptotic path is never chosen automatically,
-// and asking for it inside the exact-feasible range throws.
-//
-// Every result carries `method` and `pFloor` so a downstream gate can SEE the
-// discreteness rather than infer it: a gate handed data whose `pFloor` exceeds
-// its alpha is underpowered by construction, which is a true statement about
-// the experiment, not a false one about the effect.
-
-/** How a rank test's p-value was actually computed. */
-export type RankTestMethod = 'exact' | 'permutation' | 'asymptotic'
-
 /**
- * What the caller asks for. `'auto'` selects `'exact'` inside the enumeration
- * threshold and `'permutation'` above it, and never selects `'asymptotic'`.
+ * Mann-Whitney U test for comparing two independent groups.
+ * Returns U statistic and approximate p-value (normal approximation).
  */
-export type RankTestMethodRequest = 'auto' | 'exact' | 'asymptotic'
-
-export interface RankTestOptions {
-  /** Default `'auto'`. `'asymptotic'` inside the exact-feasible range throws. */
-  method?: RankTestMethodRequest
-  /** Resamples on the Monte Carlo permutation path. Default 100000. */
-  permutations?: number
-  /** Seed for the permutation path. Omitted ⇒ derived from the data itself, so
-   *  the result is reproducible either way. */
-  seed?: number
-}
-
-/** Maximum dynamic-programming cells used by an exact two-sample rank test. */
-export const MANN_WHITNEY_EXACT_MAX_STATES = 8_192
-/** Maximum inner-loop transitions used by an exact two-sample rank test. */
-export const MANN_WHITNEY_EXACT_MAX_WORK = 250_000
-/** Non-zero differences up to which the signed-rank null is enumerated exactly. */
-export const WILCOXON_EXACT_MAX_N = 20
-/** Resamples used when a rank test falls back to Monte Carlo permutation. */
-export const DEFAULT_PERMUTATIONS = 100_000
-
-export interface MannWhitneyResult {
-  /** `min(U_a, U_b)` — the conventional reported statistic. */
-  u: number
-  /** U for sample `a`. Carries the direction of the effect, which `u` discards. */
-  uA: number
-  /** Two-sided p-value. */
-  p: number
-  /** How `p` was computed. */
-  method: RankTestMethod
-  /** Smallest two-sided p this design can produce. `p` can never be below it. */
-  pFloor: number
-}
-
-/**
- * Mann-Whitney U — two independent samples, no distributional assumption.
- *
- * Exact conditional (permutation) p by default when the dynamic program fits
- * {@link MANN_WHITNEY_EXACT_MAX_STATES} cells and
- * {@link MANN_WHITNEY_EXACT_MAX_WORK} transitions, seeded Monte Carlo
- * permutation above those limits. This keeps imbalanced designs such as 1+24
- * exact without admitting expensive balanced designs merely because they have
- * the same total size. Throws on non-finite input and on `method:
- * 'asymptotic'` where an exact answer is available. Empty input yields `p = 1,
- * pFloor = 1` — no design, no attainable evidence.
- */
-export function mannWhitneyU(
-  a: number[],
-  b: number[],
-  opts: RankTestOptions = {},
-): MannWhitneyResult {
-  assertFiniteSample('mannWhitneyU', 'a', a)
-  assertFiniteSample('mannWhitneyU', 'b', b)
+export function mannWhitneyU(a: number[], b: number[]): { u: number; p: number } {
+  if (a.length === 0 || b.length === 0) return { u: 0, p: 1 }
 
   const n1 = a.length
   const n2 = b.length
-  if (n1 === 0 || n2 === 0) return { u: 0, uA: 0, p: 1, method: 'exact', pFloor: 1 }
 
-  const total = n1 + n2
+  // Rank all values together
   const combined = [
-    ...a.map((v) => ({ v, fromA: true })),
-    ...b.map((v) => ({ v, fromA: false })),
+    ...a.map((v) => ({ v, group: 'a' as const })),
+    ...b.map((v) => ({ v, group: 'b' as const })),
   ].sort((x, y) => x.v - y.v)
 
-  const { midranks, tieTerm } = midranksWithTieTerm(combined.map((entry) => entry.v))
-  let rankSumA = 0
-  for (let k = 0; k < total; k++) {
-    if (combined[k]!.fromA) rankSumA += midranks[k]!
+  // Assign ranks with tie handling
+  const ranks: number[] = new Array(combined.length)
+  let i = 0
+  while (i < combined.length) {
+    let j = i
+    while (j < combined.length && combined[j]!.v === combined[i]!.v) j++
+    const avgRank = (i + 1 + j) / 2
+    for (let k = i; k < j; k++) ranks[k] = avgRank
+    i = j
   }
 
-  const uA = rankSumA - (n1 * (n1 + 1)) / 2
-  const u = Math.min(uA, n1 * n2 - uA)
-  // Midranks are integers or halves, so doubling makes the null convolution
-  // integral. U is centred on n₁n₂/2, hence a doubled centre of n₁n₂.
-  const doubled = midranks.map((rank) => Math.round(rank * 2))
-  const doubledDeviation = Math.abs(2 * uA - n1 * n2)
-  const selectedN = Math.min(n1, n2)
-  const otherN = total - selectedN
-  const exactCost = exactTwoSampleCost(doubled, selectedN)
-
-  const designFloor = exactTwoSampleFloor(doubled, selectedN)
-  const method = selectRankTestMethod(
-    'mannWhitneyU',
-    opts.method ?? 'auto',
-    `n1=${n1}, n2=${n2}`,
-    exactCost.states <= MANN_WHITNEY_EXACT_MAX_STATES &&
-      exactCost.work <= MANN_WHITNEY_EXACT_MAX_WORK,
-    designFloor,
-    `${MANN_WHITNEY_EXACT_MAX_STATES.toLocaleString('en-US')} states and ` +
-      `${MANN_WHITNEY_EXACT_MAX_WORK.toLocaleString('en-US')} transitions`,
-  )
-
-  if (method === 'exact') {
-    const { p, pFloor } = exactTwoSampleP(doubled, selectedN, otherN, doubledDeviation)
-    return { u, uA, p, method, pFloor }
+  // Sum ranks for group a
+  let r1 = 0
+  for (let k = 0; k < combined.length; k++) {
+    if (combined[k]!.group === 'a') r1 += ranks[k]!
   }
 
-  if (method === 'asymptotic') {
-    return {
-      u,
-      uA,
-      p: asymptoticTwoSidedP(doubledDeviation / 2, twoSampleSigma(n1, n2, total, tieTerm)),
-      method,
-      pFloor: designFloor,
-    }
-  }
+  const u1 = r1 - (n1 * (n1 + 1)) / 2
+  const u2 = n1 * n2 - u1
+  const u = Math.min(u1, u2)
 
-  const permutations = resolvePermutations('mannWhitneyU', opts.permutations)
-  const rng = opts.seed === undefined ? makeRng(symmetricTwoSampleSeed(a, b)) : makeRng(opts.seed)
-  let atLeastAsExtreme = 0
-  const pool = [...doubled]
-  for (let iteration = 0; iteration < permutations; iteration++) {
-    let doubledRankSum = 0
-    for (let k = 0; k < selectedN; k++) {
-      const pick = k + Math.floor(rng() * (total - k))
-      const swapped = pool[pick]!
-      pool[pick] = pool[k]!
-      pool[k] = swapped
-      doubledRankSum += swapped
-    }
-    if (
-      Math.abs(doubledRankSum - selectedN * (selectedN + 1) - selectedN * otherN) >=
-      doubledDeviation
-    ) {
-      atLeastAsExtreme++
-    }
-  }
-  const pFloor = Math.max(1 / (permutations + 1), designFloor)
-  return {
-    u,
-    uA,
-    p: Math.max((1 + atLeastAsExtreme) / (permutations + 1), pFloor),
-    method,
-    pFloor,
-  }
+  // Normal approximation for p-value
+  const mu = (n1 * n2) / 2
+  const sigma = Math.sqrt((n1 * n2 * (n1 + n2 + 1)) / 12)
+
+  if (sigma === 0) return { u, p: 1 }
+
+  const z = Math.abs(u - mu) / sigma
+  // Two-tailed p-value from z-score (approximation)
+  const p = 2 * (1 - normalCdf(z))
+
+  return { u, p }
 }
 
 /** Partial credit: returns 0-1 ratio of current toward target */
@@ -318,46 +174,29 @@ export function partialCredit(current: number, target: number): number {
   return Math.min(1, Math.max(0, current / target))
 }
 
-export interface PairedTTestResult {
-  /** Null when the statistic is undefined — see {@link pairedTTest}. */
-  t: number | null
-  df: number
-  /** Null exactly when `t` is null. */
-  p: number | null
-}
-
 /**
  * Paired t-test — before/after measurements on the SAME items.
  * Pairing removes inter-item variance, giving tighter significance than
  * an unpaired test when comparing prompt v1 vs prompt v2 on identical
  * scenarios.
- *
- * Returns `t = p = null` where the statistic is undefined: fewer than two
- * pairs, or a non-zero constant delta whose observed variance is zero. A
- * constant shift carries no information about the variance it would have to
- * be compared against, so the honest answer is "undefined", not `p = 0` —
- * three observations cannot buy absolute certainty. This is the same contract
- * {@link pairedCohensDz} states for the same condition. An all-zero delta is
- * different: it is a measured null, and returns `t = 0, p = 1`.
  */
-export function pairedTTest(before: number[], after: number[]): PairedTTestResult {
+export function pairedTTest(
+  before: number[],
+  after: number[],
+): { t: number; df: number; p: number } {
   if (before.length !== after.length) {
     throw new ValidationError(
       `pairedTTest: unequal sample sizes (${before.length} vs ${after.length})`,
     )
   }
-  assertFiniteSample('pairedTTest', 'before', before)
-  assertFiniteSample('pairedTTest', 'after', after)
   const n = before.length
-  if (n < 2) return { t: null, df: 0, p: null }
+  if (n < 2) return { t: 0, df: 0, p: 1 }
 
   const diffs = before.map((b, i) => after[i]! - b)
   const mean = diffs.reduce((a, b) => a + b, 0) / n
   const variance = diffs.reduce((acc, d) => acc + (d - mean) ** 2, 0) / (n - 1)
   const se = Math.sqrt(variance / n)
-  if (se === 0) {
-    return mean === 0 ? { t: 0, df: n - 1, p: 1 } : { t: null, df: n - 1, p: null }
-  }
+  if (se === 0) return { t: mean === 0 ? 0 : Infinity, df: n - 1, p: mean === 0 ? 1 : 0 }
 
   const t = mean / se
   const df = n - 1
@@ -365,122 +204,49 @@ export function pairedTTest(before: number[], after: number[]): PairedTTestResul
   return { t, df, p }
 }
 
-export interface WilcoxonSignedRankResult {
-  /** W⁺, the rank sum of the positive differences. (scipy reports
-   *  `min(W⁺, W⁻)`; compare statistics only after converting.) */
-  w: number
-  /** Two-sided p-value. */
-  p: number
-  /** How `p` was computed. */
-  method: RankTestMethod
-  /** Smallest two-sided p this design can produce. */
-  pFloor: number
-  /** Non-zero differences — zero differences are dropped and carry no rank. */
-  nNonZero: number
-}
-
 /**
- * Wilcoxon signed-rank — paired, no distributional assumption on the deltas.
- *
- * Exact conditional (sign-flip) p by default at `n ≤
- * {@link WILCOXON_EXACT_MAX_N}` non-zero differences, seeded Monte Carlo
- * permutation above it. Throws on non-finite input and on `method:
- * 'asymptotic'` where an exact answer is available.
- *
- * `n` is the count of NON-ZERO differences: exact ties are dropped before
- * ranking, so a run of tied pairs shrinks the design and raises `pFloor`.
- * All-tied input yields `p = 1, pFloor = 1` — no attainable evidence, which
- * `pFloor` states rather than leaving `p = 1` to be read as a measured null.
+ * Wilcoxon signed-rank test — paired non-parametric alternative.
+ * Use when the differences aren't normally distributed.
  */
-export function wilcoxonSignedRank(
-  before: number[],
-  after: number[],
-  opts: RankTestOptions = {},
-): WilcoxonSignedRankResult {
+export function wilcoxonSignedRank(before: number[], after: number[]): { w: number; p: number } {
   if (before.length !== after.length) {
     throw new ValidationError(
       `wilcoxonSignedRank: unequal sample sizes (${before.length} vs ${after.length})`,
     )
   }
-  assertFiniteSample('wilcoxonSignedRank', 'before', before)
-  assertFiniteSample('wilcoxonSignedRank', 'after', after)
-
   const diffs = before.map((b, i) => after[i]! - b).filter((d) => d !== 0)
   const n = diffs.length
-  if (n === 0) return { w: 0, p: 1, method: 'exact', pFloor: 1, nNonZero: 0 }
+  if (n < 6) return { w: 0, p: 1 }
 
-  const order = diffs.map((d, i) => ({ abs: Math.abs(d), i })).sort((x, y) => x.abs - y.abs)
-  const { midranks, tieTerm } = midranksWithTieTerm(order.map((entry) => entry.abs))
+  const absRanks = diffs
+    .map((d, i) => ({ abs: Math.abs(d), sign: Math.sign(d), i }))
+    .sort((a, b) => a.abs - b.abs)
   const ranks: number[] = new Array(n)
-  for (let k = 0; k < n; k++) ranks[order[k]!.i] = midranks[k]!
-
+  let i = 0
+  while (i < n) {
+    let j = i
+    while (j < n && absRanks[j]!.abs === absRanks[i]!.abs) j++
+    const avg = (i + 1 + j) / 2
+    for (let k = i; k < j; k++) ranks[absRanks[k]!.i] = avg
+    i = j
+  }
   let wPlus = 0
   for (let k = 0; k < n; k++) if (diffs[k]! > 0) wPlus += ranks[k]!
 
-  // Midranks are integers or halves; doubling makes the convolution integral.
-  // Σ midranks = n(n+1)/2 whatever the tie pattern, so E[W⁺] = n(n+1)/4 and
-  // the doubled centre is n(n+1)/2.
-  const doubled = midranks.map((rank) => Math.round(rank * 2))
-  const doubledDeviation = Math.abs(2 * wPlus - (n * (n + 1)) / 2)
-
-  const designFloor = Math.min(1, 2 ** (1 - n))
-  const method = selectRankTestMethod(
-    'wilcoxonSignedRank',
-    opts.method ?? 'auto',
-    `n=${n} non-zero differences`,
-    n <= WILCOXON_EXACT_MAX_N,
-    designFloor,
-    `${WILCOXON_EXACT_MAX_N} non-zero differences`,
-  )
-
-  if (method === 'exact') {
-    const { p, pFloor } = exactSignedRankP(doubled, doubledDeviation)
-    return { w: wPlus, p, method, pFloor, nNonZero: n }
-  }
-
-  if (method === 'asymptotic') {
-    const variance = (n * (n + 1) * (2 * n + 1)) / 24 - tieTerm / 48
-    return {
-      w: wPlus,
-      p: asymptoticTwoSidedP(doubledDeviation / 2, Math.sqrt(variance)),
-      method,
-      pFloor: designFloor,
-      nNonZero: n,
-    }
-  }
-
-  const permutations = resolvePermutations('wilcoxonSignedRank', opts.permutations)
-  const rng = makeRng(opts.seed, before, after)
-  const doubledCentre = (n * (n + 1)) / 2
-  let atLeastAsExtreme = 0
-  for (let iteration = 0; iteration < permutations; iteration++) {
-    let doubledWPlus = 0
-    for (let k = 0; k < n; k++) if (rng() < 0.5) doubledWPlus += doubled[k]!
-    if (Math.abs(doubledWPlus - doubledCentre) >= doubledDeviation) atLeastAsExtreme++
-  }
-  return {
-    w: wPlus,
-    p: (1 + atLeastAsExtreme) / (permutations + 1),
-    method,
-    pFloor: Math.max(1 / (permutations + 1), designFloor),
-    nNonZero: n,
-  }
+  const mean = (n * (n + 1)) / 4
+  const variance = (n * (n + 1) * (2 * n + 1)) / 24
+  const z = (wPlus - mean) / Math.sqrt(variance)
+  const p = 2 * (1 - normalCdf(Math.abs(z)))
+  return { w: wPlus, p }
 }
 
 /**
  * Cohen's d — standardized effect size for two independent groups.
  * Positive d means group b has higher mean than group a.
  * Rule of thumb: |d| < 0.2 negligible, 0.2–0.5 small, 0.5–0.8 medium, > 0.8 large.
- *
- * Returns null where the standardized effect is undefined: fewer than two
- * observations in either group, or a zero pooled standard deviation with
- * unequal means. Null is NOT "no effect" — zero within-group spread across a
- * real mean gap is an unbounded effect, the opposite of negligible. Equal
- * means with zero spread is a genuine 0. Same contract as
- * {@link pairedCohensDz}.
  */
-export function cohensD(a: number[], b: number[]): number | null {
-  if (a.length < 2 || b.length < 2) return null
+export function cohensD(a: number[], b: number[]): number {
+  if (a.length < 2 || b.length < 2) return 0
   const meanA = a.reduce((x, y) => x + y, 0) / a.length
   const meanB = b.reduce((x, y) => x + y, 0) / b.length
   const varA = a.reduce((acc, x) => acc + (x - meanA) ** 2, 0) / (a.length - 1)
@@ -488,36 +254,8 @@ export function cohensD(a: number[], b: number[]): number | null {
   const pooled = Math.sqrt(
     ((a.length - 1) * varA + (b.length - 1) * varB) / (a.length + b.length - 2),
   )
-  if (pooled === 0) return meanB === meanA ? 0 : null
+  if (pooled === 0) return 0
   return (meanB - meanA) / pooled
-}
-
-/**
- * Cohen's dz for paired observations: mean(after - before) divided by the
- * sample standard deviation of those within-pair deltas.
- *
- * Returns null when fewer than two pairs exist or a non-zero constant delta
- * has zero observed variance. In that case the standardized effect is
- * undefined, not an arbitrarily large finite number.
- */
-export function pairedCohensDz(before: number[], after: number[]): number | null {
-  if (before.length !== after.length) {
-    throw new ValidationError(
-      `pairedCohensDz: unequal sample sizes (${before.length} vs ${after.length})`,
-    )
-  }
-  if (before.length < 2) return null
-  const deltas = before.map((value, index) => after[index]! - value)
-  if (deltas.some((value) => !Number.isFinite(value))) {
-    throw new ValidationError('pairedCohensDz: all paired values must be finite')
-  }
-  const meanDelta = deltas.reduce((sum, value) => sum + value, 0) / deltas.length
-  const variance =
-    deltas.reduce((sum, value) => sum + (value - meanDelta) ** 2, 0) / (deltas.length - 1)
-  const standardDeviation = Math.sqrt(variance)
-  const scale = Math.max(1, Math.abs(meanDelta), ...deltas.map(Math.abs))
-  if (standardDeviation <= Number.EPSILON * scale) return meanDelta === 0 ? 0 : null
-  return meanDelta / standardDeviation
 }
 
 export type CliffsMagnitude = 'negligible' | 'small' | 'medium' | 'large'
@@ -677,7 +415,7 @@ export function weightedComposite(input: WeightedCompositeInput): WeightedCompos
 
 // ── Corpus-wide inter-rater agreement ──────────────────────────────
 //
-// `interRaterReliability(judgeScores)` computes a within-item
+// The legacy `interRaterReliability(judgeScores)` computes a within-item
 // Krippendorff α — multiple judges score *the same item* and we ask
 // "how much do their scores agree on that item?" Useful for a single
 // scenario, but it cannot answer "how reliable are these judges across
@@ -903,6 +641,87 @@ export function corpusInterRaterAgreementFromJudgeScores(
   return corpusInterRaterAgreement(records, opts)
 }
 
+/** Student-t CDF approximation via Abramowitz-Stegun series. */
+function studentTCdf(t: number, df: number): number {
+  if (df <= 0) return 0.5
+  if (df > 100) return normalCdf(t)
+  const x = df / (df + t * t)
+  const a = df / 2
+  const b = 0.5
+  const ib = incompleteBeta(x, a, b)
+  return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib
+}
+
+/** Regularized incomplete beta function via continued fraction (Lentz). */
+function incompleteBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b)
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lnBeta) / a
+  const maxIter = 200
+  const eps = 3e-7
+  let c = 1
+  let d = 1 - ((a + b) * x) / (a + 1)
+  if (Math.abs(d) < 1e-30) d = 1e-30
+  d = 1 / d
+  let f = d
+  for (let m = 1; m <= maxIter; m++) {
+    const m2 = 2 * m
+    let num = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    f *= d * c
+    num = -((a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    const delta = d * c
+    f *= delta
+    if (Math.abs(delta - 1) < eps) break
+  }
+  return front * f
+}
+
+/** Lanczos approximation to ln Γ(z). */
+function lnGamma(z: number): number {
+  const g = 7
+  const coefs = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+    1.5056327351493116e-7,
+  ]
+  if (z < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
+  }
+  z -= 1
+  let x = coefs[0]!
+  for (let i = 1; i < g + 2; i++) x += coefs[i]! / (z + i)
+  const t = z + g + 0.5
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
+}
+
+// Standard normal CDF approximation (Abramowitz and Stegun)
+function normalCdf(x: number): number {
+  const a1 = 0.254829592
+  const a2 = -0.284496736
+  const a3 = 1.421413741
+  const a4 = -1.453152027
+  const a5 = 1.061405429
+  const p = 0.3275911
+
+  const sign = x < 0 ? -1 : 1
+  const absX = Math.abs(x)
+  const t = 1 / (1 + p * absX)
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp((-absX * absX) / 2)
+
+  return 0.5 * (1 + sign * y)
+}
+
 // ── Power analysis + multiple-comparison correction ──────────────────
 
 /**
@@ -926,31 +745,6 @@ export function requiredSampleSize(opts: {
   const zBeta = zQuantile(power)
   const n = 2 * ((zAlpha + zBeta) / effect) ** 2
   return Math.ceil(n)
-}
-
-/**
- * Required number of paired observations for a target Cohen's dz.
- * Unlike the independent-groups formula, this has no two-arm factor of two.
- *
- * Normal quantiles with no t correction, so treat the result as a LOWER bound:
- * it returns 32 where the exact t-based answer is 34 at dz = 0.5, and 13 where
- * it is 15 at dz = 0.8 — a 6–13 % shortfall precisely in the range a caller
- * consults to decide whether 3–10 repetitions suffice.
- */
-export function requiredPairedSampleSize(opts: {
-  effect: number
-  alpha?: number
-  power?: number
-  twoSided?: boolean
-}): number {
-  const effect = opts.effect
-  if (!Number.isFinite(effect) || effect <= 0) return Infinity
-  const alpha = opts.alpha ?? 0.05
-  const power = opts.power ?? 0.8
-  const twoSided = opts.twoSided ?? true
-  const zAlpha = zQuantile(twoSided ? 1 - alpha / 2 : 1 - alpha)
-  const zBeta = zQuantile(power)
-  return Math.ceil(((zAlpha + zBeta) / effect) ** 2)
 }
 
 /**
@@ -1040,22 +834,15 @@ export function mcnemarPower(opts: {
   return Math.min(1, Math.max(0, normalCdf(zBeta)))
 }
 
-/**
- * Bonferroni adjustment: multiply every p-value by the test count, clamp at 1.
- *
- * Rejects at `p_adjusted ≤ alpha` — the boundary is inclusive, matching
- * {@link holm}, which uniformly dominates this correction and must therefore
- * never reject less. Validates its inputs on the same terms.
- */
+/** Bonferroni adjustment: multiply every p-value by the test count, clamp at 1. */
 export function bonferroni(
-  pValues: readonly number[],
+  pValues: number[],
   alpha = 0.05,
 ): { adjusted: number[]; significant: boolean[] } {
-  assertAlpha('bonferroni', 'alpha', alpha)
-  assertPValues('bonferroni', pValues)
   const k = pValues.length
   const adjusted = pValues.map((p) => Math.min(1, p * k))
-  return { adjusted, significant: adjusted.map((p) => p <= alpha) }
+  const significant = adjusted.map((p) => p < alpha)
+  return { adjusted, significant }
 }
 
 /**
@@ -1070,8 +857,14 @@ export function holm(
   pValues: readonly number[],
   alpha = 0.05,
 ): { adjusted: number[]; significant: boolean[] } {
-  assertAlpha('holm', 'alpha', alpha)
-  assertPValues('holm', pValues)
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new ValidationError(`holm: alpha must be in (0,1), got ${alpha}`)
+  }
+  for (const [index, pValue] of pValues.entries()) {
+    if (!Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
+      throw new ValidationError(`holm: pValues[${index}] must be in [0,1], got ${pValue}`)
+    }
+  }
   const count = pValues.length
   if (count === 0) return { adjusted: [], significant: [] }
 
@@ -1093,16 +886,11 @@ export function holm(
 /**
  * Benjamini–Hochberg false discovery rate. Returns adjusted q-values and
  * significance at the target FDR; handles ties and preserves q monotonicity.
- *
- * Rejects at `q ≤ fdr` — the BH rule is inclusive at the boundary, so an
- * exactly-`fdr` q-value is a discovery.
  */
 export function benjaminiHochberg(
-  pValues: readonly number[],
+  pValues: number[],
   fdr = 0.05,
 ): { qValues: number[]; significant: boolean[] } {
-  assertAlpha('benjaminiHochberg', 'fdr', fdr)
-  assertPValues('benjaminiHochberg', pValues)
   const n = pValues.length
   if (n === 0) return { qValues: [], significant: [] }
   const indexed = pValues.map((p, i) => ({ p, i })).sort((a, b) => a.p - b.p)
@@ -1111,30 +899,13 @@ export function benjaminiHochberg(
   for (let k = n - 1; k >= 0; k--) {
     const rank = k + 1
     const entry = indexed[k]!
-    // (n/rank)·p, not (p·n)/rank: the latter lands one ULP above `fdr` at an
-    // exact boundary (p = 0.05, n = 3, rank = 3 gives 0.05000000000000001),
-    // which silently turns a discovery into a non-discovery. This is R's
-    // `p.adjust(method = "BH")` formulation.
-    const raw = (n / rank) * entry.p
+    const raw = (entry.p * n) / rank
     const bounded = Math.min(minRight, raw)
     minRight = bounded
     q[entry.i] = Math.min(1, bounded)
   }
-  return { qValues: q, significant: q.map((v) => v <= fdr) }
-}
-
-function assertAlpha(fn: string, label: string, value: number): void {
-  if (!Number.isFinite(value) || value <= 0 || value >= 1) {
-    throw new ValidationError(`${fn}: ${label} must be in (0,1), got ${value}`)
-  }
-}
-
-function assertPValues(fn: string, pValues: readonly number[]): void {
-  for (const [index, pValue] of pValues.entries()) {
-    if (!Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
-      throw new ValidationError(`${fn}: pValues[${index}] must be in [0,1], got ${pValue}`)
-    }
-  }
+  const significant = q.map((v) => v < fdr)
+  return { qValues: q, significant }
 }
 
 // ── Paired bootstrap (promotion-gate effect size) ────────────────────
@@ -1154,21 +925,7 @@ export interface PairedBootstrapResult {
   confidence: number
   /** Number of bootstrap resamples used. */
   resamples: number
-  /** False below {@link BOOTSTRAP_GATE_MIN_N}. See {@link pairedBootstrap}. */
-  gateEligible: boolean
 }
-
-/**
- * Pairs below which a percentile bootstrap interval is descriptive spread only.
- *
- * `P(low > 0)` under a true null, against a nominal 2.5 %, measured over 4000
- * seeded trials: 13.53 % at n = 3, 3.52 % at n = 10, 3.10 % at n = 20 on the
- * median; 13.85 %, 4.90 %, 3.80 % on the mean. This is intrinsic to resampling
- * three points, not an implementation error — scipy's BCa gives 16.0 % on the
- * same n = 3 data — so no change to the estimator moves it. Below this floor
- * the decision belongs to the exact sign test or exact signed-rank test.
- */
-export const BOOTSTRAP_GATE_MIN_N = 20
 
 export interface PairedBootstrapOptions {
   /** Confidence level. Default 0.95. */
@@ -1177,20 +934,15 @@ export interface PairedBootstrapOptions {
   resamples?: number
   /** Statistic to bootstrap. Default 'median'. */
   statistic?: 'median' | 'mean'
-  /** Deterministic seed. If omitted, derived from the deltas so the interval
-   *  is reproducible regardless. */
+  /** Deterministic seed. If omitted, uses Math.random(). */
   seed?: number
 }
 
 /**
  * Paired bootstrap on (after − before) deltas. Returns a CI on the chosen
- * statistic (median by default); pairs are resampled with replacement. Throws
- * on unequal sample sizes.
- *
- * `low > threshold` carries the stated confidence ONLY at `n ≥
- * {@link BOOTSTRAP_GATE_MIN_N}`, which `gateEligible` reports. Below it the
- * check fires under a true null several times more often than nominal, so the
- * interval is descriptive spread and a promotion must not turn on it.
+ * statistic (median by default); pairs are resampled with replacement. The
+ * lower bound is what the promotion gate checks — `low > threshold` means the
+ * gain is real at the confidence level. Throws on unequal sample sizes.
  */
 export function pairedBootstrap(
   before: number[],
@@ -1209,16 +961,15 @@ export function pairedBootstrap(
 
   const n = before.length
   const deltas = before.map((b, i) => after[i]! - b)
-  const gateEligible = n >= BOOTSTRAP_GATE_MIN_N
   if (n === 0) {
-    return { n: 0, median: 0, mean: 0, low: 0, high: 0, confidence, resamples, gateEligible }
+    return { n: 0, median: 0, mean: 0, low: 0, high: 0, confidence, resamples }
   }
   if (n === 1) {
     const d = deltas[0]!
-    return { n: 1, median: d, mean: d, low: d, high: d, confidence, resamples, gateEligible }
+    return { n: 1, median: d, mean: d, low: d, high: d, confidence, resamples }
   }
 
-  const rng = makeRng(opts.seed, deltas)
+  const rng = makeRng(opts.seed)
   const samples = new Array<number>(resamples)
   for (let b = 0; b < resamples; b++) {
     if (statistic === 'mean') {
@@ -1249,7 +1000,6 @@ export function pairedBootstrap(
     high: samples[Math.max(highIdx, lowIdx)]!,
     confidence,
     resamples,
-    gateEligible,
   }
 }
 
@@ -1372,40 +1122,6 @@ export function wilson(successes: number, n: number, confidence = 0.95): Proport
   }
 }
 
-/**
- * Are these per-item outcomes binary (every value exactly 0 or 1)?
- *
- * The discriminator a promotion gate needs before choosing a paired statistic.
- * On binary outcomes the paired delta vector lives in {-1, 0, +1} and is
- * normally dominated by zeros (both arms solve, or both arms miss, most items),
- * so its MEDIAN is pinned at exactly 0 no matter how large the real shift in
- * success rate is — and a bootstrap CI on that median collapses to [0, 0].
- * A gate keying on `ci.low > threshold` is then structurally unable to see
- * either a gain or a regression. Detect this shape and switch to the
- * paired-binary estimators ({@link mcnemar}, {@link pairedRiskDifference})
- * instead of silently answering "no" forever.
- *
- * Empty input is NOT binary: there is no evidence of the outcome's shape, and
- * defaulting an empty vector into the binary branch would pick a statistic on
- * no data at all.
- *
- * NOT the right discriminator for a gate. It recognises the literal {0, 1}
- * encoding and nothing else, so a pass/fail dimension emitted on 0-100 — which
- * judges in this codebase do routinely — reads as non-binary, and a single
- * partial-credit score in an otherwise pass/fail vector flips it to false while
- * leaving the median just as blind. Gates want {@link pairedBinaryScale} (any
- * two-point encoding). This predicate remains for callers that specifically
- * mean "literally 0/1".
- */
-export function isBinaryOutcomeVector(values: ArrayLike<number>): boolean {
-  if (values.length === 0) return false
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i]!
-    if (v !== 0 && v !== 1) return false
-  }
-  return true
-}
-
 /** Result of a McNemar paired-binary significance test. */
 export interface McNemarResult {
   /** Total paired observations. */
@@ -1480,13 +1196,6 @@ export interface RiskDifferenceResult {
  * the discordant counts, not the independent-samples formula (which overstates
  * the interval by ignoring the pairing). Inputs are paired 0/1 (or boolean)
  * arrays, control first. Throws on unequal lengths.
- *
- * REPORTING ONLY — do NOT decide a promotion on this interval. The CI is a Wald
- * normal approximation, which badly UNDERCOVERS when only a handful of pairs are
- * discordant: at n = 3 with b = 2, c = 0 it returns [0.133, 1.000], excluding 0,
- * while McNemar's exact test on the same data gives p = 0.50. A gate keying on
- * `lower > 0` would promote noise. Use {@link pairedRiskDifferenceExact}, whose
- * interval is dual to the exact test by construction, for any decision.
  */
 export function pairedRiskDifference(
   control: ArrayLike<number | boolean>,
@@ -1522,362 +1231,6 @@ export function pairedRiskDifference(
     confidence,
   }
 }
-
-/** A paired binary effect size with an EXACT interval and the exact test that
- *  bounds it — one object so a caller cannot read the estimate without the
- *  significance it is entitled to. */
-export interface ExactRiskDifferenceResult {
-  /** Total paired observations. */
-  n: number
-  /** Discordant pairs: treatment-win count. */
-  b: number
-  /** Discordant pairs: control-win count. */
-  c: number
-  /** Discordant pairs (b + c) — the only ones carrying information. */
-  nDiscordant: number
-  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
-  riskDifference: number
-  /** Exact conditional CI lower bound. 0 when there are no discordant pairs. */
-  lower: number
-  /** Exact conditional CI upper bound. 0 when there are no discordant pairs. */
-  upper: number
-  /** Confidence level used. */
-  confidence: number
-  /** McNemar's exact two-sided p-value on the same discordant counts. */
-  pValue: number
-}
-
-/**
- * Paired risk difference with the EXACT CONDITIONAL interval — the estimator a
- * promotion gate may decide on.
- *
- * Conditional on the number of discordant pairs m = b + c, the treatment-win
- * count b is Binomial(m, π) with π = P(treatment wins | discordant), and the
- * risk difference is an exact reparameterisation: RD = (2π − 1)·m/n. So a
- * Clopper-Pearson exact interval for π maps straight onto RD. This buys the
- * property the Wald interval in {@link pairedRiskDifference} does not have:
- *
- *   **`lower > 0` ⟺ McNemar's exact test rejects at α = 1 − confidence.**
- *
- * Clopper-Pearson excludes π = 0.5 exactly when the two-sided exact binomial
- * test of π = 0.5 rejects, and that test IS {@link mcnemar}'s p-value — so the
- * interval and the test can never disagree, and a gate keyed on `lower` cannot
- * promote what the exact test refuses. The exact p is returned in the same
- * object so the two are impossible to compute apart.
- *
- * The interval is conservative (exact intervals over-cover; conditioning on m
- * discards the concordant pairs' information about m itself). That is the
- * correct direction for a promotion gate: it refuses more often, never less.
- *
- * With m = 0 there are no discordant pairs and π is not identified: the result
- * is the degenerate [0, 0] with p = 1. That is NOT evidence of equivalence —
- * callers must treat a zero-width interval as "cannot decide", not as "no
- * difference". Inputs are paired 0/1 (or boolean) arrays, control first.
- * Throws on unequal lengths.
- */
-export function pairedRiskDifferenceExact(
-  control: ArrayLike<number | boolean>,
-  treatment: ArrayLike<number | boolean>,
-  confidence = 0.95,
-): ExactRiskDifferenceResult {
-  if (control.length !== treatment.length) {
-    throw new Error(
-      `pairedRiskDifferenceExact: unequal sample sizes (${control.length} vs ${treatment.length})`,
-    )
-  }
-  if (confidence <= 0 || confidence >= 1) {
-    throw new Error(`pairedRiskDifferenceExact: confidence must be in (0,1), got ${confidence}`)
-  }
-  const n = control.length
-  if (n === 0) {
-    return {
-      n: 0,
-      b: 0,
-      c: 0,
-      nDiscordant: 0,
-      riskDifference: 0,
-      lower: 0,
-      upper: 0,
-      confidence,
-      pValue: 1,
-    }
-  }
-  let b = 0
-  let c = 0
-  for (let i = 0; i < n; i++) {
-    const ctrl = control[i] ? 1 : 0
-    const treat = treatment[i] ? 1 : 0
-    if (treat === 1 && ctrl === 0) b++
-    else if (treat === 0 && ctrl === 1) c++
-  }
-  const m = b + c
-  const riskDifference = (b - c) / n
-  const pValue = binomialSignTwoSided(b, c)
-  if (m === 0) {
-    return { n, b, c, nDiscordant: 0, riskDifference: 0, lower: 0, upper: 0, confidence, pValue }
-  }
-  const alpha = 1 - confidence
-  const piLow = b === 0 ? 0 : betaQuantile(alpha / 2, b, m - b + 1)
-  const piHigh = b === m ? 1 : betaQuantile(1 - alpha / 2, b + 1, m - b)
-  const scale = m / n
-  return {
-    n,
-    b,
-    c,
-    nDiscordant: m,
-    riskDifference,
-    lower: Math.max(-1, (2 * piLow - 1) * scale),
-    upper: Math.min(1, (2 * piHigh - 1) * scale),
-    confidence,
-    pValue,
-  }
-}
-
-/** Inverse regularized incomplete beta by bisection on
- *  {@link regularizedIncompleteBeta}, which is monotone increasing in x. 80
- *  halvings of [0,1] resolve to ~8e-25, far past the continued fraction's own
- *  3e-15 tolerance, so the quantile is as exact as the CDF it inverts. */
-function betaQuantile(p: number, a: number, b: number): number {
-  if (p <= 0) return 0
-  if (p >= 1) return 1
-  let lo = 0
-  let hi = 1
-  for (let i = 0; i < 80; i++) {
-    const mid = (lo + hi) / 2
-    if (regularizedIncompleteBeta(mid, a, b) < p) lo = mid
-    else hi = mid
-  }
-  return (lo + hi) / 2
-}
-
-/** A paired binary effect size with an interval that is valid at a NONZERO
- *  margin — the estimator a noninferiority decision may be made on. */
-export interface ScoreRiskDifferenceResult {
-  /** Total paired observations. */
-  n: number
-  /** Discordant pairs: treatment-win count. */
-  b: number
-  /** Discordant pairs: control-win count. */
-  c: number
-  /** Discordant pairs (b + c). */
-  nDiscordant: number
-  /** Paired risk difference p(treatment) − p(control) = (b − c) / n. */
-  riskDifference: number
-  /** Score-interval lower bound on the population risk difference. */
-  lower: number
-  /** Score-interval upper bound on the population risk difference. */
-  upper: number
-  /** Confidence level used. */
-  confidence: number
-}
-
-/**
- * Constrained MLE of q = P(treatment loses) under the hypothesis RD = `delta`.
- *
- * Profiling the two concordant cells out of the multinomial leaves
- * `L(q) = b·log(q+delta) + c·log(q) + e·log(1 − 2q − delta)` with `e = n − b − c`,
- * whose stationary point is the positive root of
- * `2n·q² − [(b + c) − delta·(b + 3c + 2e)]·q − c·delta·(1 − delta) = 0`.
- * At `delta = 0` this returns `(b + c) / 2n`, the familiar null.
- */
-function constrainedLossRate(b: number, c: number, n: number, delta: number): number {
-  const e = n - b - c
-  const quadratic = 2 * n
-  const linear = -(b + c - delta * (b + 3 * c + 2 * e))
-  const constant = -c * delta * (1 - delta)
-  const discriminant = linear * linear - 4 * quadratic * constant
-  const root = discriminant > 0 ? Math.sqrt(discriminant) : 0
-  const q = (-linear + root) / (2 * quadratic)
-  // Clamp into the region where all four cell probabilities stay non-negative.
-  return Math.min(Math.max(q, Math.max(0, -delta)), Math.max(0, (1 - delta) / 2))
-}
-
-/** Tango's score statistic for H0: RD = `delta`. `Var(b − c) = n·(2q + delta −
- *  delta²)` under that hypothesis, evaluated at the constrained MLE of q. */
-function tangoScore(b: number, c: number, n: number, delta: number): number {
-  const numerator = b - c - n * delta
-  const q = constrainedLossRate(b, c, n, delta)
-  const variance = n * (2 * q + delta * (1 - delta))
-  if (!(variance > 0)) {
-    if (numerator === 0) return 0
-    return numerator > 0 ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
-  }
-  return numerator / Math.sqrt(variance)
-}
-
-/**
- * Paired risk difference with TANGO'S (1998) SCORE INTERVAL — the estimator a
- * promotion gate may decide on **at a nonzero margin**.
- *
- * {@link pairedRiskDifferenceExact} conditions on the observed discordant count
- * `m = b + c`, builds a Clopper-Pearson interval for the win share among those
- * `m` pairs, and multiplies by the observed `m/n`. That is exact for testing
- * RD = 0 — it is dual to McNemar — but it is NOT a confidence interval for the
- * population risk difference at a nonzero margin, because the sampling
- * variability of `m/n` itself is discarded. The gap is not academic: with the
- * production caller's `pairedDeltaThreshold: -0.05`, a process whose true risk
- * difference sits exactly on that margin clears a nominal-95 % `lower > margin`
- * check 24.75 % of the time at n = 40 and 43.95 % at n = 76 (2000 replicates
- * each) when the conditional interval decides.
- *
- * Tango's interval inverts the score test of RD = delta, which estimates the
- * nuisance loss rate under each hypothesised delta instead of fixing it at the
- * observed value, so `m` contributes its own uncertainty. It is the method
- * `ratesci::scorepairci` uses for paired risk-difference noninferiority, and it
- * is not conditional, so it stays valid as the margin moves away from zero.
- *
- * The bounds are found by bisecting `tangoScore(delta) = ±z` — the score is
- * monotone decreasing in delta, so each crossing is unique. Inputs are paired
- * 0/1 (or boolean) arrays, control first. Throws on unequal lengths.
- */
-export function pairedRiskDifferenceScore(
-  control: ArrayLike<number | boolean>,
-  treatment: ArrayLike<number | boolean>,
-  confidence = 0.95,
-): ScoreRiskDifferenceResult {
-  if (control.length !== treatment.length) {
-    throw new Error(
-      `pairedRiskDifferenceScore: unequal sample sizes (${control.length} vs ${treatment.length})`,
-    )
-  }
-  if (confidence <= 0 || confidence >= 1) {
-    throw new Error(`pairedRiskDifferenceScore: confidence must be in (0,1), got ${confidence}`)
-  }
-  const n = control.length
-  if (n === 0) {
-    return { n: 0, b: 0, c: 0, nDiscordant: 0, riskDifference: 0, lower: -1, upper: 1, confidence }
-  }
-  let b = 0
-  let c = 0
-  for (let i = 0; i < n; i++) {
-    const ctrl = control[i] ? 1 : 0
-    const treat = treatment[i] ? 1 : 0
-    if (treat === 1 && ctrl === 0) b++
-    else if (treat === 0 && ctrl === 1) c++
-  }
-  const riskDifference = (b - c) / n
-  const z = zQuantile(1 - (1 - confidence) / 2)
-
-  // Lower bound: the smallest delta still inside the interval, i.e. the root of
-  // score(delta) = +z on [-1, riskDifference]. score(riskDifference) = 0 < z, so
-  // the right endpoint is always inside and the bisection is well posed.
-  let lo = -1
-  let hi = riskDifference
-  for (let i = 0; i < 200; i++) {
-    const mid = (lo + hi) / 2
-    if (tangoScore(b, c, n, mid) > z) lo = mid
-    else hi = mid
-  }
-  const lower = (lo + hi) / 2
-
-  // Upper bound: root of score(delta) = -z on [riskDifference, 1].
-  let ulo = riskDifference
-  let uhi = 1
-  for (let i = 0; i < 200; i++) {
-    const mid = (ulo + uhi) / 2
-    if (tangoScore(b, c, n, mid) > -z) ulo = mid
-    else uhi = mid
-  }
-  const upper = (ulo + uhi) / 2
-
-  return {
-    n,
-    b,
-    c,
-    nDiscordant: b + c,
-    riskDifference,
-    lower: Math.max(-1, lower),
-    upper: Math.min(1, upper),
-    confidence,
-  }
-}
-
-/**
- * The common positive level `s` such that EVERY value across both paired arms is
- * exactly 0 or `s` — i.e. the outcome is pass/fail, whatever encoding it arrived
- * in. Returns null when the outcomes are not two-point, when the two arms use
- * different levels, or when no positive value was observed at all (all-zero
- * arms: the level is not identified, and there is nothing to decide anyway).
- *
- * This is the scale-aware successor to {@link isBinaryOutcomeVector}, which only
- * recognises literal {0, 1}. Judges in this codebase emit dimensions on 0-100 as
- * well as [0,1] (see `detectScale` in `campaign/gates/statistical-heldout.ts`),
- * so a pass/fail dimension routinely arrives as {0, 100} and a {0,1}-only test
- * silently sends it down the median path that cannot see it. Any positive level
- * is accepted, not just 1 and 100: for a two-point {0, s} outcome the mean paired
- * delta is exactly s·(b − c)/n, so the binary estimators apply after dividing by
- * s and rescaling the result back into the caller's native units.
- *
- * Non-finite values ⇒ null: an unusable outcome must not be classified as a
- * clean pass/fail shape.
- */
-export function pairedBinaryScale(
-  before: ArrayLike<number>,
-  after: ArrayLike<number>,
-): number | null {
-  let level: number | null = null
-  for (const arm of [before, after]) {
-    for (let i = 0; i < arm.length; i++) {
-      const v = arm[i]!
-      if (!Number.isFinite(v)) return null
-      if (v === 0) continue
-      if (v < 0) return null
-      if (level === null) level = v
-      else if (v !== level) return null
-    }
-  }
-  return level
-}
-
-/** Fraction of paired observations whose delta is an exact tie (|after − before|
- *  < 1e-9). Throws on unequal sample sizes; 0 pairs ⇒ 0. */
-export function pairedDeltaTieFraction(
-  before: ArrayLike<number>,
-  after: ArrayLike<number>,
-): number {
-  if (before.length !== after.length) {
-    throw new Error(
-      `pairedDeltaTieFraction: unequal sample sizes (${before.length} vs ${after.length})`,
-    )
-  }
-  const n = before.length
-  if (n === 0) return 0
-  let ties = 0
-  for (let i = 0; i < n; i++) {
-    if (Math.abs(after[i]! - before[i]!) < 1e-9) ties++
-  }
-  return ties / n
-}
-
-/**
- * The paired-delta statistic a DECISION is computed on, package-wide.
- *
- * The mean paired delta is the estimator that answers the question a promotion
- * gate asks — "by how much did the candidate move the score" — in the caller's
- * own units, and it equals the aggregate lift everyone quotes. The MEDIAN
- * answers a different question and loses the answer to this one in every regime
- * eval data actually lands in:
- *   - TWO-POINT (pass/fail) outcomes on any encoding: the delta vector lives in
- *     {−s, 0, +s} dominated by zeros, so the median and its whole bootstrap CI
- *     are pinned at exactly 0 however large the shift. (Decide these on
- *     {@link pairedRiskDifferenceExact} instead — same estimand, exact interval.)
- *   - TIE-DOMINATED outcomes: at half the pairs tied the sample median is 0 by
- *     construction, and `ci.low > threshold` then answers "no" forever at a
- *     non-negative threshold and "yes" forever at a negative one.
- *   - LOW-CARDINALITY outcomes, even well below half ties: judge dimensions on
- *     integer 0-100, and block scores like {⅔, 1} from averaging pass/fail
- *     leaves, put the median on a coarse lattice whose bootstrap percentiles
- *     land on atoms. Measured: 26 blocks of 3 pass/fail leaves carrying a real
- *     +12.8pp lift, only 23% of pairs tied, gives a median CI of [0, 0.333] —
- *     lower bound exactly 0, so a gate at threshold 0 refuses a real lift.
- * That last case is why there is no tie-fraction threshold here: any cutoff on
- * ties leaves the lattice case open on the other side of it.
- *
- * `heldoutSignificance` has defaulted to the mean since #316 for the same
- * reason. The median remains available per call site for callers who
- * specifically want outlier robustness and accept the blindness.
- */
-export const DECISION_PAIRED_DELTA_STATISTIC: 'mean' = 'mean'
 
 /**
  * Unbiased pass@k for code generation (Chen et al. 2021, "Evaluating Large
@@ -2074,274 +1427,6 @@ export function eProcess(opts: EProcessOptions = {}): EProcess {
   }
 }
 
-// ── private rank-test helpers ────────────────────────────────────────
-
-/** Every rank test refuses non-finite input. Beyond the arithmetic being
- *  undefined, the tie-grouping scan compares values with `===`, and
- *  `NaN === NaN` is false, so a NaN would leave the group boundary unable to
- *  advance and spin the loop forever. */
-function assertFiniteSample(fn: string, label: string, xs: readonly number[]): void {
-  for (let i = 0; i < xs.length; i++) {
-    if (!Number.isFinite(xs[i])) {
-      throw new ValidationError(`${fn}: ${label}[${i}] must be finite, got ${xs[i]}`)
-    }
-  }
-}
-
-/**
- * Average ranks over an ASCENDING-sorted array, plus `Σ(t³ − t)` over tie
- * groups of size `t` — the correction term both asymptotic rank-test variances
- * need.
- */
-function midranksWithTieTerm(sorted: readonly number[]): { midranks: number[]; tieTerm: number } {
-  const midranks = new Array<number>(sorted.length)
-  let tieTerm = 0
-  let i = 0
-  while (i < sorted.length) {
-    let j = i
-    while (j < sorted.length && sorted[j] === sorted[i]) j++
-    const average = (i + 1 + j) / 2
-    for (let k = i; k < j; k++) midranks[k] = average
-    const groupSize = j - i
-    if (groupSize > 1) tieTerm += groupSize ** 3 - groupSize
-    i = j
-  }
-  return { midranks, tieTerm }
-}
-
-function selectRankTestMethod(
-  fn: string,
-  request: RankTestMethodRequest,
-  design: string,
-  exactFeasible: boolean,
-  designFloor: number,
-  threshold: string,
-): RankTestMethod {
-  if (request === 'auto') return exactFeasible ? 'exact' : 'permutation'
-  if (request === 'exact') {
-    if (exactFeasible) return 'exact'
-    throw new ValidationError(
-      `${fn}: method 'exact' is out of range at ${design} — enumeration is bounded by ` +
-        `${threshold}. Use 'auto' for the seeded Monte Carlo permutation, which converges ` +
-        'to the same answer.',
-    )
-  }
-  if (exactFeasible) {
-    throw new ValidationError(
-      `${fn}: method 'asymptotic' is refused at ${design} — the exact p-grid at this design ` +
-        `starts at ${formatProbability(designFloor)}, so an asymptotic p below it describes no ` +
-        `attainable outcome. Use method 'exact' (the default) or add repetitions past ` +
-        `${threshold}.`,
-    )
-  }
-  return 'asymptotic'
-}
-
-function resolvePermutations(fn: string, permutations: number | undefined): number {
-  if (permutations === undefined) return DEFAULT_PERMUTATIONS
-  if (!Number.isInteger(permutations) || permutations < 1) {
-    throw new ValidationError(`${fn}: permutations must be a positive integer, got ${permutations}`)
-  }
-  return permutations
-}
-
-/** Two-sided normal-approximation tail with the continuity correction. */
-function asymptoticTwoSidedP(deviation: number, sigma: number): number {
-  if (!(sigma > 0)) return 1
-  return Math.min(1, 2 * (1 - normalCdf(Math.max(0, deviation - 0.5) / sigma)))
-}
-
-/** SD of U under the permutation null, corrected for the realised ties. The
- *  tie term reduces (N+1) and reaches it exactly when every value is tied, so
- *  the variance floors at 0 rather than going negative. */
-function twoSampleSigma(n1: number, n2: number, total: number, tieTerm: number): number {
-  if (total < 2) return 0
-  const variance = ((n1 * n2) / 12) * (total + 1 - tieTerm / (total * (total - 1)))
-  return Math.sqrt(Math.max(0, variance))
-}
-
-function logChoose(n: number, k: number): number {
-  return lnGamma(n + 1) - lnGamma(k + 1) - lnGamma(n - k + 1)
-}
-
-function formatProbability(value: number): string {
-  return value >= 1e-4 || value === 0 ? value.toFixed(4) : value.toExponential(3)
-}
-
-/**
- * Exact DP allocation and loop count for this observed rank vector.
- *
- * The smaller arm is sufficient because selecting its complement produces the
- * same two-sided U deviation while using fewer rows in the state table.
- */
-function exactTwoSampleCost(
-  doubledRanks: readonly number[],
-  selectedN: number,
-): { states: number; work: number } {
-  const maxSum = doubledRanks.reduce((sum, rank) => sum + rank, 0)
-  let work = 0
-  for (let placed = 0; placed < doubledRanks.length; placed++) {
-    work += Math.min(selectedN, placed + 1) * (maxSum - doubledRanks[placed]! + 1)
-  }
-  return {
-    states: (selectedN + 1) * (maxSum + 1),
-    work,
-  }
-}
-
-/**
- * Smallest attainable two-sided p under the observed ties.
- *
- * Only subsets with the minimum or maximum rank sum can attain the largest
- * deviation. Their multiplicity is the number of ways to choose within the
- * tie group at each boundary, so this calculation is exact without allocating
- * the full null distribution.
- */
-function exactTwoSampleFloor(doubledRanks: readonly number[], selectedN: number): number {
-  const total = doubledRanks.length
-  const otherN = total - selectedN
-  const minimumSum = doubledRanks.slice(0, selectedN).reduce((sum, rank) => sum + rank, 0)
-  const maximumSum = doubledRanks.slice(total - selectedN).reduce((sum, rank) => sum + rank, 0)
-  if (minimumSum === maximumSum) return 1
-
-  const centre = selectedN * (selectedN + 1) + selectedN * otherN
-  const minimumDeviation = Math.abs(minimumSum - centre)
-  const maximumDeviation = Math.abs(maximumSum - centre)
-  const totalLogWays = logChoose(total, selectedN)
-  const minimumMass = Math.exp(
-    logExtremeSubsetWays(doubledRanks, selectedN, 'minimum') - totalLogWays,
-  )
-  const maximumMass = Math.exp(
-    logExtremeSubsetWays(doubledRanks, selectedN, 'maximum') - totalLogWays,
-  )
-
-  if (minimumDeviation > maximumDeviation) return minimumMass
-  if (maximumDeviation > minimumDeviation) return maximumMass
-  return Math.min(1, minimumMass + maximumMass)
-}
-
-function logExtremeSubsetWays(
-  sortedRanks: readonly number[],
-  selectedN: number,
-  side: 'minimum' | 'maximum',
-): number {
-  const boundaryIndex = side === 'minimum' ? selectedN - 1 : sortedRanks.length - selectedN
-  const boundary = sortedRanks[boundaryIndex]!
-  let first = boundaryIndex
-  let afterLast = boundaryIndex + 1
-  while (first > 0 && sortedRanks[first - 1] === boundary) first--
-  while (afterLast < sortedRanks.length && sortedRanks[afterLast] === boundary) afterLast++
-
-  const tieSize = afterLast - first
-  const fixed = side === 'minimum' ? first : sortedRanks.length - afterLast
-  return logChoose(tieSize, selectedN - fixed)
-}
-
-/**
- * Exact conditional two-sided p for the two-sample rank test.
- *
- * Convolves the observed doubled midranks into the null distribution of group
- * a's rank sum over every `C(n₁+n₂, n₁)` split — identical to enumerating the
- * splits, but `O(N·n₁·ΣR)` instead of `O(C(N,n₁)·n₁n₂)`. Conditioning on the
- * realised multiset makes the tie handling exact rather than a correction.
- *
- * The null is symmetric about `n₁n₂/2` (negating every value maps `U → n₁n₂ −
- * U` and permutes the split set onto itself), so the two-sided p is the mass
- * at least as far from the centre as the observation.
- */
-function exactTwoSampleP(
-  doubledRanks: readonly number[],
-  n1: number,
-  n2: number,
-  doubledDeviation: number,
-): { p: number; pFloor: number } {
-  const maxSum = doubledRanks.reduce((sum, rank) => sum + rank, 0)
-  const width = maxSum + 1
-  // ways[k][s] = number of size-k subsets whose doubled rank sum is s.
-  const ways: Float64Array[] = Array.from({ length: n1 + 1 }, () => new Float64Array(width))
-  ways[0]![0] = 1
-  let placed = 0
-  for (const rank of doubledRanks) {
-    for (let k = Math.min(n1, placed + 1); k >= 1; k--) {
-      const from = ways[k - 1]!
-      const into = ways[k]!
-      for (let sum = maxSum - rank; sum >= 0; sum--) {
-        const count = from[sum]!
-        if (count !== 0) into[sum + rank]! += count
-      }
-    }
-    placed++
-  }
-
-  // U = rankSum − n₁(n₁+1)/2, so doubled U = s − n₁(n₁+1), and the doubled
-  // centre 2·(n₁n₂/2) is n₁n₂.
-  const shift = n1 * (n1 + 1) + n1 * n2
-  const chosen = ways[n1]!
-  let totalWays = 0
-  let extremeWays = 0
-  let tailWays = 0
-  let maxDeviation = -1
-  for (let sum = 0; sum < width; sum++) {
-    const count = chosen[sum]!
-    if (count === 0) continue
-    totalWays += count
-    const deviation = Math.abs(sum - shift)
-    if (deviation >= doubledDeviation) tailWays += count
-    if (deviation > maxDeviation) {
-      maxDeviation = deviation
-      extremeWays = count
-    } else if (deviation === maxDeviation) {
-      extremeWays += count
-    }
-  }
-  return { p: tailWays / totalWays, pFloor: extremeWays / totalWays }
-}
-
-/**
- * Exact conditional two-sided p for the paired signed-rank test.
- *
- * Convolves the observed doubled absolute midranks over all `2ⁿ` sign
- * assignments in `O(n·ΣR)`. Probabilities rather than counts keep `2ⁿ` off the
- * arithmetic. The null is symmetric about `n(n+1)/4`.
- */
-function exactSignedRankP(
-  doubledRanks: readonly number[],
-  doubledDeviation: number,
-): { p: number; pFloor: number } {
-  const maxSum = doubledRanks.reduce((sum, rank) => sum + rank, 0)
-  const width = maxSum + 1
-  let mass = new Float64Array(width)
-  mass[0] = 1
-  for (const rank of doubledRanks) {
-    const next = new Float64Array(width)
-    for (let sum = 0; sum < width; sum++) {
-      const probability = mass[sum]!
-      if (probability === 0) continue
-      next[sum]! += probability * 0.5
-      next[sum + rank]! += probability * 0.5
-    }
-    mass = next
-  }
-
-  const centre = maxSum / 2
-  let tail = 0
-  let extreme = 0
-  let maxDeviation = -1
-  for (let sum = 0; sum < width; sum++) {
-    const probability = mass[sum]!
-    if (probability === 0) continue
-    const deviation = Math.abs(sum - centre)
-    if (deviation >= doubledDeviation) tail += probability
-    if (deviation > maxDeviation) {
-      maxDeviation = deviation
-      extreme = probability
-    } else if (deviation === maxDeviation) {
-      extreme += probability
-    }
-  }
-  return { p: Math.min(1, tail), pFloor: Math.min(1, extreme) }
-}
-
 // ── private stats helpers ────────────────────────────────────────────
 
 /** Standard-normal inverse CDF (Acklam approximation). */
@@ -2397,56 +1482,17 @@ function medianInPlace(xs: number[]): number {
   return xs.length % 2 === 0 ? (xs[mid - 1]! + xs[mid]!) / 2 : xs[mid]!
 }
 
-/**
- * PRNG for every resampling path in this module.
- *
- * With no caller seed the seed is DERIVED FROM THE DATA rather than taken from
- * `Math.random`, so re-running the same input reproduces the same interval —
- * a gate verdict that cannot be re-derived is not evidence. Distinct data
- * still gets a distinct stream. Same pattern as `promotion-gate.ts`.
- */
-function makeRng(
-  seed: number | undefined,
-  ...series: readonly (readonly number[])[]
-): () => number {
-  return mulberry32(seed ?? seedFromData(series))
-}
-
-/** FNV-1a over the IEEE-754 bytes of every observation. */
-function seedFromData(series: readonly (readonly number[])[]): number {
-  const view = new DataView(new ArrayBuffer(8))
-  let hash = 0x811c9dc5
-  for (const xs of series) {
-    for (const x of xs) {
-      view.setFloat64(0, x)
-      for (let byte = 0; byte < 8; byte++) {
-        hash = Math.imul(hash ^ view.getUint8(byte), 0x01000193)
-      }
-    }
-    // Separator, so ([1],[2]) and ([1,2],[]) do not collide.
-    hash = Math.imul(hash ^ 0xff, 0x01000193)
-  }
-  return hash | 0
-}
-
-/** Order-independent seed for a symmetric two-sample statistic. */
-function symmetricTwoSampleSeed(a: readonly number[], b: readonly number[]): number {
-  const sortedA = [...a].sort((left, right) => left - right)
-  const sortedB = [...b].sort((left, right) => left - right)
-  const forward = seedFromData([sortedA, sortedB]) >>> 0
-  const reversed = seedFromData([sortedB, sortedA]) >>> 0
-  return Math.min(forward, reversed)
+function makeRng(seed: number | undefined): () => number {
+  if (seed === undefined) return Math.random
+  return mulberry32(seed)
 }
 
 /** Tiny seedable PRNG (mulberry32) — deterministic resampling/shuffling, not
  *  cryptographic. Exported so e-process shuffles and bootstrap resampling
- *  share ONE PRNG implementation. Every distinct 32-bit seed gives a distinct
- *  stream, including 0. */
+ *  share ONE PRNG implementation; a seed is REQUIRED (unseeded randomness in
+ *  gate verdicts is non-reproducible by construction). */
 export function mulberry32(seed: number): () => number {
-  if (!Number.isFinite(seed)) {
-    throw new ValidationError(`mulberry32: seed must be a finite number, got ${seed}`)
-  }
-  let s = seed | 0
+  let s = seed | 0 || 0x9e3779b9
   return () => {
     s = (s + 0x6d2b79f5) | 0
     let t = s

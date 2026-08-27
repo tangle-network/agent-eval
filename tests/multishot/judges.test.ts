@@ -48,28 +48,15 @@ describe('runJudge', () => {
               },
             },
           ],
-          usage: { prompt_tokens: 100, completion_tokens: 50 },
-          _response_cost: 0.0123,
         },
       },
     ]) as unknown as typeof fetch
 
-    const { score, cost } = await runJudge(JUDGE, { text: 'test transcript' })
+    const score = await runJudge(JUDGE, { text: 'test transcript' })
     expect(score.dimensions.quality).toBe(8)
     expect(score.dimensions.specificity).toBe(6)
     expect(score.composite).toBe(7)
     expect(score.notes).toBe('good but vague at the end')
-    expect(score.llmCall).toMatchObject({
-      costUsd: 0.0123,
-      model: 'openai/gpt-4o-mini',
-      usage: {
-        promptTokens: 100,
-        completionTokens: 50,
-        totalTokens: 150,
-        captured: true,
-      },
-    })
-    expect(cost).toEqual({ kind: 'observed', usd: 0.0123 })
     global.fetch = original
   })
 
@@ -80,7 +67,7 @@ describe('runJudge', () => {
       { body: { choices: [{ message: { content: '{"quality":15}' } }] } },
     ]) as unknown as typeof fetch
 
-    const { score } = await runJudge(JUDGE, { text: 'x' })
+    const score = await runJudge(JUDGE, { text: 'x' })
     expect(score.dimensions.quality).toBe(10) // clamped from 15
     expect(score.dimensions.specificity).toBe(0) // missing → 0
     expect(score.composite).toBe(5)
@@ -91,76 +78,14 @@ describe('runJudge', () => {
     const original = global.fetch
     process.env.TANGLE_API_KEY = 'test-key'
     global.fetch = stubFetch([
-      {
-        body: {
-          choices: [{ message: { content: 'I cannot output JSON because reasons' } }],
-          usage: { prompt_tokens: 100, completion_tokens: 50 },
-        },
-      },
+      { body: { choices: [{ message: { content: 'I cannot output JSON because reasons' } }] } },
     ]) as unknown as typeof fetch
 
-    const { score, cost } = await runJudge(JUDGE, { text: 'x' })
+    const score = await runJudge(JUDGE, { text: 'x' })
     expect(score.composite).toBe(0)
     expect(score.notes).toMatch(/non-JSON/)
     // failed:true lets aggregators exclude this score instead of meaning a zero.
     expect(score.failed).toBe(true)
-    expect(score.llmCall).toMatchObject({
-      usage: {
-        promptTokens: 100,
-        completionTokens: 50,
-        totalTokens: 150,
-        captured: true,
-      },
-    })
-    expect(score.llmCall?.costUsd).toBeNull()
-    expect(cost.kind).toBe('estimated')
-    expect(cost.usd).toBeCloseTo(0.000045, 10)
-    global.fetch = original
-  })
-
-  it('reports uncaptured usage and unknown cost instead of a zero', async () => {
-    const original = global.fetch
-    process.env.TANGLE_API_KEY = 'test-key'
-    global.fetch = stubFetch([
-      {
-        body: {
-          choices: [{ message: { content: '{"quality":8,"specificity":6}' } }],
-        },
-      },
-    ]) as unknown as typeof fetch
-
-    const { score, cost } = await runJudge(JUDGE, { text: 'x' })
-    expect(score.llmCall).toMatchObject({
-      costUsd: null,
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        captured: false,
-      },
-    })
-    expect(cost).toEqual({ kind: 'uncaptured', usd: null })
-    global.fetch = original
-  })
-
-  it('preserves a failed score and uncaptured cost when the provider call fails', async () => {
-    const original = global.fetch
-    process.env.TANGLE_API_KEY = 'test-key'
-    global.fetch = stubFetch([
-      { ok: false, body: { error: 'unavailable' } },
-    ]) as unknown as typeof fetch
-
-    const { score, cost } = await runJudge(JUDGE, { text: 'x' })
-    expect(score).toMatchObject({
-      composite: 0,
-      failed: true,
-      llmCall: {
-        costUsd: null,
-        usage: { captured: false },
-      },
-    })
-    expect(score.notes).toMatch(/call failed/)
-    expect(cost).toEqual({ kind: 'uncaptured', usd: null })
     global.fetch = original
   })
 
@@ -175,7 +100,7 @@ describe('runJudge', () => {
       },
     ]) as unknown as typeof fetch
 
-    const { score } = await runJudge(JUDGE, { text: 'x' })
+    const score = await runJudge(JUDGE, { text: 'x' })
     expect(score.dimensions.quality).toBe(7)
     expect(score.composite).toBe(6)
     global.fetch = original

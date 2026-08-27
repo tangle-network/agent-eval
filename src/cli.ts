@@ -5,7 +5,6 @@
  *   agent-eval serve [--port 5005] [--host 127.0.0.1]
  *   agent-eval rpc <method>          # one request from stdin → one response on stdout
  *   agent-eval rpc-batch <method>    # JSONL stdin → JSONL stdout
- *   agent-eval analyst-benchmark ... # benchmark a real-model trace analyst
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -13,9 +12,7 @@
  * stdin payload must be a full {method, params} envelope.
  */
 import { writeFileSync } from 'node:fs'
-import { runAnalystBenchmarkCommand } from './analyst/benchmark-command'
 import { resolveCliLlmConfig } from './cli-config'
-import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
 import { handleVersion } from './wire/handlers'
 import { buildOpenApi } from './wire/openapi'
 import { runRpcBatch, runRpcOnce } from './wire/rpc'
@@ -73,12 +70,6 @@ Commands:
         Like 'rpc' but JSONL in / JSONL out.
   openapi [--out openapi.json]
         Write the OpenAPI 3.1 spec.
-  rollout-release <ledger.jsonl...> --out <dir> [--formats sft,verifiers,rft,raw] [--include-proposers] [--push <org/name>]
-        Build a HuggingFace-ready dataset dir from tangle.rollout.v1 ledgers:
-        validate, fail-closed split filter, scrub, export formats + card.
-  analyst-benchmark --dataset <agentrx|codetracebench> --labels <path> --trace-dir <path> [--artifact-dir <path>] --out <dir> ...
-        Compare an empty baseline with a real-model trace analyst on public labels.
-        Run with --help for all required inputs and controls.
   version
         Print server + wire-protocol version JSON.
 
@@ -92,9 +83,6 @@ async function main(): Promise<number> {
   const { command, positional, flags } = parseArgs(process.argv.slice(2))
   assertKnownFlags(command, flags)
 
-  if (command === 'analyst-benchmark' && flags.help === 'true') {
-    return await runAnalystBenchmarkCommand(process.argv.slice(3))
-  }
   if (flags.help === 'true') {
     process.stdout.write(`${HELP}\n`)
     return 0
@@ -152,14 +140,6 @@ async function main(): Promise<number> {
       console.log(`[agent-eval] wrote OpenAPI 3.1 spec to ${out}`)
       return 0
     }
-    case 'rollout-release': {
-      // The subcommand owns its own flag grammar (multi-value --formats,
-      // boolean --include-proposers) — pass raw argv through untouched.
-      return await runRolloutReleaseCli(process.argv.slice(3))
-    }
-    case 'analyst-benchmark': {
-      return await runAnalystBenchmarkCommand(process.argv.slice(3))
-    }
     case 'version': {
       process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
@@ -194,8 +174,6 @@ const FLAGS_BY_COMMAND: Record<string, ReadonlySet<string>> = {
 }
 
 function assertKnownFlags(command: string, flags: Record<string, string>): void {
-  // These subcommands parse their own argv.
-  if (command === 'rollout-release' || command === 'analyst-benchmark') return
   const allowed = FLAGS_BY_COMMAND[command]
   if (!allowed) return
   const unknown = Object.keys(flags).filter((flag) => !allowed.has(flag))

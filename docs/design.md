@@ -14,7 +14,7 @@ agent-runtime    Runs agents (chat turns, one-shot tasks, multi-attempt loops), 
                  run as a trace, and exposes improve(), which composes agent-eval's improvement
                  loop. Produces the RunRecords + traces agent-eval scores. Depends on agent-eval.
 
-agent-eval       selfImprove, analyzeRuns, runCampaign, official optimizer adapters,
+agent-eval       selfImprove, analyzeRuns, runCampaign + surface proposers (GEPA proposer, …),
    (this repo)   the gates (heldOutGate, defaultProductionGate, paretoSignificanceGate), the
                  InsightReport, the RL bridge, the wire protocol. Depends on neither consumer.
 
@@ -65,6 +65,5 @@ They are not adoption reference:
 
 - [`building-doctrine.md`](./building-doctrine.md): conventions our agents follow when consuming this package (reachable model defaults, probe-before-debug, experiment integrity checklist)
 - [`design/loop-taxonomy.md`](./design/loop-taxonomy.md): the internal vocabulary for execution drivers, workers, measurements, and proposers
-- [`design/statistics-decisions.md`](./design/statistics-decisions.md): per-statistic trust status, the no-runtime-dependency verdict, and the exact-versus-asymptotic policy at 3–10 repetitions
 - [`research-report-methodology.md`](./research-report-methodology.md): the evidence standard our own research reports are held to
 - [`.claude/skills/agent-eval/SKILL.md`](../.claude/skills/agent-eval/SKILL.md): directives for LLM agents writing integration code, encoding bug classes we have already shipped and fixed once

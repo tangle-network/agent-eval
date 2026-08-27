@@ -19,7 +19,7 @@
  * `runRLCampaign` for the full auto-research story.
  */
 
-import type { GateDecision, SplitCoverage } from '../held-out-gate'
+import type { GateDecision } from '../held-out-gate'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
   type RubricPredictiveValidityReport,
@@ -32,7 +32,7 @@ import type {
   Researcher,
   SteeringChange,
 } from '../researcher'
-import { type RunRecord, runTaskScore } from '../run-record'
+import type { RunRecord } from '../run-record'
 
 export interface PredictiveValidityResearcherOptions {
   outcomes: OutcomeStore
@@ -68,11 +68,8 @@ export class PredictiveValidityResearcher implements Researcher {
   async inspectFailures(runs: RunRecord[]): Promise<FailureMode[]> {
     const threshold = this.opts.failureThreshold ?? 0.5
     const failures: FailureMode[] = []
-    // Ungated: the researcher reports what the runs actually scored. A gamed
-    // run scored high and is therefore NOT a low-score failure mode — calling it
-    // one here would attribute the wrong failure to the candidate.
     const failingRuns = runs.filter((r) => {
-      const score = runTaskScore(r)
+      const score = r.outcome.holdoutScore ?? r.outcome.searchScore
       return typeof score === 'number' && score < threshold
     })
     if (failingRuns.length === 0) return failures
@@ -89,11 +86,8 @@ export class PredictiveValidityResearcher implements Researcher {
     for (const [candidateId, group] of grouped.entries()) {
       const meanScore =
         group.reduce((s, r) => {
-          const score = runTaskScore(r)
-          if (score === undefined) {
-            throw new Error(`failing run ${r.runId} unexpectedly has no task score`)
-          }
-          return s + score
+          const x = r.outcome.holdoutScore ?? r.outcome.searchScore ?? 0
+          return s + x
         }, 0) / group.length
       failures.push({
         code: `low-score-${candidateId}`,
@@ -178,27 +172,15 @@ export class PredictiveValidityResearcher implements Researcher {
       baselineId: plan.baselineCandidateId,
       evidence: {
         productiveRuns: 0,
-        unpairedCandidateRuns: 0,
-        unpairedBaselineRuns: 0,
-        medianPairedDelta: null,
-        deltaStatistic: 'median_bootstrap',
-        decidingDelta: null,
-        pairedCI: null,
-        pairedPValue: null,
-        mcnemar: null,
-        binaryScale: null,
-        tieFraction: null,
-        searchScore: null,
-        holdoutScore: null,
-        overfitGap: null,
-        baselineOverfitGap: null,
-        medianCandidateCost: null,
-        medianBaselineCost: null,
-        realnessGatedRuns: 0,
-        // Nothing was dealt, so nothing was answered — this researcher never
-        // runs the sweep, it only reports that the caller must.
-        holdoutCoverage: emptyCoverage(),
-        searchCoverage: emptyCoverage(),
+        medianPairedDelta: 0,
+        pairedCI: { low: 0, high: 0 },
+        pairedPValue: 1,
+        searchScore: 0,
+        holdoutScore: 0,
+        overfitGap: 0,
+        baselineOverfitGap: 0,
+        medianCandidateCost: Number.NaN,
+        medianBaselineCost: Number.NaN,
       },
       reason:
         'predictive-validity researcher does not execute plans; the caller is expected to run the sweep and call rubricPredictiveValidity directly with the resulting RunRecord[].',
@@ -240,9 +222,4 @@ export class PredictiveValidityResearcher implements Researcher {
   getLastReport(): RubricPredictiveValidityReport | null {
     return this.lastReport
   }
-}
-
-/** Coverage of a split that was never dealt any work. */
-function emptyCoverage(): SplitCoverage {
-  return { dealt: 0, answered: 0, unscoredPairs: 0, candidateOnly: 0, baselineOnly: 0, coverage: 0 }
 }

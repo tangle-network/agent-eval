@@ -26,8 +26,6 @@ today. Other paths are listed under "Next steps."
 agent-eval campaign
   → RunRecord[] (collected during your real eval sweeps)
   → filter to high-quality runs (rejection sampling SFT)
-  → mintRolloutRows(records, traceStore)
-  → MintedRolloutLine[]
   → toSftRows({ promptOf, completionOf, systemOf })
   → JSONL on disk
   → prime-rl SFT trainer
@@ -94,8 +92,8 @@ uv run sft @ /path/to/agent-eval/examples/fine-tune-with-prime-rl/prime-rl-sft.t
 ## Adapting for your real campaign
 
 Replace `synthetic-runs.jsonl` with the `RunRecord` rows from a real `runEvalCampaign`.
-The script reads NDJSON and mints each scored record into the canonical rollout format before export.
-Every record needs a `runId`, either `outcome.searchScore` or `outcome.holdoutScore`, and one of:
+The script reads NDJSON; every
+record needs a `runId`, `outcome.holdoutScore`, and either:
 
 - `outcome.raw.prompt` + `outcome.raw.completion` (if you stash the text on the record), OR
 - a custom `--prompt-key` and `--completion-key` flag pointing at where the
@@ -110,7 +108,7 @@ event log and join it back to the run records by `runId`.
 
 ## Next steps (not in this demo)
 
-- **DPO training:** mint rollout lines, derive preference triples with `extractPreferences`, then route them through
+- **DPO training:** route preference triples (`extractPreferences`) through
   `toDpoRows` from `@tangle-network/agent-eval/rl` to HuggingFace TRL's
   `DPOTrainer`. Different trainer, same data pipeline.
 - **GRPO training:** wrap agent-eval's `MultiLayerVerifier` as a
@@ -122,7 +120,7 @@ event log and join it back to the run records by `runId`.
 ## Files
 
 - `README.md`: this file.
-- `export-sft.ts`: the export script.
+- `export-sft.ts`: the export script (~150 LoC).
 - `synthetic-runs.jsonl`: example input data; replace with your own
   campaign output.
 - `prime-rl-sft.toml`: generated config; not checked in (see `.gitignore`).

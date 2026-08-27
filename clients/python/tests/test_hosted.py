@@ -89,7 +89,9 @@ def receiver():
     env["TENANT_ID"] = TENANT_ID
     env["TENANT_KEY"] = TENANT_KEY
     runner = (
-        ["tsx", str(SERVER_TS)] if shutil.which("tsx") else ["pnpm", "exec", "tsx", str(SERVER_TS)]
+        ["tsx", str(SERVER_TS)]
+        if shutil.which("tsx")
+        else ["pnpm", "exec", "tsx", str(SERVER_TS)]
     )
     proc = subprocess.Popen(
         runner,
@@ -120,16 +122,8 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
         baseline=EvalRunGenerationSnapshot(
             index=0,
             surfaceHash="h-base",
-            cells=[
-                EvalRunCellScore(
-                    scenarioId="s1",
-                    rep=0,
-                    compositeMean=0.5,
-                    dimensions={"llm": {"accuracy": 0.5}},
-                    terminalOutcome="succeeded",
-                    executionErrorCount=0,
-                )
-            ],
+            cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.5,
+                                     dimensions={"llm": {"accuracy": 0.5}})],
             compositeMean=0.5,
             costUsd=0.1,
             durationMs=1000,
@@ -138,16 +132,8 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
             EvalRunGenerationSnapshot(
                 index=1,
                 surfaceHash="h-cand",
-                cells=[
-                    EvalRunCellScore(
-                        scenarioId="s1",
-                        rep=0,
-                        compositeMean=0.8,
-                        dimensions={"llm": {"accuracy": 0.8}},
-                        terminalOutcome="succeeded",
-                        executionErrorCount=0,
-                    )
-                ],
+                cells=[EvalRunCellScore(scenarioId="s1", rep=0, compositeMean=0.8,
+                                         dimensions={"llm": {"accuracy": 0.8}})],
                 compositeMean=0.8,
                 costUsd=0.2,
                 durationMs=1200,
@@ -160,24 +146,10 @@ def _make_run_event(run_id: str) -> EvalRunEvent:
     )
 
 
-def test_unscored_cell_serializes_null_without_losing_execution_state():
-    cell = EvalRunCellScore(
-        scenarioId="unscored",
-        rep=0,
-        compositeMean=None,
-        dimensions={},
-        terminalOutcome="succeeded",
-        executionErrorCount=0,
-    )
-
-    payload = cell.model_dump(by_alias=True)
-    assert payload["compositeMean"] is None
-    assert payload["terminalOutcome"] == "succeeded"
-    assert payload["executionErrorCount"] == 0
-
-
 def test_ingest_eval_run_roundtrip(receiver):
-    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
+    with HostedClient(
+        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
+    ) as client:
         res = client.ingest_eval_run(_make_run_event("py-1"))
         assert res.accepted == 1
         assert res.rejected == []
@@ -187,7 +159,7 @@ def test_ingest_eval_run_roundtrip(receiver):
         headers={
             "Authorization": f"Bearer {TENANT_KEY}",
             "X-Tangle-Tenant-Id": TENANT_ID,
-            "X-Tangle-Wire-Version": "2026-07-24.v1",
+            "X-Tangle-Wire-Version": "2026-05-26.v1",
         },
         timeout=5.0,
     )
@@ -197,15 +169,17 @@ def test_ingest_eval_run_roundtrip(receiver):
 
 
 def test_ingest_traces_roundtrip(receiver):
-    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
+    with HostedClient(
+        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
+    ) as client:
         client.ingest_eval_run(_make_run_event("py-traces"))
         spans = [
             make_trace_span(
                 trace_id="t",
                 span_id=f"s-{i}",
                 name=f"step-{i}",
-                start_time_unix_nano=str(1_700_000_000_000_000_000 + i),
-                end_time_unix_nano=str(1_700_000_001_000_000_000 + i),
+                start_time_unix_nano=1_700_000_000_000_000_000 + i,
+                end_time_unix_nano=1_700_000_001_000_000_000 + i,
                 attributes={"i": i},
                 tangle_run_id="py-traces",
                 tangle_generation=1,
@@ -221,44 +195,13 @@ def test_ingest_traces_roundtrip(receiver):
         headers={
             "Authorization": f"Bearer {TENANT_KEY}",
             "X-Tangle-Tenant-Id": TENANT_ID,
-            "X-Tangle-Wire-Version": "2026-07-24.v1",
+            "X-Tangle-Wire-Version": "2026-05-26.v1",
         },
         timeout=5.0,
     )
     assert r.status_code == 200
     span_ids = sorted(s["spanId"] for s in r.json()["spans"])
     assert span_ids == ["s-0", "s-1", "s-2"]
-
-
-def test_adjacent_nanoseconds_round_trip_exactly_between_python_and_typescript(receiver):
-    run_id = "py-adjacent-nanoseconds"
-    span = make_trace_span(
-        trace_id="trace-adjacent",
-        span_id="span-adjacent",
-        name="adjacent",
-        start_time_unix_nano="1700000000000000000",
-        end_time_unix_nano="1700000000000000001",
-        tangle_run_id=run_id,
-    )
-    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
-        client.ingest_eval_run(_make_run_event(run_id))
-        result = client.ingest_traces([span])
-        assert result.accepted == 1
-
-    response = httpx.get(
-        f"{receiver['url']}/v1/runs/{run_id}/traces",
-        headers={
-            "Authorization": f"Bearer {TENANT_KEY}",
-            "X-Tangle-Tenant-Id": TENANT_ID,
-            "X-Tangle-Wire-Version": "2026-07-24.v1",
-        },
-        timeout=5.0,
-    )
-    stored = response.json()["spans"][0]
-
-    assert stored["startTimeUnixNano"] == "1700000000000000000"
-    assert stored["endTimeUnixNano"] == "1700000000000000001"
-    assert int(stored["endTimeUnixNano"]) - int(stored["startTimeUnixNano"]) == 1
 
 
 def test_rejects_wrong_tenant(receiver):
@@ -290,184 +233,37 @@ def test_rejects_bad_bearer(receiver):
 
 
 def test_idempotency(receiver):
-    with HostedClient(endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID) as client:
+    with HostedClient(
+        endpoint=receiver["url"], api_key=TENANT_KEY, tenant_id=TENANT_ID
+    ) as client:
         first = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         second = client.ingest_eval_run(_make_run_event("idem-py"), idempotency_key="key-py")
         assert first.accepted == second.accepted == 1
 
 
-def test_endpoint_v1_normalization_matches_typescript():
-    seen_urls: list[str] = []
+def test_snake_case_typo_warns():
+    """Cross-language drift guard: passing run_id (snake_case) emits a warning.
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen_urls.append(str(request.url))
-        return httpx.Response(200, json={"accepted": 1, "rejected": []})
+    The TS server expects ``runId`` on the wire; Python ``extra='allow'``
+    would silently send ``run_id`` and the server would reject it. The
+    warning gives users a same-process signal instead of a server error.
+    """
+    import warnings as _w
 
-    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        client = HostedClient(
-            endpoint="https://example.test/v1/",
-            api_key=TENANT_KEY,
-            tenant_id=TENANT_ID,
-            http_client=http_client,
-        )
-        client.ingest_eval_run(_make_run_event("normalized-python"))
-
-    assert seen_urls == ["https://example.test/v1/ingest/eval-runs"]
-
-
-def test_retry_reuses_one_automatic_idempotency_key(monkeypatch):
-    keys: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        keys.append(request.headers["idempotency-key"])
-        if len(keys) == 1:
-            return httpx.Response(503, json={"error": "temporary"})
-        return httpx.Response(200, json={"accepted": 1, "rejected": []})
-
-    monkeypatch.setattr(HostedClient, "_sleep_backoff", staticmethod(lambda _attempt: None))
-    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        client = HostedClient(
-            endpoint="https://example.test",
-            api_key=TENANT_KEY,
-            tenant_id=TENANT_ID,
-            retries=1,
-            http_client=http_client,
-        )
-        result = client.ingest_eval_run(_make_run_event("python-retry"))
-
-    assert result.accepted == 1
-    assert len(keys) == 2
-    assert keys[0]
-    assert keys[1] == keys[0]
-
-
-def test_malformed_success_response_is_rejected():
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"accepted": -1, "rejected": [42]})
-
-    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
-        client = HostedClient(
-            endpoint="https://example.test",
-            api_key=TENANT_KEY,
-            tenant_id=TENANT_ID,
-            http_client=http_client,
-        )
-        with pytest.raises(TransportError, match="invalid response"):
-            client.ingest_eval_run(_make_run_event("bad-python-response"))
-
-
-def test_python_wire_models_reject_invalid_ids_timestamps_costs_and_durations():
-    payload = _make_run_event("strict-python").model_dump(mode="json", by_alias=True)
-
-    for field, invalid in (
-        ("runId", ""),
-        ("timestamp", "2026-07-24T12:00:00"),
-        ("totalCostUsd", -0.01),
-        ("totalDurationMs", -1),
-    ):
-        malformed = {**payload, field: invalid}
-        with pytest.raises(ValueError, match=field):
-            EvalRunEvent.model_validate(malformed)
-
-    with pytest.raises(ValueError, match="scenarioId"):
-        EvalRunCellScore(
-            scenarioId=" ",
-            rep=0,
-            compositeMean=0.5,
-            dimensions={},
-            terminalOutcome="succeeded",
-            executionErrorCount=0,
-        )
-
-    from agent_eval_rpc import TraceSpanEventOuter
-
-    with pytest.raises(ValueError, match="traceId"):
-        TraceSpanEventOuter(
-            traceId="",
-            spanId="span",
-            name="dispatch",
-            startTimeUnixNano="0",
-            endTimeUnixNano="1",
-            attributes={},
-        )
-    with pytest.raises(ValueError, match="startTimeUnixNano"):
-        TraceSpanEventOuter(
-            traceId="trace",
-            spanId="span",
-            name="dispatch",
-            startTimeUnixNano=1,
-            endTimeUnixNano="2",
-            attributes={},
-        )
-    with pytest.raises(ValueError, match="endTimeUnixNano"):
-        TraceSpanEventOuter(
-            traceId="trace",
-            spanId="span",
-            name="dispatch",
-            startTimeUnixNano="0",
-            endTimeUnixNano="18446744073709551616",
-            attributes={},
-        )
-
-
-def test_snake_case_typo_is_rejected():
-    with pytest.raises(ValueError, match="run_id"):
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
         EvalRunEvent(
             runId="r1",
             runDir="/r1",
             timestamp="2026-05-27T00:00:00Z",
             status="finished",
-            labels={},
-            generations=[],
-            totalCostUsd=0,
-            totalDurationMs=0,
-            run_id="r1-typo",
+            run_id="r1-typo",  # snake_case shadow of runId — should warn
         )
-
-
-def test_hosted_model_required_fields_match_typescript_contract():
-    assert set(EvalRunCellScore.model_json_schema()["required"]) == {
-        "scenarioId",
-        "rep",
-        "compositeMean",
-        "dimensions",
-        "terminalOutcome",
-        "executionErrorCount",
-    }
-    assert set(EvalRunGenerationSnapshot.model_json_schema()["required"]) == {
-        "index",
-        "surfaceHash",
-        "cells",
-        "compositeMean",
-        "costUsd",
-        "durationMs",
-    }
-    assert set(EvalRunEvent.model_json_schema()["required"]) == {
-        "runId",
-        "runDir",
-        "timestamp",
-        "status",
-        "labels",
-        "generations",
-        "totalCostUsd",
-        "totalDurationMs",
-    }
-
-
-def test_insight_report_round_trips_as_structured_data():
-    event = _make_run_event("py-insight")
-    event.insightReport = {
-        "n": 1,
-        "execution": {
-            "executionErrors": {"fraction": None, "reportingRuns": 0},
-            "terminalOutcomes": {"succeeded": 1},
-        },
-    }
-
-    payload = event.model_dump(by_alias=True, exclude_none=True)
-    restored = EvalRunEvent.model_validate(payload)
-
-    assert restored.insightReport == event.insightReport
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert len(user_warnings) == 1
+    msg = str(user_warnings[0].message)
+    assert "run_id" in msg
+    assert "runId" in msg
 
 
 def test_trace_span_outer_round_trips_tangle_fields():
@@ -483,8 +279,8 @@ def test_trace_span_outer_round_trips_tangle_fields():
         traceId="t",
         spanId="s",
         name="dispatch",
-        startTimeUnixNano="0",
-        endTimeUnixNano="1",
+        startTimeUnixNano=0,
+        endTimeUnixNano=1,
         attributes={},
         tangle_run_id="run-1",
         tangle_scenario_id="s1",

@@ -20,17 +20,10 @@ function gen(
 function cell(
   scenarioId: string,
   rep: number,
-  composite: number | null,
+  composite: number,
   dims: Record<string, Record<string, number>> = {},
 ) {
-  return {
-    scenarioId,
-    rep,
-    compositeMean: composite,
-    dimensions: dims,
-    terminalOutcome: 'succeeded' as const,
-    executionErrorCount: 0,
-  }
+  return { scenarioId, rep, compositeMean: composite, dimensions: dims }
 }
 
 describe('keyForCell collision safety', () => {
@@ -95,26 +88,6 @@ describe('NaN / Infinity coercion in dimension deltas', () => {
 })
 
 describe('diffGenerations', () => {
-  it('keeps missing task labels null instead of inventing a delta', () => {
-    const before = gen({
-      index: 0,
-      surfaceHash: 'h0',
-      cells: [cell('s1', 0, null)],
-      compositeMean: null,
-    })
-    const after = gen({
-      index: 1,
-      surfaceHash: 'h1',
-      cells: [cell('s1', 0, 0.8)],
-      compositeMean: 0.8,
-    })
-
-    const diff = diffGenerations(before, after)
-    expect(diff.matched[0]?.compositeBefore).toBeNull()
-    expect(diff.matched[0]?.compositeDelta).toBeNull()
-    expect(diff.compositeDelta).toBeNull()
-  })
-
   it('matches cells on (scenarioId, rep) and computes composite delta', () => {
     const before = gen({
       index: 0,

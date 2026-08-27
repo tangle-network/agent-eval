@@ -26,12 +26,24 @@ import {
   OPENINFERENCE_SPAN_KIND,
   traceSpanKindToOpenInferenceKind,
 } from './otlp-attributes'
-import { createOtlpFlatLine, epochMillisToIso, spanStatusToOtlp } from './otlp-flat'
 import type { Run, Span, TraceEvent } from './schema'
 
 /** Marker `FileSystemTraceStore` stamps on partial-update NDJSON rows. */
 interface MaybeUpdate {
   _update?: boolean
+}
+
+interface OtlpFlatSpan {
+  trace_id: string
+  span_id: string
+  parent_span_id: string
+  name: string
+  kind: string
+  start_time: string
+  end_time: string
+  status: { code: 'STATUS_CODE_OK' | 'STATUS_CODE_ERROR'; message: string }
+  resource: { attributes: Record<string, unknown> }
+  attributes: Record<string, unknown>
 }
 
 export interface TracesToOtlpResult {
@@ -256,7 +268,7 @@ function projectCell(args: {
     for (const span of spanBySpanId.values()) {
       if (span.runId !== run.runId) continue
       const spanAttrs = spanToAttributes(span, eventsBySpanId.get(span.spanId) ?? [])
-      const statusCode = spanStatusToOtlp(span.status, span.error, 'STATUS_CODE_OK')
+      const statusCode = span.status === 'error' ? 'STATUS_CODE_ERROR' : 'STATUS_CODE_OK'
       lines.push(
         JSON.stringify(
           toLine({
@@ -407,11 +419,38 @@ function spanKindToOtlpKind(kind: Span['kind']): string {
   }
 }
 
-const toLine = createOtlpFlatLine
+interface ToLineArgs {
+  traceId: string
+  spanId: string
+  parentSpanId: string
+  name: string
+  kind: string
+  startTime: string
+  endTime: string
+  statusCode: 'STATUS_CODE_OK' | 'STATUS_CODE_ERROR'
+  statusMessage: string
+  resource: { attributes: Record<string, unknown> }
+  attributes: Record<string, unknown>
+}
+
+function toLine(args: ToLineArgs): OtlpFlatSpan {
+  return {
+    trace_id: args.traceId,
+    span_id: args.spanId,
+    parent_span_id: args.parentSpanId,
+    name: args.name,
+    kind: args.kind,
+    start_time: args.startTime,
+    end_time: args.endTime,
+    status: { code: args.statusCode, message: args.statusMessage },
+    resource: args.resource,
+    attributes: args.attributes,
+  }
+}
 
 function msToIso(ms: number): string {
-  if (ms <= 0) return new Date(0).toISOString()
-  return epochMillisToIso(ms) ?? new Date(0).toISOString()
+  if (!Number.isFinite(ms) || ms <= 0) return new Date(0).toISOString()
+  return new Date(ms).toISOString()
 }
 
 /** OTLP wants 16-hex span ids; eval traces use UUID-ish strings. Hex-strip +

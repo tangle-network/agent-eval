@@ -592,16 +592,17 @@ describe('stuckLoopView', () => {
     ])
   })
 
-  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
-    'rejects invalid time window %s',
-    async (value) => {
-      const store = await storeWith([])
+  it.each([
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid time window %s', async (value) => {
+    const store = await storeWith([])
 
-      await expect(stuckLoopView(store, { maxWindowMs: value })).rejects.toThrow(
-        'maxWindowMs must be a finite non-negative number',
-      )
-    },
-  )
+    await expect(stuckLoopView(store, { maxWindowMs: value })).rejects.toThrow(
+      'maxWindowMs must be a finite non-negative number',
+    )
+  })
 
   it.each([0, -1, 1.5, Number.NaN])('rejects invalid minOccurrences %s', async (value) => {
     const store = await storeWith([])
@@ -611,14 +612,16 @@ describe('stuckLoopView', () => {
     )
   })
 
-  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
-    'rejects invalid maxInterveningToolCalls %s',
-    async (value) => {
-      const store = await storeWith([])
+  it.each([
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid maxInterveningToolCalls %s', async (value) => {
+    const store = await storeWith([])
 
-      await expect(stuckLoopView(store, { maxInterveningToolCalls: value })).rejects.toThrow(
-        'maxInterveningToolCalls must be a non-negative integer',
-      )
-    },
-  )
+    await expect(stuckLoopView(store, { maxInterveningToolCalls: value })).rejects.toThrow(
+      'maxInterveningToolCalls must be a non-negative integer',
+    )
+  })
 })

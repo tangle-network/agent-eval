@@ -2,8 +2,9 @@
  * Durable append-only audit log for improvement searches.
  *
  * Existing campaign artifacts keep their own rich records: `RunRecord` owns a
- * measured run and `CostLedger` owns per-call accounting. This ledger does not
- * copy those structures. It binds their immutable ids and receipts into one replayable event stream so a
+ * measured run, `Lineage` owns the candidate graph, and `CostLedger` owns
+ * per-call accounting. This ledger does not copy those structures. It binds
+ * their immutable ids and receipts into one replayable event stream so a
  * search can answer, after a crash, exactly which candidates and task attempts
  * existed, which surfaces actually fired, what they cost, and why they were
  * selected or rejected.
@@ -12,36 +13,27 @@
  * serialized across processes, fsynced before acknowledgement, and idempotent
  * by `eventId`. A malformed, non-canonical, truncated, reordered, or conflicting
  * log fails loudly; the implementation never skips a bad row.
- *
- * The journal machinery itself (hash chain, locking, fsync, idempotent append)
- * is the generic `ledger-core` journal; this module supplies the campaign
- * codec: event schemas, canonical event ordering, and the search state machine.
  */
 
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
-import {
-  canonicalString,
-  FileLedgerJournal,
-  type LedgerHash,
-  type LedgerJournalCodec,
-  type LedgerLineContext,
-  type LedgerProjector,
-  type LedgerTrustedHead,
-  type LedgerTrustedHeadRemoval,
-} from '../ledger-core'
+import { Mutex } from '../concurrency'
+import { canonicalize } from '../pre-registration'
 import { modelHasSnapshot } from '../run-record'
 import {
   SearchLedgerConflictError,
   SearchLedgerError,
   SearchLedgerIntegrityError,
 } from './search-ledger-errors'
-import { SEARCH_LEDGER_FILE_CONTEXT } from './search-ledger-file'
+import { appendSearchLedgerLine, withSearchLedgerFileLock } from './search-ledger-file'
 
 export { SearchLedgerConflictError, SearchLedgerError, SearchLedgerIntegrityError }
 
 export const SEARCH_LEDGER_SCHEMA = 'tangle.search-ledger.v1' as const
 
-export type SearchLedgerHash = LedgerHash
+export type SearchLedgerHash = `sha256:${string}`
 
 export type SearchSurfaceKind =
   | 'prompt'
@@ -792,149 +784,145 @@ export function validateSearchLedgerEvent(input: unknown): SearchLedgerEvent {
   return normalizeEvent(parsed.data as SearchLedgerEvent)
 }
 
-/**
- * How this ledger uses its trusted head — the `(sequence, entryHash)` pin kept
- * in the sibling `<path>.head` file that a hash chain needs to prove entries
- * were not deleted from the end. `ledger-core/trusted-head.ts` holds the threat
- * model.
- *
- * - `pin` (default): every append records the new head, and a pin that is
- *   present is verified on every read.
- * - `require`: additionally refuses to read a non-empty ledger whose pin is
- *   gone, so deleting the sibling file cannot downgrade the guarantee. Only for
- *   ledgers written under `pin` from their first entry.
- * - `off`: chain verification only. Truncation to a valid shorter prefix is
- *   undetectable.
- */
-export type SearchLedgerTrustedHeadMode = 'pin' | 'require' | 'off'
-
 export interface OpenSearchLedgerOptions {
   path: string
   campaignId: string
-  trustedHead?: SearchLedgerTrustedHeadMode
 }
 
 export interface SearchLedger {
   readonly path: string
   readonly campaignId: string
-  /** Sibling file holding this ledger's trusted head. */
-  readonly trustedHeadPath: string
   append(event: SearchLedgerEvent): Promise<SearchLedgerAppendResult>
   replay(): Promise<SearchLedgerReplay>
-  /** The pinned head, or null when this ledger has never been pinned. */
-  trustedHead(): Promise<LedgerTrustedHead | null>
-  /** Pin the current verified head: how a ledger written under `off`, or one
-   * whose pin file was removed, acquires a pin without rewriting a byte. */
-  pinTrustedHead(): Promise<LedgerTrustedHead>
-  /** Discard this ledger's pin, reporting what was discarded. Deleting or
-   * rebuilding the ledger file leaves a pin naming history the file no longer
-   * carries, and every later read is refused because that is exactly the
-   * deletion the pin exists to catch; clearing is the supported way to abandon
-   * that history on purpose. It gives up the deletion guarantee for every entry
-   * the pin covered. */
-  clearTrustedHead(): Promise<LedgerTrustedHeadRemoval>
 }
 
 /** Open a durable filesystem search ledger. Construction performs no I/O; the
  * first `append` or `replay` validates the complete existing file. */
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
   if (options.path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-  return new FileSearchLedger(options.path, options.campaignId, options.trustedHead)
+  return new FileSearchLedger(options.path, options.campaignId)
 }
 
-interface SearchLedgerHeader {
-  schema: typeof SEARCH_LEDGER_SCHEMA
-  campaignId: string
+const ledgerMutexes = new Map<string, Mutex>()
+
+function mutexFor(path: string): Mutex {
+  const existing = ledgerMutexes.get(path)
+  if (existing) return existing
+  const mutex = new Mutex()
+  ledgerMutexes.set(path, mutex)
+  return mutex
 }
 
-function searchLedgerCodec(
-  campaignId: string,
-): LedgerJournalCodec<SearchLedgerHeader, SearchLedgerEvent, SearchLedgerReplay> {
-  return {
-    ...SEARCH_LEDGER_FILE_CONTEXT,
-    header: { schema: SEARCH_LEDGER_SCHEMA, campaignId },
-    conflictError: (message) => new SearchLedgerConflictError(message),
-    parseEntry: parseSearchLedgerEntry,
-    checkEntryHeader: (entry, index) => {
-      if (entry.campaignId !== campaignId) {
-        throw new SearchLedgerIntegrityError(
-          `entry ${index} belongs to campaign ${entry.campaignId}, expected ${campaignId}`,
-        )
-      }
-    },
-    createProjector: () => createSearchLedgerProjector(campaignId),
-  }
-}
-
-/** Append-only file-backed search ledger with idempotent writes and replay. */
 export class FileSearchLedger implements SearchLedger {
   readonly path: string
   readonly campaignId: string
-  readonly trustedHeadPath: string
-  private readonly trustedHeadMode: SearchLedgerTrustedHeadMode
-  private readonly journal: FileLedgerJournal<
-    SearchLedgerHeader,
-    SearchLedgerEvent,
-    SearchLedgerReplay
-  >
+  private readonly mutex: Mutex
 
-  constructor(path: string, campaignId: string, trustedHead: SearchLedgerTrustedHeadMode = 'pin') {
+  constructor(path: string, campaignId: string) {
     if (path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
     if (campaignId.length === 0) throw new SearchLedgerError('campaignId is empty')
     if (campaignId.trim() !== campaignId) {
       throw new SearchLedgerError('campaignId must not contain surrounding whitespace')
     }
+    this.path = resolve(path)
     this.campaignId = campaignId
-    this.trustedHeadMode = trustedHead
-    this.journal = new FileLedgerJournal(path, searchLedgerCodec(campaignId), {
-      requireTrustedHead: trustedHead === 'require',
-    })
-    this.path = this.journal.path
-    this.trustedHeadPath = this.journal.trustedHeadPath
+    this.mutex = mutexFor(this.path)
   }
 
   async replay(): Promise<SearchLedgerReplay> {
-    return (await this.journal.replay()).projection
+    return this.mutex.runExclusive(() =>
+      withSearchLedgerFileLock(this.path, () => replayFile(this.path, this.campaignId)),
+    )
   }
 
   async append(input: SearchLedgerEvent): Promise<SearchLedgerAppendResult> {
-    // Normalize before the journal hashes the event so retries from different
-    // processes produce byte-identical entries.
     const event = validateSearchLedgerEvent(input)
-    const { entry, appended, projection } = await this.journal.append(event, {
-      pinHead: this.trustedHeadMode !== 'off',
-    })
-    return { entry, appended, replay: projection }
-  }
+    return this.mutex.runExclusive(() =>
+      withSearchLedgerFileLock(this.path, () => {
+        const before = replayFile(this.path, this.campaignId)
+        const existing = before.entries.find((entry) => entry.event.eventId === event.eventId)
+        if (existing) {
+          if (canonicalString(existing.event) !== canonicalString(event)) {
+            throw new SearchLedgerConflictError(
+              `eventId ${event.eventId} already exists with different content`,
+            )
+          }
+          return { entry: existing, appended: false, replay: before }
+        }
 
-  async trustedHead(): Promise<LedgerTrustedHead | null> {
-    return this.journal.trustedHead()
-  }
+        const previousHash = before.audit.headHash
+        const material = {
+          schema: SEARCH_LEDGER_SCHEMA,
+          campaignId: this.campaignId,
+          sequence: before.entries.length,
+          previousHash,
+          event,
+        } as const
+        const entry: SearchLedgerEntry = {
+          ...material,
+          entryHash: hashCanonical(material),
+        }
 
-  async pinTrustedHead(): Promise<LedgerTrustedHead> {
-    return this.journal.pinTrustedHead()
-  }
-
-  async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
-    return this.journal.clearTrustedHead()
+        // Apply the state transition before spending an append. This catches
+        // unknown parents, missing task attempts, duplicate decisions, and
+        // invalid completion records without touching the durable file.
+        const replay = replayEntries([...before.entries, entry], this.campaignId)
+        appendSearchLedgerLine(this.path, `${canonicalString(entry)}\n`)
+        return { entry, appended: true, replay }
+      }),
+    )
   }
 }
 
-function parseSearchLedgerEntry(raw: unknown, context: LedgerLineContext): SearchLedgerEntry {
-  const parsed = EntrySchema.safeParse(raw)
-  if (!parsed.success) {
+function replayFile(path: string, campaignId: string): SearchLedgerReplay {
+  if (!existsSync(path)) return replayEntries([], campaignId)
+  const text = readFileSync(path, 'utf8')
+  if (text.length === 0) return replayEntries([], campaignId)
+  if (!text.endsWith('\n')) {
     throw new SearchLedgerIntegrityError(
-      `search ledger ${context.path} has a malformed entry at line ${context.line}: ${formatZodError(parsed.error)}`,
+      `search ledger ${path} has a truncated final record (missing newline)`,
     )
   }
-  const entry = parsed.data as SearchLedgerEntry
-  const normalizedEvent = validateSearchLedgerEvent(entry.event)
-  if (canonicalString(normalizedEvent) !== canonicalString(entry.event)) {
-    throw new SearchLedgerIntegrityError(
-      `search ledger ${context.path} has non-canonical event ordering at line ${context.line}`,
-    )
+
+  const lines = text.slice(0, -1).split('\n')
+  const entries: SearchLedgerEntry[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
+    if (line.length === 0) {
+      throw new SearchLedgerIntegrityError(
+        `search ledger ${path} has a blank row at line ${index + 1}`,
+      )
+    }
+    let raw: unknown
+    try {
+      raw = JSON.parse(line)
+    } catch (error) {
+      throw new SearchLedgerIntegrityError(
+        `search ledger ${path} has invalid JSON at line ${index + 1}`,
+        { cause: error },
+      )
+    }
+    const parsed = EntrySchema.safeParse(raw)
+    if (!parsed.success) {
+      throw new SearchLedgerIntegrityError(
+        `search ledger ${path} has a malformed entry at line ${index + 1}: ${formatZodError(parsed.error)}`,
+      )
+    }
+    const entry = parsed.data as SearchLedgerEntry
+    const normalizedEvent = validateSearchLedgerEvent(entry.event)
+    if (canonicalString(normalizedEvent) !== canonicalString(entry.event)) {
+      throw new SearchLedgerIntegrityError(
+        `search ledger ${path} has non-canonical event ordering at line ${index + 1}`,
+      )
+    }
+    if (line !== canonicalString(entry)) {
+      throw new SearchLedgerIntegrityError(
+        `search ledger ${path} has non-canonical bytes at line ${index + 1}`,
+      )
+    }
+    entries.push(entry)
   }
-  return entry
+  return replayEntries(entries, campaignId)
 }
 
 interface CandidateState {
@@ -943,16 +931,12 @@ interface CandidateState {
   decision: SearchCandidateDecidedEvent | null
 }
 
-/** Replay the campaign search state machine over chain-verified entries. The
- * generic journal owns sequence, hash, and eventId-uniqueness checks; this
- * projector owns every campaign invariant and builds the replay projection. */
-function createSearchLedgerProjector(
-  campaignId: string,
-): LedgerProjector<SearchLedgerEntry, SearchLedgerReplay> {
+function replayEntries(entries: SearchLedgerEntry[], campaignId: string): SearchLedgerReplay {
   const candidates = new Map<string, CandidateState>()
   const candidateBySlot = new Map<string, string>()
   const closedSlots = new Map<string, SearchCandidateSlotClosedEvent>()
   const lineageNodes = new Map<string, string>()
+  const eventIds = new Set<string>()
   const runIds = new Set<string>()
   const attemptKeys = new Set<string>()
   const candidateEvents: SearchCandidateRegisteredEvent[] = []
@@ -963,10 +947,40 @@ function createSearchLedgerProjector(
   const decisions: SearchCandidateDecidedEvent[] = []
   let planEvent: SearchPlannedEvent | null = null
   let completion: SearchCompletedEvent | null = null
+  let expectedPrevious: SearchLedgerHash | null = null
   let previousOccurredAt = Number.NEGATIVE_INFINITY
 
-  const apply = (entry: SearchLedgerEntry, index: number): void => {
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!
+    if (entry.campaignId !== campaignId) {
+      throw new SearchLedgerIntegrityError(
+        `entry ${index} belongs to campaign ${entry.campaignId}, expected ${campaignId}`,
+      )
+    }
+    if (entry.sequence !== index) {
+      throw new SearchLedgerIntegrityError(
+        `entry ${entry.event.eventId} has sequence ${entry.sequence}, expected ${index}`,
+      )
+    }
+    if (entry.previousHash !== expectedPrevious) {
+      throw new SearchLedgerIntegrityError(
+        `entry ${entry.event.eventId} does not extend the previous hash`,
+      )
+    }
+    const { entryHash: _entryHash, ...material } = entry
+    const expectedHash = hashCanonical(material)
+    if (entry.entryHash !== expectedHash) {
+      throw new SearchLedgerIntegrityError(
+        `entry ${entry.event.eventId} hash mismatch: expected ${expectedHash}, got ${entry.entryHash}`,
+      )
+    }
+    expectedPrevious = entry.entryHash
+
     const event = entry.event
+    if (eventIds.has(event.eventId)) {
+      throw new SearchLedgerIntegrityError(`duplicate eventId ${event.eventId} in durable ledger`)
+    }
+    eventIds.add(event.eventId)
     if (completion) {
       throw new SearchLedgerIntegrityError(
         `event ${event.eventId} appears after terminal event ${completion.eventId}`,
@@ -1004,14 +1018,14 @@ function createSearchLedgerProjector(
         const generationOperation = event.plan.operations.find(
           (operation) => operation.operationId === slot.generationOperationId,
         )
-        if (generationOperation?.kind !== 'candidate-generation') {
+        if (!generationOperation || generationOperation.kind !== 'candidate-generation') {
           throw new SearchLedgerIntegrityError(
             `candidate slot ${slot.slotId} references unplanned candidate-generation operation ${slot.generationOperationId}`,
           )
         }
       }
       planEvent = event
-      return
+      continue
     }
 
     if (!planEvent) {
@@ -1086,7 +1100,7 @@ function createSearchLedgerProjector(
       candidateBySlot.set(event.slotId, event.candidateId)
       lineageNodes.set(event.lineage.lineageNodeId, event.candidateId)
       candidateEvents.push(event)
-      return
+      continue
     }
 
     if (event.kind === 'task-attempted') {
@@ -1173,7 +1187,7 @@ function createSearchLedgerProjector(
       }
       candidate.attempts.push(event)
       attempts.push(event)
-      return
+      continue
     }
 
     if (event.kind === 'search-operation-recorded') {
@@ -1195,7 +1209,7 @@ function createSearchLedgerProjector(
       }
       operationsById.set(event.operationId, event)
       operationEvents.push(event)
-      return
+      continue
     }
 
     if (event.kind === 'candidate-slot-closed') {
@@ -1231,7 +1245,7 @@ function createSearchLedgerProjector(
       }
       closedSlots.set(event.slotId, event)
       closedSlotEvents.push(event)
-      return
+      continue
     }
 
     if (event.kind === 'candidate-decided') {
@@ -1256,7 +1270,7 @@ function createSearchLedgerProjector(
       }
       candidate.decision = event
       decisions.push(event)
-      return
+      continue
     }
 
     const missingCandidateSlots = planEvent.plan.candidateSlots
@@ -1325,118 +1339,110 @@ function createSearchLedgerProjector(
     completion = event
   }
 
-  const finish = (entries: SearchLedgerEntry[]): SearchLedgerReplay => {
-    const selectedDecisions = decisions.filter(
-      (decision) => decision.decision.status === 'selected',
-    )
-    const rejectedDecisions = decisions.filter(
-      (decision) => decision.decision.status === 'rejected',
-    )
-    const outcomeCounts = { passed: 0, failed: 0, errored: 0 }
-    const operationOutcomeCounts = { completed: 0, partial: 0, failed: 0 }
-    let inputTokens = 0
-    let outputTokens = 0
-    let cachedTokens = 0
-    let costUsd = 0
-    const unknownTokenEventIds: string[] = []
-    const unknownCostEventIds: string[] = []
-    for (const attempt of attempts) {
-      outcomeCounts[attempt.outcome.status] += 1
+  const selectedDecisions = decisions.filter((decision) => decision.decision.status === 'selected')
+  const rejectedDecisions = decisions.filter((decision) => decision.decision.status === 'rejected')
+  const outcomeCounts = { passed: 0, failed: 0, errored: 0 }
+  const operationOutcomeCounts = { completed: 0, partial: 0, failed: 0 }
+  let inputTokens = 0
+  let outputTokens = 0
+  let cachedTokens = 0
+  let costUsd = 0
+  const unknownTokenEventIds: string[] = []
+  const unknownCostEventIds: string[] = []
+  for (const attempt of attempts) {
+    outcomeCounts[attempt.outcome.status] += 1
+  }
+  for (const operation of operationEvents) {
+    operationOutcomeCounts[operation.outcome.status] += 1
+  }
+  for (const costedEvent of [...attempts, ...operationEvents]) {
+    if (costedEvent.accounting.tokens.status === 'known') {
+      inputTokens += costedEvent.accounting.tokens.inputTokens
+      outputTokens += costedEvent.accounting.tokens.outputTokens
+      cachedTokens += costedEvent.accounting.tokens.cachedTokens
+    } else {
+      unknownTokenEventIds.push(costedEvent.eventId)
     }
-    for (const operation of operationEvents) {
-      operationOutcomeCounts[operation.outcome.status] += 1
-    }
-    for (const costedEvent of [...attempts, ...operationEvents]) {
-      if (costedEvent.accounting.tokens.status === 'known') {
-        inputTokens += costedEvent.accounting.tokens.inputTokens
-        outputTokens += costedEvent.accounting.tokens.outputTokens
-        cachedTokens += costedEvent.accounting.tokens.cachedTokens
-      } else {
-        unknownTokenEventIds.push(costedEvent.eventId)
-      }
-      if (costedEvent.accounting.cost.status === 'known') {
-        costUsd += costedEvent.accounting.cost.usd
-      } else {
-        costUsd += costedEvent.accounting.cost.knownLowerBoundUsd
-        unknownCostEventIds.push(costedEvent.eventId)
-      }
-    }
-    const accounting: SearchAccountingAudit =
-      unknownTokenEventIds.length === 0 && unknownCostEventIds.length === 0
-        ? {
-            status: 'known',
-            inputTokens,
-            outputTokens,
-            cachedTokens,
-            costUsd,
-          }
-        : {
-            status: 'partial',
-            knownInputTokens: inputTokens,
-            knownOutputTokens: outputTokens,
-            knownCachedTokens: cachedTokens,
-            knownCostUsd: costUsd,
-            unknownTokenEventIds,
-            unknownCostEventIds,
-          }
-
-    const selectedCandidateId =
-      completion?.result.status === 'selected' ? completion.result.candidateId : null
-    const status: SearchLedgerAudit['status'] =
-      completion?.result.status === 'selected'
-        ? 'selected'
-        : completion?.result.status === 'all-rejected'
-          ? 'all-rejected'
-          : 'in-progress'
-    const missingCandidateSlots =
-      planEvent?.plan.candidateSlots
-        .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
-        .map((slot) => slot.slotId) ?? []
-    const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
-    const missingOperations =
-      planEvent?.plan.operations
-        .filter((operation) => !operationsById.has(operation.operationId))
-        .map((operation) => operation.operationId) ?? []
-    return {
-      entries: [...entries],
-      plan: planEvent,
-      candidates: candidateEvents,
-      closedCandidateSlots: closedSlotEvents,
-      attempts,
-      operations: operationEvents,
-      decisions,
-      completion,
-      audit: {
-        campaignId,
-        eventCount: entries.length,
-        candidateCount: candidates.size,
-        closedCandidateSlotCount: closedSlots.size,
-        attemptCount: attempts.length,
-        operationCount: operationEvents.length,
-        outcomes: outcomeCounts,
-        operationOutcomes: operationOutcomeCounts,
-        decisions: {
-          selected: selectedDecisions.length,
-          rejected: rejectedDecisions.length,
-          pending: candidates.size - decisions.length,
-        },
-        expected: {
-          candidateSlots: planEvent?.plan.candidateSlots.length ?? 0,
-          taskOutcomes: candidates.size * (planEvent?.plan.tasks.length ?? 0),
-          operations: planEvent?.plan.operations.length ?? 0,
-          missingCandidateSlots,
-          missingTaskOutcomes,
-          missingOperations,
-        },
-        status,
-        selectedCandidateId,
-        accounting,
-        headHash: entries.at(-1)?.entryHash ?? null,
-      },
+    if (costedEvent.accounting.cost.status === 'known') {
+      costUsd += costedEvent.accounting.cost.usd
+    } else {
+      costUsd += costedEvent.accounting.cost.knownLowerBoundUsd
+      unknownCostEventIds.push(costedEvent.eventId)
     }
   }
+  const accounting: SearchAccountingAudit =
+    unknownTokenEventIds.length === 0 && unknownCostEventIds.length === 0
+      ? {
+          status: 'known',
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          costUsd,
+        }
+      : {
+          status: 'partial',
+          knownInputTokens: inputTokens,
+          knownOutputTokens: outputTokens,
+          knownCachedTokens: cachedTokens,
+          knownCostUsd: costUsd,
+          unknownTokenEventIds,
+          unknownCostEventIds,
+        }
 
-  return { apply, finish }
+  const selectedCandidateId =
+    completion?.result.status === 'selected' ? completion.result.candidateId : null
+  const status: SearchLedgerAudit['status'] =
+    completion?.result.status === 'selected'
+      ? 'selected'
+      : completion?.result.status === 'all-rejected'
+        ? 'all-rejected'
+        : 'in-progress'
+  const missingCandidateSlots =
+    planEvent?.plan.candidateSlots
+      .filter((slot) => !candidateBySlot.has(slot.slotId) && !closedSlots.has(slot.slotId))
+      .map((slot) => slot.slotId) ?? []
+  const missingTaskOutcomes = planEvent ? plannedTaskOutcomeKeys(planEvent, candidates) : []
+  const missingOperations =
+    planEvent?.plan.operations
+      .filter((operation) => !operationsById.has(operation.operationId))
+      .map((operation) => operation.operationId) ?? []
+  return {
+    entries: [...entries],
+    plan: planEvent,
+    candidates: candidateEvents,
+    closedCandidateSlots: closedSlotEvents,
+    attempts,
+    operations: operationEvents,
+    decisions,
+    completion,
+    audit: {
+      campaignId,
+      eventCount: entries.length,
+      candidateCount: candidates.size,
+      closedCandidateSlotCount: closedSlots.size,
+      attemptCount: attempts.length,
+      operationCount: operationEvents.length,
+      outcomes: outcomeCounts,
+      operationOutcomes: operationOutcomeCounts,
+      decisions: {
+        selected: selectedDecisions.length,
+        rejected: rejectedDecisions.length,
+        pending: candidates.size - decisions.length,
+      },
+      expected: {
+        candidateSlots: planEvent?.plan.candidateSlots.length ?? 0,
+        taskOutcomes: candidates.size * (planEvent?.plan.tasks.length ?? 0),
+        operations: planEvent?.plan.operations.length ?? 0,
+        missingCandidateSlots,
+        missingTaskOutcomes,
+        missingOperations,
+      },
+      status,
+      selectedCandidateId,
+      accounting,
+      headHash: entries.at(-1)?.entryHash ?? null,
+    },
+  }
 }
 
 function plannedTaskOutcomeKeys(
@@ -1523,6 +1529,14 @@ function assertUnique(values: string[], label: string, eventId: string): void {
   if (new Set(values).size !== values.length) {
     throw new SearchLedgerIntegrityError(`event ${eventId} contains duplicate ${label} values`)
   }
+}
+
+function canonicalString(value: unknown): string {
+  return JSON.stringify(canonicalize(value))
+}
+
+function hashCanonical(value: unknown): SearchLedgerHash {
+  return `sha256:${createHash('sha256').update(canonicalString(value)).digest('hex')}`
 }
 
 function formatZodError(error: z.ZodError): string {

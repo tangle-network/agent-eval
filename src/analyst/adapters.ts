@@ -32,8 +32,7 @@ import {
   type SemanticConceptJudgeOptions,
   type SemanticConceptJudgeResult,
 } from '../semantic-concept-judge'
-import type { JudgeFn, JudgeInput, JudgeScore } from '../types'
-import type { ChatClient } from './chat-client'
+import type { JudgeFn, JudgeInput, JudgeScore, TCloud } from '../types'
 import type { Analyst, AnalystFinding, AnalystSeverity } from './types'
 import { makeFinding } from './types'
 import { settleUsageReceiptFromCostLedger, validateUsageSettlementTimeout } from './usage-receipt'
@@ -217,8 +216,8 @@ export interface JudgeAdapterOpts {
   id?: string
   area?: string
   judge: JudgeFn
-  /** Chat client passed to the JudgeFn. */
-  chat: ChatClient
+  /** TCloud handle the JudgeFn calls. */
+  tcloud: TCloud
   /** Optional cost classification — most judges call an LLM. */
   cost?: Analyst['cost']
   /** Optional threshold below which a JudgeScore becomes a finding. Default 6 (on 0-10 scale). */
@@ -237,7 +236,7 @@ export function createJudgeAdapter(opts: JudgeAdapterOpts): Analyst<JudgeInput> 
     cost: opts.cost ?? { kind: 'llm' },
     version: `judge-${ADAPTER_REV}`,
     async analyze(input) {
-      const scores = await opts.judge(opts.chat, input)
+      const scores = await opts.judge(opts.tcloud, input)
       return scores
         .filter((s) => normalize10(s.score) < threshold)
         .map((s) => liftJudgeScore(id, area, s))
@@ -265,8 +264,10 @@ function liftJudgeScore(analyst_id: string, area: string, s: JudgeScore): Analys
     evidence_refs: s.evidence
       ? [{ kind: 'artifact', uri: 'inline:evidence', excerpt: s.evidence }]
       : [],
-    // Descriptive origin only. A caller may admit search feedback into candidate
-    // generation, but final evaluation findings have no allowed proposal origin.
+    // Provenance: this finding IS a judge verdict (an acceptance score), not an
+    // observation of behavior. The steer firewall (assertNoJudgeVerdict) rejects
+    // it from steering — even when it cites an artifact above — because letting a
+    // verdict steer the next attempt is the held-out judge leaking into the loop.
     derived_from_judge: true,
     metadata: { judge_name: s.judgeName, dimension: s.dimension, score_10: score10 },
   })

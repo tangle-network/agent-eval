@@ -5,6 +5,7 @@ import {
   parseRunRecordSafe,
   type RunRecord,
   RunRecordValidationError,
+  resolveRunCostProvenance,
   roundTripRunRecord,
   validateRunRecord,
 } from '../src/run-record'
@@ -22,9 +23,7 @@ function makeRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     wallMs: 1234,
     queueMs: 5,
     costUsd: 0.0123,
-    costProvenance: { kind: 'observed', usd: 0.0123 },
     tokenUsage: { input: 1000, output: 250, cached: 50 },
-    terminalOutcome: 'succeeded',
     judgeMetadata: {
       model: 'claude-sonnet-4-6@2025-04-15',
       promptVersion: 'v3',
@@ -33,7 +32,6 @@ function makeRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     },
     outcome: { searchScore: 0.7, holdoutScore: 0.65, raw: { f1: 0.65, exact: 0.6 } },
     splitTag: 'holdout',
-    scenarioId: 'routing',
   }
   return { ...base, ...overrides, outcome: overrides.outcome ?? base.outcome }
 }
@@ -90,7 +88,7 @@ describe('validateRunRecord — happy path', () => {
       costProvenance: { kind: 'estimated', usd: 0.04 },
     })
     const uncaptured = makeRecord({
-      costUsd: null,
+      costUsd: 0,
       costProvenance: { kind: 'uncaptured', usd: null },
     })
 
@@ -105,46 +103,14 @@ describe('validateRunRecord — happy path', () => {
     })
   })
 
-  it('round-trips an explicit terminal outcome', () => {
-    const r = makeRecord({ terminalOutcome: 'cancelled' })
-    expect(roundTripRunRecord(r).terminalOutcome).toBe('cancelled')
-  })
-
-  it('round-trips a terminal failure reason on a failed outcome', () => {
-    const r = makeRecord({
-      terminalOutcome: 'failed',
-      terminalFailureReason: 'worker process exited 137',
-      outcome: { raw: { execution_error_count: 1 } },
-    })
-    expect(roundTripRunRecord(r).terminalFailureReason).toBe('worker process exited 137')
-    expect(r.failureClass).toBeUndefined()
-    expect(r.failureMode).toBeUndefined()
-  })
-
-  it('accepts failure detail only under a non-success canonical class', () => {
-    const record = makeRecord({
-      failureClass: 'tool_recovery_failure',
-      failureMode: 'forge_build_unsatisfied',
-    })
-
-    expect(roundTripRunRecord(record)).toMatchObject({
-      failureClass: 'tool_recovery_failure',
-      failureMode: 'forge_build_unsatisfied',
-    })
-    expect(() => validateRunRecord(makeRecord({ failureMode: 'unscoped' }))).toThrow(
-      /failureMode requires a non-success failureClass/,
-    )
-    expect(() =>
-      validateRunRecord(makeRecord({ failureClass: 'success', failureMode: 'contradiction' })),
-    ).toThrow(/failureMode requires a non-success failureClass/)
-  })
-
-  it('rejects records without explicit terminal and cost evidence', () => {
-    for (const field of ['terminalOutcome', 'costProvenance'] as const) {
-      const incomplete = { ...makeRecord() } as Record<string, unknown>
-      delete incomplete[field]
-      expect(() => validateRunRecord(incomplete)).toThrow(`missing mandatory field "${field}"`)
-    }
+  it('resolves conservative provenance for legacy cost records', () => {
+    expect(resolveRunCostProvenance(makeRecord({ costUsd: 0.02 })).kind).toBe('observed')
+    expect(
+      resolveRunCostProvenance(
+        makeRecord({ costUsd: 0.02, outcome: { holdoutScore: 1, raw: { cost_estimated: 1 } } }),
+      ).kind,
+    ).toBe('estimated')
+    expect(resolveRunCostProvenance(makeRecord({ costUsd: 0 })).kind).toBe('uncaptured')
   })
 })
 
@@ -160,12 +126,9 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     'commitSha',
     'wallMs',
     'costUsd',
-    'costProvenance',
     'tokenUsage',
-    'terminalOutcome',
     'outcome',
     'splitTag',
-    'scenarioId',
   ]
   for (const field of FIELDS_TO_DROP) {
     it(`throws when "${String(field)}" is missing`, () => {
@@ -175,11 +138,9 @@ describe('validateRunRecord — mandatory field enforcement', () => {
     })
   }
 
-  it('accepts an execution-only record without inventing a task score', () => {
+  it('throws when outcome has neither searchScore nor holdoutScore', () => {
     const r = makeRecord({ outcome: { raw: {} } })
-    const validated = validateRunRecord(r)
-    expect(validated.outcome.searchScore).toBeUndefined()
-    expect(validated.outcome.holdoutScore).toBeUndefined()
+    expect(() => validateRunRecord(r)).toThrow(/searchScore or holdoutScore/)
   })
 
   it('throws on bare model alias without snapshot', () => {
@@ -203,25 +164,6 @@ describe('validateRunRecord — mandatory field enforcement', () => {
       },
     })
     expect(() => validateRunRecord(r)).toThrow(/finite number/)
-  })
-
-  it('rejects an unknown terminal outcome value', () => {
-    const r = makeRecord()
-    ;(r as Record<string, unknown>).terminalOutcome = 'completed'
-    expect(() => validateRunRecord(r)).toThrow(/terminalOutcome must be one of/)
-  })
-
-  it('rejects terminal failure reasons without a matching terminal outcome', () => {
-    for (const terminalOutcome of ['succeeded', 'unknown'] as const) {
-      expect(() =>
-        validateRunRecord(
-          makeRecord({
-            terminalOutcome,
-            terminalFailureReason: 'child tool failed',
-          }),
-        ),
-      ).toThrow(/terminalFailureReason requires terminalOutcome/)
-    }
   })
 
   it('throws on non-finite numeric (NaN, Infinity)', () => {
@@ -291,7 +233,7 @@ describe('validateRunRecord — mandatory field enforcement', () => {
       validateRunRecord(
         makeRecord({ costUsd: 0.03, costProvenance: { kind: 'uncaptured', usd: null } }),
       ),
-    ).toThrow(/costUsd to be null/)
+    ).toThrow(/sentinel 0/)
     expect(() =>
       validateRunRecord(
         makeRecord({ costUsd: -0.03, costProvenance: { kind: 'observed', usd: -0.03 } }),

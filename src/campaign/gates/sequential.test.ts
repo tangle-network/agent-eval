@@ -59,12 +59,6 @@ function genRecord(
     surfaceHash: `top-${generationIndex}`,
     composite: mean,
     ci95: [mean, mean] as [number, number],
-    eligibleForPromotion: true,
-    coverage: {
-      expectedCells: scenarios.length,
-      scorableCells: scenarios.length,
-      unscorableCells: [],
-    },
     dimensions: {},
     scenarios,
   }
@@ -78,12 +72,6 @@ function genRecord(
             surfaceHash: `decoy-${generationIndex}`,
             composite: decoyComposite,
             ci95: [decoyComposite, decoyComposite] as [number, number],
-            eligibleForPromotion: true,
-            coverage: {
-              expectedCells: scenarios.length,
-              scorableCells: scenarios.length,
-              unscorableCells: [],
-            },
             dimensions: {},
             scenarios: scenarios.map((s) => ({ ...s, composite: decoyComposite })),
           },
@@ -284,7 +272,7 @@ describe('sequentialPairedGate.decide — gate contract', () => {
     expect(result.decision).toBe('ship')
     expect(result.reasons[0]).toContain('e-value')
     expect(result.contributingGates).toHaveLength(1)
-    expect(result.contributingGates[0]!.status).toBe('pass')
+    expect(result.contributingGates[0]!.passed).toBe(true)
     expect(result.delta).toBeCloseTo(0.7, 10)
     const detail = result.contributingGates[0]!.detail as { decision: string; n: number }
     expect(detail.decision).toBe('promote')

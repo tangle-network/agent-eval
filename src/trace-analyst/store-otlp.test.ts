@@ -5,18 +5,14 @@
  * filler. Real fixtures, real file IO, no mocks.
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-import { AgentEvalError } from '../errors'
-import { TraceAnalysisValidationError } from './errors'
 import { compileSearchRegex } from './store'
 import {
   OtlpFileTraceStore,
-  otlpTextToTraceAnalysisStore,
-  TraceFileMalformedError,
   TraceFileMissingError,
   TraceFileTooLargeError,
   TraceNotFoundError,
@@ -26,13 +22,6 @@ const TINY_FIXTURE = new URL('../../tests/fixtures/trace-analyst/tiny-trace.json
   .pathname
 
 describe('OtlpFileTraceStore', () => {
-  it('indexes OpenInference JSONL text without a temporary file', async () => {
-    const store = otlpTextToTraceAnalysisStore(await readFile(TINY_FIXTURE, 'utf8'))
-
-    expect((await store.getOverview()).total_traces).toBe(2)
-    expect(() => otlpTextToTraceAnalysisStore('')).toThrow(/must not be empty/)
-  })
-
   it('throws TraceFileMissingError synchronously for a missing path so callers fail fast', async () => {
     const store = new OtlpFileTraceStore({ path: '/nonexistent/path/does-not-exist.jsonl' })
     await expect(store.ensureIndexed()).rejects.toBeInstanceOf(TraceFileMissingError)
@@ -80,13 +69,9 @@ describe('OtlpFileTraceStore', () => {
 
   it('queryTraces rejects out-of-range limit and offset', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
-    await expect(store.queryTraces({ limit: 0 })).rejects.toBeInstanceOf(
-      TraceAnalysisValidationError,
-    )
-    await expect(store.queryTraces({ limit: 201 })).rejects.toMatchObject({ code: 'validation' })
-    await expect(store.queryTraces({ limit: 10, offset: -1 })).rejects.toMatchObject({
-      code: 'validation',
-    })
+    await expect(store.queryTraces({ limit: 0 })).rejects.toBeInstanceOf(RangeError)
+    await expect(store.queryTraces({ limit: 201 })).rejects.toBeInstanceOf(RangeError)
+    await expect(store.queryTraces({ limit: 10, offset: -1 })).rejects.toBeInstanceOf(RangeError)
   })
 
   it('viewTrace returns spans sorted by start_time and projects span fields correctly', async () => {
@@ -165,63 +150,6 @@ describe('OtlpFileTraceStore', () => {
     })
     expect(result.spans.map((s) => s.span_id)).toEqual(['s002', 's004'])
     expect(result.missing_span_ids).toEqual(['sNOPE'])
-    expect(result.omitted_span_ids).toEqual([])
-    expect(result.has_more).toBe(false)
-  })
-
-  it('viewSpans reports every span omitted by the response byte ceiling', async () => {
-    const store = new OtlpFileTraceStore({ path: TINY_FIXTURE, perCallByteCeiling: 1_000 })
-    const requested = ['s001', 's002', 's003', 's004']
-
-    const result = await store.viewSpans({
-      trace_id: 't000000000001',
-      span_ids: requested,
-    })
-    const accounted = [
-      ...result.spans.map((item) => item.span_id),
-      ...result.missing_span_ids,
-      ...result.omitted_span_ids,
-    ]
-
-    expect(accounted.sort()).toEqual([...requested].sort())
-    expect(result.omitted_span_ids.length).toBeGreaterThan(0)
-    expect(result.has_more).toBe(true)
-  })
-
-  it('viewSpans throws instead of returning a no-progress omission for one span', async () => {
-    const store = new OtlpFileTraceStore({
-      path: TINY_FIXTURE,
-      perCallByteCeiling: 500,
-    })
-
-    await expect(
-      store.viewSpans({
-        trace_id: 't000000000001',
-        span_ids: ['s004'],
-      }),
-    ).rejects.toMatchObject({
-      code: 'limit_exceeded',
-      operation: 'viewSpans',
-      limit: 500,
-    })
-  })
-
-  it('viewSpans throws instead of returning no progress when no span in a batch fits', async () => {
-    const store = new OtlpFileTraceStore({
-      path: TINY_FIXTURE,
-      perCallByteCeiling: 500,
-    })
-
-    await expect(
-      store.viewSpans({
-        trace_id: 't000000000001',
-        span_ids: ['s002', 's004'],
-      }),
-    ).rejects.toMatchObject({
-      code: 'limit_exceeded',
-      operation: 'viewSpans',
-      limit: 500,
-    })
   })
 
   it('viewSpans rejects oversized span_ids batch', async () => {
@@ -229,7 +157,7 @@ describe('OtlpFileTraceStore', () => {
     const ids = Array.from({ length: 101 }, (_, i) => `s${i}`)
     await expect(
       store.viewSpans({ trace_id: 't000000000001', span_ids: ids }),
-    ).rejects.toBeInstanceOf(TraceAnalysisValidationError)
+    ).rejects.toBeInstanceOf(RangeError)
   })
 
   it('searchTrace finds STATUS_CODE_ERROR — bug class: regex applied per-line but matches counted across slice', async () => {
@@ -241,6 +169,7 @@ describe('OtlpFileTraceStore', () => {
     expect(result.hits.length).toBe(1)
     expect(result.hits[0]!.span_id).toBe('s004')
     expect(result.hits[0]!.matched_text).toBe('STATUS_CODE_ERROR')
+    expect(result.total_matches).toBe(1)
     expect(result.has_more).toBe(false)
   })
 
@@ -253,6 +182,9 @@ describe('OtlpFileTraceStore', () => {
       max_matches: 2,
     })
     expect(result.hits.length).toBe(2)
+    // Capped: total_matches mirrors the hit count (no fabricated +1); the
+    // "more exist" signal lives in has_more, not in an invented total.
+    expect(result.total_matches).toBe(result.hits.length)
     expect(result.has_more).toBe(true)
   })
 
@@ -265,20 +197,13 @@ describe('OtlpFileTraceStore', () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     const result = await store.searchTrace({
       trace_id: 't000000000001',
-      regex_pattern: '(?:)',
+      regex_pattern: '',
       max_matches: 3,
     })
     expect(result.hits).toHaveLength(3)
     expect(result.has_more).toBe(true)
-  })
-
-  it('rejects unsupported backtracking-only syntax', () => {
-    expect(() => compileSearchRegex('(?=unsafe)')).toThrow(TraceAnalysisValidationError)
-  })
-
-  it('evaluates a pathological nested repetition in linear time', { timeout: 2_000 }, () => {
-    const re = compileSearchRegex('(a+)+$')
-    expect(re.test(`${'a'.repeat(100_000)}!`)).toBe(false)
+    // Capped: no fabricated total — mirrors hits, has_more carries the signal.
+    expect(result.total_matches).toBe(3)
   })
 
   it('searchSpan returns hits scoped to one span only', async () => {
@@ -303,7 +228,7 @@ describe('OtlpFileTraceStore', () => {
     ).rejects.toBeInstanceOf(TraceNotFoundError)
   })
 
-  it('rejects malformed JSONL with its exact line and byte position', async () => {
+  it('skips malformed JSONL lines silently — bug class: one bad line nukes the whole dataset', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'trace-analyst-'))
     const path = join(tmp, 'trace.jsonl')
     try {
@@ -320,14 +245,8 @@ describe('OtlpFileTraceStore', () => {
       })
       await writeFile(path, `${goodLine}\nthis is not json\n${goodLine}\n`, 'utf8')
       const store = new OtlpFileTraceStore({ path })
-      const failure = await store.getOverview().catch((error: unknown) => error)
-      expect(failure).toBeInstanceOf(TraceFileMalformedError)
-      expect(failure).toMatchObject({
-        path,
-        line_number: 2,
-        byte_offset: Buffer.byteLength(`${goodLine}\n`, 'utf8'),
-        code: 'capture_integrity',
-      })
+      const overview = await store.getOverview()
+      expect(overview.total_traces).toBe(1)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -388,29 +307,6 @@ describe('OtlpFileTraceStore — error_clusters (deterministic failure coverage)
       expect(top.status_message_sample).toContain('30000ms') // verbatim exemplar retained
       expect(second.trace_count).toBe(1)
       expect(second.signature).toContain('out of memory')
-    } finally {
-      await rm(tmp, { recursive: true, force: true })
-    }
-  })
-
-  it('keeps long failure signatures distinct and preserves the complete sample', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'trace-clusters-long-'))
-    const path = join(tmp, 'trace.jsonl')
-    const sharedPrefix = `long failure ${'x'.repeat(600)}`
-    const first = `${sharedPrefix} alpha`
-    const second = `${sharedPrefix} beta`
-    try {
-      await writeFile(path, [errSpan('t1', 's1', first), errSpan('t2', 's2', second)].join('\n'))
-
-      const overview = await new OtlpFileTraceStore({ path }).getOverview()
-
-      expect(overview.error_clusters).toHaveLength(2)
-      expect(overview.error_clusters.map((cluster) => cluster.signature)).toEqual(
-        expect.arrayContaining([first, second]),
-      )
-      expect(overview.error_clusters.map((cluster) => cluster.status_message_sample)).toEqual(
-        expect.arrayContaining([first, second]),
-      )
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -479,8 +375,8 @@ describe('OtlpFileTraceStore — concurrent reads (per-call truncation counter)'
   })
 })
 
-describe('OtlpFileTraceStore — searchTrace continuation', () => {
-  it('reports no continuation after an uncapped scan', async () => {
+describe('OtlpFileTraceStore — searchTrace total_matches honesty', () => {
+  it('reports the EXACT total when uncapped — total equals hit count, has_more is false', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     // 'STATUS_CODE_ERROR' occurs once in t000000000001; uncapped scan.
     const r = await store.searchTrace({
@@ -488,11 +384,12 @@ describe('OtlpFileTraceStore — searchTrace continuation', () => {
       regex_pattern: 'STATUS_CODE_ERROR',
       max_matches: 50,
     })
-    expect(r.hits).toHaveLength(1)
+    expect(r.total_matches).toBe(r.hits.length)
+    expect(r.total_matches).toBe(1)
     expect(r.has_more).toBe(false)
   })
 
-  it('reports continuation without inventing a total when capped', async () => {
+  it('does NOT fabricate total_matches when capped — bug class: total = max(total, hits+1) invents a number', async () => {
     const store = new OtlpFileTraceStore({ path: TINY_FIXTURE })
     // 'span_id' appears in every span line — easily exceeds the cap.
     const r = await store.searchTrace({
@@ -501,6 +398,9 @@ describe('OtlpFileTraceStore — searchTrace continuation', () => {
       max_matches: 2,
     })
     expect(r.hits.length).toBe(2)
+    // Old behavior: total_matches = hits.length + 1 = 3 (a fabricated
+    // count). New behavior: mirror the hit count and lean on has_more.
+    expect(r.total_matches).toBe(2)
     expect(r.has_more).toBe(true)
   })
 })
@@ -567,10 +467,7 @@ describe('OtlpFileTraceStore — max-file-size guard (fail loud, no OOM)', () =>
       await writeFile(path, `${line}\n`)
       // File is a few hundred bytes; set the ceiling below it.
       const store = new OtlpFileTraceStore({ path, maxFileBytes: 10 })
-      const error = await store.ensureIndexed().catch((cause: unknown) => cause)
-      expect(error).toBeInstanceOf(TraceFileTooLargeError)
-      expect(error).toBeInstanceOf(AgentEvalError)
-      expect(error).toMatchObject({ code: 'limit_exceeded', size_bytes: expect.any(Number) })
+      await expect(store.ensureIndexed()).rejects.toBeInstanceOf(TraceFileTooLargeError)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -595,74 +492,6 @@ describe('OtlpFileTraceStore — max-file-size guard (fail loud, no OOM)', () =>
       const store = new OtlpFileTraceStore({ path, maxFileBytes: 1024 * 1024 })
       const overview = await store.getOverview()
       expect(overview.total_traces).toBe(1)
-    } finally {
-      await rm(tmp, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('OtlpFileTraceStore — cancellation', () => {
-  it('stops an active scan and leaves the cached index usable', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'trace-cancel-'))
-    const path = join(tmp, 'trace.jsonl')
-    try {
-      const lines = Array.from({ length: 2_500 }, (_, index) =>
-        JSON.stringify({
-          trace_id: `trace-${index.toString().padStart(4, '0')}`,
-          span_id: `span-${index}`,
-          parent_span_id: '',
-          name: 'op',
-          start_time: '2026-07-29T00:00:00.000Z',
-          end_time: '2026-07-29T00:00:01.000Z',
-          status: { code: 'STATUS_CODE_OK' },
-          resource: {},
-          attributes: { 'openinference.span.kind': 'TOOL' },
-        }),
-      )
-      await writeFile(path, `${lines.join('\n')}\n`)
-      const store = new OtlpFileTraceStore({ path })
-      await store.ensureIndexed()
-
-      const controller = new AbortController()
-      const reason = new Error('stop trace scan')
-      const read = store.getOverview(undefined, { signal: controller.signal })
-      setImmediate(() => controller.abort(reason))
-
-      await expect(read).rejects.toBe(reason)
-      await expect(store.countTraces()).resolves.toBe(2_500)
-    } finally {
-      await rm(tmp, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('OtlpFileTraceStore — complete error inventory', () => {
-  it('returns every distinct error cluster instead of silently keeping only 50', async () => {
-    const tmp = await mkdtemp(join(tmpdir(), 'trace-errors-'))
-    const path = join(tmp, 'trace.jsonl')
-    try {
-      const lines = Array.from({ length: 51 }, (_, index) =>
-        JSON.stringify({
-          trace_id: `trace-${index}`,
-          span_id: `span-${index}`,
-          parent_span_id: '',
-          name: 'worker',
-          start_time: '2026-07-29T00:00:00.000Z',
-          end_time: '2026-07-29T00:00:01.000Z',
-          status: {
-            code: 'STATUS_CODE_ERROR',
-            message: `distinct failure word-${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`,
-          },
-          resource: {},
-          attributes: { 'openinference.span.kind': 'TOOL' },
-        }),
-      )
-      await writeFile(path, `${lines.join('\n')}\n`)
-
-      const overview = await new OtlpFileTraceStore({ path }).getOverview()
-
-      expect(overview.errors).toEqual({ trace_count: 51, span_count: 51 })
-      expect(overview.error_clusters).toHaveLength(51)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }

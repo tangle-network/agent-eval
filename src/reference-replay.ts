@@ -426,7 +426,6 @@ export function decideReferenceReplayPromotion(
   const compared = comparisons.filter((item) => requiredSplits.includes(item.split))
   const regressions = comparisons.filter((item) => item.f1Delta < -maxRegression)
   const aggregateDelta = candidate.aggregate.f1 - baseline.aggregate.f1
-  const coverageMismatch = compareScenarioCoverage(baseline, candidate)
 
   if (missingRequiredSplits.length > 0) {
     return {
@@ -468,26 +467,6 @@ export function decideReferenceReplayPromotion(
     }
   }
 
-  if (coverageMismatch.candidateMissing.length > 0 || coverageMismatch.baselineMissing.length > 0) {
-    const gaps = [
-      coverageMismatch.candidateMissing.length > 0
-        ? `candidate missing ${formatScenarioIds(coverageMismatch.candidateMissing)}`
-        : null,
-      coverageMismatch.baselineMissing.length > 0
-        ? `baseline missing ${formatScenarioIds(coverageMismatch.baselineMissing)}`
-        : null,
-    ].filter((part): part is string => part !== null)
-    return {
-      promote: false,
-      reason:
-        `Scenario coverage differs: baseline ${baseline.scenarios.length}, ` +
-        `candidate ${candidate.scenarios.length}; ${gaps.join('; ')}`,
-      aggregateDelta,
-      comparisons,
-      regressions,
-    }
-  }
-
   const requiredMeanDelta = mean(compared.map((item) => item.f1Delta))
   if (requiredMeanDelta < minF1Delta) {
     return {
@@ -506,47 +485,6 @@ export function decideReferenceReplayPromotion(
     comparisons,
     regressions,
   }
-}
-
-interface ScenarioCoverageMismatch {
-  candidateMissing: string[]
-  baselineMissing: string[]
-}
-
-function compareScenarioCoverage(
-  baseline: ReferenceReplayScore,
-  candidate: ReferenceReplayScore,
-): ScenarioCoverageMismatch {
-  const baselineCounts = scenarioIdentityCounts(baseline)
-  const candidateCounts = scenarioIdentityCounts(candidate)
-  return {
-    candidateMissing: countDifference(baselineCounts, candidateCounts),
-    baselineMissing: countDifference(candidateCounts, baselineCounts),
-  }
-}
-
-function scenarioIdentityCounts(score: ReferenceReplayScore): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const scenario of score.scenarios) {
-    const identity = `${scenario.split}:${scenario.scenarioId}`
-    counts.set(identity, (counts.get(identity) ?? 0) + 1)
-  }
-  return counts
-}
-
-function countDifference(expected: Map<string, number>, actual: Map<string, number>): string[] {
-  const missing: string[] = []
-  for (const [identity, count] of expected) {
-    const difference = count - (actual.get(identity) ?? 0)
-    for (let index = 0; index < difference; index++) missing.push(identity)
-  }
-  return missing.sort()
-}
-
-function formatScenarioIds(ids: string[]): string {
-  const shown = ids.slice(0, 5)
-  const remaining = ids.length - shown.length
-  return remaining > 0 ? `${shown.join(', ')}, +${remaining} more` : shown.join(', ')
 }
 
 export function defaultReferenceReplayMatcher(

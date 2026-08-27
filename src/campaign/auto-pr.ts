@@ -115,7 +115,7 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push(
     `**Cells**: executed ${result.aggregates.cellsExecuted}, cached ${result.aggregates.cellsCached}, skipped ${result.aggregates.cellsSkipped}, failed ${result.aggregates.cellsFailed}`,
   )
-  lines.push(`**Total spend**: $${result.aggregates.cost.totalCostUsd.toFixed(2)}`)
+  lines.push(`**Total spend**: $${result.aggregates.totalCostUsd.toFixed(2)}`)
   lines.push('')
   lines.push(`### Gate verdict: \`${gate.decision}\``)
   lines.push('')
@@ -124,14 +124,14 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push('')
   lines.push('### Contributing gates')
   lines.push('')
-  lines.push('| gate | status | detail |')
+  lines.push('| gate | passed | detail |')
   lines.push('|---|---|---|')
   for (const c of gate.contributingGates) {
     const detail =
       typeof c.detail === 'object'
         ? JSON.stringify(c.detail).slice(0, 80)
         : String(c.detail).slice(0, 80)
-    lines.push(`| ${c.name} | ${c.status} | ${detail} |`)
+    lines.push(`| ${c.name} | ${c.passed ? '✓' : '✗'} | ${detail} |`)
   }
   lines.push('')
   lines.push('### Promoted surface')

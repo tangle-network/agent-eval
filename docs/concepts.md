@@ -32,17 +32,6 @@ It contains score distributions, paired lift intervals, judge agreement, cost, f
 Run records, scenarios, judge scores, statistics, and release decisions belong here because they work without an agent runtime.
 Agent sessions, worker coordination, sandbox execution, and runtime-specific profiles belong in `agent-runtime`.
 
-## Measuring a complete profile
-
-Use the profile improvement functions from `/contract` when a host owns immutable agent-profile snapshots.
-`sealAgentProfileImprovementExperiment()` freezes the exact baseline, candidate diff, held-out tasks, model, limits, and policy.
-`runAgentProfileImprovementExperiment()` asks the host to execute every frozen baseline/candidate cell and requires one complete receipt per execution.
-`measuredComparisonFromAgentProfileImprovementExperiment()` recomputes scores, uncertainty, cost, latency, and the release decision from those receipts.
-
-This API never activates a candidate or runs an agent itself.
-The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
-The first portable profile contract accepts prompt and skill changes only; a host must add its own exact-state adapter before measuring tools, MCP servers, hooks, subagents, or external knowledge.
-
 ## Main Objects
 
 | Thing | What it is | One-line example |
@@ -53,18 +42,6 @@ The first portable profile contract accepts prompt and skill changes only; a hos
 | **Feedback trajectory** | A multi-shot record of attempts, approvals, rejections, edits, metrics, and policy outcomes. | "draft → user rejects → revised draft → approved → measured" |
 
 Traces, datasets, optimization, statistics, and reports build on these objects.
-
-## Release check results
-
-Every entry in `GateResult.contributingGates` has a `status` of `pass`, `fail`, or `not_evaluated`.
-`pass` and `fail` mean the check ran with sufficient input.
-`not_evaluated` means the check lacked enough evidence to run.
-`defaultProductionGate` always requires held-out significance.
-Its other checks are optional until their input is configured or their name is included in `requiredChecks`.
-A required check with missing or insufficient evidence remains `not_evaluated` and holds the release decision.
-An absent optional check records `not_evaluated` and never appears as a successful check.
-Run history is shared input only.
-Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
 
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
@@ -161,14 +138,9 @@ const verifier = new MultiLayerVerifier([
 
 const report = await verifier.run({ env: { runner, workdir, ... } })
 report.allPass        // boolean: every layer passed
-report.taskScore      // complete task score, or undefined
-report.blendedScore   // diagnostic weighted aggregate, possibly partial
+report.blendedScore   // 0..1: weighted aggregate
 report.layers         // per-layer status, findings, duration
 ```
-
-Use `taskScore` when creating task labels or training data.
-An errored, timed-out, skipped, or incomplete scoring panel leaves `taskScore` undefined.
-Use `blendedScore` only to inspect the measurements that did complete.
 
 Two rules that will save you bugs:
 

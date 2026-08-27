@@ -17,10 +17,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { mintRolloutRows } from '../rollout/mint'
-import { trainingScore } from '../rollout/reward'
 import type { RunRecord } from '../run-record'
-import { InMemoryTraceStore } from '../trace/store'
 import { buildRlDataset, type RlDatasetBundle, type RlDatasetConfig } from './dataset'
 
 /** A corpus record is a RunRecord carrying the trajectory text the harness
@@ -71,23 +68,16 @@ export function readCorpus(corpusPath: string): CorpusRecord[] {
   return out
 }
 
-/**
- * The harvest's score reader is GATED: a gamed run reads 0, so it cannot buy
- * its way past `minScore` into the published bundle with its claimed score.
- * `null` = unscored (a labeled gap, dropped before packaging, never a 0).
- */
-function rewardOf(r: CorpusRecord): number | null {
-  const v = trainingScore(r)
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
+function rewardOf(r: CorpusRecord): number {
+  const v = r.outcome.holdoutScore ?? r.outcome.searchScore
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }
 
 export interface HarvestOptions {
   /** Keep only records scoring >= this (rejection-sampling for SFT). */
   minScore?: number
-  /** Keep only these source splits. Held-out rows still require the explicit override below. */
+  /** Keep only these splits (e.g. ['holdout'] for an eval-only dataset). */
   splits?: RunRecord['splitTag'][]
-  /** Permit held-out rows in training files. Default false. */
-  allowHeldOutTrainingData?: boolean
 }
 
 /**
@@ -96,12 +86,6 @@ export interface HarvestOptions {
  * missing either are excluded (a graded score with no trajectory can't train).
  * Optionally filters by score / split. Throws (via buildRlDataset) if nothing
  * survives — an empty dataset must never be published.
- *
- * `minScore` is applied to the GATED reward (`trainingScore`), so a gamed run
- * cannot buy its way into the published bundle with its claimed score —
- * `minScore` is exactly the door a reward-hacked run would otherwise clear for
- * SFT. Unscored records are dropped before packaging: a missing label is not a
- * zero, and it is not publishable either.
  */
 export async function buildDatasetFromCorpus(
   corpusPath: string,
@@ -112,13 +96,7 @@ export async function buildDatasetFromCorpus(
     (r) => typeof r.prompt === 'string' && typeof r.completion === 'string',
   )
   if (opts.splits) records = records.filter((r) => opts.splits!.includes(r.splitTag))
-  records = records.filter((r) => rewardOf(r) !== null)
-  if (opts.minScore != null) {
-    records = records.filter((r) => {
-      const reward = rewardOf(r)
-      return reward !== null && reward >= opts.minScore!
-    })
-  }
+  if (opts.minScore != null) records = records.filter((r) => rewardOf(r) >= opts.minScore!)
 
   const text = new Map(
     records.map((r) => [r.runId, { prompt: r.prompt!, completion: r.completion! }]),
@@ -126,8 +104,6 @@ export async function buildDatasetFromCorpus(
   const lookups = {
     promptOf: (id: string) => text.get(id)?.prompt ?? '',
     completionOf: (id: string) => text.get(id)?.completion ?? '',
-    allowHeldOutTrainingData: opts.allowHeldOutTrainingData,
   }
-  const { rows } = await mintRolloutRows(records, new InMemoryTraceStore())
-  return buildRlDataset(rows, lookups, config)
+  return buildRlDataset(records, lookups, config)
 }

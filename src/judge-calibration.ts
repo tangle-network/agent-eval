@@ -343,8 +343,9 @@ export interface ContinuousCalibrationResult extends CalibrationResult {
 }
 
 /**
- * Extends `calibrateJudge` with continuous-value agreement metrics while
- * retaining its base calibration summary.
+ * Drop-in superset of `calibrateJudge` that adds continuous-value
+ * agreement metrics. The old fields (n, pearson, kappa, mae, worstItems)
+ * are preserved unchanged so existing callers continue to work.
  */
 export function calibrateJudgeContinuous(
   golden: GoldenItem[],

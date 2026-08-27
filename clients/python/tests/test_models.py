@@ -4,7 +4,6 @@ Each test names the regression it would catch. The invariant: anything
 the TypeScript JudgeRequest accepts/rejects, the Python JudgeRequest
 must accept/reject the same way.
 """
-
 from __future__ import annotations
 
 import pytest

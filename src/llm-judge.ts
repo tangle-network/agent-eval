@@ -5,8 +5,9 @@
  * The `JudgeConfig` contract (src/campaign/types.ts) is deliberately a
  * function, not a fixed LLM-prompt shape: real consumers judge with
  * ensembles, deterministic checks, or one LLM call. `ensembleJudge`
- * (src/judge-panel.ts) covers the multi-model case. `llmJudge` covers the
- * common single-call case the `JudgeConfig` doc-comment names:
+ * (src/judge-panel.ts) covers the multi-model case; `buildAgreementJudge`
+ * (src/campaign/distillation) covers the pure-comparator case. `llmJudge`
+ * covers the common single-call case the `JudgeConfig` doc-comment names:
  * one model call against `prompt`, parsed into the canonical `JudgeScore`
  * (`{ dimensions, composite, notes }`) on the campaign [0,1] scale.
  *
@@ -192,7 +193,7 @@ export function llmJudge<TArtifact = unknown, TScenario extends Scenario = Scena
           opts.chat.maximumAttempts === undefined
             ? undefined
             : maximumChargeForLlmRequest(request, {
-                maximumAttempts: opts.chat.maximumAttempts,
+                maxRetries: opts.chat.maximumAttempts,
               }),
         tags: { ...costTags, scenarioId: scenario.id },
         signal,

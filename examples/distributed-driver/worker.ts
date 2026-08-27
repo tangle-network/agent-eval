@@ -8,8 +8,9 @@
  * Env:  PORT (default 8080), WORKER_TOKEN (default 'dev-token')
  */
 
+import type { Dispatch } from '../../src/contract'
+import type { Scenario } from '../../src/contract'
 import { runDispatchServer } from '../../src/adapters/http'
-import type { Dispatch, Scenario } from '../../src/contract'
 
 interface MarketingScenario extends Scenario {
   blurb: string
@@ -47,10 +48,7 @@ const handle = await runDispatchServer<MarketingScenario, MarketingArtifact>({
   auth: token,
   onRequest: ({ cellId, durationMs, success, error }) => {
     if (success) console.log(`✓ ${workerId} ${cellId} (${durationMs}ms)`)
-    else
-      console.error(
-        `✗ ${workerId} ${cellId} (${durationMs}ms): ${error instanceof Error ? error.message : error}`,
-      )
+    else console.error(`✗ ${workerId} ${cellId} (${durationMs}ms): ${error instanceof Error ? error.message : error}`)
   },
 })
 

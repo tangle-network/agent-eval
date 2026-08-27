@@ -1,11 +1,13 @@
-"""Python integrations for @tangle-network/agent-eval.
+"""agent-eval-rpc — Python RPC client for @tangle-network/agent-eval.
 
-The package provides the judging client, a native DSPy metric, and process
-bridges for official GEPA and SkillOpt. TypeScript remains responsible for
-agent execution, case separation, scoring, cost records, and final comparison.
+The TypeScript package is the source of truth for evaluation logic. This
+client is a thin transport adapter — every judgement runs in the Node
+runtime, marshalled over HTTP or stdio RPC. Two languages, one
+implementation.
 
 The package distributes as ``agent-eval-rpc`` on PyPI and imports as
-``agent_eval_rpc``.
+``agent_eval_rpc`` to make the wire-client nature explicit; the rubric
+logic lives upstream in ``@tangle-network/agent-eval`` on npm.
 
 Quickstart
 ----------
@@ -16,13 +18,16 @@ Quickstart
     result = client.judge(content="our scaffold supports zero-copy IO", rubric_name="anti-slop")
     print(result.composite, result.failure_modes)
 
+Or as a one-shot using the bundled `agent-eval` CLI:
+
+    result = client.judge(content="…", rubric={"name": "custom", ...})
+
 See README.md for the full guide.
 """
 
 from importlib.metadata import PackageNotFoundError, version
 
 from .client import Client
-from .dspy_metric import DspyContentBuilder, DspyContextBuilder, DspyJudgeMetric
 from .errors import (
     AgentEvalError,
     RubricNotFoundError,
@@ -53,13 +58,10 @@ from .models import (
 try:
     __version__ = version("agent-eval-rpc")
 except PackageNotFoundError:
-    __version__ = "0.139.3"
+    __version__ = "0.123.8"
 
 __all__ = [
     "Client",
-    "DspyJudgeMetric",
-    "DspyContentBuilder",
-    "DspyContextBuilder",
     "AgentEvalError",
     "TransportError",
     "RubricNotFoundError",

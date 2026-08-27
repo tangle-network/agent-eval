@@ -4,7 +4,6 @@
  * OpenAI-compatible `/v1/chat/completions` client with:
  *   - Exponential-backoff retry on 429 + 5xx gateway errors (502/503/504).
  *   - Retry on transient network errors (fetch failed, AbortError, ECONNRESET).
- *   - One retry at temperature 1 when a model explicitly requires it.
  *   - Graceful json_schema → json_object degrade on 400 with schema-reject body.
  *   - Fenced-JSON stripping (```json ... ```) for models that wrap structured output.
  *   - Configurable base URL + api key / bearer, works with LiteLLM proxies, OpenAI
@@ -16,8 +15,9 @@
  *     { baseUrl: 'https://router.tangle.tools/v1', apiKey: process.env.KEY },
  *   )
  *
- * `createChatClient` wraps this implementation for provider-neutral package
- * entry points. Direct callers can use `callLlm` or `callLlmJson`.
+ * This is THE llm-calling seam for agent-eval primitives that need structured
+ * output (semantic concept judge, reviewer directives, critic scores). Primitives
+ * that need free-form text use `callLlm` and parse output themselves.
  */
 
 import {
@@ -51,8 +51,6 @@ export interface LlmMessage {
       >
 }
 
-export type LlmThinkingMode = 'enabled' | 'disabled'
-
 export interface LlmCallRequest {
   model: string
   messages: LlmMessage[]
@@ -62,8 +60,6 @@ export interface LlmCallRequest {
   jsonSchema?: { name: string; schema: Record<string, unknown> }
   temperature?: number
   maxTokens?: number
-  /** OpenAI-compatible reasoning mode. Omitted when the provider default should apply. */
-  thinking?: LlmThinkingMode
   /** Per-call timeout, default 300s. */
   timeoutMs?: number
 }
@@ -73,7 +69,7 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export function maximumChargeForLlmRequest(
-  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens' | 'thinking'>,
+  request: Pick<LlmCallRequest, 'model' | 'messages' | 'jsonSchema' | 'maxTokens'>,
   options: LlmClientOptions = {},
 ): MaximumCharge | undefined {
   if (request.maxTokens === undefined) return undefined
@@ -89,12 +85,12 @@ export function maximumChargeForLlmRequest(
     return undefined
   }
 
-  const attempts = resolveMaximumAttempts(options.maximumAttempts)
+  const attempts = resolveMaximumAttempts(options.maxRetries)
   const forceJsonObject = options.jsonSchemaTransport === 'json-object'
   // A byte-level tokenizer cannot emit more input tokens than request bytes.
   // Pricing the complete body also covers role/schema framing omitted from content-only estimates.
   const requestBytes = new TextEncoder().encode(
-    JSON.stringify(buildBody(request, forceJsonObject, options.thinking)),
+    JSON.stringify(buildBody(request, forceJsonObject)),
   ).byteLength
   // A rejected response schema can trigger one JSON-mode batch with the same output limit.
   const batches = request.jsonSchema && !forceJsonObject ? 2 : 1
@@ -160,18 +156,16 @@ export function costReceiptFromLlm(
   customTokenPricing?: CustomTokenPricing,
 ): CostReceiptInput {
   const cachedTokens = result.usage.cachedPromptTokens ?? 0
-  const inputTokens = Math.max(0, result.usage.promptTokens - cachedTokens)
   const configuredCostUsd =
     result.costUsd === null && customTokenPricing && result.usage.captured !== false
       ? costForTokenPricing(customTokenPricing, {
-          inputTokens,
-          ...(cachedTokens > 0 ? { cachedTokens } : {}),
+          inputTokens: result.usage.promptTokens,
           outputTokens: result.usage.completionTokens,
         })
       : undefined
   return {
     model: result.model,
-    inputTokens,
+    inputTokens: Math.max(0, result.usage.promptTokens - cachedTokens),
     outputTokens: result.usage.completionTokens,
     reasoningTokens: result.usage.reasoningTokens,
     cachedTokens: cachedTokens > 0 ? cachedTokens : undefined,
@@ -241,8 +235,8 @@ export interface LlmClientOptions {
    * total attempts × `timeoutMs`.
    */
   deadlineMs?: number
-  /** Total provider attempts. Default 3. */
-  maximumAttempts?: number
+  /** Total provider attempts. Legacy option name; default 3 (1 initial + 2 retries). */
+  maxRetries?: number
   /** Token rates used when the provider omits cost or package pricing does not cover the model. */
   customTokenPricing?: CustomTokenPricing
   /**
@@ -258,8 +252,6 @@ export interface LlmClientOptions {
    * Default: `extract`.
    */
   jsonPayloadMode?: 'extract' | 'exact'
-  /** Default provider reasoning mode. A per-call request value takes precedence. */
-  thinking?: LlmThinkingMode
   /** Fetch implementation — defaults to global `fetch`. Override for custom transport (e.g. tests). */
   fetch?: typeof fetch
   /**
@@ -293,13 +285,10 @@ const DEFAULT_BASE_URL = 'https://router.tangle.tools/v1'
 // TANGLE_LLM_TIMEOUT_MS. Per-call `req.timeoutMs` / `opts.defaultTimeoutMs`
 // still win for callers that know their model's latency.
 const DEFAULT_TIMEOUT_MS = Number(process.env.TANGLE_LLM_TIMEOUT_MS) || 300_000
-const DEFAULT_MAXIMUM_ATTEMPTS =
-  process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS === undefined
-    ? 3
-    : Number(process.env.TANGLE_LLM_MAXIMUM_ATTEMPTS)
+const DEFAULT_MAX_RETRIES = Number(process.env.TANGLE_LLM_MAX_RETRIES) || 3
 
 function resolveMaximumAttempts(configured: number | undefined): number {
-  const attempts = configured ?? DEFAULT_MAXIMUM_ATTEMPTS
+  const attempts = configured ?? DEFAULT_MAX_RETRIES
   if (!Number.isInteger(attempts) || attempts <= 0) {
     throw new RangeError('LLM maximum attempts must be a positive integer')
   }
@@ -344,9 +333,10 @@ const TRANSIENT_ERROR_PATTERNS: readonly RegExp[] = [
  * name/message/code, then recurses into `error.cause` — undici nests the
  * real socket fault one or more levels under `.cause`.
  *
- * This is the retry classifier for the package: `callLlm` and
- * `withJudgeRetry` both route through it, so connection failures are treated
- * consistently across transports.
+ * This is THE retry classifier for the package: `callLlm` and
+ * `withJudgeRetry` both route through it, so a connection-class error is
+ * treated identically whether it surfaces in the HTTP client or a
+ * TCloud-backed judge.
  */
 export function isTransientLlmError(err: unknown): boolean {
   return classifyTransient(err, 0)
@@ -355,8 +345,8 @@ export function isTransientLlmError(err: unknown): boolean {
 function classifyTransient(err: unknown, depth: number): boolean {
   if (err instanceof LlmCallError) return RETRYABLE_STATUS.has(err.status)
   if (!(err instanceof Error)) return false
-  // Foreign transport errors can carry a numeric HTTP status without being an
-  // LlmCallError. A retryable status is decisive.
+  // Foreign errors (e.g. a TCloud judge SDK error) can carry a numeric HTTP
+  // status without being an LlmCallError — a retryable status is decisive.
   const status = (err as { status?: unknown }).status
   if (typeof status === 'number' && RETRYABLE_STATUS.has(status)) return true
   const code = (err as { code?: unknown }).code
@@ -409,20 +399,7 @@ function isSchemaRejection(status: number, body: string): boolean {
   )
 }
 
-function isTemperatureOneRejection(status: number, body: string): boolean {
-  if (status !== 400 || !/temperature/i.test(body)) return false
-  return (
-    /temperature[^.\n]{0,120}\b(?:only|must|should|required|requires?)\b[^.\n]{0,40}\b1(?:\.0+)?\b/i.test(
-      body,
-    ) || /\bonly\s+1(?:\.0+)?\s+is\s+allowed\b[^.\n]{0,120}\btemperature\b/i.test(body)
-  )
-}
-
-function buildBody(
-  req: LlmCallRequest,
-  forceJsonObject: boolean,
-  defaultThinking?: LlmThinkingMode,
-): Record<string, unknown> {
+function buildBody(req: LlmCallRequest, forceJsonObject: boolean): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: req.model,
     messages: req.messages,
@@ -431,10 +408,6 @@ function buildBody(
   if (req.maxTokens != null) {
     if (usesMaxCompletionTokens(req.model)) body.max_completion_tokens = req.maxTokens
     else body.max_tokens = req.maxTokens
-  }
-  const thinking = req.thinking ?? defaultThinking
-  if (thinking !== undefined) {
-    body.thinking = { type: thinking }
   }
 
   if (req.jsonSchema && !forceJsonObject) {
@@ -574,7 +547,7 @@ export async function callLlm(
   const url = `${baseUrl}/chat/completions`
   const endpoint = '/chat/completions'
   const timeoutMs = req.timeoutMs ?? opts.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
-  const maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+  const maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
   const fetchFn = opts.fetch ?? globalThis.fetch
   const headers = buildHeaders(opts)
   const provider = opts.provider ?? providerFromBaseUrl(baseUrl)
@@ -589,7 +562,6 @@ export async function callLlm(
   }
 
   let lastErr: unknown
-  let effectiveRequest = req
   for (let attempt = 0; attempt < maximumAttempts; attempt++) {
     // A caller cancel is fatal — never retried. Checking before each attempt
     // means an already-aborted signal short-circuits without firing fetch.
@@ -605,11 +577,7 @@ export async function callLlm(
     const attemptSignal = linkSignals(controller, callerSignal)
     const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
     const started = Date.now()
-    const requestBody = buildBody(
-      effectiveRequest,
-      opts.jsonSchemaTransport === 'json-object',
-      opts.thinking,
-    )
+    const requestBody = buildBody(req, opts.jsonSchemaTransport === 'json-object')
     let attemptErrorRecorded = false
     if (sink) {
       await recordRaw(sink, redactor, {
@@ -663,21 +631,11 @@ export async function callLlm(
           attemptErrorRecorded = true
         }
         const err = new LlmCallError(
-          `LLM call failed with HTTP ${res.status}`,
+          `LLM call ${res.status}: ${body.slice(0, 300)}`,
           res.status,
           body,
           req.model,
         )
-        if (
-          isTemperatureOneRejection(res.status, body) &&
-          effectiveRequest.temperature !== 1 &&
-          attempt < maximumAttempts - 1 &&
-          !deadlineExceeded(deadlineStart, deadlineMs)
-        ) {
-          lastErr = err
-          effectiveRequest = { ...effectiveRequest, temperature: 1 }
-          continue
-        }
         if (
           RETRYABLE_STATUS.has(res.status) &&
           attempt < maximumAttempts - 1 &&
@@ -780,8 +738,7 @@ export async function callLlm(
       const configuredCost =
         typeof costFromProxy !== 'number' && usageCaptured && opts.customTokenPricing
           ? costForTokenPricing(opts.customTokenPricing, {
-              inputTokens: promptTokens! - (cachedPromptTokens ?? 0),
-              ...(cachedPromptTokens ? { cachedTokens: cachedPromptTokens } : {}),
+              inputTokens: promptTokens!,
               outputTokens: completionTokens!,
             })
           : undefined
@@ -952,8 +909,12 @@ function parseJsonSafely<T>(
   const payload = jsonPayloadMode === 'exact' ? content : extractJsonPayload(content)
   try {
     return JSON.parse(payload) as T
-  } catch {
-    throw new Error(`LLM returned non-JSON content (model=${model})`)
+  } catch (err) {
+    throw new Error(
+      `LLM returned non-JSON content (model=${model}): ${
+        err instanceof Error ? err.message : String(err)
+      }\n--- raw content ---\n${content.slice(0, 800)}`,
+    )
   }
 }
 
@@ -1116,7 +1077,7 @@ export class LlmClient {
 
   constructor(opts: LlmClientOptions = {}) {
     this.opts = opts
-    this.maximumAttempts = resolveMaximumAttempts(opts.maximumAttempts)
+    this.maximumAttempts = resolveMaximumAttempts(opts.maxRetries)
   }
 
   call(req: LlmCallRequest, per?: LlmClientOptions): Promise<LlmCallResult> {

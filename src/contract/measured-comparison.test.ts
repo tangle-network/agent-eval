@@ -10,10 +10,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { CostCeilingReachedError, CostLedger } from '../cost-ledger'
 import {
-  type CandidateExperimentExecutionInput,
-  evaluatePairedMeasurements,
   measuredComparisonFromCandidateExperiment,
   runCandidateExperiment,
   sealCandidateBenchmarkSuite,
@@ -74,53 +71,14 @@ const resolvedModel = {
   reasoningEffort: 'high' as const,
 }
 
-function bundle(prompt: string, includePublicSource = false): AgentCandidateBundle {
-  const skillContent = 'Review every factual claim before answering.'
-  const skillDigest = sha('d')
+function bundle(prompt: string): AgentCandidateBundle {
   return addressed({
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
       name: 'support-agent',
       prompt: { systemPrompt: prompt },
-      resources: includePublicSource
-        ? {
-            failOnError: true as const,
-            skills: [
-              {
-                kind: 'inline' as const,
-                name: 'claim-review',
-                content: skillContent,
-                sha256: skillDigest,
-                byteLength: new TextEncoder().encode(skillContent).byteLength,
-                source: {
-                  kind: 'public-agent-resource',
-                  sourceIdentity: 'github:example/research-agents/claim-review.md',
-                  sourceDigest: skillDigest,
-                  sourceRevision: '8d3b3f5',
-                  license: {
-                    kind: 'custom' as const,
-                    name: 'Example Research Terms',
-                    reference: 'LICENSE.md',
-                    termsDigest: sha('e'),
-                  },
-                  attribution: ['Copyright Example Research contributors'],
-                  notices: ['Adapted for the support-agent benchmark.'],
-                  transformations: [
-                    {
-                      kind: 'transformation' as const,
-                      identity: 'skill-section-extractor',
-                      revision: 2,
-                      procedureDigest: sha('b'),
-                      inputDigest: sha('c'),
-                      outputDigest: skillDigest,
-                    },
-                  ],
-                },
-              },
-            ],
-          }
-        : { failOnError: true as const },
+      resources: { failOnError: true as const },
     },
     code: {
       kind: 'disabled' as const,
@@ -131,9 +89,6 @@ function bundle(prompt: string, includePublicSource = false): AgentCandidateBund
       launch: { kind: 'container-command' as const, executable: 'node' },
       instructionDelivery: { kind: 'stdin-utf8' as const },
       cwd: { workspace: 'task' as const, path: '.' },
-      env: {
-        PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' },
-      },
       environment: { kind: 'evaluator-task-container' as const },
       isolation: {
         network: 'disabled' as const,
@@ -188,17 +143,14 @@ function benchmarkTask(): AgentCandidateBenchmarkTask {
   })
 }
 
-function experiment(reps = 3, candidateUsesPublicSource = false): AgentCandidateExperiment {
+function experiment(reps = 3): AgentCandidateExperiment {
   const task = benchmarkTask()
   const seeds = Array.from({ length: reps }, (_, index) => 101 + index) as [number, ...number[]]
   return sealCandidateExperiment({
     kind: 'agent-candidate-experiment',
     digestAlgorithm: 'rfc8785-sha256',
     baseline: bundle('Answer the support request.'),
-    candidate: bundle(
-      'Answer the support request and verify every claim.',
-      candidateUsesPublicSource,
-    ),
+    candidate: bundle('Answer the support request and verify every claim.'),
     candidateLineage: { source: 'human' },
     benchmark: sealCandidateBenchmarkSuite({ tasks: [task], reps, seeds }),
     policy: {
@@ -207,6 +159,7 @@ function experiment(reps = 3, candidateUsesPublicSource = false): AgentCandidate
       bootstrapSeed: 1_337,
       deltaThreshold: 0,
       minProductiveRuns: 3,
+      budgetUsd: 1,
       criticalDimensions: ['reliability'],
       regressionTolerance: 0.05,
     },
@@ -302,9 +255,7 @@ function executionEvidence(input: {
       launch: {
         executable: 'node',
         args: [],
-        env: {
-          PATH: { kind: 'public' as const, value: '/usr/local/bin:/usr/bin:/bin' },
-        },
+        env: {},
         cwd: { workspace: 'task' as const, path: '.' },
       },
       memory: { mode: 'disabled' as const },
@@ -354,7 +305,6 @@ function executionEvidence(input: {
         reasoningTokens: 0,
         modelCalls: 0,
         costUsdNanos: 0,
-        costProvenance: 'observed' as const,
       },
     },
     `settlements/${executionId}.json`,
@@ -394,7 +344,6 @@ function executionEvidence(input: {
           reasoningTokens: 0,
           modelCalls: 0,
           costUsdNanos: 0,
-          costProvenance: 'observed' as const,
         },
         timing: {
           startedAtMs: 2_000,
@@ -422,7 +371,6 @@ function executionEvidence(input: {
       endedAtMs: startedAtMs + durationMs,
       durationMs,
     },
-    steps: 1,
     memory: { mode: 'disabled' as const },
     trace: {
       artifact: artifact(`traces/${executionId}.json`, sha('9'), 20),
@@ -446,265 +394,7 @@ function neverOutput(): never {
   throw new Error('fixture task must use an output contract')
 }
 
-interface PlatformProfileRun {
-  score: number
-  dimensions: Array<{ name: string; score: number }>
-  costUsd: number
-  latencyMs: number
-  completed: boolean
-  passed: boolean
-}
-
-function profileMeasurements(): Array<{
-  cellId: string
-  baseline: PlatformProfileRun
-  candidate: PlatformProfileRun
-}> {
-  return [0, 1, 2, 3, 4, 5].map((index) => {
-    const baseline = 0.2 + (index % 3) * 0.05
-    // The per-cell gain VARIES (0.52 / 0.50 / 0.48, mean exactly 0.50). A
-    // constant gain makes every bootstrap resample identical, and a zero-width
-    // interval carries no information about how far the estimate could be
-    // wrong — the paired decision refuses it rather than reading it as
-    // certainty, so a constant-gain fixture would prove nothing about the
-    // decision path it is here to exercise.
-    const candidate = baseline + 0.5 + (1 - (index % 3)) * 0.02
-    const run = (score: number): PlatformProfileRun => ({
-      score,
-      dimensions: [{ name: 'reliability', score }],
-      costUsd: 0.01,
-      latencyMs: 100,
-      completed: true,
-      passed: true,
-    })
-    return {
-      cellId: `platform-case:${index}`,
-      baseline: run(baseline),
-      candidate: run(candidate),
-    }
-  })
-}
-
-const profileRunAdapter = {
-  score: (run: PlatformProfileRun) => run.score,
-  dimensions: (run: PlatformProfileRun) => run.dimensions,
-  costUsd: (run: PlatformProfileRun) => run.costUsd,
-  costProvenance: () => 'observed' as const,
-  latencyMs: (run: PlatformProfileRun) => run.latencyMs,
-  completed: (run: PlatformProfileRun) => run.completed,
-  passed: (run: PlatformProfileRun) => run.passed,
-}
-
-function comparisonAccounting(run: Awaited<ReturnType<typeof runCandidateExperiment>>) {
-  return {
-    preparation: {
-      wallDurationMs: 0,
-      cost: { usd: 0, provenance: 'observed' as const },
-    },
-    measurement: run.measurement,
-  }
-}
-
 describe('candidate experiment comparison', () => {
-  it('retains rich public-source evidence in the signed candidate identity', () => {
-    const plain = experiment()
-    const sourced = experiment(3, true)
-    const skill = sourced.candidate.profile.resources?.skills?.[0]
-
-    if (skill?.kind !== 'inline') throw new Error('fixture must include an inline skill')
-    expect(skill.source).toMatchObject({
-      license: { kind: 'custom', name: 'Example Research Terms' },
-      attribution: ['Copyright Example Research contributors'],
-      notices: ['Adapted for the support-agent benchmark.'],
-      transformations: [{ kind: 'transformation', outputDigest: skill.sha256 }],
-    })
-    expect(sourced.candidate.digest).not.toBe(plain.candidate.digest)
-    expect(sourced.digest).not.toBe(plain.digest)
-  })
-
-  it('evaluates ordinary profile receipts through the same paired decision path', () => {
-    const policy = experiment().policy
-    const measurements = profileMeasurements()
-
-    const result = evaluatePairedMeasurements({
-      measurements,
-      policy,
-      adapter: profileRunAdapter,
-      sharedScorerChannel: true,
-      preparationCost: { usd: 0.25, provenance: 'observed' },
-    })
-
-    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
-    expect(result.decision.outcome).toBe('ship')
-    expect(result.measurementCost).toMatchObject({ provenance: 'observed' })
-    expect(result.measurementCost.usd).toBeCloseTo(0.12, 12)
-    expect(result.totalCost).toMatchObject({ provenance: 'observed' })
-    expect(result.totalCost.usd).toBeCloseTo(0.37, 12)
-    expect(result.measurementWorkDurationMs).toBe(1_200)
-    expect(() =>
-      evaluatePairedMeasurements({
-        measurements: [measurements[0]!, measurements[0]!],
-        policy,
-        adapter: profileRunAdapter,
-        sharedScorerChannel: true,
-      }),
-    ).toThrow(/cell ids must be unique/)
-    expect(() =>
-      evaluatePairedMeasurements({
-        measurements,
-        policy: { ...policy, resamples: 0 } as unknown as typeof policy,
-        adapter: profileRunAdapter,
-        sharedScorerChannel: true,
-      }),
-    ).toThrow(/resamples/)
-    expect(() =>
-      evaluatePairedMeasurements({
-        measurements,
-        policy,
-        adapter: profileRunAdapter,
-        sharedScorerChannel: true,
-        measurementCost: { usd: 0.05, provenance: 'observed' },
-      }),
-    ).toThrow(/does not match its signed receipts/)
-  })
-
-  it('uses observed paired precision instead of baseline-only variance', () => {
-    const template = profileMeasurements()[0]!.baseline
-    const baselines = [0.1, 0.9, 0.1, 0.9, 0.1, 0.9]
-    const measurements = baselines.map((baseline, index) => {
-      const run = (score: number): PlatformProfileRun => ({
-        ...template,
-        score,
-        dimensions: [{ name: 'reliability', score }],
-      })
-      return {
-        cellId: `paired-precision:${index}`,
-        baseline: run(baseline),
-        candidate: run(baseline + 0.1),
-      }
-    })
-
-    const result = evaluatePairedMeasurements({
-      measurements,
-      policy: {
-        ...experiment().policy,
-        deltaThreshold: 0.05,
-        minProductiveRuns: 6,
-      },
-      adapter: profileRunAdapter,
-      sharedScorerChannel: true,
-    })
-
-    expect(result.overall.confidenceInterval.lower).toBeCloseTo(0.1)
-    expect(result.overall.confidenceInterval.upper).toBeCloseTo(0.1)
-    expect(result.power.minimumDetectableDelta).toBeCloseTo(0.05)
-    expect(result.power.sufficient).toBe(true)
-    expect(result.decision.outcome).toBe('ship')
-  })
-
-  it.each([
-    {
-      label: 'an empty matrix',
-      input: () => ({ measurements: [] as ReturnType<typeof profileMeasurements> }),
-      error: /requires at least one paired cell/,
-    },
-    {
-      label: 'negative preparation cost',
-      input: () => ({ preparationCost: { usd: -0.01, provenance: 'observed' as const } }),
-      error: /preparation cost must be a non-negative number/,
-    },
-    {
-      label: 'a non-boolean scorer-channel declaration',
-      input: () => ({ sharedScorerChannel: 'shared' as never }),
-      error: /sharedScorerChannel must be a boolean/,
-    },
-    {
-      label: 'a blank cell id',
-      input: () => ({
-        measurements: [
-          { ...profileMeasurements()[0]!, cellId: '' },
-          ...profileMeasurements().slice(1),
-        ],
-      }),
-      error: /requires a cell id/,
-    },
-    {
-      label: 'a non-finite score',
-      input: () => ({ adapter: { ...profileRunAdapter, score: () => Number.NaN } }),
-      error: /score must be finite/,
-    },
-    {
-      label: 'non-array dimensions',
-      input: () => ({
-        adapter: { ...profileRunAdapter, dimensions: () => 'reliability' as never },
-      }),
-      error: /dimensions must be an array/,
-    },
-    {
-      label: 'an unnamed dimension',
-      input: () => ({
-        adapter: { ...profileRunAdapter, dimensions: () => [{ name: '', score: 0.5 }] },
-      }),
-      error: /contains an unnamed dimension/,
-    },
-    {
-      label: 'a repeated dimension',
-      input: () => ({
-        adapter: {
-          ...profileRunAdapter,
-          dimensions: () => [
-            { name: 'reliability', score: 0.5 },
-            { name: 'reliability', score: 0.5 },
-          ],
-        },
-      }),
-      error: /repeats dimension 'reliability'/,
-    },
-    {
-      label: 'different arm dimensions',
-      input: () => ({
-        measurements: profileMeasurements().map((measurement, index) =>
-          index === 0
-            ? {
-                ...measurement,
-                candidate: {
-                  ...measurement.candidate,
-                  dimensions: [{ name: 'different', score: measurement.candidate.score }],
-                },
-              }
-            : measurement,
-        ),
-      }),
-      error: /dimensions do not match the suite/,
-    },
-    {
-      label: 'negative run cost',
-      input: () => ({ adapter: { ...profileRunAdapter, costUsd: () => -0.01 } }),
-      error: /cost must be non-negative/,
-    },
-    {
-      label: 'negative run latency',
-      input: () => ({ adapter: { ...profileRunAdapter, latencyMs: () => -1 } }),
-      error: /latency must be non-negative/,
-    },
-    {
-      label: 'non-boolean completion',
-      input: () => ({ adapter: { ...profileRunAdapter, completed: () => 'yes' as never } }),
-      error: /completion and pass values must be booleans/,
-    },
-  ])('rejects $label from generic receipt adapters', ({ input, error }) => {
-    const policy = experiment().policy
-    expect(() =>
-      evaluatePairedMeasurements({
-        measurements: profileMeasurements(),
-        policy,
-        adapter: profileRunAdapter,
-        sharedScorerChannel: false,
-        ...input(),
-      }),
-    ).toThrow(error)
-  })
-
   it('rejects an experiment whose candidate is identical to its baseline', () => {
     const frozen = experiment()
     const { digest: _digest, ...material } = frozen
@@ -717,17 +407,15 @@ describe('candidate experiment comparison', () => {
   })
 
   it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
-    const frozen = experiment(6)
+    const frozen = experiment()
     const observedSeeds: number[] = []
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       maxConcurrency: 3,
       async execute(input) {
         observedSeeds.push(input.seed)
-        const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition % 3]!
-        // Varying per-cell gain (0.52 / 0.50 / 0.48, mean 0.50) — see
-        // `profileMeasurements` for why a constant gain proves nothing.
-        const candidate = [0.72, 0.75, 0.78][input.benchmarkCell.repetition % 3]!
+        const baseline = [0.2, 0.25, 0.3][input.benchmarkCell.repetition]!
+        const candidate = [0.7, 0.75, 0.8][input.benchmarkCell.repetition]!
         return executionEvidence({
           experiment: input.experiment,
           arm: input.arm,
@@ -741,7 +429,6 @@ describe('candidate experiment comparison', () => {
             reasoningTokens: 0,
             modelCalls: 1,
             costUsdNanos: 10_000_000,
-            costProvenance: 'observed' as const,
           },
           graderDurationMs: 5,
         })
@@ -749,28 +436,25 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'candidate-experiment-1',
       candidate: { label: 'verified-claims prompt' },
       generationsExplored: 2,
-      preparation: {
-        wallDurationMs: 50,
-        cost: { usd: 0.25, provenance: 'observed' },
-      },
+      searchDurationMs: 50,
+      searchCostUsd: 0.25,
     })
 
-    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
+    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 3 })
     expect(comparison.decision.outcome).toBe('ship')
     expect(comparison.diff).toContain('--- baseline/profile')
     expect(comparison.diff).toContain('verify every claim')
-    expect(comparison.measurements).toHaveLength(6)
+    expect(comparison.measurements).toHaveLength(3)
     expect(comparison.evaluation).toMatchObject({
-      preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
-      measurement: { workDurationMs: 1_200, cost: { usd: 0.12, provenance: 'observed' } },
+      executionDurationMs: 600,
+      durationMs: 650,
     })
-    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.37, provenance: 'observed' })
-    expect(verifyCandidateExperimentComparison(comparison)).toEqual(comparison)
+    expect(comparison.evaluation.executionCostUsd).toBeCloseTo(0.06)
+    expect(comparison.evaluation.totalCostUsd).toBeCloseTo(0.31)
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'cost', baseline: 0.01, candidate: 0.01 }),
@@ -778,49 +462,13 @@ describe('candidate experiment comparison', () => {
       ]),
     )
     expect(observedSeeds.sort((left, right) => left - right)).toEqual([
-      101, 101, 102, 102, 103, 103, 104, 104, 105, 105, 106, 106,
+      101, 101, 102, 102, 103, 103,
     ])
-  })
-
-  it('refuses a budgeted suite before dispatch when its signed maximum cannot fit', async () => {
-    const initial = experiment()
-    const { digest: _digest, ...material } = initial
-    const budgeted = sealCandidateExperiment({
-      ...material,
-      policy: { ...material.policy, budgetUsd: 0.5 },
-    })
-    let calls = 0
-    const execute = async (input: CandidateExperimentExecutionInput) => {
-      calls += 1
-      return executionEvidence({
-        experiment: input.experiment,
-        arm: input.arm,
-        task: input.task,
-        benchmarkCell: input.benchmarkCell,
-        score: input.arm === 'baseline' ? 0.2 : 0.8,
-      })
-    }
-
-    await expect(runCandidateExperiment({ experiment: budgeted, execute })).rejects.toThrow(
-      /requires one shared CostLedger/,
-    )
-    expect(calls).toBe(0)
-
-    const ledger = new CostLedger(0.5)
-    await expect(
-      runCandidateExperiment({ experiment: budgeted, costLedger: ledger, execute }),
-    ).rejects.toThrow(CostCeilingReachedError)
-    expect(calls).toBe(0)
-    expect(ledger.summary()).toMatchObject({
-      totalCalls: 0,
-      pendingCalls: 0,
-      totalCostUsd: 0,
-    })
   })
 
   it('keeps constant-score intervals numerically consistent with their measured delta', async () => {
     const frozen = experiment(10)
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -834,8 +482,7 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'constant-score-interval',
     })
 
@@ -849,7 +496,7 @@ describe('candidate experiment comparison', () => {
 
   it('rejects missing cells, substituted arms, and changed signed task bytes', async () => {
     const frozen = experiment()
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -861,12 +508,10 @@ describe('candidate experiment comparison', () => {
         })
       },
     })
-    const measurements = run.measurements
     expect(() =>
       measuredComparisonFromCandidateExperiment({
         experiment: frozen,
         measurements: measurements.slice(0, 2),
-        ...comparisonAccounting(run),
         runId: 'missing-cell',
       }),
     ).toThrow(/incomplete/)
@@ -879,7 +524,6 @@ describe('candidate experiment comparison', () => {
           { ...measurements[0]!, candidate: baselineAsCandidate },
           ...measurements.slice(1),
         ],
-        ...comparisonAccounting(run),
         runId: 'substituted-arm',
       }),
     ).toThrow(/substituted|bundle/)
@@ -898,7 +542,7 @@ describe('candidate experiment comparison', () => {
 
   it('holds an experiment with fewer than three paired cells', async () => {
     const frozen = experiment(2)
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -912,8 +556,7 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'underpowered',
     })
     expect(comparison.decision.outcome).toBe('need_more_work')
@@ -922,7 +565,7 @@ describe('candidate experiment comparison', () => {
 
   it('binds decision policy before execution and recomputes the published verdict', async () => {
     const frozen = experiment()
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -934,11 +577,9 @@ describe('candidate experiment comparison', () => {
         })
       },
     })
-    const measurements = run.measurements
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
       measurements,
-      ...comparisonAccounting(run),
       runId: 'policy-binding',
     })
 
@@ -951,7 +592,6 @@ describe('candidate experiment comparison', () => {
       measuredComparisonFromCandidateExperiment({
         experiment: alteredExperiment,
         measurements,
-        ...comparisonAccounting(run),
         runId: 'changed-policy',
       }),
     ).toThrow(/substituted/)
@@ -970,7 +610,7 @@ describe('candidate experiment comparison', () => {
 
   it('binds the complete comparison record, not only its measurements', async () => {
     const frozen = experiment()
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -984,15 +624,13 @@ describe('candidate experiment comparison', () => {
     })
     const first = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'record-a',
       candidate: { label: 'first label' },
     })
     const second = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'record-b',
       candidate: { label: 'second label' },
     })
@@ -1013,7 +651,7 @@ describe('candidate experiment comparison', () => {
       ...material,
       policy: { ...material.policy, criticalDimensions: ['safety'] },
     })
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -1027,8 +665,7 @@ describe('candidate experiment comparison', () => {
     })
     const comparison = measuredComparisonFromCandidateExperiment({
       experiment: frozen,
-      measurements: run.measurements,
-      ...comparisonAccounting(run),
+      measurements,
       runId: 'missing-critical-dimension',
     })
     expect(comparison.decision.outcome).toBe('hold')
@@ -1057,7 +694,7 @@ describe('candidate experiment comparison', () => {
   it('does not ship incomplete or grader-failed candidate runs', async () => {
     for (const failure of ['timeout', 'grader'] as const) {
       const frozen = experiment()
-      const run = await runCandidateExperiment({
+      const measurements = await runCandidateExperiment({
         experiment: frozen,
         async execute(input) {
           return executionEvidence({
@@ -1075,8 +712,7 @@ describe('candidate experiment comparison', () => {
       })
       const comparison = measuredComparisonFromCandidateExperiment({
         experiment: frozen,
-        measurements: run.measurements,
-        ...comparisonAccounting(run),
+        measurements,
         runId: `candidate-${failure}`,
       })
       expect(comparison.decision.outcome).toBe('hold')
@@ -1131,7 +767,7 @@ describe('candidate experiment comparison', () => {
       retryPolicy: 'pre-model-infrastructure-only',
     })
 
-    const run = await runCandidateExperiment({
+    const measurements = await runCandidateExperiment({
       experiment: frozen,
       async execute(input) {
         return executionEvidence({
@@ -1149,8 +785,7 @@ describe('candidate experiment comparison', () => {
     expect(() =>
       measuredComparisonFromCandidateExperiment({
         experiment: frozen,
-        measurements: run.measurements,
-        ...comparisonAccounting(run),
+        measurements,
         runId: 'inconsistent-profile-plan',
       }),
     ).toThrow(/materialized a different profile/)

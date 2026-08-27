@@ -18,7 +18,7 @@ import {
   type AtomicFileLockUnavailable,
   probeAtomicFileLock,
   tryAcquireAtomicFileLock,
-} from '../ledger-core/atomic-file-lock'
+} from './atomic-file-lock'
 
 export interface SingleRunLockOptions {
   /** Lockfile this runner writes (and checks). */
@@ -37,7 +37,7 @@ export interface SingleRunLock {
 }
 
 function assertAvailable(path: string): void {
-  const unavailable = probeAtomicFileLock({ lockPath: path })
+  const unavailable = probeAtomicFileLock({ lockPath: path, acceptLegacyPid: true })
   if (unavailable) throw unavailableError(path, unavailable)
 }
 
@@ -65,14 +65,10 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
   const acquisition = tryAcquireAtomicFileLock({
     lockPath: opts.lockPath,
     pid,
+    acceptLegacyPid: true,
   })
   if (!acquisition.acquired) throw unavailableError(opts.lockPath, acquisition)
-  const releaseOnExit = opts.releaseOnExit ?? true
-  let released = false
   const release = (): void => {
-    if (released) return
-    released = true
-    if (releaseOnExit) process.off('exit', release)
     try {
       acquisition.lock.release()
     } catch {
@@ -85,6 +81,6 @@ export function acquireSingleRunLock(opts: SingleRunLockOptions): SingleRunLock 
     release()
     throw error
   }
-  if (releaseOnExit) process.on('exit', release)
+  if (opts.releaseOnExit ?? true) process.on('exit', release)
   return { release }
 }

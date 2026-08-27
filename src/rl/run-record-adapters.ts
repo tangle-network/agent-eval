@@ -12,8 +12,7 @@
  * bare-alias model strings — the caller snapshot-pins.
  */
 
-import { campaignCellToRunRecord } from '../campaign/run-record'
-import type { CampaignResult } from '../campaign/types'
+import type { CampaignResult } from '../campaign'
 import type { LayerResult, VerificationReport } from '../multi-layer-verifier'
 import type { RunRecord, RunSplitTag } from '../run-record'
 
@@ -30,17 +29,17 @@ export interface AdapterContext {
   configHash: string
   /** Default split tag. Default `'search'`. */
   splitTag?: RunSplitTag
-  /** Estimated cost in USD when the source doesn't record one. */
+  /** Default cost in USD when the source doesn't record one. Default `0`. */
   defaultCostUsd?: number
 }
 
 /**
- * Convert a `CampaignResult` into canonical `RunRecord[]`, one per cell.
- * Successful judged cells carry their mean judge composite and dimensions.
- * Errored or unjudged cells remain unlabeled while retaining explicit terminal
- * outcome, execution-error count, token usage, cost, and failure detail.
- * `candidateId` identifies the measured surface and defaults to the campaign
- * manifest hash.
+ * Convert a `CampaignResult` into canonical `RunRecord[]` — one record per
+ * scored cell. The cell's mean judge composite becomes the split score; every
+ * judge dimension is carried through to `outcome.raw`. A cell that errored
+ * becomes a record with `failureMode: 'cell_error'` (kept, not dropped — an
+ * unscored cell is signal). `candidateId` identifies the measured surface
+ * (defaults to the campaign manifest hash).
  */
 export function campaignToRunRecords(
   campaign: CampaignResult,
@@ -48,43 +47,53 @@ export function campaignToRunRecords(
 ): RunRecord[] {
   const splitTag = ctx.splitTag ?? 'search'
   const candidateId = ctx.candidateId ?? campaign.manifestHash
-  return campaign.cells.map((cell) =>
-    campaignCellToRunRecord(cell, {
+  return campaign.cells.map((cell) => {
+    const composites = Object.values(cell.judgeScores).map((s) => s.composite)
+    const score =
+      composites.length > 0 ? composites.reduce((a, b) => a + b, 0) / composites.length : 0
+    const raw: Record<string, number> = { rep: cell.rep, duration_ms: cell.durationMs }
+    for (const judge of Object.values(cell.judgeScores)) {
+      for (const [dim, value] of Object.entries(judge.dimensions)) {
+        if (Number.isFinite(value)) raw[`dim.${dim}`] = value
+      }
+    }
+    if (typeof cell.generation === 'number') raw.generation = cell.generation
+    const outcome: RunRecord['outcome'] = { raw }
+    if (splitTag === 'holdout') outcome.holdoutScore = score
+    else outcome.searchScore = score
+    return {
       runId: cell.cellId,
       experimentId: ctx.experimentId,
       candidateId,
+      seed: cell.seed,
       model: ctx.model,
       promptHash: ctx.promptHash,
       configHash: ctx.configHash,
       commitSha: ctx.commitSha,
+      wallMs: cell.durationMs,
+      costUsd: Number.isFinite(cell.costUsd) ? cell.costUsd : (ctx.defaultCostUsd ?? 0),
+      tokenUsage: { input: 0, output: 0 },
+      outcome,
+      failureMode: cell.error ? 'cell_error' : undefined,
       splitTag,
-      defaultCostUsd: ctx.defaultCostUsd,
-    }),
-  )
+      scenarioId: cell.scenarioId,
+    }
+  })
 }
 
 /**
  * Convert a `MultiLayerVerifier` `VerificationReport` into a `RunRecord`.
- * A split score is emitted only when `report.taskScore` proves the configured
- * scoring panel completed. Partial scores remain in `outcome.raw` for
- * diagnosis. Layer errors and timeouts become judge or execution telemetry;
- * only a scored `fail` layer may produce task-failure detail.
+ * `outcome.searchScore` (or `holdoutScore`) is `report.blendedScore`;
+ * `outcome.raw` carries every layer's score + a pass indicator; `failureMode`
+ * is the first failing layer's reason.
  */
 export function verificationReportToRunRecord(
   report: VerificationReport,
-  ctx: AdapterContext & { candidateId: string; scenarioId: string },
+  ctx: AdapterContext & { candidateId: string; scenarioId?: string },
   opts: { runId?: string } = {},
 ): RunRecord {
   const splitTag = ctx.splitTag ?? 'search'
   const runId = opts.runId ?? `run-${ctx.candidateId}-${ctx.experimentId}-${report.startedAt}`
-  const hasValidLayerMeasurement = report.layers.some(hasValidTaskMeasurement)
-  const taskScore =
-    hasValidLayerMeasurement && isValidScore(report.taskScore) ? report.taskScore : undefined
-  let executionErrorCount = 0
-  let judgeErrorCount = 0
-  let layerErrorCount = 0
-  let layerTimeoutCount = 0
-  let unscoredLayerCount = 0
 
   const raw: Record<string, number> = {
     pass_count: report.passCount,
@@ -92,18 +101,11 @@ export function verificationReportToRunRecord(
     error_count: report.errorCount,
     skipped_count: report.skippedCount,
     duration_ms: report.durationMs,
-    execution_error_count: 0,
+    blended_score: report.blendedScore,
   }
   for (const layer of report.layers) {
-    if (hasValidTaskMeasurement(layer)) raw[`layer.${layer.layer}`] = layer.score
-    else unscoredLayerCount++
+    if (typeof layer.score === 'number') raw[`layer.${layer.layer}`] = layer.score
     raw[`layer_${layer.layer}_pass`] = layer.status === 'pass' ? 1 : 0
-    if (layer.status === 'error' || layer.status === 'timeout') {
-      if (layer.errorSource === 'judge') judgeErrorCount++
-      else executionErrorCount++
-      if (layer.status === 'error') layerErrorCount++
-      else layerTimeoutCount++
-    }
     if (layer.diagnostics) {
       for (const [k, v] of Object.entries(layer.diagnostics)) {
         if (typeof v === 'number' && Number.isFinite(v)) raw[`layer.${layer.layer}.${k}`] = v
@@ -111,21 +113,10 @@ export function verificationReportToRunRecord(
     }
   }
 
-  raw.execution_error_count = executionErrorCount
-  if (judgeErrorCount > 0) raw.judge_error_count = judgeErrorCount
-  if (layerErrorCount > 0) raw.layer_error_count = layerErrorCount
-  if (layerTimeoutCount > 0) raw.layer_timeout_count = layerTimeoutCount
-  if (unscoredLayerCount > 0) raw.unscored_layer_count = unscoredLayerCount
-  if (taskScore !== undefined) raw.blended_score = taskScore
-
-  const firstScoredFailure = report.layers.find(
-    (layer) => layer.status === 'fail' && hasValidTaskMeasurement(layer),
-  )
+  const firstFail = report.layers.find((l) => l.status === 'fail' || l.status === 'error')
   const outcome: RunRecord['outcome'] = { raw }
-  if (taskScore !== undefined) {
-    if (splitTag === 'holdout') outcome.holdoutScore = taskScore
-    else outcome.searchScore = taskScore
-  }
+  if (splitTag === 'holdout') outcome.holdoutScore = report.blendedScore
+  else outcome.searchScore = report.blendedScore
 
   return {
     runId,
@@ -137,31 +128,18 @@ export function verificationReportToRunRecord(
     configHash: ctx.configHash,
     commitSha: ctx.commitSha,
     wallMs: report.durationMs,
-    costUsd: ctx.defaultCostUsd ?? null,
-    costProvenance:
-      ctx.defaultCostUsd === undefined
-        ? { kind: 'uncaptured', usd: null }
-        : { kind: 'estimated', usd: ctx.defaultCostUsd },
+    costUsd: ctx.defaultCostUsd ?? 0,
     tokenUsage: { input: 0, output: 0 },
-    terminalOutcome: 'succeeded',
     outcome,
-    ...(firstScoredFailure
-      ? {
-          failureClass: 'unknown' as const,
-          failureMode: `layer_${firstScoredFailure.layer}_fail`,
-        }
-      : {}),
+    failureMode: firstFail ? failureModeFromLayer(firstFail) : undefined,
     splitTag,
     scenarioId: ctx.scenarioId,
   }
 }
 
-function hasValidTaskMeasurement(
-  layer: LayerResult,
-): layer is LayerResult & { status: 'pass' | 'fail'; score: number } {
-  return (layer.status === 'pass' || layer.status === 'fail') && isValidScore(layer.score)
-}
-
-function isValidScore(score: unknown): score is number {
-  return typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1
+function failureModeFromLayer(layer: LayerResult): string {
+  if (layer.status === 'error') return `layer_${layer.layer}_error`
+  if (layer.status === 'fail') return `layer_${layer.layer}_fail`
+  if (layer.status === 'timeout') return `layer_${layer.layer}_timeout`
+  return `layer_${layer.layer}_${layer.status}`
 }

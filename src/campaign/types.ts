@@ -16,7 +16,7 @@
  * can build dashboards / CI gates / regression diffs against a stable schema.
  */
 
-import type { ProposalFinding } from '../analyst/types'
+import type { PolicyEditCandidateRecord } from '../analyst/policy-edit'
 import type {
   CostChannel,
   CostLedgerHandle,
@@ -134,7 +134,7 @@ export interface JudgeConfig<TArtifact, TScenario extends Scenario = Scenario> {
 /** The canonical judge verdict shape — one declaration, shared by campaign
  *  judges and the multishot judge runner (which re-exports this type).
  *
- *  Scale is PRODUCER-DEFINED: campaign convention is [0,1]; the
+ *  Scale is PRODUCER-DEFINED: campaign convention is [0,1]; the legacy
  *  multishot runner emits 0-10. Cross-scale comparison must go through
  *  `detectScale` (src/campaign/gates/statistical-heldout.ts, used by
  *  promotion-policy) — never renormalize a producer's values in place, as
@@ -192,25 +192,17 @@ export interface CodeSurface {
   readonly summary?: string
 }
 
-/** Named text components optimized together as one candidate. */
-export interface ComponentSurface {
-  readonly kind: 'components'
-  readonly components: Readonly<Record<string, string>>
-}
-
 /** The mutable surface a proposer changes. Tiers (see
  *  `docs/design/loop-taxonomy.md`):
  *   - `string`      — tiers 1-2: system-prompt addendum / serialized tool
  *                     config. Cheap, reversible, text-diffable.
- *   - `ComponentSurface` — named prompts, policies, and tool descriptions
- *                          optimized together.
  *   - `CodeSurface` — tier 4: an implementation change behind a worktree ref.
  *  Tier 3 (knowledge) is owned by agent-knowledge and rides its own adapter,
  *  not this type. */
-export type MutableSurface = string | ComponentSurface | CodeSurface
+export type MutableSurface = string | CodeSurface
 
 /** A proposer output carrying the surface AND the WHY behind
- *  it. Reflective proposers may parse a `{label, rationale, payload}`
+ *  it. Reflective proposers (`gepaProposer`) parse a `{label, rationale, payload}`
  *  from the model; without this wrapper the loop keeps only `payload` and the
  *  rationale that motivated the change is lost — the candidate becomes
  *  unattributable. `propose()` may return either bare `MutableSurface`s (cheap
@@ -223,6 +215,9 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
+  /** Structured, JSON-safe cause for this exact candidate when the proposer
+   *  can provide one. Policy edits retain the full validated edit here. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -294,38 +289,70 @@ export interface ScoredSurfaceOutcome {
   }
 }
 
-/** Search state supplied to one candidate-generation call.
- *  Final evaluation data is not represented in this contract. */
-export interface ProposeContext<TFindings = ProposalFinding> {
-  readonly currentSurface: MutableSurface
-  readonly history: ReadonlyArray<GenerationRecord>
-  readonly findings: ReadonlyArray<TFindings>
+/** Stateless surface mutation — given findings + current
+ *  surface, return N candidate surfaces. Pure transform, no generation
+ *  awareness. Reflective-mutation and `AxGEPA` mutators conform. Wrapped by
+ *  `evolutionaryProposer` to become a `SurfaceProposer`. */
+export interface Mutator<TFindings = unknown> {
+  kind: string
+  mutate(args: {
+    findings: TFindings[]
+    currentSurface: MutableSurface
+    populationSize: number
+    signal: AbortSignal
+  }): Promise<Array<MutableSurface | ProposedCandidate>>
+}
+
+/** Everything a proposer may read to plan the next
+ *  batch of candidates. The first six fields are always present; the rest are
+ *  optional context the loop supplies when available, so cheap proposers
+ *  (`evolutionaryProposer`) can ignore them while a code-tier agentic generator
+ *  consumes the report + dataset to drive a coding harness.
+ *  See `docs/campaign-proposers.md`. */
+export interface ProposeContext<TFindings = unknown> {
+  currentSurface: MutableSurface
+  history: GenerationRecord[]
+  findings: TFindings[]
   /** BREADTH: how many candidate surfaces to return this generation. */
-  readonly populationSize: number
-  readonly generation: number
-  readonly signal: AbortSignal
+  populationSize: number
+  generation: number
+  signal: AbortSignal
   /** Present when a multi-track lineage requests this proposal. */
-  readonly track?: ProposalTrackContext
+  track?: ProposalTrackContext
   /** Measured baseline for this optimization run. `runOptimization` always
    *  supplies it; optional for standalone proposer callers. */
-  readonly baselineOutcome?: ScoredSurfaceOutcome
+  baselineOutcome?: ScoredSurfaceOutcome
   /** Measured result for `currentSurface`, the complete global incumbent every
    *  new candidate mutates. `runOptimization` always supplies it. */
-  readonly incumbentOutcome?: ScoredSurfaceOutcome
+  incumbentOutcome?: ScoredSurfaceOutcome
+  /** Optional analysis report produced before proposal. Opaque to the substrate:
+   *  the proposer that consumes it owns the shape. */
+  report?: unknown
+  /** Handle to all captured data — the proposer samples traces / artifacts /
+   *  rewards here to ground its proposals. */
+  dataset?: LabeledScenarioStore
   /** DEPTH: max iterations the agentic generator may take per candidate.
    *  1 = single-shot; >1 = it may iterate on its own change before handing it
    *  back to be measured. */
-  readonly maxImprovementShots?: number
+  maxImprovementShots?: number
   /** GEPA Pareto frontier across ALL generations so far — the non-dominated
    *  surfaces by per-scenario objective vector. Empty/absent on generation 0
    *  (only the baseline is scored). A reflective proposer combines the
    *  complementary lessons of these parents (each excels on different
    *  scenarios) into a merged candidate. Proposers doing pure single-parent
    *  reflection may ignore it. See {@link ParetoParent}. */
-  readonly paretoParents?: ReadonlyArray<ParetoParent>
+  paretoParents?: ParetoParent[]
   /** Shared run spend account and receipt attribution phase. */
-  readonly costLedger?: CostLedgerHandle
-  readonly costPhase?: string
+  costLedger?: CostLedgerHandle
+  costPhase?: string
+  /** FIREWALL (non-negotiable): the held-out judge is write-only — its verdicts
+   *  score the chosen output and gate promotion, and are NEVER an input to
+   *  proposal/steering (else the optimizer games the acceptance axis = an
+   *  oracle). This `never`-typed field makes that a compile-time tripwire: a
+   *  proposer that tries to thread judge verdicts into the proposal will not type.
+   *  Steering may consume TRACE-OBSERVABLE signals (what the agent did) via
+   *  `findings`/`report`; it may NOT consume the judge's held-out verdict. */
+  judgeScores?: never
 }
 
 /** A surface-improvement strategy. Given the current best
@@ -333,14 +360,20 @@ export interface ProposeContext<TFindings = ProposalFinding> {
  *  findings, propose the next batch of candidate surfaces to measure.
  *  Optionally decide to stop early.
  *
- *  This is the local-loop candidate contract. Built-in neutral proposers and
- *  runtime-owned agentic proposers conform to it and can be passed to
- *  `selfImprove({ proposer })`. Complete external optimization engines conform
- *  to `OptimizationMethod` instead. Not to be confused with the
+ *  The evolutionary mutator (`evolutionaryProposer`, here) and agent-runtime's
+ *  reflective / agentic generators both conform. They are proposers for the
+ *  SAME loop, not separate loops. The loop body (`runOptimization`) and the
+ *  gated promotion shell (`runImprovementLoop`) are proposer-agnostic.
+ *
+ *  This is THE optimization proposer — every optimizer is a factory
+ *  `xProposer(opts): SurfaceProposer` (`evolutionaryProposer`, `aceProposer`,
+ *  `gepaProposer`, `skillOptProposer`, `traceAnalystProposer`, `haloProposer`,
+ *  `memoryCurationProposer`, `fapoProposer`), all exported from `/campaign` and
+ *  drivable by `selfImprove({ proposer })`. Not to be confused with the
  *  behavior-fuzzing `MutationProposer` (`fuzz/types`), a scenario generator for
  *  a different loop.
  */
-export interface SurfaceProposer<TFindings = ProposalFinding> {
+export interface SurfaceProposer<TFindings = unknown> {
   kind: string
   /** Plan: propose N candidate surfaces for the next generation. A proposer
    *  may return bare `MutableSurface`s or `ProposedCandidate`s that carry the
@@ -349,8 +382,12 @@ export interface SurfaceProposer<TFindings = ProposalFinding> {
   propose(ctx: ProposeContext<TFindings>): Promise<Array<MutableSurface | ProposedCandidate>>
   /** Decide: stop early when the proposer judges the search converged or
    *  exhausted. Default (omitted) runs all `maxGenerations`. */
-  decide?(args: { history: ReadonlyArray<GenerationRecord> }): { stop: boolean; reason?: string }
+  decide?(args: { history: GenerationRecord[] }): { stop: boolean; reason?: string }
 }
+
+/** Optional vocabulary alias. The loop is the optimizer; this object is the
+ * proposer inside that loop. */
+export type OptimizationProposer<TFindings = unknown> = SurfaceProposer<TFindings>
 
 export interface OptimizerConfigBase {
   populationSize: number
@@ -366,15 +403,6 @@ export interface OptimizerConfig extends OptimizerConfigBase {
 
 /** Five-valued verdict taxonomy (MOSS-paper alignment). */
 export type GateDecision = 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
-
-/** Outcome of one check that contributed to a release decision. */
-export type GateCheckStatus = 'pass' | 'fail' | 'not_evaluated'
-
-export interface GateContribution {
-  name: string
-  status: GateCheckStatus
-  detail: unknown
-}
 
 export interface GateContext<TArtifact, TScenario extends Scenario> {
   candidateArtifacts: Map<string, TArtifact>
@@ -407,7 +435,7 @@ export interface GateContext<TArtifact, TScenario extends Scenario> {
 export interface GateResult {
   decision: GateDecision
   reasons: string[]
-  contributingGates: GateContribution[]
+  contributingGates: Array<{ name: string; passed: boolean; detail: unknown }>
   delta?: number
 }
 
@@ -588,10 +616,6 @@ export interface CampaignCellResult<TArtifact> {
   durationMs: number
   seed: number
   cached: boolean
-  /** Stage that produced `error`. Missing on successful cells. */
-  errorStage?: 'dispatch' | 'judge'
-  /** Judge that threw when `errorStage` is `judge`. */
-  errorJudge?: string
   error?: string
 }
 
@@ -620,10 +644,8 @@ export interface GenerationRecord {
  *  handled — the evidence a blind `Mutator` cannot see. */
 export interface GenerationCandidate {
   surfaceHash: string
-  /** Mean over complete task-quality scores, or null when none were produced. */
-  composite: number | null
-  /** Descriptive interval for `composite`, or null when no score exists. */
-  ci95: [number, number] | null
+  composite: number
+  ci95: [number, number]
   /** Exact surface this candidate mutated. */
   parentSurfaceHash?: string
   /** Measured search-split composite of the exact parent surface. */
@@ -633,12 +655,13 @@ export interface GenerationCandidate {
   observedDeltaFromParent?: number
   /** Whether this candidate had a scorable result for every designed campaign
    *  cell and was therefore eligible for ranking, promotion, and Pareto
-   *  selection. */
-  eligibleForPromotion: boolean
+   *  selection. Older externally-authored records may omit this field; loop
+   *  records always populate it. */
+  eligibleForPromotion?: boolean
   /** Exact denominator receipt for selection eligibility. Scores stay
    *  descriptive: an incomplete candidate is retained with its observed score
    *  and errors instead of receiving an invented penalty. */
-  coverage: {
+  coverage?: {
     expectedCells: number
     scorableCells: number
     unscorableCells: Array<{ cellId: string; reason: string }>
@@ -663,6 +686,8 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
+  /** Exact structured cause threaded from the proposer, when available. */
+  candidateRecord?: PolicyEditCandidateRecord
 }
 
 export interface CampaignAggregates {
@@ -670,18 +695,12 @@ export interface CampaignAggregates {
   byScenario: Record<string, ScenarioAggregate>
   /** Canonical campaign accounting, including worker and judge calls. */
   cost: CostLedgerSummary
-  /** Cells whose dispatch completed, including cells whose later judge failed. */
+  /** Compatibility alias of `cost.totalCostUsd`. */
+  totalCostUsd: number
   cellsExecuted: number
   cellsSkipped: number
   cellsCached: number
-  /** All non-skipped dispatch, judge, and unclassified cell failures. */
   cellsFailed: number
-  /** Present on results that record failure stages. */
-  cellsDispatchFailed?: number
-  /** Present on results that record failure stages. */
-  cellsJudgeFailed?: number
-  /** Failures whose stage could not be classified. */
-  cellsUnclassifiedFailed?: number
 }
 
 export interface CampaignResult<TArtifact = unknown, TScenario extends Scenario = Scenario> {

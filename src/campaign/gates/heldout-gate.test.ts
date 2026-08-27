@@ -43,9 +43,7 @@ describe('heldOutGate', () => {
 
   it('uses the default threshold and exposes the configured bootstrap seed', async () => {
     const baseline = cells([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
-    // Not a uniform delta: identical deltas give a zero-width interval, which
-    // the gate refuses regardless of how large the gain is.
-    const candidate = cells([0.92, 0.88, 0.95, 0.89, 0.93, 0.9])
+    const candidate = cells([0.9, 0.9, 0.9, 0.9, 0.9, 0.9])
     const gate = heldOutGate({ scenarios: scenarios.slice(0, 3), bootstrapSeed: 99 })
     const result = await gate.decide({
       judgeScores: candidate,
@@ -81,6 +79,5 @@ describe('heldOutGate', () => {
     } as never)
     expect(result.decision).toBe('hold')
     expect(result.reasons?.join(' ')).toMatch(/too few/)
-    expect(result.contributingGates[0]?.status).toBe('not_evaluated')
   })
 })

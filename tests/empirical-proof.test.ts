@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { analyzeRuns } from '../src/contract/analyze-runs'
-import { type RunRecord, validateRunRecord } from '../src/run-record'
+import type { RunRecord } from '../src/run-record'
 
 /**
  * Empirical proof — analyzeRuns over a REAL agent corpus, not synthetic
@@ -56,20 +56,20 @@ describe('empirical proof — analyzeRuns on a real agent corpus (agent-builder 
     expect(runs.some((r) => r.runId === worst.runId)).toBe(true)
   })
 
-  it('clusters real task failures by canonical class without an analyst model', async () => {
+  it('clusters real failure modes model-free (no analyst/LLM)', async () => {
     const runs = loadRealCorpus()
     const report = await analyzeRuns({ runs })
 
-    // Domain-specific detail stays on the records, while the report uses one
-    // canonical vocabulary across products.
-    expect(report.failureClasses).toBeDefined()
-    const top = report.failureClasses![0]!
-    expect(top.failureClass).toBe('tool_recovery_failure')
+    // The structured `failureMode` tags are tallied without any LLM.
+    // forge_build_unsatisfied dominates (9 runs) in this real corpus.
+    expect(report.failureModes).toBeDefined()
+    const top = report.failureModes![0]!
+    expect(top.mode).toBe('forge_build_unsatisfied')
     expect(top.count).toBe(9)
     expect(top.share).toBeCloseTo(9 / 32, 5)
   })
 
-  it('fires a dominant-failure-class recommendation even though mean (0.61) looks fine', async () => {
+  it('fires a dominant-failure-mode recommendation even though mean (0.61) looks fine', async () => {
     const runs = loadRealCorpus()
     const report = await analyzeRuns({ runs })
 
@@ -77,17 +77,29 @@ describe('empirical proof — analyzeRuns on a real agent corpus (agent-builder 
     // named failure cluster) used to produce ZERO recommendations because
     // the composite branch only fires below 0.5 and clusters needed an LLM.
     expect(report.recommendations.length).toBeGreaterThan(0)
-    const rec = report.recommendations.find((r) => r.evidencePath === 'failureClasses')
+    const rec = report.recommendations.find((r) => r.evidencePath === 'failureModes')
     expect(rec).toBeDefined()
-    expect(rec!.priority).toBe('high')
-    expect(rec!.title).toContain('tool_recovery_failure')
+    expect(rec!.priority).toBe('high') // 28% share ≥ 0.25
+    expect(rec!.title).toContain('forge_build_unsatisfied')
   })
 
-  it('keeps every domain-specific failure detail under a canonical class', () => {
-    const failures = loadRealCorpus().filter((run) => run.failureMode !== undefined)
+  it('keys on the canonical failureClass once a producer migrates to it', async () => {
+    // Forward-compat: when a record carries the canonical cross-agent
+    // `failureClass`, the tally + recommendation key on THAT (the shared
+    // vocabulary), not the free-form `failureMode` detail. This is what
+    // makes fleet-wide aggregation work across agents with different
+    // domain vocabularies.
+    const runs = loadRealCorpus().map((r) =>
+      r.failureMode === 'forge_build_unsatisfied'
+        ? { ...r, failureClass: 'tool_recovery_failure' as const }
+        : r,
+    )
+    const report = await analyzeRuns({ runs })
 
-    expect(failures).toHaveLength(13)
-    expect(failures.every((run) => run.failureClass !== undefined)).toBe(true)
-    expect(failures.every((run) => validateRunRecord(run) === run)).toBe(true)
+    const top = report.failureModes![0]!
+    expect(top.mode).toBe('tool_recovery_failure') // canonical class, not the detail
+    expect(top.count).toBe(9)
+    const rec = report.recommendations.find((r) => r.evidencePath === 'failureModes')
+    expect(rec!.title).toContain('tool_recovery_failure')
   })
 })

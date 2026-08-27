@@ -14,11 +14,7 @@ def _metadata_files(dist_dir: Path) -> list[tuple[Path, str]]:
     for artifact in sorted(dist_dir.iterdir()):
         if artifact.suffix == ".whl":
             with zipfile.ZipFile(artifact) as archive:
-                names = [
-                    name
-                    for name in archive.namelist()
-                    if name.endswith(".dist-info/METADATA")
-                ]
+                names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
                 if len(names) != 1:
                     raise ValueError(f"{artifact.name}: expected one wheel METADATA file")
                 metadata.append((artifact, archive.read(names[0]).decode()))

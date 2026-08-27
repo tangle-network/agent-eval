@@ -13,7 +13,12 @@ export function usageReceiptFromCostLedger(
   const receipts = ledger.list(resolvedFilter)
   const hasReasoningUsage = receipts.some((receipt) => receipt.reasoningTokens !== undefined)
   const hasCacheWriteUsage = receipts.some((receipt) => receipt.cacheWriteTokens !== undefined)
-  const cost = summary.costProvenance
+  const costUncaptured = summary.pendingCalls > 0 || receipts.some((receipt) => receipt.costUnknown)
+  const cost = costUncaptured
+    ? { kind: 'uncaptured' as const, usd: null }
+    : receipts.every((receipt) => receipt.actualCostUsd !== undefined)
+      ? { kind: 'observed' as const, usd: summary.totalCostUsd }
+      : { kind: 'estimated' as const, usd: summary.totalCostUsd }
   return {
     calls: summary.totalCalls + summary.pendingCalls,
     tokens: summary.usageComplete
@@ -71,49 +76,4 @@ export function validateUsageSettlementTimeout(timeoutMs?: number): number {
     )
   }
   return resolved
-}
-
-export function assertValidAnalystUsageReceipt(
-  receipt: AnalystUsageReceipt,
-  context = 'AnalystContext.recordUsage',
-): void {
-  if (receipt.calls !== null && (!Number.isSafeInteger(receipt.calls) || receipt.calls < 0)) {
-    throw new Error(`${context}: calls must be a non-negative safe integer or null`)
-  }
-  if (receipt.tokens) {
-    assertNonNegativeSafeInteger(receipt.tokens.input, 'tokens.input', context)
-    assertNonNegativeSafeInteger(receipt.tokens.output, 'tokens.output', context)
-    if (receipt.tokens.reasoning !== undefined) {
-      assertNonNegativeSafeInteger(receipt.tokens.reasoning, 'tokens.reasoning', context)
-      if (receipt.tokens.reasoning > receipt.tokens.output) {
-        throw new Error(`${context}: tokens.reasoning must not exceed tokens.output`)
-      }
-    }
-    if (receipt.tokens.cached !== undefined) {
-      assertNonNegativeSafeInteger(receipt.tokens.cached, 'tokens.cached', context)
-    }
-    if (receipt.tokens.cacheWrite !== undefined) {
-      assertNonNegativeSafeInteger(receipt.tokens.cacheWrite, 'tokens.cacheWrite', context)
-    }
-  }
-  if (receipt.cost.kind !== 'uncaptured') {
-    assertNonNegativeFinite(receipt.cost.usd, 'cost.usd', context)
-  } else if (receipt.cost.usd !== null) {
-    throw new Error(`${context}: uncaptured cost.usd must be null`)
-  }
-  if (receipt.knownCostUsd !== undefined) {
-    assertNonNegativeFinite(receipt.knownCostUsd, 'knownCostUsd', context)
-  }
-}
-
-function assertNonNegativeSafeInteger(value: number, field: string, context: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${context}: ${field} must be a non-negative safe integer`)
-  }
-}
-
-function assertNonNegativeFinite(value: number, field: string, context: string): void {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${context}: ${field} must be a non-negative finite number`)
-  }
 }

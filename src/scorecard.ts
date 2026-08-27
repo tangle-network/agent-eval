@@ -20,7 +20,7 @@ import { dirname } from 'node:path'
 import type { AgentProfile } from './agent-profile'
 import { agentProfileHash, agentProfileModelId } from './agent-profile'
 import { welchsTTest } from './baseline'
-import { type RunRecord, runTaskScore } from './run-record'
+import type { RunRecord } from './run-record'
 import { cohensD } from './statistics'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -82,9 +82,10 @@ function median(xs: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
 }
 
-// Cells rank on `runTaskScore` — RAW on purpose: a scorecard reports the
-// measurement, and hiding a gamed run's score behind a 0 would make the gaming
-// invisible in the report.
+/** The split score the run actually carries (`holdout` runs fill holdoutScore). */
+function runScore(run: RunRecord): number | undefined {
+  return run.outcome.holdoutScore ?? run.outcome.searchScore
+}
 
 /** Mean of each judge dimension across the runs that reported one. */
 function aggregatePerDimension(runs: RunRecord[]): Record<string, number> | undefined {
@@ -129,7 +130,7 @@ export function recordRuns(runs: RunRecord[], opts: RecordRunsOptions): Scorecar
   const lines: ScorecardLogLine[] = []
   for (const [scenarioId, scenarioRuns] of byScenario) {
     const scored = scenarioRuns
-      .map((run) => ({ run, score: runTaskScore(run) }))
+      .map((run) => ({ run, score: runScore(run) }))
       .filter((s): s is { run: RunRecord; score: number } => s.score !== undefined)
     if (scored.length === 0) continue
     const scores = scored.map((s) => s.score)
@@ -314,11 +315,7 @@ export function diffScorecard(
       d = cohensD(baseline.scores, current.scores)
       const t = welchsTTest(baseline.scores, current.scores)
       p = Number.isFinite(t.p) ? t.p : null
-      // `canStat` guarantees ≥ 2 samples per side, so a null d means zero
-      // pooled spread across a real mean gap — an unbounded standardized
-      // effect, which clears any finite threshold.
-      const effectClears = d === null || Math.abs(d) >= minEffect
-      const significant = effectClears && p !== null && p <= maxP
+      const significant = Math.abs(d) >= minEffect && p !== null && p <= maxP
       verdict = significant ? (delta > 0 ? 'improved' : 'regressed') : 'flat'
     } else {
       // Too few samples for a real test — fall back to a raw-delta threshold.

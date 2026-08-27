@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.139.3",
+  "version": "0.123.8",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -18,11 +18,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./profile-cell": {
-      "types": "./dist/profile-cell.d.ts",
-      "import": "./dist/profile-cell.js",
-      "default": "./dist/profile-cell.js"
     },
     "./analyst": {
       "types": "./dist/analyst/index.d.ts",
@@ -99,11 +94,6 @@
       "import": "./dist/campaign/index.js",
       "default": "./dist/campaign/index.js"
     },
-    "./ledger-core": {
-      "types": "./dist/ledger-core/index.d.ts",
-      "import": "./dist/ledger-core/index.js",
-      "default": "./dist/ledger-core/index.js"
-    },
     "./storyboard": {
       "types": "./dist/storyboard/index.d.ts",
       "import": "./dist/storyboard/index.js",
@@ -114,20 +104,15 @@
       "import": "./dist/authenticity/index.js",
       "default": "./dist/authenticity/index.js"
     },
+    "./belief-state": {
+      "types": "./dist/belief-state/index.d.ts",
+      "import": "./dist/belief-state/index.js",
+      "default": "./dist/belief-state/index.js"
+    },
     "./contract": {
       "types": "./dist/contract/index.d.ts",
       "import": "./dist/contract/index.js",
       "default": "./dist/contract/index.js"
-    },
-    "./rollout": {
-      "types": "./dist/rollout/index.d.ts",
-      "import": "./dist/rollout/index.js",
-      "default": "./dist/rollout/index.js"
-    },
-    "./supervisor-run": {
-      "types": "./dist/supervisor-run/index.d.ts",
-      "import": "./dist/supervisor-run/index.js",
-      "default": "./dist/supervisor-run/index.js"
     },
     "./hosted": {
       "types": "./dist/hosted/index.d.ts",
@@ -150,8 +135,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/check-analyst-benchmark-implementation.mjs --source-only && tsdown && pnpm openapi",
-    "dev": "tsdown --watch",
+    "build": "tsup && node scripts/build-declarations.mjs && pnpm openapi",
+    "dev": "tsup --watch",
     "prepare": "husky",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
@@ -161,50 +146,33 @@
     "lint": "biome check src",
     "format": "biome format --write src",
     "check:skill": "node scripts/check-skill.mjs",
-    "check:analyst-benchmark": "node scripts/check-analyst-benchmark-implementation.mjs",
     "openapi": "node dist/cli.js openapi --out dist/openapi.json",
-    "verify:package": "pnpm check:analyst-benchmark && pnpm run check:skill && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs"
+    "verify:package": "pnpm run check:skill && node scripts/verify-package-exports.mjs"
   },
   "dependencies": {
-    "@asteasolutions/zod-to-openapi": "^9.1.0",
-    "@hono/node-server": "^2.0.12",
-    "@tangle-network/agent-core": "0.4.29",
-    "@tangle-network/agent-interface": "0.40.0",
-    "hono": "^4.12.32",
-    "linear-sum-assignment": "1.0.9",
-    "re2js": "2.8.6",
-    "zod": "^4.4.3"
+    "@asteasolutions/zod-to-openapi": "^8.5.0",
+    "@ax-llm/ax": "^23.0.0",
+    "@hono/node-server": "^2.0.0",
+    "@tangle-network/agent-core": "^0.4.11",
+    "@tangle-network/agent-interface": "^0.31.0",
+    "@tangle-network/tcloud": "^0.4.14",
+    "hono": "^4.12.30",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.5",
-    "@arizeai/phoenix-evals": "^2.1.0",
-    "@biomejs/biome": "^2.5.5",
-    "@types/node": "^26.1.1",
-    "autoevals": "^0.3.0",
-    "esbuild": "^0.28.1",
-    "fast-check": "^4.9.0",
+    "@biomejs/biome": "^2.4.15",
+    "@types/node": "^25.6.0",
     "husky": "^9.1.7",
-    "lib-r-math.js": "^3.0.2",
-    "lint-staged": "^17.2.0",
-    "openapi3-ts": "^4.6.0",
-    "oxc-parser": "^0.141.0",
-    "publint": "^0.3.22",
-    "tsdown": "^0.22.14",
-    "typescript": "^7.0.2",
-    "vitest": "^4.1.10",
-    "yaml": "2.9.0"
+    "lint-staged": "^17.0.5",
+    "openapi3-ts": "^4.5.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   },
   "pnpm": {
     "minimumReleaseAge": 4320,
-    "minimumReleaseAgeExclude": [
-      "esbuild",
-      "vite"
-    ],
     "overrides": {
-      "@arizeai/openinference-core>@opentelemetry/core": "^2.10.0",
-      "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
-      "postcss@<8.5.18": "^8.5.18",
-      "vite@>=7.0.0 <=7.3.4": "^7.3.5",
+      "postcss@<8.5.10": "^8.5.10",
       "ws@>=8.0.0 <8.21.0": "^8.21.0"
     }
   },
@@ -220,5 +188,5 @@
     ]
   },
   "license": "MIT",
-  "packageManager": "pnpm@10.34.5"
+  "packageManager": "pnpm@10.22.0"
 }

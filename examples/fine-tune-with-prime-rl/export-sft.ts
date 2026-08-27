@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Export agent-eval run records through canonical rollout lines to prime-rl SFT JSONL.
+ * Export agent-eval RunRecord[] → prime-rl SFT JSONL.
  *
  * Reads `--runs <ndjson-file>` of `RunRecord`s, filters to high-quality
  * completions, projects through `toSftRows` into the messages-list format
@@ -15,20 +15,18 @@
  *     --min-score 0.7 \\
  *     --model-name Qwen/Qwen3-0.6B
  *
- * Adapt freely.
- * The essential pieces are:
+ * The script is intentionally small (~150 LoC). Adapt freely; the
+ * load-bearing pieces are:
  *   1. Reading `RunRecord`s
- *   2. Minting them with `mintRolloutRows(...)`
- *   3. `toSftRows(...)` and `toSftJsonl(...)`
+ *   2. `toSftRows(...)` from `@tangle-network/agent-eval/rl`
+ *   3. `toSftJsonl(...)` (same)
  *   4. Writing a templated TOML
  */
 
 import { promises as fs } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { toSftJsonl, toSftRows } from '../../src/rl/exporters'
-import { mintRolloutRows } from '../../src/rollout/mint'
-import { type RunRecord, runTaskScore } from '../../src/run-record'
-import { InMemoryTraceStore } from '../../src/trace/store'
+import type { RunRecord } from '../../src/run-record'
 
 interface CliArgs {
   runs: string
@@ -116,7 +114,7 @@ async function main(): Promise<void> {
   // is the most important hyperparameter — too low and the model learns to
   // mimic mediocre completions; too high and you starve it of data.
   const filtered = runs.filter((r) => {
-    const s = runTaskScore(r)
+    const s = r.outcome.holdoutScore ?? r.outcome.searchScore
     return typeof s === 'number' && s >= args.minScore
   })
   process.stdout.write(
@@ -130,25 +128,23 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const byId = new Map(filtered.map((run) => [run.runId, run]))
-  const { rows: rolloutLines } = await mintRolloutRows(filtered, new InMemoryTraceStore())
-
-  // The lookups read prompt/completion text from the records. Production
-  // callers can resolve the same ids from their trace store.
-  const rows = await toSftRows(rolloutLines, {
+  // Project to SFT rows. The lookups here read prompt/completion text out
+  // of `outcome.raw`. Real consumers usually store the text in a
+  // `TraceStore` and recover it via `iterateRawCalls`; that's a 5-line
+  // change to the lookups below.
+  const rows = await toSftRows(filtered, {
     promptOf: (runId) => {
-      const run = byId.get(runId)!
+      const run = filtered.find((r) => r.runId === runId)!
       const text = run.outcome.raw[args.promptKey]
       return typeof text === 'string' ? text : `<no prompt for ${runId}>`
     },
     completionOf: (runId) => {
-      const run = byId.get(runId)!
+      const run = filtered.find((r) => r.runId === runId)!
       const text = run.outcome.raw[args.completionKey]
       return typeof text === 'string' ? text : `<no completion for ${runId}>`
     },
     systemOf: args.systemKey
-      ? (line) => {
-          const run = byId.get(line.run_id)!
+      ? (run) => {
           const text = run.outcome.raw[args.systemKey!]
           return typeof text === 'string' ? text : null
         }

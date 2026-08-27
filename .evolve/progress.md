@@ -1,12 +1,5 @@
 # Progress
 
-## 2026-07-27 - Belief-state research closed
-
-PR #450 removed the experimental `belief-state` package after repository-wide analysis found no producers and no consumers.
-The reusable off-policy estimators remain in `src/rl/off-policy.ts`.
-The reusable calibration code remains in `src/meta-eval/calibration.ts`.
-Do not resume the removed package until a real runtime decision producer and a measured consumer exist.
-
 ## Gen 6 — Empirical proof: CLOSED (honest negative + proven mechanism)
 
 ### Shipped + verified (branch pursue/empirical-proof, ~7 commits, suite green)

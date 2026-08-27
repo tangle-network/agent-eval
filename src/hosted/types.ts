@@ -2,8 +2,9 @@
  * # Hosted-tier wire format — the schema that EVERY orchestrator (ours,
  * a partner's self-hosted one, a future open implementation) must accept.
  *
- * This package implements exactly one wire version. Servers reject every
- * other version instead of translating old payloads.
+ * **Stability:** every type in this file is committed under semver. New
+ * minors only ADD optional fields. Breaking changes mean a major bump
+ * (`HostedWireVersion` literal increment).
  *
  * The wire format is two event streams in one transport:
  *
@@ -24,13 +25,12 @@
 
 import type { GateDecision, MutableSurface } from '../campaign/types'
 import type { InsightReport } from '../contract/insight-report'
-import type { RunTerminalOutcome } from '../run-record'
 
 // re-export so wire-format consumers can import the optional payload type
 // from `@tangle-network/agent-eval/hosted` without reaching into /contract.
 export type { InsightReport } from '../contract/insight-report'
 
-export const HOSTED_WIRE_VERSION = '2026-07-24.v1' as const
+export const HOSTED_WIRE_VERSION = '2026-05-26.v1' as const
 export type HostedWireVersion = typeof HOSTED_WIRE_VERSION
 
 // ── Transport headers ───────────────────────────────────────────────
@@ -43,8 +43,8 @@ export interface HostedIngestHeaders {
   'x-tangle-tenant-id': string
   /** Wire-version pin so the server can reject incompatible payloads. */
   'x-tangle-wire-version': HostedWireVersion
-  /** Stable request key generated once and reused across retries. */
-  'idempotency-key': string
+  /** Optional idempotency key for retry-safe ingest. */
+  'idempotency-key'?: string
 }
 
 // ── Eval-run event ──────────────────────────────────────────────────
@@ -63,15 +63,11 @@ export interface EvalRunCellScore {
   scenarioId: string
   /** Repetition index when reps > 1; 0 for the default. */
   rep: number
-  /** Composite score across successful judges, or null when unscored. */
-  compositeMean: number | null
-  /** Per-judge and per-dimension scores; failed or missing judges are absent. */
+  /** Composite score across all judges + dimensions for this cell. */
+  compositeMean: number
+  /** Per-judge → per-dimension scores; null where the judge did not run. */
   dimensions: Record<string, Record<string, number>>
-  /** Root execution result, kept separate from task quality. */
-  terminalOutcome: RunTerminalOutcome
-  /** Canonical execution-error count, or null when the producer did not measure it. */
-  executionErrorCount: number | null
-  /** Per-cell dispatch or judge error. Missing on success. */
+  /** Per-cell error message if the dispatch threw. Null on success. */
   errorMessage?: string
 }
 
@@ -86,8 +82,8 @@ export interface EvalRunGenerationSnapshot {
   surface?: MutableSurface
   /** Per-cell scores for this generation. */
   cells: EvalRunCellScore[]
-  /** Mean across scored cells, or null when no cell has a task-quality label. */
-  compositeMean: number | null
+  /** Aggregate composite mean across all cells in this generation. */
+  compositeMean: number
   /** Total $ spent across this generation. */
   costUsd: number
   /** Wall-clock duration of this generation. */
@@ -128,17 +124,12 @@ export interface EvalRunEvent {
    *  paired-bootstrap lift CI, judge stats, inter-rater agreement,
    *  contamination check, failure clusters (when an analyst is wired),
    *  outcome correlation (when downstream signal is supplied), and the
-   *  recommendations the dashboard surfaces verbatim. */
+   *  recommendations the dashboard surfaces verbatim. Additive; older
+   *  clients that don't know about this field continue to work. */
   insightReport?: InsightReport
 }
 
 // ── Trace span event ────────────────────────────────────────────────
-
-/**
- * Canonical unsigned 64-bit integer encoded as a base-10 string.
- * JSON numbers cannot represent OTLP nanosecond timestamps exactly.
- */
-export type UnixNanoTimestamp = string
 
 /**
  * OTel-shape span with a few additional attributes for eval-run pivoting.
@@ -150,11 +141,11 @@ export interface TraceSpanEvent {
   spanId: string
   parentSpanId?: string
   name: string
-  startTimeUnixNano: UnixNanoTimestamp
-  endTimeUnixNano: UnixNanoTimestamp
+  startTimeUnixNano: number
+  endTimeUnixNano: number
   attributes: Record<string, string | number | boolean>
   events?: Array<{
-    timeUnixNano: UnixNanoTimestamp
+    timeUnixNano: number
     name: string
     attributes?: Record<string, string | number | boolean>
   }>

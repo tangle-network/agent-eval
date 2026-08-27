@@ -16,7 +16,6 @@ dist/
 data/
 
 # Test + run ephemerals
-.agent/
 .runs/
 .marketing-agent-runs/
 .calibrate/

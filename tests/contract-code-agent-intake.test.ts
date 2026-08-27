@@ -115,22 +115,19 @@ describe('code-agent session intake', () => {
       reasoning: 120,
       cached: 200,
     })
-    expect(run.outcome.holdoutScore).toBeUndefined()
-    expect(run.outcome.searchScore).toBeUndefined()
-    expect(run.failureMode).toBeUndefined()
-    expect(run.terminalOutcome).toBe('succeeded')
+    expect(run.outcome.holdoutScore).toBeGreaterThan(0)
+    expect(run.outcome.holdoutScore).toBeLessThan(1)
+    expect(run.failureMode).toBe('tool_error')
     expect(run.outcome.raw.patch_failures).toBe(1)
-    expect(run.outcome.raw.process_score).toBeGreaterThan(0)
-    expect(run.outcome.raw.quality_label_present).toBe(0)
-    expect(run.outcome.raw).not.toHaveProperty('inferred_score')
+    expect(run.outcome.raw.inferred_score).toBe(1)
     expect(JSON.stringify(run)).not.toContain(secretPrompt)
 
     expect(diagnostics[0]).toMatchObject({
       source: 'codex',
       sessionId: 'codex-session-1',
       malformedLines: 1,
+      inferredScore: true,
       hasExplicitTerminalSignal: true,
-      hasQualityLabel: false,
       hasTokenUsage: true,
       hasCost: true,
       costKind: 'estimated',
@@ -141,21 +138,12 @@ describe('code-agent session intake', () => {
       finalText: null,
       terminal: { status: 'completed', explicit: true },
     })
-    expect(diagnostics[0]!.warnings).toContain('task quality score not supplied')
+    expect(diagnostics[0]!.warnings).toContain('outcome score is inferred from process telemetry')
     expect(metrics[0]!.patchFailures).toBe(1)
 
     const report = await analyzeRuns({ runs })
     expect(report.n).toBe(1)
-    expect(report.composite.n).toBe(0)
-    expect(report.execution.executionErrors).toMatchObject({
-      runs: 1,
-      events: 1,
-      errorSpanEvents: 0,
-      byTerminalOutcome: {
-        succeeded: { withErrors: 1, withoutErrors: 0, unreported: 0 },
-      },
-    })
-    expect(report.execution.terminalOutcomes).toMatchObject({ succeeded: 1, failed: 0 })
+    expect(report.composite.n).toBe(1)
   })
 
   it('projects Codex exec 0.144.1 JSONL lifecycle items and usage', () => {
@@ -195,10 +183,8 @@ describe('code-agent session intake', () => {
       runId: 'codex:00000000-0000-7000-8000-000000000144',
       tokenUsage: { input: 482267, output: 9006, reasoning: 4529, cached: 409600 },
       costProvenance: { kind: 'estimated' },
-      terminalOutcome: 'succeeded',
+      failureMode: 'tool_error',
     })
-    expect(runs[0]!.failureMode).toBeUndefined()
-    expect(runs[0]!.outcome.raw.execution_error_count).toBe(1)
     expect(diagnostics[0]).toMatchObject({
       sessionId: '00000000-0000-7000-8000-000000000144',
       hasExplicitTerminalSignal: true,
@@ -233,7 +219,7 @@ describe('code-agent session intake', () => {
     })
 
     const run = validateRunRecord(runs[0])
-    expect(run.costUsd).toBeNull()
+    expect(run.costUsd).toBe(0)
     expect(run.costProvenance).toEqual({ kind: 'uncaptured', usd: null })
     expect(run.outcome.raw.cost_observed).toBe(0)
     expect(run.outcome.raw.cost_estimated).toBe(0)
@@ -267,19 +253,10 @@ describe('code-agent session intake', () => {
       turnsStarted: 1,
       turnsCompleted: 0,
       turnsAborted: 1,
-      toolErrors: 0,
-      unclassifiedErrors: 1,
+      toolErrors: 1,
       processScore: 0,
     })
-    expect(runs[0]!.failureMode).toBeUndefined()
-    expect(runs[0]!.failureClass).toBeUndefined()
-    expect(runs[0]!.terminalOutcome).toBe('failed')
-    expect(runs[0]!.terminalFailureReason).toBe('turn aborted')
-    expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
-    expect(runs[0]!.outcome.raw.execution_error_count).toBe(0)
-    expect(runs[0]!.outcome.raw.process_error_count).toBe(1)
-    expect(runs[0]!.outcome.raw.unclassified_error_count).toBe(1)
-    expect(runs[0]!.outcome.raw.quality_label_present).toBe(0)
+    expect(runs[0]!.failureMode).toBe('turn_aborted')
     expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(true)
   })
 
@@ -342,9 +319,7 @@ describe('code-agent session intake', () => {
     expect(run.tokenUsage).toEqual({ input: 900, output: 250, cached: 100 })
     expect(run.outcome.raw.pr_links).toBe(1)
     expect(run.outcome.raw.tool_errors).toBe(1)
-    expect(run.failureMode).toBeUndefined()
-    expect(run.terminalOutcome).toBe('unknown')
-    expect(run.outcome.raw.execution_error_count).toBe(1)
+    expect(run.failureMode).toBe('tool_error')
     expect(diagnostics[0]!.hasExplicitTerminalSignal).toBe(false)
     expect(metrics[0]).toMatchObject({
       userMessages: 1,
@@ -416,7 +391,7 @@ describe('code-agent session intake', () => {
   })
 
   it('parses OpenCode run JSON and binds its terminal state to the process receipt', () => {
-    const { runs, diagnostics, metrics, observations } = fromOpenCodeSession({
+    const { diagnostics, metrics, observations } = fromOpenCodeSession({
       entries: [
         {
           type: 'tool_use',
@@ -448,43 +423,6 @@ describe('code-agent session intake', () => {
     expect(observations[0]).toMatchObject({
       finalText: 'OpenCode final answer',
       terminal: { status: 'completed', explicit: true },
-    })
-    expect(runs[0]!.terminalOutcome).toBe('succeeded')
-    expect(runs[0]!.terminalFailureReason).toBeUndefined()
-    expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
-    expect(runs[0]!.failureClass).toBeUndefined()
-    expect(runs[0]!.failureMode).toBeUndefined()
-    expect(runs[0]!.outcome.raw.process_exit_code).toBe(0)
-    expect(runs[0]!.outcome.raw.execution_error_count).toBe(0)
-  })
-
-  it('keeps a failed process receipt in execution fields without inventing task quality', () => {
-    const { runs, diagnostics } = fromOpenCodeSession({
-      entries: [
-        {
-          type: 'text',
-          sessionID: 'opencode-transport-failure',
-          part: { id: 'text-1', type: 'text', text: 'partial output' },
-        },
-      ],
-      execution: { exitCode: 7, startedAtMs: 10_000, completedAtMs: 20_000 },
-    })
-
-    const run = validateRunRecord(runs[0])
-    expect(run.terminalOutcome).toBe('failed')
-    expect(run.terminalFailureReason).toBe('process exited with code 7')
-    expect(run.outcome.holdoutScore).toBeUndefined()
-    expect(run.outcome.searchScore).toBeUndefined()
-    expect(run.failureClass).toBeUndefined()
-    expect(run.failureMode).toBeUndefined()
-    expect(run.outcome.raw.process_exit_code).toBe(7)
-    expect(run.outcome.raw.execution_error_count).toBe(0)
-    expect(run.outcome.raw.process_error_count).toBe(1)
-    expect(run.outcome.raw.unclassified_error_count).toBe(0)
-    expect(run.outcome.raw.quality_label_present).toBe(0)
-    expect(diagnostics[0]).toMatchObject({
-      hasExplicitTerminalSignal: true,
-      hasQualityLabel: false,
     })
   })
 
@@ -556,8 +494,7 @@ describe('code-agent session intake', () => {
     expect(run.tokenUsage).toEqual({ input: 1000, output: 150, reasoning: 30, cached: 40 })
     expect(run.costUsd).toBe(0.42)
     expect(run.costProvenance).toEqual({ kind: 'observed', usd: 0.42 })
-    expect(run.failureMode).toBeUndefined()
-    expect(run.outcome.raw.execution_error_count).toBe(1)
+    expect(run.failureMode).toBe('tool_error')
     expect(run.outcome.raw.tool_calls).toBe(2)
     expect(run.outcome.raw.tool_outputs).toBe(2)
     expect(run.outcome.raw.patch_successes).toBe(1)
@@ -805,9 +742,8 @@ describe('code-agent session intake', () => {
     const run = validateRunRecord(runs[0])
     expect(run.runId).toBe('pi:pi-session-1')
     expect(run.model).toBe('pi@observed-local')
-    expect(run.costUsd).toBeNull()
-    expect(run.outcome.holdoutScore).toBeUndefined()
-    expect(run.outcome.raw.process_score).toBe(0.91)
+    expect(run.costUsd).toBe(0)
+    expect(run.outcome.holdoutScore).toBe(0.91)
     expect(run.outcome.raw.graph_nodes).toBe(6)
     expect(run.outcome.raw.graph_edges).toBe(2)
     expect(run.outcome.raw.action_candidates).toBe(1)
@@ -835,53 +771,9 @@ describe('code-agent session intake', () => {
     })
 
     expect(runs[0]!.outcome.holdoutScore).toBe(0.92)
-    expect(runs[0]!.outcome.raw.process_score).toBeGreaterThanOrEqual(0)
-    expect(runs[0]!.outcome.raw).not.toHaveProperty('inferred_score')
+    expect(runs[0]!.outcome.raw.inferred_score).toBe(0)
     expect(runs[0]!.outcome.raw.quality_label_present).toBe(1)
+    expect(diagnostics[0]!.inferredScore).toBe(false)
     expect(diagnostics[0]!.hasQualityLabel).toBe(true)
   })
-
-  it.each(['search', 'dev'] as const)(
-    'writes a %s session score only to searchScore',
-    (splitTag) => {
-      const { runs } = fromCodexSession({
-        entries: [
-          { type: 'session_meta', payload: { id: `${splitTag}-session`, model_provider: 'codex' } },
-          { type: 'event_msg', payload: { type: 'task_complete', duration_ms: 1000 } },
-        ],
-        score: 0.81,
-        splitTag,
-        model: 'gpt-5@2026-06-05',
-      })
-
-      expect(runs[0]!.splitTag).toBe(splitTag)
-      expect(runs[0]!.outcome.searchScore).toBe(0.81)
-      expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
-    },
-  )
-
-  it.each([Number.NaN, Number.POSITIVE_INFINITY])(
-    'omits a non-finite external quality score (%s)',
-    (score) => {
-      const { runs, diagnostics } = fromCodexSession({
-        entries: [
-          {
-            type: 'session_meta',
-            payload: { id: 'invalid-score-session', model_provider: 'codex' },
-          },
-          { type: 'event_msg', payload: { type: 'task_complete', duration_ms: 1000 } },
-        ],
-        score,
-        model: 'gpt-5@2026-06-05',
-      })
-
-      expect(runs[0]!.outcome.holdoutScore).toBeUndefined()
-      expect(runs[0]!.outcome.searchScore).toBeUndefined()
-      expect(runs[0]!.outcome.raw.quality_label_present).toBe(0)
-      expect(runs[0]!.failureClass).toBeUndefined()
-      expect(runs[0]!.failureMode).toBeUndefined()
-      expect(diagnostics[0]!.hasQualityLabel).toBe(false)
-      expect(diagnostics[0]!.warnings).toContain('non-finite task quality score omitted')
-    },
-  )
 })

@@ -18,7 +18,7 @@ pnpm tsx examples/foreign-agent-quickstart/index.ts
 ```
 
 The default path is offline and deterministic.
-Set `OPENAI_API_KEY` to run the agent and judge through an OpenAI-compatible endpoint.
+Set `OPENAI_API_KEY` to exercise the example's optional model-based candidate generator.
 
 ## Adapt Your Agent
 
@@ -76,8 +76,7 @@ const candidate = await evalKit.evaluate({
 ```
 
 Wrap top-level calls in your application's existing async entry point.
-Use `evalKit.improve()` with a caller-owned `SurfaceProposer` when you are ready to generate and evaluate candidates automatically.
-Use `compareOptimizationMethods()` when official GEPA or SkillOpt should own the complete search procedure.
+Use `evalKit.improve()` when you are ready to generate and evaluate candidates automatically.
 
 ## Failure And Data Handling
 

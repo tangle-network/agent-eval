@@ -13,7 +13,6 @@
  * Returns a structured verdict: improved | regressed | stable | unstable.
  */
 
-import { studentTCdf, studentTQuantile } from './math/student-t'
 import { cohensD } from './statistics'
 
 export interface MetricSamples {
@@ -30,9 +29,7 @@ export interface MetricVerdict {
   baselineMean: number
   candidateMean: number
   delta: number
-  /** Null when both samples are constant with unequal means — the
-   *  standardized effect is unbounded there, not zero. */
-  cohensD: number | null
+  cohensD: number
   welchT: number
   welchDf: number
   welchP: number
@@ -59,42 +56,6 @@ export interface BaselineOptions {
   unstableCvThreshold?: number
 }
 
-export type WelchTestStatus = 'ok' | 'insufficient-sample' | 'zero-variance'
-
-/**
- * Full unequal-variance comparison for two independent samples.
- *
- * `meanB`, `delta`, `t`, and `cohensD` are oriented as `b - a`. Inferential
- * fields are `NaN` and `ci95` is null when the sample count or observed
- * variance cannot define a Student-t result. `status` makes that state
- * explicit so callers cannot mistake it for evidence of no difference.
- */
-interface WelchTestResultBase {
-  meanA: number
-  meanB: number
-  delta: number
-}
-
-export type WelchTestResult =
-  | (WelchTestResultBase & {
-      status: 'ok'
-      standardError: number
-      t: number
-      df: number
-      p: number
-      ci95: [number, number]
-      cohensD: number
-    })
-  | (WelchTestResultBase & {
-      status: 'insufficient-sample' | 'zero-variance'
-      standardError: number
-      t: number
-      df: number
-      p: number
-      ci95: null
-      cohensD: null
-    })
-
 /**
  * Compare candidate samples against baseline per metric. Verdict logic:
  *   - unstable: IQR/|mean| > threshold on either set — not enough signal
@@ -111,11 +72,14 @@ export function compareToBaseline(
   const cvThreshold = options.unstableCvThreshold ?? 0.3
 
   const metrics: MetricVerdict[] = samples.map((s) => {
-    const comparison = welchsTTest(s.baseline, s.candidate)
-    if (comparison.status === 'insufficient-sample') {
+    if (s.baseline.length < 2 || s.candidate.length < 2) {
       throw new Error(`compareToBaseline: need ≥2 samples per side for "${s.metric}"`)
     }
-    const { meanA: bMean, meanB: cMean, delta, cohensD: d, t, df, p } = comparison
+    const bMean = mean(s.baseline)
+    const cMean = mean(s.candidate)
+    const delta = cMean - bMean
+    const d = cohensD(s.baseline, s.candidate) // positive = candidate higher
+    const { t, df, p } = welchsTTest(s.baseline, s.candidate)
     // Stability is per-side: a comparison is trustworthy only when BOTH
     // samples are internally consistent. Combining the sides would flag
     // large-but-real deltas as "unstable" which is exactly what we want
@@ -127,15 +91,10 @@ export function compareToBaseline(
     const stable = baselineStable && candidateStable
     const reportedIqr = Math.max(baselineIqr, candidateIqr)
 
-    // Both sides are guaranteed ≥ 2 samples above, so a null d means zero
-    // pooled spread across a real mean gap: an unbounded standardized effect,
-    // which clears any finite threshold.
-    const effectClears = d === null || Math.abs(d) >= effectThreshold
-
     let verdict: MetricVerdict['verdict']
     if (!stable) {
       verdict = 'unstable'
-    } else if (comparison.status === 'ok' && p < alpha && effectClears) {
+    } else if (p < alpha && Math.abs(d) >= effectThreshold) {
       const candidateIsBetter = s.higherIsBetter ? delta > 0 : delta < 0
       verdict = candidateIsBetter ? 'improved' : 'regressed'
     } else {
@@ -182,86 +141,95 @@ export function iqr(xs: number[]): number {
 }
 
 /**
- * Welch's t-test and 95% interval for two independent samples.
- *
- * Uses the Student-t distribution at every finite degree of freedom. Fewer
- * than two observations per side and zero observed standard error cannot
- * define a t reference distribution; those cases return an explicit status,
- * `NaN` inferential fields, and no interval rather than fabricated certainty.
+ * Welch's t-test — unequal-variance two-sample t. Uses the same Student-t
+ * CDF as `pairedTTest` (via incomplete beta); falls back to normal tail
+ * when df is large.
  */
-export function welchsTTest(a: number[], b: number[]): WelchTestResult {
-  assertFiniteSample('a', a)
-  assertFiniteSample('b', b)
+export function welchsTTest(a: number[], b: number[]): { t: number; df: number; p: number } {
+  if (a.length < 2 || b.length < 2) return { t: 0, df: 0, p: 1 }
   const mA = mean(a)
   const mB = mean(b)
-  const delta = mB - mA
-  if (a.length < 2 || b.length < 2) {
-    return {
-      status: 'insufficient-sample',
-      meanA: mA,
-      meanB: mB,
-      delta,
-      standardError: Number.NaN,
-      t: Number.NaN,
-      df: Number.NaN,
-      p: Number.NaN,
-      ci95: null,
-      cohensD: null,
-    }
-  }
-
   const vA = variance(a, mA)
   const vB = variance(b, mB)
   const seSquared = vA / a.length + vB / b.length
-  const d = cohensD(a, b)
-  if (seSquared === 0) {
-    return {
-      status: 'zero-variance',
-      meanA: mA,
-      meanB: mB,
-      delta,
-      standardError: 0,
-      t: delta === 0 ? 0 : Math.sign(delta) * Number.POSITIVE_INFINITY,
-      df: Number.NaN,
-      p: Number.NaN,
-      ci95: null,
-      cohensD: null,
-    }
-  }
-
-  const standardError = Math.sqrt(seSquared)
-  const t = delta / standardError
+  if (seSquared === 0) return { t: mA === mB ? 0 : Infinity, df: 0, p: mA === mB ? 1 : 0 }
+  const t = (mB - mA) / Math.sqrt(seSquared)
   const df =
     (seSquared * seSquared) /
     ((vA / a.length) ** 2 / (a.length - 1) + (vB / b.length) ** 2 / (b.length - 1))
   const p = 2 * (1 - studentTCdf(Math.abs(t), df))
-  if (d === null) {
-    throw new Error('welchsTTest: non-zero standard error produced no pooled effect size')
-  }
-  const halfWidth = studentTQuantile(0.975, df) * standardError
-  return {
-    status: 'ok',
-    meanA: mA,
-    meanB: mB,
-    delta,
-    standardError,
-    t,
-    df,
-    p,
-    ci95: [delta - halfWidth, delta + halfWidth],
-    cohensD: d,
-  }
+  return { t, df, p }
 }
 
 function variance(xs: number[], m: number): number {
   return xs.reduce((acc, x) => acc + (x - m) ** 2, 0) / (xs.length - 1)
 }
 
-function assertFiniteSample(name: string, sample: readonly number[]): void {
-  const invalid = sample.find((value) => !Number.isFinite(value))
-  if (invalid !== undefined) {
-    throw new RangeError(
-      `welchsTTest: sample ${name} must contain only finite values, got ${invalid}`,
-    )
+// Re-used from statistics.ts via small local copy to avoid exporting internals.
+function studentTCdf(t: number, df: number): number {
+  if (df <= 0) return 0.5
+  if (df > 100) return normalCdf(t)
+  const x = df / (df + t * t)
+  const ib = incompleteBeta(x, df / 2, 0.5)
+  return t >= 0 ? 1 - 0.5 * ib : 0.5 * ib
+}
+
+function incompleteBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const lnBeta = lnGamma(a) + lnGamma(b) - lnGamma(a + b)
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lnBeta) / a
+  let c = 1
+  let d = 1 - ((a + b) * x) / (a + 1)
+  if (Math.abs(d) < 1e-30) d = 1e-30
+  d = 1 / d
+  let f = d
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m
+    let num = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    f *= d * c
+    num = -((a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1))
+    d = 1 + num * d
+    if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + num / c
+    if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    const delta = d * c
+    f *= delta
+    if (Math.abs(delta - 1) < 3e-7) break
   }
+  return front * f
+}
+
+function lnGamma(z: number): number {
+  const coefs = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
+    1.5056327351493116e-7,
+  ]
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lnGamma(1 - z)
+  z -= 1
+  let x = coefs[0]!
+  for (let i = 1; i < 9; i++) x += coefs[i]! / (z + i)
+  const t = z + 7.5
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
+}
+
+function normalCdf(x: number): number {
+  const a1 = 0.254829592
+  const a2 = -0.284496736
+  const a3 = 1.421413741
+  const a4 = -1.453152027
+  const a5 = 1.061405429
+  const p = 0.3275911
+  const sign = x < 0 ? -1 : 1
+  const absX = Math.abs(x)
+  const t = 1 / (1 + p * absX)
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp((-absX * absX) / 2)
+  return 0.5 * (1 + sign * y)
 }

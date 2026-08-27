@@ -6,15 +6,13 @@
  * the whole bundle keeps every kind's actor-context budget tight and
  * makes "what can this analyst see?" obvious at registration time.
  *
- * Each function in the group keeps its full `name`, schema, handler, and
- * description from `buildTraceAnalysisToolDescriptors`.
+ * Each function in the group keeps its full `name`/`description` from
+ * `buildTraceAnalystTools` — we filter, we don't re-implement.
  */
 
+import type { AxFunction } from '@ax-llm/ax'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import {
-  buildTraceAnalysisToolDescriptors,
-  type TraceAnalysisToolDescriptor,
-} from '../trace-analyst/tools'
+import { buildTraceAnalystTools } from '../trace-analyst/tools'
 
 /** Named tool sets. Kinds pass `tools: TRACE_TOOL_GROUPS.failureForensics` etc. */
 export type TraceToolGroupName =
@@ -28,8 +26,6 @@ export type TraceToolGroupName =
   | 'discoveryAndSearch'
   /** Discovery + viewSpans + searchSpan. Targeted-span work after another kind narrows down. */
   | 'targeted'
-  /** One known-small trace: overview, bounded reads, and in-trace search. */
-  | 'singleTrace'
 
 const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
   all: new Set(),
@@ -49,29 +45,22 @@ const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
     'searchSpan',
   ]),
   targeted: new Set(['getDatasetOverview', 'queryTraces', 'viewSpans', 'searchSpan']),
-  singleTrace: new Set([
-    'getDatasetOverview',
-    'viewTrace',
-    'viewSpans',
-    'searchTrace',
-    'searchSpan',
-  ]),
 }
 
 /**
  * Build the tool set for a named group bound to a specific trace store.
  *
- * `all` returns every tool. Other groups filter the canonical descriptors
+ * `all` returns every tool. Other groups filter `buildTraceAnalystTools`
  * by name to the documented subset. An unrecognised group name throws —
  * silently returning all tools would defeat the cost-control point.
  */
 export function buildTraceToolsForGroup(
   group: TraceToolGroupName,
   store: TraceAnalysisStore,
-): TraceAnalysisToolDescriptor[] {
-  const all = buildTraceAnalysisToolDescriptors({ store })
+): AxFunction[] {
+  const all = buildTraceAnalystTools({ store })
   if (group === 'all') return all
   const allow = TOOL_NAMES_BY_GROUP[group]
   if (!allow) throw new Error(`unknown trace tool group: ${group}`)
-  return all.filter((tool) => allow.has(tool.name))
+  return all.filter((tool) => allow.has((tool as { name: string }).name))
 }

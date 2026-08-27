@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comparePairedArms, type PairedArmRow, pairArms, pairRunRecords } from './paired-arms'
-import type { RunRecord } from './run-record'
+import { comparePairedArms, type PairedArmRow, pairArms } from './paired-arms'
 import { mcnemar } from './statistics'
 
 /**
@@ -83,18 +82,6 @@ describe('pairArms — matched-pair construction', () => {
     expect(r.unpairedBaseline.map((x) => x.pass)).toEqual([false, true])
     expect(r.unpairedTreatment).toHaveLength(1)
     expect(r.unpairedTreatment[0]!.pairKey).toBe('t2')
-  })
-
-  it('does not pair single observations whose explicit repKeys differ', () => {
-    const rows = [
-      row('t1', 'off', false, undefined, 'seed-1'),
-      row('t1', 'on', true, undefined, 'seed-2'),
-    ]
-    const result = pairArms(rows, { baselineArm: 'off', treatmentArm: 'on' })
-
-    expect(result.pairs).toHaveLength(0)
-    expect(result.unpairedBaseline.map((item) => item.repKey)).toEqual(['seed-1'])
-    expect(result.unpairedTreatment.map((item) => item.repKey)).toEqual(['seed-2'])
   })
 
   it('throws when a multi-rep pairKey has a row without repKey', () => {
@@ -204,7 +191,7 @@ describe('comparePairedArms — composed paired estimators', () => {
     expect(score.bootstrapCi!.n).toBe(2)
   })
 
-  it('reports a requested-but-absent metric with n = 0 and null deltas', () => {
+  it('reports a requested-but-absent metric with n = 0 and NaN deltas (visible, not vanished)', () => {
     const rows = [row('t1', 'off', false, { score: 0.2 }), row('t1', 'on', true, { score: 0.8 })]
     const r = comparePairedArms(rows, {
       baselineArm: 'off',
@@ -217,8 +204,8 @@ describe('comparePairedArms — composed paired estimators', () => {
     expect(m.name).toBe('latency')
     expect(m.n).toBe(0)
     expect(m.nMissing).toBe(1)
-    expect(m.medianDelta).toBeNull()
-    expect(m.meanDelta).toBeNull()
+    expect(Number.isNaN(m.medianDelta)).toBe(true)
+    expect(Number.isNaN(m.meanDelta)).toBe(true)
     // No data must not read as a measured tight-null CI.
     expect(m.bootstrapCi).toBeNull()
     expect(m.wilcoxon).toBeNull()
@@ -296,95 +283,5 @@ describe('comparePairedArms — composed paired estimators', () => {
     ]
     const opts = { baselineArm: 'off', treatmentArm: 'on', bootstrap: { seed: 42 } }
     expect(comparePairedArms(rows, opts)).toEqual(comparePairedArms(rows, opts))
-  })
-})
-
-describe('pairRunRecords', () => {
-  function record(runId: string, candidateId: string, scenarioId: string, seed: number): RunRecord {
-    return {
-      runId,
-      experimentId: 'experiment',
-      candidateId,
-      seed,
-      model: 'model@snapshot',
-      promptHash: 'p'.repeat(64),
-      configHash: 'c'.repeat(64),
-      commitSha: 'commit',
-      wallMs: 1,
-      costUsd: 0,
-      costProvenance: { kind: 'observed', usd: 0 },
-      tokenUsage: { input: 0, output: 0 },
-      terminalOutcome: 'succeeded',
-      outcome: { holdoutScore: 1, raw: {} },
-      splitTag: 'holdout',
-      scenarioId,
-    }
-  }
-
-  it('pairs by experiment, scenario, and seed independent of input order', () => {
-    const baseline = [
-      record('b-a-1', 'baseline', 'a', 1),
-      record('b-b-1', 'baseline', 'b', 1),
-      record('b-a-2', 'baseline', 'a', 2),
-    ]
-    const treatment = [
-      record('t-a-2', 'candidate', 'a', 2),
-      record('t-a-1', 'candidate', 'a', 1),
-      record('t-b-1', 'candidate', 'b', 1),
-    ]
-
-    const forward = pairRunRecords(baseline, treatment)
-    const reversed = pairRunRecords([...baseline].reverse(), [...treatment].reverse())
-
-    expect(forward.pairs.map((pair) => [pair.baseline.runId, pair.treatment.runId])).toEqual([
-      ['b-a-1', 't-a-1'],
-      ['b-a-2', 't-a-2'],
-      ['b-b-1', 't-b-1'],
-    ])
-    expect(reversed).toEqual(forward)
-  })
-
-  it('does not pair different scenarios that share a seed', () => {
-    const result = pairRunRecords(
-      [record('baseline-a', 'baseline', 'a', 7)],
-      [record('candidate-b', 'candidate', 'b', 7)],
-    )
-
-    expect(result.pairs).toHaveLength(0)
-    expect(result.unpairedBaseline).toHaveLength(1)
-    expect(result.unpairedTreatment).toHaveLength(1)
-  })
-
-  it('rejects missing scenario identity', () => {
-    expect(() =>
-      pairRunRecords(
-        [record('baseline', 'baseline', '', 1)],
-        [record('candidate', 'candidate', 'a', 1)],
-      ),
-    ).toThrow(/missing scenarioId/)
-  })
-
-  it('rejects duplicate identities within an arm', () => {
-    expect(() =>
-      pairRunRecords(
-        [
-          record('baseline-1', 'baseline', 'a', 1),
-          record('baseline-duplicate', 'baseline', 'a', 1),
-        ],
-        [record('candidate', 'candidate', 'a', 1)],
-      ),
-    ).toThrow(/duplicate repKey/)
-  })
-
-  it('rejects duplicate identities even when the other arm is empty', () => {
-    expect(() =>
-      pairRunRecords(
-        [
-          record('baseline-1', 'baseline', 'a', 1),
-          record('baseline-duplicate', 'baseline', 'a', 1),
-        ],
-        [],
-      ),
-    ).toThrow(/duplicate repKey/)
   })
 })

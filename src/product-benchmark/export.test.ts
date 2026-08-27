@@ -27,9 +27,7 @@ function fixtureRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
     commitSha: 'abc123',
     wallMs: 1200,
     costUsd: 0.002,
-    costProvenance: { kind: 'observed', usd: 0.002 },
     tokenUsage: { input: 100, output: 20 },
-    terminalOutcome: 'succeeded',
     outcome: { searchScore: 0.9, raw: { composite: 0.9 } },
     splitTag: 'dev',
     scenarioId: 'scenario-1',
@@ -113,10 +111,9 @@ describe('exportProductBenchmarkRuns', () => {
     expect(report.integrityFailures).toEqual([])
     expect(report.missingArtifacts).toEqual([])
     expect(report.repoFailures).toEqual([])
-    // The failed holdout row carries canonical failure evidence, not a silent null.
+    // The failed holdout row carries a synthesized failure mode, not a silent null.
     expect(records[1]?.outcome.pass).toBe(false)
-    expect(records[1]?.outcome.failureClass).toBe('unknown')
-    expect(records[1]?.outcome.failureDetail).toMatch(/quality-below-threshold/)
+    expect(records[1]?.outcome.failureMode).toMatch(/quality-below-threshold/)
   })
 
   it('covers the tax drift: dimensions.variant arm, raw.safety split, trace-store dir', () => {
@@ -167,33 +164,10 @@ describe('exportProductBenchmarkRuns', () => {
 
     // raw.pass=0 beats the score threshold: failed, with the explicit reason.
     expect(records[0]?.outcome.pass).toBe(false)
-    expect(records[0]?.outcome.failureClass).toBe('unknown')
-    expect(records[0]?.outcome.failureDetail).toBe('product-pass-failed')
+    expect(records[0]?.outcome.failureMode).toBe('product-pass-failed')
     expect(records[0]?.usage.toolCalls).toBe(3)
     expect(records[0]?.outcome.dimensions.tool_calls).toBe(3)
     expect(readProductBenchmarkManifest(result.manifestPath).scenarios[0]?.tags[0]).toBe('legal')
-  })
-
-  it('treats a canonical failure class without detail as a failed product row', () => {
-    const runDir = writeRunDir([
-      fixtureRunRecord({
-        terminalOutcome: 'failed',
-        terminalFailureReason: 'incorrect task result',
-        failureClass: 'reasoning_error',
-      }),
-    ])
-    const result = exportProductBenchmarkRuns({
-      ...baseOptions,
-      runDirs: [runDir],
-      outDir: outDirFixture(),
-    })
-    const [record] = readProductBenchmarkRecords(result.recordsPath)
-
-    expect(record?.outcome).toMatchObject({
-      pass: false,
-      failureClass: 'reasoning_error',
-      failureDetail: null,
-    })
   })
 
   it('covers the creative drift: absolute artifacts, split hook, variantId arm, reasoning effort, profile fallback', () => {
@@ -301,53 +275,6 @@ describe('exportProductBenchmarkRuns', () => {
         outDir: outDirFixture(),
       }),
     ).toThrow(/missing .*records\.jsonl/)
-  })
-
-  it('rejects an unscored run instead of exporting a zero-quality row', () => {
-    const runDir = writeRunDir([
-      fixtureRunRecord({
-        runId: 'run-unscored',
-        outcome: { raw: {} },
-      }),
-    ])
-
-    expect(() =>
-      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
-    ).toThrow(/run-unscored has no task score/)
-  })
-
-  it('does not promote raw score-like metrics to a task score', () => {
-    const runDir = writeRunDir([
-      fixtureRunRecord({
-        runId: 'run-raw-only',
-        outcome: { raw: { score: 0.99, composite: 0.99 } },
-      }),
-    ])
-
-    expect(() =>
-      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
-    ).toThrow(/run-raw-only has no task score/)
-  })
-
-  it('rejects a partial judge composite instead of promoting it to a task score', () => {
-    const runDir = writeRunDir([
-      fixtureRunRecord({
-        runId: 'run-partial-judge',
-        outcome: {
-          raw: { composite: 0.8, judge_error_count: 1 },
-          judgeScores: {
-            perJudge: { first: { quality: 0.8 } },
-            perDimMean: { quality: 0.8 },
-            composite: 0.8,
-            failedJudges: ['second'],
-          },
-        },
-      }),
-    ])
-
-    expect(() =>
-      exportProductBenchmarkRuns({ ...baseOptions, runDirs: [runDir], outDir: outDirFixture() }),
-    ).toThrow(/run-partial-judge has incomplete judge evidence/)
   })
 
   it('reports unknown repo identity through validateProductBenchmarkRun', () => {

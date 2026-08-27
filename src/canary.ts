@@ -47,15 +47,6 @@ export interface CanaryReport {
   alerts: CanaryAlert[]
   /** Per-kind summary count. */
   counts: Record<CanaryKind, number>
-  /** Whether each enabled detector had enough observations to run. */
-  evaluations: CanaryEvaluation[]
-}
-
-export interface CanaryEvaluation {
-  kind: CanaryKind
-  status: 'evaluated' | 'not_evaluated'
-  observations: number
-  reason?: string
 }
 
 export interface CanaryOptions {
@@ -116,48 +107,35 @@ export interface CanaryOptions {
  * the input is used to define "recent" vs "historical" windows.
  */
 export function runCanaries(runs: RunRecord[], opts: CanaryOptions = {}): CanaryReport {
-  const detections = [
-    detectSilentFallback(runs, opts.silentFallback ?? {}),
-    detectCalibrationDrift(runs, opts.calibrationDrift ?? {}),
+  const alerts: CanaryAlert[] = [
+    ...detectSilentFallback(runs, opts.silentFallback ?? {}),
+    ...detectCalibrationDrift(runs, opts.calibrationDrift ?? {}),
+    ...(opts.distributionShift ? detectDistributionShift(runs, opts.distributionShift) : []),
   ]
-  if (opts.distributionShift) {
-    detections.push(detectDistributionShift(runs, opts.distributionShift))
-  }
-  const alerts = detections.flatMap((detection) => detection.alerts)
   const counts: Record<CanaryKind, number> = {
     silent_judge_fallback: 0,
     judge_calibration_drift: 0,
     distribution_shift: 0,
   }
   for (const a of alerts) counts[a.kind]++
-  return {
-    alerts,
-    counts,
-    evaluations: detections.map((detection) => detection.evaluation),
-  }
+  return { alerts, counts }
 }
 
 // ── 1. Silent judge fallback ─────────────────────────────────────────
 
-interface CanaryDetection {
-  alerts: CanaryAlert[]
-  evaluation: CanaryEvaluation
-}
-
 function detectSilentFallback(
   runs: RunRecord[],
   opts: NonNullable<CanaryOptions['silentFallback']>,
-): CanaryDetection {
+): CanaryAlert[] {
   const constant = opts.constant ?? 0.3
   const threshold = opts.consecutiveThreshold ?? 3
   const eps = opts.epsilon ?? 1e-9
 
   const alerts: CanaryAlert[] = []
-  let observations = 0
   let streak = 0
   let streakStartRunId: string | null = null
   let streakValues: number[] = []
-  let reportedInStreak = false
+  let lastFlush = -1
 
   for (let i = 0; i < runs.length; i++) {
     const run = runs[i]!
@@ -166,16 +144,14 @@ function detectSilentFallback(
       streak = 0
       streakStartRunId = null
       streakValues = []
-      reportedInStreak = false
       continue
     }
-    observations += 1
     const isFallback = meta.fallback === true || Math.abs(meta.confidence - constant) <= eps
     if (isFallback) {
       streak += 1
       if (streak === 1) streakStartRunId = run.runId
       streakValues.push(meta.confidence)
-      if (streak >= threshold && !reportedInStreak) {
+      if (streak >= threshold && lastFlush < i) {
         alerts.push({
           kind: 'silent_judge_fallback',
           severity: 'error',
@@ -190,32 +166,20 @@ function detectSilentFallback(
             fallbackConstant: constant,
           },
         })
-        reportedInStreak = true
+        // Coalesce: only report the FIRST trip in a continuing streak.
+        // We mark `lastFlush = i` and rely on the streak-reset below
+        // to clear it before the next alert can fire.
+        lastFlush = i
       }
     } else {
       streak = 0
       streakStartRunId = null
       streakValues = []
-      reportedInStreak = false
+      lastFlush = -1
     }
   }
 
-  return {
-    alerts,
-    evaluation:
-      observations >= threshold
-        ? {
-            kind: 'silent_judge_fallback',
-            status: 'evaluated',
-            observations,
-          }
-        : {
-            kind: 'silent_judge_fallback',
-            status: 'not_evaluated',
-            observations,
-            reason: `requires at least ${threshold} run(s) with judge metadata`,
-          },
-  }
+  return alerts
 }
 
 // ── 2. Judge calibration drift (KS test) ─────────────────────────────
@@ -223,7 +187,7 @@ function detectSilentFallback(
 function detectCalibrationDrift(
   runs: RunRecord[],
   opts: NonNullable<CanaryOptions['calibrationDrift']>,
-): CanaryDetection {
+): CanaryAlert[] {
   const historyWindow = opts.historyWindow ?? 50
   const recentWindow = opts.recentWindow ?? 20
   const alpha = opts.ksAlpha ?? 0.05
@@ -235,22 +199,11 @@ function detectCalibrationDrift(
       conf.push(r.judgeMetadata.confidence)
     }
   }
+  if (conf.length < minRecent + 1) return []
 
   const recent = conf.slice(-Math.min(recentWindow, conf.length))
   const historical = conf.slice(0, -recent.length).slice(-historyWindow)
-  if (recent.length < minRecent || historical.length < minRecent) {
-    return {
-      alerts: [],
-      evaluation: {
-        kind: 'judge_calibration_drift',
-        status: 'not_evaluated',
-        observations: conf.length,
-        reason:
-          `requires at least ${minRecent} recent and ${minRecent} historical ` +
-          `confidence observation(s); found ${recent.length} recent and ${historical.length} historical`,
-      },
-    }
-  }
+  if (recent.length < minRecent || historical.length < minRecent) return []
 
   const ks = ksTwoSample(recent, historical)
   // Two-sample KS critical value at alpha:
@@ -261,41 +214,27 @@ function detectCalibrationDrift(
     c * Math.sqrt((recent.length + historical.length) / (recent.length * historical.length))
 
   if (ks.d > critical) {
-    return {
-      alerts: [
-        {
-          kind: 'judge_calibration_drift',
-          severity: 'warn',
-          message:
-            `judge calibration drift: KS D=${ks.d.toFixed(4)} exceeds ` +
-            `critical=${critical.toFixed(4)} at alpha=${alpha} ` +
-            `(recent n=${recent.length}, history n=${historical.length})`,
-          evidence: {
-            ksD: ks.d,
-            critical,
-            alpha,
-            recentN: recent.length,
-            historyN: historical.length,
-            recentMean: mean(recent),
-            historyMean: mean(historical),
-          },
-        },
-      ],
-      evaluation: {
+    return [
+      {
         kind: 'judge_calibration_drift',
-        status: 'evaluated',
-        observations: recent.length + historical.length,
+        severity: 'warn',
+        message:
+          `judge calibration drift: KS D=${ks.d.toFixed(4)} exceeds ` +
+          `critical=${critical.toFixed(4)} at alpha=${alpha} ` +
+          `(recent n=${recent.length}, history n=${historical.length})`,
+        evidence: {
+          ksD: ks.d,
+          critical,
+          alpha,
+          recentN: recent.length,
+          historyN: historical.length,
+          recentMean: mean(recent),
+          historyMean: mean(historical),
+        },
       },
-    }
+    ]
   }
-  return {
-    alerts: [],
-    evaluation: {
-      kind: 'judge_calibration_drift',
-      status: 'evaluated',
-      observations: recent.length + historical.length,
-    },
-  }
+  return []
 }
 
 /**
@@ -328,7 +267,7 @@ function ksTwoSample(a: number[], b: number[]): { d: number } {
 function detectDistributionShift(
   runs: RunRecord[],
   opts: NonNullable<CanaryOptions['distributionShift']>,
-): CanaryDetection {
+): CanaryAlert[] {
   const historyWindow = opts.historyWindow ?? 50
   const recentWindow = opts.recentWindow ?? 20
   const alpha = opts.chiSquareAlpha ?? 0.05
@@ -340,22 +279,11 @@ function detectDistributionShift(
     const b = cat(r)
     if (typeof b === 'string' && b.length > 0) cats.push({ run: r, bucket: b })
   }
+  if (cats.length < minRecent + 1) return []
 
   const recent = cats.slice(-Math.min(recentWindow, cats.length))
   const historical = cats.slice(0, -recent.length).slice(-historyWindow)
-  if (recent.length < minRecent || historical.length < minRecent) {
-    return {
-      alerts: [],
-      evaluation: {
-        kind: 'distribution_shift',
-        status: 'not_evaluated',
-        observations: cats.length,
-        reason:
-          `requires at least ${minRecent} recent and ${minRecent} historical ` +
-          `categorized run(s); found ${recent.length} recent and ${historical.length} historical`,
-      },
-    }
-  }
+  if (recent.length < minRecent || historical.length < minRecent) return []
 
   const buckets = new Set<string>()
   for (const r of recent) buckets.add(r.bucket)
@@ -385,41 +313,27 @@ function detectDistributionShift(
   df = Math.max(1, df - 1)
   const critical = chiSquareCritical(df, alpha)
   if (chi > critical) {
-    return {
-      alerts: [
-        {
-          kind: 'distribution_shift',
-          severity: 'warn',
-          message:
-            `eval-set distribution shift: χ²=${chi.toFixed(2)} df=${df} ` +
-            `exceeds critical=${critical.toFixed(2)} at alpha=${alpha}`,
-          evidence: {
-            chi,
-            df,
-            critical,
-            alpha,
-            recentCounts,
-            historicalCounts: histCounts,
-            recentN: recent.length,
-            historyN: historical.length,
-          },
-        },
-      ],
-      evaluation: {
+    return [
+      {
         kind: 'distribution_shift',
-        status: 'evaluated',
-        observations: recent.length + historical.length,
+        severity: 'warn',
+        message:
+          `eval-set distribution shift: χ²=${chi.toFixed(2)} df=${df} ` +
+          `exceeds critical=${critical.toFixed(2)} at alpha=${alpha}`,
+        evidence: {
+          chi,
+          df,
+          critical,
+          alpha,
+          recentCounts,
+          historicalCounts: histCounts,
+          recentN: recent.length,
+          historyN: historical.length,
+        },
       },
-    }
+    ]
   }
-  return {
-    alerts: [],
-    evaluation: {
-      kind: 'distribution_shift',
-      status: 'evaluated',
-      observations: recent.length + historical.length,
-    },
-  }
+  return []
 }
 
 /**

@@ -1,244 +1,98 @@
 # Trace Analysis
 
-A trace analyst is a recursive research program that answers a question by choosing which trace data to inspect.
-It is not a single prompt over a prebuilt trace dump.
+Trace analysis is the bridge between raw product telemetry and useful eval work.
 
-Agent Eval separates five concerns:
-
-| Part | Responsibility |
-|---|---|
-| Analyst definition | The question, investigation policy, allowed tools, and limits |
-| Analysis engine | Runs the recursive investigation |
-| Trace store | Provides bounded reads over OTLP traces |
-| Finding | Records one structured claim with exact evidence |
-| Analysis result | Returns the prose answer, findings, investigation steps, model calls, tool calls, and runtime |
-
-The built-in model-backed analysts use the official DSPy `RLM`.
-DSPy runs the research loop and a sandboxed Python interpreter.
-Agent Eval owns trace access, credentials, cancellation, cost accounting, and output validation.
-
-`callLlmJson()` and `createPublicBenchmarkDirectRunner()` are direct-call baselines.
-They are not trace analysts.
-
-## Install
-
-Install the TypeScript package and the matching Python package with DSPy:
-
-```sh
-pnpm add @tangle-network/agent-eval
-python -m venv .venv
-.venv/bin/pip install "agent-eval-rpc[dspy]"
+```txt
+live product run
+  -> TraceEmitter / TraceStore
+  -> TraceAnalyst investigates trace corpora
+  -> findings become ASI, failures, replay cases, and release actions
 ```
 
-The Python extra pins the tested stable DSPy and Deno versions.
+## When To Use TraceAnalyst
 
-## Answer One Question
+Use `TraceAnalyst` when you have more than a few traces and need to answer:
 
-```ts
-import {
-  createDspyRlmTraceEngine,
-} from '@tangle-network/agent-eval/analyst'
-import {
-  analyzeTraces,
-} from '@tangle-network/agent-eval/traces'
+- which failure modes are recurring?
+- which spans explain a regression?
+- did retrieval, integrations, sandbox, or policy block the run?
+- are failed runs missing evidence that the optimizer needs?
+- which product surfaces deserve the next fix?
 
-const engine = createDspyRlmTraceEngine({
-  baseUrl: process.env.LLM_BASE_URL!,
-  apiKey: process.env.LLM_API_KEY!,
-  model: process.env.LLM_MODEL!,
-  pricing: {
-    inputUsdPerMillion: 3,
-    outputUsdPerMillion: 15,
-  },
-  maxCostUsd: 0.50,
-  runner: { command: '.venv/bin/python' },
-})
+Use summary tables and release confidence for promotion decisions. Use
+TraceAnalyst to explain the evidence behind those decisions.
 
-const result = await analyzeTraces(
-  { question: 'What first caused this run to fail?' },
-  {
-    source: 'run.otlp.jsonl',
-    engine,
-    toolGroup: 'singleTrace',
-    limits: {
-      maxIterations: 8,
-      maxLlmCalls: 4,
-      maxToolCalls: 32,
-    },
-  },
-)
-
-console.log(result.answer)
-console.log(result.findings)
-console.log(result.trajectory)
-```
-
-Omit `pricing` only when Agent Eval already recognizes the exact model or model family.
-Unknown pricing fails before the first model call.
-
-The provider key remains in the Node process.
-The Python process receives an authenticated loopback model endpoint with an ephemeral credential.
-Each trace read also crosses an authenticated loopback callback and counts against `maxToolCalls`.
-
-## Define A Reusable Analyst
-
-An analyst definition contains no model, credentials, or execution state.
-The same definition can run with DSPy or another engine that implements `TraceAnalysisEngine`.
+## Minimal Flow
 
 ```ts
-import {
-  defineTraceAnalyst,
-  runTraceAnalyst,
-} from '@tangle-network/agent-eval/analyst'
 import {
   OtlpFileTraceStore,
-} from '@tangle-network/agent-eval/traces'
+  analyzeTraces,
+} from '@tangle-network/agent-eval'
 
-const repeatedFailure = defineTraceAnalyst({
-  id: 'repeated-tool-failure',
-  description: 'Finds the repeated tool failure with the largest impact.',
-  area: 'tool-use',
-  version: '1.0.0',
-  question: 'Which repeated tool failure should we fix first?',
-  instructions: [
-    'Compare frequency and downstream impact.',
-    'Cite the failing span and at least one affected downstream span.',
-    'Return no finding when the traces do not support a repeated failure.',
-  ].join('\n'),
-  toolGroup: 'all',
-  minimumEvidenceCitations: 2,
-  limits: {
-    maxIterations: 10,
-    maxLlmCalls: 6,
-    maxToolCalls: 40,
-  },
+const abortController = new AbortController()
+const result = await analyzeTraces({
+  question: 'Why did app-runtime holdout runs fail this week?',
+}, {
+  source: new OtlpFileTraceStore({ path: 'traces/otlp.jsonl' }),
+  ai,
+  model: 'gpt-4o-2024-11-20',
+  maxSubqueries: 4,
+  maxParallelSubqueries: 2,
+  signal: abortController.signal,
 })
 
-const store = new OtlpFileTraceStore({ path: 'runs.otlp.jsonl' })
-await store.ensureIndexed()
-
-const result = await runTraceAnalyst({
-  definition: repeatedFailure,
-  engine,
-  store,
-  context: { runId: 'release-42' },
-})
+console.log(result.findings)
 ```
 
-Keep product policy in the definition.
-Keep model transport, recursion mechanics, secrets, and accounting in the engine.
-Keep exact trace facts in deterministic tools or checks.
+Products can pass any `TraceAnalysisStore`; they do not need to use the file store in production.
+The analyst runs one Ax executor loop and accepts only an explicit structured `final(task, { report, findings })` result; max-turn fallback text fails loud.
 
-## Run The Built-In Set
+## Deterministic failure coverage (no LLM)
 
-The default registry always includes deterministic behavior checks.
-It adds the four recursive analysts only when an engine is supplied:
-
-- `failure-mode`
-- `knowledge-gap`
-- `knowledge-poisoning`
-- `improvement`
+Before (or alongside) the LLM analyst, `OtlpFileTraceStore.getOverview()` returns a
+`DatasetOverview` whose `error_clusters` are computed deterministically: error
+spans are grouped by a normalized failure signature (uuids / hex ids / numbers /
+absolute paths / durations collapsed), each cluster carrying its prevalence,
+exemplar `trace_id`/`span_id`, and a verbatim sample. This is a zero-LLM,
+reproducible failure checklist the analyst then explains and closes:
 
 ```ts
-import {
-  buildDefaultAnalystRegistry,
-} from '@tangle-network/agent-eval/analyst'
-
-const registry = buildDefaultAnalystRegistry({ engine })
-const run = await registry.run('release-42', { traceStore: store })
-
-for (const finding of run.findings) {
-  console.log(finding.analyst_id, finding.claim, finding.evidence_refs)
+const overview = await store.getOverview()
+for (const c of overview.error_clusters) {
+  console.log(`${c.trace_count}× ${c.signature}: e.g. trace ${c.exemplar_trace_ids[0]}`)
 }
 ```
 
-`run.per_analyst` records each analyst's status, latency, calls, tokens, and cost.
-One analyst failure does not become an agent failure.
+See `failureClusters` in [insight-report.md](./insight-report.md) and the
+`ErrorCluster` type doc-comments for the field-level contract.
 
-Pass `definitions` to replace the four built-ins.
-Omit `engine` for deterministic-only analysis.
+## Required Trace Shape
 
-## Trace Tools
+Every serious product run should include:
 
-The engine receives only the tool group declared by the analyst:
+- `runId`, `projectId`, `scenarioId`, `variantId`, and `layer`
+- commit, prompt hash, config hash, model fingerprint, and dataset version
+- LLM spans with model, inputs, outputs, token counts, and cost
+- tool/integration spans with arguments, result summaries, and error codes
+- retrieval spans with query, source ids, hit scores, and freshness metadata
+- sandbox/build/test/deploy spans with exit codes and log artifacts
+- custom events for knowledge readiness and integration gates
+- final run outcome with pass/score/failure class
 
-| Group | Use |
-|---|---|
-| `singleTrace` | Inspect one known trajectory |
-| `discoveryAndSearch` | Find relevant traces and spans across a dataset |
-| `all` | Use every bounded trace operation |
+Do not put secrets, raw OAuth tokens, or unredacted PII in traces.
 
-The canonical operations are:
+## Product Loop
 
-- `getDatasetOverview`
-- `queryTraces`
-- `countTraces`
-- `viewTrace`
-- `viewSpans`
-- `searchTrace`
-- `searchSpan`
+The product loop should not treat traces as a separate debug dump. The intended
+path is:
 
-Use `buildTraceAnalysisToolDescriptors({ store })` to bind the same operations into another runtime.
-Each descriptor includes its name, namespace, description, JSON input schema, and bounded handler.
-Do not copy the schemas or reimplement the handlers in another adapter.
+1. Wrap the real workflow in `runAgentControlLoop` or the product runtime.
+2. Emit canonical spans/events while the user task runs.
+3. Convert the completed run to `FeedbackTrajectory` for replay.
+4. Convert promotion-grade runs to `RunRecord` with `controlRunToRunRecord`.
+5. Run TraceAnalyst over failure-heavy trace sets.
+6. Feed findings into `ActionableSideInfo`, failure clusters, and release
+   reports.
 
-Custom stores implement `TraceAnalysisStore`.
-`OtlpFileTraceStore`, `otlpTextToTraceAnalysisStore()`, and `toolSpansToTraceAnalysisStore()` provide common adapters.
-Store results are checked for missing fields, undeclared fields, inconsistent counts, invalid continuation flags, oversized responses, and unsafe search patterns.
-
-## Result Contract
-
-Every recursive run returns:
-
-| Field | Meaning |
-|---|---|
-| `answer` | Direct answer to the analyst question |
-| `findings` | Valid cited claims accepted by the analyst policy |
-| `trajectory` | DSPy RLM investigation steps |
-| `modelCalls` | Successful provider completions used by the engine |
-| `toolCalls` | Trace reads admitted for execution, including a read that later fails |
-| `runtime` | Engine, package, sandbox identity, provider attempts, and successful completions |
-
-Each finding requires exact `trace://` or `finding://` evidence.
-Trace citations must resolve to an existing span.
-When a citation includes an excerpt, the exact text must occur in that span or referenced finding.
-Unknown, transformed, or fabricated identifiers are rejected.
-An empty findings array means no submitted claim passed the evidence rules.
-It does not prove the run was correct.
-
-## Measure Analyst Quality
-
-Measure the analyst on labeled traces before using its findings for automated changes.
-At minimum, report issue recall, finding precision, exact evidence accuracy, trusted-negative false positives, repeat agreement, failures, calls, tokens, cost, and latency.
-
-`runAnalystBenchmark()` compares any `AnalystBenchmarkRunner` implementations.
-`agent-eval analyst-benchmark` runs the public AgentRx or CodeTraceBench adapters with:
-
-1. an empty-finding baseline,
-2. the actual DSPy RLM trace analyst.
-
-```sh
-agent-eval analyst-benchmark \
-  --dataset codetracebench \
-  --labels .artifacts/manifest.jsonl \
-  --trace-dir .artifacts/traces \
-  --artifact-dir .artifacts/results \
-  --out .artifacts/analyst-run \
-  --revision aa213b84ffb6690fc37ca15766d6ca174ec36d4d \
-  --split verified \
-  --base-url http://127.0.0.1:3355/v1 \
-  --api-key-env CLI_BRIDGE_BEARER \
-  --model claude-code/sonnet \
-  --python .venv/bin/python \
-  --limit 20 \
-  --seed 7 \
-  --concurrency 1 \
-  --max-cost-usd 5
-```
-
-The command writes every observation before producing `result.json` and `report.md`.
-It can resume without repeating completed cases.
-Dataset revisions, selected case IDs, input hashes, trace hashes, result artifacts, usage, errors, and comparison settings remain in the output.
-
-Use fresh development cases while changing questions or instructions.
-Report final quality only on an untouched holdout.
+That makes normal product usage become eval data instead of isolated logs.

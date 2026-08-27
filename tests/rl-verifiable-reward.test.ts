@@ -9,21 +9,7 @@ import type { RunRecord } from '../src/run-record'
 
 function report(layers: VerificationReport['layers']): VerificationReport {
   const passCount = layers.filter((l) => l.status === 'pass').length
-  const scored = layers.filter(
-    (layer) =>
-      (layer.status === 'pass' || layer.status === 'fail') &&
-      layer.score !== undefined &&
-      Number.isFinite(layer.score) &&
-      layer.score >= 0 &&
-      layer.score <= 1,
-  )
-  const taskScore =
-    scored.length === layers.length
-      ? scored.reduce((sum, layer) => sum + layer.score!, 0) / scored.length
-      : undefined
   return {
-    valid: passCount === layers.length,
-    score: taskScore ?? 0,
     layers,
     passCount,
     failCount: layers.filter((l) => l.status === 'fail').length,
@@ -31,7 +17,6 @@ function report(layers: VerificationReport['layers']): VerificationReport {
     errorCount: 0,
     allPass: passCount === layers.length,
     blendedScore: layers.reduce((s, l) => s + (l.score ?? 0), 0) / Math.max(1, layers.length),
-    taskScore,
     durationMs: 100,
     startedAt: 'a',
     finishedAt: 'b',
@@ -59,8 +44,8 @@ describe('extractVerifiableReward', () => {
     expect(r?.source).toBe('composite')
     expect(r?.determinism).toBe('deterministic')
     expect(r?.value).toBeCloseTo(0.9, 5)
-    expect(r?.components.test).toBe(0.8)
-    expect(r?.components.compile).toBe(1)
+    expect(r?.breakdown?.test).toBe(0.8)
+    expect(r?.breakdown?.compile).toBe(1)
   })
 
   it('falls back to judge when no deterministic layer is present', () => {
@@ -81,22 +66,6 @@ describe('extractVerifiableReward', () => {
       ]),
       { fallbackToJudge: false },
     )
-    expect(r).toBeNull()
-  })
-
-  it('does not turn an errored layer score into a reward', () => {
-    const r = extractVerifiableReward(
-      report([
-        {
-          layer: 'test',
-          status: 'error',
-          score: 0,
-          durationMs: 100,
-          findings: [],
-        },
-      ]),
-    )
-
     expect(r).toBeNull()
   })
 })

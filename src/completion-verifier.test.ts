@@ -6,9 +6,9 @@
  * pending work counting as complete.
  */
 
+import type { TCloud } from '@tangle-network/tcloud'
 import { describe, expect, it } from 'vitest'
 
-import { type ChatClient, type ChatResponse, createChatClient } from './analyst/chat-client'
 import type { Artifact } from './artifact-validator'
 import {
   type CompletionRequirement,
@@ -27,26 +27,6 @@ import { JudgeParseError } from './judges'
 import type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 
 const LONG = 'x'.repeat(120)
-
-function chatResponse(content: string, overrides: Partial<ChatResponse> = {}): ChatResponse {
-  return {
-    content,
-    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-    costUsd: null,
-    model: 'claude-sonnet-4-6',
-    durationMs: 0,
-    raw: {},
-    ...overrides,
-  }
-}
-
-function mockChat(handler: string | (() => Promise<ChatResponse> | ChatResponse)): ChatClient {
-  return createChatClient({
-    transport: 'mock',
-    defaultModel: 'claude-sonnet-4-6',
-    handler: async () => (typeof handler === 'string' ? chatResponse(handler) : await handler()),
-  })
-}
 
 function artifact(path: string, content: string, kind = 'file'): Artifact {
   return { kind, path, content }
@@ -487,21 +467,26 @@ describe('parseCorrectnessResponse', () => {
 })
 
 describe('createLlmCorrectnessChecker', () => {
+  function mockTc(content: string): TCloud {
+    return { chat: async () => ({ choices: [{ message: { content } }] }) } as unknown as TCloud
+  }
+
   it('returns the parsed verdict from the model response', async () => {
-    const check = createLlmCorrectnessChecker(mockChat('{"correct": true, "reason": "fulfils it"}'))
+    const check = createLlmCorrectnessChecker(mockTc('{"correct": true, "reason": "fulfils it"}'))
     const r = await check(DISPUTE_REQ, LONG)
     expect(r).toEqual({ correct: true, reason: 'fulfils it' })
   })
 
   it('preserves caller attribution on correctness-checker receipts', async () => {
     const ledger = new CostLedger()
-    const chat = mockChat(() =>
-      chatResponse('{"correct": true, "reason": "ok"}', {
+    const tc = {
+      chat: async () => ({
         model: 'gpt-4o',
-        usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12 },
+        choices: [{ message: { content: '{"correct": true, "reason": "ok"}' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
       }),
-    )
-    const check = createLlmCorrectnessChecker(chat, {
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, {
       costLedger: ledger,
       costTags: { runDir: '/run-a' },
     })
@@ -517,22 +502,34 @@ describe('createLlmCorrectnessChecker', () => {
 
   it('fails loud after retries on an unparseable model response', async () => {
     let calls = 0
-    const chat = mockChat(() => {
-      calls += 1
-      return chatResponse('I could not decide')
-    })
-    const check = createLlmCorrectnessChecker(chat)
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return { choices: [{ message: { content: 'I could not decide' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc)
     await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(JudgeParseError)
     expect(calls).toBe(2)
   })
 
   it('retries once and succeeds when the second attempt parses', async () => {
     let calls = 0
-    const chat = mockChat(() => {
-      calls += 1
-      return chatResponse(calls === 1 ? 'garbage' : '{"correct": true, "reason": "second try"}')
-    })
-    const check = createLlmCorrectnessChecker(chat)
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return {
+          choices: [
+            {
+              message: {
+                content: calls === 1 ? 'garbage' : '{"correct": true, "reason": "second try"}',
+              },
+            },
+          ],
+        }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc)
     const r = await check(DISPUTE_REQ, LONG)
     expect(r).toEqual({ correct: true, reason: 'second try' })
     expect(calls).toBe(2)
@@ -546,13 +543,21 @@ describe('createLlmCorrectnessChecker', () => {
       },
     }
     let calls = 0
-    const chat = mockChat(() => {
-      calls += 1
-      if (calls === 1) throw new Error('upstream 503')
-      return chatResponse('{"correct": false, "reason": "thin"}')
-    })
-    const check = createLlmCorrectnessChecker(chat, {
+    const tc = {
+      chat: async () => {
+        calls += 1
+        if (calls === 1) throw new Error('upstream 503')
+        return { choices: [{ message: { content: '{"correct": false, "reason": "thin"}' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, {
       rawSink: sink,
+      receiptFromError: () => ({
+        model: 'claude-sonnet-4-6',
+        inputTokens: 0,
+        outputTokens: 0,
+        actualCostUsd: 0,
+      }),
     })
     await check(DISPUTE_REQ, LONG)
     expect(events.map((e) => [e.direction, e.attemptIndex])).toEqual([
@@ -561,16 +566,18 @@ describe('createLlmCorrectnessChecker', () => {
       ['request', 1],
       ['response', 1],
     ])
-    expect(events.every((e) => e.provider === 'mock')).toBe(true)
+    expect(events.every((e) => e.provider === 'correctness-checker')).toBe(true)
   })
 
   it('honors a custom maxAttempts on an all-fail response', async () => {
     let calls = 0
-    const chat = mockChat(() => {
-      calls += 1
-      return chatResponse('never json')
-    })
-    const check = createLlmCorrectnessChecker(chat, { maxAttempts: 3 })
+    const tc = {
+      chat: async () => {
+        calls += 1
+        return { choices: [{ message: { content: 'never json' } }] }
+      },
+    } as unknown as TCloud
+    const check = createLlmCorrectnessChecker(tc, { maxAttempts: 3 })
     await expect(check(DISPUTE_REQ, LONG)).rejects.toThrow(JudgeParseError)
     expect(calls).toBe(3)
   })
@@ -581,7 +588,7 @@ describe('createLlmCorrectnessChecker', () => {
         throw new Error('disk full')
       },
     }
-    const check = createLlmCorrectnessChecker(mockChat('{"correct": true, "reason": "fine"}'), {
+    const check = createLlmCorrectnessChecker(mockTc('{"correct": true, "reason": "fine"}'), {
       rawSink: sink,
     })
     const r = await check(DISPUTE_REQ, LONG)

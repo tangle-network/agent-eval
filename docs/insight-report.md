@@ -16,14 +16,13 @@ This page walks every section with a real (synthetic) example and explains how t
 ```ts
 interface InsightReport {
   n: number                              // runs analyzed
-  execution: ExecutionInsight            // duration, tokens, errors, terminal outcomes
+  execution: ExecutionInsight            // duration, tokens, models, failures
   composite: ScalarDistribution          // always
   perDimension: Record<string, ScalarDistribution>   // when judgeScores carry dimensions
   costQuality: { cost: ScalarDistribution; pareto: ParetoFigureSpec }   // always
   judges: Record<string, JudgeInsight>   // when runs carry judge scores
   interRater?: InterRaterInsight         // when raterScores supplied
   lift?: LiftInsight                     // when baseline + candidate present
-  failureClasses?: FailureClassTally[]   // canonical task-failure counts
   failureClusters?: FailureClusterInsight    // when AnalystRegistry wired
   contamination?: ContaminationInsight   // when canaryScenarios supplied
   outcomeCorrelation?: OutcomeCorrelationInsight   // when outcomeSignal supplied
@@ -37,28 +36,14 @@ interface InsightReport {
 ## `execution`: runtime facts, separate from quality
 
 Always present.
-It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, execution errors, terminal outcomes, and separately reported orchestration aggregates.
+It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, explicit failures, and separately reported orchestration aggregates.
 These fields describe what ran; they do not claim whether the task succeeded.
-`executionErrors` counts child or internal errors reported by the producer.
-`terminalOutcomes` reads only `RunRecord.terminalOutcome`, which must come from root-run or process evidence.
-A child tool error can therefore appear in a run whose terminal outcome is `succeeded`.
-Current OTel and code-agent adapters also preserve process, guardrail, judge, propagated-parent, and unknown error counts in `RunRecord.outcome.raw`.
-These counters are diagnostic and never become task-quality scores.
 
 ```jsonc
 {
   "execution": {
     "durationMs": { "n": 30, "p50": 5400, "p95": 82000, "min": 900, "max": 190000 },
-    "queueMs": {
-      "n": 0,
-      "mean": null,
-      "p50": null,
-      "p95": null,
-      "stddev": null,
-      "min": null,
-      "max": null,
-      "histogram": []
-    },
+    "queueMs": { "n": 0, "histogram": [] },
     "tokenUsage": {
       "totals": { "input": 50132, "output": 471783, "reasoning": 12000, "cached": 60489565, "cacheWrite": 3032227 },
       "input": { "n": 30, "p50": 25, "p95": 56 },
@@ -77,40 +62,12 @@ These counters are diagnostic and never become task-quality scores.
     },
     "modelCalls": { "runs": 20, "events": 42, "reportingRuns": 30 },
     "models": [{ "model": "claude-opus@2026-07-01", "runs": 20 }],
-    "executionErrors": {
-      "runs": 2,
-      "fraction": 0.067,
-      "events": 3,
-      "reportingRuns": 30,
-      "errorSpanEvents": 3,
-      "errorSpanReportingRuns": 30,
-      "byTerminalOutcome": {
-        "succeeded": { "withErrors": 1, "withoutErrors": 26, "unreported": 0 },
-        "failed": { "withErrors": 0, "withoutErrors": 1, "unreported": 0 },
-        "cancelled": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
-        "incomplete": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
-        "unknown": { "withErrors": 1, "withoutErrors": 1, "unreported": 0 }
-      }
-    },
-    "terminalOutcomes": {
-      "succeeded": 27,
-      "failed": 1,
-      "cancelled": 0,
-      "incomplete": 0,
-      "unknown": 2
-    }
+    "failures": { "runs": 2, "fraction": 0.067, "reportedErrorEvents": 3, "reportingRuns": 30 }
   }
 }
 ```
 
 Use `distribution.n` for optional fields to distinguish an uncaptured category from a recorded zero.
-When `distribution.n` is zero, `mean`, percentiles, standard deviation, minimum, and maximum are `null`.
-Use `executionErrors.reportingRuns` to assess error-telemetry coverage.
-`errorSpanEvents` preserves the exact child-span error count separately from other reported execution errors.
-The error fraction uses `reportingRuns` as its denominator and is `null` when no run reported error telemetry, so missing telemetry is not treated as a clean run.
-`byTerminalOutcome` is a cross-tab, not a causal recovery claim.
-It keeps reported errors, reported zeroes, and missing error telemetry separate for every terminal result.
-Missing terminal evidence counts as `unknown`, not `failed`.
 Never add `aggregateUsage` to direct `tokenUsage`: orchestration spans may repeat model-call usage from other traces.
 Cost remains in `costQuality`, where observed, estimated, and uncaptured USD stay separate.
 
@@ -140,9 +97,7 @@ Always present. The basic "where are my numbers" view.
 }
 ```
 
-Read `composite.mean` only when `composite.n > 0`.
-A `null` mean means task quality was not measured, not that quality was zero.
-When a measured mean is below 0.5, inspect the lowest-scoring runs before tuning.
+**Read first:** the `composite.mean`. If it's < 0.5, your agent has a ceiling problem, not a tuning problem.
 
 **Read next:** `perDimension`. If `clarity` is high but `concision` is low, your prompts get the right ideas in too many words: different fix than "wrong ideas."
 
@@ -247,20 +202,14 @@ Populated when baseline + candidate candidates are present (auto-detected from t
     "candidateMean": 0.65,
     "delta": 0.07,
     "ci95": [0.04, 0.10],          // bootstrap CI on the delta
-    "pValue": 0.0008,              // paired t-test; null when the delta is a non-zero constant
+    "pValue": 0.0008,              // paired t-test
     "n": 40,                       // paired observations
-    "unpairedBaselineRuns": 2,
-    "unpairedCandidateRuns": 1,
-    "cohensD": 0.41,              // paired Cohen's dz; null when delta variance is zero
+    "cohensD": 0.41,
     "mde": 0.06,                   // min detectable effect at current n, 80% power
-    "requiredN": 38                // paired n needed at 80% power; null when dz is undefined
+    "requiredN": 38                // n needed for observed delta at 80% power
   }
 }
 ```
-
-Rows pair only when `(experimentId, scenarioId, seed)` matches.
-Missing `scenarioId` and duplicate identities fail loudly.
-Unmatched rows are reported and excluded from paired statistics.
 
 **Decision rule:**
 - `ci95[0] > threshold` → **SHIP.** Lower bound above your delta threshold means the lift is real at 95% confidence.
@@ -270,26 +219,6 @@ Unmatched rows are reported and excluded from paired statistics.
 The `recommendations` array surfaces exactly this decision (`kind: 'ship' | 'hold' | 'expand-corpus'`): that's what consumers should read.
 
 **Why bootstrap, not t-test alone:** paired bootstrap is distribution-free. Your judge scores are bounded in [0,1] and almost never normal; the bootstrap CI is the honest one.
-
----
-
-## `failureClasses`: canonical task-failure counts
-
-Populated when a run has a non-success `failureClass` or a measured task score below the failure threshold.
-Runs without an explicit class are counted as `unknown`.
-The optional `failureMode` remains domain-specific detail on the original run and is never used as a second grouping key.
-
-```jsonc
-{
-  "failureClasses": [
-    { "failureClass": "bad_retrieval", "count": 9, "share": 0.28 },
-    { "failureClass": "instruction_following", "count": 4, "share": 0.13 }
-  ]
-}
-```
-
-Use this section to compare failure causes across products without a model call.
-Use `failureClusters` when you need a semantic diagnosis within those classes.
 
 ---
 

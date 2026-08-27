@@ -1,11 +1,6 @@
 # Pursuit: Belief-state work in agent-eval
 
-Status: closed and removed in PR #450 on 2026-07-27.
-
-Repository-wide analysis found no producers and no consumers for this package.
-The reusable off-policy estimators remain in `src/rl/off-policy.ts`.
-The reusable calibration code remains in `src/meta-eval/calibration.ts`.
-Do not resume this pursuit until a real runtime decision producer and a measured consumer exist.
+Status: active - Phase 0 infrastructure implemented, empirical corpus gate still open
 
 ## Goal
 

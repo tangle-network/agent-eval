@@ -8,7 +8,6 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { OptimizationMethod } from '../campaign/presets/compare-optimization-methods'
 import { runCampaign } from '../campaign/run-campaign'
 import { inMemoryCampaignStorage } from '../campaign/storage'
 import { surfaceHash } from '../campaign/surface-identity'
@@ -39,10 +38,10 @@ async function stubAgent(
 ): Promise<{ text: string }> {
   const paid = await ctx.cost.runPaidCall({
     actor: 'stub-agent',
-    model: 'stub-model@2026-07-25',
+    model: 'stub-model',
     execute: async () => ({ text: String(surface) }),
     receipt: () => ({
-      model: 'stub-model@2026-07-25',
+      model: 'stub-model',
       inputTokens: 1,
       outputTokens: 1,
       actualCostUsd: 0.0001,
@@ -91,236 +90,6 @@ describe('selfImprove — power analysis wiring', () => {
 
     const powerEvents = events.filter((e) => e.kind === 'power.estimated')
     expect(powerEvents).toHaveLength(1)
-    expect(result.insight.execution.terminalOutcomes.succeeded).toBe(result.insight.n)
-    expect(result.insight.execution.executionErrors).toMatchObject({
-      runs: 0,
-      events: 0,
-      reportingRuns: result.insight.n,
-    })
-  })
-})
-
-describe('selfImprove — report population', () => {
-  it('compares baseline and winner on the same held-out scenarios', async () => {
-    const searchScenarios: Scenario[] = Array.from({ length: 3 }, (_, index) => ({
-      id: `search-${index}`,
-      kind: 'fixture',
-    }))
-    const holdoutScenarios: Scenario[] = Array.from({ length: 3 }, (_, index) => ({
-      id: `holdout-${index}`,
-      kind: 'fixture',
-    }))
-    const qualityJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'quality',
-      dimensions: [{ key: 'quality', description: 'fixture quality' }],
-      score: ({ artifact }) => {
-        const quality = artifact.text === 'BETTER' ? 1 : 0
-        return { dimensions: { quality }, composite: quality, notes: '' }
-      },
-    }
-    const proposer: SurfaceProposer = {
-      kind: 'better-candidate',
-      propose: async () => ['BETTER'],
-    }
-
-    const result = await selfImprove({
-      agent: stubAgent,
-      scenarios: [...searchScenarios, ...holdoutScenarios],
-      judge: qualityJudge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      budget: {
-        generations: 1,
-        populationSize: 1,
-        holdoutScenarios,
-      },
-    })
-
-    expect(result.raw.baselineCampaign.cells.map((cell) => cell.scenarioId).sort()).toEqual(
-      searchScenarios.map((scenario) => scenario.id).sort(),
-    )
-    expect(result.raw.baselineOnHoldout.cells.map((cell) => cell.scenarioId).sort()).toEqual(
-      holdoutScenarios.map((scenario) => scenario.id).sort(),
-    )
-    expect(result.raw.winnerOnHoldout.cells.map((cell) => cell.scenarioId).sort()).toEqual(
-      holdoutScenarios.map((scenario) => scenario.id).sort(),
-    )
-    expect(result.insight.lift).toMatchObject({
-      baselineMean: 0,
-      candidateMean: 1,
-      delta: 1,
-      n: holdoutScenarios.length,
-      unpairedBaseline: 0,
-      unpairedCandidate: 0,
-    })
-  })
-})
-
-describe('selfImprove — complete optimization methods', () => {
-  const methodJudge: JudgeConfig<{ text: string }, Scenario> = {
-    name: 'method-quality',
-    dimensions: [{ key: 'quality', description: 'candidate quality' }],
-    score: ({ artifact }) => {
-      const quality = artifact.text === 'BETTER' ? 1 : 0
-      return { dimensions: { quality }, composite: quality, notes: '' }
-    },
-  }
-  const shipGate: Gate<{ text: string }, Scenario> = {
-    name: 'ship',
-    decide: async () => ({ decision: 'ship', reasons: [], contributingGates: [] }),
-  }
-
-  it('gives a method only train and selection cases, shares spend, and retains source identity', async () => {
-    const all = Array.from({ length: 8 }, (_, index) => ({
-      id: `method-${index}`,
-      kind: 'fixture',
-    }))
-    const finalCases = all.slice(6)
-    const selectionCases = all.slice(4, 6)
-    let seenTrain: string[] = []
-    let seenSelection: string[] = []
-    const method: OptimizationMethod<Scenario, { text: string }> = {
-      name: 'official:test',
-      optimize: async (input) => {
-        seenTrain = input.trainScenarios.map((scenario) => scenario.id)
-        seenSelection = input.selectionScenarios.map((scenario) => scenario.id)
-        const paid = await input.costLedger.runPaidCall({
-          channel: 'optimizer',
-          phase: 'official.test',
-          actor: 'official:test',
-          model: 'test-model',
-          maximumCharge: { externallyEnforcedMaximumUsd: 0.02 },
-          execute: async () => 'BETTER',
-          receipt: () => ({
-            model: 'test-model',
-            inputTokens: 10,
-            outputTokens: 5,
-            actualCostUsd: 0.02,
-          }),
-        })
-        if (!paid.succeeded) throw paid.error
-        return {
-          winnerSurface: paid.value,
-          cost: {
-            totalCostUsd: 0.02,
-            accountingComplete: true,
-            incompleteReasons: [],
-          },
-          durationMs: 3,
-          provenance: {
-            source: {
-              kind: 'package',
-              evidence: 'observed',
-              package: 'official-test',
-              version: '1.0.0',
-              sourceUrl: 'https://example.test/official-test',
-              revision: 'abc123',
-            },
-            optimizerModel: 'test-model@2026-07-24',
-            runId: 'official-run',
-            resumed: false,
-            evaluationCount: 6,
-            artifactDir: '/tmp/official-test',
-            tokenUsage: {
-              inputTokens: 10,
-              cachedInputTokens: 0,
-              cacheWriteInputTokens: 0,
-              outputTokens: 5,
-              reasoningTokens: 0,
-              totalTokens: 15,
-              calls: 1,
-            },
-          },
-        }
-      },
-    }
-
-    const result = await selfImprove({
-      agent: async (surface) => ({ text: String(surface) }),
-      model: 'deterministic-test-agent@2026-07-25',
-      scenarios: all,
-      selectionScenarios: selectionCases,
-      judge: methodJudge,
-      baselineSurface: 'BASE',
-      method,
-      gate: shipGate,
-      runDir: 'mem://self-improve-method',
-      storage: inMemoryCampaignStorage(),
-      expectUsage: 'off',
-      budget: {
-        generations: 1,
-        populationSize: 1,
-        holdoutScenarios: finalCases,
-      },
-    })
-
-    expect(seenTrain).toEqual(all.slice(0, 4).map((scenario) => scenario.id))
-    expect(seenSelection).toEqual(selectionCases.map((scenario) => scenario.id))
-    expect([...seenTrain, ...seenSelection]).not.toContain(finalCases[0]!.id)
-    expect([...seenTrain, ...seenSelection]).not.toContain(finalCases[1]!.id)
-    expect(result.winner.surface).toBe('BETTER')
-    expect(result.totalCostUsd).toBe(0.02)
-    expect(result.optimization).toEqual({
-      name: 'official:test',
-      cost: {
-        totalCostUsd: 0.02,
-        accountingComplete: true,
-        incompleteReasons: [],
-      },
-      durationMs: 3,
-      provenance: expect.objectContaining({
-        source: expect.objectContaining({
-          package: 'official-test',
-          revision: 'abc123',
-        }),
-        optimizerModel: 'test-model@2026-07-24',
-        runId: 'official-run',
-      }),
-    })
-    expect(result.provenance.optimizationMethod).toEqual(result.optimization)
-    expect(result.provenance.optimizationMethod?.provenance?.optimizerModel).toBe(
-      'test-model@2026-07-24',
-    )
-    expect(result.receipts).toEqual([
-      expect.objectContaining({
-        channel: 'optimizer',
-        phase: 'official.test',
-        costUsd: 0.02,
-      }),
-    ])
-  })
-
-  it('rejects ambiguous local-loop controls in method mode', async () => {
-    const method: OptimizationMethod<Scenario, { text: string }> = {
-      name: 'official:test',
-      optimize: async () => ({
-        winnerSurface: 'BETTER',
-        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
-      }),
-    }
-    await expect(
-      selfImprove({
-        agent: async (surface) => ({ text: String(surface) }),
-        scenarios,
-        judge: methodJudge,
-        baselineSurface: 'BASE',
-        method,
-        proposer: { kind: 'also-set', propose: async () => ['OTHER'] },
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow('method and proposer are mutually exclusive')
-
-    await expect(
-      selfImprove({
-        agent: async (surface) => ({ text: String(surface) }),
-        scenarios,
-        judge: methodJudge,
-        baselineSurface: 'BASE',
-        method,
-        expectUsage: 'off',
-        budget: { generations: 2 },
-      }),
-    ).rejects.toThrow('method owns its rounds')
   })
 })
 
@@ -330,14 +99,8 @@ describe('selfImprove — hosted code-surface identity', () => {
     const sameBytesElsewhere = codeSurface('/tmp/candidate-b')
     const payloads: Array<{
       events?: Array<{
-        baseline?: {
-          surfaceHash: string
-          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
-        }
-        generations: Array<{
-          surfaceHash: string
-          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
-        }>
+        baseline?: { surfaceHash: string }
+        generations: Array<{ surfaceHash: string }>
       }>
     }> = []
     const fetchImpl: typeof fetch = async (_input, init) => {
@@ -373,14 +136,6 @@ describe('selfImprove — hosted code-surface identity', () => {
       .find((candidate) => candidate.baseline?.surfaceHash === expected)
     expect(event).toBeDefined()
     expect(event?.generations[0]?.surfaceHash).toBe(expected)
-    expect(event?.baseline?.cells[0]).toMatchObject({
-      terminalOutcome: 'succeeded',
-      executionErrorCount: 0,
-    })
-    expect(event?.generations[0]?.cells[0]).toMatchObject({
-      terminalOutcome: 'succeeded',
-      executionErrorCount: 0,
-    })
     expect(surfaceHash(sameBytesElsewhere)).toBe(expected)
   })
 })
@@ -467,17 +222,13 @@ describe('selfImprove — run-wide spend account', () => {
       channel: 'agent',
       phase: 'search.baseline',
       actor: 'worker',
-      model: 'provider-receipt@2026-07-25',
+      model: 'provider-receipt',
       execute: async () => {
         throw frozen
       },
-      receipt: () => ({
-        model: 'provider-receipt@2026-07-25',
-        inputTokens: 0,
-        outputTokens: 0,
-      }),
+      receipt: () => ({ model: 'provider-receipt', inputTokens: 0, outputTokens: 0 }),
       receiptFromError: () => ({
-        model: 'provider-receipt@2026-07-25',
+        model: 'provider-receipt',
         inputTokens: 10,
         outputTokens: 5,
         actualCostUsd: 0.4,
@@ -489,7 +240,7 @@ describe('selfImprove — run-wide spend account', () => {
     expect(wrapped.cause).toBe(frozen)
     expect(wrapped.cost.totalCostUsd).toBe(0.4)
     expect(wrapped.receipts).toEqual([
-      expect.objectContaining({ actor: 'worker', error: 'paid-call-failed' }),
+      expect.objectContaining({ actor: 'worker', error: 'frozen provider failure' }),
     ])
   })
 
@@ -497,14 +248,14 @@ describe('selfImprove — run-wide spend account', () => {
     return async (surface: unknown, _scenario: Scenario, ctx: DispatchContext) => {
       const paid = await ctx.cost.runPaidCall({
         actor: 'worker',
-        model: 'provider-receipt@2026-07-25',
+        model: 'provider-receipt',
         maximumCharge: { externallyEnforcedMaximumUsd: amount },
         execute: async () => {
           onCall?.()
           return { text: String(surface) }
         },
         receipt: () => ({
-          model: 'provider-receipt@2026-07-25',
+          model: 'provider-receipt',
           inputTokens: 10,
           outputTokens: 5,
           actualCostUsd: amount,
@@ -550,10 +301,10 @@ describe('selfImprove — run-wide spend account', () => {
         channel,
         phase: context.costPhase,
         actor,
-        model: 'provider-receipt@2026-07-25',
+        model: 'provider-receipt',
         execute: async () => undefined,
         receipt: () => ({
-          model: 'provider-receipt@2026-07-25',
+          model: 'provider-receipt',
           inputTokens: 0,
           outputTokens: 0,
           actualCostUsd: amount,
@@ -626,20 +377,22 @@ describe('selfImprove — run-wide spend account', () => {
     expect(accounted.receipts).toHaveLength(1)
   })
 
-  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
-    'rejects invalid dollar budgets before dispatch: %s',
-    async (dollars) => {
-      let calls = 0
-      await expect(
-        selfImprove({
-          ...spendBase,
-          agent: paidAgent(0, () => calls++),
-          budget: { ...spendBase.budget, dollars },
-        }),
-      ).rejects.toThrow(/costCeilingUsd/)
-      expect(calls).toBe(0)
-    },
-  )
+  it.each([
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects invalid dollar budgets before dispatch: %s', async (dollars) => {
+    let calls = 0
+    await expect(
+      selfImprove({
+        ...spendBase,
+        agent: paidAgent(0, () => calls++),
+        budget: { ...spendBase.budget, dollars },
+      }),
+    ).rejects.toThrow(/costCeilingUsd/)
+    expect(calls).toBe(0)
+  })
 })
 
 describe('selfImprove — premeasured baseline passthrough', () => {
@@ -754,44 +507,6 @@ describe('selfImprove — maxImprovementShots passthrough', () => {
   })
 })
 
-describe('selfImprove — candidate ranking passthrough', () => {
-  it('uses selectionRankKey for the loop winner', async () => {
-    const rankingJudge: JudgeConfig<{ text: string }, Scenario> = {
-      name: 'ranking',
-      dimensions: [{ key: 'quality', description: 'fixture quality' }],
-      score: ({ artifact }) => {
-        const quality =
-          artifact.text === 'MEAN-WINNER' ? 1 : artifact.text === 'RANK-WINNER' ? 0.5 : 0
-        return { dimensions: { quality }, composite: quality, notes: '' }
-      },
-    }
-    const proposer: SurfaceProposer = {
-      kind: 'ranking-probe',
-      propose: async () => ['MEAN-WINNER', 'RANK-WINNER'],
-    }
-    const rankedSurfaces: string[] = []
-
-    const result = await selfImprove({
-      agent: stubAgent,
-      scenarios,
-      judge: rankingJudge,
-      baselineSurface: 'BASELINE',
-      proposer,
-      budget: { generations: 1, populationSize: 2, holdoutFraction: 0.5 },
-      selectionRankKey: (campaign) => {
-        const surface = campaign.cells[0]?.artifact?.text ?? 'BASELINE'
-        rankedSurfaces.push(surface)
-        return [surface === 'RANK-WINNER' ? 2 : surface === 'MEAN-WINNER' ? 1 : 0]
-      },
-    })
-
-    expect(rankedSurfaces).toEqual(
-      expect.arrayContaining(['BASELINE', 'MEAN-WINNER', 'RANK-WINNER']),
-    )
-    expect(result.winner.surface).toBe('RANK-WINNER')
-  })
-})
-
 describe('selfImprove — candidate concurrency passthrough', () => {
   async function observedCandidateConcurrency(candidateConcurrency?: number): Promise<number> {
     let active = 0
@@ -882,11 +597,7 @@ describe('selfImprove — deferred holdout', () => {
     // Forced hold, absent (not zero) lift.
     expect(result.gateDecision).toBe('hold')
     expect(result.raw.gateResult.contributingGates).toEqual([
-      {
-        name: 'holdout-deferred',
-        status: 'not_evaluated',
-        detail: { holdout: 'deferred' },
-      },
+      { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
     ])
     expect('lift' in result).toBe(false)
     expect(result.lift).toBeUndefined()

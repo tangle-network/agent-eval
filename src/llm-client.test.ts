@@ -12,7 +12,6 @@ import {
   maximumChargeForLlmRequest,
   stripFencedJson,
 } from './llm-client'
-import { InMemoryRawProviderSink } from './trace/raw-provider-sink'
 
 describe('maximumChargeForLlmRequest', () => {
   it('bounds the exact text request and its enforced output limit', () => {
@@ -22,7 +21,7 @@ describe('maximumChargeForLlmRequest', () => {
         messages: [{ role: 'user', content: 'hello' }],
         maxTokens: 400,
       },
-      { maximumAttempts: 2 },
+      { maxRetries: 2 },
     )
 
     expect(maximum).toMatchObject({ model: 'gpt-4o', outputTokens: 800 })
@@ -35,40 +34,17 @@ describe('maximumChargeForLlmRequest', () => {
       messages: [{ role: 'user' as const, content: 'hello' }],
       maxTokens: 400,
     }
-    const plain = maximumChargeForLlmRequest(request, { maximumAttempts: 2 })
+    const plain = maximumChargeForLlmRequest(request, { maxRetries: 2 })
     const structured = maximumChargeForLlmRequest(
       {
         ...request,
         jsonSchema: { name: 'answer', schema: { type: 'object' } },
       },
-      { maximumAttempts: 2 },
+      { maxRetries: 2 },
     )
 
     expect(plain && 'outputTokens' in plain ? plain.outputTokens : 0).toBe(800)
     expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
-  })
-
-  it('prices the exact thinking mode across retries and schema fallback', () => {
-    const request = {
-      model: 'glm-5.2',
-      messages: [{ role: 'user' as const, content: 'hello' }],
-      jsonSchema: { name: 'answer', schema: { type: 'object' } },
-      maxTokens: 400,
-    }
-    const providerDefault = maximumChargeForLlmRequest(request, { maximumAttempts: 2 })
-    const requestDisabled = maximumChargeForLlmRequest(
-      { ...request, thinking: 'disabled' },
-      { maximumAttempts: 2 },
-    )
-    const clientDisabled = maximumChargeForLlmRequest(request, {
-      maximumAttempts: 2,
-      thinking: 'disabled',
-    })
-    const inputTokens = (maximum: typeof providerDefault): number =>
-      maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0
-
-    expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(124)
-    expect(inputTokens(clientDisabled)).toBe(inputTokens(requestDisabled))
   })
 
   it('uses caller-supplied prices for an unrecognized model', () => {
@@ -79,7 +55,7 @@ describe('maximumChargeForLlmRequest', () => {
         maxTokens: 400,
       },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
       },
     )
@@ -98,7 +74,7 @@ describe('maximumChargeForLlmRequest', () => {
         jsonSchema: { name: 'answer', schema: { type: 'object' } },
         maxTokens: 400,
       },
-      { maximumAttempts: 2, jsonSchemaTransport: 'json-object' },
+      { maxRetries: 2, jsonSchemaTransport: 'json-object' },
     )
 
     expect(maximum && 'outputTokens' in maximum ? maximum.outputTokens : 0).toBe(800)
@@ -113,7 +89,7 @@ describe('maximumChargeForLlmRequest', () => {
         maxTokens: 400,
       },
       {
-        maximumAttempts: 2,
+        maxRetries: 2,
         jsonSchemaTransport: 'json-object',
         customTokenPricing: { inputUsdPerMillion: 0.27, outputUsdPerMillion: 1.1 },
       },
@@ -152,7 +128,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
           outputUsdPerMillion: 1.1,
@@ -188,7 +164,7 @@ describe('costReceiptFromLlm', () => {
         maxTokens: 8,
       },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         customTokenPricing: {
           inputUsdPerMillion: 0.27,
           outputUsdPerMillion: 1.1,
@@ -212,48 +188,11 @@ describe('costReceiptFromLlm', () => {
     expect(receipt.actualCostUsd).toBeCloseTo(0.000082, 12)
   })
 
-  it('uses the cache-read rate for cached prompt tokens', async () => {
-    const result = await callLlm(
-      {
-        model: 'router/custom-model',
-        messages: [{ role: 'user', content: 'hello' }],
-        maxTokens: 8,
-      },
-      {
-        maximumAttempts: 1,
-        customTokenPricing: {
-          inputUsdPerMillion: 1,
-          cachedInputUsdPerMillion: 0.1,
-          outputUsdPerMillion: 2,
-        },
-        fetch: async () =>
-          mkOkResponse({
-            model: 'router/custom-model',
-            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
-            usage: {
-              prompt_tokens: 100,
-              completion_tokens: 50,
-              total_tokens: 150,
-              prompt_tokens_details: { cached_tokens: 80 },
-            },
-          }),
-      },
-    )
-
-    const receipt = costReceiptFromLlm(result)
-    expect(receipt).toMatchObject({
-      inputTokens: 20,
-      cachedTokens: 80,
-      outputTokens: 50,
-    })
-    expect(receipt.actualCostUsd).toBeCloseTo(0.000128, 12)
-  })
-
   it('preserves OpenAI-compatible reasoning usage through the cost ledger', async () => {
     const result = await callLlm(
       { model: 'glm-4.5', messages: [{ role: 'user', content: 'test' }], maxTokens: 3_323 },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         fetch: async () =>
           mkOkResponse({
             id: 'chatcmpl-r431-fixture',
@@ -313,7 +252,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         fetch: async () =>
           mkOkResponse({
             model: 'gpt-4o',
@@ -336,7 +275,7 @@ describe('costReceiptFromLlm', () => {
     const result = await callLlm(
       { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 },
       {
-        maximumAttempts: 1,
+        maxRetries: 1,
         fetch: async () =>
           mkOkResponse({
             model: 'gpt-4o',
@@ -518,73 +457,6 @@ describe('llm-client — callLlm happy path', () => {
     expect(body.max_completion_tokens).toBeUndefined()
   })
 
-  it('sends and captures a client-default thinking mode', async () => {
-    const sink = new InMemoryRawProviderSink()
-    const fetch = vi.fn(async () =>
-      mkOkResponse({ choices: [{ message: { content: '{"ok":true}' } }], usage: {} }),
-    )
-    await callLlm(
-      {
-        model: 'glm-5.2',
-        messages: [{ role: 'user', content: 'Return JSON.' }],
-        jsonMode: true,
-        maxTokens: 64,
-      },
-      {
-        fetch: fetch as unknown as typeof globalThis.fetch,
-        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
-        rawSink: sink,
-        provider: 'zai-coding-plan',
-        traceContext: { runId: 'thinking-control', spanId: 'structured-output' },
-        thinking: 'disabled',
-      },
-    )
-
-    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
-    const outboundBody = JSON.parse(String(call[1].body)) as Record<string, unknown>
-    expect(outboundBody.thinking).toEqual({ type: 'disabled' })
-    const [request] = await sink.list({ direction: 'request' })
-    expect(request?.requestBody).toMatchObject({
-      model: 'glm-5.2',
-      thinking: { type: 'disabled' },
-    })
-  })
-
-  it('lets a per-call thinking mode override the client default', async () => {
-    const fetch = vi.fn(async () =>
-      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
-    )
-    await callLlm(
-      {
-        model: 'glm-5.2',
-        messages: [{ role: 'user', content: 'x' }],
-        thinking: 'enabled',
-      },
-      {
-        fetch: fetch as unknown as typeof globalThis.fetch,
-        thinking: 'disabled',
-      },
-    )
-
-    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
-    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
-    expect(body.thinking).toEqual({ type: 'enabled' })
-  })
-
-  it('omits thinking when the caller leaves provider behavior unchanged', async () => {
-    const fetch = vi.fn(async () =>
-      mkOkResponse({ choices: [{ message: { content: '' } }], usage: {} }),
-    )
-    await callLlm(
-      { model: 'glm-5.2', messages: [{ role: 'user', content: 'x' }] },
-      { fetch: fetch as unknown as typeof globalThis.fetch },
-    )
-
-    const call = (fetch.mock.calls[0] ?? []) as unknown as [string, RequestInit]
-    const body = JSON.parse(String(call[1].body)) as Record<string, unknown>
-    expect(body.thinking).toBeUndefined()
-  })
-
   it('supports custom authHeader over apiKey', async () => {
     const fetch = vi.fn(async () => mkOkResponse({ choices: [], usage: {} }))
     await callLlm(
@@ -617,7 +489,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maximumAttempts: 3 },
+      { fetch, maxRetries: 3 },
     )
     expect(r.content).toBe('ok')
     expect(calls).toEqual([429, 200])
@@ -630,7 +502,7 @@ describe('llm-client — retry semantics', () => {
     ])
     const r = await callLlm(
       { model: 'm', messages: [{ role: 'user', content: 'x' }] },
-      { fetch, maximumAttempts: 3 },
+      { fetch, maxRetries: 3 },
     )
     expect(r.content).toBe('ok')
   })
@@ -640,60 +512,18 @@ describe('llm-client — retry semantics', () => {
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 3 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 3 },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledOnce()
   })
 
-  it('retries once at temperature 1 when the model explicitly requires it', async () => {
-    const requestBodies: Array<Record<string, unknown>> = []
-    const fetch = mockFetch([
-      async (_url, init) => {
-        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
-        return mkErrResponse(400, 'invalid temperature: only 1 is allowed for this model')
-      },
-      async (_url, init) => {
-        requestBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
-        return mkOkResponse({ choices: [{ message: { content: 'ok' } }], usage: {} })
-      },
-    ])
-
-    const result = await callLlm(
-      {
-        model: 'kimi-k2',
-        messages: [{ role: 'user', content: 'x' }],
-        temperature: 0.2,
-      },
-      { fetch, maximumAttempts: 2 },
-    )
-
-    expect(result.content).toBe('ok')
-    expect(requestBodies).toHaveLength(2)
-    expect(requestBodies[0]?.temperature).toBe(0.2)
-    expect(requestBodies[1]?.temperature).toBe(1)
-  })
-
-  it('does not rewrite unrelated temperature validation errors', async () => {
-    const fetch = vi.fn(async () =>
-      mkErrResponse(400, 'invalid temperature: must be between 0 and 2'),
-    )
-
-    await expect(
-      callLlm(
-        { model: 'm', messages: [], temperature: 3 },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
-      ),
-    ).rejects.toBeInstanceOf(LlmCallError)
-    expect(fetch).toHaveBeenCalledOnce()
-  })
-
-  it('gives up after maximumAttempts on persistent 502', async () => {
+  it('gives up after maxRetries on persistent 502', async () => {
     const fetch = vi.fn(async () => mkErrResponse(502, 'bad gateway'))
     await expect(
       callLlm(
         { model: 'm', messages: [] },
-        { fetch: fetch as unknown as typeof globalThis.fetch, maximumAttempts: 2 },
+        { fetch: fetch as unknown as typeof globalThis.fetch, maxRetries: 2 },
       ),
     ).rejects.toBeInstanceOf(LlmCallError)
     expect(fetch).toHaveBeenCalledTimes(2)
@@ -710,7 +540,7 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
     expect(r.content).toBe('recovered')
   })
 
@@ -728,7 +558,7 @@ describe('llm-client — retry semantics', () => {
       }
       return mkOkResponse({ choices: [{ message: { content: 'recovered' } }], usage: {} })
     }) as unknown as typeof globalThis.fetch
-    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 3 })
+    const r = await callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 3 })
     expect(r.content).toBe('recovered')
     expect(call).toBe(2)
   })
@@ -764,10 +594,7 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     }) as unknown as typeof globalThis.fetch
 
     await expect(
-      callLlm(
-        { model: 'm', messages: [] },
-        { fetch, signal: controller.signal, maximumAttempts: 3 },
-      ),
+      callLlm({ model: 'm', messages: [] }, { fetch, signal: controller.signal, maxRetries: 3 }),
     ).rejects.toThrow(/abort/i)
     expect(calls).toBe(1)
   })
@@ -800,7 +627,7 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
     }) as unknown as typeof globalThis.fetch
 
     await expect(
-      callLlm({ model: 'm', messages: [] }, { fetch, maximumAttempts: 5, deadlineMs: 10 }),
+      callLlm({ model: 'm', messages: [] }, { fetch, maxRetries: 5, deadlineMs: 10 }),
     ).rejects.toBeInstanceOf(LlmCallError)
     // Without the deadline this would retry up to 5 times; the budget caps it at 1.
     expect(calls).toBe(1)
@@ -976,26 +803,6 @@ describe('llm-client — callLlmJson + schema degrade', () => {
     ).rejects.toThrow(/non-JSON/)
   })
 
-  it('does not include malformed provider content in the thrown message', async () => {
-    const secret = 'sk-provider-secret-that-must-not-persist'
-    const fetch = mockFetch([
-      async () =>
-        mkOkResponse({
-          choices: [{ message: { content: `not-json Bearer ${secret}` } }],
-          usage: {},
-        }),
-    ])
-
-    try {
-      await callLlmJson({ model: 'm', messages: [{ role: 'user', content: 'x' }] }, { fetch })
-      throw new Error('expected malformed JSON to fail')
-    } catch (error) {
-      expect(error).toBeInstanceOf(LlmResponseError)
-      expect((error as Error).message).toBe('LLM returned non-JSON content (model=m)')
-      expect((error as Error).message).not.toContain(secret)
-    }
-  })
-
   it('rejects an incomplete top-level object instead of parsing its nested findings array', async () => {
     const fetch = mockFetch([
       async () =>
@@ -1097,7 +904,7 @@ describe('llm-client — probeLlm', () => {
   it('returns ok=false with error message on 4xx', async () => {
     const fetch = mockFetch([async () => mkErrResponse(401, 'Invalid Authentication')])
     const { probeLlm } = await import('./llm-client')
-    const r = await probeLlm('m', { fetch, maximumAttempts: 1 })
+    const r = await probeLlm('m', { fetch, maxRetries: 1 })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/401|Invalid Authentication/)
   })
@@ -1107,7 +914,7 @@ describe('llm-client — probeLlm', () => {
       throw new Error('fetch failed')
     }) as unknown as typeof globalThis.fetch
     const { probeLlm } = await import('./llm-client')
-    const r = await probeLlm('m', { fetch: failingFetch, maximumAttempts: 1 })
+    const r = await probeLlm('m', { fetch: failingFetch, maxRetries: 1 })
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/fetch failed/)
   })

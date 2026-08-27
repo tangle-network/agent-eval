@@ -1,12 +1,31 @@
 /**
- * Run a caller-owned candidate generator, compare its winner with the starting
- * surface on separate cases, apply a release rule, and optionally open a pull
- * request.
+ * `runImprovementLoop` — the gated-promotion shell around the improvement
+ * loop body (`runOptimization`). Proposes candidate surfaces via the
+ * `SurfaceProposer`, re-scores the winner against the baseline on a
+ * holdout set, runs the release gate, and optionally opens a PR.
+ *
+ * Role vocabulary (see docs/design/loop-taxonomy.md):
+ *   - PROPOSER   = the `SurfaceProposer` (evolutionary GEPA mutator OR
+ *                  reflective analyst). Proposes candidate SURFACES — the
+ *                  worker's system prompt / tool config — NOT conversation
+ *                  turns.
+ *   - MEASUREMENT= `runCampaign`. Scores one surface by running the worker
+ *                  (via `dispatch`) over scenarios and judging the output.
+ *   - WORKER     = the agent harness in the sandbox, invoked behind the
+ *                  topology-opaque `dispatch` seam — never referenced here.
+ *
+ * Distinct from `runLoop` in `@tangle-network/agent-runtime`, which is the
+ * INNER conversation loop (execution driver ↔ workers in a sandbox). `runImprovementLoop`
+ * is the OUTER loop: it improves the surface that those workers run.
+ *
+ * Hard-refuses unsafe configurations:
+ *   - `tracing: 'off'` when a proposer is wired (improvement is unattributable)
+ *   - `autoOnPromote: 'config'` — live mutation is unsupported without
+ *     isolated deployment, rollback, and independent validation.
  */
 
 import { openAutoPr } from '../auto-pr'
 import { campaignCoverage, formatCoverageFailures } from '../coverage'
-import { runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { renderSurfaceDiff, surfaceHash } from '../surface-identity'
@@ -89,7 +108,10 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       "runImprovementLoop: autoOnPromote='config' requires isolated deployment, rollback, and independent validation. Use 'pr' or 'none'.",
     )
   }
-  // Candidate history cannot be audited when tracing is disabled.
+  // Refuse tracing=off whenever a proposer is wired. An improvement loop
+  // without traces is unattributable — its candidate surfaces cannot be
+  // cited back to the spans that motivated them, and the dataset flywheel
+  // (LabeledScenarioStore) that GEPA optimizes against goes unfed.
   if (opts.tracing === 'off' && opts.proposer) {
     throw new Error(
       "runImprovementLoop: tracing='off' is forbidden when a proposer is wired. The improvement loop without traces is unattributable; candidate surfaces cannot be cited back to spans and the optimization dataset goes unfed.",
@@ -103,7 +125,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // scenario means the optimizer adapted to a gate scenario, so the lift the gate
   // then reports is measured on data the optimization already saw — memorization
   // read as generalization. Fail loud before any rollout, not with an inflated
-  // gate decision. (Mirrors the three-part split in complete optimization methods.)
+  // gate decision. (Mirrors the runSkillOpt train/holdout guard.)
   const holdoutIds = new Set(opts.holdoutScenarios.map((s) => s.id))
   const leaked = opts.scenarios.filter((s) => holdoutIds.has(s.id)).map((s) => s.id)
   if (leaked.length > 0) {
@@ -137,16 +159,16 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 
   // ── (1) optimization loop produces a winner ────────────────────────
   const optimization = await runOptimization({ ...opts, dispatchTimeoutMs, costLedger })
-  const baselineSurface = optimization.baselineSurface
 
   // No candidate beat the training baseline ⇒ the "winner" IS the baseline
   // (empty diff). Re-scoring the baseline against ITSELF on the holdout and
   // gating the resulting model noise as "lift" is a false positive — it
   // promotes nothing and reports run-to-run variance as an improvement. Detect
   // it up front: skip the redundant winner-holdout pass and force a `hold`.
-  const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(baselineSurface)
+  const winnerIsBaseline = optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
 
   // ── (2) baseline + winner re-scored on the holdout set ─────────────
+  const { runCampaign } = await import('../run-campaign')
   const holdoutDeferred = (opts.holdout ?? 'measured') === 'deferred'
 
   // Deferred holdout: the held-out comparison happens in a separate later run,
@@ -156,7 +178,6 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const baselineOnHoldout = holdoutDeferred
     ? await runCampaign<TScenario, TArtifact>({
         ...opts,
-        labeledStore: 'off',
         costLedger,
         costPhase: 'holdout.deferred',
         dispatchTimeoutMs,
@@ -168,12 +189,11 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       })
     : await runCampaign<TScenario, TArtifact>({
         ...opts,
-        labeledStore: 'off',
         costLedger,
         costPhase: 'holdout.baseline',
         dispatchTimeoutMs,
         scenarios: opts.holdoutScenarios,
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(baselineSurface, scenario, ctx),
+        dispatch: (scenario, ctx) => opts.dispatchWithSurface(opts.baselineSurface, scenario, ctx),
         runDir: `${opts.runDir}/holdout-baseline`,
       })
 
@@ -186,7 +206,6 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
       ? baselineOnHoldout
       : await runCampaign<TScenario, TArtifact>({
           ...opts,
-          labeledStore: 'off',
           costLedger,
           costPhase: 'holdout.winner',
           dispatchTimeoutMs,
@@ -258,11 +277,10 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
   let neutralizedSurface: MutableSurface | undefined
   if (opts.neutralize && !winnerIsBaseline && !holdoutDeferred) {
-    const surface = opts.neutralize(optimization.winnerSurface, baselineSurface)
+    const surface = opts.neutralize(optimization.winnerSurface, opts.baselineSurface)
     neutralizedSurface = surface
     neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
-      labeledStore: 'off',
       costLedger,
       costPhase: 'holdout.neutralized',
       dispatchTimeoutMs,
@@ -294,11 +312,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
           'holdout deferred — improvement-set search completed without a held-out measurement; nothing to promote from this run',
         ],
         contributingGates: [
-          {
-            name: 'holdout-deferred',
-            status: 'not_evaluated' as const,
-            detail: { holdout: 'deferred' },
-          },
+          { name: 'holdout-deferred', passed: false, detail: { holdout: 'deferred' } },
         ],
       }
     : winnerIsBaseline
@@ -308,7 +322,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
             'no candidate beat the training baseline — winner == baseline (empty diff); nothing to promote',
           ],
           contributingGates: [
-            { name: 'no-op-guard', status: 'fail' as const, detail: { winnerIsBaseline: true } },
+            { name: 'no-op-guard', passed: false, detail: { winnerIsBaseline: true } },
           ],
           delta: 0,
         }
@@ -321,8 +335,8 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
           neutralizedJudgeScores,
           scenarios: opts.holdoutScenarios,
           cost: {
-            candidate: winnerOnHoldout.aggregates.cost.totalCostUsd,
-            baseline: baselineOnHoldout.aggregates.cost.totalCostUsd,
+            candidate: winnerOnHoldout.aggregates.totalCostUsd,
+            baseline: baselineOnHoldout.aggregates.totalCostUsd,
           },
           costLedger,
           costPhase: 'promotion.gate',
@@ -334,9 +348,9 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   // what the loop actually changed, needed for the provenance artifact whether
   // or not a PR is opened. winner == baseline ⇒ empty diff (nothing changed).
   const promotedDiff =
-    optimization.winnerSurfaceHash === surfaceHash(baselineSurface)
+    optimization.winnerSurfaceHash === surfaceHash(opts.baselineSurface)
       ? ''
-      : renderSurfaceDiff(optimization.winnerSurface, baselineSurface)
+      : renderSurfaceDiff(optimization.winnerSurface, opts.baselineSurface)
 
   let prResult: ReturnType<typeof openAutoPr> | undefined
   if (opts.autoOnPromote === 'pr' && gateResult.decision === 'ship') {

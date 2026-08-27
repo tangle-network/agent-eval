@@ -75,7 +75,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // "unchanged" as "failed".
     const ctx = ctxFrom(
       cells(
-        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
+        () => ({ composite: 0.8, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
       ),
     )
@@ -95,8 +95,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     expect(res.contributingGates).toHaveLength(2)
     const quality = res.contributingGates.find((g) => g.name === 'objective:quality')!
     const safety = res.contributingGates.find((g) => g.name === 'objective:safety')!
-    expect(quality.status).toBe('pass')
-    expect(safety.status).toBe('pass')
+    expect(quality.passed).toBe(true)
     expect((quality.detail as { verdict: string }).verdict).toBe('improved')
     expect((safety.detail as { verdict: string }).verdict).toBe('flat')
   })
@@ -178,7 +177,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // gain. quality is clearly up but the floor for safety has n=2.
     const ctx = ctxFrom(
       cells(
-        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
+        () => ({ composite: 0.8, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
         2,
       ),
@@ -226,10 +225,7 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
   // regressing) disagree on identical evidence.
   const ctx = ctxFrom(
     cells(
-      // quality up, speed flat. The quality deltas must not be IDENTICAL —
-      // n identical deltas give a zero-width interval, which carries no
-      // information about its own error and is refused however large the gain.
-      (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
+      () => ({ composite: 0.8, dimensions: { speed: 0.5 } }), // quality up, speed flat
       () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
     ),
   )
@@ -251,7 +247,7 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
         reasons: [allImproved ? 'all axes improved' : 'not every axis improved'],
         contributingGates: e.axes.map((a) => ({
           name: a.name,
-          status: a.verdict === 'improved' ? ('pass' as const) : ('fail' as const),
+          passed: a.verdict === 'improved',
           detail: a.verdict,
         })),
       }
@@ -272,124 +268,5 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
       expect(typeof axis.bootstrap.high).toBe('number')
       expect(axis.bootstrap.low).toBeLessThanOrEqual(axis.bootstrap.high)
     }
-  })
-})
-
-describe('buildEvidenceVector — binary (0/1) axes', () => {
-  /** `wins` candidate-only successes, `losses` baseline-only, `ties` both-pass. */
-  const binaryCtx = (wins: number, losses: number, ties: number): CellSpec[] => {
-    const cells: CellSpec[] = []
-    let i = 0
-    const put = (b: number, c: number) => {
-      cells.push({
-        scenarioId: `bin${i++}`,
-        reps: 1,
-        candidate: { composite: c },
-        baseline: { composite: b },
-      })
-    }
-    for (let k = 0; k < wins; k++) put(0, 1)
-    for (let k = 0; k < losses; k++) put(1, 0)
-    for (let k = 0; k < ties; k++) put(1, 1)
-    return cells
-  }
-  const objective: PromotionObjective[] = [
-    { name: 'pass', source: { kind: 'composite' }, direction: 'maximize' },
-  ]
-
-  it('sees a real +13.2pp gain the median CI reports as flat', () => {
-    const ev = buildEvidenceVector(ctxFrom(binaryCtx(15, 5, 56)), objective)
-    const axis = ev.axes[0]!
-    expect(axis.n).toBe(76)
-    expect(axis.bootstrapStatistic).toBe('mean')
-    // The literal median of the paired delta vector is 0 — that is why a
-    // median-CI axis was blind here.
-    expect(axis.bootstrap.median).toBe(0)
-    expect(axis.bootstrap.mean).toBeCloseTo(10 / 76, 6)
-    expect(axis.bootstrap.low).toBeGreaterThan(0)
-    expect(axis.verdict).toBe('improved')
-  })
-
-  it('sees a real -13.2pp regression the median CI reports as flat', () => {
-    const ev = buildEvidenceVector(ctxFrom(binaryCtx(5, 15, 56)), objective)
-    const axis = ev.axes[0]!
-    expect(axis.bootstrap.median).toBe(0)
-    expect(axis.bootstrap.low).toBeLessThan(-axis.floorTolerance)
-    expect(axis.verdict).toBe('regressed')
-  })
-
-  it('never calls binary noise an improvement', () => {
-    const noise = ctxFrom(binaryCtx(8, 8, 60)) // 8 wins, 8 losses ⇒ zero net shift
-    const axis = buildEvidenceVector(noise, objective).axes[0]!
-    expect(axis.bootstrap.mean).toBeCloseTo(0, 12)
-    expect(axis.verdict).not.toBe('improved')
-    // With the default 0.05 floor the axis reads `regressed`, not `flat`: at
-    // n=76 with 16 discordant pairs the CI is ±0.10, so the evidence cannot
-    // rule out a >5pp regression, and the floor rule is deliberately
-    // conservative ("block if the credible worst case exceeds tolerance").
-    // Widen the floor past the CI half-width and it reads flat.
-    const wide = buildEvidenceVector(noise, [{ ...objective[0]!, floorTolerance: 0.15 }])
-    expect(wide.axes[0]!.verdict).toBe('flat')
-  })
-
-  it('sees a 0-100 axis, not only a {0,1} one', () => {
-    // Same shape, one encoding over: a pass/fail axis emitted on 0-100 (which
-    // `detectScale` exists to support) read `flat` under a {0,1}-only detector,
-    // hiding a +13.16-POINT gain and, mirrored, a regression of the same size.
-    const hundred = (spec: CellSpec[]): CellSpec[] =>
-      spec.map((c) => ({
-        ...c,
-        candidate: { composite: c.candidate.composite * 100 },
-        baseline: { composite: c.baseline.composite * 100 },
-      }))
-    const gain = buildEvidenceVector(ctxFrom(hundred(binaryCtx(15, 5, 56))), objective).axes[0]!
-    expect(gain.verdict).toBe('improved')
-    expect(gain.bootstrapStatistic).toBe('mean')
-    expect(gain.floorTolerance).toBe(5)
-    expect(gain.bootstrap.median).toBe(0)
-    expect(gain.bootstrap.mean).toBeCloseTo((10 / 76) * 100, 6)
-
-    const drop = buildEvidenceVector(ctxFrom(hundred(binaryCtx(5, 15, 56))), objective).axes[0]!
-    expect(drop.verdict).toBe('regressed')
-  })
-
-  it('sees an axis that one partial-credit cell made non-binary', () => {
-    const contaminated: CellSpec[] = [
-      ...binaryCtx(5, 15, 56),
-      {
-        scenarioId: 'partial',
-        reps: 1,
-        candidate: { composite: 0.5 },
-        baseline: { composite: 0.5 },
-      },
-    ]
-    const axis = buildEvidenceVector(ctxFrom(contaminated), objective).axes[0]!
-    expect(axis.verdict).toBe('regressed')
-    expect(axis.n).toBe(77)
-    expect(axis.bootstrapStatistic).toBe('mean')
-  })
-
-  it('decides continuous axes on the mean, and still offers the median', () => {
-    const continuous = ctxFrom(
-      cells(
-        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
-        () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
-      ),
-    )
-    const objectives = [
-      QUALITY,
-      {
-        name: 'speed',
-        source: { kind: 'dimension' as const, dimension: 'speed' },
-        direction: 'maximize' as const,
-      },
-    ]
-    const ev = buildEvidenceVector(continuous, objectives)
-    for (const axis of ev.axes) expect(axis.bootstrapStatistic).toBe('mean')
-    expect(ev.axes.map((a) => a.verdict)).toEqual(['improved', 'flat'])
-    // The pre-0.134 median path is still exactly reachable, same verdicts here.
-    const med = buildEvidenceVector(continuous, objectives, { statistic: 'median' })
-    for (const axis of med.axes) expect(axis.bootstrapStatistic).toBe('median')
-    expect(med.axes.map((a) => a.verdict)).toEqual(['improved', 'flat'])
   })
 })

@@ -1,11 +1,11 @@
 /**
  * @packageDocumentation
  *
- * Root barrel for the broad public API.
+ * Root barrel — broad compatibility surface.
  *
  * Reach for focused subpaths when they fit: `/contract`, `/campaign`,
  * `/analyst`, `/traces`, `/reporting`, `/rl`, `/prm`, `/meta-eval`,
- * `/wire`, and `/testing`.
+ * `/belief-state`, `/wire`, and `/testing`.
  */
 
 // ── Core types ───────────────────────────────────────────────────────
@@ -39,10 +39,11 @@ export {
   validateAgentProfileCell,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
+export { type CreateAnalystAiConfig, createAnalystAi } from './analyst/ax-service'
 // ── Analyst (registry + findings) ─────────────────────────────────────
 // Consumer-facing happy path only: build a registry (or take the default
 // kinds), pass it to analyzeRuns/selfImprove, read AnalystFinding[], persist
-// with FindingsStore, or bind a ChatClient for package LLM calls. Deeper
+// with FindingsStore, or bind a ChatClient for analyst LLM calls. Deeper
 // machinery like finding-signature/subject parsers, tolerant JSON coercion, tool
 // groups, prose recovery, and judge/verifier adapters live on the `/analyst`
 // subpath (`@tangle-network/agent-eval/analyst`) to keep this surface legible.
@@ -54,7 +55,6 @@ export type {
   ChatTransport,
   CliBridgeTransportOpts,
   CreateChatClientOpts,
-  CustomTransportOpts,
   DirectProviderTransportOpts,
   MockTransportOpts,
   RouterTransportOpts,
@@ -65,33 +65,8 @@ export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
 } from './analyst/default-registry'
-export { defineTraceAnalyst } from './analyst/define'
-export {
-  createDspyRlmTraceEngine,
-  type DspyRlmTraceEngineOptions,
-} from './analyst/dspy-rlm-engine'
-export {
-  DEFAULT_TRACE_ANALYST_LIMITS,
-  resolveTraceAnalystLimits,
-  type TraceAnalysisEngine,
-  type TraceAnalysisEngineRequest,
-  type TraceAnalysisEngineResult,
-  type TraceAnalystLimits,
-} from './analyst/engine'
 export type {
-  ExactAnalystBudgetSnapshot,
-  ExactAnalystExecutionPlanSnapshot,
-  ExactAnalystRunCompletion,
-  ExactAnalystRunEvent,
-  ExactAnalystRunPolicySnapshot,
-  ExactAnalystRunResult,
-  ExactAnalystRunSummary,
-  ExactAnalystSnapshot,
-  ExactCapableAnalyst,
-  ExactExecutionComponentIdentity,
-  ExactExecutionComponentSnapshot,
-} from './analyst/exact-types'
-export type {
+  CanonicalRawAnalystFinding,
   RawAnalystEvidence,
   RawAnalystFinding,
 } from './analyst/finding-signature'
@@ -105,12 +80,12 @@ export {
   type PersistedFinding,
 } from './analyst/findings-store'
 export {
-  type CreateTraceAnalystOptions,
-  createTraceAnalyst,
+  type CreateTraceAnalystKindOpts,
+  createTraceAnalystKind,
   renderPriorFindings,
   renderUpstreamFindings,
-  runTraceAnalyst,
-  type TraceAnalystDefinition,
+  type TraceAnalystGolden,
+  type TraceAnalystKindSpec,
 } from './analyst/kind-factory'
 export {
   DEFAULT_TRACE_ANALYST_KINDS,
@@ -119,21 +94,47 @@ export {
   KNOWLEDGE_GAP_KIND_SPEC,
   KNOWLEDGE_POISONING_KIND_SPEC,
 } from './analyst/kinds'
-export {
-  CONTROL_INTEGRITY_ANALYST,
-  ControlIntegrityAnalyst,
-  emitControlIntegrityFindings,
-} from './analyst/kinds/control-integrity'
 export { SKILL_USAGE_ANALYST, SkillUsageAnalyst } from './analyst/kinds/skill-usage'
+export type {
+  FindingToPolicyEditOptions,
+  PolicyEdit,
+  PolicyEditAdmission,
+  PolicyEditAdmissionOptions,
+  PolicyEditAxis,
+  PolicyEditCandidateRecord,
+  PolicyEditChange,
+  PolicyEditExpectedGain,
+  PolicyEditGainDirection,
+  PolicyEditGainUnit,
+  PolicyEditInit,
+  PolicyEditRisk,
+  PolicyEditSchemaVersion,
+  PolicyEditSource,
+  PolicyEditTarget,
+  PolicyEditTargetSurface,
+} from './analyst/policy-edit'
+export {
+  admitPolicyEdit,
+  applyPolicyEditToSurface,
+  computePolicyEditId,
+  isPolicyEdit,
+  makePolicyEdit,
+  makePolicyEditCandidateRecord,
+  POLICY_EDIT_AXES,
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  POLICY_EDIT_TARGET_SURFACES,
+  PolicyEditValidationError,
+  policyEditFromFinding,
+  policyEditsFromFindings,
+  scorePolicyEditReadiness,
+  validatePolicyEdit,
+  validatePolicyEditCandidateRecord,
+} from './analyst/policy-edit'
 export {
   type AnalystHooks,
   AnalystRegistry,
   type AnalystRegistryOptions,
-  assertExactRegistryRunOpts,
   type BudgetPolicy,
-  type ExactAnalystBudgetPolicy,
-  ExactAnalystRunExecutionError,
-  type ExactRegistryRunOpts,
   type RegistryRunOpts,
 } from './analyst/registry'
 export {
@@ -152,9 +153,6 @@ export {
   computeFindingId,
   type EvidenceRef,
   makeFinding,
-  makeProposalFinding,
-  type ProposalFinding,
-  type ProposalFindingOrigin,
 } from './analyst/types'
 export type {
   AutoPrClient,
@@ -248,7 +246,6 @@ export {
   CaptureIntegrityError,
   ConfigError,
   JudgeError,
-  LimitExceededError,
   NotFoundError,
   ReplayError,
   ValidationError,
@@ -257,15 +254,6 @@ export {
 export type { ExecutorConfig } from './executor'
 export { executeScenario } from './executor'
 export type {
-  AnalystFeedbackTrajectoryOptions,
-  AnalystFindingDigest,
-  AnalystMissedIssue,
-  AnalystReviewCounts,
-  AnalystReviewDecision,
-  AnalystReviewQuality,
-  AnalystReviewRequest,
-  AnalystReviewSource,
-  AnalystRunDigest,
   FeedbackArtifactType,
   FeedbackAttempt,
   FeedbackLabel,
@@ -285,10 +273,6 @@ export type {
   ProposedSideEffect,
 } from './feedback-trajectory'
 export {
-  analystFindingDigest,
-  analystRunDigest,
-  analystRunToFeedbackTrajectory,
-  analystRunToReviewRequests,
   assignFeedbackSplit,
   controlRunToFeedbackTrajectory,
   createFeedbackTrajectory,
@@ -346,7 +330,15 @@ export {
   type JudgeFamily,
   judgeFamily,
 } from './judge-families'
-export { JudgeParseError } from './judges'
+export {
+  adversarialJudge,
+  codeExecutionJudge,
+  coherenceJudge,
+  createCustomJudge,
+  createDomainExpertJudge,
+  defaultJudges,
+  JudgeParseError,
+} from './judges'
 export * from './knowledge'
 export type {
   LiveProofArtifact,
@@ -355,14 +347,6 @@ export type {
   LiveProofResult,
 } from './live-proof'
 export { runLiveProof } from './live-proof'
-// ── Statistics ───────────────────────────────────────────────────────
-// `normalCdf` and `studentTCdf` are public because `baseline.ts` and
-// `contract/analyze-runs.ts` consume them instead of holding their own copies,
-// and because each owes callers a stated accuracy bound: `normalCdf` is
-// Abramowitz & Stegun 7.1.26, accurate to 7.5e-8 absolute; `studentTCdf` uses
-// the regularized incomplete beta at every finite degree of freedom.
-export { normalCdf } from './math/normal'
-export { studentTCdf } from './math/student-t'
 export {
   estimateCost,
   estimateTokens,
@@ -375,14 +359,12 @@ export {
 export type {
   ComparePairedArmsOptions,
   MatchedPair,
-  MatchedRunRecordPair,
   PairArmsOptions,
   PairArmsResult,
   PairedArmRow,
   PairedArmsComparison,
   PairedCorrectness,
   PairedMetricDelta,
-  PairRunRecordsResult,
 } from './paired-arms'
 // ── Matched-pair arm comparison ──────────────────────────────────────
 // Pairs run-record-like rows across two arms by pairKey (multi-rep items
@@ -390,29 +372,7 @@ export type {
 // estimators from `statistics` (mcnemar + pairedRiskDifference for
 // pass/fail, pairedBootstrap + wilcoxonSignedRank per metric). Arm names
 // are parameters — no domain literal ships here.
-export { comparePairedArms, pairArms, pairRunRecords } from './paired-arms'
-export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-delta-test'
-export {
-  minimumPairsForPairedDeltaTest,
-  pairedDeltaTest,
-} from './paired-delta-test'
-// ── The one paired promotion rule ────────────────────────────────────
-// `interval.low > threshold` is not a promotion rule on its own: a pass/fail
-// outcome needs an interval valid at a nonzero margin (Tango's score interval,
-// not a percentile bootstrap), McNemar's exact test must be able to veto, and a
-// zero-width interval must be refused rather than read as certainty. Every gate
-// in this package decides through this function so the rule cannot drift
-// between them — it did once, and the copy that was not fixed promoted at
-// 14.60 % against a nominal 5 %.
-export type {
-  PairedDecisionMethod,
-  PairedDecisionShape,
-  PairedDecisionStatistic,
-  PairedMcNemarEvidence,
-  PairedPromotionDecision,
-  PairedPromotionDecisionOptions,
-} from './paired-promotion-decision'
-export { decidePairedPromotion, pairedDecisionShape } from './paired-promotion-decision'
+export { comparePairedArms, pairArms } from './paired-arms'
 export type {
   PrReviewAuditCase,
   PrReviewBenchmarkSummary,
@@ -435,69 +395,26 @@ export {
 } from './pr-review-benchmark'
 export { ScenarioRegistry } from './registry'
 export { formatBenchmarkReport, formatDriverReport, printDriverSummary } from './reporter'
-// ── Rollout — `tangle.rollout.v1` ────────────────────────────────────
-// THE canonical rollout serialization: schema + ledger + minting from
-// RunRecord × trace (joined on runId, realness-gate carried into the
-// reward), harness-store readers, exporters, Harbor ATIF interchange, and
-// the release pipeline.
-// Full surface on the `@tangle-network/agent-eval/rollout` subpath.
+// ── Rollout export ────────────────────────────────────────────────────
+// `tangle.rollout.v1` training rows minted from the records the substrate
+// already keeps: RunRecord × trace (joined on runId), realness-gate carried
+// into the reward so fine-tunes can't learn from gamed successes.
 export {
-  ATIF_SCHEMA_VERSION,
-  assertMinted,
-  assertMintedLines,
-  assertRolloutLine,
-  type ChatMessage,
-  type ChatToolCall,
-  type FromHarborOptions,
-  fromHarborTrajectory,
-  HARBOR_IMPORT_GAP,
-  type HarborAgent,
-  type HarborContentPart,
-  type HarborFinalMetrics,
-  type HarborImageSource,
-  type HarborMetrics,
-  type HarborObservation,
-  type HarborObservationResult,
-  type HarborStep,
-  type HarborStepSource,
-  type HarborSubagentTrajectoryRef,
-  type HarborToolCall,
-  type HarborTrajectory,
-  isRealnessGated,
-  isRolloutLine,
-  isTrainableSplit,
-  type MintedRolloutLine,
-  type MintedRolloutOutcome,
   type MintRolloutOptions,
   type MintRolloutResult,
   mintRolloutRows,
-  observedScore,
-  observedSplitScore,
   type RewardRow,
-  ROLLOUT_SCHEMA,
-  type RolloutCapture,
-  type RolloutLine,
-  type RolloutRole,
+  ROLLOUT_FORMAT,
+  type RolloutRow,
   type RolloutScrubber,
-  type RolloutSplit,
   type RolloutStep,
-  relabelImportedSplit,
-  type ScoreOrigin,
-  type ScorePreference,
+  rolloutReward,
   type SftExportOptions,
   type SftRow,
-  scoreOrigin,
-  type ToolDef,
-  toHarborTrajectories,
-  toHarborTrajectory,
   toJsonl,
   toRewardRows,
   toSftRows,
-  trainingReward,
-  trainingScore,
-  unmintableReasons,
-  validateRolloutLine,
-} from './rollout/index'
+} from './rollout-export'
 export type {
   ControlRunToRunRecordOptions,
   RunEvidenceMetadata,
@@ -512,26 +429,18 @@ export type {
   CorpusAgreementPerDimension,
   CorpusAgreementReport,
   CorpusScoreRecord,
-  ExactRiskDifferenceResult,
-  MannWhitneyResult,
   McNemarResult,
   PairedBootstrapOptions,
   PairedBootstrapResult,
   PairedSignTestResult,
-  PairedTTestResult,
   ProportionInterval,
-  RankTestMethod,
-  RankTestMethodRequest,
-  RankTestOptions,
   RiskDifferenceResult,
-  ScoreRiskDifferenceResult,
   SignTestAlternative,
   WeightedCompositeInput,
   WeightedCompositeResult,
-  WilcoxonSignedRankResult,
 } from './statistics'
+// ── Statistics ───────────────────────────────────────────────────────
 export {
-  BOOTSTRAP_GATE_MIN_N,
   benjaminiHochberg,
   bonferroni,
   cliffsDelta,
@@ -539,84 +448,31 @@ export {
   confidenceInterval,
   corpusInterRaterAgreement,
   corpusInterRaterAgreementFromJudgeScores,
-  DECISION_PAIRED_DELTA_STATISTIC,
-  DEFAULT_PERMUTATIONS,
   holm,
   interpretCliffs,
   interRaterReliability,
-  isBinaryOutcomeVector,
-  MANN_WHITNEY_EXACT_MAX_STATES,
-  MANN_WHITNEY_EXACT_MAX_WORK,
   mannWhitneyU,
   mcnemar,
   mcnemarPower,
   mcnemarRequiredN,
   normalizeScores,
-  pairedBinaryScale,
   pairedBootstrap,
-  pairedCohensDz,
-  pairedDeltaTieFraction,
   pairedMde,
   pairedRiskDifference,
-  pairedRiskDifferenceExact,
-  pairedRiskDifferenceScore,
   pairedSignTest,
   pairedTTest,
   partialCredit,
   passAtK,
   pearsonR,
   ranks,
-  requiredPairedSampleSize,
   requiredSampleSize,
   spearmanR,
-  WILCOXON_EXACT_MAX_N,
   weightedComposite,
   weightedMean,
   wilcoxonSignedRank,
   wilson,
 } from './statistics'
-// ── Supervisor-run analysis ──────────────────────────────────────────
-// Single-rollout trace analysis, one dimension up: a supervision tree's
-// steer count, spawn waves, concurrency, idle wall, cost by role and
-// accepted-vs-rejected accounting, with `Measured<T>` keeping a missing
-// artifact distinct from a measured zero. Nodes are `tangle.rollout.v1`
-// rows joined by `parent_rollout_id` — not a parallel shape.
-// Full surface on the `@tangle-network/agent-eval/supervisor-run` subpath.
-export {
-  analyzeSupervisorRun,
-  analyzeSupervisorRunIntegrity,
-  analyzeSupervisorRunSources,
-  claudeCodeSupervisorRunReader,
-  isUnavailable,
-  type Measured,
-  readClaudeCodeSupervisorRun,
-  renderSupervisorRunHeadline,
-  renderSupervisorRunMarkdown,
-  rollupSupervisorRuns,
-  type SourceLimits,
-  SUPERVISOR_RUN_INTEGRITY_SCHEMA,
-  SUPERVISOR_RUN_SCHEMA,
-  type SupervisorRunIntegrityEvidence,
-  type SupervisorRunIntegrityIssue,
-  type SupervisorRunIntegrityIssueCode,
-  type SupervisorRunIntegrityOptions,
-  type SupervisorRunIntegrityReport,
-  type SupervisorRunIntegritySeverity,
-  type SupervisorRunNodeRole,
-  type SupervisorRunReader,
-  type SupervisorRunReport,
-  type SupervisorRunRollup,
-  type SupervisorRunSourceOnlyCheckCode,
-  type SupervisorRunSources,
-  type SupervisorRunTree,
-  type SupervisorRunTreeGap,
-  type SupervisorRunTreeGapCode,
-  showMeasured,
-  supervisorRunRolloutLines,
-  type Unavailable,
-  writeSupervisorRunReport,
-} from './supervisor-run/index'
-// Trace analyst surface (recursive engines over OTLP-JSONL).
+// ── Trace analyst surface (Ax RLM over OTLP-JSONL) ───────────────────
 // Direct re-export of the trace-analyst submodule so consumers don't have
 // to reach into subpaths. Used by agent canonical evals via the
 // `autoresearch` block (analyzeTraces + OtlpFileTraceStore).
@@ -817,13 +673,14 @@ export { aggregateRunScore, clamp01, DEFAULT_RUN_SCORE_WEIGHTS } from './run-sco
 export type { SteeringBundle, SteeringDelta, SteeringRolePrompt } from './steering'
 export { mergeSteeringBundle, renderSteeringText } from './steering'
 export type {
+  AxSteeringOptimizerConfig,
   SteeringOptimizationResult,
   SteeringOptimizationRow,
   SteeringOptimizationSelector,
   SteeringOptimizerBackend,
   SteeringOptimizerConfig,
 } from './steering-optimizer'
-export { PairwiseSteeringOptimizer } from './steering-optimizer'
+export { AxGepaSteeringOptimizer, PairwiseSteeringOptimizer } from './steering-optimizer'
 export type {
   InspectorContext,
   WorkspaceAssertion,
@@ -938,24 +795,17 @@ export {
   HARNESS_NATIVE_MODEL,
   harnessAxisOf,
 } from './agent-profile'
-export type {
-  BaselineOptions,
-  BaselineReport,
-  MetricSamples,
-  MetricVerdict,
-  WelchTestResult,
-  WelchTestStatus,
-} from './baseline'
+export type { BaselineOptions, BaselineReport, MetricSamples, MetricVerdict } from './baseline'
 export { compareToBaseline, iqr, welchsTTest } from './baseline'
 export type {
   ChannelRollup,
   CostChannel,
+  CostLedgerEntry,
   CostLedgerFilter,
   CostLedgerHandle,
   CostLedgerOptions,
   CostLedgerPersistence,
   CostLedgerSummary,
-  CostProvenance,
   CostReceipt,
   CostReceiptInput,
   CostResult,
@@ -1428,7 +1278,6 @@ export {
 } from './benchmarks/types'
 export type {
   CanaryAlert,
-  CanaryEvaluation,
   CanaryKind,
   CanaryOptions,
   CanaryReport,
@@ -1479,12 +1328,10 @@ export {
   weightedRecall,
 } from './golden-matcher'
 export type {
-  DeltaStatistic,
   GateDecision,
   GateEvidence,
   HeldOutGateConfig,
   HeldOutGateRejectionCode,
-  SplitCoverage,
 } from './held-out-gate'
 export { HeldOutGate } from './held-out-gate'
 export type {
@@ -1591,8 +1438,6 @@ export type {
   RunOutcome,
   RunRecord,
   RunSplitTag,
-  RunTaskFailure,
-  RunTerminalOutcome,
   RunTokenUsage,
 } from './run-record'
 export {
@@ -1600,8 +1445,8 @@ export {
   modelHasSnapshot,
   parseRunRecordSafe,
   RunRecordValidationError,
+  resolveRunCostProvenance,
   roundTripRunRecord,
-  runTaskScore,
   validateRunRecord,
 } from './run-record'
 export type {
@@ -1651,14 +1496,48 @@ export {
 
 export type { OtelPipelineHandle, OtelPipelineOptions } from './otel-pipeline'
 export { isOtelConfigured, withOtelPipeline } from './otel-pipeline'
-// Prompt-profile builder utilities are namespaced under `profile`. The
-// canonical public `AgentProfile` type is exported above from
-// `@tangle-network/agent-interface` via `./agent-profile`.
-export * as profile from './profile/index'
 export type { TracedAnalystOptions } from './traced-analyst'
 export { tracedAnalyzeTraces } from './traced-analyst'
 export type { TracedJudgeOptions } from './traced-judges'
 export { traceJudge, traceJudgeEnsemble } from './traced-judges'
+
+// ── Teacher→student GEPA distillation ────────────────────────────────
+// Distill a cheap single-shot analyst's prompt toward an expensive workflow's
+// gold verdicts. Composes runImprovementLoop + gepaProposer + the gate.
+
+export type {
+  AgreementResult,
+  BuildAgreementJudgeOptions,
+  CompareLabels,
+  FieldAgreementSpec,
+} from './campaign/distillation/agreement-judge'
+export { buildAgreementJudge, fieldAgreement } from './campaign/distillation/agreement-judge'
+export type {
+  GoldScenario,
+  GoldSplit,
+  SplitGoldOptions,
+} from './campaign/distillation/gold-scenarios'
+export {
+  loadGoldScenarios,
+  parseGoldJsonl,
+  splitGold,
+} from './campaign/distillation/gold-scenarios'
+export type {
+  ParseStudentLabel,
+  RenderStudentPrompt,
+  RunDistillationOptions,
+  RunDistillationResult,
+} from './campaign/distillation/run-distillation'
+export {
+  defaultParseStudentLabel,
+  defaultRenderStudentPrompt,
+  runDistillation,
+} from './campaign/distillation/run-distillation'
+
+// Prompt-profile builder utilities are namespaced under `profile`. The
+// canonical public `AgentProfile` type is exported above from
+// `@tangle-network/agent-interface` via `./agent-profile`.
+export * as profile from './profile/index'
 
 // ── Cost governance — model seating chart + program cost report ─────────
 
@@ -1667,7 +1546,7 @@ export { attachCostToReport, costReport } from './cost-report'
 export type { ModelSeats, SeatName, SeatPresetName } from './model-seats'
 export { resolveSeat, SeatUnsetError, seatPresets } from './model-seats'
 
-// Recursive trace analyst, also exported from the /traces subpath.
+// Ax RLM trace analyst — subpath: /traces (re-exported alongside trace store).
 
 export type {
   AttestationProvenance,

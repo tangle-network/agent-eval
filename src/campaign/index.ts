@@ -1,3 +1,28 @@
+export {
+  callbackGovernor,
+  campaignLineageStore,
+  fsLineageStore,
+  type Governor,
+  type GovernorContext,
+  type GovernorOp,
+  type HeuristicGovernorOptions,
+  heuristicGovernor,
+  Lineage,
+  type LineageEdge,
+  type LineageGraph,
+  type LineageNode,
+  type LineageNodeInput,
+  type LineageStore,
+  LineageStoreConflictError,
+  lineageNodeId,
+  memLineageStore,
+  type RunLineageOptions,
+  type RunLineageResult,
+  type RunLineageSeed,
+  type RunLineageStepResult,
+  runLineage,
+} from './lineage'
+
 /**
  * `@tangle-network/agent-eval/campaign` — measurement + improvement loop.
  *
@@ -5,11 +30,12 @@
  * `runImprovementLoop` is the proposer-agnostic improvement loop on top of it.
  */
 
+// ── Surface proposers ────────────────────────────────────────────────
 export {
-  makeProposalFinding,
-  type ProposalFinding,
-  type ProposalFindingOrigin,
-} from '../analyst/types'
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  type PolicyEditCandidateRecord,
+  validatePolicyEditCandidateRecord,
+} from '../analyst/policy-edit'
 export type { CostLedgerHandle, PendingCostCallView } from '../cost-ledger'
 // ── Judge builders (single-call bridge to a canonical JudgeConfig) ────
 export type { LlmJudgeDimension, LlmJudgeOptions } from '../llm-judge'
@@ -21,11 +47,12 @@ export type {
 export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
-  type BuildTraceAnalystSurfaceDispatchOptions,
-  buildTraceAnalystSurfaceDispatch,
-  type TraceAnalystArtifact,
-  type TraceAnalystScenario,
-  traceAnalystQualityJudge,
+  type AnalystArtifact,
+  type AnalystScenario,
+  type BuildAnalystSurfaceDispatchOptions,
+  buildAnalystSurfaceDispatch,
+  type FailureModeRecallJudgeOptions,
+  failureModeRecallJudge,
 } from './analyst-surface'
 // ── Auto-PR ──────────────────────────────────────────────────────────
 export {
@@ -77,14 +104,6 @@ export type {
   CrossSurfaceSelections,
   CrossSurfaceTaskRow,
 } from './cross-surface-types'
-export {
-  type ExternalOptimizationExample,
-  type ExternalTextEvaluationResponse,
-  type ExternalTextOptimizationMethodConfig,
-  type ExternalTextOptimizerContext,
-  type ExternalTextOptimizerResult,
-  externalTextOptimizationMethod,
-} from './external-text-optimization'
 // ── Fixture UX / dry-run planning ────────────────────────────────────
 export {
   discoverEvalFixtures,
@@ -103,9 +122,7 @@ export {
 // ── Gates ────────────────────────────────────────────────────────────
 export { composeGate } from './gates/compose'
 export {
-  type DefaultProductionGateCheck,
   type DefaultProductionGateOptions,
-  type DefaultProductionRewardHackingOptions,
   defaultProductionGate,
 } from './gates/default-production-gate'
 export { type HeldOutGateOptions, heldOutGate } from './gates/heldout-gate'
@@ -152,8 +169,6 @@ export {
   pairHoldout,
 } from './gates/statistical-heldout'
 export {
-  type GepaAdaptiveEngineRun,
-  type GepaEngineOptions,
   type GepaEngineRun,
   type GepaOptimizationMethodConfig,
   type GepaOptimizationRecipe,
@@ -176,10 +191,14 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
-export type {
-  OpenAICompatibleOptimizerModel,
-  OptimizerModelBudget,
-} from './optimizer-model'
+export {
+  type BuiltinOptimizationMethodConfig,
+  type FapoOptimizationMethodConfig,
+  fapoEscalationMethod,
+  gepaParetoMethod,
+  gepaReflectionMethod,
+  skillOptMethod,
+} from './presets/builtin-optimization-methods'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareOptimizationMethodsOptions,
@@ -190,13 +209,9 @@ export {
   type OptimizationMethodComparison,
   type OptimizationMethodInput,
   type OptimizationMethodPairwise,
-  type OptimizationMethodProvenance,
   type OptimizationMethodResult,
   type OptimizationMethodRunOptions,
   type OptimizationMethodScore,
-  type OptimizationPackageSource,
-  type OptimizationTokenUsage,
-  optimizationTokenUsageFromSummary,
 } from './presets/compare-optimization-methods'
 export {
   makePlaybackDispatch,
@@ -220,6 +235,13 @@ export {
   runImprovementLoop,
 } from './presets/run-improvement-loop'
 export {
+  type RunLineageLoopOptions,
+  type RunLineageLoopResult,
+  type RunLineageLoopSeed,
+  runLineageLoop,
+  type SurfaceScore,
+} from './presets/run-lineage-loop'
+export {
   type PremeasuredOptimizationBaseline,
   type RunOptimizationOptions,
   type RunOptimizationResult,
@@ -234,6 +256,90 @@ export {
   runProfileMatrix,
   type ScenarioRollup,
 } from './presets/run-profile-matrix'
+export {
+  type AcceptedEdit,
+  type RunSkillOptOptions,
+  type RunSkillOptResult,
+  runSkillOpt,
+  type SkillOptEpochRecord,
+} from './presets/run-skill-opt'
+export { type AceProposerOptions, aceProposer } from './proposers/ace'
+export {
+  type CompositeProposerOptions,
+  compositeProposer,
+} from './proposers/composite'
+export { type EvolutionaryProposerOptions, evolutionaryProposer } from './proposers/evolutionary'
+export {
+  extractFapoAttributionSignals,
+  type FapoAttributionSignals,
+  type FapoFailureCluster,
+  type FapoOptimizationLevel,
+  type FapoProposerOptions,
+  type FapoReviewInput,
+  type FapoReviewIssue,
+  type FapoReviewResult,
+  type FapoScopeContract,
+  fapoProposer,
+  type JsonPrimitive,
+  type JsonValue,
+  type ParameterCandidate,
+  type ParameterChange,
+  type ParameterSweepProposerOptions,
+  parameterSweepProposer,
+} from './proposers/fapo'
+export {
+  countSentenceEdits,
+  extractH2Sections,
+  type GepaProposerConstraints,
+  type GepaProposerOptions,
+  gepaProposer,
+} from './proposers/gepa'
+export { type HaloProposerOptions, haloProposer } from './proposers/halo'
+export {
+  DEFAULT_POLICY_EDIT_HISTORY_LIMITS,
+  type JsonPolicyEditTargetSurface,
+  type LlmPolicyEditProposerOptions,
+  llmPolicyEditProposer,
+  type PolicyEditCandidateSummary,
+  type PolicyEditFindingInput,
+  type PolicyEditFindingSource,
+  type PolicyEditHistoryCandidateContext,
+  type PolicyEditHistoryGenerationContext,
+  type PolicyEditHistoryProjectionOptions,
+  type PolicyEditObjective,
+  type PolicyEditOutcomeContext,
+  projectPolicyEditHistory,
+} from './proposers/llm-policy-edit'
+export { type MemoryCurationProposerOptions, memoryCurationProposer } from './proposers/memory'
+export {
+  type PolicyEditProposerOptions,
+  policyEditProposer,
+} from './proposers/policy-edit'
+export {
+  assertPolicyEditAuthorContextBudget,
+  type PolicyEditAuthorScenarioOrder,
+  type PolicyEditAuthorScenarioRow,
+  type SelectPolicyEditAuthorRowsOptions,
+  type SerializedJsonBudget,
+  selectPolicyEditAuthorRows,
+} from './proposers/policy-edit-author-context'
+export {
+  type ProposePatchesArgs,
+  parseSkillPatchResponse,
+  type RejectedEdit,
+  type SkillOptEvidence,
+  type SkillOptProposer,
+  type SkillOptProposerOptions,
+  SkillPatchParseError,
+  skillOptProposer,
+} from './proposers/skill-opt'
+export {
+  type AnalyzeOtlpTraceFileOptions,
+  analyzeOtlpTraceFile,
+  type TraceAnalystPriorFindings,
+  type TraceAnalystProposerOptions,
+  traceAnalystProposer,
+} from './proposers/trace-analyst'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
@@ -247,7 +353,6 @@ export {
   type LoopProvenanceBackend,
   type LoopProvenanceCandidate,
   type LoopProvenanceEvidence,
-  type LoopProvenanceOptimizationMethod,
   type LoopProvenanceRecord,
   loopProvenanceArgsFromResult,
   loopProvenanceSpans,
@@ -256,7 +361,6 @@ export {
   verifyLoopProvenanceRecord,
 } from './provenance'
 export {
-  type CampaignCellFailureReceipt,
   type CampaignRunPlan,
   type CampaignRunPlanCell,
   type PlanCampaignRunOptions,
@@ -272,12 +376,7 @@ export {
   scoreDiscrimination,
   selectDiscriminative,
 } from './scenario-selection'
-export {
-  type CampaignBreakdown,
-  campaignBreakdown,
-  campaignMeanComposite,
-  compareRankKeys,
-} from './score-utils'
+export { type CampaignBreakdown, campaignBreakdown, campaignMeanComposite } from './score-utils'
 // ── Durable improvement-search audit log ────────────────────────────
 export {
   FileSearchLedger,
@@ -305,7 +404,6 @@ export {
   type SearchLedgerHash,
   SearchLedgerIntegrityError,
   type SearchLedgerReplay,
-  type SearchLedgerTrustedHeadMode,
   type SearchModelIdentity,
   type SearchOperationKind,
   type SearchOperationRecordedEvent,
@@ -328,11 +426,13 @@ export {
   type SingleRunLockOptions,
 } from './single-run-lock'
 export {
-  type SkillOptOptimizationMethodConfig,
-  type SkillOptRunnerCommand,
-  type SkillOptTrainerConfig,
-  skillOptOptimizationMethod,
-} from './skillopt-optimization-method'
+  type ApplySkillPatchResult,
+  applySkillPatch,
+  patchEditCount,
+  type SkillPatch,
+  type SkillPatchOp,
+  type SkillPatchRejection,
+} from './skill-patch'
 export {
   type CampaignStorage,
   createRunCostLedger,
@@ -342,9 +442,7 @@ export {
 // ── Code-surface content identity ────────────────────────────────────
 export {
   assertCodeSurfaceIdentity,
-  assertComponentSurface,
   codeSurfaceIdentityMaterial,
-  componentSurfaceIdentityMaterial,
   renderSurfaceDiff,
   surfaceContentHash,
   surfaceHash,
@@ -360,13 +458,10 @@ export type {
   CampaignTokenUsage,
   CampaignTraceWriter,
   CodeSurface,
-  ComponentSurface,
   DispatchContext,
   DispatchFn,
   Gate,
-  GateCheckStatus,
   GateContext,
-  GateContribution,
   GateDecision,
   GateResult,
   GenerationCandidate,
@@ -382,6 +477,8 @@ export type {
   LabeledScenarioWrite,
   LabelTrust,
   MutableSurface,
+  Mutator,
+  OptimizationProposer,
   OptimizerConfig,
   ParetoParent,
   ProposalTrackContext,
@@ -396,13 +493,6 @@ export type {
   TraceSpan,
 } from './types'
 export { isProposedCandidate, labelTrustRank } from './types'
-export type {
-  AutoevalsScoreLike,
-  AutoevalsScorerLike,
-  PhoenixEvaluationResultLike,
-  PhoenixEvaluatorLike,
-} from './upstream-evaluators'
-export { autoevalsScorerJudge, phoenixEvaluatorJudge } from './upstream-evaluators'
 // ── Worktree adapter (VCS-pluggable; code-tier surfaces) ─────────────
 export {
   type CodeSurfaceVerification,

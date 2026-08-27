@@ -171,5 +171,5 @@ export class NoopResearcher implements Researcher {
   }
 }
 
-/** Re-export the run split type with the researcher contracts. */
+/** Re-export the split alias so callers don't have to import twice. */
 export type { RunSplitTag }

@@ -28,9 +28,7 @@
  * actionable layer, ranked by priority. The numeric sections back it up.
  */
 
-import type { RunTerminalOutcome } from '../run-record'
 import type { GainDistributionBin, ParetoFigureSpec } from '../summary-report'
-import type { FailureClass } from '../trace/schema'
 import type { ContinuousAgreement } from './insight-types-fwd'
 
 // ── Top-level report ────────────────────────────────────────────────
@@ -40,8 +38,8 @@ export interface InsightReport {
   n: number
 
   /** Runtime facts carried by the run records. These describe execution,
-   *  not task quality: duration, queueing, token categories, models,
-   *  execution errors, and terminal outcomes. */
+   *  not task quality: duration, queueing, token categories, models, and
+   *  explicitly recorded failures. */
   execution: ExecutionInsight
 
   /** Composite-score distribution across all runs. Always present. */
@@ -108,10 +106,11 @@ export interface InsightReport {
    *  per-dimension judge metric present in both windows. */
   priorPeriodComparison?: PriorPeriodComparison
 
-  /** Model-free task-failure breakdown from `RunRecord.failureClass`, ranked
-   *  by count descending. Domain-specific `failureMode` detail is retained on
-   *  each record but never creates a second aggregation vocabulary. */
-  failureClasses?: FailureClassTally[]
+  /** Model-free failure-mode breakdown from `RunRecord.failureMode`, ranked
+   *  by count descending. Present when any run carries a `failureMode`.
+   *  Complements `failureClusters` (LLM-semantic) with the structured tags
+   *  the harness already recorded — actionable with no analyst wired. */
+  failureModes?: FailureModeTally[]
 
   /** Top-N actionable recommendations, ranked by priority. The packet's
    *  human-readable layer; the numeric sections are the evidence. */
@@ -151,46 +150,14 @@ export interface ExecutionInsight {
     events: number
     reportingRuns: number
   }
-  /** Runs with explicit execution-error telemetry. This is independent of
-   *  whether the root run ultimately succeeded, failed, or has no terminal
-   *  evidence. */
-  executionErrors: {
+  /** Failure counts remain separate from outcome scores. `reportedErrorEvents`
+   *  sums `outcome.raw.error_span_count` only where a producer supplied it. */
+  failures: {
     runs: number
-    /** Share among runs that supplied an execution-error count.
-     *  `null` when no run supplied error telemetry. */
-    fraction: number | null
-    /** Execution-error events reported through the canonical count. */
-    events: number
-    /** Runs that supplied an execution-error count, including explicit zeroes. */
+    fraction: number
+    reportedErrorEvents: number
     reportingRuns: number
-    /** Exact sum of `outcome.raw.error_span_count`, kept separate from other errors. */
-    errorSpanEvents: number
-    /** Runs that supplied `outcome.raw.error_span_count`, including explicit zeroes. */
-    errorSpanReportingRuns: number
-    /**
-     * Error-telemetry coverage crossed with independently reported terminal
-     * outcomes. `unreported` is distinct from a reported zero.
-     */
-    byTerminalOutcome: Record<RunTerminalOutcome, ExecutionErrorOutcomeCell>
   }
-  /** Root-run or process outcomes. Missing `RunRecord.terminalOutcome` values
-   *  count as `unknown`; child-span status never changes these counts. */
-  terminalOutcomes: {
-    succeeded: number
-    failed: number
-    cancelled: number
-    incomplete: number
-    unknown: number
-  }
-}
-
-export interface ExecutionErrorOutcomeCell {
-  /** Runs that explicitly reported one or more execution errors. */
-  withErrors: number
-  /** Runs that explicitly reported zero execution errors. */
-  withoutErrors: number
-  /** Runs with no execution-error count from the producer. */
-  unreported: number
 }
 
 export interface TokenUsageInsight {
@@ -214,18 +181,12 @@ export interface TokenUsageInsight {
 export interface ScalarDistribution {
   /** Sample count after dropping non-finite values. */
   n: number
-  /** Null when `n` is zero. */
-  mean: number | null
-  /** Null when `n` is zero. */
-  p50: number | null
-  /** Null when `n` is zero. */
-  p95: number | null
-  /** Null when `n` is zero. */
-  stddev: number | null
-  /** Null when `n` is zero. */
-  min: number | null
-  /** Null when `n` is zero. */
-  max: number | null
+  mean: number
+  p50: number
+  p95: number
+  stddev: number
+  min: number
+  max: number
   /** Histogram bins using `agent-eval`'s `gainHistogram` primitive. */
   histogram: GainDistributionBin[]
   /** Worst-N runs by score, ascending. Populated for the composite
@@ -284,34 +245,16 @@ export interface LiftInsight {
   delta: number
   /** Lower / upper bound of bootstrap CI on the delta. */
   ci95: [number, number]
-  /** Paired-t-test p-value; null when the delta is a non-zero constant, where
-   *  the t statistic is undefined. */
-  pValue: number | null
+  /** Paired-t-test p-value. */
+  pValue: number
   /** Number of paired observations. */
   n: number
-  /** Minimum paired observations required before the interval can drive a decision. */
-  minimumRequired: number
-  /**
-   * Whether the bootstrap interval has enough observations to drive a decision.
-   *
-   * Sample size only. A ZERO-WIDTH interval clears this and is still refused at
-   * the ship decision itself: n identical paired deltas make every resample
-   * identical, so `[g, g]` clears every threshold below g and `[0, 0]` clears
-   * every negative one on no spread at all. That is an absence of evidence, not
-   * a certainty, and it is a different finding from "too few runs" — so it is
-   * reported where the decision is made, not folded in here.
-   */
-  decisionEligible: boolean
-  /** Scored baseline observations without a candidate match. */
-  unpairedBaseline: number
-  /** Scored candidate observations without a baseline match. */
-  unpairedCandidate: number
-  /** Cohen's dz for paired deltas; null when the observed delta variance is zero. */
-  cohensD: number | null
+  /** Cohen's d for the delta. */
+  cohensD: number
   /** Minimum detectable effect at current n, 80% power. */
   mde: number
-  /** Paired sample size needed to detect the standardized effect at 80% power. */
-  requiredN: number | null
+  /** Sample size needed to detect the observed delta at 80% power. */
+  requiredN: number
 }
 
 export interface FailureClusterInsight {
@@ -329,13 +272,15 @@ export interface FailureClusterInsight {
   totalFailures: number
 }
 
-/** Model-free task-failure breakdown over canonical `RunRecord.failureClass`
- *  values. Unlike semantic failure clusters, this is computed directly from
- *  run records and does not require a model analyst. */
-export interface FailureClassTally {
-  /** Canonical task-failure class. */
-  failureClass: FailureClass
-  /** Number of failed runs carrying this class. */
+/** Model-free failure breakdown over the structured `RunRecord.failureMode`
+ *  enum. Unlike `failureClusters` (semantic, requires an LLM analyst), this
+ *  is computed directly from the tags the harness already recorded — so a
+ *  customer ingesting one batch with no judge/analyst still learns which
+ *  named failure dominates. */
+export interface FailureModeTally {
+  /** The `failureMode` tag. */
+  mode: string
+  /** Number of runs carrying this tag. */
   count: number
   /** Share of the whole corpus, 0..1. */
   share: number
@@ -374,7 +319,7 @@ export interface ReleaseSummary {
   status: 'pass' | 'warn' | 'fail'
   axes: Array<{
     name: 'quality-lift' | 'contamination' | 'composite-distribution'
-    status: 'pass' | 'warn' | 'fail' | 'not_evaluated'
+    status: 'pass' | 'warn' | 'fail'
     detail: string
   }>
   /** Free-form issues surfaced beyond the standard axes. Empty by default;
@@ -382,7 +327,7 @@ export interface ReleaseSummary {
   issues: string[]
 }
 
-interface MetricDeltaBase {
+export interface MetricDelta {
   /** Current-period mean. */
   current: number
   /** Baseline-period mean. */
@@ -391,31 +336,21 @@ interface MetricDeltaBase {
    *  the consumer-side interpretation: "higher current" — semantic
    *  direction depends on the metric). */
   delta: number
+  /** Welch 95% confidence interval on the delta. Two-sample, unpaired —
+   *  the baseline and current run sets may have different scenarios. */
+  ci95: [number, number]
+  /** Welch t-test p-value (two-sided). */
+  pValue: number
+  /** Cohen's d (pooled stddev). Effect size, signed. */
+  cohensD: number
   /** Sample sizes. */
   baselineN: number
   currentN: number
+  /** True when p < 0.05 AND |d| >= 0.2 (small-effect threshold). The
+   *  conjunction prevents large-effect-but-noisy and significant-but-
+   *  tiny from triggering recommendations. */
+  significant: boolean
 }
-
-export type MetricDelta =
-  | (MetricDeltaBase & {
-      status: 'ok'
-      /** Welch 95% confidence interval on the delta. Two-sample, unpaired. */
-      ci95: [number, number]
-      /** Welch t-test p-value (two-sided). */
-      pValue: number
-      /** Cohen's d (pooled stddev). Effect size, signed. */
-      cohensD: number
-      /** True when p < 0.05 AND |d| >= 0.2. */
-      significant: boolean
-    })
-  | (MetricDeltaBase & {
-      status: 'insufficient-sample' | 'zero-variance'
-      /** Null because the observed data cannot define Welch inference. */
-      ci95: null
-      pValue: null
-      cohensD: null
-      significant: false
-    })
 
 export interface PriorPeriodComparison {
   /** Sample counts. */
@@ -432,8 +367,6 @@ export interface PriorPeriodComparison {
   regressedMetrics: string[]
   /** Metric names where current is significantly BETTER than baseline. */
   improvedMetrics: string[]
-  /** Metrics whose samples cannot define a Welch comparison. */
-  inconclusiveMetrics: string[]
 }
 
 export interface Recommendation {

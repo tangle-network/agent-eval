@@ -1,65 +1,92 @@
+/**
+ * Traced analyst wrapper — instruments `analyzeTraces` with spans so the
+ * analyst's internal model turns appear in the trace tree. Also wraps each
+ * actor turn callback with a span.
+ *
+ * The wrapper records the Ax turn loop at its public boundaries:
+ *   1. A parent span for the entire analyst run.
+ *   2. Per-turn child spans from the `onTurn` callback (captures code,
+ *      output size, error status).
+ *   3. Summary attributes on the parent (total turns, usage, findings).
+ */
+
 import type { TraceEmitter } from './trace/emitter'
-import {
-  type AnalyzeTracesInput,
-  type AnalyzeTracesOptions,
-  type AnalyzeTracesResult,
-  analyzeTraces,
+import type {
+  AnalyzeTracesInput,
+  AnalyzeTracesOptions,
+  AnalyzeTracesResult,
+  AnalyzeTracesTurnSnapshot,
 } from './trace-analyst/analyst'
+import { analyzeTraces } from './trace-analyst/analyst'
 
 export interface TracedAnalystOptions {
+  /** TraceEmitter for span emission. */
   emitter: TraceEmitter
+  /** Parent span id. If omitted, uses emitter stack. */
   parentSpanId?: string
 }
 
-/** Run a recursive trace investigation and record its engine steps. */
+/**
+ * Run `analyzeTraces` wrapped in a parent span with per-turn child spans.
+ */
 export async function tracedAnalyzeTraces(
   input: AnalyzeTracesInput,
   options: AnalyzeTracesOptions,
-  traceOptions: TracedAnalystOptions,
+  traceOpts: TracedAnalystOptions,
 ): Promise<AnalyzeTracesResult> {
-  const parentSpan = await traceOptions.emitter.span({
+  const parentSpan = await traceOpts.emitter.span({
     kind: 'custom',
     name: 'analyst:analyze-traces',
-    parentSpanId: traceOptions.parentSpanId,
+    parentSpanId: traceOpts.parentSpanId,
     attributes: {
-      'analyst.engine': options.engine.id,
       'analyst.question_length': input.question.length,
-      'analyst.max_iterations': options.limits?.maxIterations ?? 12,
-      'analyst.max_llm_calls': options.limits?.maxLlmCalls ?? 8,
+      'analyst.max_turns': options.maxTurns ?? 12,
+      'analyst.max_subqueries': options.maxSubqueries ?? 4,
       'eval.phase': 'analyst',
     },
   })
 
-  try {
-    const result = await analyzeTraces(input, options)
-    for (const [index, step] of result.trajectory.entries()) {
-      const encoded = JSON.stringify(step)
-      const stepSpan = await traceOptions.emitter.span({
+  // Intercept onTurn to emit per-turn spans.
+  const originalOnTurn = options.onTurn
+  const wrappedOptions: AnalyzeTracesOptions = {
+    ...options,
+    onTurn: async (turn: AnalyzeTracesTurnSnapshot) => {
+      const turnSpan = await traceOpts.emitter.span({
         kind: 'custom',
-        name: `analyst:step-${index + 1}`,
+        name: `analyst:turn-${turn.turn}`,
         parentSpanId: parentSpan.span.spanId,
         attributes: {
-          'analyst.step': index + 1,
-          'analyst.step_bytes': Buffer.byteLength(encoded),
+          'analyst.stage': turn.stage,
+          'analyst.turn': turn.turn,
+          'analyst.is_error': turn.isError,
+          'analyst.code_length': turn.code.length,
+          'analyst.output_length': turn.output.length,
           'eval.phase': 'analyst',
         },
       })
-      await stepSpan.end()
-    }
+      if (turn.isError) {
+        await turnSpan.fail('Turn produced an error')
+      } else {
+        await turnSpan.end()
+      }
+      if (originalOnTurn) await originalOnTurn(turn)
+    },
+  }
+
+  try {
+    const result = await analyzeTraces(input, wrappedOptions)
     await parentSpan.end({
       attributes: {
-        'analyst.engine': options.engine.id,
-        'analyst.model_calls': result.modelCalls,
-        'analyst.tool_calls': result.toolCalls,
-        'analyst.step_count': result.trajectory.length,
+        'analyst.question_length': input.question.length,
+        'analyst.turn_count': result.turnCount,
         'analyst.finding_count': result.findings.length,
         'analyst.answer_length': result.answer.length,
         'eval.phase': 'analyst',
       },
     } as Record<string, unknown>)
     return result
-  } catch (error) {
-    await parentSpan.fail(error instanceof Error ? error : String(error))
-    throw error
+  } catch (err) {
+    await parentSpan.fail(err instanceof Error ? err : String(err))
+    throw err
   }
 }

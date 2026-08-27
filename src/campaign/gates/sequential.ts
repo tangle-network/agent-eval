@@ -348,7 +348,7 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
         return {
           decision: 'need_more_work',
           reasons: [`${name}: no paired holdout observations — nothing to test`],
-          contributingGates: [{ name, status: 'not_evaluated', detail }],
+          contributingGates: [{ name, passed: false, detail }],
         }
       }
       const decision =
@@ -360,18 +360,7 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
       return {
         decision,
         reasons: [`${name}: ${last.reason}`],
-        contributingGates: [
-          {
-            name,
-            status:
-              decision === 'ship'
-                ? 'pass'
-                : decision === 'need_more_work'
-                  ? 'not_evaluated'
-                  : 'fail',
-            detail,
-          },
-        ],
+        contributingGates: [{ name, passed: decision === 'ship', detail }],
         delta: meanDelta,
       }
     },
@@ -438,11 +427,7 @@ export function sequentialDecide(options: SequentialDecideOptions = {}): Sequent
           'cannot extract a top candidate',
       )
     }
-    return record.candidates.reduce((best, candidate) => {
-      if (best.composite === null) return candidate
-      if (candidate.composite === null) return best
-      return candidate.composite > best.composite ? candidate : best
-    })
+    return record.candidates.reduce((best, c) => (c.composite > best.composite ? c : best))
   }
 
   const decide: SequentialDecideFn = ({ history }) => {

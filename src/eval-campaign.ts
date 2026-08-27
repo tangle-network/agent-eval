@@ -48,12 +48,10 @@ import { assertLlmRoute, type LlmClientOptions, type LlmRouteRequirements } from
 import { canonicalize, hashJson } from './pre-registration'
 import type {
   JudgeScoresRecord,
-  RunCostProvenance,
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
   RunSplitTag,
-  RunTaskFailure,
   RunTokenUsage,
 } from './run-record'
 import { validateRunRecord } from './run-record'
@@ -67,6 +65,7 @@ import {
   type RunIntegrityReport,
 } from './trace/integrity'
 import { FileSystemRawProviderSink, type RawProviderSink } from './trace/raw-provider-sink'
+import type { FailureClass } from './trace/schema'
 import type { TraceStore } from './trace/store'
 
 // ── Public types ─────────────────────────────────────────────────────────
@@ -110,15 +109,13 @@ export interface CampaignRunContext<V> {
   llmOpts: LlmClientOptions
 }
 
-interface CampaignRunOutcomeFields {
+export interface CampaignRunOutcome {
   /** Did the run pass? Mirrors `RunOutcome.pass` semantics. */
   pass: boolean
   /** Score for the run on its split. Maps to `searchScore` or `holdoutScore`. */
   score: number
-  /** Cost in USD, or null when the runner could not capture it. */
-  costUsd: number | null
-  /** Source of the cost amount. */
-  costProvenance: RunCostProvenance
+  /** Mandatory cost in USD. Use 0 + raw.cost_unknown=1 only if truly unknown. */
+  costUsd: number
   tokenUsage: RunTokenUsage
   /** Snapshot model id (e.g. `claude-sonnet-4-6@2025-04-15`). */
   model: string
@@ -128,6 +125,12 @@ interface CampaignRunOutcomeFields {
   configHash: string
   /** Optional extra numeric metrics to land in `outcome.raw`. */
   raw?: Record<string, number>
+  /** Canonical cross-agent failure class from the shared `FAILURE_CLASSES`
+   *  taxonomy. Propagated to `RunRecord.failureClass` so campaign runs
+   *  aggregate failures in the same vocabulary as every other producer. */
+  failureClass?: FailureClass
+  /** Optional free-form failure detail, scoped under `failureClass`. */
+  failureMode?: string
   /** Optional judge metadata when a judge was used. */
   judgeMetadata?: RunJudgeMetadata
   /**
@@ -143,9 +146,6 @@ interface CampaignRunOutcomeFields {
    */
   agentProfile?: AgentProfileCell | AgentProfileCellInput
 }
-
-/** Campaign result with the same task-failure invariant as `RunRecord`. */
-export type CampaignRunOutcome = CampaignRunOutcomeFields & RunTaskFailure
 
 export type CampaignRunner<V> = (ctx: CampaignRunContext<V>) => Promise<CampaignRunOutcome>
 
@@ -535,9 +535,7 @@ export async function runEvalCampaign<V>(
         commitSha: opts.commitSha,
         wallMs,
         costUsd: outcome.costUsd,
-        costProvenance: outcome.costProvenance,
         tokenUsage: outcome.tokenUsage,
-        terminalOutcome: 'succeeded',
         judgeMetadata: outcome.judgeMetadata,
         outcome: recordOutcome,
         ...(outcome.failureClass ? { failureClass: outcome.failureClass } : {}),

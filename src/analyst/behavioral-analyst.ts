@@ -1,7 +1,16 @@
 /**
- * Deterministic behavioral analysis over arithmetic in trace spans.
- * This pass is cheap and repeatable; semantic analysis remains the job of
- * model-backed analysts. Relative quality requires a labeled comparison.
+ * `behavioralAnalyst` — a DETERMINISTIC analyst (cost.kind = 'deterministic',
+ * never calls the LLM). It produces the efficiency/behavioral findings a
+ * tolerant agentic analyzer (HALO) re-derives per run inside the model —
+ * context bloat, output decay, tool monoculture, missing self-verification —
+ * directly from arithmetic over spans (`computeTraceMetrics`).
+ *
+ * Why it matters: these findings are model-agnostic BY CONSTRUCTION (no model
+ * in the loop), so they cannot return 0 on a weak model the way the Ax-RLM
+ * does — and they are strictly more reliable than HALO, which spends tokens
+ * re-deriving the same numbers and can hallucinate the trend. The agentic
+ * RLM kinds remain for SEMANTIC findings that genuinely need a model; this
+ * analyst owns the behavioral class.
  */
 
 import {
@@ -10,8 +19,7 @@ import {
   type SuboptimalCode,
 } from '../trace-analyst/behavioral-metrics'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
-import type { ExactCapableAnalyst } from './exact-types'
-import { type AnalystFinding, makeFinding } from './types'
+import { type Analyst, type AnalystFinding, makeFinding } from './types'
 
 const RECOMMENDED_ACTION: Record<SuboptimalCode, string> = {
   'monotonic-input-growth':
@@ -25,16 +33,6 @@ const RECOMMENDED_ACTION: Record<SuboptimalCode, string> = {
 }
 
 const ANALYST_ID = 'efficiency-behavioral'
-const DEFAULT_MAX_TRACES = 1_000
-const DEFAULT_MAX_EVIDENCE_REFS = 20
-const TRACE_PAGE_SIZE = 200
-
-export interface BehavioralAnalystOptions {
-  /** Refuse larger unfiltered datasets instead of sampling them silently. Default 1,000. */
-  maxTraces?: number
-  /** Evidence locations retained per finding. Counts still cover every analyzed trace. Default 20. */
-  maxEvidenceRefsPerFinding?: number
-}
 
 const AGGREGATE_CLAIM: Record<SuboptimalCode, (observed: number, analyzed: number) => string> = {
   'monotonic-input-growth': (observed, analyzed) =>
@@ -45,51 +43,6 @@ const AGGREGATE_CLAIM: Record<SuboptimalCode, (observed: number, analyzed: numbe
     `${observed}/${analyzed} analyzed traces used only one named tool across at least 3 tool calls.`,
   'no-self-verification': (observed, analyzed) =>
     `${observed}/${analyzed} analyzed traces had at least 3 tool calls without a verification-named tool call.`,
-}
-
-async function listTraceIds(
-  store: TraceAnalysisStore,
-  maxTraces: number,
-  signal?: AbortSignal,
-): Promise<string[]> {
-  const traceIds = new Set<string>()
-  let offset = 0
-  let expectedTotal: number | undefined
-
-  while (true) {
-    signal?.throwIfAborted()
-    const page = await store.queryTraces({ limit: TRACE_PAGE_SIZE, offset })
-    if (expectedTotal === undefined) expectedTotal = page.total
-    if (page.total !== expectedTotal) {
-      throw new Error(
-        `behavioralAnalyst: trace count changed during pagination (${expectedTotal} to ${page.total})`,
-      )
-    }
-    if (page.total > maxTraces) {
-      throw new RangeError(
-        `behavioralAnalyst: ${page.total} traces exceed maxTraces=${maxTraces}; filter the store or raise the explicit limit`,
-      )
-    }
-    for (const trace of page.traces) traceIds.add(trace.trace_id)
-    if (traceIds.size > maxTraces) {
-      throw new RangeError(
-        `behavioralAnalyst: more than maxTraces=${maxTraces} unique traces were returned`,
-      )
-    }
-    if (!page.has_more) break
-    if (page.traces.length === 0) {
-      throw new Error('behavioralAnalyst: trace store returned an empty page with has_more=true')
-    }
-    offset += page.traces.length
-  }
-
-  if (traceIds.size !== expectedTotal) {
-    throw new Error(
-      `behavioralAnalyst: pagination returned ${traceIds.size}/${expectedTotal ?? 0} unique traces`,
-    )
-  }
-
-  return [...traceIds].sort()
 }
 
 /**
@@ -133,14 +86,7 @@ export function deriveEfficiencyFindings(
 }
 
 /** The deterministic behavioral/efficiency analyst (no LLM, any-model). */
-export function behavioralAnalyst(
-  options: BehavioralAnalystOptions = {},
-): ExactCapableAnalyst<TraceAnalysisStore> {
-  const maxTraces = positiveInteger(options.maxTraces ?? DEFAULT_MAX_TRACES, 'maxTraces')
-  const maxEvidenceRefsPerFinding = positiveInteger(
-    options.maxEvidenceRefsPerFinding ?? DEFAULT_MAX_EVIDENCE_REFS,
-    'maxEvidenceRefsPerFinding',
-  )
+export function behavioralAnalyst(): Analyst<TraceAnalysisStore> {
   return {
     id: ANALYST_ID,
     description:
@@ -148,24 +94,14 @@ export function behavioralAnalyst(
     inputKind: 'trace-store',
     cost: { kind: 'deterministic' },
     version: '2.0.0',
-    executionConfig: {
-      kind: 'behavioral-efficiency',
-      max_traces: maxTraces,
-      max_evidence_refs_per_finding: maxEvidenceRefsPerFinding,
-    },
-    async analyze(store, context) {
-      const analyzedTraceIds = await listTraceIds(store, maxTraces, context.signal)
+    async analyze(store) {
+      const overview = await store.getOverview()
+      const analyzedTraceIds = [...new Set(overview.sample_trace_ids)].sort()
       const findingsById = new Map<
         string,
-        {
-          finding: AnalystFinding
-          observedTraceCount: number
-          evidenceTraceIds: string[]
-          evidence: AnalystFinding['evidence_refs']
-        }
+        { finding: AnalystFinding; traceIds: string[]; evidence: AnalystFinding['evidence_refs'] }
       >()
       for (const traceId of analyzedTraceIds) {
-        context.signal?.throwIfAborted()
         const viewed = await store.viewTrace({ trace_id: traceId })
         if (viewed.trace_id !== traceId) {
           throw new Error(
@@ -188,44 +124,30 @@ export function behavioralAnalyst(
           if (!current) {
             findingsById.set(finding.finding_id, {
               finding,
-              observedTraceCount: 1,
-              evidenceTraceIds: [traceId],
+              traceIds: [traceId],
               evidence: [...finding.evidence_refs],
             })
             continue
           }
-          current.observedTraceCount += 1
-          if (current.evidence.length < maxEvidenceRefsPerFinding) {
-            current.evidenceTraceIds.push(traceId)
-            current.evidence.push(...finding.evidence_refs)
-          }
+          current.traceIds.push(traceId)
+          current.evidence.push(...finding.evidence_refs)
         }
       }
-      return [...findingsById.values()].map(
-        ({ finding, observedTraceCount, evidenceTraceIds, evidence }) => ({
-          ...finding,
-          claim: AGGREGATE_CLAIM[finding.subject as SuboptimalCode](
-            observedTraceCount,
-            analyzedTraceIds.length,
-          ),
-          rationale: `${observedTraceCount}/${analyzedTraceIds.length} analyzed traces exhibited this pattern.`,
-          evidence_refs: evidence,
-          metadata: {
-            deterministic: true,
-            evidence_trace_ids: evidenceTraceIds,
-            omitted_evidence_trace_count: observedTraceCount - evidenceTraceIds.length,
-            observed_trace_count: observedTraceCount,
-            analyzed_trace_count: analyzedTraceIds.length,
-          },
-        }),
-      )
+      return [...findingsById.values()].map(({ finding, traceIds, evidence }) => ({
+        ...finding,
+        claim: AGGREGATE_CLAIM[finding.subject as SuboptimalCode](
+          traceIds.length,
+          analyzedTraceIds.length,
+        ),
+        rationale: `${traceIds.length}/${analyzedTraceIds.length} analyzed traces exhibited this pattern.`,
+        evidence_refs: evidence,
+        metadata: {
+          deterministic: true,
+          trace_ids: traceIds,
+          observed_trace_count: traceIds.length,
+          analyzed_trace_count: analyzedTraceIds.length,
+        },
+      }))
     },
   }
-}
-
-function positiveInteger(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new RangeError(`behavioralAnalyst: ${name} must be a positive safe integer`)
-  }
-  return value
 }

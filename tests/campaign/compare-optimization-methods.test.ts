@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { OptimizationMethodProvenance } from '../../src/campaign/index'
 import {
   type CompareOptimizationMethodsOptions,
   compareOptimizationMethods,
@@ -31,22 +30,6 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(runDir, { recursive: true, force: true })
 })
-
-function optimizerProvenance(optimizerModel: string): OptimizationMethodProvenance {
-  return {
-    source: {
-      kind: 'package',
-      evidence: 'observed',
-      package: 'test-optimizer',
-      version: '1.0.0',
-    },
-    optimizerModel,
-    runId: 'test-run',
-    resumed: false,
-    evaluationCount: 1,
-    artifactDir: '/tmp/test-optimizer',
-  }
-}
 
 describe('compareOptimizationMethods', () => {
   it('ranks methods by final-test lift and scores every winner uniformly', async () => {
@@ -113,37 +96,6 @@ describe('compareOptimizationMethods', () => {
     )
   })
 
-  it('clones optimizer model provenance into score and best outputs', async () => {
-    const provenance = optimizerProvenance('provider/model@2026-07-24')
-    const result = await compareOptimizationMethods<S, A>({
-      methods: [
-        {
-          name: 'model-backed',
-          optimize: async () => ({
-            winnerSurface: 'SOLVE_h1',
-            cost: completeCost(0),
-            provenance,
-          }),
-        },
-      ],
-      baselineSurface: 'nothing',
-      ...PARTITIONS,
-      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      judges: [judge],
-      runDir,
-      expectUsage: 'off',
-    })
-
-    expect(result.scores[0]!.provenance).toEqual(provenance)
-    expect(result.scores[0]!.provenance).not.toBe(provenance)
-    expect(result.scores[0]!.provenance?.source).not.toBe(provenance.source)
-
-    provenance.optimizerModel = 'mutated'
-    provenance.source.version = 'mutated'
-    expect(result.best.provenance?.optimizerModel).toBe('provider/model@2026-07-24')
-    expect(result.best.provenance?.source.version).toBe('1.0.0')
-  })
-
   it('reports a tie when two methods solve the same scenarios', async () => {
     const result = await compareOptimizationMethods<S, A>({
       methods: [fixedMethod('a', 'SOLVE_h1 SOLVE_h2', 1), fixedMethod('b', 'SOLVE_h1 SOLVE_h2', 1)],
@@ -157,25 +109,6 @@ describe('compareOptimizationMethods', () => {
     })
     expect(result.pairwise[0]!.deltaMean).toBeCloseTo(0, 5)
     expect(result.pairwise[0]!.favored).toBe('tie')
-  })
-
-  it('names no winner on a ZERO-WIDTH pairwise interval', async () => {
-    // Two methods that differ by the SAME amount on every test scenario give a
-    // pairwise interval of zero width. `low > 0` on it declares a winner with
-    // no spread behind it, at any n — the ranking still orders them by lift,
-    // but the pairwise call is 'tie' because the interval cannot support one.
-    const result = await compareOptimizationMethods<S, A>({
-      methods: [fixedMethod('a', 'SOLVE_h1 SOLVE_h2', 1), fixedMethod('b', 'SOLVE_h1', 1)],
-      baselineSurface: 'nothing',
-      ...PARTITIONS,
-      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      judges: [judge],
-      runDir,
-      seed: 7,
-      expectUsage: 'off',
-    })
-    const pair = result.pairwise[0]!
-    if (pair.low === pair.high) expect(pair.favored).toBe('tie')
   })
 
   it('a cheaper method wins a lift tie when both costs are complete', async () => {
@@ -256,36 +189,6 @@ describe('compareOptimizationMethods', () => {
     expect(result.totalCost.totalCostUsd).toBeCloseTo(0.58)
   })
 
-  it('reports cumulative final cost when compatible cells resume from cache', async () => {
-    let paidCalls = 0
-    const options = {
-      methods: [fixedMethod('same-as-baseline', 'same', 0)],
-      baselineSurface: 'same',
-      ...PARTITIONS,
-      dispatchWithSurface: paidDispatch(() => {
-        paidCalls += 1
-      }),
-      judges: [judge],
-      runDir,
-      costCeiling: 0.1,
-      maxConcurrency: 1,
-      expectUsage: 'assert' as const,
-    }
-
-    const first = await compareOptimizationMethods<S, A>(options)
-    expect(paidCalls).toBe(4)
-    const resumed = await compareOptimizationMethods<S, A>(options)
-
-    expect(paidCalls).toBe(4)
-    expect(first.testCost).toEqual({
-      totalCostUsd: 0.04,
-      accountingComplete: true,
-      incompleteReasons: [],
-    })
-    expect(resumed.testCost).toEqual(first.testCost)
-    expect(resumed.totalCost).toEqual(first.totalCost)
-  })
-
   it('excludes unrelated receipts from a caller-provided final-test cost ledger', async () => {
     const costLedger = new CostLedger()
     await costLedger.runPaidCall({
@@ -338,72 +241,6 @@ describe('compareOptimizationMethods', () => {
       }),
     ).rejects.toThrow(/produced no test score/)
     expect(paidCalls).toBe(5)
-  })
-
-  it('applies costCeiling to optimization before final scoring starts', async () => {
-    let optimizerExecutions = 0
-    let finalDispatches = 0
-    const spendingMethod = (name: string, costUsd: number): OptimizationMethod<S, A> => ({
-      name,
-      async optimize(input) {
-        const paid = await input.costLedger.runPaidCall({
-          channel: 'optimizer',
-          phase: `${name}.search`,
-          actor: name,
-          model: 'optimizer-model',
-          maximumCharge: { externallyEnforcedMaximumUsd: costUsd },
-          execute: async () => {
-            optimizerExecutions += 1
-          },
-          receipt: () => ({
-            model: 'optimizer-model',
-            inputTokens: 1,
-            outputTokens: 1,
-            actualCostUsd: costUsd,
-          }),
-        })
-        if (!paid.succeeded) throw paid.error
-        return { winnerSurface: name, cost: completeCost(costUsd) }
-      },
-    })
-
-    await expect(
-      compareOptimizationMethods<S, A>({
-        methods: [spendingMethod('first-method', 0.04), spendingMethod('second-method', 0.02)],
-        baselineSurface: 'baseline',
-        ...PARTITIONS,
-        dispatchWithSurface: async (surface) => {
-          finalDispatches += 1
-          return { text: String(surface) }
-        },
-        judges: [judge],
-        runDir,
-        costCeiling: 0.05,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/would exceed ceiling 0\.05/)
-    expect(optimizerExecutions).toBe(1)
-    expect(finalDispatches).toBe(0)
-  })
-
-  it('rejects method-reported spend above costCeiling before final scoring', async () => {
-    let finalDispatches = 0
-    await expect(
-      compareOptimizationMethods<S, A>({
-        methods: [fixedMethod('over-budget', 'SOLVE_h1', 100)],
-        baselineSurface: 'baseline',
-        ...PARTITIONS,
-        dispatchWithSurface: async (surface) => {
-          finalDispatches += 1
-          return { text: String(surface) }
-        },
-        judges: [judge],
-        runDir,
-        costCeiling: 1,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/reported optimization cost 100 exceeds costCeiling 1/)
-    expect(finalDispatches).toBe(0)
   })
 
   it('FAILS LOUD when a surface is missing a test scenario score (no fabricated 0)', async () => {
@@ -492,34 +329,6 @@ describe('compareOptimizationMethods', () => {
     expect(testDispatches).toBe(0)
   })
 
-  it('rejects untrimmed optimizer model provenance before final scoring', async () => {
-    let testDispatches = 0
-    await expect(
-      compareOptimizationMethods<S, A>({
-        methods: [
-          {
-            name: 'invalid-provenance',
-            optimize: async () => ({
-              winnerSurface: 'x',
-              cost: completeCost(0),
-              provenance: optimizerProvenance(' untrimmed-model'),
-            }),
-          },
-        ],
-        baselineSurface: 'x',
-        ...PARTITIONS,
-        dispatchWithSurface: async (surface) => {
-          testDispatches += 1
-          return { text: String(surface) }
-        },
-        judges: [judge],
-        runDir,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/provenance\.optimizerModel/)
-    expect(testDispatches).toBe(0)
-  })
-
   it('uses compareOptimizationMethods in downstream validation errors', async () => {
     const flakeyJudge: JudgeConfig<A, S> = {
       name: 'flakey',
@@ -547,17 +356,6 @@ describe('compareOptimizationMethods', () => {
     [
       ['empty judges', { judges: [] }, /at least one judge/],
       ['blank runDir', { runDir: ' ' }, /runDir must be a non-empty string/],
-      ['blank dispatchRef', { dispatchRef: ' ' }, /dispatchRef must be trimmed and non-empty/],
-      [
-        'blank optimization dispatchRef',
-        { optimizationRunOptions: { dispatchRef: ' ' } },
-        /optimizationRunOptions\.dispatchRef must be trimmed and non-empty/,
-      ],
-      [
-        'mismatched dispatchRef',
-        { dispatchRef: 'execution-a', optimizationRunOptions: { dispatchRef: 'execution-b' } },
-        /dispatchRef must match optimizationRunOptions\.dispatchRef/,
-      ],
       ['fractional seed', { seed: 1.5 }, /seed must be a safe integer/],
       ['zero resamples', { resamples: 0 }, /resamples must be a positive safe integer/],
       ['too few resamples', { resamples: 10 }, /resamples must be at least 40/],
@@ -572,11 +370,6 @@ describe('compareOptimizationMethods', () => {
       ['zero concurrency', { maxConcurrency: 0 }, /maxConcurrency must be a positive/],
       ['negative timeout', { dispatchTimeoutMs: -1 }, /dispatchTimeoutMs must be a non-negative/],
       ['negative cost ceiling', { costCeiling: -1 }, /costCeiling must be a finite number/],
-      [
-        'removed per-method cost ceiling',
-        { optimizationRunOptions: { costCeiling: 1 } as never },
-        /optimizationRunOptions\.costCeiling is not supported/,
-      ],
     ]
 
   it.each(invalidControls)('rejects %s before optimization', async (_label, invalid, expected) => {
@@ -618,7 +411,6 @@ describe('compareOptimizationMethods', () => {
         expect(input.selectionScenarios).not.toBe(SELECTION)
         expect(input.judges).toHaveLength(1)
         expect(input.runDir).toContain('/optimization/spy')
-        expect(input.runOptions.dispatchRef).toBeUndefined()
         return { winnerSurface: 'SOLVE_h1', cost: completeCost(0) }
       },
     }
@@ -632,69 +424,6 @@ describe('compareOptimizationMethods', () => {
       expectUsage: 'off',
     })
     expect(seen).toBeDefined()
-  })
-
-  it.each([
-    ['top-level', { dispatchRef: 'top-level-dispatch' }, 'top-level-dispatch'],
-    [
-      'optimization options',
-      { optimizationRunOptions: { dispatchRef: 'method-dispatch' } },
-      'method-dispatch',
-    ],
-  ] as const)(
-    'passes the %s dispatch identity to optimization methods',
-    async (_, controls, expected) => {
-      let receivedDispatchRef: string | undefined
-      await compareOptimizationMethods<S, A>({
-        methods: [
-          {
-            name: 'dispatch-spy',
-            async optimize(input) {
-              receivedDispatchRef = input.runOptions.dispatchRef
-              return { winnerSurface: 'nothing', cost: completeCost(0) }
-            },
-          },
-        ],
-        baselineSurface: 'nothing',
-        ...PARTITIONS,
-        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-        judges: [judge],
-        runDir,
-        expectUsage: 'off',
-        ...controls,
-      })
-      expect(receivedDispatchRef).toBe(expected)
-    },
-  )
-
-  it('propagates the owning signal to optimization methods', async () => {
-    const owner = new AbortController()
-    let receivedSignal: AbortSignal | undefined
-    await compareOptimizationMethods<S, A>({
-      methods: [
-        {
-          name: 'signal-spy',
-          optimize: async (input) => {
-            receivedSignal = input.runOptions.signal
-            return { winnerSurface: 'nothing', cost: completeCost(0) }
-          },
-        },
-      ],
-      baselineSurface: 'nothing',
-      ...PARTITIONS,
-      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-      judges: [judge],
-      runDir,
-      signal: owner.signal,
-      expectUsage: 'off',
-    })
-    expect(receivedSignal).toBeDefined()
-    expect(receivedSignal).not.toBe(owner.signal)
-
-    owner.abort(new Error('caller cancelled'))
-
-    expect(receivedSignal?.aborted).toBe(true)
-    expect(receivedSignal?.reason).toEqual(new Error('caller cancelled'))
   })
 
   it('isolates scenario values between methods and from caller-owned data', async () => {
@@ -787,71 +516,6 @@ describe('compareOptimizationMethods', () => {
     expect(test.map((scenario) => scenario.payload.value)).toEqual([3, 4])
   })
 
-  it('scores and returns immutable candidate snapshots with a fresh value per dispatch', async () => {
-    const baseline = {
-      kind: 'components' as const,
-      components: { policy: 'baseline' },
-    }
-    const selected = {
-      kind: 'components' as const,
-      components: { policy: 'winner' },
-    }
-    const received: object[] = []
-    const values: string[] = []
-    const snapshotJudge: JudgeConfig<A, S> = {
-      name: 'snapshot',
-      dimensions: [{ key: 'winner', description: 'candidate is the selected snapshot' }],
-      score: ({ artifact }) => {
-        const value = artifact.text === 'winner' ? 1 : 0
-        return { dimensions: { winner: value }, composite: value, notes: '' }
-      },
-    }
-
-    const result = await compareOptimizationMethods<S, A>({
-      methods: [
-        {
-          name: 'object-candidate',
-          optimize: async () => ({ winnerSurface: selected, cost: completeCost(0) }),
-        },
-      ],
-      baselineSurface: baseline,
-      ...PARTITIONS,
-      dispatchWithSurface: async (surface) => {
-        if (typeof surface === 'string' || surface.kind !== 'components') {
-          throw new Error('expected a component surface')
-        }
-        received.push(surface)
-        const value = surface.components.policy!
-        values.push(value)
-        ;(surface.components as Record<string, string>).policy = 'mutated-by-dispatch'
-        return { text: value }
-      },
-      judges: [snapshotJudge],
-      runDir,
-      maxConcurrency: 2,
-      expectUsage: 'off',
-    })
-
-    expect(values.filter((value) => value === 'baseline')).toHaveLength(TEST.length)
-    expect(values.filter((value) => value === 'winner')).toHaveLength(TEST.length)
-    expect(new Set(received).size).toBe(TEST.length * 2)
-    expect(baseline.components.policy).toBe('baseline')
-    expect(selected.components.policy).toBe('winner')
-    expect(result.best.winnerComposite).toBe(1)
-    expect(result.best.winnerSurface).toEqual({
-      kind: 'components',
-      components: { policy: 'winner' },
-    })
-
-    for (const surface of received) {
-      ;(surface as { components: Record<string, string> }).components.policy = 'mutated-later'
-    }
-    expect(result.best.winnerSurface).toEqual({
-      kind: 'components',
-      components: { policy: 'winner' },
-    })
-  })
-
   it('finishes every optimization before the first test dispatch', async () => {
     const events: string[] = []
     const method = (name: string): OptimizationMethod<S, A> => ({
@@ -910,55 +574,6 @@ describe('compareOptimizationMethods', () => {
     })
 
     expect(maxActive).toBe(2)
-  })
-
-  it('cancels in-flight optimization methods when a peer fails', async () => {
-    let releasePeerReady!: () => void
-    const peerReady = new Promise<void>((resolve) => {
-      releasePeerReady = resolve
-    })
-    let peerAborted = false
-    const failing: OptimizationMethod<S, A> = {
-      name: 'failing',
-      async optimize() {
-        await peerReady
-        throw new Error('optimizer failed')
-      },
-    }
-    const waiting: OptimizationMethod<S, A> = {
-      name: 'waiting',
-      async optimize(input) {
-        const signal = input.runOptions.signal
-        expect(signal).toBeDefined()
-        releasePeerReady()
-        await new Promise<void>((resolve) => {
-          signal!.addEventListener(
-            'abort',
-            () => {
-              peerAborted = true
-              resolve()
-            },
-            { once: true },
-          )
-        })
-        return { winnerSurface: 'nothing', cost: completeCost(0) }
-      },
-    }
-
-    await expect(
-      compareOptimizationMethods<S, A>({
-        methods: [failing, waiting],
-        baselineSurface: 'nothing',
-        ...PARTITIONS,
-        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-        judges: [judge],
-        runDir,
-        optimizationConcurrency: 2,
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow('optimizer failed')
-
-    expect(peerAborted).toBe(true)
   })
 
   it('scores identical selected surfaces once', async () => {
@@ -1031,23 +646,24 @@ describe('compareOptimizationMethods', () => {
     ).rejects.toThrow(/must be pairwise disjoint/)
   })
 
-  it.each(['trainScenarios', 'selectionScenarios', 'testScenarios'] as const)(
-    'rejects an empty %s partition',
-    async (partition) => {
-      await expect(
-        compareOptimizationMethods<S, A>({
-          methods: [fixedMethod('d', 'whatever', 1)],
-          baselineSurface: 'b',
-          ...PARTITIONS,
-          [partition]: [],
-          dispatchWithSurface: async (surface) => ({ text: String(surface) }),
-          judges: [judge],
-          runDir,
-          expectUsage: 'off',
-        }),
-      ).rejects.toThrow(new RegExp(`${partition} is empty`))
-    },
-  )
+  it.each([
+    'trainScenarios',
+    'selectionScenarios',
+    'testScenarios',
+  ] as const)('rejects an empty %s partition', async (partition) => {
+    await expect(
+      compareOptimizationMethods<S, A>({
+        methods: [fixedMethod('d', 'whatever', 1)],
+        baselineSurface: 'b',
+        ...PARTITIONS,
+        [partition]: [],
+        dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+        judges: [judge],
+        runDir,
+        expectUsage: 'off',
+      }),
+    ).rejects.toThrow(new RegExp(`${partition} is empty`))
+  })
 
   it('rejects a one-scenario test partition before optimization', async () => {
     let optimizeCalls = 0
@@ -1087,5 +703,20 @@ describe('compareOptimizationMethods', () => {
         expectUsage: 'off',
       }),
     ).rejects.toThrow(/testScenarios contains duplicate scenario id/)
+  })
+
+  it('fails closed on the ambiguous legacy holdoutScenarios contract', async () => {
+    const legacy = {
+      methods: [fixedMethod('d', 'whatever', 1)],
+      baselineSurface: 'b',
+      holdoutScenarios: TEST,
+      dispatchWithSurface: async (surface: string) => ({ text: surface }),
+      judges: [judge],
+      runDir,
+      expectUsage: 'off',
+    } as unknown as CompareOptimizationMethodsOptions<S, A>
+    await expect(compareOptimizationMethods(legacy)).rejects.toThrow(
+      /holdoutScenarios is ambiguous/,
+    )
   })
 })

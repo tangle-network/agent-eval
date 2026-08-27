@@ -1,4 +1,4 @@
-/** Recursive trace analysis over bounded OTLP JSONL stores. */
+/** Ax RLM trace analyst over bounded OTLP-JSONL trace stores. */
 
 export { asNumber, firstNumberAttr } from '../trace/attribute-vocabulary'
 export type { LlmSpanOtlpInput } from '../trace/otlp-attributes'
@@ -20,18 +20,9 @@ export type {
   AnalyzeTracesInput,
   AnalyzeTracesOptions,
   AnalyzeTracesResult,
+  AnalyzeTracesTurnSnapshot,
 } from './analyst'
 export { analyzeTraces } from './analyst'
-export {
-  SpanNotFoundError,
-  TraceAnalysisLimitError,
-  TraceAnalysisStoreContractError,
-  TraceAnalysisValidationError,
-  TraceFileMalformedError,
-  TraceFileMissingError,
-  TraceFileTooLargeError,
-  TraceNotFoundError,
-} from './errors'
 export type { TraceAnalystHookOptions } from './hook'
 export { traceAnalystOnRunComplete } from './hook'
 export type {
@@ -84,26 +75,16 @@ export {
   TRACE_ANALYST_ACTOR_DESCRIPTION,
   TRACE_ANALYST_ACTOR_DESCRIPTION_VERSION,
 } from './prompts'
-export type {
-  BoundedTraceAnalysisStoreOptions,
-  TraceAnalysisStore,
-  TraceAnalysisStoreContext,
-} from './store'
-export { createBoundedTraceAnalysisStore, TRACE_ANALYSIS_LIMITS } from './store'
+export type { TraceAnalysisStore } from './store'
 export {
   OtlpFileTraceStore,
   type OtlpFileTraceStoreOptions,
-  otlpTextToTraceAnalysisStore,
-  type ToolSpansToTraceAnalysisStoreOptions,
+  SpanNotFoundError,
+  TraceFileMissingError,
+  TraceNotFoundError,
 } from './store-otlp'
-export { ToolTraceMissingError, toolSpansToTraceAnalysisStore } from './store-tool-spans'
-export type {
-  BuildTraceAnalysisToolsOptions,
-  TraceAnalysisToolDescriptor,
-} from './tools'
 export {
-  buildTraceAnalysisToolDescriptors,
-  TRACE_ANALYST_TOOL_NAMESPACE,
+  buildTraceAnalystTools,
   traceAnalystFunctionGroup,
 } from './tools'
 

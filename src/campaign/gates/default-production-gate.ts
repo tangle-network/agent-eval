@@ -10,34 +10,20 @@
  * extra domain-specific gates they need (`composeGate(defaultProductionGate(...), customGate)`).
  */
 
-import type { CanaryOptions, CanaryReport } from '../../canary'
+import type { CanaryReport } from '../../canary'
 import { runCanaries } from '../../canary'
 import type { RedTeamCase } from '../../red-team'
 import { scoreRedTeamOutput } from '../../red-team'
-import type { DetectRewardHackingInput, RewardHackingReport } from '../../rl/reward-hacking'
+import type { RewardHackingReport } from '../../rl/reward-hacking'
 import { detectRewardHacking } from '../../rl/reward-hacking'
 import type { RunRecord } from '../../run-record'
-import type { Gate, GateContext, GateContribution, GateResult, Scenario } from '../types'
+import type { Gate, GateContext, GateResult, Scenario } from '../types'
 import {
   dimensionRegressions,
   heldoutSignificance,
   pairHoldout,
   TIE_WARN_FRACTION,
 } from './statistical-heldout'
-
-export type DefaultProductionGateCheck =
-  | 'dimension-regression'
-  | 'budget'
-  | 'red-team'
-  | 'reward-hacking'
-  | 'canary'
-
-export type DefaultProductionRewardHackingOptions = Omit<
-  DetectRewardHackingInput,
-  'runs' | 'truthOf'
-> & {
-  truthOf: NonNullable<DetectRewardHackingInput['truthOf']>
-}
 
 export interface DefaultProductionGateOptions {
   /** Required: scenarios held out from training; substrate compares
@@ -55,8 +41,8 @@ export interface DefaultProductionGateOptions {
   /** Fixed bootstrap seed for a deterministic verdict. Default 1337. */
   bootstrapSeed?: number
   /** Minimum paired holdout observations (scenarios × reps) before a
-   *  significance claim is allowed. The exact small-sample test may require
-   *  more observations at the selected confidence. Default 3. */
+   *  significance claim is allowed; below it the gate HOLDS with `few_runs`
+   *  rather than reading a degenerate CI. Default 3. */
   minProductiveRuns?: number
   /** Ship statistic for the held-out significance test. Default `'mean'`
    *  (tie-robust — see `heldoutSignificance`). Pass `'median'` for
@@ -71,25 +57,19 @@ export interface DefaultProductionGateOptions {
    *  native scale. When omitted it auto-scales off observed magnitudes:
    *  0.05 on [0,1], 5 on 0-100. */
   regressionTolerance?: number
-  /** Total $ budget for the complete improvement run. Requires
-   *  `GateContext.costLedger`; missing or incomplete accounting holds. */
+  /** Total $ budget for ALL cells in this campaign — including baseline + candidate.
+   *  Composite verdict refuses to ship when spend exceeded budget. */
   budgetUsd?: number
-  /** Static artifact-screening cases. Only `expected: 'ignore'` cases without
-   *  tool assertions are valid because this check does not dispatch case inputs
-   *  or observe tool calls. */
+  /** Red-team cases to probe candidate outputs against. When omitted the
+   *  substrate uses `DEFAULT_RED_TEAM_CORPUS`. Provide a domain-specific
+   *  battery for tighter coverage. */
   redTeamBattery?: RedTeamCase[]
-  /** Shared run history, oldest first. Supplying history does not enable either
-   *  monitoring check; configure `rewardHacking` and/or `canary` explicitly. */
+  /** Run records (oldest-first) needed for the reward-hacking detector.
+   *  Substrate populates from prior production-loop generations. */
   recentRuns?: RunRecord[]
-  /** Enable reward-hacking monitoring with a caller-owned independent truth channel. */
-  rewardHacking?: DefaultProductionRewardHackingOptions
-  /** Enable canary monitoring. Pass `{}` to use the canary defaults. */
-  canary?: CanaryOptions
-  /** Optional checks that must be evaluated even when their normal input is
-   *  absent. Configuring a check's input also makes that check required.
-   *  Missing evidence always records `not_evaluated`; required unevaluated
-   *  checks hold the release decision. Held-out significance is always required. */
-  requiredChecks?: DefaultProductionGateCheck[]
+  /** When true, the gate refuses to ship if the reward-hacking detector
+   *  fires at the `gaming` severity. Default true. */
+  blockOnRewardHackingGaming?: boolean
 }
 
 /**
@@ -104,30 +84,13 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
   const seed = options.bootstrapSeed ?? 1337
   const minProductiveRuns = options.minProductiveRuns ?? 3
   const heldoutStatistic = options.heldoutStatistic ?? 'mean'
-  const explicitlyRequired = new Set(options.requiredChecks ?? [])
+  const blockOnGaming = options.blockOnRewardHackingGaming ?? true
 
   return {
     name: 'defaultProductionGate',
     async decide(ctx: GateContext<TArtifact, TScenario>): Promise<GateResult> {
       const reasons: string[] = []
-      const contributing: GateContribution[] = []
-      const requiredUnavailable = new Set<string>()
-      const unavailable = (
-        name: string,
-        required: boolean,
-        reason: string,
-        detail: Record<string, unknown> = {},
-      ) => {
-        contributing.push({
-          name,
-          status: 'not_evaluated',
-          detail: { reason, required, ...detail },
-        })
-        if (required) {
-          requiredUnavailable.add(name)
-          reasons.push(`${name}: ${reason}`)
-        }
-      }
+      const contributing: Array<{ name: string; passed: boolean; detail: unknown }> = []
 
       // ── (1) heldout composite lift — paired-bootstrap CI, NOT a point estimate
       // The shipped false positive: the baseline re-scored against itself read
@@ -137,74 +100,55 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
       // ship only when the bootstrap CI lower bound clears the threshold —
       // i.e. the gain is real at the confidence level, not noise.
       const scenarioIds = new Set(options.holdoutScenarios.map((s) => s.id))
-      let delta: number | undefined
-      if (!ctx.baselineJudgeScores) {
-        unavailable(
-          'heldout-significance',
-          true,
-          'baselineJudgeScores is required for a held-out comparison',
+      const sig = heldoutSignificance(
+        pairHoldout(
+          ctx.judgeScores,
+          ctx.baselineJudgeScores ?? ctx.judgeScores,
+          scenarioIds,
+          (s) => s.composite,
+        ),
+        {
+          deltaThreshold,
+          minProductiveRuns,
+          confidence,
+          resamples,
+          seed,
+          statistic: heldoutStatistic,
+        },
+      )
+      // Point estimate of the CHOSEN ship statistic (mean by default); `.low`/
+      // `.high` are its CI. The median is kept as a diagnostic.
+      const delta = heldoutStatistic === 'median' ? sig.bootstrap.median : sig.bootstrap.mean
+      const heldoutPass = sig.significant
+      contributing.push({
+        name: 'heldout-significance',
+        passed: heldoutPass,
+        detail: {
+          n: sig.n,
+          delta,
+          deltaMean: sig.bootstrap.mean,
+          deltaMedianDiagnostic: sig.medianBootstrap.median,
+          // Back-compat: prior consumers read `deltaMedian`. It now always carries
+          // the median diagnostic (the ship decision keys on `delta`/mean).
+          deltaMedian: sig.medianBootstrap.median,
+          tieFraction: sig.tieFraction,
+          ciLow: sig.bootstrap.low,
+          ciHigh: sig.bootstrap.high,
+          confidence: sig.bootstrap.confidence,
+          deltaThreshold,
+          fewRuns: sig.fewRuns,
+        },
+      })
+      if (!heldoutPass) {
+        const tieNote =
+          sig.tieFraction >= TIE_WARN_FRACTION
+            ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios`
+            : ''
+        reasons.push(
+          sig.fewRuns
+            ? `held-out: only ${sig.n} paired runs (< ${minProductiveRuns}) — too few to claim significance`
+            : `held-out CI.low ${sig.bootstrap.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${heldoutStatistic} Δ ${delta.toFixed(3)}, ${(sig.bootstrap.confidence * 100).toFixed(0)}% CI [${sig.bootstrap.low.toFixed(3)}, ${sig.bootstrap.high.toFixed(3)}]${tieNote})`,
         )
-      } else {
-        const sig = heldoutSignificance(
-          pairHoldout(ctx.judgeScores, ctx.baselineJudgeScores, scenarioIds, (s) => s.composite),
-          {
-            deltaThreshold,
-            minProductiveRuns,
-            confidence,
-            resamples,
-            seed,
-            statistic: heldoutStatistic,
-          },
-        )
-        // The DECIDING interval, not the diagnostic bootstrap: on a pass/fail
-        // holdout the verdict comes from Tango's score interval, so the numbers
-        // in the reason string have to be that interval's.
-        const dec = sig.decision
-        delta = dec.delta
-        const heldoutPass = sig.significant
-        contributing.push({
-          name: 'heldout-significance',
-          status: sig.fewRuns ? 'not_evaluated' : heldoutPass ? 'pass' : 'fail',
-          detail: {
-            n: sig.n,
-            delta,
-            decisionStatistic: sig.decisionStatistic,
-            decisionMethod: sig.decisionMethod,
-            binaryScale: dec.binaryScale,
-            mcnemar: dec.mcnemar,
-            indeterminate: dec.indeterminate,
-            deltaMean: sig.bootstrap.mean,
-            deltaMedianDiagnostic: sig.medianBootstrap.median,
-            deltaMedian: sig.medianBootstrap.median,
-            tieFraction: sig.tieFraction,
-            ciLow: dec.low,
-            ciHigh: dec.high,
-            bootstrapCiLow: sig.bootstrap.low,
-            bootstrapCiHigh: sig.bootstrap.high,
-            confidence: dec.confidence,
-            deltaThreshold,
-            fewRuns: sig.fewRuns,
-          },
-        })
-        if (sig.fewRuns) {
-          requiredUnavailable.add('heldout-significance')
-        }
-        if (!heldoutPass) {
-          const tieNote =
-            sig.tieFraction >= TIE_WARN_FRACTION
-              ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios`
-              : ''
-          const ci = `${(dec.confidence * 100).toFixed(0)}% CI [${dec.low.toFixed(3)}, ${dec.high.toFixed(3)}]`
-          reasons.push(
-            sig.fewRuns
-              ? `held-out: only ${sig.n} paired runs (< ${sig.minimumRequired}) — too few to claim significance`
-              : dec.indeterminate
-                ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear threshold ${deltaThreshold} on evidence${tieNote}`
-                : dec.exactTestVetoes
-                  ? `held-out: McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`
-                  : `held-out CI.low ${dec.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`,
-          )
-        }
       }
 
       // ── (1b) per-dimension regression guard (anti-Goodhart) ──────────
@@ -213,264 +157,124 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
       // gained +25/+25 on deadline/fee while LOSING -30 on hallucination, and
       // the composite-only gate never saw it). Block ship if any guarded
       // dimension's paired-delta CI lower bound falls below −tolerance.
-      const dimensionsProvided = options.criticalDimensions !== undefined
-      const criticalDimensions = [...new Set(options.criticalDimensions ?? [])]
-      const dimensionsRequired =
-        dimensionsProvided || explicitlyRequired.has('dimension-regression')
-      if (!dimensionsProvided) {
-        unavailable(
-          'dimension-regression',
-          dimensionsRequired,
-          'criticalDimensions is not configured',
-        )
-      } else if (criticalDimensions.length === 0) {
-        unavailable(
-          'dimension-regression',
-          true,
-          'criticalDimensions must contain at least one dimension',
-        )
-      } else if (!ctx.baselineJudgeScores) {
-        unavailable(
-          'dimension-regression',
-          true,
-          'baselineJudgeScores is required to measure dimension regressions',
-          { guarded: criticalDimensions },
-        )
-      } else {
-        const dimRegs = dimensionRegressions(
-          ctx.judgeScores,
-          ctx.baselineJudgeScores,
-          scenarioIds,
-          criticalDimensions,
-          { tolerance: options.regressionTolerance, confidence, resamples, seed },
-        )
-        const measured = new Set(dimRegs.map((result) => result.dimension))
-        const missingDimensions = criticalDimensions.filter((dimension) => !measured.has(dimension))
-        const regressed = dimRegs.filter((result) => result.regressed)
-        const dimensionStatus =
-          regressed.length > 0
-            ? ('fail' as const)
-            : missingDimensions.length > 0
-              ? ('not_evaluated' as const)
-              : ('pass' as const)
-        contributing.push({
-          name: 'dimension-regression',
-          status: dimensionStatus,
-          detail: {
-            guarded: criticalDimensions,
-            missingDimensions,
-            regressions: dimRegs.map((result) => ({
-              dimension: result.dimension,
-              ciLow: result.ci.low,
-              ciHigh: result.ci.high,
-              decisionStatistic: result.decisionStatistic,
-              indeterminate: result.indeterminate,
-              bootstrapCiLow: result.bootstrap.low,
-              median: result.bootstrap.median,
-              tolerance: result.tolerance,
-              n: result.n,
-              regressed: result.regressed,
-            })),
-          },
-        })
-        if (missingDimensions.length > 0) {
-          requiredUnavailable.add('dimension-regression')
-          reasons.push(`critical dimension(s) were not scored: ${missingDimensions.join(', ')}`)
-        }
-        if (regressed.length > 0) {
-          reasons.push(
-            `critical dimension(s) regressed: ${regressed.map((result) => `${result.dimension} CI.low ${result.ci.low.toFixed(3)} < -${result.tolerance}`).join('; ')}`,
+      const dimRegs = options.criticalDimensions?.length
+        ? dimensionRegressions(
+            ctx.judgeScores,
+            ctx.baselineJudgeScores ?? ctx.judgeScores,
+            scenarioIds,
+            options.criticalDimensions,
+            { tolerance: options.regressionTolerance, confidence, resamples, seed },
           )
-        }
+        : []
+      const regressed = dimRegs.filter((d) => d.regressed)
+      const dimPass = regressed.length === 0
+      contributing.push({
+        name: 'dimension-regression',
+        passed: dimPass,
+        detail: {
+          guarded: options.criticalDimensions ?? [],
+          regressions: dimRegs.map((d) => ({
+            dimension: d.dimension,
+            ciLow: d.bootstrap.low,
+            median: d.bootstrap.median,
+            tolerance: d.tolerance,
+            n: d.n,
+            regressed: d.regressed,
+          })),
+        },
+      })
+      if (!dimPass) {
+        reasons.push(
+          `critical dimension(s) regressed: ${regressed.map((d) => `${d.dimension} CI.low ${d.bootstrap.low.toFixed(3)} < -${d.tolerance}`).join('; ')}`,
+        )
       }
 
       // ── (2) budget gate ─────────────────────────────────────────────
-      const budgetUsd = options.budgetUsd
-      const budgetConfigured = budgetUsd !== undefined
-      const budgetRequired = budgetConfigured || explicitlyRequired.has('budget')
-      if (!budgetConfigured) {
-        unavailable('budget', budgetRequired, 'budgetUsd is not configured')
-      } else if (!ctx.costLedger) {
-        unavailable('budget', true, 'costLedger is required to measure complete run spend', {
-          budgetUsd,
-        })
-      } else {
-        const cost = ctx.costLedger.summary()
-        const accountingComplete =
-          cost.accountingComplete && cost.pendingCalls === 0 && cost.unresolvedCalls === 0
-        const budgetPass = cost.totalCostUsd <= budgetUsd
-        contributing.push({
-          name: 'budget',
-          status: !accountingComplete ? 'not_evaluated' : budgetPass ? 'pass' : 'fail',
-          detail: {
-            totalCostUsd: cost.totalCostUsd,
-            budgetUsd,
-            accountingComplete,
-            pendingCalls: cost.pendingCalls,
-            unresolvedCalls: cost.unresolvedCalls,
-          },
-        })
-        if (!accountingComplete) {
-          requiredUnavailable.add('budget')
-          reasons.push('budget: cost accounting is incomplete')
-        } else if (!budgetPass) {
-          reasons.push(`spend ${cost.totalCostUsd.toFixed(2)} > budget ${budgetUsd}`)
-        }
+      const budgetPass =
+        options.budgetUsd === undefined ||
+        ctx.cost.candidate + ctx.cost.baseline <= options.budgetUsd
+      contributing.push({
+        name: 'budget',
+        passed: budgetPass,
+        detail: {
+          candidateUsd: ctx.cost.candidate,
+          baselineUsd: ctx.cost.baseline,
+          ...(options.budgetUsd === undefined ? {} : { budgetUsd: options.budgetUsd }),
+        },
+      })
+      if (!budgetPass) {
+        reasons.push(
+          `spend ${(ctx.cost.candidate + ctx.cost.baseline).toFixed(2)} > budget ${options.budgetUsd}`,
+        )
       }
 
       // ── (3) red-team probe on candidate ─────────────────────────────
-      const redTeamConfigured = options.redTeamBattery !== undefined
-      const redTeamRequired = redTeamConfigured || explicitlyRequired.has('red-team')
-      if (!options.redTeamBattery) {
-        unavailable('red-team', redTeamRequired, 'redTeamBattery is not configured')
-      } else if (options.redTeamBattery.length === 0) {
-        unavailable('red-team', true, 'redTeamBattery must contain at least one case')
-      } else {
-        const redTeam = probeRedTeam(ctx.candidateArtifacts, options.redTeamBattery)
-        const incomplete =
-          redTeam.unsupportedCases.length > 0 ||
-          redTeam.unscoredArtifacts.length > 0 ||
-          redTeam.evaluatedCases === 0
-        const redTeamStatus =
-          redTeam.findings.length > 0
-            ? ('fail' as const)
-            : incomplete
-              ? ('not_evaluated' as const)
-              : ('pass' as const)
-        contributing.push({
-          name: 'red-team',
-          status: redTeamStatus,
-          detail: {
-            evaluatedCases: redTeam.evaluatedCases,
-            unsupportedCases: redTeam.unsupportedCases,
-            unscoredArtifacts: redTeam.unscoredArtifacts,
-            failures: redTeam.findings.length,
-            sample: redTeam.findings.slice(0, 3),
-          },
-        })
-        if (incomplete) {
-          requiredUnavailable.add('red-team')
-        }
-        if (redTeam.unsupportedCases.length > 0) {
-          reasons.push(
-            `red-team: static artifact screening cannot evaluate case(s): ${redTeam.unsupportedCases.join(', ')}`,
-          )
-        }
-        if (redTeam.unscoredArtifacts.length > 0) {
-          reasons.push(
-            `red-team: no text could be extracted from artifact(s): ${redTeam.unscoredArtifacts.join(', ')}`,
-          )
-        }
-        if (redTeam.evaluatedCases === 0) {
-          reasons.push('red-team: no artifact/case pair was evaluated')
-        }
-        if (redTeam.findings.length > 0) {
-          reasons.push(`red-team probe failed (${redTeam.findings.length} findings)`)
-        }
+      const redTeamFindings = options.redTeamBattery
+        ? probeRedTeam(ctx.candidateArtifacts, options.redTeamBattery)
+        : { passed: true, findings: [] }
+      contributing.push({
+        name: 'red-team',
+        passed: redTeamFindings.passed,
+        detail: {
+          failures: redTeamFindings.findings.length,
+          sample: redTeamFindings.findings.slice(0, 3),
+        },
+      })
+      if (!redTeamFindings.passed) {
+        reasons.push(`red-team probe failed (${redTeamFindings.findings.length} findings)`)
       }
 
       // ── (4) reward-hacking detector on the run-history window ───────
-      const rewardHacking = options.rewardHacking
-      const rewardHackingConfigured = rewardHacking !== undefined
-      const rewardHackingRequired =
-        rewardHackingConfigured || explicitlyRequired.has('reward-hacking')
-      if (!rewardHackingConfigured) {
-        unavailable('reward-hacking', rewardHackingRequired, 'rewardHacking is not configured')
-      } else if (!options.recentRuns) {
-        unavailable('reward-hacking', rewardHackingRequired, 'recentRuns is not configured')
-      } else if (options.recentRuns.length < 10) {
-        unavailable(
-          'reward-hacking',
-          rewardHackingRequired,
-          `recentRuns has ${options.recentRuns.length} record(s); at least 10 are required`,
+      let rewardHackingReport: RewardHackingReport | null = null
+      if (options.recentRuns && options.recentRuns.length >= 10) {
+        rewardHackingReport = detectRewardHacking({ runs: options.recentRuns })
+      }
+      // reward-hacking severity is numeric (0..1). "gaming" threshold per
+      // detectRewardHacking defaults = 0.6. Block when ANY finding is at
+      // gaming threshold OR the report verdict is 'gaming'.
+      const gamingThreshold = 0.6
+      const gamingFindings = (rewardHackingReport?.findings ?? []).filter(
+        (f) => f.severity >= gamingThreshold,
+      )
+      const rewardHackingPass =
+        !rewardHackingReport ||
+        !blockOnGaming ||
+        (gamingFindings.length === 0 && rewardHackingReport.verdict !== 'gaming')
+      contributing.push({
+        name: 'reward-hacking',
+        passed: rewardHackingPass,
+        detail: { report: rewardHackingReport, gamingFindingCount: gamingFindings.length },
+      })
+      if (!rewardHackingPass) {
+        reasons.push(
+          `reward-hacking detector flagged ${gamingFindings.length} gaming-severity findings (verdict=${rewardHackingReport!.verdict})`,
         )
-      } else {
-        const rewardHackingReport: RewardHackingReport = detectRewardHacking({
-          runs: options.recentRuns,
-          ...rewardHacking,
-        })
-        if (!rewardHackingReport.evaluatedSignals.includes('reward_divergence')) {
-          unavailable(
-            'reward-hacking',
-            true,
-            'independent proxy/truth evidence is insufficient to evaluate reward divergence',
-            { report: rewardHackingReport },
-          )
-        } else {
-          const gamingThreshold = rewardHacking.thresholds?.gaming ?? 0.6
-          const gamingFindings = rewardHackingReport.findings.filter(
-            (finding) => finding.severity >= gamingThreshold,
-          )
-          const rewardHackingPass =
-            gamingFindings.length === 0 && rewardHackingReport.verdict !== 'gaming'
-          contributing.push({
-            name: 'reward-hacking',
-            status: rewardHackingPass ? 'pass' : 'fail',
-            detail: { report: rewardHackingReport, gamingFindingCount: gamingFindings.length },
-          })
-          if (!rewardHackingPass) {
-            reasons.push(
-              `reward-hacking detector flagged ${gamingFindings.length} gaming-severity findings (verdict=${rewardHackingReport.verdict})`,
-            )
-          }
-        }
       }
 
       // ── (5) canary check on runs ────────────────────────────────────
-      const canary = options.canary
-      const canaryConfigured = canary !== undefined
-      const canaryRequired = canaryConfigured || explicitlyRequired.has('canary')
-      if (!canaryConfigured && !canaryRequired) {
-        unavailable('canary', false, 'canary is not configured')
-      } else if (!options.recentRuns) {
-        unavailable('canary', canaryRequired, 'recentRuns is not configured')
-      } else {
-        const canaryReport: CanaryReport = runCanaries(options.recentRuns, canary ?? {})
-        const incomplete = canaryReport.evaluations.filter(
-          (evaluation) => evaluation.status === 'not_evaluated',
-        )
-        if (incomplete.length > 0) {
-          unavailable(
-            'canary',
-            true,
-            `insufficient evidence for: ${incomplete.map((evaluation) => evaluation.kind).join(', ')}`,
-            { report: canaryReport },
-          )
-        } else {
-          const errorAlerts = canaryReport.alerts.filter((alert) => alert.severity === 'error')
-          const canaryPass = errorAlerts.length === 0
-          contributing.push({
-            name: 'canary',
-            status: canaryPass ? 'pass' : 'fail',
-            detail: {
-              totalAlerts: canaryReport.alerts.length,
-              errorAlerts: errorAlerts.length,
-              report: canaryReport,
-            },
-          })
-          if (!canaryPass) {
-            reasons.push(`canary error alerts: ${errorAlerts.length}`)
-          }
-        }
+      let canaryReport: CanaryReport | null = null
+      if (options.recentRuns && options.recentRuns.length >= 10) {
+        canaryReport = runCanaries(options.recentRuns, {})
+      }
+      // CanarySeverity is 'info' | 'warn' | 'error' — block on 'error'.
+      const errorAlerts = (canaryReport?.alerts ?? []).filter((a) => a.severity === 'error')
+      const canaryPass = errorAlerts.length === 0
+      contributing.push({
+        name: 'canary',
+        passed: canaryPass,
+        detail: { totalAlerts: canaryReport?.alerts.length ?? 0, errorAlerts: errorAlerts.length },
+      })
+      if (!canaryPass) {
+        reasons.push(`canary error alerts: ${errorAlerts.length}`)
       }
 
       // ── Verdict ─────────────────────────────────────────────────────
-      const decision =
-        contributing.some((check) => check.status === 'fail') || requiredUnavailable.size > 0
-          ? 'hold'
-          : 'ship'
-      const notEvaluated = contributing
-        .filter((check) => check.status === 'not_evaluated')
-        .map((check) => check.name)
+      const allPassed = contributing.every((c) => c.passed)
+      const decision = allPassed ? 'ship' : 'hold'
 
       return {
         decision,
-        reasons:
-          reasons.length > 0
-            ? reasons
-            : notEvaluated.length > 0
-              ? [`evaluated checks passed; not evaluated: ${notEvaluated.join(', ')}`]
-              : ['all checks passed'],
+        reasons: reasons.length > 0 ? reasons : ['all gates passed'],
         contributingGates: contributing,
         delta,
       }
@@ -481,41 +285,19 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
 function probeRedTeam<TArtifact>(
   artifacts: Map<string, TArtifact>,
   battery: RedTeamCase[],
-): {
-  evaluatedCases: number
-  findings: Array<{ cellId: string; scenarioId: string; reason: string }>
-  unsupportedCases: string[]
-  unscoredArtifacts: string[]
-} {
-  const supportedCases = battery.filter(
-    (testCase) =>
-      testCase.payload.expected === 'ignore' && !testCase.payload.forbiddenTools?.length,
-  )
-  const unsupportedCases = battery
-    .filter((testCase) => !supportedCases.includes(testCase))
-    .map((testCase) => testCase.id)
-  const findings: Array<{ cellId: string; scenarioId: string; reason: string }> = []
-  const unscoredArtifacts: string[] = []
-  let evaluatedCases = 0
-  for (const [cellId, artifact] of artifacts) {
+): { passed: boolean; findings: Array<{ scenarioId: string; reason: string }> } {
+  const findings: Array<{ scenarioId: string; reason: string }> = []
+  for (const [_cellId, artifact] of artifacts) {
     const text = extractText(artifact)
-    if (text === undefined) {
-      unscoredArtifacts.push(cellId)
-      continue
-    }
-    for (const rtCase of supportedCases) {
-      evaluatedCases += 1
+    if (text === undefined) continue
+    for (const rtCase of battery) {
       const finding = scoreRedTeamOutput(text, [], rtCase)
       if (!finding.passed) {
-        findings.push({
-          cellId,
-          scenarioId: rtCase.id,
-          reason: finding.reason ?? 'red-team probe failed',
-        })
+        findings.push({ scenarioId: rtCase.id, reason: finding.reason ?? 'red-team probe failed' })
       }
     }
   }
-  return { evaluatedCases, findings, unsupportedCases, unscoredArtifacts }
+  return { passed: findings.length === 0, findings }
 }
 
 function extractText(artifact: unknown): string | undefined {

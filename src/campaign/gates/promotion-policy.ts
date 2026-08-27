@@ -23,18 +23,8 @@
  * constraints (compose with a budget gate via `composeGate`), not faked CIs.
  */
 
-import {
-  decidePairedPromotion,
-  type PairedDecisionMethod,
-  type PairedDecisionStatistic,
-  type PairedMcNemarEvidence,
-} from '../../paired-promotion-decision'
 import type { Direction } from '../../pareto'
-import {
-  DECISION_PAIRED_DELTA_STATISTIC,
-  type PairedBootstrapResult,
-  pairedBootstrap,
-} from '../../statistics'
+import { type PairedBootstrapResult, pairedBootstrap } from '../../statistics'
 import type { Gate, GateContext, GateDecision, GateResult, JudgeScore, Scenario } from '../types'
 import { detectScale, pairHoldout } from './statistical-heldout'
 
@@ -54,9 +44,8 @@ export interface PromotionObjective {
    *  scale. Default 0 (⇒ "confidently better"). */
   gainThreshold?: number
   /** A floor breach (regression) is declared when the good-direction CI lower
-   *  bound is below −floorTolerance, or when the exact small-sample test proves
-   *  a drop past it. When omitted it auto-scales off observed magnitudes
-   *  (0.05 on [0,1], 5 on 0-100), matching `dimensionRegressions`. */
+   *  bound is below −floorTolerance. When omitted it auto-scales off observed
+   *  magnitudes (0.05 on [0,1], 5 on 0-100), matching `dimensionRegressions`. */
   floorTolerance?: number
 }
 
@@ -68,32 +57,10 @@ export interface AxisEvidence {
   source: ObjectiveSource
   direction: Direction
   /** Paired bootstrap on the GOOD-DIRECTION delta (oriented by `direction`):
-   *  a positive value means the candidate is better on this axis.
-   *
-   *  DIAGNOSTIC on a pass/fail axis: there the verdict is decided on Tango's
-   *  score interval instead, because a percentile bootstrap over a three-atom
-   *  delta lattice is not a valid interval at the nonzero margin `floorTolerance`
-   *  and `gainThreshold` create. `ci` carries the interval that decided. */
+   *  a positive value means the candidate is better on this axis. */
   bootstrap: PairedBootstrapResult
-  /** Which paired statistic `bootstrap.low`/`.high` bracket. `'mean'` unless the
-   *  caller asked for the median — on a pass/fail axis the median and its whole
-   *  CI are pinned at 0 by tie domination and can see neither a gain nor a
-   *  regression. `bootstrap.median` still carries the median point estimate. */
-  bootstrapStatistic: 'median' | 'mean'
-  /** The interval the axis verdict was actually decided on, good-direction and
-   *  in the axis's native units. */
-  ci: { low: number; high: number }
-  /** Which estimator produced `ci`. */
-  decisionStatistic: PairedDecisionStatistic
-  /** McNemar's exact evidence on a pass/fail axis; null otherwise. */
-  mcnemar: PairedMcNemarEvidence | null
-  /** `ci` has zero width — no evidence in either direction, so the axis is
-   *  neither improved nor regressed however the point estimate sits. */
-  indeterminate: boolean
   /** Paired observations contributing to this axis. */
   n: number
-  minimumRequired: number
-  decisionMethod: PairedDecisionMethod
   gainThreshold: number
   floorTolerance: number
   verdict: AxisVerdict
@@ -117,8 +84,7 @@ export type PromotionPolicy = (ev: EvidenceVector) => GateResult
 
 export interface BuildEvidenceVectorOptions {
   /** Minimum paired observations before an axis can claim significance; below
-   *  it the axis is `few_runs`. The exact small-sample test may require more
-   *  observations at the selected confidence. */
+   *  it the axis is `few_runs`. Default 3. */
   minProductiveRuns?: number
   /** Confidence level for every axis bootstrap. Default 0.95. */
   confidence?: number
@@ -126,9 +92,6 @@ export interface BuildEvidenceVectorOptions {
   resamples?: number
   /** Fixed bootstrap seed for a deterministic, reproducible verdict. Default 1337. */
   seed?: number
-  /** Paired statistic every axis CI is computed on. Default `'mean'` — see
-   *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
-  statistic?: 'mean' | 'median'
 }
 
 /**
@@ -145,6 +108,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
   if (objectives.length === 0) {
     throw new Error('buildEvidenceVector: at least 1 objective required')
   }
+  const minProductiveRuns = opts.minProductiveRuns ?? 3
   const confidence = opts.confidence ?? 0.95
   const resamples = opts.resamples ?? 2000
   const seed = opts.seed ?? 1337
@@ -166,100 +130,35 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // positive bootstrap always reads as "candidate better on this axis".
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
+    const bootstrap = pairedBootstrap(before, after, {
+      confidence,
+      resamples,
+      statistic: 'median',
+      seed,
+    })
     const n = paired.before.length
     const floorTolerance =
       obj.floorTolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const gainThreshold = obj.gainThreshold ?? 0
-    // Axes are decided on the MEAN paired delta — which for a pass/fail axis is
-    // exactly the change in success rate. The median is structurally blind on
-    // the shapes eval data lands in: with most pairs tied its bootstrap CI
-    // collapses to [0,0] and the axis reads 'flat', hiding real gains AND real
-    // regressions — pass/fail axes on ANY encoding ({0,1} and the 0-100 one
-    // `detectScale` exists for), and low-cardinality axes even below half ties.
-    // Orthogonal to `pairedDeltaTest`'s own small-sample switch: that picks the
-    // TEST (bootstrap CI at n ≥ 20, exact sign test below), this picks the
-    // ESTIMATOR the test is applied to. Both are needed — an exact sign test on
-    // a tie-pinned median is still blind.
-    const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
-    // Both burdens of proof route through the ONE shared rule
-    // (`decidePairedPromotion`), so a pass/fail axis is judged on Tango's score
-    // interval — the only paired-binary construction valid at the nonzero
-    // margins `gainThreshold` / `floorTolerance` create — and a zero-width
-    // interval cannot buy a verdict in either direction.
-    const improvement = decidePairedPromotion(before, after, {
-      confidence,
-      resamples,
-      statistic: bootstrapStatistic,
-      seed,
-      threshold: gainThreshold,
-      minPairs: opts.minProductiveRuns,
-    })
-    const regression = decidePairedPromotion(after, before, {
-      confidence,
-      resamples,
-      statistic: bootstrapStatistic,
-      seed,
-      threshold: floorTolerance,
-      minPairs: opts.minProductiveRuns,
-    })
-    const bootstrap =
-      improvement.bootstrap ??
-      pairedBootstrap(before, after, {
-        confidence,
-        resamples,
-        statistic: bootstrapStatistic,
-        seed,
-      })
-    // A floor breach fires on EITHER burden of proof, because they cover
-    // different failures and the floor is the anti-Goodhart guard:
-    //   - `improvement.low < -floorTolerance` — the CREDIBLE WORST CASE exceeds
-    //     the tolerance. This is the contract `AxisEvidence.floorTolerance` and
-    //     `paretoPolicy`'s own reason string state, and it is the conservative
-    //     posture a safety axis needs: block unless the data can rule the
-    //     breach out, rather than waiting for the breach to be proven. Read off
-    //     the DECIDING interval, so a pass/fail axis is not screened by a
-    //     bootstrap that is pinned wherever ties dominate.
-    //   - `regression.promote` — a PROVEN drop past the tolerance. Adds the
-    //     small-sample path, where the decision is an exact sign test because
-    //     the bootstrap interval is descriptive only.
-    // The credible-worst-case arm stays on the BOOTSTRAP, deliberately. Reading
-    // it off the score interval instead would change what the floor MEANS on a
-    // pass/fail axis: with every pair concordant the score interval is
-    // ±z²/(n+z²) — ±0.39 at n=6, ±0.16 at n=20 — so a completely unchanged
-    // safety axis would breach a 0.05 floor at any realistic n, and the gate
-    // would refuse everything. That the bootstrap arm is instead fail-OPEN on a
-    // tied pass/fail axis is a real and separate weakness: the honest fix is a
-    // minimum-power requirement on the floor, not a wider interval, because the
-    // data genuinely cannot rule a 5pp drop out at n=20 and a gate that says so
-    // by blocking every candidate is not usable. `regression.promote` — the
-    // PROVEN-drop arm — does route through the shared rule, so a real pass/fail
-    // regression is now caught on an interval valid at the nonzero tolerance.
-    const floorBreached = bootstrap.low < -floorTolerance || regression.promote
     // Floor check precedes the gain check: a credible regression must never be
     // masked as "improved". With the defaults (gainThreshold 0, positive floor)
     // the regions are disjoint and order is moot, but a consumer who sets a
     // negative gainThreshold ("accept small dips") could otherwise have a real
     // floor breach classified as a gain — anti-Goodhart wins the tie.
-    const verdict: AxisVerdict = !improvement.sufficient
-      ? 'few_runs'
-      : floorBreached
-        ? 'regressed'
-        : improvement.promote
-          ? 'improved'
-          : 'flat'
+    const verdict: AxisVerdict =
+      n < minProductiveRuns
+        ? 'few_runs'
+        : bootstrap.low < -floorTolerance
+          ? 'regressed'
+          : bootstrap.low > gainThreshold
+            ? 'improved'
+            : 'flat'
     axes.push({
       name: obj.name,
       source: obj.source,
       direction: obj.direction,
       bootstrap,
-      bootstrapStatistic,
-      ci: { low: improvement.low, high: improvement.high },
-      decisionStatistic: improvement.statistic,
-      mcnemar: improvement.mcnemar,
-      indeterminate: improvement.indeterminate,
       n,
-      minimumRequired: improvement.minimumPairs,
-      decisionMethod: improvement.method,
       gainThreshold,
       floorTolerance,
       verdict,
@@ -280,26 +179,15 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
 export const paretoPolicy: PromotionPolicy = (ev) => {
   const contributingGates = ev.axes.map((ax) => ({
     name: `objective:${ax.name}`,
-    status:
-      ax.verdict === 'regressed'
-        ? ('fail' as const)
-        : ax.verdict === 'few_runs'
-          ? ('not_evaluated' as const)
-          : ('pass' as const),
+    passed: ax.verdict === 'improved',
     detail: {
       direction: ax.direction,
       source: ax.source,
       verdict: ax.verdict,
       n: ax.n,
       deltaMedian: ax.bootstrap.median,
-      ciLow: ax.ci.low,
-      ciHigh: ax.ci.high,
-      decisionStatistic: ax.decisionStatistic,
-      decisionMethod: ax.decisionMethod,
-      mcnemar: ax.mcnemar,
-      indeterminate: ax.indeterminate,
-      bootstrapCiLow: ax.bootstrap.low,
-      bootstrapCiHigh: ax.bootstrap.high,
+      ciLow: ax.bootstrap.low,
+      ciHigh: ax.bootstrap.high,
       confidence: ax.bootstrap.confidence,
       gainThreshold: ax.gainThreshold,
       floorTolerance: ax.floorTolerance,
@@ -319,7 +207,7 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
     decision = 'hold'
     for (const a of regressed) {
       reasons.push(
-        `objective '${a.name}' regressed: good-direction CI.low ${a.ci.low.toFixed(3)} < -${a.floorTolerance} (n=${a.n})`,
+        `objective '${a.name}' regressed: good-direction CI.low ${a.bootstrap.low.toFixed(3)} < -${a.floorTolerance} (n=${a.n})`,
       )
     }
   } else if (fewRuns.length > 0) {
@@ -339,7 +227,7 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
       `Pareto improvement at the confidence level: ${improved
         .map(
           (a) =>
-            `'${a.name}' +${a.ci.low > 0 ? a.ci.low.toFixed(3) : a.bootstrap.mean.toFixed(3)} (CI.low ${a.ci.low.toFixed(3)})`,
+            `'${a.name}' +${a.bootstrap.median.toFixed(3)} (CI.low ${a.bootstrap.low.toFixed(3)})`,
         )
         .join(', ')}; no objective regressed`,
     )

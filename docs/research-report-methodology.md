@@ -28,10 +28,10 @@ corresponding function or option so the doc and the code don't drift.
 
 ## Pairing
 
-Pairs are joined by `(experimentId, scenarioId, seed)` so the comparator and candidate share the same experiment, scenario, and repetition.
-This is the same join used by `gainHistogram`; see `pairRunRecords` in `src/paired-arms.ts`.
-Missing or duplicate identities are rejected.
-Records on the wrong split or with non-finite scores are excluded before pairing, and unmatched valid rows are reported.
+Pairs are joined by `(experimentId, seed)` so the comparator and candidate
+share scenario *and* seed. This is the same join `gainHistogram` uses; see
+`pairScoresByKey` in `src/summary-report.ts`. Records on the wrong split or
+with non-finite scores are dropped before pairing.
 
 ## Decision rule
 
@@ -44,38 +44,36 @@ In order: first match wins:
    not sufficient*; even a `promote` gate must clear the paired test below.
 4. Paired N < `RESEARCH_REPORT_HARD_PAIR_FLOOR` → `needs_more_data` with a
    "below hard floor" reason. Bootstrap CIs degenerate at this size.
-5. `split: 'search'` → `hold`.
-   Search results guide optimization but cannot authorize a release.
-6. ROPE configured AND paired-delta CI ⊂ ROPE → `equivalent`.
-7. Paired-delta CI upper bound < 0 → `reject` (CI excludes a non-negative
+5. ROPE configured AND paired-delta CI ⊂ ROPE → `equivalent`.
+6. Paired-delta CI upper bound < 0 → `reject` (CI excludes a non-negative
    effect). Note: this uses **paired delta only**: not the marginal mean.
-8. Paired N < `minPairs` (soft floor) → `needs_more_data` with the MDE at
+7. Paired N < `minPairs` (soft floor) → `needs_more_data` with the MDE at
    current N attached so the verdict is actionable.
-9. BH-adjusted q ≤ `fdr` AND CI lower bound > 0 → `promote`. The BH q-value
+8. BH-adjusted q ≤ `fdr` AND CI lower bound > 0 → `promote`. The BH q-value
    controls FDR across all candidates in the same sweep; the bootstrap CI
    provides an effect-size guarantee independent of the test.
-10. Otherwise → `hold`.
+9. Otherwise → `hold`.
 
 ## Statistical primitives used
 
 | Quantity | Function | Source file |
 |---|---|---|
 | Marginal CI on score mean | `confidenceInterval` | `statistics.ts` |
-| Paired Cohen's dz vs comparator | `pairedCohensDz` | `statistics.ts` |
-| Wilcoxon signed-rank (paired), exact at n ≤ 20 | `wilcoxonSignedRank` | `statistics.ts` |
-| BH-FDR q-values | `benjaminiHochberg` | `statistics.ts` |
-| Paired bootstrap CI on median delta | `pairedBootstrap` | `statistics.ts` |
-| Smallest p a rank-test design can produce | `pFloor` on the result | `statistics.ts` |
-| Bayesian-bootstrap Pr(Δ>0), Pr(Δ∈ROPE) | `bayesianBootstrapMeanSamples` | `summary-report.ts` (private) |
-| Minimum detectable paired effect | `pairedMde` | `statistics.ts` |
+| Cohen's d vs comparator | `cohensD` | `statistics.ts` |
+| Wilcoxon signed-rank (paired) | `wilcoxonSignedRank` | `statistics.ts` |
+| BH-FDR q-values | `benjaminiHochberg` | `power-analysis.ts` |
+| Paired bootstrap CI on median delta | `pairedBootstrap` | `paired-stats.ts` |
+| Bayesian-bootstrap-style Pr(Δ>0), Pr(Δ∈ROPE) | `bootstrapMeanSamples` | `summary-report.ts` (private) |
+| Minimum detectable paired effect | `pairedMde` | `power-analysis.ts` |
 | Run fingerprint | `hashJson(canonicalize(...))` | `pre-registration.ts` |
 
-The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use Rubin's Bayesian bootstrap.
-Each posterior draw assigns the observed paired deltas Dirichlet(1, ..., 1) weights, implemented as normalized independent Exponential(1) draws.
-The posterior summaries apply to the **mean** delta.
-The separate frequentist bootstrap CI applies to the **median** delta because the median is more robust to heavy-tailed agent scores.
-It is descriptive spread below `BOOTSTRAP_GATE_MIN_N = 20` pairs, which the result reports as `gateEligible: false`; the exact signed-rank or sign test carries the decision there.
-See [`design/statistics-decisions.md`](./design/statistics-decisions.md) for the measured false-positive rates and the exact-versus-asymptotic policy.
+The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use the bootstrap-prior duality of
+[Rubin 1981]: under a non-informative Dirichlet prior, the bootstrap
+distribution of a sample statistic is its posterior. We expose these as
+posterior summaries on the **mean** delta and the bootstrap CI on the
+**median** delta: the median is more robust to the heavy-tailed score
+distributions seen in agent benchmarks; the mean lets us read off the
+Bayesian-style probability of superiority in a single number.
 
 ## MDE
 

@@ -1,4 +1,4 @@
-import type { ChatClient } from './analyst/chat-client'
+import type { TCloud } from '@tangle-network/tcloud'
 import { CostLedger } from './cost-ledger'
 import { executeScenario } from './executor'
 import type { BenchmarkReport, BenchmarkRunnerConfig, Scenario, ScenarioResult } from './types'
@@ -9,11 +9,11 @@ import type { BenchmarkReport, BenchmarkRunnerConfig, Scenario, ScenarioResult }
  * Domain-agnostic. Each agent provides its own scenarios, judges, and system prompt.
  */
 export class BenchmarkRunner {
-  private chat: ChatClient
+  private tc: TCloud
   private config: BenchmarkRunnerConfig
 
-  constructor(chat: ChatClient, config: BenchmarkRunnerConfig) {
-    this.chat = chat
+  constructor(tc: TCloud, config: BenchmarkRunnerConfig) {
+    this.tc = tc
     this.config = config
   }
 
@@ -40,12 +40,13 @@ export class BenchmarkRunner {
       console.log(`  thesis: ${scenario.thesis}`)
       console.log(`  turns: ${scenario.turns.length}`)
 
-      const result = await executeScenario(this.chat, scenario, {
+      const result = await executeScenario(this.tc, scenario, {
         systemPrompt: this.config.systemPrompt,
         model: this.config.model,
         judges: this.config.judges,
         costLedger,
         costTags,
+        tcloudMaximumAttempts: this.config.tcloudMaximumAttempts,
       })
       results.push(result)
 

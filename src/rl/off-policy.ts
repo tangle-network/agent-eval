@@ -70,6 +70,12 @@ export interface OffPolicyTrajectory {
    * values must come from a model cross-fitted or trained outside this row.
    */
   vHatTarget?: number | null
+  /**
+   * @deprecated Use `qHatChosen` and `vHatTarget` together. When the new pair
+   * is absent, this scalar is used as both terms to preserve existing results.
+   * When the new pair is present, this field is ignored.
+   */
+  qHat?: number | null
 }
 
 export interface OffPolicyContributionCounts {
@@ -77,6 +83,8 @@ export interface OffPolicyContributionCounts {
   dr: number
   /** Contributions using exact IPS because no reward-model estimate was supplied. */
   ipsFallback: number
+  /** Contributions using the deprecated single-scalar formula. */
+  legacyScalar: number
 }
 
 export interface OffPolicyEstimate {
@@ -214,8 +222,9 @@ export function selfNormalizedImportanceWeighting(
  * default in production OPE pipelines.
  *
  * `qHatChosen` and `vHatTarget` must be supplied together. Rows with neither
- * use the exact IPS contribution. `contributionCounts` makes the mix explicit
- * in the result.
+ * use the exact IPS contribution. Deprecated `qHat` rows preserve the scalar
+ * formula, and a complete new pair takes precedence when both forms exist.
+ * `contributionCounts` makes the mix explicit in the result.
  * Callers must cross-fit the Q-function or train it on independent rows;
  * fitting and evaluating Q on the same outcomes leaks the answer.
  */
@@ -228,7 +237,7 @@ export function doublyRobust(
   if (trajectories.length === 0) {
     return {
       ...zeroEstimate(),
-      contributionCounts: { dr: 0, ipsFallback: 0 },
+      contributionCounts: { dr: 0, ipsFallback: 0, legacyScalar: 0 },
     }
   }
 
@@ -236,6 +245,7 @@ export function doublyRobust(
   const contributionCounts: OffPolicyContributionCounts = {
     dr: 0,
     ipsFallback: 0,
+    legacyScalar: 0,
   }
   let maxW = 0
   let sumW = 0
@@ -266,6 +276,10 @@ export function doublyRobust(
       const vHatTarget = clamp(rawVHatTarget, clip.low, clip.high)
       contributions.push(vHatTarget + w * (r - qHatChosen))
       contributionCounts.dr += 1
+    } else if (typeof t.qHat === 'number' && Number.isFinite(t.qHat)) {
+      const qHat = clamp(t.qHat, clip.low, clip.high)
+      contributions.push(qHat + w * (r - qHat))
+      contributionCounts.legacyScalar += 1
     } else {
       contributions.push(w * r)
       contributionCounts.ipsFallback += 1

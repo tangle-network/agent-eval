@@ -71,39 +71,4 @@ describe('campaign design identity', () => {
       ]),
     )
   })
-
-  it('marks an ensemble result with failed panel judges as incomplete', () => {
-    const cell = {
-      cellId: 'first:0',
-      scenarioId: 'first',
-      rep: 0,
-      artifact: {},
-      judgeScores: {
-        panel: {
-          composite: 0.9,
-          dimensions: { quality: 0.9 },
-          notes: '',
-          failedJudges: ['judge-b'],
-        },
-      },
-      costUsd: 0,
-      tokenUsage: { input: 0, output: 0 },
-      durationMs: 1,
-      seed: 1,
-      cached: false,
-    } satisfies CampaignCellResult<unknown>
-
-    const coverage = campaignCoverage([cell], [scenarios[0]!], 1, true)
-
-    expect(coverage).toMatchObject({
-      complete: false,
-      scorableCellIds: [],
-      unscorableCells: [
-        {
-          cellId: 'first:0',
-          reason: 'judge panel incomplete: judge-b',
-        },
-      ],
-    })
-  })
 })

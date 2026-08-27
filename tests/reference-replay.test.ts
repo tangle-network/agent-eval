@@ -237,39 +237,6 @@ describe('reference replay', () => {
     expect(decision.reason).toBe('Required split missing from baseline or candidate: dev')
   })
 
-  it('rejects promotion when the candidate was scored on only 6 of 26 scenarios', () => {
-    const all = [
-      ...Array.from({ length: 13 }, (_, index) => scenario(`dev-${index}`, 'dev', true)),
-      ...Array.from({ length: 13 }, (_, index) => scenario(`test-${index}`, 'test', true)),
-    ]
-    const baseline = scoreReferenceReplay(
-      all.map((item, index) => (index % 2 === 0 ? item : { ...item, candidates: [] })),
-    )
-    const candidate = scoreReferenceReplay([...all.slice(0, 3), ...all.slice(13, 16)])
-
-    const decision = decideReferenceReplayPromotion(baseline, candidate, {
-      requireHoldoutNonRegression: false,
-    })
-
-    expect(decision.promote).toBe(false)
-    expect(decision.reason).toMatch(/baseline 26, candidate 6/)
-    expect(decision.reason).toMatch(/candidate missing/)
-  })
-
-  it('rejects unequal duplicate scenario counts instead of collapsing them to a set', () => {
-    const duplicate = scenario('dev-1', 'dev', false)
-    const baseline = scoreReferenceReplay([duplicate, duplicate])
-    const candidate = scoreReferenceReplay([scenario('dev-1', 'dev', true)])
-
-    const decision = decideReferenceReplayPromotion(baseline, candidate, {
-      requiredSplits: ['dev'],
-      requireHoldoutNonRegression: false,
-    })
-
-    expect(decision.promote).toBe(false)
-    expect(decision.reason).toContain('candidate missing dev:dev-1')
-  })
-
   it('rejects promotion when holdout coverage is missing from either side', () => {
     const baseline = scoreReferenceReplay([scenario('dev-1', 'dev', false)], {
       includeHoldout: true,

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -131,34 +131,7 @@ describe('costForUsage', () => {
     })
   })
 
-  it('rejects settled receipts in the removed event format', () => {
-    const events = eventFor({
-      status: 'settled',
-      callId: 'old-settled-format',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: 0,
-      costUnknown: false,
-      actualCostUsd: 0,
-      timestamp: 1,
-    })
-
-    expect(
-      () =>
-        new CostLedger({
-          persistence: {
-            read: () => ({ revision: revision(events), events }),
-            append: () => undefined,
-          },
-        }),
-    ).toThrow(/invalid persisted event/)
-  })
-
-  it('persists a fixed failure marker alongside extended usage fields', async () => {
+  it('preserves a provider error alongside the compatible usage extension', async () => {
     const { persistence, state } = memoryPersistence()
     const ledger = new CostLedger({ persistence })
 
@@ -195,14 +168,14 @@ describe('costForUsage', () => {
         outputTokens: 7,
         reasoningTokens: 3,
         cacheWriteTokens: 2,
-        error: 'paid-call-failed',
+        error: 'provider rejected output',
       },
     })
     expect(new CostLedger({ persistence }).list()[0]).toMatchObject({
       inputTokens: 10,
       reasoningTokens: 3,
       cacheWriteTokens: 2,
-      error: 'paid-call-failed',
+      error: 'provider rejected output',
     })
   })
 
@@ -221,79 +194,6 @@ describe('costForTokenPricing', () => {
         { inputTokens: 1_000_000, outputTokens: 500_000 },
       ),
     ).toBeCloseTo(0.82, 8)
-  })
-
-  it('prices normal input, cache reads, cache writes, and output independently', () => {
-    expect(
-      costForTokenPricing(
-        {
-          inputUsdPerMillion: 1,
-          cachedInputUsdPerMillion: 0.25,
-          cacheWriteUsdPerMillion: 1.5,
-          outputUsdPerMillion: 2,
-        },
-        {
-          inputTokens: 100,
-          cachedTokens: 50,
-          cacheWriteTokens: 25,
-          outputTokens: 10,
-        },
-      ),
-    ).toBeCloseTo(0.00017, 12)
-  })
-
-  it('falls back to the normal input rate for unspecified cache rates', () => {
-    expect(
-      costForTokenPricing(
-        { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
-        {
-          inputTokens: 100,
-          cachedTokens: 50,
-          cacheWriteTokens: 25,
-          outputTokens: 10,
-        },
-      ),
-    ).toBeCloseTo(0.000195, 12)
-  })
-
-  it('records caller-supplied token pricing as an estimate, not provider-billed cost', async () => {
-    const ledger = new CostLedger()
-    const result = await ledger.runPaidCall({
-      channel: 'optimizer',
-      phase: 'propose',
-      actor: 'official-package',
-      model: 'router/custom-model',
-      execute: async () => 'ok',
-      receipt: () => ({
-        model: 'router/custom-model',
-        inputTokens: 100,
-        cachedTokens: 50,
-        cacheWriteTokens: 25,
-        outputTokens: 10,
-        customTokenPricing: {
-          inputUsdPerMillion: 1,
-          cachedInputUsdPerMillion: 0.25,
-          cacheWriteUsdPerMillion: 1.5,
-          outputUsdPerMillion: 2,
-        },
-      }),
-    })
-
-    expect(result).toMatchObject({
-      succeeded: true,
-      receipt: {
-        costUsd: 0.00017,
-        costUnknown: false,
-        pricing: {
-          inputUsdPerThousand: 0.001,
-          cachedInputUsdPerThousand: 0.00025,
-          cacheWriteUsdPerThousand: 0.0015,
-          outputUsdPerThousand: 0.002,
-        },
-      },
-    })
-    if (!result.succeeded) throw result.error
-    expect(result.receipt.actualCostUsd).toBeUndefined()
   })
 })
 
@@ -407,38 +307,6 @@ describe('CostLedger', () => {
     expect(e.costUsd).toBe(0.42)
     expect(e.costUnknown).toBe(false)
     expect(ledger.summary().fullyPriced).toBe(true)
-  })
-
-  it('retains a host-provided estimate without inventing token pricing', async () => {
-    const ledger = new CostLedger(1)
-    const result = await ledger.runPaidCall({
-      channel: 'agent',
-      phase: 'measurement',
-      actor: 'host-executor',
-      model: 'platform-profile-runner',
-      maximumCharge: { externallyEnforcedMaximumUsd: 0.5 },
-      execute: async () => 'done',
-      receipt: () => ({
-        model: 'platform-profile-runner',
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCostUsd: 0.25,
-      }),
-    })
-
-    expect(result).toMatchObject({
-      succeeded: true,
-      receipt: {
-        costUsd: 0.25,
-        estimatedCostUsd: 0.25,
-        costUnknown: false,
-      },
-    })
-    expect(result.succeeded && result.receipt.pricing).toBeUndefined()
-    expect(ledger.summary()).toMatchObject({
-      accountingComplete: true,
-      costProvenance: { kind: 'estimated', usd: 0.25 },
-    })
   })
 
   it('persists completed tasks so resumed cost-per-task remains correct', () => {
@@ -583,109 +451,6 @@ describe('CostLedger', () => {
     expect(results.at(-1)).toMatchObject({
       succeeded: false,
       error: expect.any(CostCeilingReachedError),
-    })
-  })
-
-  it('waits for temporary reservations when settled spend leaves enough budget', async () => {
-    const ledger = new CostLedger(0.25)
-    let active = 0
-    let maxActive = 0
-
-    const results = await Promise.all(
-      Array.from({ length: 5 }, (_, index) =>
-        ledger.runPaidCall({
-          channel: 'analyst',
-          phase: 'benchmark',
-          actor: `call-${index}`,
-          maximumCharge: { externallyEnforcedMaximumUsd: 0.2 },
-          async execute() {
-            active += 1
-            maxActive = Math.max(maxActive, active)
-            await Promise.resolve()
-            active -= 1
-            return index
-          },
-          receipt: () => ({
-            model: 'provider-priced',
-            inputTokens: 1,
-            outputTokens: 1,
-            actualCostUsd: 0.01,
-          }),
-        }),
-      ),
-    )
-
-    expect(results.every((result) => result.succeeded)).toBe(true)
-    expect(maxActive).toBe(1)
-    expect(ledger.summary()).toMatchObject({
-      totalCalls: 5,
-      pendingCalls: 0,
-      totalCostUsd: 0.05,
-      accountingComplete: true,
-    })
-  })
-
-  it('aborts a paid call while it waits for reservation capacity', async () => {
-    const ledger = new CostLedger(0.25)
-    let releaseFirst!: () => void
-    let markFirstStarted!: () => void
-    const firstStarted = new Promise<void>((resolve) => {
-      markFirstStarted = resolve
-    })
-    const first = ledger.runPaidCall({
-      channel: 'analyst',
-      phase: 'benchmark',
-      actor: 'first',
-      maximumCharge: { externallyEnforcedMaximumUsd: 0.2 },
-      async execute() {
-        markFirstStarted()
-        await new Promise<void>((resolve) => {
-          releaseFirst = resolve
-        })
-        return 'first'
-      },
-      receipt: () => ({
-        model: 'provider-priced',
-        inputTokens: 1,
-        outputTokens: 1,
-        actualCostUsd: 0.01,
-      }),
-    })
-    await firstStarted
-
-    const controller = new AbortController()
-    let secondCalls = 0
-    const second = ledger.runPaidCall({
-      channel: 'analyst',
-      phase: 'benchmark',
-      actor: 'second',
-      signal: controller.signal,
-      maximumCharge: { externallyEnforcedMaximumUsd: 0.2 },
-      async execute() {
-        secondCalls += 1
-        return 'second'
-      },
-      receipt: () => ({
-        model: 'provider-priced',
-        inputTokens: 1,
-        outputTokens: 1,
-        actualCostUsd: 0.01,
-      }),
-    })
-    controller.abort(new Error('cancel queued call'))
-
-    await expect(second).resolves.toMatchObject({
-      succeeded: false,
-      error: { message: 'cancel queued call' },
-    })
-    expect(secondCalls).toBe(0)
-    releaseFirst()
-    await expect(first).resolves.toMatchObject({ succeeded: true })
-    expect(ledger.summary()).toMatchObject({
-      totalCalls: 1,
-      pendingCalls: 0,
-      totalCostUsd: 0.01,
-      accountingComplete: true,
     })
   })
 
@@ -942,6 +707,30 @@ describe('CostLedger', () => {
     )
   })
 
+  it('keeps legacy storage adapters usable until they attempt paid work', async () => {
+    const storage: CampaignStorage = {
+      ensureDir: () => undefined,
+      exists: () => false,
+      read: () => undefined,
+      write: () => undefined,
+    }
+    const ledger = createRunCostLedger({ storage, runDir: 'mem://legacy' })
+    expect(ledger.summary().totalCalls).toBe(0)
+
+    const result = await ledger.runPaidCall({
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      execute: async () => 'unexpected',
+      receipt: () => ({ model: 'gpt-4o', inputTokens: 0, outputTokens: 0 }),
+    })
+
+    expect(result).toMatchObject({
+      succeeded: false,
+      error: expect.any(CostLedgerPersistenceError),
+    })
+  })
+
   it('blocks dispatch while another process holds the filesystem lock', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-claim-'))
     writeFileSync(
@@ -1075,102 +864,6 @@ describe('CostLedger', () => {
     })
   })
 
-  it('records a caller-supplied failure reason on a reconciled receipt', async () => {
-    const pending = {
-      status: 'pending',
-      callId: 'orphan-1',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      maximumCostUsd: 0.5,
-      timestamp: 1,
-    }
-    const { persistence, state } = memoryPersistence(eventFor(pending))
-    const ledger = new CostLedger({ costCeilingUsd: 1, persistence })
-    const receipt = ledger.reconcile(
-      'orphan-1',
-      { model: 'gpt-4o', inputTokens: 0, outputTokens: 0, actualCostUsd: 0 },
-      { error: 'process-crash-orphan' },
-    )
-
-    expect(receipt).toMatchObject({
-      status: 'settled',
-      error: 'process-crash-orphan',
-      costUsd: 0,
-    })
-    expect(persistedRecords(state.events).at(-1)).toMatchObject({
-      error: 'process-crash-orphan',
-    })
-  })
-
-  it('keeps the ledger default reason when reconcile marks failure without one', async () => {
-    const pending = {
-      status: 'pending',
-      callId: 'orphan-2',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      maximumCostUsd: 0.5,
-      timestamp: 1,
-    }
-    const { persistence } = memoryPersistence(eventFor(pending))
-    const ledger = new CostLedger({ costCeilingUsd: 1, persistence })
-    const receipt = ledger.reconcile(
-      'orphan-2',
-      { model: 'gpt-4o', inputTokens: 0, outputTokens: 0, actualCostUsd: 0 },
-      { failed: true },
-    )
-    expect(receipt).toMatchObject({ status: 'settled', error: 'paid-call-failed' })
-  })
-
-  it('never replays an unresolved provider call', async () => {
-    const pending = {
-      status: 'pending',
-      callId: 'resume-provider-call',
-      channel: 'analyst',
-      phase: 'analyst.public-benchmark',
-      actor: 'trace-localizer',
-      model: 'gpt-4o',
-      maximumCostUsd: 0.5,
-      tags: { caseId: 'case-1', repetition: '0' },
-      timestamp: 1,
-    }
-    const { persistence, state } = memoryPersistence(eventFor(pending))
-    const ledger = new CostLedger({ costCeilingUsd: 1, persistence })
-    const executedCallIds: string[] = []
-
-    const result = await ledger.runPaidCall({
-      callId: pending.callId,
-      channel: pending.channel,
-      phase: pending.phase,
-      actor: pending.actor,
-      model: pending.model,
-      maximumCharge: { externallyEnforcedMaximumUsd: pending.maximumCostUsd },
-      tags: { repetition: '0', caseId: 'case-1' },
-      async execute(_signal, callId) {
-        executedCallIds.push(callId)
-        return 'recovered'
-      },
-      receipt: () => ({
-        model: 'gpt-4o',
-        inputTokens: 10,
-        outputTokens: 5,
-        actualCostUsd: 0.2,
-      }),
-    })
-
-    expect(result).toMatchObject({
-      succeeded: false,
-      error: expect.any(CostCallConflictError),
-    })
-    if (result.succeeded) throw new Error('unresolved call was replayed')
-    expect(result.error.message).toContain('must be reconciled')
-    expect(executedCallIds).toEqual([])
-    expect(persistedRecords(state.events)).toEqual([expect.objectContaining({ status: 'pending' })])
-  })
-
   it('preserves an explicit zero-cost receipt instead of repricing its tokens', async () => {
     const ledger = new CostLedger()
     const result = await ledger.runPaidCall({
@@ -1245,39 +938,8 @@ describe('CostLedger', () => {
       pendingCalls: 0,
       unresolvedCalls: 0,
       accountingComplete: false,
-      incompleteReasons: expect.arrayContaining(['paid-call-failed']),
+      incompleteReasons: expect.arrayContaining([expect.stringContaining('network failure')]),
     })
-  })
-
-  it('never persists provider response text or credentials in a failed receipt', async () => {
-    const secret = 'Bearer sk-cost-ledger-secret'
-    const { persistence, state } = memoryPersistence()
-    const ledger = new CostLedger({ persistence })
-
-    const result = await ledger.runPaidCall({
-      channel: 'analyst',
-      phase: 'inspect',
-      actor: 'malicious-provider',
-      model: 'gpt-4o',
-      async execute() {
-        throw new Error(`malformed provider response: ${secret}`)
-      },
-      receipt: () => ({ model: 'gpt-4o', inputTokens: 0, outputTokens: 0 }),
-      receiptFromError: () => ({
-        model: 'gpt-4o',
-        inputTokens: 10,
-        outputTokens: 2,
-        actualCostUsd: 0.01,
-      }),
-    })
-
-    expect(result).toMatchObject({
-      succeeded: false,
-      error: { message: expect.stringContaining(secret) },
-      receipt: { error: 'paid-call-failed' },
-    })
-    expect(state.events).not.toContain(secret)
-    expect(state.events).not.toContain('malformed provider response')
   })
 
   it('keeps an aborted external call pending and blocks uncapped work until reconciliation', async () => {
@@ -1375,39 +1037,6 @@ describe('CostLedger', () => {
       usageComplete: false,
       accountingComplete: false,
     })
-  })
-
-  it('waits only for active calls matching the requested attribution', async () => {
-    const ledger = new CostLedger()
-    let finishA!: () => void
-    let finishB!: () => void
-    const call = (cellId: string, finish: (value: () => void) => void) =>
-      ledger.runPaidCall({
-        channel: 'agent',
-        phase: 'campaign',
-        actor: cellId,
-        tags: { cellId },
-        async execute() {
-          await new Promise<void>((resolve) => finish(resolve))
-          return cellId
-        },
-        receipt: () => ({ model: 'gpt-4o', inputTokens: 1, outputTokens: 1 }),
-      })
-    const callA = call('a', (resolve) => {
-      finishA = resolve
-    })
-    const callB = call('b', (resolve) => {
-      finishB = resolve
-    })
-    while (!finishA || !finishB) await new Promise((resolve) => setTimeout(resolve, 1))
-
-    const waitingForA = ledger.waitForIdle({ timeoutMs: 100, filter: { tags: { cellId: 'a' } } })
-    finishA()
-    await expect(waitingForA).resolves.toBe(true)
-    expect(ledger.summary()).toMatchObject({ pendingCalls: 1 })
-
-    finishB()
-    await Promise.all([callA, callB])
   })
 
   it('rejects premature reconciliation while an aborted provider call is still running', async () => {
@@ -1522,7 +1151,7 @@ describe('CostLedger', () => {
       callId: 'aborted-rejection',
       costUnknown: true,
       usageUnknown: true,
-      error: 'paid-call-failed',
+      error: 'provider request aborted',
     })
   })
 
@@ -1816,23 +1445,20 @@ describe('CostLedger', () => {
   })
 
   it('strictly validates restored records and clones imported tags', () => {
-    const invalid = eventFor(
-      {
-        status: 'settled',
-        callId: 'bad',
-        channel: 'agent',
-        phase: 'search',
-        actor: 'worker',
-        model: 'gpt-4o',
-        inputTokens: -1,
-        outputTokens: 0,
-        costUsd: 0,
-        costUnknown: false,
-        timestamp: 1,
-        unexpected: true,
-      },
-      2,
-    )
+    const invalid = eventFor({
+      status: 'settled',
+      callId: 'bad',
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      model: 'gpt-4o',
+      inputTokens: -1,
+      outputTokens: 0,
+      costUsd: 0,
+      costUnknown: false,
+      timestamp: 1,
+      unexpected: true,
+    })
     expect(
       () =>
         new CostLedger({
@@ -1856,23 +1482,20 @@ describe('CostLedger', () => {
   })
 
   it('rejects a persisted estimated cost that disagrees with its token usage', () => {
-    const invalid = eventFor(
-      {
-        status: 'settled',
-        callId: 'forged-zero',
-        channel: 'agent',
-        phase: 'search',
-        actor: 'worker',
-        model: 'gpt-4o',
-        inputTokens: 1_000_000,
-        outputTokens: 1_000_000,
-        costUsd: 0,
-        costUnknown: false,
-        pricing: { inputUsdPerThousand: 0.0025, outputUsdPerThousand: 0.01 },
-        timestamp: 1,
-      },
-      2,
-    )
+    const invalid = eventFor({
+      status: 'settled',
+      callId: 'forged-zero',
+      channel: 'agent',
+      phase: 'search',
+      actor: 'worker',
+      model: 'gpt-4o',
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      costUsd: 0,
+      costUnknown: false,
+      pricing: { inputUsdPerThousand: 0.0025, outputUsdPerThousand: 0.01 },
+      timestamp: 1,
+    })
 
     expect(
       () =>
@@ -1883,43 +1506,6 @@ describe('CostLedger', () => {
           },
         }),
     ).toThrow(/does not match pricing snapshot/)
-  })
-
-  it('accepts equivalent estimated costs after pricing-unit conversion', () => {
-    const inputTokens = 30_054
-    const outputTokens = 20
-    const costUsd = costForTokenPricing(
-      { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10 },
-      { inputTokens, outputTokens },
-    )
-    const serialized = eventFor(
-      {
-        status: 'settled',
-        callId: 'pricing-unit-conversion',
-        channel: 'agent',
-        phase: 'search',
-        actor: 'worker',
-        model: 'gpt-5.6-sol',
-        inputTokens,
-        outputTokens,
-        costUsd,
-        costUnknown: false,
-        pricing: { inputUsdPerThousand: 0.00125, outputUsdPerThousand: 0.01 },
-        timestamp: 1,
-      },
-      2,
-    )
-
-    expect(costUsd).toBe(0.0377675)
-    expect(
-      () =>
-        new CostLedger({
-          persistence: {
-            read: () => ({ revision: revision(serialized), events: serialized }),
-            append: () => undefined,
-          },
-        }),
-    ).not.toThrow()
   })
 
   it('rejects persisted reasoning usage that exceeds total output', () => {
@@ -1953,9 +1539,7 @@ describe('CostLedger', () => {
     ).toThrow(/reasoningTokens must not exceed outputTokens/)
   })
 
-  it('recovers a torn final event while preserving prior cost records', () => {
-    const runDir = mkdtempSync(join(tmpdir(), 'agent-eval-cost-torn-tail-'))
-    const path = join(runDir, 'cost-ledger.jsonl')
+  it('fails loud on a partial final event instead of dropping possible spend', () => {
     const complete = eventFor({
       status: 'pending',
       callId: 'durable-reservation',
@@ -1966,44 +1550,7 @@ describe('CostLedger', () => {
       maximumCostUsd: 0.5,
       timestamp: 1,
     })
-    const events = `${complete}{"torn":"T0RN`
-    writeFileSync(path, events, 'utf8')
-
-    try {
-      const ledger = createRunCostLedger({ storage: fsCampaignStorage(), runDir })
-      expect(ledger.listPending()).toEqual([
-        expect.objectContaining({ callId: 'durable-reservation', state: 'interrupted' }),
-      ])
-      ledger.reconcile('durable-reservation', {
-        model: 'gpt-4o',
-        inputTokens: 10,
-        outputTokens: 2,
-        actualCostUsd: 0.1,
-      })
-
-      const repaired = readFileSync(path, 'utf8')
-      expect(repaired).not.toContain('T0RN')
-      expect(repaired.endsWith('\n')).toBe(true)
-      expect(createRunCostLedger({ storage: fsCampaignStorage(), runDir }).list()).toMatchObject([
-        { callId: 'durable-reservation', costUsd: 0.1 },
-      ])
-    } finally {
-      rmSync(runDir, { recursive: true, force: true })
-    }
-  })
-
-  it('rejects corruption in a complete row before a torn final event', () => {
-    const complete = eventFor({
-      status: 'pending',
-      callId: 'durable-reservation',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      maximumCostUsd: 0.5,
-      timestamp: 1,
-    })
-    const events = `${complete}not-json\n{"torn":`
+    const events = `${complete}{"version":1,"record":`
 
     expect(
       () =>
@@ -2014,29 +1561,6 @@ describe('CostLedger', () => {
           },
         }),
     ).toThrow(/invalid persisted event 2/)
-  })
-
-  it('rejects a complete final event whose newline was removed', () => {
-    const event = eventFor({
-      status: 'pending',
-      callId: 'possibly-acknowledged-reservation',
-      channel: 'agent',
-      phase: 'search',
-      actor: 'worker',
-      model: 'gpt-4o',
-      maximumCostUsd: 0.5,
-      timestamp: 1,
-    }).trimEnd()
-
-    expect(
-      () =>
-        new CostLedger({
-          persistence: {
-            read: () => ({ revision: revision(event), events: event }),
-            append: () => undefined,
-          },
-        }),
-    ).toThrow(/missing its newline terminator/)
   })
 
   it('captures a late receipt when abort races a completed provider call', async () => {

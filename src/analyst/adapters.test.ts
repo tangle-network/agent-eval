@@ -51,6 +51,7 @@ describe('createSemanticConceptJudgeAdapter', () => {
     expect(result.per_analyst[0]).toMatchObject({
       status: 'ok',
       findings_count: 3,
+      cost_usd: 0.25,
       usage: {
         calls: 1,
         tokens: { input: 100, output: 50 },
@@ -79,7 +80,7 @@ describe('createSemanticConceptJudgeAdapter', () => {
           maxTokens: 64,
           llm: {
             baseUrl: 'https://provider.invalid/v1',
-            maximumAttempts: 1,
+            maxRetries: 1,
             fetch: async () => {
               markStarted()
               return provider
@@ -131,7 +132,7 @@ describe('createSemanticConceptJudgeAdapter', () => {
           maxTokens: 64,
           llm: {
             baseUrl: 'https://provider.invalid/v1',
-            maximumAttempts: 1,
+            maxRetries: 1,
             fetch: async () => {
               markStarted()
               return new Promise<Response>(() => {})

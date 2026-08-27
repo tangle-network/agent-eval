@@ -139,167 +139,25 @@ with HostedClient(
 Review [`hosted.py`](./src/agent_eval_rpc/hosted.py) for the typed event fields and retry behavior.
 The event payload can include run paths, scenario IDs, candidate values, scores, errors, costs, summaries, and trace attributes.
 
-## Official Optimizer Bridges
+## Optional GEPA Candidate Search
 
-The TypeScript campaign API can run official GEPA and SkillOpt through this package.
-The Python client does not reimplement either algorithm.
+Install the Python client and GEPA's required source commit separately to use `gepaOptimizationMethod()` from the Node campaign API:
 
-### GEPA
-
-Install the client and published GEPA package for the standard engine:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install "gepa[full]==0.1.4"
+```bash
+pip install agent-eval-rpc
+pip install "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
 ```
 
-The published package runs direct recipes with the standard `gepa` engine.
-Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-of-N currently require this tested official source revision:
+PyPI does not accept packages whose metadata depends directly on a Git URL, and the published `gepa==0.1.4` package does not yet include its four-engine Optimize Anything API.
+From an agent-eval source checkout, `uv sync --group gepa-source` installs the same pinned commit.
+The Python bridge calls GEPA's own Optimize Anything recipes for text candidates, then calls a loopback endpoint that runs the real TypeScript agent and judges.
+It starts GEPA in an empty run directory and gives it only caller-described train and selection cases.
+`compareOptimizationMethods()` keeps final test cases in Node and scores them after GEPA exits.
 
-```sh
-python -m pip install \
-  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
-```
-
-From an Agent Eval source checkout:
-
-```sh
-uv sync --frozen --group gepa-release
-uv sync --frozen --group gepa-source
-```
-
-The bridge calls GEPA's official engine and composition functions.
-It supports direct engine, sequential, adaptive sequential, best-of, vote, and Omni recipes.
-GEPA receives only the serialized train and selection cases supplied by the caller.
-`compareOptimizationMethods()` keeps final cases in TypeScript and evaluates them only after GEPA exits.
-
-Every engine run requires an evaluation limit and an optimizer-model dollar limit.
-Agent Eval enforces callback counts before executing an agent or judge.
-For standard GEPA engines, the TypeScript `optimizer` option routes reflection through Agent Eval's local model proxy.
-The proxy enforces whole-run request and dollar limits, keeps the provider key out of Python, and records exact provider usage in the shared cost log.
-Other official GEPA engines can still receive their native configuration.
-Their external model spend remains incomplete unless that engine reports it.
-
-### SkillOpt
-
-Install the client and the exact SkillOpt source revision tested by Agent Eval:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install \
-  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
-```
-
-From an Agent Eval source checkout, install the locked package with:
-
-```sh
-uv sync --frozen --group skillopt-source
-```
-
-The published `skillopt==0.2.0` wheel omits the 21 prompt files required by `ReflACTTrainer`.
-The source revision contains those files and is checked before each release.
-
-`skillOptOptimizationMethod()` runs SkillOpt's `ReflACTTrainer` with an Agent Eval environment adapter.
-The adapter sends candidate and case pairs back to the TypeScript process for execution and scoring.
-It disables SkillOpt's test split because final cases remain private to `compareOptimizationMethods()`.
-
-The TypeScript method requires:
-
-- an OpenAI-compatible endpoint and key in the TypeScript method's `optimizer` option,
-- exact input and output rates,
-- maximum model dollars, requests, request bytes, response bytes, and output tokens,
-- a maximum candidate evaluation count.
-
-Agent Eval starts a local proxy, gives SkillOpt only the proxy credential, checks every request before forwarding it, and records provider token usage in the shared cost log.
-Before optimization starts, it records and hashes the installed optimizer source, bridge source, Python runtime, runner settings, endpoint settings, data, and evaluation ID into one run ID.
-The Python process checks that identity again before it restores any state.
-Missing provider usage fails the run instead of assuming zero cost.
-
-### DSPy
-
-Install DSPy 3.2.1 and the Agent Eval adapters with:
-
-```sh
-python -m pip install "agent-eval-rpc[dspy]"
-```
-
-```python
-import dspy
-
-from agent_eval_rpc import DspyJudgeMetric
-
-dspy.configure_cache(restrict_pickle=True)
-metric = DspyJudgeMetric(rubric_name="answer-quality")
-
-gepa = dspy.GEPA(
-    metric=metric.feedback,
-    reflection_lm=dspy.LM("openai/gpt-4.1-mini"),
-    max_metric_calls=100,
-)
-optimized = gepa.compile(program, trainset=train, valset=selection)
-
-mipro = dspy.MIPROv2(metric=metric, auto="light")
-```
-
-Use `metric.feedback` for `dspy.GEPA`.
-It returns `dspy.Prediction(score=..., feedback=...)` with dimension scores, failure modes, wins, and rationale.
-Use the metric object directly for MIPROv2, SIMBA, bootstrap, and evaluation APIs that expect a number.
-Identical calls share one judge result, including concurrent calls.
-`DspyJudgeMetric` rejects DSPy's default unrestricted disk-cache pickle handling.
-Configure the official restricted cache as shown above, or call `dspy.configure_cache(enable_disk_cache=False)` before creating the metric.
-
-DSPy programs should use DSPy's official optimizers directly.
-Agent Eval also runs the official `dspy.RLM` for recursive trace analysis.
-The TypeScript API starts the Python bridge, provides authenticated trace tools, keeps provider credentials in Node, enforces model and trace-read limits, and validates cited findings.
-The Python bridge owns no trace storage or model credentials.
-
-```ts
-import { createDspyRlmTraceEngine } from '@tangle-network/agent-eval/analyst'
-import { analyzeTraces } from '@tangle-network/agent-eval/traces'
-
-const engine = createDspyRlmTraceEngine({
-  baseUrl: process.env.LLM_BASE_URL!,
-  apiKey: process.env.LLM_API_KEY!,
-  model: process.env.LLM_MODEL!,
-  pricing: {
-    inputUsdPerMillion: 3,
-    outputUsdPerMillion: 15,
-  },
-  runner: { command: '.venv/bin/python' },
-})
-
-const result = await analyzeTraces(
-  { question: 'What first caused this run to fail?' },
-  { source: 'run.otlp.jsonl', engine, toolGroup: 'singleTrace' },
-)
-```
-
-See [Trace Analysis](../../docs/trace-analysis.md) for custom definitions, limits, result fields, and the public quality benchmark.
-
-DSPy 3.2.1 pins GEPA 0.0.27.
-The general Optimize Anything bridge uses GEPA 0.1.4, so repository checks install them in separate environments:
-
-```sh
-uv sync --frozen --extra dev --group gepa-release
-AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
-  uv run --frozen --extra dev --group gepa-release \
-  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
-
-uv sync --frozen --extra dev --group skillopt-source --group gepa-source
-uv run --frozen pytest
-
-uv sync --frozen --extra dev --extra dspy
-uv run --frozen pytest tests/test_dspy_metric.py
-```
-
-The bridge records the installed upstream package version and source revision with each run.
-SkillOpt and a direct GEPA engine can restore official state only when the package revision, settings, starting candidate, described data, evaluation ID, and seed match.
-Direct GEPA resume also requires `trustResumeState: true` because its upstream checkpoint uses Python pickle.
-Enable it only for a checkpoint created locally in a directory you control.
-Composed GEPA recipes restart and never claim that upstream state was restored.
-
-The official optimizer subprocess requires POSIX process-group cleanup.
-Use Linux or WSL rather than native Windows so a timeout can terminate the complete Python process tree.
+The bridge maps the documented Omni shape directly to GEPA's `optimize_best_of()` followed by `optimize_anything()`.
+It does not reproduce GEPA's search loop.
+Each GEPA engine run requires its own evaluation limit and proposer-dollar cap.
+GEPA's proposer cost is still reported separately from agent-eval's receipt log, so method comparisons mark its cost accounting incomplete rather than treating a reported zero as confirmed spend.
 
 ## Errors
 

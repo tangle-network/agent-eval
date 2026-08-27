@@ -1,21 +1,30 @@
 /**
- * Run one complete improvement job.
+ * # `selfImprove()` - the one-call improvement loop.
  *
- * A caller-owned `proposer` can generate candidates across local generations.
- * An external `method`, such as official GEPA or SkillOpt, owns its complete
- * search and returns one candidate. Both paths remeasure the selected candidate
- * against cases that candidate generation never receives.
+ * The cheapest possible call site to run a real closed-loop self-
+ * improvement over your agent. Wraps `runImprovementLoop` with smart
+ * defaults and a budget-shaped options API; every escape hatch the
+ * substrate exposes is reachable from here without losing the
+ * one-function feel.
+ *
+ * Defaults:
+ *   - In-memory storage (no filesystem touch).
+ *   - `gepaProposer` reflective mutation with domain-neutral engineering primitives
+ *     (override `proposer` or `mutationPrimitives` for any domain).
+ *   - `defaultProductionGate` with `deltaThreshold: 0.05`.
+ *   - Held-out split = 25% of scenarios, deterministic by id hash.
+ *   - 3 generations × population 2 (raise via `budget` for more search).
+ *   - `autoOnPromote: 'none'` (we don't open PRs unless you ask).
+ *
+ * Want one-click? Provide `agent` + `scenarios` + `judge`. Done.
+ * Want distributed? Pass `cellPlacement` + an `httpDispatch`-backed
+ * agent. Want a code-tier surface? Pass a `MutableSurface` + your own
+ * `proposer`. Same function.
  */
 
-import type { ProposalFinding } from '../analyst/types'
+import { createHash } from 'node:crypto'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
-import {
-  assertOptimizationResult,
-  type OptimizationMethod,
-  type OptimizationMethodProvenance,
-  type OptimizationMethodResult,
-} from '../campaign/presets/compare-optimization-methods'
 import {
   type RunImprovementLoopResult,
   runImprovementLoop,
@@ -24,18 +33,13 @@ import type {
   PremeasuredOptimizationBaseline,
   RunOptimizationOptions,
 } from '../campaign/presets/run-optimization'
+import { gepaProposer } from '../campaign/proposers/gepa'
 import {
   emitLoopProvenance,
   type LoopProvenanceRecord,
   loopProvenanceArgsFromResult,
 } from '../campaign/provenance'
 import { resolveRunDir } from '../campaign/run-dir'
-import {
-  campaignCellExecutionEvidence,
-  campaignCellJudgeDimensions,
-  campaignCellTaskScore,
-  campaignCellToRunRecord,
-} from '../campaign/run-record'
 import {
   type CampaignStorage,
   createRunCostLedger,
@@ -54,10 +58,9 @@ import type {
   SurfaceProposer,
 } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
-import { ValidationError } from '../errors'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
-import { modelHasSnapshot, type RunRecord, type RunSplitTag } from '../run-record'
+import type { JudgeScoresRecord, RunRecord } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
 
@@ -65,9 +68,8 @@ export interface SelfImproveBudget {
   /** Hard spend cap across the full run. Each paid call reserves its enforced
    *  maximum before dispatch, so completed spend cannot cross this amount. */
   dollars?: number
-  /** Proposer generations. Default: 3. External methods own their rounds and
-   *  require this value to be omitted or set to 1. Set 0 only for a
-   *  proposer-free baseline run. */
+  /** How many improvement generations to explore. Default 3. Set 0 to
+   *  skip improvement entirely (selfImprove becomes a baseline-only run). */
   generations?: number
   /** Candidates the proposer emits per generation. Default 2. */
   populationSize?: number
@@ -79,10 +81,6 @@ export interface SelfImproveBudget {
   /** Fraction of `scenarios` held out from training, used for the gate.
    *  Default 0.25. Ignored when `holdoutScenarios` is set explicitly. */
   holdoutFraction?: number
-  /** Fraction of the non-final cases reserved for method selection.
-   *  Default 0.25. Used only with `method` and ignored when
-   *  `selectionScenarios` is supplied explicitly. */
-  selectionFraction?: number
   /** Explicit held-out scenarios; overrides `holdoutFraction`. */
   holdoutScenarios?: Scenario[]
   /** Holdout policy. Default `'measured'`: split, re-score baseline vs winner
@@ -101,6 +99,19 @@ export interface SelfImproveBudget {
    *  may take per candidate (verify-in-session retries). Unset ⇒ the
    *  proposer's own default. */
   maxImprovementShots?: number
+  /** @deprecated Must be 1 when supplied. The loop promotes only a candidate
+   *  that replaces its single global incumbent. */
+  promoteTopK?: number
+}
+
+export interface SelfImproveLlm {
+  /** Endpoint base URL. Default Tangle Router. */
+  baseUrl?: string
+  /** Bearer token. Default `process.env.OPENAI_API_KEY`. */
+  apiKey?: string
+  /** Model id used by `gepaProposer` reflection. Default
+   *  `anthropic/claude-sonnet-4.6`. */
+  model?: string
 }
 
 export type SelfImproveProgressEvent =
@@ -128,14 +139,6 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    * baseline-only run (set `budget.generations = 0`).
    */
   agent: (surface: MutableSurface, scenario: TScenario, ctx: DispatchContext) => Promise<TArtifact>
-
-  /**
-   * Snapshot-bearing model identity for agents that do not report a paid-call
-   * receipt through `ctx.cost.runPaidCall()`.
-   *
-   * Omit this when every cell reports its concrete model in a receipt.
-   */
-  model?: string
 
   /** Scenarios to evaluate against. Train/holdout split is computed from
    *  these unless `budget.holdoutScenarios` is set explicitly. */
@@ -165,22 +168,13 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    */
   premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
 
-  /**
-   * Candidate generator for this local generation loop.
-   * Required when `budget.generations` is greater than zero.
-   */
-  proposer?: SurfaceProposer<ProposalFinding>
+  /** Custom surface proposer. Default is `gepaProposer` configured from `llm` +
+   *  `mutationPrimitives`. */
+  proposer?: SurfaceProposer
 
-  /**
-   * Complete optimization method, such as official GEPA or SkillOpt.
-   * The method receives disjoint train and selection cases and never receives
-   * the final comparison cases. Mutually exclusive with `proposer`.
-   */
-  method?: OptimizationMethod<TScenario, TArtifact>
-
-  /** Explicit method-selection cases. They must also appear in `scenarios`
-   *  and must not overlap the final comparison cases. */
-  selectionScenarios?: TScenario[]
+  /** Default-proposer overrides — used when `proposer` is unset. */
+  mutationPrimitives?: string[]
+  proposerTarget?: string
 
   /** Custom gate. Default is `defaultProductionGate` with
    *  `deltaThreshold: 0.05` on the held-out split. */
@@ -195,14 +189,20 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  campaign; omit to skip. Compose `neutralizationGate` into `gate` to act on it. */
   neutralize?: (winnerSurface: MutableSurface, baselineSurface: MutableSurface) => MutableSurface
 
-  /** Storage backend. A filesystem run directory uses `fsCampaignStorage()`;
-   *  a `mem://` directory uses in-memory storage. External methods default to
-   *  a filesystem directory because their official state must survive. */
+  /** LLM config consumed by the default `gepaProposer`. Ignored if you pass
+   *  your own `proposer`. */
+  llm?: SelfImproveLlm
+
+  /** Storage backend. Default is DURABLE: when a real (non-`mem://`) `runDir`
+   *  is available, the substrate defaults to `fsCampaignStorage()` so the
+   *  provenance record + OTel spans survive the call. Pass
+   *  `inMemoryCampaignStorage()` explicitly to opt OUT (tests, edge runtimes).
+   *  Default when `runDir` is `mem://...` (or unset): in-memory. */
   storage?: CampaignStorage
 
-  /** Run directory. Proposer mode defaults to
-   *  `mem://selfImprove-<timestamp>`. External method mode defaults to
-   *  `.agent-eval/runs/self-improve-<timestamp>`. */
+  /** Run directory (logical for in-memory storage, real path for fs).
+   *  Default `mem://selfImprove-<timestamp>` (in-memory, non-durable). Pass a
+   *  real path to persist the provenance record + spans. */
   runDir?: string
 
   /** Fires once the durable provenance record + OTel spans are emitted.
@@ -253,9 +253,9 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  etc.). Ignored when `hostedTenant` is unset. */
   hostedLabels?: Record<string, string>
 
-  /** Capture every search artifact and judge score to this store.
-   *  The store is output only and is never exposed to candidate generation.
-   *  Pass `'off'` to disable. Default: off. */
+  /** Capture every artifact + judge score to this store (labeled-example
+   *  corpus the proposer may read for few-shot, and the dataset you ship). Pass
+   *  `'off'` to disable. Default: off. */
   labeledStore?: LabeledScenarioStore | 'off'
 
   /** Capture-source tag for `labeledStore`. Default `'eval-run'`. */
@@ -282,15 +282,7 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
 
   /** Static findings forwarded to the proposer's `propose()` as `ctx.findings`
    *  (a findings-grounded proposer consumes them). Default: none. */
-  findings?: ProposalFinding[]
-
-  /** Override how the WINNER is selected among coverage-complete candidates.
-   *  Defaults to the scalar mean composite (historical behavior). A binary-with-
-   *  replicates consumer whose ship-gate counts an instance resolved only when
-   *  every replicate resolved passes a fail-closed lexicographic key here so that
-   *  winner-selection and the ship-gate rank on the identical metric and cannot
-   *  invert. See `RunOptimizationOptions.selectionRankKey`. */
-  selectionRankKey?: RunOptimizationOptions<TScenario, TArtifact>['selectionRankKey']
+  findings?: unknown[]
 }
 
 export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
@@ -342,13 +334,6 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   /** Run-wide receipts across proposal, search, holdout, judging, analysis,
    *  and promotion work, with phase and actor attribution. */
   receipts: CostReceipt[]
-  /** Exact external method and source identity, when `method` was used. */
-  optimization?: {
-    name: string
-    cost: OptimizationMethodResult['cost']
-    durationMs?: number
-    provenance?: OptimizationMethodProvenance
-  }
   /**
    * Rigor packet: distributional summary, paired-bootstrap lift CI,
    * judge stats, contamination check, recommendations. Wired through
@@ -383,113 +368,6 @@ export class SelfImproveRunError extends Error {
   }
 }
 
-function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
-  opts: SelfImproveOptions<TScenario, TArtifact>,
-): void {
-  if (opts.method && opts.proposer) {
-    throw new Error('selfImprove: method and proposer are mutually exclusive')
-  }
-  if (!opts.method) {
-    if (opts.selectionScenarios !== undefined) {
-      throw new Error('selfImprove: selectionScenarios requires method')
-    }
-    return
-  }
-  if (
-    typeof opts.method.name !== 'string' ||
-    !opts.method.name.trim() ||
-    opts.method.name.trim() !== opts.method.name ||
-    typeof opts.method.optimize !== 'function'
-  ) {
-    throw new Error('selfImprove: method must have a trimmed name and optimize(input)')
-  }
-  const budget = opts.budget
-  if (budget?.generations !== undefined && budget.generations !== 1) {
-    throw new Error('selfImprove: method owns its rounds; budget.generations must be 1 when set')
-  }
-  if (budget?.populationSize !== undefined && budget.populationSize !== 1) {
-    throw new Error(
-      'selfImprove: method owns its candidates; budget.populationSize must be 1 when set',
-    )
-  }
-  if (
-    budget?.candidateConcurrency !== undefined ||
-    budget?.maxImprovementShots !== undefined ||
-    opts.analyzeGeneration !== undefined ||
-    opts.findings !== undefined
-  ) {
-    throw new Error(
-      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, and findings apply only to proposer mode',
-    )
-  }
-}
-
-function splitMethodPartitions<TScenario extends Scenario>(
-  searchScenarios: TScenario[],
-  explicitSelection: TScenario[] | undefined,
-  fraction: number,
-): { train: TScenario[]; selection: TScenario[] } {
-  if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
-    throw new Error('selfImprove: budget.selectionFraction must be in (0, 1)')
-  }
-  const byId = new Map<string, TScenario>()
-  for (const scenario of searchScenarios) {
-    if (byId.has(scenario.id)) {
-      throw new Error(`selfImprove: duplicate scenario id '${scenario.id}'`)
-    }
-    byId.set(scenario.id, scenario)
-  }
-  if (explicitSelection) {
-    if (explicitSelection.length === 0) {
-      throw new Error('selfImprove: selectionScenarios must not be empty')
-    }
-    const selectionIds = new Set<string>()
-    for (const scenario of explicitSelection) {
-      if (!byId.has(scenario.id)) {
-        throw new Error(
-          `selfImprove: selection scenario '${scenario.id}' is absent from the non-final cases`,
-        )
-      }
-      if (selectionIds.has(scenario.id)) {
-        throw new Error(`selfImprove: duplicate selection scenario id '${scenario.id}'`)
-      }
-      selectionIds.add(scenario.id)
-    }
-    const train = searchScenarios.filter((scenario) => !selectionIds.has(scenario.id))
-    if (train.length === 0) {
-      throw new Error('selfImprove: method train split is empty')
-    }
-    return {
-      train,
-      selection: explicitSelection.map((scenario) => byId.get(scenario.id)!),
-    }
-  }
-  if (searchScenarios.length < 2) {
-    throw new Error('selfImprove: method requires at least two non-final scenarios')
-  }
-  const sorted = [...searchScenarios].sort(
-    (a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id),
-  )
-  const count = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
-  return {
-    selection: sorted.slice(0, count),
-    train: sorted.slice(count),
-  }
-}
-
-function safeRunComponent(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
-function stableScenarioHash(value: string): number {
-  let hash = 2166136261 >>> 0
-  for (let index = 0; index < value.length; index++) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 16777619) >>> 0
-  }
-  return hash
-}
-
 /**
  * Deterministic train/holdout split by a stable hash of `scenario.id`,
  * so the same scenario set always splits the same way across runs.
@@ -498,7 +376,16 @@ function splitTrainHoldout<TScenario extends Scenario>(
   scenarios: TScenario[],
   fraction: number,
 ): { train: TScenario[]; holdout: TScenario[] } {
-  const sorted = [...scenarios].sort((a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id))
+  // Stable fnv-1a-ish hash of the id for ordering.
+  function hash(s: string): number {
+    let h = 2166136261 >>> 0
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 16777619) >>> 0
+    }
+    return h
+  }
+  const sorted = [...scenarios].sort((a, b) => hash(a.id) - hash(b.id))
   const nHoldout = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
   return {
     holdout: sorted.slice(0, nHoldout),
@@ -550,7 +437,6 @@ function winnerSearchCampaign<TScenario extends Scenario, TArtifact>(
  *     scenarios,
  *     judge,
  *     baselineSurface: DEFAULT_PROMPT,
- *     proposer,
  *   })
  *   console.log(`lift: ${result.lift.toFixed(3)} (${result.gateDecision})`)
  *
@@ -569,9 +455,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const startedAt = Date.now()
-  const requestedRunDir =
-    opts.runDir ??
-    (opts.method ? `.agent-eval/runs/self-improve-${startedAt}` : `mem://selfImprove-${startedAt}`)
+  const requestedRunDir = opts.runDir ?? `mem://selfImprove-${startedAt}`
   const runDir = resolveRunDir(requestedRunDir)
   const storage =
     opts.storage ?? (runDir.startsWith('mem://') ? inMemoryCampaignStorage() : fsCampaignStorage())
@@ -595,9 +479,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   storage: CampaignStorage,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const budget = opts.budget ?? {}
-  assertSelfImproveSearchMode(opts)
-  const generations = opts.method ? 1 : (budget.generations ?? 3)
-  const populationSize = opts.method ? 1 : (budget.populationSize ?? 2)
+  const generations = budget.generations ?? 3
+  const populationSize = budget.populationSize ?? 2
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
   const holdoutMode = budget.holdout ?? 'measured'
@@ -627,59 +510,21 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
-  if (generations > 0 && !opts.proposer && !opts.method) {
-    throw new Error(
-      'selfImprove: method or proposer is required when budget.generations is greater than zero',
-    )
-  }
-  let optimizationResult: OptimizationMethodResult | undefined
-  const methodPartitions = opts.method
-    ? splitMethodPartitions(train, opts.selectionScenarios, budget.selectionFraction ?? 0.25)
-    : undefined
-  const proposer: SurfaceProposer<ProposalFinding> = opts.method
-    ? {
-        kind: `method:${opts.method.name}`,
-        propose: async (context) => {
-          if (context.generation > 0) return []
-          const result = await opts.method!.optimize(
-            Object.freeze({
-              baselineSurface: structuredClone(context.currentSurface),
-              trainScenarios: Object.freeze(
-                methodPartitions!.train.map((scenario) => structuredClone(scenario)),
-              ),
-              selectionScenarios: Object.freeze(
-                methodPartitions!.selection.map((scenario) => structuredClone(scenario)),
-              ),
-              dispatchWithSurface: opts.agent,
-              judges: Object.freeze([opts.judge]),
-              runDir: `${runDir}/optimization/${safeRunComponent(opts.method!.name)}`,
-              seed: 42,
-              runOptions: Object.freeze({
-                storage,
-                maxConcurrency,
-                reps: budget.reps,
-                dispatchTimeoutMs: opts.dispatchTimeoutMs,
-                expectUsage,
-                costCeiling: budget.dollars,
-              }),
-              costLedger,
-            }),
-          )
-          assertOptimizationResult(opts.method!.name, result)
-          optimizationResult = structuredClone(result)
-          return [
-            {
-              surface: structuredClone(result.winnerSurface),
-              label: opts.method!.name,
-              rationale: `${opts.method!.name} selected this surface without final cases.`,
-            },
-          ]
-        },
-      }
-    : (opts.proposer ?? {
-        kind: 'baseline-only',
-        propose: async () => [],
-      })
+  const proposer: SurfaceProposer =
+    opts.proposer ??
+    gepaProposer({
+      llm: {
+        baseUrl: opts.llm?.baseUrl ?? 'https://router.tangle.tools/v1',
+        apiKey: opts.llm?.apiKey ?? process.env.OPENAI_API_KEY ?? '',
+      },
+      model: opts.llm?.model ?? 'anthropic/claude-sonnet-4.6',
+      target:
+        opts.proposerTarget ??
+        'agent surface (system prompt or config) being optimized by selfImprove',
+      // Pass-through: when unset, gepaProposer falls back to its own
+      // domain-neutral engineering primitives.
+      mutationPrimitives: opts.mutationPrimitives,
+    })
 
   const gate: Gate<TArtifact, TScenario> =
     opts.gate ??
@@ -702,6 +547,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     populationSize,
     maxGenerations: generations,
     candidateConcurrency: budget.candidateConcurrency,
+    promoteTopK: budget.promoteTopK,
     reps: budget.reps,
     maxImprovementShots: budget.maxImprovementShots,
     holdoutScenarios: holdout,
@@ -722,21 +568,16 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     captureSource: opts.captureSource,
     analyzeGeneration: opts.analyzeGeneration,
     findings: opts.findings,
-    selectionRankKey: opts.selectionRankKey,
   })
 
   // Deferred holdout ran zero holdout cells, so the summary stats come from
   // the improvement-set (search) campaigns — labeled as such on the result
   // type — and `lift` is omitted rather than fabricated from empty campaigns.
-  const reportSplit: RunSplitTag = holdoutDeferred ? 'search' : 'holdout'
-  const reportBaselineCampaign = holdoutDeferred
-    ? result.baselineCampaign
-    : result.baselineOnHoldout
-  const reportWinnerCampaign = holdoutDeferred
-    ? winnerSearchCampaign(result)
-    : result.winnerOnHoldout
-  const baseline = meanComposite(reportBaselineCampaign.aggregates.byScenario)
-  const winnerStats = meanComposite(reportWinnerCampaign.aggregates.byScenario)
+  const winnerSearch = holdoutDeferred ? winnerSearchCampaign(result) : undefined
+  const baseline = meanComposite(
+    (holdoutDeferred ? result.baselineCampaign : result.baselineOnHoldout).aggregates.byScenario,
+  )
+  const winnerStats = meanComposite((winnerSearch ?? result.winnerOnHoldout).aggregates.byScenario)
 
   // Power analysis from the baseline holdout cells — the number that says whether
   // this budget could ship ANY effect. Attached to every result; loud when the
@@ -798,21 +639,12 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   // sections populate from the cells' judgeScores.
   const insight = await analyzeRuns({
     runs: [
+      ...cellsToRunRecords(result.baselineCampaign.cells, 'baseline', runDir, opts.baselineSurface),
       ...cellsToRunRecords(
-        reportBaselineCampaign.cells,
-        'baseline',
-        runDir,
-        opts.baselineSurface,
-        reportSplit,
-        opts.model,
-      ),
-      ...cellsToRunRecords(
-        reportWinnerCampaign.cells,
+        (winnerSearch ?? result.winnerOnHoldout).cells,
         'winner',
         runDir,
         result.winnerSurface,
-        reportSplit,
-        opts.model,
       ),
     ],
     baselineCandidateId: 'baseline',
@@ -833,20 +665,6 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       totalCostUsd: totalCost,
       totalDurationMs: durationMs,
     }),
-    ...(optimizationResult
-      ? {
-          optimizationMethod: {
-            name: opts.method!.name,
-            cost: structuredClone(optimizationResult.cost),
-            ...(optimizationResult.durationMs === undefined
-              ? {}
-              : { durationMs: optimizationResult.durationMs }),
-            ...(optimizationResult.provenance === undefined
-              ? {}
-              : { provenance: structuredClone(optimizationResult.provenance) }),
-          },
-        }
-      : {}),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
   })
@@ -869,20 +687,6 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     totalCostUsd: totalCost,
     cost,
     receipts: costLedger.list(),
-    ...(optimizationResult
-      ? {
-          optimization: {
-            name: opts.method!.name,
-            cost: structuredClone(optimizationResult.cost),
-            ...(optimizationResult.durationMs === undefined
-              ? {}
-              : { durationMs: optimizationResult.durationMs }),
-            ...(optimizationResult.provenance === undefined
-              ? {}
-              : { provenance: structuredClone(optimizationResult.provenance) }),
-          },
-        }
-      : {}),
     insight,
     ...(power ? { power } : {}),
     raw: result,
@@ -919,31 +723,30 @@ async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
     durationMs: number,
   ): EvalRunGenerationSnapshot {
     const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
-      const execution = campaignCellExecutionEvidence(cell)
+      const judgeScores = Object.values(cell.judgeScores)
+      const composite =
+        judgeScores.length === 0
+          ? 0
+          : judgeScores.reduce((s, j) => s + j.composite, 0) / judgeScores.length
       return {
         scenarioId: cell.scenarioId,
         rep: cell.rep,
-        compositeMean: campaignCellTaskScore(cell) ?? null,
-        dimensions: campaignCellJudgeDimensions(cell),
-        terminalOutcome: execution.terminalOutcome,
-        executionErrorCount: execution.executionErrorCount ?? null,
+        compositeMean: composite,
+        dimensions: Object.fromEntries(
+          Object.entries(cell.judgeScores).map(([name, score]) => [name, score.dimensions]),
+        ),
         errorMessage: cell.error ?? undefined,
       }
     })
-    const scoredCells = cells.flatMap((cell) =>
-      cell.compositeMean === null ? [] : [cell.compositeMean],
-    )
     const compositeMean =
-      scoredCells.length === 0
-        ? null
-        : scoredCells.reduce((sum, score) => sum + score, 0) / scoredCells.length
+      cells.length === 0 ? 0 : cells.reduce((s, c) => s + c.compositeMean, 0) / cells.length
     return {
       index,
       surfaceHash: surfaceHash(surface),
       surface,
       cells,
       compositeMean,
-      costUsd: campaign.aggregates.cost.totalCostUsd,
+      costUsd: campaign.aggregates.totalCostUsd,
       durationMs,
     }
   }
@@ -1005,7 +808,7 @@ function hashString(s: string): string {
 /**
  * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
  * Each cell becomes one run; `candidateId` is the caller-supplied label so
- * baseline + winner pair cleanly on `(experimentId, scenarioId, seed)`.
+ * baseline + winner pair cleanly on `(experimentId, seed)`.
  *
  * `promptHash` is the REAL sha256 content hash of the surface this cell ran
  * (baseline vs winner are byte-distinguishable + byte-identical-verifiable);
@@ -1018,39 +821,74 @@ function cellsToRunRecords<TArtifact>(
   candidateId: 'baseline' | 'winner',
   runId: string,
   surface: MutableSurface,
-  splitTag: RunSplitTag,
-  fallbackModel?: string,
 ): RunRecord[] {
   const promptHash = surfaceContentHash(surface)
-  const configHash = surfaceContentHash(candidateId)
+  const configHash = `sha256:${createHash('sha256').update(candidateId).digest('hex')}`
   return cells.map((cell) => {
-    const model = cell.resolvedModel ?? fallbackModel
-    if (!model) {
-      throw new ValidationError(
-        `selfImprove.model is required when cell ${cell.cellId} has no paid-call model receipt`,
-      )
+    const perJudge: Record<string, Record<string, number>> = {}
+    const perDimMeanAccum: Record<string, { sum: number; n: number }> = {}
+    let compositeSum = 0
+    let compositeCount = 0
+    for (const [judgeId, score] of Object.entries(cell.judgeScores)) {
+      perJudge[judgeId] = { ...score.dimensions }
+      for (const [dim, value] of Object.entries(score.dimensions)) {
+        if (!Number.isFinite(value)) continue
+        const accum = perDimMeanAccum[dim] ?? { sum: 0, n: 0 }
+        accum.sum += value
+        accum.n += 1
+        perDimMeanAccum[dim] = accum
+      }
+      if (Number.isFinite(score.composite)) {
+        compositeSum += score.composite
+        compositeCount += 1
+      }
     }
-    if (!modelHasSnapshot(model)) {
-      throw new ValidationError(
-        `selfImprove model "${model}" lacks a snapshot version for cell ${cell.cellId}`,
-      )
+    const perDimMean: Record<string, number> = {}
+    for (const [dim, { sum, n }] of Object.entries(perDimMeanAccum)) {
+      perDimMean[dim] = n === 0 ? 0 : sum / n
     }
-    return campaignCellToRunRecord(cell, {
+    const composite = compositeCount === 0 ? 0 : compositeSum / compositeCount
+    const judgeScores: JudgeScoresRecord = {
+      perJudge,
+      perDimMean,
+      composite,
+    }
+    return {
       runId: `${runId}::${candidateId}::${cell.cellId}`,
       experimentId: runId,
       candidateId,
-      // scenarioId is explicit; seed keeps repeated runs distinct.
+      // Pair on (scenarioId, rep) — analyzeRuns pairs on (experimentId, seed).
+      // Synthesize a stable seed for that pairing.
       seed:
         cell.rep * 1_000_000 +
         hashString(cell.scenarioId)
           .slice(0, 6)
           .split('')
           .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),
-      model,
+      model: 'campaign-cell',
       promptHash,
       configHash,
       commitSha: 'cell',
-      splitTag,
-    })
+      wallMs: cell.durationMs,
+      costUsd: cell.costUsd,
+      tokenUsage: {
+        input: cell.tokenUsage.input,
+        output: cell.tokenUsage.output,
+        ...(cell.tokenUsage.reasoning === undefined
+          ? {}
+          : { reasoning: cell.tokenUsage.reasoning }),
+        ...(cell.tokenUsage.cached === undefined ? {} : { cached: cell.tokenUsage.cached }),
+        ...(cell.tokenUsage.cacheWrite === undefined
+          ? {}
+          : { cacheWrite: cell.tokenUsage.cacheWrite }),
+      },
+      outcome: {
+        holdoutScore: composite,
+        raw: {},
+        judgeScores,
+      },
+      splitTag: 'holdout',
+      ...(cell.error ? { failureMode: cell.error } : {}),
+    } satisfies RunRecord
   })
 }

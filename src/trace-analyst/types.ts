@@ -19,7 +19,6 @@ export type TraceAnalystSpanKind =
   | 'LLM'
   | 'TOOL'
   | 'CHAIN'
-  | 'EVALUATOR'
   | 'GUARDRAIL'
   | 'SPAN'
   | 'UNKNOWN'
@@ -154,10 +153,6 @@ export interface ViewSpansResult {
   spans: TraceAnalystSpan[]
   /** Number of requested span ids that were not found in the trace. */
   missing_span_ids: string[]
-  /** Requested span ids that exist but did not fit in this response. */
-  omitted_span_ids: string[]
-  /** True exactly when `omitted_span_ids` contains continuation work. */
-  has_more: boolean
   /** Number of attribute fields truncated to fit the per-attribute cap. */
   truncated_attribute_count: number
 }
@@ -179,6 +174,7 @@ export interface SpanMatchRecord {
 export interface SearchTraceResult {
   trace_id: string
   hits: SpanMatchRecord[]
+  total_matches: number
   has_more: boolean
 }
 
@@ -186,6 +182,7 @@ export interface SearchSpanResult {
   trace_id: string
   span_id: string
   hits: SpanMatchRecord[]
+  total_matches: number
   has_more: boolean
 }
 

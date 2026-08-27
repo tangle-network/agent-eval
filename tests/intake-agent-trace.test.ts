@@ -53,12 +53,9 @@ function run(id: string, commitSha: string, score: number): RunRecord {
     commitSha,
     wallMs: 10,
     costUsd: 0.01,
-    costProvenance: { kind: 'observed', usd: 0.01 },
     tokenUsage: { input: 100, output: 50 },
-    terminalOutcome: 'succeeded',
     outcome: { holdoutScore: score, raw: {} },
     splitTag: 'holdout',
-    scenarioId: id,
   }
 }
 

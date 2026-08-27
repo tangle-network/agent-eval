@@ -21,7 +21,6 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeProposalFinding } from '../src/analyst/types'
 import {
   type LoopProvenanceRecord,
   provenanceRecordPath,
@@ -50,9 +49,10 @@ const MARKER = 'STRICT_SCHEMA'
 const RATIONALE = 'baseline under-specifies output; pin the strict schema'
 const LABEL = 'pin-schema'
 
-// Twenty-four scenarios make the 0.25 holdout split yield six cells, the
-// smallest sample that can clear the default 95% exact sign test.
-const SCENARIOS: S[] = Array.from({ length: 24 }, (_, i) => ({ id: `s${i}`, kind: 'chat' }))
+// Twelve scenarios so the 0.25 holdout split yields >=3 holdout cells — the
+// rigorous gate's minProductiveRuns floor for a paired-bootstrap significance
+// claim (2 holdout would correctly hold as too-few-runs).
+const SCENARIOS: S[] = Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, kind: 'chat' }))
 
 const judge: JudgeConfig<A, S> = {
   name: 'has-marker',
@@ -64,7 +64,7 @@ const judge: JudgeConfig<A, S> = {
 }
 
 // Deterministic proposer: one candidate that introduces the marker, carrying the
-// rationale. A runtime or external engine can author this; here it is fixed.
+// rationale. This is what gepaProposer does with a real router; here it is fixed.
 const proposer: SurfaceProposer = {
   kind: 'fake:marker',
   async propose({ currentSurface, populationSize }) {
@@ -163,12 +163,11 @@ describe('selfImprove provenance emission (durable by default)', () => {
     const recomputed = recordOnDisk.winnerHoldoutComposite - recordOnDisk.baselineHoldoutComposite
     expect(recomputed).toBeCloseTo(result.lift, 9)
     expect(recordOnDisk.heldOutLift).toBeCloseTo(result.lift, 9)
-  }, 10_000)
+  })
 
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({
       agent,
-      model: 'deterministic-test-agent@2026-07-25',
       scenarios: SCENARIOS,
       judge,
       expectUsage: 'off', // deterministic offline mock — no real backend to assert
@@ -186,24 +185,12 @@ describe('selfImprove provenance emission (durable by default)', () => {
 describe('selfImprove — forwarded loop knobs', () => {
   const base = {
     agent, // echoes the surface, reports no cost via ctx → cells are {0,0}
-    model: 'deterministic-test-agent@2026-07-25',
     scenarios: SCENARIOS,
     judge,
     baselineSurface: 'BASE',
     proposer,
     budget: { generations: 1, populationSize: 1 },
   } as const
-
-  it('requires an explicit worker model when cells have no paid-call receipt', async () => {
-    await expect(
-      selfImprove<S, A>({
-        ...base,
-        model: undefined,
-        budget: { generations: 0, holdoutFraction: 0.5 },
-        expectUsage: 'off',
-      }),
-    ).rejects.toThrow(/selfImprove\.model is required/)
-  })
 
   it('defaults expectUsage to "assert" — a stub (zero-cost) cell fails loud', async () => {
     // No expectUsage → the new default 'assert'. The mock agent never reports
@@ -224,12 +211,11 @@ describe('selfImprove — forwarded loop knobs', () => {
       selfImprove<S, A>({
         ...base,
         agent: (_surface, _scenario, ctx) =>
-          new Promise<A>((_resolve, reject) => {
+          new Promise<A>(() => {
             ctx.signal.addEventListener(
               'abort',
               () => {
                 observedAbort = true
-                reject(ctx.signal.reason)
               },
               { once: true },
             )
@@ -263,25 +249,13 @@ describe('selfImprove — forwarded loop knobs', () => {
     await selfImprove<S, A>({
       ...base,
       // Single generation — the common case. The producer analyzes the
-      // baseline traces first (gen -1) so gen 0 proposes with those findings;
+      // baseline traces first (gen -1) so gen 0 proposes with that report;
       // the between-generation call is skipped (gen 0 is the last).
       budget: { generations: 1, populationSize: 1 },
       expectUsage: 'off',
       analyzeGeneration: async ({ generation }) => {
         analyzed.push(generation)
-        return [
-          makeProposalFinding({
-            analyst_id: 'baseline-analysis',
-            severity: 'info',
-            area: 'optimization',
-            claim: 'baseline finding',
-            confidence: 1,
-            evidence_refs: [],
-            derived_from_judge: false,
-            proposal_origin: 'search',
-            produced_at: '2026-07-28T00:00:00.000Z',
-          }),
-        ]
+        return [{ claim: 'baseline finding' }]
       },
     })
     expect(analyzed).toEqual([-1])

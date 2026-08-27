@@ -16,12 +16,26 @@ import {
   OPENINFERENCE_SPAN_KIND,
   TOOL_NAME,
 } from '../trace/otlp-attributes'
-import { createOtlpFlatLine, type OtlpFlatLine } from '../trace/otlp-flat'
 
-export type { OtlpFlatLine } from '../trace/otlp-flat'
+export interface OtlpFlatLine {
+  trace_id: string
+  span_id: string
+  parent_span_id: string | null
+  name: string
+  kind: string
+  start_time: string
+  end_time: string
+  status: {
+    code: 'STATUS_CODE_OK' | 'STATUS_CODE_ERROR' | 'STATUS_CODE_UNSET'
+    message?: string
+  }
+  resource: { attributes: Record<string, string | number | boolean> }
+  attributes: Record<string, string | number | boolean>
+  events?: Array<{ name: string; timeUnixNano?: string; attributes?: Record<string, unknown> }>
+}
 
 export interface FlattenOtlpOptions {
-  /** `'openinference'` (default) maps source per-span attributes into the
+  /** `'openinference'` (default) mirrors legacy per-span attributes into the
    *  canonical OpenInference vocabulary the analyst readers consume. `'none'`
    *  passes attributes through untouched. */
   attributeVocabulary?: 'openinference' | 'none'
@@ -103,24 +117,28 @@ export function flattenOtlpExportToNdjson(
       for (const span of scope.spans ?? []) {
         const attributes = attrsToRecord(span.attributes ?? [])
         if (vocab === 'openinference') applyOpenInference(attributes)
-        const line = createOtlpFlatLine({
-          traceId: span.traceId,
-          spanId: span.spanId,
-          parentSpanId: span.parentSpanId ?? null,
+        const line: OtlpFlatLine = {
+          trace_id: span.traceId,
+          span_id: span.spanId,
+          parent_span_id: span.parentSpanId ?? null,
           name: span.name,
           kind: kindMap[span.kind] ?? 'SPAN_KIND_UNSPECIFIED',
-          startTime: nanoToIso(span.startTimeUnixNano),
-          endTime: nanoToIso(span.endTimeUnixNano),
-          statusCode: STATUS_MAP[span.status?.code ?? 0] ?? 'STATUS_CODE_UNSET',
-          statusMessage: span.status?.message,
+          start_time: nanoToIso(span.startTimeUnixNano),
+          end_time: nanoToIso(span.endTimeUnixNano),
+          status: {
+            code: STATUS_MAP[span.status?.code ?? 0] ?? 'STATUS_CODE_UNSET',
+            ...(span.status?.message ? { message: span.status.message } : {}),
+          },
           resource,
           attributes,
-          events: span.events?.map((e) => ({
+        }
+        if (span.events && span.events.length > 0) {
+          line.events = span.events.map((e) => ({
             name: e.name,
             timeUnixNano: e.timeUnixNano,
             ...(e.attributes ? { attributes: attrsToRecord(e.attributes) } : {}),
-          })),
-        })
+          }))
+        }
         lines.push(line)
       }
     }

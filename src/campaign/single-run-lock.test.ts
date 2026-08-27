@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { transformSync } from 'esbuild'
+import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { acquireSingleRunLock } from './single-run-lock'
 
@@ -21,17 +21,16 @@ async function synchronizedContenders(options: {
   const atomicModulePath = join(root, 'atomic-file-lock.mjs')
   const source = readFileSync(new URL('./single-run-lock.ts', import.meta.url), 'utf8')
   const transpile = (input: string): string =>
-    transformSync(input, { loader: 'ts', format: 'esm', target: 'es2022' }).code
+    ts.transpileModule(input, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText
   writeFileSync(
     modulePath,
-    transpile(source).replace(
-      /from ['"]\.\.\/ledger-core\/atomic-file-lock['"]/,
-      "from './atomic-file-lock.mjs'",
-    ),
+    transpile(source).replace(/from ['"]\.\/atomic-file-lock['"]/, "from './atomic-file-lock.mjs'"),
   )
   writeFileSync(
     atomicModulePath,
-    transpile(readFileSync(new URL('../ledger-core/atomic-file-lock.ts', import.meta.url), 'utf8')),
+    transpile(readFileSync(new URL('./atomic-file-lock.ts', import.meta.url), 'utf8')),
   )
   if (options.stale) {
     writeFileSync(
@@ -113,24 +112,9 @@ describe('acquireSingleRunLock', () => {
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false }).release()).not.toThrow()
   })
 
-  it('removes its process exit listener when released', () => {
-    const lockPath = join(dir(), 'gym.lock')
-    const before = process.listenerCount('exit')
-    const lock = acquireSingleRunLock({ lockPath })
-
-    expect(process.listenerCount('exit')).toBe(before + 1)
-    lock.release()
-    expect(process.listenerCount('exit')).toBe(before)
-    lock.release()
-    expect(process.listenerCount('exit')).toBe(before)
-  })
-
   it('throws naming a live holder', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ host: hostname(), nonce: 'live-holder', pid: process.pid }),
-    )
+    writeFileSync(lockPath, String(process.pid)) // this test process IS the live holder
     expect(() =>
       acquireSingleRunLock({ lockPath, pid: process.pid + 1, releaseOnExit: false }),
     ).toThrow(/held by live pid/)
@@ -148,10 +132,7 @@ describe('acquireSingleRunLock', () => {
 
   it('reclaims a stale lock whose holder pid is gone', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ host: hostname(), nonce: 'stale-holder', pid: 999_999_999 }),
-    )
+    writeFileSync(lockPath, '999999999') // beyond pid_max: never a live process
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
     expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toMatchObject({ pid: process.pid })
     lock.release()
@@ -159,8 +140,7 @@ describe('acquireSingleRunLock', () => {
 
   it('treats a permission-denied owner probe as live', () => {
     const lockPath = join(dir(), 'gym.lock')
-    const owner = { host: hostname(), nonce: 'permission-denied-holder', pid: 12345 }
-    writeFileSync(lockPath, JSON.stringify(owner))
+    writeFileSync(lockPath, '12345')
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
       throw Object.assign(new Error('denied'), { code: 'EPERM' })
     })
@@ -168,7 +148,7 @@ describe('acquireSingleRunLock', () => {
       expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
         /held by live pid 12345/,
       )
-      expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
+      expect(readFileSync(lockPath, 'utf8')).toBe('12345')
     } finally {
       kill.mockRestore()
     }
@@ -188,8 +168,7 @@ describe('acquireSingleRunLock', () => {
     const d = dir()
     const mine = join(d, 'mine.lock')
     const theirs = join(d, 'theirs.lock')
-    const owner = { host: hostname(), nonce: 'other-runner', pid: process.pid }
-    writeFileSync(theirs, JSON.stringify(owner))
+    writeFileSync(theirs, String(process.pid))
     expect(() =>
       acquireSingleRunLock({
         lockPath: mine,
@@ -199,16 +178,15 @@ describe('acquireSingleRunLock', () => {
       }),
     ).toThrow(/theirs\.lock/)
     // their lock untouched
-    expect(JSON.parse(readFileSync(theirs, 'utf8'))).toEqual(owner)
+    expect(readFileSync(theirs, 'utf8')).toBe(String(process.pid))
   })
 
   it('does not release a lock another process re-acquired', () => {
     const lockPath = join(dir(), 'gym.lock')
     const lock = acquireSingleRunLock({ lockPath, releaseOnExit: false })
-    const owner = { host: hostname(), nonce: 'replacement-owner', pid: 999_999_998 }
-    writeFileSync(lockPath, JSON.stringify(owner))
+    writeFileSync(lockPath, '999999998') // someone else took it over
     lock.release()
-    expect(JSON.parse(readFileSync(lockPath, 'utf8'))).toEqual(owner)
+    expect(readFileSync(lockPath, 'utf8')).toBe('999999998')
   })
 
   it('admits exactly one of 32 synchronized processes', async () => {
@@ -225,10 +203,7 @@ describe('acquireSingleRunLock', () => {
 
   it('fails closed on an interrupted recovery marker', () => {
     const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(
-      `${lockPath}.reclaim`,
-      JSON.stringify({ host: hostname(), nonce: 'active-reclaimer', pid: process.pid }),
-    )
+    writeFileSync(`${lockPath}.reclaim`, '999999999')
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(
       /recovery is already in progress/,
     )
@@ -239,12 +214,6 @@ describe('acquireSingleRunLock', () => {
     writeFileSync(lockPath, 'not-a-pid')
     expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(/invalid owner/)
     expect(readFileSync(lockPath, 'utf8')).toBe('not-a-pid')
-  })
-
-  it('rejects the removed plain-pid owner format', () => {
-    const lockPath = join(dir(), 'gym.lock')
-    writeFileSync(lockPath, String(process.pid))
-    expect(() => acquireSingleRunLock({ lockPath, releaseOnExit: false })).toThrow(/invalid owner/)
   })
 
   it('rejects invalid owner pids', () => {

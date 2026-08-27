@@ -2,14 +2,13 @@ import type { ControlEvalResult, ControlRunResult } from './control-runtime'
 import {
   type RunRecord,
   type RunSplitTag,
-  type RunTaskFailure,
   type RunTokenUsage,
   validateRunRecord,
 } from './run-record'
+import type { FailureClass } from './trace/schema'
 
 export interface RunEvidenceMetadata {
   experimentId: string
-  scenarioId: string
   candidateId: string
   seed: number
   model: string
@@ -18,17 +17,16 @@ export interface RunEvidenceMetadata {
   commitSha: string
   splitTag: RunSplitTag
   tokenUsage: RunTokenUsage
-  costProvenance: RunRecord['costProvenance']
   queueMs?: number
   judgeMetadata?: RunRecord['judgeMetadata']
   raw?: Record<string, number>
 }
 
-export type ControlRunToRunRecordOptions = RunEvidenceMetadata &
-  RunTaskFailure & {
-    runId?: string
-    score?: number
-  }
+export interface ControlRunToRunRecordOptions extends RunEvidenceMetadata {
+  runId?: string
+  score?: number
+  failureMode?: string
+}
 
 /**
  * Project a completed control-loop run into the strict RunRecord shape used by
@@ -47,32 +45,13 @@ export function controlRunToRunRecord<
   run: ControlRunResult<TState, TAction, TActionResult, TEval>,
   options: ControlRunToRunRecordOptions,
 ): RunRecord {
-  const score =
-    finiteScore(options.score) ?? finiteScore(run.score) ?? scoreFromEvals(run.finalEvals)
+  const score = clampScore(
+    options.score ?? run.score ?? scoreFromEvals(run.finalEvals) ?? (run.pass ? 1 : 0),
+  )
   const outcome =
     options.splitTag === 'holdout'
-      ? {
-          ...(score !== undefined ? { holdoutScore: score } : {}),
-          raw: normalizeRawMetrics(options.raw, run, score),
-        }
-      : {
-          ...(score !== undefined ? { searchScore: score } : {}),
-          raw: normalizeRawMetrics(options.raw, run, score),
-        }
-  const terminalOutcome =
-    run.stoppedBy === 'abort'
-      ? 'cancelled'
-      : run.stoppedBy === 'runtime-error'
-        ? 'failed'
-        : run.completed
-          ? 'succeeded'
-          : 'incomplete'
-  const costUsd = options.costProvenance.kind === 'uncaptured' ? null : options.costProvenance.usd
-  if (costUsd !== null && costUsd !== run.spentCostUsd) {
-    throw new Error(
-      `cost provenance amount ${costUsd} does not match control run spend ${run.spentCostUsd}`,
-    )
-  }
+      ? { holdoutScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
+      : { searchScore: score, raw: normalizeRawMetrics(options.raw, run, score) }
 
   return validateRunRecord({
     runId:
@@ -88,17 +67,12 @@ export function controlRunToRunRecord<
     commitSha: options.commitSha,
     wallMs: run.wallMs,
     ...(options.queueMs !== undefined ? { queueMs: options.queueMs } : {}),
-    costUsd,
-    costProvenance: options.costProvenance,
+    costUsd: run.spentCostUsd,
     tokenUsage: options.tokenUsage,
-    terminalOutcome,
-    ...(terminalOutcome !== 'succeeded' ? { terminalFailureReason: run.reason } : {}),
     ...(options.judgeMetadata ? { judgeMetadata: options.judgeMetadata } : {}),
     outcome,
-    ...(options.failureClass !== undefined ? { failureClass: options.failureClass } : {}),
-    ...(options.failureMode !== undefined ? { failureMode: options.failureMode } : {}),
+    failureMode: options.failureMode ?? failureModeFromRun(run),
     splitTag: options.splitTag,
-    scenarioId: options.scenarioId,
   })
 }
 
@@ -113,31 +87,16 @@ export function scoreFromEvals(evals: readonly ControlEvalResult[]): number | un
 function normalizeRawMetrics<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
   raw: Record<string, number> | undefined,
   run: ControlRunResult<TState, TAction, TActionResult, TEval>,
-  score: number | undefined,
+  score: number,
 ): Record<string, number> {
-  const normalizedRaw = finiteOnly(raw ?? {})
-  delete normalizedRaw.score
   return {
-    ...normalizedRaw,
-    ...(score !== undefined ? { score } : {}),
+    ...finiteOnly(raw ?? {}),
+    score,
     pass: run.pass ? 1 : 0,
     completed: run.completed ? 1 : 0,
     steps: run.steps.length,
     runtimeErrors: run.runtimeErrors.length,
-    execution_error_count: executionErrorCount(run),
   }
-}
-
-function executionErrorCount<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
-  run: ControlRunResult<TState, TAction, TActionResult, TEval>,
-): number {
-  const thrownActionSteps = new Set(
-    run.runtimeErrors.filter((error) => error.phase === 'act').map((error) => error.stepIndex),
-  )
-  const failedActionsWithoutRuntimeError = run.steps.filter(
-    (step) => step.actionOutcome?.ok === false && !thrownActionSteps.has(step.index),
-  ).length
-  return run.runtimeErrors.length + failedActionsWithoutRuntimeError
 }
 
 function finiteOnly(values: Record<string, number>): Record<string, number> {
@@ -148,10 +107,14 @@ function finiteOnly(values: Record<string, number>): Record<string, number> {
   return out
 }
 
-function finiteScore(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) ? clampScore(value) : undefined
+function failureModeFromRun<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
+  run: ControlRunResult<TState, TAction, TActionResult, TEval>,
+): FailureClass | undefined {
+  if (run.pass) return undefined
+  return run.failureClass ?? 'unknown'
 }
 
 function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(1, value))
 }

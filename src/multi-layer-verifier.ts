@@ -47,8 +47,6 @@ export interface Finding {
 export interface LayerResult {
   layer: string
   status: LayerStatus
-  /** Origin of an `error` or `timeout`. Defaults to `execution`. */
-  errorSource?: 'execution' | 'judge'
   /** 0..1 score, optional — layers that don't produce a numeric score omit. */
   score?: number
   durationMs: number
@@ -79,8 +77,6 @@ export interface VerifyContext<Env = unknown> {
 
 export interface Layer<Env = unknown> {
   name: string
-  /** Origin assigned when this layer errors or times out. Defaults to `execution`. */
-  errorSource?: 'execution' | 'judge'
   /** Stages that must have `status: 'pass'` before this layer runs. */
   dependsOn?: string[]
   /**
@@ -110,29 +106,22 @@ export interface VerifyOptions<Env = unknown> {
   onLayer?: (result: LayerResult) => void
 }
 
-/** Extends the substrate verdict spine: `valid` = `allPass`; `score` is the
- * complete task score or 0 when the configured scoring panel was incomplete. */
+/** Extends the substrate verdict spine: `valid` = `allPass` and `score` =
+ *  `blendedScore` — derived where the report is aggregated, so spine
+ *  consumers (drivers, gates) read this report without an adapter. */
 export interface VerificationReport extends DefaultVerdict {
   layers: LayerResult[]
   passCount: number
   failCount: number
   skippedCount: number
   errorCount: number
-  /** True iff the configured scoring panel completed and every layer passed. */
+  /** True iff at least one scored layer ran AND every scored layer passed. */
   allPass: boolean
   /**
-   * Diagnostic weighted mean across contributing layers. This may represent a
-   * partial panel. It is 0 when no layer contributed.
+   * Weighted mean of `score` across contributing layers. 0 when no layers
+   * contributed. See {@link Layer.failContributesToScore} for fail semantics.
    */
   blendedScore: number
-  /**
-   * Complete task-quality measurement.
-   * Present when at least one layer produced a valid score, every other layer
-   * completed successfully or contributed an explicit scored failure, and no
-   * result is missing because of a failure, skip, error, or timeout.
-   * Use this field, not `blendedScore`, when creating task labels.
-   */
-  taskScore?: number
   durationMs: number
   startedAt: string
   finishedAt: string
@@ -232,32 +221,13 @@ export class MultiLayerVerifier<Env = unknown> {
 
         const layerStart = Date.now()
         let result: LayerResult
-        let rejectOnAbort: (() => void) | undefined
-        const abortPromise = new Promise<never>((_resolve, reject) => {
-          const rejectWithReason = (): void => {
-            const reason = mergedSignal.reason
-            reject(reason instanceof Error ? reason : new Error(String(reason ?? 'aborted')))
-          }
-          if (mergedSignal.aborted) {
-            rejectWithReason()
-            return
-          }
-          mergedSignal.addEventListener('abort', rejectWithReason, { once: true })
-          rejectOnAbort = () => mergedSignal.removeEventListener('abort', rejectWithReason)
-        })
         try {
-          result = await Promise.race([
-            Promise.resolve(
-              layer.run({ env: opts.env, prior: { ...byName }, signal: mergedSignal }),
-            ),
-            abortPromise,
-          ])
+          result = await layer.run({ env: opts.env, prior: { ...byName }, signal: mergedSignal })
         } catch (err) {
           const aborted = mergedSignal.aborted
           result = {
             layer: layer.name,
             status: aborted ? 'timeout' : 'error',
-            errorSource: layer.errorSource ?? 'execution',
             durationMs: Date.now() - layerStart,
             findings: [
               {
@@ -269,12 +239,7 @@ export class MultiLayerVerifier<Env = unknown> {
             reason: err instanceof Error ? err.message : String(err),
           }
         } finally {
-          rejectOnAbort?.()
           if (layerTimer) clearTimeout(layerTimer)
-        }
-
-        if (result.status === 'error' || result.status === 'timeout') {
-          result.errorSource ??= layer.errorSource ?? 'execution'
         }
 
         // Normalize findings to attach layer name if omitted.
@@ -313,6 +278,8 @@ function aggregate<Env>(
   let errorCount = 0
   let scoredWeightSum = 0
   let scoredWeightedTotal = 0
+  let ranAnyScoredLayer = false
+  let anyScoredLayerFailed = false
 
   for (const r of results) {
     const weight = weightByName.get(r.layer) ?? 1
@@ -322,49 +289,28 @@ function aggregate<Env>(
     else if (r.status === 'skipped') skippedCount++
     else errorCount++
 
-    if (isValidTaskMeasurement(r) && weight > 0) {
+    if (r.score != null && weight > 0) {
       if (r.status === 'pass') {
+        ranAnyScoredLayer = true
         scoredWeightSum += weight
         scoredWeightedTotal += weight * r.score
       } else if (r.status === 'fail') {
         if (failContrib) {
+          ranAnyScoredLayer = true
           scoredWeightSum += weight
           scoredWeightedTotal += weight * r.score
         }
+        anyScoredLayerFailed = true
       }
       // skipped / error / timeout layers don't contribute
+    } else if (r.status === 'fail') {
+      anyScoredLayerFailed = true
     }
   }
 
   const finishedAtMs = Date.now()
+  const allPass = ranAnyScoredLayer && !anyScoredLayerFailed && failCount === 0 && errorCount === 0
   const blendedScore = scoredWeightSum > 0 ? scoredWeightedTotal / scoredWeightSum : 0
-  const resultByName = new Map(results.map((result) => [result.layer, result]))
-  const completeTaskMeasurement =
-    scoredWeightSum > 0 &&
-    results.length === layers.length &&
-    layers.every((layer) => {
-      const result = resultByName.get(layer.name)
-      if (!result) return false
-      if ((layer.weight ?? 1) <= 0) return true
-      if (result.status === 'pass') {
-        return result.score === undefined || isValidTaskMeasurement(result)
-      }
-      return (
-        result.status === 'fail' &&
-        layer.failContributesToScore === true &&
-        isValidTaskMeasurement(result)
-      )
-    })
-  const taskScore =
-    completeTaskMeasurement && scoredWeightSum > 0 && Number.isFinite(blendedScore)
-      ? blendedScore
-      : undefined
-  const allPass =
-    taskScore !== undefined &&
-    results.length === layers.length &&
-    failCount === 0 &&
-    skippedCount === 0 &&
-    errorCount === 0
   return {
     layers: results,
     passCount,
@@ -373,25 +319,12 @@ function aggregate<Env>(
     errorCount,
     allPass,
     blendedScore,
-    ...(taskScore === undefined ? {} : { taskScore }),
     valid: allPass,
-    score: taskScore ?? 0,
+    score: blendedScore,
     durationMs: finishedAtMs - startedAtMs,
     startedAt,
     finishedAt: new Date(finishedAtMs).toISOString(),
   }
-}
-
-function isValidTaskMeasurement(
-  result: LayerResult,
-): result is LayerResult & { status: 'pass' | 'fail'; score: number } {
-  return (
-    (result.status === 'pass' || result.status === 'fail') &&
-    typeof result.score === 'number' &&
-    Number.isFinite(result.score) &&
-    result.score >= 0 &&
-    result.score <= 1
-  )
 }
 
 function mergeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {

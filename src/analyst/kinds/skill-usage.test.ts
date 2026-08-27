@@ -175,10 +175,6 @@ describe('emitSkillUsageFindings', () => {
   })
 
   it('the analyst wires emission through analyze() with the canonical envelope', async () => {
-    expect(SKILL_USAGE_ANALYST.executionConfig).toMatchObject({
-      kind: 'skill-usage',
-      produced_at_source: 'tags.producedAt-or-system-clock',
-    })
     const fs = await SKILL_USAGE_ANALYST.analyze(report([rec({ name: 'dead' })]), {
       runId: 'r',
       correlationId: 'c',

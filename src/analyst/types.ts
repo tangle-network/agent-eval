@@ -58,23 +58,20 @@ export interface AnalystFinding {
    * diff cleanly across runs.
    */
   subject?: string
-  /** True when this finding was lifted from a judge result rather than observed
-   *  directly in a trace or artifact. Descriptive only: proposal access is
-   *  controlled by `ProposalFinding.proposal_origin`. */
+  /** FIREWALL provenance (docs/learning-flywheel.md): true iff this finding was
+   *  lifted from a JUDGE verdict (an acceptance score), not OBSERVED from the
+   *  agent's behavior. A judge-derived finding must NEVER be admitted as a
+   *  steering input — that is the held-out judge leaking into the loop. Set at
+   *  the lift site (createJudgeAdapter); checked by `assertNoJudgeVerdict`.
+   *  Provenance, not evidence presence, is the correct discriminator: an
+   *  evidence-less trace-analyst observation legitimately steers, while a judge
+   *  verdict that happens to cite an artifact must not. */
   derived_from_judge?: boolean
   /** Analyst-private extras; renderers ignore unless they know the analyst. */
   metadata?: Record<string, unknown>
 }
 
 export type AnalystSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info'
-
-/** Data sources that candidate generation may intentionally learn from. */
-export type ProposalFindingOrigin = 'search' | 'production'
-
-/** A finding explicitly admitted as candidate-generation input. */
-export type ProposalFinding = AnalystFinding & {
-  readonly proposal_origin: ProposalFindingOrigin
-}
 
 export interface EvidenceRef {
   /**
@@ -276,17 +273,6 @@ export function makeFinding(
   }
 }
 
-/** Build a finding whose source is explicitly allowed during candidate generation. */
-export function makeProposalFinding(
-  init: Omit<ProposalFinding, 'schema_version' | 'finding_id' | 'produced_at'> & {
-    id_basis?: string
-    produced_at?: string
-  },
-): ProposalFinding {
-  const { proposal_origin, ...finding } = init
-  return { ...makeFinding(finding), proposal_origin }
-}
-
 // ── Registry result envelope ────────────────────────────────────────
 
 export interface AnalystRunSummary {
@@ -296,8 +282,13 @@ export interface AnalystRunSummary {
   reason?: string
   findings_count: number
   latency_ms: number
-  /** Additive model usage and cost provenance for this analyst. */
-  usage: AnalystUsageReceipt
+  cost_usd: number
+  /**
+   * Additive receipt for model usage. Registry-produced summaries populate it
+   * even when the analyst emits no findings. `cost_usd` remains the legacy
+   * numeric field; inspect `usage.cost` before treating zero as observed.
+   */
+  usage?: AnalystUsageReceipt
   /** When `status='failed'`: the error class + message, never the full stack. */
   error?: { class: string; message: string }
 }
@@ -327,7 +318,7 @@ export interface AnalystRunResult {
  * over the same stream, so the two surfaces share their invariants.
  *
  * Per-finding events are intentionally omitted — analyzers are batch
- * operations (a recursive engine returns the full `findings:json[]` at the
+ * operations (an Ax actor returns the full `findings:json[]` at the
  * end of the responder), so streaming inside one analyst would only
  * emit partial JSON consumers can't render. The kind-completion event
  * is the right granularity; subscribers wanting per-finding rendering

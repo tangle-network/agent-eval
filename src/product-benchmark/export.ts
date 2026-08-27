@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { ValidationError } from '../errors'
-import { type RunRecord, runTaskScore } from '../run-record'
+import type { RunRecord } from '../run-record'
 import type {
   ProductBenchmarkManifest,
   ProductBenchmarkRecord,
@@ -250,25 +250,11 @@ function splitOf(record: RunRecord, opts: ResolvedExportOptions): ProductBenchma
   return 'practice'
 }
 
-/** Ungated: a published benchmark record is audit evidence, so the score must
- *  stay the measured one. KNOWN HOLE: a realness-gated run still publishes with
- *  `pass: true`. The fix mirrors `RolloutLine` — carry the gate as a field on
- *  `ProductBenchmarkRecord` and force `pass: false` — which is a schema change,
- *  not a call swap, and is tracked separately from this correctness fix. */
 function scoreOf(record: RunRecord): number {
-  const score = runTaskScore(record)
-  if (score !== undefined) return clamp01(score)
-  if (
-    (record.outcome.judgeScores?.failedJudges?.length ?? 0) > 0 ||
-    (record.outcome.raw.judge_error_count ?? 0) > 0
-  ) {
-    throw new ValidationError(
-      `Run ${record.runId} has incomplete judge evidence; product benchmark rows require a complete task score`,
-    )
-  }
-  throw new ValidationError(
-    `Run ${record.runId} has no task score; product benchmark rows require an explicit score`,
-  )
+  const score = record.outcome.holdoutScore ?? record.outcome.searchScore
+  if (typeof score === 'number' && Number.isFinite(score)) return clamp01(score)
+  const rawScore = record.outcome.raw.score ?? record.outcome.raw.composite
+  return typeof rawScore === 'number' && Number.isFinite(rawScore) ? clamp01(rawScore) : 0
 }
 
 function rawPassOf(record: RunRecord): boolean | null {
@@ -280,33 +266,19 @@ function rawPassOf(record: RunRecord): boolean | null {
 
 function passOf(record: RunRecord, score: number, threshold: number): boolean {
   const rawPass = rawPassOf(record)
-  const hasTaskFailure = record.failureClass !== undefined && record.failureClass !== 'success'
-  if (rawPass !== null) return rawPass && !hasTaskFailure
-  return score >= threshold && !hasTaskFailure
+  if (rawPass !== null) return rawPass && !record.failureMode
+  return score >= threshold && !record.failureMode
 }
 
-function failureOf(
-  record: RunRecord,
-  score: number,
-  threshold: number,
-): Pick<ProductBenchmarkRecord['outcome'], 'failureClass' | 'failureDetail'> {
-  if (record.failureClass !== undefined && record.failureClass !== 'success') {
-    return {
-      failureClass: record.failureClass,
-      failureDetail: record.failureMode ?? null,
-    }
-  }
+/** A failed row always carries a failure mode; synthesized when the harness left it empty. */
+function failureModeOf(record: RunRecord, score: number, threshold: number): string | null {
+  if (record.failureMode) return record.failureMode
   const belowThreshold = `quality-below-threshold: ${Math.round(score * 100)}% < ${Math.round(threshold * 100)}%`
   if (rawPassOf(record) === false) {
-    return {
-      failureClass: 'unknown',
-      failureDetail: score < threshold ? belowThreshold : 'product-pass-failed',
-    }
+    return score < threshold ? belowThreshold : 'product-pass-failed'
   }
-  if (passOf(record, score, threshold)) {
-    return { failureClass: null, failureDetail: null }
-  }
-  return { failureClass: 'unknown', failureDetail: belowThreshold }
+  if (passOf(record, score, threshold)) return null
+  return belowThreshold
 }
 
 function numericDimensions(record: RunRecord): Record<string, number> {
@@ -465,25 +437,18 @@ export function runRecordToProductBenchmarkRecord(
   const opts = resolveOptions(options)
   const runtime = runtimeResolution(record, opts)
   const score = scoreOf(record)
-  const failure = failureOf(record, score, opts.passThreshold)
   const armId = armIdOf(record)
   const inputTokens = record.tokenUsage.input
   const outputTokens = record.tokenUsage.output
   const toolCallCount = toolCallsOf(record, runDir, opts)
   const dimensions = numericDimensions(record)
-  if (record.costUsd === null) {
-    throw new ValidationError(
-      `run '${record.runId}' has no USD cost; product benchmark exports require priced runs`,
-    )
-  }
-  const costUsd = record.costUsd
   if (!('tool_calls' in dimensions)) dimensions.tool_calls = toolCallCount
   const product: ProductBenchmarkRecord = {
     schemaVersion: 1,
     projectId: opts.projectId,
     benchmarkId: opts.benchmarkId,
     runId: record.runId,
-    scenarioId: record.scenarioId,
+    scenarioId: record.scenarioId ?? record.experimentId,
     split: splitOf(record, opts),
     armId,
     rep: Number(record.seed ?? 0) + 1,
@@ -500,12 +465,12 @@ export function runRecordToProductBenchmarkRecord(
       pass: passOf(record, score, opts.passThreshold),
       score,
       dimensions,
-      ...failure,
+      failureMode: failureModeOf(record, score, opts.passThreshold),
     },
     usage: {
       inputTokens,
       outputTokens,
-      costUsd,
+      costUsd: record.costUsd,
       // Rounded: the bundle contract requires integer milliseconds.
       wallMs: Math.round(record.wallMs),
       toolCalls: toolCallCount,
@@ -515,7 +480,7 @@ export function runRecordToProductBenchmarkRecord(
       rawCapture: existsArtifact(artifactRoot, artifacts.raws),
       traceCapture: existsArtifact(artifactRoot, artifacts.traces),
       noStubRows: inputTokens + outputTokens > 0,
-      priced: costUsd > 0,
+      priced: record.costUsd > 0,
       profileMaterialized: Boolean(record.agentProfile?.cellId),
     },
     artifacts,
