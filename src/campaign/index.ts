@@ -297,14 +297,6 @@ export {
   type RunProfileMatrixSegmentOptions,
   runProfileMatrixSegment,
 } from './presets/segmented-profile-matrix'
-export {
-  type JsonPolicyEditTargetSurface,
-  type LlmPolicyEditProposerOptions,
-  llmPolicyEditProposer,
-  type PolicyEditHistoryProjectionOptions,
-  projectPolicyEditHistory,
-} from './proposers/llm-policy-edit'
-export { type PolicyEditProposerOptions, policyEditProposer } from './proposers/policy-edit'
 // ── Loop provenance (durable record + OTLP spans) ────────────────────
 export {
   type BuildLoopProvenanceArgs,
