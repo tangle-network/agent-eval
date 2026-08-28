@@ -256,6 +256,16 @@ export function policyEditFromFinding(
 
   const expectedGain = resolveExpectedGain(finding, opts)
   if (!expectedGain) return null
+  // A confidence outside [0,1] is a malformed model-produced row: skip the
+  // finding rather than let one poisoned row abort the whole batch.
+  if (
+    typeof finding.confidence !== 'number' ||
+    !Number.isFinite(finding.confidence) ||
+    finding.confidence < 0 ||
+    finding.confidence > 1
+  ) {
+    return null
+  }
 
   const routed = routeFindingSubject(finding.subject, opts)
   const risk = resolveRisk(finding, opts)
@@ -284,6 +294,7 @@ export function scorePolicyEditReadiness(
 ): number {
   validatePolicyEdit(edit)
   const minExpectedGain = opts.minExpectedGain ?? DEFAULT_MIN_EXPECTED_GAIN
+  const requireEvidence = opts.requireEvidence ?? false
   const evidenceScore = Math.min(1, edit.source.evidenceRefs.length / 2)
   const confidenceScore = clamp01(edit.confidence)
   const gainScore = clamp01(
@@ -293,13 +304,14 @@ export function scorePolicyEditReadiness(
   const riskPenalty =
     edit.risk === 'high' && opts.allowHighRisk !== true ? 0.35 : edit.risk === 'unknown' ? 0.2 : 0
 
-  return clamp01(
-    0.3 * evidenceScore +
-      0.25 * confidenceScore +
-      0.25 * gainScore +
-      0.2 * targetScore -
-      riskPenalty,
-  )
+  // Evidence weighs into the base score only when the caller requires it.
+  // Otherwise it is a bonus on top: the steer firewall's discriminator is
+  // provenance, and an evidence-less trace observation must be able to clear
+  // the default bar on confidence, gain, and target specificity alone.
+  const base = requireEvidence
+    ? 0.3 * evidenceScore + 0.25 * confidenceScore + 0.25 * gainScore + 0.2 * targetScore
+    : 0.35 * confidenceScore + 0.35 * gainScore + 0.3 * targetScore + 0.1 * evidenceScore
+  return clamp01(base - riskPenalty)
 }
 
 export function admitPolicyEdit(
@@ -310,7 +322,11 @@ export function admitPolicyEdit(
   const score = scorePolicyEditReadiness(validated, opts)
   const reasons: string[] = []
   const minExpectedGain = opts.minExpectedGain ?? DEFAULT_MIN_EXPECTED_GAIN
-  const requireEvidence = opts.requireEvidence ?? true
+  // Default OFF, matching the steer firewall: the admission discriminator is
+  // PROVENANCE (derivedFromJudge), not evidence presence — an evidence-less
+  // trace-analyst observation is a legitimate edit source. Callers opt IN to
+  // an evidence requirement where their domain demands citations.
+  const requireEvidence = opts.requireEvidence ?? false
 
   if (validated.source.derivedFromJudge) {
     reasons.push('source is judge-derived; judge verdicts cannot steer policy edits')
@@ -510,10 +526,15 @@ function readExpectedGainFromMetadata(
     readPolicyEditMetadata(metadata)?.expected_gain
   if (!raw || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
+  // Metadata is model-produced. A malformed row degrades to null (the finding
+  // is skipped) instead of throwing, so one poisoned row cannot abort the
+  // whole batch — the same contract as a finding with no expected gain.
   if (
     typeof obj.metric !== 'string' ||
     (obj.direction !== 'increase' && obj.direction !== 'decrease') ||
-    typeof obj.amount !== 'number'
+    typeof obj.amount !== 'number' ||
+    !Number.isFinite(obj.amount) ||
+    obj.amount <= 0
   ) {
     return null
   }
@@ -779,6 +800,7 @@ function validateChange(change: unknown): asserts change is PolicyEditChange {
   }
   expectOneOf(obj.mode, ['set', 'merge', 'remove'] as const, 'change.mode')
   expectString(obj.path, 'change.path')
+  splitPath(obj.path)
   if (obj.value !== undefined) assertJson(obj.value, 'change.value')
 }
 
@@ -860,6 +882,12 @@ function targetSpecificityScore(edit: PolicyEdit): number {
   return clamp01(score)
 }
 
+// Assigning through these keys on a plain object mutates the prototype chain
+// instead of writing an own property: the edit silently no-ops after
+// JSON.stringify, or crashes the canonical hasher. Edits are analyst- and
+// LLM-authored input, so the refusal is loud, at parse time.
+const FORBIDDEN_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
 function splitPath(path: string): string[] {
   const parts = path
     .split('.')
@@ -867,6 +895,14 @@ function splitPath(path: string): string[] {
     .filter(Boolean)
   if (parts.length === 0)
     throw new PolicyEditValidationError('path must not be empty', 'change.path')
+  for (const part of parts) {
+    if (FORBIDDEN_PATH_KEYS.has(part)) {
+      throw new PolicyEditValidationError(
+        `path segment "${part}" would write through the prototype chain`,
+        'change.path',
+      )
+    }
+  }
   return parts
 }
 

@@ -114,3 +114,60 @@ describe('the policy-edit contract', () => {
     ).toThrow(PolicyEditValidationError)
   })
 })
+
+describe('audit regressions', () => {
+  it('an evidence-less edit admits by default — provenance, not evidence, is the discriminator', () => {
+    const edit = makePolicyEdit({
+      ...baseInit(),
+      source: { findingIds: ['finding-1'], analystIds: ['analyst-1'], evidenceRefs: [] },
+    })
+    expect(admitPolicyEdit(edit).decision).toBe('admit')
+    expect(admitPolicyEdit(edit, { requireEvidence: true }).decision).toBe('reject')
+  })
+
+  it('a JSON path through the prototype chain is refused loudly at validation time', () => {
+    for (const path of ['__proto__.maxTurns', 'a.constructor.b', 'prototype']) {
+      expect(() =>
+        makePolicyEdit({
+          ...baseInit(),
+          target: { surface: 'agent-profile', path },
+          change: { kind: 'json', mode: 'set', path, value: 999 },
+        }),
+      ).toThrow(/prototype chain/)
+    }
+  })
+
+  it('one poisoned model-produced row skips instead of aborting the batch', () => {
+    const good = finding({
+      finding_id: 'good-1',
+      recommended_action: 'Append: fetch current state first.',
+      metadata: {
+        policyEdit: {
+          expectedGain: { metric: 'search.composite', direction: 'increase', amount: 0.1 },
+        },
+      },
+    })
+    const poisonedGain = finding({
+      finding_id: 'bad-gain',
+      recommended_action: 'Append: something.',
+      metadata: {
+        policyEdit: {
+          expectedGain: { metric: 'search.composite', direction: 'increase', amount: -5 },
+        },
+      },
+    })
+    const poisonedConfidence = finding({
+      finding_id: 'bad-confidence',
+      recommended_action: 'Append: something else.',
+      confidence: 1.5,
+      metadata: {
+        policyEdit: {
+          expectedGain: { metric: 'search.composite', direction: 'increase', amount: 0.1 },
+        },
+      },
+    })
+    const edits = policyEditsFromFindings([good, poisonedGain, poisonedConfidence])
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.source.findingIds).toEqual(['good-1'])
+  })
+})
