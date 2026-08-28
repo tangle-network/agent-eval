@@ -237,6 +237,12 @@ export interface ProposedCandidate {
    *  primitive it used. Survives to `GenerationCandidate.rationale` and the
    *  emitted provenance record. */
   rationale: string
+  /** Typed, JSON-safe attribution the proposer wants measured alongside the
+   *  candidate (for example a policy-edit candidate record). Opaque to the
+   *  loop: it is carried byte-for-byte onto `GenerationCandidate.attribution`
+   *  and never interpreted here — the producer tags it with its own schema
+   *  field and validates it on readback. */
+  attribution?: Readonly<Record<string, unknown>>
 }
 
 /** Type guard: a proposal carrying its rationale vs a bare
@@ -691,6 +697,10 @@ export interface GenerationCandidate {
    *  "because rationale Z" the audit requires to survive to the result.
    *  Present when the proposer returned a `ProposedCandidate`. */
   rationale?: string
+  /** Proposer-supplied typed attribution, carried unchanged from
+   *  `ProposedCandidate.attribution`. Readers validate against the producer's
+   *  schema tag; the loop never interprets it. */
+  attribution?: Readonly<Record<string, unknown>>
 }
 
 export interface CampaignAggregates {

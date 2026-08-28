@@ -75,6 +75,10 @@ export interface LoopProvenanceCandidate {
   /** Proposer rationale — the "because Z". When the proposer returned a bare
    *  surface (blind mutator) this is absent. */
   rationale?: string
+  /** Proposer-supplied typed attribution, carried unchanged from
+   *  `GenerationCandidate.attribution`. Opaque here; the producer's schema tag
+   *  governs interpretation. */
+  attribution?: Readonly<Record<string, unknown>>
   /** Exact complete incumbent this candidate mutated. */
   parentSurfaceHash: string
   /** Search-split composite of the exact parent. */
@@ -381,6 +385,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       }
       if (c.label) entry.label = c.label
       if (c.rationale) entry.rationale = c.rationale
+      if (c.attribution) entry.attribution = c.attribution
       if (c.observedDeltaFromParent !== undefined) {
         entry.observedDeltaFromParent = c.observedDeltaFromParent
       }
