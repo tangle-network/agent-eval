@@ -78,3 +78,21 @@ Also shipped: traces#69 execution-replay verification (36/36 prefix replay, coun
 Protocol lessons (measured): parallel measurement runs are FATAL (96/96 uniform wipeout from contention; serial probe immediately healthy) — strictly serial chains only; builder agents skip lint (repeat of finding #3) — full battery after any merge.
 
 Open problems, ranked: (1) thin-gold narrow regime — every config collapses to 0.17-0.18 micro on split3; (2) both sealed splits now SPENT — OpenHands/Terminus2 importers (742 rows) are the instrument unlock; (3) GEPA round 2 from the new stock baseline (train on more scenarios, micro-aligned metric via per-case TP/FP/FN counts); (4) replay-verify → gold-labeled error steps + analyst-finding-to-fix-command wire.
+
+## 2026-08-05 - Both handoff lanes closed: goal-1 demo COMPLETE; run7 rerun killed by autopsy; dataset v1 built at honest size
+
+Goal-1 (proof-carrying findings on a real session) is DONE end-to-end: the 08-04 verify crash was transient (identical 116s exec repro'd clean; the durable defect is unguarded `response.json()` in @tangle-network/sandbox 0.17.2), and the rerun verified 7/7 findings via 1 shared execution — 23/23 prefix steps, 0 divergences, returncode+output-signature match in the pinned image. Session-1 stands as the honest-null companion (0 findings, verify honestly refused). Capture branches now have PRs: traces#80, agent-dev-container#4886 (merge-tree clean at 1-ahead/81-behind).
+
+Run7's "rerun the 8 remaining cases" instruction was INVALIDATED by autopsy before spending: all 22 completed rows are replayed=false with armA exit=127 and recordedReturncodeAtK=null — SWE-agent trajectories record ACI DSL (`edit 1:1`, `exit_cost`) that the sh-exec replay pipes into images carrying no such commands. Returncode-match impossible by construction; the fix loop never fired ($0 LLM — the handoff's "60% LLM-failure" uncertainty is moot). The sweagent unlock is an ACI→shell translation (or in-image shim) in the traces replay layer, then a full rerun.
+
+verified-dataset-v1 built from the two complete runs (corpus paths remapped from wiped /dev/shm to durable ~/bench-cache copies): run2 22 rows/16 reproduced/9 fix-flipped + run6 22/13/7 = 44 run-rows over 22 UNIQUE cases. The 300–500 row gate is structurally unreachable from existing runs (a perfect run7 added ~31 rows, 0 reproduced): meeting it needs the ACI translation plus new corpus volume (OpenHands/Terminus2 importers remain the known instrument unlock).
+
+Fork for Drew: fund the sweagent ACI translation (unlocks 31 cases now + the largest trajectory family) vs. go straight at the agentic-fixer moonshot with the 22-case dataset as seed. Lanes are closed either way.
+
+## 2026-08-28 — the 2026-08-05 fork is decided: fund the sweagent ACI translation first
+
+Recorded by the crash-reconciliation session on Drew's "do it all" instruction.
+Decision: fund the sweagent ACI translation (interface engineering for the worker's tool surface) before the agentic-fixer moonshot.
+Basis: tools are the one replicated positive lever in this program's ledger; the ACI result is externally replicated interface-engineering evidence; the moonshot's long-horizon coding instrument was proven broken twice (worker never edited the environment; time and cost capture dead) and stays gated on instrument repair.
+Pre-registered first step: a one-day calibration that checks whether current harnesses already absorbed the ACI lift, before funding the full translation (calibrate-before-measure).
+The moonshot is deferred, not killed: instrument repair is its unlock, and the ACI work doubles as part of that repair.
