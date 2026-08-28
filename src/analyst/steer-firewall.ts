@@ -1,4 +1,4 @@
-// The realness-oracle firewall (docs/learning-flywheel.md, "The steer is f(trace)").
+// The realness-oracle firewall (agent-runtime docs/learning-flywheel.md, "The steer is f(trace)" — the doctrine lives in the runtime repo).
 //
 // A realness/authenticity signal has TWO legitimate roles that must stay
 // separated by a firewall:

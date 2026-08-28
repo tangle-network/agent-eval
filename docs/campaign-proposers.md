@@ -531,6 +531,10 @@ const proposer: SurfaceProposer = {
 Return a label and rationale when they will help later analysis.
 Candidate creation must not read final test results.
 
+A proposer may also attach `attribution`: one opaque, JSON-safe record the loop carries byte-for-byte onto `GenerationCandidate.attribution` and the loop provenance record.
+The loop never interprets it.
+Tag it with your own schema field and validate it on readback — `PolicyEdit` candidate records (`makePolicyEditCandidateRecord` from the analyst surface) are the first producer, which is what lets a forecast in an edit be scored against the measured delta later.
+
 `runOptimization()` rejects a candidate whose `surfaceHash` was already admitted.
 This includes the baseline, an earlier generation, and another candidate in the same proposal.
 The complete proposal is checked before candidate dispatch, so duplicates cannot consume candidate cells.
