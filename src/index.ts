@@ -404,7 +404,41 @@ export type { CreateTraceAnalystOptions, TraceAnalystDefinition } from './analys
 export { createTraceAnalyst } from './analyst/kind-factory'
 
 export { DEFAULT_TRACE_ANALYST_KINDS, FAILURE_MODE_KIND_SPEC } from './analyst/kinds'
-
+export type {
+  FindingToPolicyEditOptions,
+  PolicyEdit,
+  PolicyEditAdmission,
+  PolicyEditAdmissionOptions,
+  PolicyEditAxis,
+  PolicyEditCandidateRecord,
+  PolicyEditChange,
+  PolicyEditExpectedGain,
+  PolicyEditGainDirection,
+  PolicyEditGainUnit,
+  PolicyEditInit,
+  PolicyEditRisk,
+  PolicyEditSchemaVersion,
+  PolicyEditSource,
+  PolicyEditTarget,
+  PolicyEditTargetSurface,
+} from './analyst/policy-edit'
+export {
+  admitPolicyEdit,
+  applyPolicyEditToSurface,
+  computePolicyEditId,
+  isPolicyEdit,
+  makePolicyEdit,
+  makePolicyEditCandidateRecord,
+  POLICY_EDIT_AXES,
+  POLICY_EDIT_CANDIDATE_RECORD_SCHEMA,
+  POLICY_EDIT_TARGET_SURFACES,
+  PolicyEditValidationError,
+  policyEditFromFinding,
+  policyEditsFromFindings,
+  scorePolicyEditReadiness,
+  validatePolicyEdit,
+  validatePolicyEditCandidateRecord,
+} from './analyst/policy-edit'
 export type {
   AnalystRegistryOptions,
   BudgetPolicy,
@@ -412,6 +446,7 @@ export type {
   RegistryRunOpts,
 } from './analyst/registry'
 export { AnalystRegistry } from './analyst/registry'
+export { assertNoJudgeVerdict } from './analyst/steer-firewall'
 
 export type {
   Analyst,

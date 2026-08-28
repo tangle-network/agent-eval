@@ -439,6 +439,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       surface: MutableSurface
       label: string
       rationale: string
+      attribution?: Readonly<Record<string, unknown>>
       campaign: CampaignResult<TArtifact, TScenario>
       composite: number | null
       /** Lexicographic winner-selection key (higher-is-better per element). */
@@ -448,7 +449,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const surfaceResults = await mapConcurrent(
       candidates,
       candidateConcurrency,
-      async ({ surface, label, rationale }, i, signal): Promise<SurfaceResult> => {
+      async ({ surface, label, rationale, attribution }, i, signal): Promise<SurfaceResult> => {
         const hash = surfaceHash(surface)
         const campaign = await runCampaign<TScenario, TArtifact>({
           ...opts,
@@ -478,6 +479,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           surface,
           label,
           rationale,
+          ...(attribution ? { attribution } : {}),
           campaign,
           composite,
           rankKey,
@@ -565,6 +567,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         }
         if (s.label) candidate.label = s.label
         if (s.rationale) candidate.rationale = s.rationale
+        if (s.attribution) candidate.attribution = s.attribution
         return candidate
       }),
       promoted: promoted.map((p) => p.surfaceHash),
