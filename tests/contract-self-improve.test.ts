@@ -28,7 +28,6 @@ import {
   provenanceSpansPath,
 } from '../src/campaign/provenance'
 import { surfaceContentHash } from '../src/campaign/surface-identity'
-import { transientDispatchFailure } from '../src/campaign/transient-failure'
 import type {
   DispatchContext,
   JudgeConfig,

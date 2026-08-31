@@ -4,6 +4,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.171.0] — 2026-08-31
+
+### Changed
+
+- Compile and publish the exported `AgentProfile` contract against `@tangle-network/agent-interface` 2.
+  This keeps Eval, Runtime, and consumers on one canonical profile type.
+- Refresh direct dependencies to their latest approved versions.
+- Pin Zod 4.5.4 through a version-scoped release-age exception for this compatibility cohort.
+- Set Node.js 20.19.0 as the minimum version required by the dependency graph.
+- Pin the four dependency manifests with digest `43f2e94849ab4d777ac8c0c358c6c4f0687129c322c0565fb5cc8583922a433d`.
+
+---
+
 ## [0.170.0] — 2026-08-21
 
 ### Added
