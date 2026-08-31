@@ -44,14 +44,8 @@ try {
   if (packageJson.dependencies?.[removedSdkPackage]) {
     throw new Error(`packed package retains removed dependency ${removedSdkPackage}`)
   }
-  // range is the declaration the packed manifest must carry; version is the
-  // copy this repository resolved that declaration to and then built and tested
-  // against. Both are read, never written down here: the range comes from the
-  // source manifest that npm pack copies, and the version comes from the
-  // installed tree. A literal expectation instead froze both into this file, so
-  // every upstream release inside the caret range broke main until a human
-  // hand-edited the literal — agent-interface 0.56.0, 1.0.0, 1.0.1 and 1.1.0
-  // each cost that edit, the last one after the publish had already crossed it.
+  // Read the declared range from the packed manifest and the tested version
+  // from the installed tree. This keeps the check free of version literals.
   const expectedDependencyCohort = readDependencyCohort([
     '@tangle-network/agent-core',
     '@tangle-network/agent-interface',
@@ -1237,9 +1231,8 @@ function verifyPackedDependencyCohort(tarball, appDir, expectedVersions) {
     // happens to hold. Admission by the range is therefore the only assertion
     // this probe can make about the resolved version; the assertions that the
     // resolved copy actually works are the single-copy check above and the
-    // schema round-trip below. Equality against the repository's own copy would
-    // fail on every upstream release inside the range, which is how
-    // agent-interface 1.1.0 turned main red 14 minutes after it published.
+    // schema round-trip below. Exact equality would reject a valid release
+    // inside the declared range.
     const installedVersion = JSON.parse(readFileSync(manifests[0], 'utf8')).version
     if (!caretAdmits(expectedRange, installedVersion)) {
       throw new Error(
