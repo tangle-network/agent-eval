@@ -28,7 +28,6 @@ import {
   provenanceSpansPath,
 } from '../src/campaign/provenance'
 import { surfaceContentHash } from '../src/campaign/surface-identity'
-import { transientDispatchFailure } from '../src/campaign/transient-failure'
 import type {
   DispatchContext,
   JudgeConfig,
@@ -164,7 +163,7 @@ describe('selfImprove provenance emission (durable by default)', () => {
     const recomputed = recordOnDisk.winnerHoldoutComposite - recordOnDisk.baselineHoldoutComposite
     expect(recomputed).toBeCloseTo(result.lift, 9)
     expect(recordOnDisk.heldOutLift).toBeCloseTo(result.lift, 9)
-  }, 20_000)
+  }, 10_000)
 
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({

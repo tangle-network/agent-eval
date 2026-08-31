@@ -1149,10 +1149,7 @@ function collectDtsExportNames(dtsPath, seenFiles = new Set()) {
 }
 
 // npm caret admission, which is what the consumer's own resolver applies to the
-// declared range. The compatible segment is the leftmost non-zero one, so
-// ^1.1.0 admits 1.x at or above 1.1.0, ^0.9.4 admits only 0.9.x at or above
-// 0.9.4, and ^0.0.3 admits 0.0.3 alone. The cohort declares both shapes today:
-// agent-interface at ^1.1.0 and agent-core at ^0.9.4.
+// declared range. The compatible segment is the leftmost non-zero one.
 function caretAdmits(range, version) {
   const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
   const found = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)
