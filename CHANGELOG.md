@@ -4,6 +4,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.171.0] — 2026-08-31
+
+### Changed
+
+- Compile and publish the exported `AgentProfile` contract against `@tangle-network/agent-interface` 2.
+  This keeps Eval, Runtime, and consumers on one canonical profile type.
+- Refresh direct dependencies to the newest versions allowed by the repository's three-day stability policy.
+
+---
+
 ## [0.170.0] — 2026-08-21
 
 ### Added
