@@ -29,11 +29,29 @@ interface Tokens {
   cacheWrite: number
   /** False when the event carried no cache counters at all — not "zero cached". */
   hasCache: boolean
+  /**
+   * False only when the record carried `cacheBreakdownKnown: false` — Runtime's mark for a
+   * provider that reported a total without splitting cache reads from cache writes. The
+   * counters that ARE present are then a partial split, never a measured "zero cached".
+   */
+  breakdownKnown: boolean
 }
 
-interface SpendLike {
+export interface SpendLike {
   tokens: Tokens
+  /**
+   * False only when the record carried `tokensKnown: false` — Runtime's mark for work that
+   * HAPPENED with an unreported token count. `tokens` then holds the known subtotal (often
+   * zero), never the measured total. An absent flag means the record is complete.
+   */
+  tokensKnown: boolean
   usd: number
+  /**
+   * False only when the record carried `usdKnown: false` — work that HAPPENED at a price the
+   * provider never reported. `usd` then holds a catalog estimate or zero, never a measured
+   * price. An absent flag means the record is complete.
+   */
+  usdKnown: boolean
 }
 
 export function asRecord(v: unknown): Record<string, unknown> {
@@ -56,8 +74,11 @@ function readSpend(v: unknown): SpendLike {
       cacheRead: num(cacheRead),
       cacheWrite: num(cacheWrite),
       hasCache: cacheRead !== undefined || cacheWrite !== undefined,
+      breakdownKnown: tok.cacheBreakdownKnown !== false,
     },
+    tokensKnown: rec.tokensKnown !== false,
     usd: num(rec.usd),
+    usdKnown: rec.usdKnown !== false,
   }
 }
 
@@ -209,14 +230,29 @@ export interface SupervisorTreeFacts {
   readonly workerSpawns: readonly SpawnRow[]
   readonly workerCloses: readonly CloseRow[]
   readonly brain: {
+    /**
+     * Summed over the root's metered rows that reported a token count. A row Runtime marked
+     * `tokensKnown: false` is EXCLUDED and counted in `tokensUnknownCount` instead, because
+     * its `tokens` field holds a known subtotal — folding it in would price unreported work
+     * at zero tokens.
+     */
     tokensIn: number
     tokensOut: number
     cacheRead: number
     cacheWrite: number
     /** False when no metered event carried cache counters — not "nothing cached". */
     hasCache: boolean
+    /** False when any folded metered row declared `cacheBreakdownKnown: false`. */
+    cacheBreakdownKnown: boolean
+    /** Root metered rows that reported a token count, and rows that did not. */
+    tokensKnownCount: number
+    tokensUnknownCount: number
+    /** Summed over the root's metered rows that reported a price, on the same rule. */
     usd: number
-    /** Root-attributed metered events only — exactly the rows summed into this object. */
+    /** Root metered rows that reported a price, and rows Runtime marked `usdKnown: false`. */
+    usdKnownCount: number
+    usdUnknownCount: number
+    /** Root-attributed metered events only — every row this object folded or counted. */
     meteredCount: number
   }
   readonly workerLogs: ReadonlyMap<string, WorkerLogFacts>
@@ -404,7 +440,12 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   let brainCacheRead = 0
   let brainCacheWrite = 0
   let brainHasCache = false
+  let brainCacheBreakdownKnown = true
+  let brainTokensKnownCount = 0
+  let brainTokensUnknownCount = 0
   let brainUsd = 0
+  let brainUsdKnownCount = 0
+  let brainUsdUnknownCount = 0
   let meteredCount = 0
   let rootId: string | null = null
   let unreadableRows = 0
@@ -498,8 +539,17 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
         infra: null,
         at: ms(ev.at),
         spend: {
-          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, hasCache: false },
+          tokens: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            hasCache: false,
+            breakdownKnown: true,
+          },
+          tokensKnown: true,
           usd: 0,
+          usdKnown: true,
         },
         hasSpend: false,
       })
@@ -521,12 +571,23 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   // so folding it into the brain here would count the same tokens twice.
   for (const row of meteredRows) {
     if (rootId === null || row.id !== rootId) continue
-    brainIn += row.spend.tokens.input
-    brainOut += row.spend.tokens.output
-    brainCacheRead += row.spend.tokens.cacheRead
-    brainCacheWrite += row.spend.tokens.cacheWrite
-    brainHasCache = brainHasCache || row.spend.tokens.hasCache
-    brainUsd += row.spend.usd
+    if (row.spend.tokensKnown) {
+      brainIn += row.spend.tokens.input
+      brainOut += row.spend.tokens.output
+      brainCacheRead += row.spend.tokens.cacheRead
+      brainCacheWrite += row.spend.tokens.cacheWrite
+      brainHasCache = brainHasCache || row.spend.tokens.hasCache
+      brainCacheBreakdownKnown = brainCacheBreakdownKnown && row.spend.tokens.breakdownKnown
+      brainTokensKnownCount += 1
+    } else {
+      brainTokensUnknownCount += 1
+    }
+    if (row.spend.usdKnown) {
+      brainUsd += row.spend.usd
+      brainUsdKnownCount += 1
+    } else {
+      brainUsdUnknownCount += 1
+    }
     meteredCount += 1
   }
 
@@ -676,7 +737,12 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
       cacheRead: brainCacheRead,
       cacheWrite: brainCacheWrite,
       hasCache: brainHasCache,
+      cacheBreakdownKnown: brainCacheBreakdownKnown,
+      tokensKnownCount: brainTokensKnownCount,
+      tokensUnknownCount: brainTokensUnknownCount,
       usd: brainUsd,
+      usdKnownCount: brainUsdKnownCount,
+      usdUnknownCount: brainUsdUnknownCount,
       meteredCount,
     },
     workerLogs,

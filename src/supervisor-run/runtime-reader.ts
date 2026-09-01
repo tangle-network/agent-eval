@@ -9,6 +9,16 @@
  * supervisor-run analyzer. Runtime stores profile identity below `identity`
  * and does not emit Eval's role field, so this boundary projects those fields
  * without changing Runtime's journal dialect.
+ *
+ * The run's terminal status is Runtime's own `result.json` `kind` — `winner`,
+ * `no-winner`, or whatever a later arm is called — read verbatim. The reader
+ * does not decide which kinds count: a kind it refuses is a run that recorded
+ * its outcome and got reported as having none.
+ *
+ * `usdKnown: false` / `tokensKnown: false` on ONE record is not a limit of this
+ * store. The store recorded every other record completely, so the flags travel
+ * through to the analyzer per record, which reports the measured nodes and
+ * names the unreported ones.
  */
 
 import { readFile, stat } from 'node:fs/promises'
@@ -323,11 +333,6 @@ function sourceLimits(
       spendRecord(terminal[0]?.spent) === null
     )
   })
-  const spendRows = [
-    ...rootMeters.map((event) => spendRecord(event.spend)),
-    ...closes.filter((event) => event.kind === 'settled').map((event) => spendRecord(event.spent)),
-  ].filter((spend): spend is Record<string, unknown> => spend !== null)
-  const unknownUsd = spendRows.some((spend) => spend.usdKnown === false)
   const missingVerdicts = [...workerIds].filter((id) => {
     const terminal = settledById.get(id)?.[0]
     if (terminal?.kind !== 'settled') return true
@@ -341,14 +346,15 @@ function sourceLimits(
       incompleteWorkers.length === 0
         ? null
         : `${incompleteWorkers.length}/${workerIds.size} child invocation(s) lack one settled spend record`,
+    // `usdKnown: false` on ONE record is not a limit of this store: the store priced every
+    // other record, and a limit here discards them all. The analyzer folds the flag per
+    // record instead, and reports a partial total with the unpriced nodes named.
     spendUsd:
       rootMeterReason !== null
         ? rootMeterReason
-        : unknownUsd
-          ? 'Runtime recorded usdKnown:false for at least one spend'
-          : incompleteWorkers.length > 0
-            ? 'at least one child invocation lacks a settled spend record'
-            : null,
+        : incompleteWorkers.length > 0
+          ? 'at least one child invocation lacks a settled spend record'
+          : null,
     workerVerdicts:
       missingVerdicts.length === 0
         ? null
@@ -368,8 +374,11 @@ function runtimeState(
   resultPath: string,
   trajectoryPath: string,
 ): string {
-  const resultKind =
-    result?.kind === 'completed' || result?.kind === 'interrupted' ? result.kind : null
+  // Runtime's own terminal discriminant, read verbatim: `winner` when a child delivered,
+  // `no-winner` when none did, and whatever a later arm is named. The reader translates the
+  // envelope; it does not decide which kinds count, because a kind it fails to recognize is
+  // reported as a missing status on a run that recorded one.
+  const resultKind = result === null ? null : nonEmptyString(result.kind)
   if (resultKind !== null && result !== null) {
     const resultRoot = nonEmptyString(record(result.tree)?.root)
     if (resultRoot === null) {
@@ -394,10 +403,8 @@ function runtimeState(
     throw new Error(`${trajectoryPath}: Runtime trajectory nodes must be an array`)
   }
 
-  let status: string | null = null
-  if (resultKind === 'completed') status = 'completed'
-  else if (resultKind === 'interrupted') status = 'interrupted'
-  else if (Array.isArray(trajectory?.nodes)) {
+  let status: string | null = resultKind
+  if (status === null && Array.isArray(trajectory?.nodes)) {
     const rootNodes = trajectory.nodes
       .map((node) => record(node))
       .filter((node) => node?.id === root)

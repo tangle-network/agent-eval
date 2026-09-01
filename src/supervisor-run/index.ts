@@ -6,7 +6,9 @@
  * anyone mid-task, how many spawn waves, how concurrent, how much of the wall
  * clock had zero workers running, what did each role cost, what evidence came
  * back, what was accepted. `rollupSupervisorRuns` aggregates across runs
- * without ever turning a missing measurement into a zero.
+ * without ever turning a missing measurement into a zero — and without the
+ * converse either: one record a store marked unknown never deletes the records
+ * beside it that were measured.
  *
  * `supervisorRunRolloutLines` emits the tree as `tangle.rollout.v1` rows —
  * the same row type solo rollouts use, joined by `parent_rollout_id`.

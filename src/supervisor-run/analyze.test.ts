@@ -661,7 +661,7 @@ describe('analyzeSupervisorRun — explicit unknown channels', () => {
     })
   })
 
-  it('does not accept a self-reported patch when no deliverable was retained', () => {
+  it('counts a settled green verdict as accepted when the store retains no deliverable', () => {
     const claimedPatch = worker('task', {
       workerId: 'sup-1-test:s0',
       startSec: 1,
@@ -680,15 +680,15 @@ describe('analyzeSupervisorRun — explicit unknown channels', () => {
       }),
     )
 
-    expect(report.decision.accepted).toEqual({
-      unavailable: 'the source retains no worker deliverables',
-    })
+    // The verdict is the acceptance decision this store recorded, so it counts. Only the
+    // split between a green verdict backed by a patch and one with nothing behind it needs
+    // patch bytes, and that is the measurement this store cannot make.
+    expect(report.decision.accepted).toBe(1)
     expect(report.decision.emptyPass).toEqual({
       unavailable: 'the source retains no worker deliverables',
     })
-    expect(report.gaps).toContain('accepted: the source retains no worker deliverables')
+    expect(report.gaps).not.toContain('accepted: the source retains no worker deliverables')
     expect(report.gaps).toContain('emptyPass: the source retains no worker deliverables')
-    expect(isUnavailable(report.economics.costPerAcceptedPatchUsd)).toBe(true)
   })
 })
 
@@ -858,9 +858,21 @@ describe('analyzeSupervisorRun — spend measured two ways', () => {
       }),
     )
     // Journal: 1 metered (0.02) + 2 settled (0.001 each) = 0.022 over 3 records.
-    expect(r.economics.spend.journalDerived).toEqual({ usd: 0.022, records: 3 })
+    expect(r.economics.spend.journalDerived).toEqual({
+      usd: 0.022,
+      records: 3,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
+    })
     // Close record: state.json result.spentUsd = 0.05 over 1 record.
-    expect(r.economics.spend.closeRecord).toEqual({ usd: 0.05, records: 1 })
+    expect(r.economics.spend.closeRecord).toEqual({
+      usd: 0.05,
+      records: 1,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
+    })
     // The collapsed field still prefers the close record; the pair keeps the divergence visible.
     expect(r.economics.totalUsd).toBe(0.05)
     expect(renderSupervisorRunMarkdown(r)).toContain('Spend measured two ways')
@@ -873,13 +885,22 @@ describe('analyzeSupervisorRun — spend measured two ways', () => {
         workers: [worker('w-0', { startSec: 10, finishSec: 100 })],
       }),
     )
-    expect(r.economics.spend.journalDerived).toEqual({ usd: 0.011, records: 2 })
+    expect(r.economics.spend.journalDerived).toEqual({
+      usd: 0.011,
+      records: 2,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
+    })
     expect(r.economics.spend.closeRecord).toEqual({
       usd: {
         unavailable:
           'no close record: neither state.json result.spentUsd nor result.json spentTotal.usd is present',
       },
       records: 0,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
     })
   })
 
@@ -895,10 +916,16 @@ describe('analyzeSupervisorRun — spend measured two ways', () => {
     expect(r.economics.spend.journalDerived).toEqual({
       usd: { unavailable: 'the store prices no inference' },
       records: 0,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
     })
     expect(r.economics.spend.closeRecord).toEqual({
       usd: { unavailable: 'the store prices no inference' },
       records: 0,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
     })
   })
 
