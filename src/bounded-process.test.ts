@@ -356,18 +356,60 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
   it.skipIf(!posixOnly)(
     'applies `envMode: replace` to the argv form too',
     async () => {
-      const res = await runBoundedProcess({
-        command: 'bash',
-        args: ['-c', 'printf "%s|%s" "$PATH" "$SECRET"'],
-        env: { PATH: process.env.PATH ?? '', SECRET: 'kept' },
-        envMode: 'replace',
-        timeoutMs: 10_000,
-      })
-      expect(res.exitCode).toBe(0)
-      expect(res.stdout.split('|')[1]).toBe('kept')
+      // Asserting only that the named variable arrived would pass whether or not
+      // the parent environment was excluded, so the exclusion is asserted too.
+      process.env.BOUNDED_PROCESS_ARGV_PARENT = 'leaked'
+      try {
+        const res = await runBoundedProcess({
+          command: 'bash',
+          args: ['-c', 'printf "%s|%s" "$BOUNDED_PROCESS_ARGV_PARENT" "$SECRET"'],
+          env: { PATH: process.env.PATH ?? '', SECRET: 'kept' },
+          envMode: 'replace',
+          timeoutMs: 10_000,
+        })
+        expect(res.exitCode).toBe(0)
+        expect(res.stdout).toBe('|kept')
+      } finally {
+        delete process.env.BOUNDED_PROCESS_ARGV_PARENT
+      }
     },
     20_000,
   )
+
+  it.skipIf(!posixOnly)(
+    'an abort mid-run kills the group and reports killedBySignal on the argv form',
+    async () => {
+      // The abort path shares `killAndDrain` with the shell form, but the flags and
+      // the forced non-zero exit had no coverage for an argv caller.
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(), 150)
+      const res = await runBoundedProcess({
+        command: 'bash',
+        args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
+        timeoutMs: 30_000,
+        signal: controller.signal,
+      })
+      expect(res.killedBySignal).toBe(true)
+      expect(res.killedByTimeout).toBe(false)
+      expect(res.exitCode).not.toBe(0)
+      await expectTreeGone(res.stdout)
+    },
+    40_000,
+  )
+
+  it('runs an argument vector on every platform this package supports', async () => {
+    // Every other argv case is posix-gated, so a Windows regression in the argv
+    // branch could ship unseen. `process.execPath` is the one program guaranteed
+    // to exist wherever this test runs.
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.stdout.write(process.argv[1])', 'carried'],
+      timeoutMs: 20_000,
+    })
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe('carried')
+    expect(res.runnerError).toBeUndefined()
+  }, 30_000)
 
   it('reports a spawn failure as a runner error rather than a clean exit', async () => {
     const res = await runBoundedProcess({
@@ -377,6 +419,8 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
     })
     expect(res.exitCode).not.toBe(0)
     expect(res.runnerError).toContain('ENOENT')
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.killedBySignal).toBe(false)
   }, 20_000)
 
   it('refuses `args` together with a truthy shell instead of quoting them together', async () => {
