@@ -80,9 +80,7 @@ describe('pairedEvalueSequence — basic behaviour', () => {
       /bound must be a finite/,
     )
     expect(() => pairedEvalueSequence([0], { alpha: 0 })).toThrow(/alpha must be a finite/)
-    expect(() => pairedEvalueSequence([0], { alpha: Number.NaN })).toThrow(
-      /alpha must be a finite/,
-    )
+    expect(() => pairedEvalueSequence([0], { alpha: Number.NaN })).toThrow(/alpha must be a finite/)
     expect(() => pairedEvalueSequence([0], { initialBetShrinkage: 0 })).toThrow(
       /initialBetShrinkage/,
     )
@@ -134,15 +132,13 @@ describe('sequentialCrossingHorizon', () => {
   it('rejects invalid and non-finite preflight inputs before simulation', () => {
     expect(() => sequentialCrossingHorizon({ maxPairs: 0 })).toThrow(/positive safe integer/)
     expect(() => sequentialCrossingHorizon({ maxPairs: 1_000_001 })).toThrow(/must be <=/)
-    expect(() => sequentialCrossingHorizon({ bound: Number.NaN })).toThrow(
-      /bound must be a finite/,
-    )
+    expect(() => sequentialCrossingHorizon({ bound: Number.NaN })).toThrow(/bound must be a finite/)
     expect(() => sequentialCrossingHorizon({ alpha: Number.POSITIVE_INFINITY })).toThrow(
       /alpha must be a finite/,
     )
-    expect(() =>
-      sequentialCrossingHorizon({ initialBetShrinkage: Number.NaN }),
-    ).toThrow(/initialBetShrinkage/)
+    expect(() => sequentialCrossingHorizon({ initialBetShrinkage: Number.NaN })).toThrow(
+      /initialBetShrinkage/,
+    )
   })
 })
 
