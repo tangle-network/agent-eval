@@ -391,6 +391,7 @@ export type { DspyRlmTraceEngineOptions } from './analyst/dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'
 
 export type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './analyst/engine'
+export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS } from './analyst/engine'
 
 export type {
   ExactAnalystRunEvent,

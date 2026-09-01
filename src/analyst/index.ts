@@ -247,7 +247,7 @@ export type {
   TraceAnalysisEngineResult,
   TraceAnalystLimits,
 } from './engine'
-export { resolveTraceAnalystLimits } from './engine'
+export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS, resolveTraceAnalystLimits } from './engine'
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,

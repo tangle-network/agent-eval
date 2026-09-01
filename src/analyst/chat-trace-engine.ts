@@ -43,10 +43,11 @@ import {
 } from '../llm-client'
 import type { TraceAnalysisToolDescriptor } from '../trace-analyst/tools'
 import type { ChatClient } from './chat-client'
-import type {
-  TraceAnalysisEngine,
-  TraceAnalysisEngineRequest,
-  TraceAnalysisEngineResult,
+import {
+  DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS,
+  type TraceAnalysisEngine,
+  type TraceAnalysisEngineRequest,
+  type TraceAnalysisEngineResult,
 } from './engine'
 import { decodeRawFindingArray } from './finding-codec'
 import { RawAnalystFindingSchema } from './finding-signature'
@@ -54,15 +55,6 @@ import { RawAnalystFindingSchema } from './finding-signature'
 /** Bumped whenever this engine's execution behavior changes. */
 const CHAT_TRACE_ENGINE_VERSION = '1.0.0'
 const ENGINE_ID = 'chat-trace'
-
-/**
- * Completion cap for one turn. 4096 is below what current coding models emit
- * for a full findings array — glm-5.2 through an OpenAI-compatible gateway
- * returns 8192 and the request is rejected outright — so the default starts
- * above what a real report needs. Spend is bounded by the cost ledger, not by
- * this number.
- */
-const DEFAULT_MODEL_OUTPUT_TOKENS = 16_384
 
 /** Marker appended to a tool result cut down to the retained-output budget. */
 const TRUNCATION_MARKER = '\n…[truncated to the analyst maxOutputChars budget]'
@@ -77,7 +69,7 @@ export interface ChatTraceEngineOptions {
   model?: string
   /** Endpoint rates used when the transport reports no billed amount. */
   pricing?: CustomTokenPricing
-  /** Completion cap per turn. Default: 16384. */
+  /** Completion cap per turn. Default: {@link DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS}. */
   maxOutputTokens?: number
   /** Sampling temperature. Omitted from the request when absent. */
   temperature?: number
@@ -130,7 +122,7 @@ const REPORT_JSON_SCHEMA = buildReportJsonSchema()
  */
 export function createChatTraceEngine(options: ChatTraceEngineOptions): TraceAnalysisEngine {
   const model = resolveModel(options)
-  const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_MODEL_OUTPUT_TOKENS
+  const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0) {
     throw new TypeError('chat trace engine maxOutputTokens must be a positive safe integer')
   }
