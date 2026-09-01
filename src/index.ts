@@ -495,12 +495,22 @@ export type { ErrorCountPattern, ExtractOptions, ExtractResult } from './error-c
 export { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
 
 export type {
+  FailureBlame,
   FailureClass,
   FailureClassification,
   FailureContext,
+  FailureReasonRule,
   FailureRule,
 } from './failure-taxonomy'
-export { classifyFailure, FAILURE_CLASSES } from './failure-taxonomy'
+export {
+  classifyFailure,
+  classifyFailureReason,
+  DEFAULT_FAILURE_REASON_RULES,
+  FAILURE_BLAME,
+  FAILURE_CLASSES,
+  failureBlame,
+  INFRA_FAILURE_BLAMES,
+} from './failure-taxonomy'
 
 export {
   acquisitionPlansForKnowledgeGaps,
