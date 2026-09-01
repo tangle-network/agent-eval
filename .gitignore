@@ -23,8 +23,12 @@ data/
 coverage/
 *.junit.xml
 *.log
+<<<<<<< HEAD
 *.tgz
 .evolve/
 
 # Throwaway working files. Never a deliverable.
 .scratch/
+=======
+.agent/
+>>>>>>> dd6e42d4 (docs(skill): modernize agent-eval SKILL.md to the AgentProfile/scorecard/runEvalCampaign surface)
