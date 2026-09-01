@@ -161,3 +161,75 @@ describe('localCommandRunner', () => {
     },
   )
 })
+
+describe('localCommandRunner on runBoundedProcess', () => {
+  const posixOnly = process.platform !== 'win32'
+
+  function pidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  it('delivers stdin to the command', async () => {
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'process.stdin.on("data", (c) => process.stdout.write(c))'],
+      stdin: 'piped payload',
+    })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toBe('piped payload')
+  })
+
+  it('closes stdin when the caller sends none, so a reading command still finishes', async () => {
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: [
+        '-e',
+        'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write("eof"))',
+      ],
+      capMs: 10_000,
+    })
+    expect(r.status).toBe(0)
+    expect(r.timedOut).toBe(false)
+    expect(r.stdout).toBe('eof')
+  }, 20_000)
+
+  it.skipIf(!posixOnly)(
+    'kills descendants on capMs — regression: the timeout killed the shell and left its grandchild running',
+    async () => {
+      const r = await localCommandRunner.run({
+        cmd: 'sh',
+        argv: ['-c', 'sleep 60 & echo $!; wait'],
+        capMs: 400,
+      })
+      expect(r.timedOut).toBe(true)
+      expect(r.status).toBeNull()
+
+      const grandchild = Number.parseInt(r.stdout.trim(), 10)
+      expect(Number.isInteger(grandchild)).toBe(true)
+      // The kill reaches the process group, so the backgrounded sleep is gone.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(pidAlive(grandchild)).toBe(false)
+    },
+    20_000,
+  )
+
+  it('does not block the event loop while the command runs', async () => {
+    let timerFired = false
+    const timer = setTimeout(() => {
+      timerFired = true
+    }, 50)
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'setTimeout(() => {}, 500)'],
+      capMs: 10_000,
+    })
+    clearTimeout(timer)
+    expect(r.status).toBe(0)
+    expect(timerFired).toBe(true)
+  }, 20_000)
+})

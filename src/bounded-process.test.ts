@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -499,4 +500,148 @@ describe('runBoundedProcess argv refusal is exactly the documented rule', () => 
     expect(res.stdout).toBe('')
     expect(res.runnerError).toContain('never both')
   }, 20_000)
+})
+
+/** Reads all of stdin and prints its sha256, so a payload is compared by bytes. */
+const HASH_STDIN = [
+  'const chunks = []',
+  'process.stdin.on("data", (c) => chunks.push(c))',
+  'process.stdin.on("end", () => {',
+  '  const hash = require("node:crypto").createHash("sha256")',
+  '  process.stdout.write(hash.update(Buffer.concat(chunks)).digest("hex"))',
+  '})',
+].join('\n')
+
+function sha256Utf8(text: string): string {
+  return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
+}
+
+describe('runBoundedProcess stdin', () => {
+  // NUL, newline, carriage return, tab, both quote forms, a backslash, a
+  // non-ASCII letter and an astral emoji. Nothing parses this text, so all of
+  // it must survive; the NUL is the byte an argument vector cannot carry.
+  const AWKWARD_PAYLOAD = 'a b\nc\r\nd\te"f\'g\\héi\u{1f600}j'
+
+  it('delivers the payload verbatim, byte for byte', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: AWKWARD_PAYLOAD,
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(AWKWARD_PAYLOAD))
+    expect(res.runnerError).toBeUndefined()
+  }, 30_000)
+
+  it('delivers a payload larger than the pipe buffer to a reader that drains it', async () => {
+    const payload = 'x'.repeat(4 * 1024 * 1024)
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: payload,
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(payload))
+    expect(res.runnerError).toBeUndefined()
+  }, 40_000)
+
+  it('closes stdin even when no payload is given — regression: a command reading stdin waited out the deadline', async () => {
+    const started = Date.now()
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.stdout).toBe(sha256Utf8(''))
+    expect(Date.now() - started).toBeLessThan(15_000)
+  }, 30_000)
+
+  it('settles on the child exit code when the program never reads its stdin', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.stdout.write("ignored"); process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(3)
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.stdout).toBe('ignored')
+    // A payload this size cannot fit the pipe buffer, so the undelivered
+    // remainder is named rather than silently dropped.
+    expect(res.runnerError).toMatch(/^stdin not delivered:/)
+  }, 30_000)
+
+  it('reports no stdin failure for a small payload a fast command ignores', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      stdin: 'small',
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    // Racy by nature: the write may land in the pipe buffer before the child
+    // exits. Either way the run settles, and any report names the cause.
+    if (res.runnerError !== undefined) expect(res.runnerError).toMatch(/^stdin not delivered:/)
+  }, 30_000)
+
+  it('kills a child that is still holding stdin open when the deadline passes', async () => {
+    const started = Date.now()
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      stdin: 'z'.repeat(1024),
+      timeoutMs: 300,
+    })
+
+    expect(res.killedByTimeout).toBe(true)
+    expect(res.exitCode).toBe(124)
+    expect(Date.now() - started).toBeLessThan(15_000)
+  }, 30_000)
+
+  it.skipIf(!posixOnly)(
+    'delivers the same payload through the shell form and the argv form',
+    async () => {
+      const payload = 'shared\npayloadé'
+      const shellForm = await runBoundedProcess({
+        command: 'cat',
+        stdin: payload,
+        timeoutMs: 20_000,
+      })
+      const argvForm = await runBoundedProcess({
+        command: 'cat',
+        args: [],
+        stdin: payload,
+        timeoutMs: 20_000,
+      })
+
+      expect(shellForm.stdout).toBe(payload)
+      expect(argvForm.stdout).toBe(shellForm.stdout)
+      expect(argvForm.exitCode).toBe(shellForm.exitCode)
+    },
+    30_000,
+  )
+
+  it('delivers stdin under envMode replace, which changes nothing about the payload', async () => {
+    const payload = 'replace-mode'
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: payload,
+      envMode: 'replace',
+      env: { PATH: process.env.PATH ?? '' },
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(payload))
+  }, 30_000)
 })
