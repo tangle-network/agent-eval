@@ -280,7 +280,12 @@ export interface OrchestrationMetrics {
 export interface DecisionMetrics {
   readonly settledByStatus: Measured<Record<string, number>>
   readonly settledVerdicts: Measured<Record<string, number>>
-  /** Worker verified its own work green AND produced a patch. */
+  /**
+   * Workers whose recorded verdict was green. A store that retains a delivered patch also
+   * requires patch bytes; a store that retains none accepts the verdict alone, because the
+   * verdict IS the acceptance decision that store recorded. `emptyPass` — the split that
+   * needs patch bytes — is what reads unavailable there.
+   */
   readonly accepted: Measured<number>
   /** Worker settled with a failing verify. */
   readonly rejected: Measured<number>
@@ -348,6 +353,17 @@ export interface SpendMeasurement {
   readonly usd: Measured<number>
   /** Source records folded into `usd`; 0 when the measurement is unavailable. */
   readonly records: number
+  /**
+   * Records the store wrote with `usdKnown: false` — work that HAPPENED at a price the
+   * provider never reported. Those records are NOT folded into `usd`, so a run with any
+   * of them has a `usd` that is a floor on real spend, never the measured total. Dropping
+   * the whole channel instead would discard the records that DID carry a price.
+   */
+  readonly unknownRecords: number
+  /** True exactly when `unknownRecords > 0`: `usd` covers some of the run, not all of it. */
+  readonly partial: boolean
+  /** Node ids behind `unknownRecords`, in journal order. Empty when none. */
+  readonly unknownNodes: readonly string[]
 }
 
 /**
@@ -385,8 +401,9 @@ export interface EconomicsMetrics {
   /**
    * One collapsed number kept for existing consumers: the close record when
    * the store wrote one, else the journal-derived sum. `totalUsdSource` names
-   * the pick. Prefer `spend` — the collapse hides which accounting question
-   * the number answers.
+   * the pick, and says so when the number is a partial floor because some
+   * records carried `usdKnown: false`. Prefer `spend` — the collapse hides
+   * which accounting question the number answers and how much of it is priced.
    */
   readonly totalUsd: Measured<number>
   /**

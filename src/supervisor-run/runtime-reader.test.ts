@@ -457,8 +457,20 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(report.economics.totalUsd).toBe(0.035)
     // Two spend measurements: journal metered + settled (2 records) and the
     // result.json spentTotal close record (1 record). They agree on this run.
-    expect(report.economics.spend.journalDerived).toEqual({ usd: 0.035, records: 2 })
-    expect(report.economics.spend.closeRecord).toEqual({ usd: 0.035, records: 1 })
+    expect(report.economics.spend.journalDerived).toEqual({
+      usd: 0.035,
+      records: 2,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
+    })
+    expect(report.economics.spend.closeRecord).toEqual({
+      usd: 0.035,
+      records: 1,
+      unknownRecords: 0,
+      partial: false,
+      unknownNodes: [],
+    })
     expect(report.outcome.supStatus).toBe('completed')
     // No completion stamp in Runtime's layout: the wall derives from the
     // journal event span (begin at(0) → child settled at(4)) and says so.
@@ -533,8 +545,26 @@ describe('Runtime FileRunContext supervisor reader', () => {
       expect(report.orchestration.workersSettled).toBe(3)
       expect(report.economics.workers.tokensIn).toBe(271_825)
       expect(report.economics.workers.tokensOut).toBe(14_993)
+      // One of the two root metered rows reported neither tokens nor a price. The token
+      // channel has no field to label a partial, so it goes absent with the node named.
+      expect(report.economics.brain.tokensIn).toEqual({
+        unavailable: `Runtime recorded tokensKnown:false on 1 of 2 spend record(s) (${FULL1_ROOT})`,
+      })
+      // The price channel keeps the record that DID report, labelled in its source line.
+      expect(report.economics.brain.usd).toBe(0)
+      expect(report.economics.brain.source).toBe('journal metered events (n=2) — 1 unpriced')
+      // The collapsed total is a bare number with nothing beside it to say how much of the
+      // run it covers, so it stays unavailable while `spend.journalDerived` carries the split.
       expect(isUnavailable(report.economics.totalUsd)).toBe(true)
-      expect(isUnavailable(report.economics.brain.usd)).toBe(true)
+      expect(report.economics.spend.journalDerived).toEqual({
+        usd: 0,
+        records: 1,
+        unknownRecords: 4,
+        partial: true,
+        unknownNodes: [FULL1_ROOT, ...FULL1_CHILD_IDS],
+      })
+      // Every child settled unpriced, so the worker price channel has nothing measured.
+      expect(isUnavailable(report.economics.workers.usd)).toBe(true)
       expect(report.supervisorProfileDigest).toBe(ROOT_PROFILE)
       if (isUnavailable(report.economics.perWorker)) {
         throw new Error(report.economics.perWorker.unavailable)

@@ -1,0 +1,156 @@
+{
+  "kind": "winner",
+  "out": "2\n3\n5\n7\n11\n13\n17\n19\n23\n29\n31\n37\n41\n43\n47\n53\n59\n61\n67\n71",
+  "outRef": "sha256:dc7ebbe5a2ea37fc2d32083f38ac4decb14d978035564acbee4aa2af9bfdcaa2",
+  "tree": {
+    "root": "runner-smoke-20260901",
+    "nodes": [
+      {
+        "id": "runner-smoke-20260901:s0",
+        "parent": "runner-smoke-20260901",
+        "label": "primes",
+        "status": "done",
+        "runtime": "sandbox",
+        "budget": {
+          "maxIterations": 4,
+          "maxTokens": 30000,
+          "deadlineMs": 480000
+        },
+        "assignmentId": "ordinal:0",
+        "identity": {
+          "profileDigest": "sha256:d77d3298da35dc6bf2f04248abbebfe3c7bc042733c4402829a134e356af274c",
+          "taskDigest": "sha256:300376d74a9e4eac672710ed6ca941bcc37dc5bd0729e210e5b99b0cb8969c11"
+        },
+        "materialization": {
+          "status": "known",
+          "authoredProfileDigest": "sha256:d77d3298da35dc6bf2f04248abbebfe3c7bc042733c4402829a134e356af274c",
+          "effectiveProfileDigest": "sha256:d77d3298da35dc6bf2f04248abbebfe3c7bc042733c4402829a134e356af274c",
+          "materializationPlanDigest": "sha256:a0998e1ad1c2f2c57639f9723db413fbe6cad39f4442d57f73b77ab6691df434",
+          "runtime": "sandbox",
+          "backend": "codex",
+          "model": {
+            "status": "known",
+            "id": "gpt-5.6-sol"
+          },
+          "execution": {
+            "kind": "run",
+            "id": "runner-smoke-20260901:s0"
+          },
+          "materializer": "sandbox-agent-profile"
+        },
+        "executionBindings": [
+          {
+            "status": "known",
+            "attemptId": "runner-smoke-20260901:s0:attempt:96c03d44-cf57-48a1-8de7-106e3ae9dff3",
+            "materializationReceiptDigest": "sha256:ba82d0a462e8ad9ed33b0bca37fb029492593a453736e401e3348e4fabe23622",
+            "bindingDigest": "sha256:a16bdadda8c855ea8d9afacb932e0884bc342f0d5415964fbcc1d51d5e9523bc",
+            "descriptor": {
+              "kind": "sandbox-run",
+              "transport": "sandbox",
+              "backend": "codex"
+            }
+          }
+        ],
+        "spent": {
+          "iterations": 1,
+          "tokens": {
+            "input": 31608,
+            "output": 221,
+            "freshInput": 5496,
+            "cacheRead": 26112,
+            "cacheWrite": 0
+          },
+          "usd": 0,
+          "usdKnown": false,
+          "ms": 17995
+        },
+        "settledAt": 1788275579115,
+        "outRef": "sha256:8981280bb2d8332a416517dcaf10987d7353fd16ca4f48ec17f70186afbefeed",
+        "trace": {
+          "status": "unavailable",
+          "reason": "executor-did-not-expose-trace-source"
+        }
+      }
+    ],
+    "inFlight": 0,
+    "waiting": 0
+  },
+  "spentTotal": {
+    "iterations": 1,
+    "tokens": {
+      "input": 112117,
+      "output": 987,
+      "freshInput": 5496,
+      "cacheRead": 26112,
+      "cacheWrite": 0,
+      "cacheBreakdownKnown": false
+    },
+    "usd": 0.10829625,
+    "usdKnown": false,
+    "usdEstimated": 0.10829625,
+    "ms": 46863,
+    "tokensKnown": true
+  },
+  "providerModel": {
+    "status": "unknown",
+    "attempts": [
+      {
+        "observations": []
+      }
+    ],
+    "models": [],
+    "reason": "provider-model-missing"
+  },
+  "spendGaps": [
+    {
+      "id": "runner-smoke-20260901:s0",
+      "label": "primes",
+      "kind": "unreported",
+      "channels": [
+        "usd"
+      ]
+    },
+    {
+      "id": "runner-smoke-20260901",
+      "label": "root",
+      "kind": "unreported",
+      "channels": [
+        "usd"
+      ]
+    }
+  ],
+  "spentBreakdown": {
+    "driverInference": {
+      "iterations": 0,
+      "tokens": {
+        "input": 80509,
+        "output": 766,
+        "cacheWrite": 0,
+        "cacheBreakdownKnown": false
+      },
+      "usd": 0.10829625,
+      "usdKnown": false,
+      "usdEstimated": 0.10829625,
+      "ms": 0
+    },
+    "childWork": {
+      "iterations": 1,
+      "tokens": {
+        "input": 31608,
+        "output": 221,
+        "freshInput": 5496,
+        "cacheRead": 26112,
+        "cacheWrite": 0
+      },
+      "usd": 0,
+      "usdKnown": false,
+      "ms": 17995
+    }
+  },
+  "rootProviderModel": {
+    "status": "unknown",
+    "attempts": [],
+    "models": [],
+    "reason": "provider-model-missing"
+  }
+}
