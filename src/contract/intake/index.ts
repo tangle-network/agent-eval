@@ -14,6 +14,9 @@
  *   - `fromCodexSession` / `fromClaudeCodeSession` / `fromOpenCodeSession` /
  *     `fromKimiCodeSession` / `fromPiSession` — local coding-agent and
  *     graph-shaped sessions projected into process-scored `RunRecord`s.
+ *   - `observeCodeAgentStore` — the RUN-SCOPED finder over a harness's own
+ *     session store. It reads the directory a caller names and no other, and
+ *     returns `unavailable` rather than a count when the run captured nothing.
  *   - `fromRunRecordDir` — a `.json` / `.jsonl` file or a directory of them,
  *     parsed and validated at the boundary.
  */
@@ -56,6 +59,14 @@ export {
   parseCodeAgentJsonlFile,
   streamCodeAgentJsonlFile,
 } from './code-agent-session'
+export {
+  type CodeAgentStoreObservation,
+  type CodeAgentStoreRejection,
+  type CodeAgentStoreRejections,
+  type CodeAgentStoreScope,
+  type CodeAgentStoreSession,
+  observeCodeAgentStore,
+} from './code-agent-store'
 export {
   type FeedbackTableMeta,
   type FeedbackTableRow,
