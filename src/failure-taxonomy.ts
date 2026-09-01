@@ -126,8 +126,13 @@ export const FAILURE_BLAME: Readonly<Record<FailureClass, FailureBlame>> = {
   stream_incomplete: 'provider',
   message_sealed: 'provider',
   process_killed: 'provider',
-  cancelled: 'provider',
   terminated: 'provider',
+
+  // An operator stopping a run is not the machine, the provider or the agent.
+  // Charging it to any of the three would make a deliberate stop read as a
+  // failure of the thing that was stopped, and counting it as infrastructure
+  // would turn a cancelled batch into an outage streak.
+  cancelled: 'unknown',
 
   traversal_cap_exhausted: 'agent',
 
@@ -137,7 +142,19 @@ export const FAILURE_BLAME: Readonly<Record<FailureClass, FailureBlame>> = {
 
 /**
  * The blames that mean the run got no usable turn out of the machine or the
- * provider. A reader counting an outage streak counts these.
+ * provider.
+ *
+ * This answers a different question from `machine` alone, and the two must not
+ * be confused. "Is this run evidence about the agent?" is answered by `machine`
+ * and by nothing else — a `provider` death stays charged, because every arm
+ * faces the same provider on the same day. "Is this seat producing usable turns
+ * at all?" is answered by this set, because a seat that only ever returns empty
+ * completions and torn streams is as dead as one whose bridge refuses, however
+ * the individual runs are charged.
+ *
+ * So a reader counting an outage streak counts these; a reader deciding whether
+ * to void a run reads `machine`. Nothing an operator did lands here: `cancelled`
+ * is blamed `unknown` for exactly that reason.
  */
 export const INFRA_FAILURE_BLAMES: ReadonlySet<FailureBlame> = new Set<FailureBlame>([
   'machine',
@@ -239,6 +256,14 @@ export const DEFAULT_FAILURE_REASON_RULES: readonly FailureReasonRule[] = [
   { failureClass: 'cancelled', pattern: /cancelled by user/i },
   { failureClass: 'terminated', pattern: /(^|: )terminated\b/i },
   { failureClass: 'budget_exceeded', pattern: /budget pool: ticket \d+ spent/i },
+  // Deliberately last and deliberately broad: by the time a reason reaches this
+  // rule every transport pattern above has declined it, so what remains is the
+  // agent's own clock. That boundary is the rule set's, not a fact about the
+  // word: a transport whose deadline wording is not matched above would be
+  // charged to the agent here, which is the mis-charge this taxonomy exists to
+  // stop. A consumer whose machine has its own deadline wording adds a rule for
+  // it AHEAD of this one rather than widening this one — inventing patterns for
+  // strings nobody has recorded is how a rule set stops describing anything.
   { failureClass: 'timeout', pattern: /deadline|timed out|timeout/i },
   { failureClass: 'traversal_cap_exhausted', pattern: /traversal|iteration cap|exhausted/i },
 ]

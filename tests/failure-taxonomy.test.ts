@@ -278,7 +278,7 @@ describe('classifyFailureReason', () => {
     ['Prompt stream ended before a terminal event', 'stream_incomplete', 'provider'],
     ['message already rolled up (sealed)', 'message_sealed', 'provider'],
     ['seat killed by SIGKILL', 'process_killed', 'provider'],
-    ['run cancelled by user', 'cancelled', 'provider'],
+    ['run cancelled by user', 'cancelled', 'unknown'],
     ['worker: terminated', 'terminated', 'provider'],
     ['budget pool: ticket 4 spent', 'budget_exceeded', 'agent'],
     ['deadline exceeded after 3600s', 'timeout', 'agent'],
@@ -389,5 +389,44 @@ describe('classifyFailure blame axis', () => {
     const classified = classifyFailure(await ctxFor(store, e.runId))
     expect(classified.failureClass).toBe('unknown')
     expect(classified.blame).toBe('unknown')
+  })
+})
+
+describe('the two questions the blame axis answers', () => {
+  it('keeps an operator cancel out of every charge and out of the outage set', () => {
+    // A deliberate stop is not the machine, the provider or the agent. Counting
+    // it as infrastructure would turn a cancelled batch into an outage streak.
+    const classified = classifyFailureReason('run cancelled by user')
+    expect(classified.failureClass).toBe('cancelled')
+    expect(classified.blame).toBe('unknown')
+    expect(INFRA_FAILURE_BLAMES.has(classified.blame)).toBe(false)
+  })
+
+  it('separates voiding a run from counting a dead seat', () => {
+    // Voidable — the run never reached a model, so it is not evidence.
+    expect(failureBlame('bridge_unreachable')).toBe('machine')
+    // Charged, because every arm faces the same provider on the same day...
+    expect(failureBlame('empty_completion')).toBe('provider')
+    // ...and still counted, because a seat returning only empty completions is
+    // as dead as one whose bridge refuses.
+    expect(INFRA_FAILURE_BLAMES.has('provider')).toBe(true)
+    expect(INFRA_FAILURE_BLAMES.has('agent')).toBe(false)
+    expect(INFRA_FAILURE_BLAMES.has('unknown')).toBe(false)
+  })
+
+  it('leaves the terminal timeout rule to the agent clock, and a named machine deadline to the machine', () => {
+    // A machine deadline the rule set names is caught before the generic rule.
+    const machineDeadline = classifyFailureReason(
+      'host-executor: acquire timeout after 900000ms (in_flight=10/10)',
+    )
+    expect(machineDeadline.blame).toBe('machine')
+    const provisioning = classifyFailureReason('Sandbox create did not complete within 300000ms')
+    expect(provisioning.blame).toBe('machine')
+    // Anything the transport rules decline is the agent's own clock. A consumer
+    // whose machine has other deadline wording adds a rule ahead of this one.
+    const agentDeadline = classifyFailureReason('deadline exceeded after 3600s')
+    expect(agentDeadline.failureClass).toBe('timeout')
+    expect(agentDeadline.blame).toBe('agent')
+    expect(DEFAULT_FAILURE_REASON_RULES.at(-2)?.failureClass).toBe('timeout')
   })
 })
