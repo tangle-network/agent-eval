@@ -9,8 +9,7 @@
  * consumer binds its own transport and agent-eval holds no provider key.
  */
 
-import type { ChatClient } from './analyst/chat-client'
-import { LlmClient, type LlmClientOptions } from './llm-client'
+import { type ChatClient, createChatClient } from './analyst/chat-client'
 
 export interface CliLlmConfig {
   /** Judge transport for the wire handlers. Absent when no provider is configured. */
@@ -62,26 +61,33 @@ export function resolveCliLlmConfig(env: NodeJS.ProcessEnv = process.env): CliLl
   }
 }
 
-function cliChatClient(options: LlmClientOptions, defaultModel: string | undefined): ChatClient {
-  const client = new LlmClient(options)
-  return {
-    transport: 'custom',
+/**
+ * The binary's transport IS the published one — `createChatClient({ transport:
+ * 'openai-compatible' })` — so the server and a library consumer cannot drift
+ * onto two different clients for the same endpoint.
+ *
+ * The one thing kept local is the error text. A generic "no model on the
+ * request" tells a server operator nothing; this names the variable to set.
+ */
+function cliChatClient(
+  route: { baseUrl: string; apiKey: string },
+  defaultModel: string | undefined,
+): ChatClient {
+  const client = createChatClient({
+    transport: 'openai-compatible',
+    baseUrl: route.baseUrl,
+    apiKey: route.apiKey,
     ...(defaultModel ? { defaultModel } : {}),
-    ...(client.maximumAttempts === undefined ? {} : { maximumAttempts: client.maximumAttempts }),
+  })
+  return {
+    ...client,
     chat: (req, callOpts) => {
-      const model = req.model ?? defaultModel
-      if (!model) {
+      if (!req.model && !defaultModel) {
         throw new Error(
           'agent-eval: no model on the request and no AGENT_EVAL_LLM_MODEL configured',
         )
       }
-      return client.call(
-        { ...req, model },
-        {
-          ...(callOpts?.signal ? { signal: callOpts.signal } : {}),
-          ...(callOpts?.idempotencyKey ? { idempotencyKey: callOpts.idempotencyKey } : {}),
-        },
-      )
+      return client.chat(req, callOpts)
     },
   }
 }
