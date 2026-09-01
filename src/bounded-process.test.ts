@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -498,5 +499,255 @@ describe('runBoundedProcess argv refusal is exactly the documented rule', () => 
     expect(res.exitCode).not.toBe(0)
     expect(res.stdout).toBe('')
     expect(res.runnerError).toContain('never both')
+  }, 20_000)
+})
+
+/** Reads all of stdin and prints its sha256, so a payload is compared by bytes. */
+const HASH_STDIN = [
+  'const chunks = []',
+  'process.stdin.on("data", (c) => chunks.push(c))',
+  'process.stdin.on("end", () => {',
+  '  const hash = require("node:crypto").createHash("sha256")',
+  '  process.stdout.write(hash.update(Buffer.concat(chunks)).digest("hex"))',
+  '})',
+].join('\n')
+
+function sha256Utf8(text: string): string {
+  return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
+}
+
+describe('runBoundedProcess stdin', () => {
+  // NUL, newline, carriage return, tab, both quote forms, a backslash, a
+  // non-ASCII letter and an astral emoji. Nothing parses this text, so all of
+  // it must survive; the NUL is the byte an argument vector cannot carry.
+  const AWKWARD_PAYLOAD = 'a b\nc\r\nd\te"f\'g\\héi\u{1f600}j'
+
+  it('delivers the payload verbatim, byte for byte', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: AWKWARD_PAYLOAD,
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(AWKWARD_PAYLOAD))
+    expect(res.runnerError).toBeUndefined()
+  }, 30_000)
+
+  it('delivers a payload larger than the pipe buffer to a reader that drains it', async () => {
+    const payload = 'x'.repeat(4 * 1024 * 1024)
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: payload,
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(payload))
+    expect(res.runnerError).toBeUndefined()
+  }, 40_000)
+
+  it('closes stdin even when no payload is given — regression: a command reading stdin waited out the deadline', async () => {
+    const started = Date.now()
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.stdout).toBe(sha256Utf8(''))
+    expect(Date.now() - started).toBeLessThan(15_000)
+  }, 30_000)
+
+  it('settles on the child exit code when the program never reads its stdin', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.stdout.write("ignored"); process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(3)
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.stdout).toBe('ignored')
+    // A payload this size cannot fit the pipe buffer, so the undelivered
+    // remainder is named rather than silently dropped.
+    expect(res.runnerError).toMatch(/^stdin not delivered:/)
+  }, 30_000)
+
+  it('reports no stdin failure for a small payload a fast command ignores', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      stdin: 'small',
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    // Racy by nature: the write may land in the pipe buffer before the child
+    // exits. Either way the run settles, and any report names the cause.
+    if (res.runnerError !== undefined) expect(res.runnerError).toMatch(/^stdin not delivered:/)
+  }, 30_000)
+
+  it('kills a child that is still holding stdin open when the deadline passes', async () => {
+    const started = Date.now()
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      stdin: 'z'.repeat(1024),
+      timeoutMs: 300,
+    })
+
+    expect(res.killedByTimeout).toBe(true)
+    expect(res.exitCode).toBe(124)
+    expect(Date.now() - started).toBeLessThan(15_000)
+  }, 30_000)
+
+  it.skipIf(!posixOnly)(
+    'delivers the same payload through the shell form and the argv form',
+    async () => {
+      const payload = 'shared\npayloadé'
+      const shellForm = await runBoundedProcess({
+        command: 'cat',
+        stdin: payload,
+        timeoutMs: 20_000,
+      })
+      const argvForm = await runBoundedProcess({
+        command: 'cat',
+        args: [],
+        stdin: payload,
+        timeoutMs: 20_000,
+      })
+
+      expect(shellForm.stdout).toBe(payload)
+      expect(argvForm.stdout).toBe(shellForm.stdout)
+      expect(argvForm.exitCode).toBe(shellForm.exitCode)
+    },
+    30_000,
+  )
+
+  it('delivers stdin under envMode replace, which changes nothing about the payload', async () => {
+    const payload = 'replace-mode'
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: payload,
+      envMode: 'replace',
+      env: { PATH: process.env.PATH ?? '' },
+      timeoutMs: 20_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe(sha256Utf8(payload))
+  }, 30_000)
+})
+
+describe('runBoundedProcess output decoding', () => {
+  it('keeps a multi-byte character whole across chunk boundaries — regression: every 64 KiB boundary corrupted one character', async () => {
+    // Three bytes per character, so a boundary lands mid-sequence many times
+    // over a payload this size. Decoding each chunk on its own would replace
+    // the straddling characters with U+FFFD.
+    const count = 2_000_000
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', `process.stdout.write("\\u4e2d".repeat(${count}))`],
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout.length).toBe(count)
+    expect(res.stdout).toBe('中'.repeat(count))
+    expect(res.stdout.includes('�')).toBe(false)
+  }, 40_000)
+
+  it('decodes stderr across chunk boundaries too', async () => {
+    const count = 2_000_000
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', `process.stderr.write("\\u4e2d".repeat(${count}))`],
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stderr.includes('�')).toBe(false)
+    expect(res.stderr.length).toBe(count)
+  }, 40_000)
+})
+
+describe('runBoundedProcess structured outcome facts', () => {
+  it('says a program that never started did not spawn — regression: a caller had to parse the runnerError text', async () => {
+    const res = await runBoundedProcess({
+      command: 'definitely-not-a-real-binary-xyz-123',
+      args: [],
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    // Nothing was sent, so nothing failed to arrive.
+    expect(res.stdinDelivered).toBe(true)
+    expect(res.runnerError).toBeTruthy()
+  }, 20_000)
+
+  it('says a caller-bug refusal did not spawn', async () => {
+    const res = await runBoundedProcess({
+      command: 'echo',
+      args: ['hi'],
+      shell: true,
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    expect(res.stdinDelivered).toBe(true)
+    expect(res.runnerError).toMatch(/^not spawned:/)
+  }, 20_000)
+
+  it('says an already-aborted signal did not spawn', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', ''],
+      signal: AbortSignal.abort(),
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    expect(res.killedBySignal).toBe(true)
+  }, 20_000)
+
+  it('separates "it ran" from "it read everything it was sent"', async () => {
+    const delivered = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: 'read in full',
+      timeoutMs: 20_000,
+    })
+    expect(delivered.spawned).toBe(true)
+    expect(delivered.stdinDelivered).toBe(true)
+
+    const ignored = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+      timeoutMs: 20_000,
+    })
+    // The command ran and chose its own exit code; the input did not all land.
+    expect(ignored.spawned).toBe(true)
+    expect(ignored.stdinDelivered).toBe(false)
+    expect(ignored.exitCode).toBe(3)
+  }, 40_000)
+
+  it('reports a killed run as spawned, because it ran', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      timeoutMs: 300,
+    })
+
+    expect(res.spawned).toBe(true)
+    expect(res.killedByTimeout).toBe(true)
+    expect(res.exitCode).toBe(124)
   }, 20_000)
 })

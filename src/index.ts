@@ -263,7 +263,7 @@ export type { ActiveLearningOptions, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
 
 export type { BoundedProcessInput, BoundedProcessResult } from './bounded-process'
-export { runBoundedProcess } from './bounded-process'
+export { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS, runBoundedProcess } from './bounded-process'
 
 export type {
   CampaignCellFailureReceipt,
@@ -278,7 +278,7 @@ export type { CampaignResult } from './campaign/types'
 export { ProductClient } from './client'
 
 export type { CommandRunner, DirEntry, RunCommandInput, RunCommandResult } from './command-runner'
-export { localCommandRunner } from './command-runner'
+export { LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS, localCommandRunner } from './command-runner'
 
 export type {
   ControlActionOutcome,

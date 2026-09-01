@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { localCommandRunner } from './command-runner'
+import { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS } from './bounded-process'
+import { LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS, localCommandRunner } from './command-runner'
 
 describe('localCommandRunner', () => {
   it('spawns a subprocess and returns stdout + status 0 on success', async () => {
@@ -160,4 +161,101 @@ describe('localCommandRunner', () => {
       }
     },
   )
+})
+
+describe('localCommandRunner on runBoundedProcess', () => {
+  const posixOnly = process.platform !== 'win32'
+
+  function pidAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  it('delivers stdin to the command', async () => {
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'process.stdin.on("data", (c) => process.stdout.write(c))'],
+      stdin: 'piped payload',
+    })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toBe('piped payload')
+  })
+
+  it('closes stdin when the caller sends none, so a reading command still finishes', async () => {
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: [
+        '-e',
+        'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write("eof"))',
+      ],
+      capMs: 10_000,
+    })
+    expect(r.status).toBe(0)
+    expect(r.timedOut).toBe(false)
+    expect(r.stdout).toBe('eof')
+  }, 20_000)
+
+  it.skipIf(!posixOnly)(
+    'kills descendants on capMs — regression: the timeout killed the shell and left its grandchild running',
+    async () => {
+      const r = await localCommandRunner.run({
+        cmd: 'sh',
+        argv: ['-c', 'sleep 60 & echo $!; wait'],
+        capMs: 400,
+      })
+      expect(r.timedOut).toBe(true)
+      expect(r.status).toBeNull()
+
+      const grandchild = Number.parseInt(r.stdout.trim(), 10)
+      expect(Number.isInteger(grandchild)).toBe(true)
+      // The kill reaches the process group, so the backgrounded sleep is gone.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(pidAlive(grandchild)).toBe(false)
+    },
+    20_000,
+  )
+
+  it('does not block the event loop while the command runs', async () => {
+    let timerFired = false
+    const timer = setTimeout(() => {
+      timerFired = true
+    }, 50)
+    const r = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'setTimeout(() => {}, 500)'],
+      capMs: 10_000,
+    })
+    clearTimeout(timer)
+    expect(r.status).toBe(0)
+    expect(timerFired).toBe(true)
+  }, 20_000)
+})
+
+describe('localCommandRunner bounds and status mapping', () => {
+  it('applies its documented default cap when the caller names no capMs', async () => {
+    expect(LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS).toBe(DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS)
+    expect(LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS).toBeGreaterThan(0)
+  })
+
+  it('keeps status null for "nothing ran" and the child code for "ran on partial input"', async () => {
+    const missing = await localCommandRunner.run({
+      cmd: 'definitely-not-a-real-binary-xyz-123',
+      argv: [],
+    })
+    expect(missing.status).toBeNull()
+
+    // The command ran and chose exit 3; a stdin payload it never drained does
+    // not make that a runner failure, so the code survives.
+    const ignoredInput = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+    })
+    expect(ignoredInput.status).toBe(3)
+    expect(ignoredInput.timedOut).toBe(false)
+  }, 30_000)
 })
