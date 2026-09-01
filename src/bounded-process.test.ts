@@ -677,3 +677,77 @@ describe('runBoundedProcess output decoding', () => {
     expect(res.stderr.length).toBe(count)
   }, 40_000)
 })
+
+describe('runBoundedProcess structured outcome facts', () => {
+  it('says a program that never started did not spawn — regression: a caller had to parse the runnerError text', async () => {
+    const res = await runBoundedProcess({
+      command: 'definitely-not-a-real-binary-xyz-123',
+      args: [],
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    // Nothing was sent, so nothing failed to arrive.
+    expect(res.stdinDelivered).toBe(true)
+    expect(res.runnerError).toBeTruthy()
+  }, 20_000)
+
+  it('says a caller-bug refusal did not spawn', async () => {
+    const res = await runBoundedProcess({
+      command: 'echo',
+      args: ['hi'],
+      shell: true,
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    expect(res.stdinDelivered).toBe(true)
+    expect(res.runnerError).toMatch(/^not spawned:/)
+  }, 20_000)
+
+  it('says an already-aborted signal did not spawn', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', ''],
+      signal: AbortSignal.abort(),
+      timeoutMs: 10_000,
+    })
+
+    expect(res.spawned).toBe(false)
+    expect(res.killedBySignal).toBe(true)
+  }, 20_000)
+
+  it('separates "it ran" from "it read everything it was sent"', async () => {
+    const delivered = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', HASH_STDIN],
+      stdin: 'read in full',
+      timeoutMs: 20_000,
+    })
+    expect(delivered.spawned).toBe(true)
+    expect(delivered.stdinDelivered).toBe(true)
+
+    const ignored = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+      timeoutMs: 20_000,
+    })
+    // The command ran and chose its own exit code; the input did not all land.
+    expect(ignored.spawned).toBe(true)
+    expect(ignored.stdinDelivered).toBe(false)
+    expect(ignored.exitCode).toBe(3)
+  }, 40_000)
+
+  it('reports a killed run as spawned, because it ran', async () => {
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      timeoutMs: 300,
+    })
+
+    expect(res.spawned).toBe(true)
+    expect(res.killedByTimeout).toBe(true)
+    expect(res.exitCode).toBe(124)
+  }, 20_000)
+})

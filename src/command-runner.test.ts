@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { localCommandRunner } from './command-runner'
+import { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS } from './bounded-process'
+import { LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS, localCommandRunner } from './command-runner'
 
 describe('localCommandRunner', () => {
   it('spawns a subprocess and returns stdout + status 0 on success', async () => {
@@ -232,4 +233,29 @@ describe('localCommandRunner on runBoundedProcess', () => {
     expect(r.status).toBe(0)
     expect(timerFired).toBe(true)
   }, 20_000)
+})
+
+describe('localCommandRunner bounds and status mapping', () => {
+  it('applies its documented default cap when the caller names no capMs', async () => {
+    expect(LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS).toBe(DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS)
+    expect(LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS).toBeGreaterThan(0)
+  })
+
+  it('keeps status null for "nothing ran" and the child code for "ran on partial input"', async () => {
+    const missing = await localCommandRunner.run({
+      cmd: 'definitely-not-a-real-binary-xyz-123',
+      argv: [],
+    })
+    expect(missing.status).toBeNull()
+
+    // The command ran and chose exit 3; a stdin payload it never drained does
+    // not make that a runner failure, so the code survives.
+    const ignoredInput = await localCommandRunner.run({
+      cmd: 'node',
+      argv: ['-e', 'process.exit(3)'],
+      stdin: 'y'.repeat(4 * 1024 * 1024),
+    })
+    expect(ignoredInput.status).toBe(3)
+    expect(ignoredInput.timedOut).toBe(false)
+  }, 30_000)
 })
