@@ -19,6 +19,7 @@ export type {
   ReferenceEquivalenceScenario,
 } from '../reference-equivalence-judge'
 export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
+export type { SeriesDistribution } from '../statistics'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type BuildTraceAnalystSurfaceDispatchOptions,
@@ -38,7 +39,11 @@ export {
   type CacheRead,
   readCachedCell,
 } from './cell-cache'
-export { cellCachePath } from './cell-schedule'
+export {
+  buildCellSchedule,
+  type CellScheduleSlot,
+  cellCachePath,
+} from './cell-schedule'
 export {
   assertCampaignDesign,
   assertCampaignSplitIdentity,

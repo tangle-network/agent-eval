@@ -1592,7 +1592,12 @@ describe('emitLoopProvenance — hosted ingest (eval-run + traces)', () => {
 
     expect(campaignMeanComposite(campaign)).toBeCloseTo(0.9)
     expect(campaign.aggregates.byScenario).toEqual({
-      good: { meanComposite: 0.9, ci95: [0.9, 0.9], n: 1 },
+      good: {
+        meanComposite: 0.9,
+        ci95: [0.9, 0.9],
+        n: 1,
+        distribution: { n: 1, min: 0.9, p50: 0.9, p90: 0.9, max: 0.9, sum: 0.9 },
+      },
     })
     expect(campaign.aggregates.byJudge.quality).toMatchObject({ mean: 0.5, n: 2 })
     expect(campaign.aggregates.byJudge.reliability).toMatchObject({ mean: 1, n: 1 })

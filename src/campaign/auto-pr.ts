@@ -142,11 +142,15 @@ function renderPrBody<TArtifact, TScenario extends Scenario>(
   lines.push('')
   lines.push('### By-judge aggregates')
   lines.push('')
-  lines.push('| judge | mean | ci95 | n |')
-  lines.push('|---|---|---|---|')
+  // The spread rides beside the mean because a reviewer cannot tell a bimodal
+  // judge from a tight one on a mean and an interval alone.
+  lines.push('| judge | mean | ci95 | min | p50 | p90 | max | n |')
+  lines.push('|---|---|---|---|---|---|---|---|')
   for (const [name, agg] of Object.entries(result.aggregates.byJudge)) {
+    const d = agg.distribution
     lines.push(
-      `| ${name} | ${agg.mean.toFixed(3)} | [${agg.ci95[0].toFixed(3)}, ${agg.ci95[1].toFixed(3)}] | ${agg.n} |`,
+      `| ${name} | ${agg.mean.toFixed(3)} | [${agg.ci95[0].toFixed(3)}, ${agg.ci95[1].toFixed(3)}] |` +
+        ` ${d.min.toFixed(3)} | ${d.p50.toFixed(3)} | ${d.p90.toFixed(3)} | ${d.max.toFixed(3)} | ${agg.n} |`,
     )
   }
   return lines.join('\n')

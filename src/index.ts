@@ -727,6 +727,13 @@ export type { ActionExecutionPolicy, ActionPolicyDecision } from './action-polic
 export { evaluateActionPolicy } from './action-policy'
 
 export type {
+  AttestationProvenance,
+  AttestationVerification,
+  AttestedReport,
+} from './attestation'
+export { ATTESTATION_ALGORITHM, attest, verifyAttestation } from './attestation'
+
+export type {
   CanaryAlert,
   CanaryEvaluation,
   CanaryKind,

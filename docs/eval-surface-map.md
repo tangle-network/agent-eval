@@ -43,6 +43,42 @@ is `runCampaign` with capture inverted; `runAgentMatrix` is the scheduler undern
 Merging any two of these conflates distinct mental models (measure ≠ search ≠
 release-gate). Keep them separate; pick by the table.
 
+## What a campaign result reports: the mean and the spread
+
+`CampaignResult.aggregates` carries two maps.
+`byJudge` holds one `JudgeAggregate` per judge that produced at least one score.
+`byScenario` holds one `ScenarioAggregate` per scenario that produced at least one composite.
+
+Each aggregate reports a mean, a seeded bootstrap `ci95` band, `n`, and a `distribution`.
+`distribution` is the `SeriesDistribution` value `summarizeNumberSeries` returns: `n`, `min`, `p50`, `p90`, `max`, and `sum` over the exact scores the mean was taken over.
+Quantiles use the nearest-rank definition, so every reported quantile is a score the campaign measured.
+
+Read the distribution before you read the mean.
+A mean and an interval alone cannot separate a bimodal judge from a tight one, and cannot show the outlier that carried the mean.
+Six cells scoring `0, 0, 0, 1, 1, 1` and six cells scoring `0.5` report the same mean; only `min` and `max` tell them apart.
+
+A judge that produced no score has no entry at all.
+An absent aggregate is the honest record of an unmeasured judge, and a zero-filled distribution would read as a measured all-zero series.
+
+`SeriesDistribution` is the one distribution summary in this package.
+It is not the `ScalarDistribution` the insight report uses; see `insight-report.md` for why those two shapes stay separate.
+
+## Planning the cell grid without a run directory
+
+`buildCellSchedule(scenarios, seed, reps)` returns the `(scenario × rep)` fan-out: one `CellScheduleSlot` per cell, with its `cellId` and its per-cell seed.
+It touches no filesystem, so a caller can size a design, or assert a design's cell count and seeds in a test, before a run directory exists.
+Scenarios that share a `seedGroup` receive the same per-replicate seeds, which is what makes a paired comparison see common randomness.
+
+Use `planCampaignRun` instead when you also need the cached, to-run, and blocked classification; that call needs a real run directory because it reads the durable cache.
+`cellDirectory` and `cellCachePath` name a cell's location once a run directory is chosen.
+
+## Evidence receipts: `attest`
+
+`attest(report, provenance)` content-addresses any serializable report and binds that address to the provenance needed to reproduce it: model versions, seeds, price-table hash, code SHA, and inputs hash.
+`verifyAttestation(report, attested)` returns a typed outcome rather than throwing, so a pipeline records why a report failed to verify instead of dying.
+`ATTESTATION_ALGORITHM` is the hash-scheme tag every attestation carries, and a verifier rejects an unknown algorithm instead of guessing.
+Signing stays with the consumer: an `AttestedReport` is a stable byte-identical payload to sign, and this package never holds keys.
+
 ## Failed cells: receipts and bounded retry
 
 A failed cell writes `<cell>/failure-receipt.json` before the campaign can abort.

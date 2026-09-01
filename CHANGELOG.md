@@ -4,6 +4,42 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.172.0] — 2026-09-01
+
+### Added
+
+- Campaign aggregates carry the spread beside the mean.
+  `JudgeAggregate` and `ScenarioAggregate` each gain a `distribution` field holding the `SeriesDistribution` value `summarizeNumberSeries` returns: `n`, `min`, `p50`, `p90`, `max`, and `sum` over the exact scores the mean was taken over.
+  A mean, a standard deviation, and a bootstrap interval cannot separate a bimodal judge from a tight one, and cannot show the outlier that carried the mean: six cells scoring `0, 0, 0, 1, 1, 1` and six cells scoring `0.5` reported identical aggregates before this change.
+  The values come from the package's existing helper, so a campaign aggregate and every other series summary here report the same fields under the same nearest-rank quantile definition.
+  The auto-PR by-judge table prints `min`, `p50`, `p90`, and `max` beside the mean for the same reason.
+  A judge that produced no score still has no entry at all, because an absent aggregate is the honest record of an unmeasured judge.
+  Closes #705.
+- `buildCellSchedule` and its `CellScheduleSlot` type are exported from `@tangle-network/agent-eval/campaign`.
+  The function computes the `(scenario × rep)` fan-out with seed-group aware per-cell seeds and touches no filesystem, but it was reachable only through `planCampaignRun` and `runCampaign`, both of which refuse an empty run directory.
+  A caller that wants the grid alone — a size preview before a run directory is chosen, or a test that asserts a design's cell count and seeds — no longer has to invent a path it will not use.
+  Closes #707.
+- `attest`, `verifyAttestation`, `ATTESTATION_ALGORITHM`, and the `AttestedReport`, `AttestationProvenance`, and `AttestationVerification` types are exported from the package root.
+  Reproducibility attestation has been implemented and tested in `src/attestation.ts` since #237 (2026-06-10), and was absent from every published entry, so a consumer building evidence receipts could not reach it from an installed copy.
+
+### Changed
+
+- `docs/eval-surface-map.md` states what `CampaignResult.aggregates` reports, how to read the cell grid without a run directory, and what `attest` binds.
+  `docs/insight-report.md` states why the report's `ScalarDistribution` and the campaign's `SeriesDistribution` stay separate shapes: the first is a strict published wire contract that also carries a histogram, `tailRuns`, and `p95`, and the two answer differently at `n = 0`.
+- This release is a minor, not a patch. 0.171.1 stayed on the patch line because its export was purely additive, and this one is not: `JudgeAggregate` and `ScenarioAggregate` each gain a REQUIRED field, so any consumer that builds one of those values by hand must add it. A consumer that only reads a `CampaignResult` needs no change.
+- Pin the four dependency manifests with digest `3f65588dbbec59d2c783edf245a9751653346fc67eae691d38af22c8b6b5b8ce`. Three of the four carry the version, so the lock digest moves with every release.
+
+### Tests
+
+- `src/paired-promotion-decision.test.ts` covers `decidePairedPromotion` directly for the first time.
+  The function decides every promotion in this package and seven modules depend on it, and it had no test of its own.
+  Twenty-two cases cover the three input validations, estimator selection across two-point, `0`-to-`100`, continuous, and forced-median outcomes, the `sufficient` pair-count floor and its rise with the confidence level, the zero-width interval refusal in both the all-tie and the identical-positive-delta form, McNemar's veto on the `n = 6, b = 5, c = 0` witness and its absence at a negative threshold, the exact-threshold boundary on both paths, and two candidates that must be refused.
+- `src/campaign/cell-aggregates.test.ts` asserts that a bimodal cell and a tight cell with equal means produce different recorded aggregates.
+- `src/campaign/cell-schedule.test.ts` asserts the grid, the shared seeds inside a `seedGroup`, and the cell-directory naming.
+- The packed-export verifier binds `attest`, `verifyAttestation`, `buildCellSchedule`, and the campaign `SeriesDistribution` type from the packed tarball, and checks the two value exports are present at runtime.
+
+---
+
 ## [0.171.1] — 2026-09-01
 
 ### Added
