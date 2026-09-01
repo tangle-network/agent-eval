@@ -3,8 +3,9 @@
  * emits a rich SandboxSpan into the trace.
  *
  * Two built-in drivers:
- *   - `SubprocessSandboxDriver` — spawn in a local cwd with env vars.
- *     Fast, no dependencies, fine for unit tests and most CI gates.
+ *   - `SubprocessSandboxDriver` — runs the phase in a local cwd with env
+ *     vars, through `runBoundedProcess` (deadline, process-group kill,
+ *     output cap). Fast, no dependencies, fine for unit tests and CI gates.
  *   - `DockerSandboxDriver` — lifted from tangle-router's sandbox path;
  *     shells out to `docker run`. Stronger isolation, slower startup.
  *
@@ -12,6 +13,7 @@
  * Cloudflare sandbox product, etc.). The harness doesn't care which.
  */
 
+import { runBoundedProcess } from './bounded-process'
 import { ConfigError } from './errors'
 import type { TraceEmitter } from './trace/emitter'
 import type { SandboxSpan } from './trace/schema'
@@ -174,135 +176,40 @@ export class SubprocessSandboxDriver implements SandboxDriver {
     command: string,
     config: HarnessConfig,
   ): Promise<SandboxResult> {
-    const { spawn } = await import('node:child_process')
-    const start = Date.now()
     // Per-call config wins; fall back to constructor defaults. Honoring
     // the constructor `cwd` keeps the subprocess from inheriting Node's
     // cwd when only the constructor arg is supplied.
     const effectiveCwd = config.cwd ?? this.defaultCwd
+    // The parent environment is merged here, so the runner is handed the
+    // complete environment and passes it through unchanged.
     const effectiveEnv = { ...process.env, ...(this.defaultEnv ?? {}), ...(config.env ?? {}) }
-    const maxOutputBytes = config.maxOutputBytes ?? 16 * 1024 * 1024
-    return await new Promise<SandboxResult>((resolve) => {
-      const child = spawn(command, {
-        shell: true,
-        cwd: effectiveCwd,
-        env: effectiveEnv,
-        // Own process group so a timeout can SIGKILL the whole tree, not
-        // just the shell — otherwise a runaway grandchild keeps the pipes
-        // open and `close` never fires (the timeout silently does nothing).
-        detached: process.platform !== 'win32',
-      })
-      let stdout = ''
-      let stderr = ''
-      let outputBytes = 0
-      let outputTruncated = false
-      let killedByTimeout = false
-      let settled = false
-
-      const onStdout = (d: unknown) => {
-        const chunk = capture(String(d))
-        if (chunk) stdout += chunk
-      }
-      const onStderr = (d: unknown) => {
-        const chunk = capture(String(d))
-        if (chunk) stderr += chunk
-      }
-      // Bound the in-memory buffer so a runaway process can't OOM the
-      // harness. Once the cap is hit we keep draining the streams (to let
-      // the child reach `close`) but discard the bytes.
-      function capture(s: string): string {
-        if (outputBytes >= maxOutputBytes) {
-          outputTruncated = true
-          return ''
-        }
-        const room = maxOutputBytes - outputBytes
-        if (s.length > room) {
-          outputBytes = maxOutputBytes
-          outputTruncated = true
-          return s.slice(0, room)
-        }
-        outputBytes += s.length
-        return s
-      }
-
-      child.stdout?.on('data', onStdout)
-      child.stderr?.on('data', onStderr)
-
-      const cleanup = () => {
-        clearTimeout(timeout)
-        if (forceResolve) clearTimeout(forceResolve)
-        child.stdout?.off('data', onStdout)
-        child.stderr?.off('data', onStderr)
-        child.removeAllListeners('close')
-        child.removeAllListeners('error')
-      }
-
-      // Resolve exactly once. `code`/`signal` come from `close`; on the
-      // timeout path we force a non-zero exit so a SIGKILLed child that
-      // reports exit 0 can never read as a clean pass downstream.
-      const finish = (outcome: { code: number | null; runnerError?: string }) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        const wallMs = Date.now() - start
-        const exitCode = killedByTimeout
-          ? outcome.code && outcome.code !== 0
-            ? outcome.code
-            : 124
-          : (outcome.code ?? 1)
-        const parsed =
-          !killedByTimeout && phase === 'test' && config.testParser
-            ? config.testParser.parse(stdout, stderr, exitCode)
-            : undefined
-        resolve({
-          phase,
-          exitCode,
-          stdout,
-          stderr: outcome.runnerError ? stderr + outcome.runnerError : stderr,
-          wallMs,
-          testsTotal: parsed?.testsTotal,
-          testsPassed: parsed?.testsPassed,
-          killedByTimeout: killedByTimeout || undefined,
-          outputTruncated: outputTruncated || undefined,
-        })
-      }
-
-      // Kill the whole process group on win32-less platforms (we spawned
-      // detached). On a clean close this is a no-op.
-      const killTree = () => {
-        try {
-          if (process.platform !== 'win32' && typeof child.pid === 'number') {
-            process.kill(-child.pid, 'SIGKILL')
-          } else {
-            child.kill('SIGKILL')
-          }
-        } catch (err) {
-          console.warn('[sandbox-harness] SIGKILL on timeout failed:', err)
-        }
-      }
-
-      let forceResolve: ReturnType<typeof setTimeout> | undefined
-      const timeout = setTimeout(
-        () => {
-          killedByTimeout = true
-          killTree()
-          // Give `close` a brief window to fire (flushing any final output)
-          // after the group dies; if an orphaned grandchild keeps the pipes
-          // open, force-resolve so the harness can't hang on a runaway.
-          forceResolve = setTimeout(() => finish({ code: null }), 2000)
-        },
-        config.timeoutMs ?? 10 * 60_000,
-      )
-
-      child.on('close', (code) => {
-        if (forceResolve) clearTimeout(forceResolve)
-        finish({ code })
-      })
-      child.on('error', (err) => {
-        if (forceResolve) clearTimeout(forceResolve)
-        finish({ code: 127, runnerError: String(err) })
-      })
+    const result = await runBoundedProcess({
+      command,
+      shell: true,
+      cwd: effectiveCwd,
+      env: effectiveEnv,
+      envMode: 'replace',
+      timeoutMs: config.timeoutMs ?? 10 * 60_000,
+      maxOutputBytes: config.maxOutputBytes ?? 16 * 1024 * 1024,
     })
+    // A timed-out phase never reaches the parser: the output of a killed
+    // process is a fragment, and a fragment that happens to parse would
+    // report a pass for a run that never finished.
+    const parsed =
+      !result.killedByTimeout && phase === 'test' && config.testParser
+        ? config.testParser.parse(result.stdout, result.stderr, result.exitCode)
+        : undefined
+    return {
+      phase,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.runnerError ? result.stderr + result.runnerError : result.stderr,
+      wallMs: result.wallMs,
+      testsTotal: parsed?.testsTotal,
+      testsPassed: parsed?.testsPassed,
+      killedByTimeout: result.killedByTimeout || undefined,
+      outputTruncated: result.outputTruncated || undefined,
+    }
   }
 }
 

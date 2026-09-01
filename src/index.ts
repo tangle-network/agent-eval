@@ -262,6 +262,9 @@ export { buildTrajectory } from './trajectory'
 export type { ActiveLearningOptions, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
 
+export type { BoundedProcessInput, BoundedProcessResult } from './bounded-process'
+export { runBoundedProcess } from './bounded-process'
+
 export type {
   CampaignCellFailureReceipt,
   CampaignCellRetryPolicy,

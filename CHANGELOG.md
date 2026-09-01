@@ -4,6 +4,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.171.1] — 2026-09-01
+
+### Added
+
+- `runBoundedProcess` is exported from the package entry. It runs one command under a wall-clock bound, kills the command's whole process group when that bound is reached, caps the captured output, and always resolves. The mechanics are the ones `SubprocessSandboxDriver` already had; the driver is not exported, so no consumer could reach them.
+  - The motive is measured, and it is not this package's own. `@tangle-network/agent-knowledge` graded claims through `execFile` with no process group of its own. A deadline killed the shell and left every descendant running, and those descendants held the stdout and stderr pipes, so `close` never fired and the deadline produced nothing the caller could see. Three CaDiCaL solver processes outlived their grading parent by five days. A grading loop hung twice on the same cause, for 8 hours and for 1.9 hours. agent-knowledge deletes its own `runBash` and calls this instead, which is the process half of tangle-network/agent-knowledge#181.
+  - The extraction adds the three inputs a claim grader needs and the driver never had. `shell` names the shell binary, because a check written for `bash` is a syntax error in `/bin/sh`. `envMode: 'replace'` passes exactly the named variables with no `process.env` merge, which is what a grader needs when the claim under test is about what the command could read. `signal` accepts an `AbortSignal`, kills the group the way the deadline does, and refuses to spawn at all when the signal is already aborted.
+  - A killed run never reports success. A SIGKILLed child can close with exit code 0, so a run killed by the deadline reports 124 and a run killed by an abort reports 137 whenever the closed code is 0 or absent. `killedByTimeout` and `killedBySignal` say which kill happened.
+  - `src/bounded-process.test.ts` carries the control that makes the guarantee falsifiable. It spawns the same `sleep 60 & wait` command **without** `detached`, kills the shell alone, and asserts that the descendant is still alive and that `close` never fired. That is the failure the group kill prevents, reproduced in the same file that proves the fix.
+
+### Changed
+
+- `SubprocessSandboxDriver.exec` calls `runBoundedProcess`. Every `SandboxResult` field, both defaults (a 10-minute deadline and a 16 MiB output cap), the env merge onto `process.env`, and the rule that a timed-out phase never reaches the test parser are unchanged. One implementation of the process-group kill now serves both the driver and any consumer.
+- The group kill no longer logs an `ESRCH`. `ESRCH` means the group exited between the deadline and the signal, which `close` reports on its own. A kill that fails for any other reason still warns, because the group may still be running.
+- This release is a patch. The export is additive and the package is pre-1.0, so the compatibility boundary sits at the minor: a `0.172.0` would fall outside the `>=0.171.0 <0.172.0` peer range consumers declare and would force an unrelated cohort move.
+- Pin the four dependency manifests with digest `1ef007066bb5c110a51272c0e44cfbd3857ce028b60b96ed6b70d6dbef1d7d8e`. Three of the four carry the version, so the lock digest moves with every release.
+
+---
+
 ## [0.171.0] — 2026-08-31
 
 ### Changed
