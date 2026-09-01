@@ -26,6 +26,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 
 /** Wall-clock bound applied when the caller names none. */
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
@@ -331,12 +332,22 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       return s
     }
 
+    // Decoded across chunk boundaries. A stream arrives as Buffers split at
+    // arbitrary byte offsets, so decoding each chunk on its own replaces any
+    // multi-byte character that straddles a boundary with U+FFFD — the output
+    // is then corrupted at every 64 KiB of non-ASCII text. The decoder holds
+    // the partial sequence until its remaining bytes arrive.
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
+    const decode = (decoder: StringDecoder, d: unknown): string =>
+      Buffer.isBuffer(d) ? decoder.write(d) : String(d)
+
     const onStdout = (d: unknown) => {
-      const chunk = capture(String(d))
+      const chunk = capture(decode(stdoutDecoder, d))
       if (chunk) stdout += chunk
     }
     const onStderr = (d: unknown) => {
-      const chunk = capture(String(d))
+      const chunk = capture(decode(stderrDecoder, d))
       if (chunk) stderr += chunk
     }
 

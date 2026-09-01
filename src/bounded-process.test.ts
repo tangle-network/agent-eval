@@ -645,3 +645,35 @@ describe('runBoundedProcess stdin', () => {
     expect(res.stdout).toBe(sha256Utf8(payload))
   }, 30_000)
 })
+
+describe('runBoundedProcess output decoding', () => {
+  it('keeps a multi-byte character whole across chunk boundaries — regression: every 64 KiB boundary corrupted one character', async () => {
+    // Three bytes per character, so a boundary lands mid-sequence many times
+    // over a payload this size. Decoding each chunk on its own would replace
+    // the straddling characters with U+FFFD.
+    const count = 2_000_000
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', `process.stdout.write("\\u4e2d".repeat(${count}))`],
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout.length).toBe(count)
+    expect(res.stdout).toBe('中'.repeat(count))
+    expect(res.stdout.includes('�')).toBe(false)
+  }, 40_000)
+
+  it('decodes stderr across chunk boundaries too', async () => {
+    const count = 2_000_000
+    const res = await runBoundedProcess({
+      command: process.execPath,
+      args: ['-e', `process.stderr.write("\\u4e2d".repeat(${count}))`],
+      timeoutMs: 30_000,
+    })
+
+    expect(res.exitCode).toBe(0)
+    expect(res.stderr.includes('�')).toBe(false)
+    expect(res.stderr.length).toBe(count)
+  }, 40_000)
+})
