@@ -271,7 +271,7 @@ export type {
   RunCampaignOptions,
 } from './campaign/run-campaign'
 export { runCampaign } from './campaign/run-campaign'
-export { transientDispatchFailure } from './campaign/transient-failure'
+export { quotaExhaustedUntil, transientDispatchFailure } from './campaign/transient-failure'
 
 export type { CampaignResult } from './campaign/types'
 
