@@ -382,6 +382,8 @@ export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequen
 // Reading results: core statistics, paired comparisons, insight
 // reports, trace analysts, canned pipeline views, and knowledge readiness.
 
+export type { ChatTraceEngineOptions } from './analyst/chat-trace-engine'
+export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export type { DefaultAnalystRegistryOptions } from './analyst/default-registry'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
 
@@ -389,6 +391,7 @@ export type { DspyRlmTraceEngineOptions } from './analyst/dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'
 
 export type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './analyst/engine'
+export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS } from './analyst/engine'
 
 export type {
   ExactAnalystRunEvent,

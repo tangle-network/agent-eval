@@ -13,18 +13,15 @@ import { runWithCleanup } from '../campaign/external-optimizer-resources'
 import { runExternalOptimizerProcess } from '../campaign/external-optimizer-subprocess'
 import type { CustomTokenPricing } from '../cost-ledger'
 import { resolveModelPricing } from '../metrics'
-import type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './engine'
+import {
+  DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS,
+  type TraceAnalysisEngine,
+  type TraceAnalysisEngineResult,
+} from './engine'
 import { decodeRawFindingArray } from './finding-codec'
 import { startTraceToolCallback, type TraceToolCallbackLimits } from './trace-tool-callback'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60_000
-// 4096 is below what current coding models emit for a full findings array:
-// glm-5.2 through an OpenAI-compatible gateway returns 8192 and the request is
-// rejected outright (`502 — provider reported 8192 completion tokens,
-// exceeding requested limit 4096`), so the default failed 2/2 smoke cases
-// before any analysis ran. The cap exists to bound spend, and `maxCostUsd`
-// already does that directly, so it starts above what a real completion needs.
-const DEFAULT_MODEL_OUTPUT_TOKENS = 16_384
 const DEFAULT_MAX_COST_USD = 1
 const DEFAULT_MAX_MODEL_REQUEST_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -46,7 +43,7 @@ export interface DspyRlmTraceEngineOptions {
   pricing?: CustomTokenPricing
   /** Maximum provider spend for one investigation. Default: 1 USD. */
   maxCostUsd?: number
-  /** Controller response cap. Default: 16384. */
+  /** Controller response cap. Default: {@link DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS}. */
   maxOutputTokens?: number
   /**
    * Thinking tokens one controller turn may bill on top of its completion.
@@ -85,7 +82,7 @@ export interface DspyRlmTraceEngineOptions {
 /** Use the official DSPy RLM as a bounded recursive trace-analysis engine. */
 export function createDspyRlmTraceEngine(options: DspyRlmTraceEngineOptions): TraceAnalysisEngine {
   assertOptions(options)
-  const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_MODEL_OUTPUT_TOKENS
+  const maxOutputTokens = options.maxOutputTokens ?? DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS
   if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens <= 0) {
     throw new TypeError('DSPy RLM maxOutputTokens must be a positive safe integer')
   }

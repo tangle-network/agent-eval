@@ -21,6 +21,22 @@ const DEFAULT_TRACE_ANALYST_LIMITS: Readonly<TraceAnalystLimits> = {
   maxOutputChars: 10_000,
 }
 
+/**
+ * Completion cap one engine turn asks for when the caller names none.
+ *
+ * Shared by every engine because the number is load-bearing and has one
+ * failure story, not two: 4096 is below what current coding models emit for a
+ * full findings array — glm-5.2 through an OpenAI-compatible gateway returns
+ * 8192 and the request is rejected outright (`502 — provider reported 8192
+ * completion tokens, exceeding requested limit 4096`), which failed 2 of 2
+ * smoke cases before any analysis ran. Two engines holding private copies of
+ * this would have to move in lockstep or diverge on spend behaviour silently.
+ *
+ * The cap exists to bound a single response, not to bound spend: the cost
+ * ledger does that directly, so this starts above what a real report needs.
+ */
+export const DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS = 16_384
+
 export interface TraceAnalysisEngineRequest {
   analystId: string
   question: string

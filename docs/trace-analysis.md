@@ -13,27 +13,70 @@ Agent Eval separates five concerns:
 | Finding | Records one structured claim with exact evidence |
 | Analysis result | Returns the prose answer, findings, investigation steps, model calls, tool calls, and runtime |
 
-The built-in model-backed analysts use the official DSPy `RLM`.
-DSPy runs the research loop and a sandboxed Python interpreter.
-Agent Eval owns trace access, cancellation, cost accounting, and output validation.
-The calling application owns model execution, credentials, retries, and provider policy.
+Two engines ship, and an analyst definition runs on either without change.
+`createChatTraceEngine` runs the research loop in Node over a caller-owned `ChatClient`.
+`createDspyRlmTraceEngine` runs it in the official DSPy `RLM`, which brings a sandboxed Python interpreter.
+Choose the Node engine unless the question needs the interpreter; it needs no Python install.
+Agent Eval owns trace access, cancellation, cost accounting, and output validation in both.
+The calling application owns model execution, credentials, retries, and provider policy in both.
 
 `createPublicBenchmarkDirectRunner()` is the direct-call baseline; it runs through the loopback model proxy against a caller-owned execution owner, so agent-eval issues no provider request.
 They are not trace analysts.
 
 ## Install
 
-Install the TypeScript package and the matching Python package with DSPy:
+The Node engine needs the TypeScript package alone:
 
 ```sh
 pnpm add @tangle-network/agent-eval
+```
+
+The DSPy engine also needs the matching Python package:
+
+```sh
 python -m venv .venv
 .venv/bin/pip install "agent-eval-rpc[dspy]"
 ```
 
 The Python extra pins the tested stable DSPy and Deno versions.
 
+## Build An Engine Without Python
+
+`createChatTraceEngine` binds the transport the application already owns.
+It offers the analyst's trace tools as native function calls, loops until the model answers with no tool call or a budget is spent, then takes one report turn that returns the answer and the findings.
+Findings pass through the same decoder the DSPy engine uses, so both engines accept the same rows.
+
+```ts
+import {
+  createChatClient,
+  createChatTraceEngine,
+} from '@tangle-network/agent-eval/analyst'
+
+const engine = createChatTraceEngine({
+  chat: createChatClient({
+    transport: 'custom',
+    // The application reaches the provider. Agent Eval never holds the key.
+    chat: (request, options) => callMyProvider(request, options),
+    defaultModel: 'deepseek-v4-flash',
+    maximumAttempts: 3,
+  }),
+  pricing: {
+    inputUsdPerMillion: 3,
+    outputUsdPerMillion: 15,
+  },
+})
+```
+
+`maximumAttempts` states how many provider attempts one call can make.
+A capped cost ledger reserves for all of them before the call runs, so an omitted value under-reserves.
+
+Every call is metered on the shared cost ledger.
+The result's `runtime.served_models` carries the model ids the provider echoed, because a gateway can accept one model id and answer from another on HTTP 200.
+An analyst's `maxLlmCalls` must be at least 2, because this engine spends one call on the report turn.
+
 ## Answer One Question
+
+This example uses the DSPy engine; substitute the engine above to drop Python.
 
 ```ts
 import {
@@ -92,7 +135,7 @@ Each trace read also crosses an authenticated loopback callback and counts again
 ## Define A Reusable Analyst
 
 An analyst definition contains no model, credentials, or execution state.
-The same definition can run with DSPy or another engine that implements `TraceAnalysisEngine`.
+The same definition runs on either shipped engine, or on any other that implements `TraceAnalysisEngine`.
 
 ```ts
 import {
@@ -141,12 +184,16 @@ Keep exact trace facts in deterministic tools or checks.
 ## Run The Built-In Set
 
 The default registry always includes deterministic behavior checks.
-It adds the four recursive analysts only when an engine is supplied:
+It adds the five recursive analysts only when an engine is supplied:
 
 - `failure-mode`
+- `intent-divergence`
 - `knowledge-gap`
 - `knowledge-poisoning`
 - `improvement`
+
+Either engine satisfies this.
+`agent-runtime`'s `analystsFromRegistry` refuses a registry that is missing one of the five, so a registry built with no engine cannot reach a supervised run.
 
 ```ts
 import {
@@ -164,7 +211,7 @@ for (const finding of run.findings) {
 `run.per_analyst` records each analyst's status, latency, calls, tokens, and cost.
 One analyst failure does not become an agent failure.
 
-Pass `definitions` to replace the four built-ins.
+Pass `definitions` to replace the five built-ins.
 Omit `engine` for deterministic-only analysis.
 
 ## Trace Tools
