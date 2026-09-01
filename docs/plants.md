@@ -49,6 +49,74 @@ const report = catchRate(results, manifest)
 | `missingIds` | Every plant id with no result at all. |
 | `unseeded` | How the same grader treated the rest of the set. |
 
+## Authoring the wrong item
+
+`definePlant` takes an item that is already wrong.
+It never derives a wrong item from a right one, so every caller used to hand-roll the perturbation.
+That is where the measurement breaks quietly.
+
+`plantByPerturbation` is the authoring step.
+Give it a claim a grader **verified** and it alters exactly one load-bearing value in the claim's evidence, so the grader is asked a question it must fail.
+
+```ts
+import { catchRate, plantByPerturbation, seedPlants } from '@tangle-network/agent-eval/meta-eval'
+
+const derived = plantByPerturbation({
+  id: 'plant-throughput',
+  itemId: 'claim-118-plant',
+  evidence: { check: 'test "$rows" -ge 100', expect: 'rows=42' },
+})
+
+// derived.plant     — a `wrong-value` plant the grader owes a `reject`
+// derived.evidence  — { check: 'test "$rows" -ge 100', expect: 'rows=43' }
+// derived.field     — 'expect'
+// derived.how       — 'number-off-by-one'
+// derived.original  — '42'
+// derived.perturbed — '43'
+
+const { items, manifest } = seedPlants(dataset, [derived.plant], { seed: 7 })
+```
+
+Write `derived.evidence` into the item the grader is handed; `derived.plant` goes into the manifest and nowhere the grader can read.
+`humanScore` defaults to 0 and must sit below the run's accept threshold, or `definePlant` refuses the record.
+The call returns `null` when nothing in the evidence can be perturbed — a claim with no executable evidence cannot be made wrong in a way a grader could execute, and seeding it would measure prose.
+
+`perturbEvidence` is the same rule without the plant record, for callers that already own their item type.
+
+### One value changes, and which one is a safety order
+
+A perturbation that moves two values does not name the defect it seeded, so exactly one changes or the call returns `null`.
+The order below is the order of preference, and it is ranked by how likely the change is to keep the check **executing**.
+
+| Rank | Change | Why it sits here |
+| --- | --- | --- |
+| 1 | The last standalone number in `expect` | It falsifies the claim while the command runs exactly as it did. |
+| 2 | A flipped comparison in `check` | It inverts a test that was passing. |
+| 3 | The last standalone number in `check` | Last: a number in a command can name an input — a port, a width, a version — rather than a threshold, and renaming an input breaks execution, not the claim. |
+
+The **last** match is taken because a measured value trails its label (`count=42`, `n>=5 OK cells=8`), and because the choice must be deterministic: the same claim has to yield the same plant, or two runs of the authoring step seed two different answer keys for one item.
+
+### The identity-number defect
+
+"Standalone" excludes a digit run glued to a word, a dot, a slash, or a hyphen.
+
+| Not perturbed | What a bump would do |
+| --- | --- |
+| `python3` | Names a program that is not installed. |
+| `file42.txt` | Names a file that does not exist. |
+| `1.5` | Rewrites one side of a decimal into a different literal. |
+| `utf-8` | Names an encoding that does not exist. |
+
+Each of those stops the check **executing**.
+The plant then measures the environment rather than the grader: it reads as caught, for a reason that has nothing to do with the seeded defect.
+That is the failure this helper exists to prevent, and it is asserted directly in `src/meta-eval/plants.test.ts`.
+
+Only unambiguous comparison tokens flip — ` -ge `/` -lt `, ` -gt `/` -le `, ` -le `/` -gt `, ` -lt `/` -ge `, ` -eq `/` -ne `, ` -ne `/` -eq `, `>=`/`<`, `<=`/`>`, `==`/`!=`, `!=`/`==`.
+A bare `>` or `<` is a shell redirection, never a comparison, so flipping it would rewrite where output goes rather than what the test asks.
+
+A number is bumped with `BigInt`, so a value wider than `Number.MAX_SAFE_INTEGER` moves by exactly one.
+Bumped as a `number` it rounds back onto itself, and the plant is then a correct claim the grader is right to verify.
+
 ## What each call composes
 
 Plants add no parallel calibration machinery.
@@ -73,7 +141,7 @@ It changes nothing about how the item is graded; it exists so `byKind` can show 
 
 | Kind | Authored by |
 | --- | --- |
-| `wrong-value` | Altering one load-bearing value: a number off by one, a comparison flipped. |
+| `wrong-value` | Altering one load-bearing value: a number off by one, a comparison flipped. `plantByPerturbation` authors this kind. |
 | `self-certifying` | Giving the item a check that passes without testing the claim. |
 | `unreachable-input` | Pointing the check at an input that does not exist, so it cannot run at all. |
 | `duplicate` | Copying an item already in the set, which is owed a duplicate flag rather than a second grade. |

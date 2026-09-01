@@ -5,9 +5,12 @@ import { calibrateJudge } from '../judge-calibration'
 import {
   catchRate,
   definePlant,
+  type PerturbedPlant,
   type Plant,
   type PlantManifest,
   type PlantOutcome,
+  perturbEvidence,
+  plantByPerturbation,
   seedPlants,
 } from './index'
 
@@ -99,6 +102,149 @@ describe('definePlant', () => {
     const plant = definePlant({ id: 'copy', kind: 'wrong-value', item, expectedVerdict: 'reject' })
     item.humanScore = 1
     expect(plant.item.humanScore).toBe(0)
+  })
+})
+
+describe('perturbEvidence', () => {
+  it('prefers the expectation, which falsifies the claim without touching execution', () => {
+    const result = perturbEvidence({ check: '[ "$n" -ge 5 ]', expect: 'count=42' })
+    expect(result).toEqual({
+      evidence: { check: '[ "$n" -ge 5 ]', expect: 'count=43' },
+      field: 'expect',
+      how: 'number-off-by-one',
+      original: '42',
+      perturbed: '43',
+    })
+  })
+
+  it('flips a comparison in the check when the expectation carries no number', () => {
+    const result = perturbEvidence({
+      check: 'test "$(wc -l < out.txt)" -ge 100',
+      expect: 'the row budget holds',
+    })
+    expect(result).toEqual({
+      evidence: {
+        check: 'test "$(wc -l < out.txt)" -lt 100',
+        expect: 'the row budget holds',
+      },
+      field: 'check',
+      how: 'comparison-flipped',
+      original: ' -ge ',
+      perturbed: ' -lt ',
+    })
+  })
+
+  it('leaves a digit run that is part of an identity alone', () => {
+    // The defect this helper exists to prevent: bump one of these and the
+    // check stops executing, so the plant measures the environment.
+    for (const check of [
+      'python3 report.py',
+      'test -f file42.txt',
+      'grep -F 1.5 out.txt',
+      'iconv -t utf-8 in.txt',
+      'python3 report.py --input file42.txt --scale 1.5 --encoding utf-8',
+    ]) {
+      expect(perturbEvidence({ check })).toBeNull()
+    }
+  })
+
+  it('takes the last standalone number, because a measured value trails its label', () => {
+    const result = perturbEvidence({ expect: 'n>=5 OK cells=8' })
+    expect(result?.original).toBe('8')
+    expect(result?.evidence).toEqual({ expect: 'n>=5 OK cells=9' })
+  })
+
+  it('does not flip a bare redirection, and falls through to the number instead', () => {
+    const result = perturbEvidence({ check: 'awk "NR > 3" data.txt > out.txt' })
+    expect(result?.how).toBe('number-off-by-one')
+    expect(result?.evidence).toEqual({ check: 'awk "NR > 4" data.txt > out.txt' })
+  })
+
+  it('bumps a value wider than Number.MAX_SAFE_INTEGER by exactly one', () => {
+    const result = perturbEvidence({ expect: 'total=9007199254740993' })
+    expect(result?.perturbed).toBe('9007199254740994')
+    // The same bump through a double rounds back onto a value the grader
+    // would still verify, which is why this goes through BigInt.
+    expect(String(Number('9007199254740993') + 1)).not.toBe(result?.perturbed)
+  })
+
+  it('returns null when nothing is perturbable', () => {
+    expect(perturbEvidence({})).toBeNull()
+    expect(perturbEvidence({ check: 'ls build', expect: 'the directory exists' })).toBeNull()
+  })
+})
+
+describe('plantByPerturbation', () => {
+  it('builds a wrong-value reject plant from a verified claim', () => {
+    const derived = plantByPerturbation({
+      id: 'plant-throughput',
+      itemId: 'claim-118-plant',
+      evidence: { check: 'grep -c row out.txt', expect: 'rows=42' },
+      group: 'throughput',
+    })
+    if (derived === null) throw new Error('expected a perturbation')
+    expect(derived.plant).toEqual({
+      id: 'plant-throughput',
+      kind: 'wrong-value',
+      item: { itemId: 'claim-118-plant', humanScore: 0, group: 'throughput' },
+      expectedVerdict: 'reject',
+    })
+    expect(derived.evidence).toEqual({ check: 'grep -c row out.txt', expect: 'rows=43' })
+    expect(derived.field).toBe('expect')
+    expect(derived.how).toBe('number-off-by-one')
+  })
+
+  it('returns null when the claim has no perturbable evidence', () => {
+    expect(
+      plantByPerturbation({
+        id: 'prose-only',
+        itemId: 'prose-only-item',
+        evidence: { expect: 'the report reads well' },
+      }),
+    ).toBeNull()
+  })
+
+  it('refuses an empty id and an empty itemId', () => {
+    const evidence = { expect: 'n=5' }
+    expect(() => plantByPerturbation({ id: '  ', itemId: 'x', evidence })).toThrow(ValidationError)
+    expect(() => plantByPerturbation({ id: 'named', itemId: ' ', evidence })).toThrow(
+      /has an empty itemId/,
+    )
+  })
+
+  it('refuses a score the run would accept, through definePlant', () => {
+    const evidence = { expect: 'n=5' }
+    expect(() =>
+      plantByPerturbation({ id: 'too-good', itemId: 'too-good-item', evidence, humanScore: 0.9 }),
+    ).toThrow(/humanScore 0.9 says accept/)
+    expect(() =>
+      plantByPerturbation({ id: 'undecided', itemId: 'undecided-item', evidence, humanScore: 0.5 }),
+    ).toThrow(/neither a rejection nor an acceptance/)
+  })
+
+  it('seeds and scores end to end', () => {
+    const derived: PerturbedPlant | null = plantByPerturbation({
+      id: 'plant-throughput',
+      itemId: 'claim-118-plant',
+      evidence: { check: 'test "$rows" -ge 100', expect: 'the row budget holds' },
+    })
+    if (derived === null) throw new Error('expected a perturbation')
+    const { items, manifest } = seedPlants(dataset, [derived.plant], { seed: 21 })
+    expect(items).toHaveLength(dataset.length + 1)
+    // Nothing the grader receives says the item was derived.
+    for (const item of items) expect(Object.keys(item).sort()).toEqual(['humanScore', 'itemId'])
+    const report = catchRate(gradeAll(manifest, 1), manifest)
+    expect(report.status).toBe('evaluated')
+    expect(report.rate).toBe(0)
+    expect(report.missedIds).toEqual(['plant-throughput'])
+    expect(report.byKind['wrong-value']).toEqual({
+      seeded: 1,
+      caught: 0,
+      missed: 1,
+      indecisive: 0,
+      rate: 0,
+    })
+    expect(catchRate(gradeAll(manifest, 0), manifest).rate).toBe(1)
   })
 })
 

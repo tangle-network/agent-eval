@@ -105,7 +105,7 @@ Every row is a function you call. Each links to a runnable example.
 | [`deltaRepair()`](./docs/trace-repair-grader.md) — a finding must be graded by executing the repair it proposes | a trajectory, an analyst finding, a sandbox | the repair's measured effect against a no-fix control |
 | [`replayVerify()`](./docs/trajectory-replay.md) — you must know whether a recorded failure still reproduces | a recorded shell trajectory and its pinned image | a re-execution verdict and the divergences found |
 | [`analyzeSupervisorRun()`](./docs/adapters-observability.md) — a recursive or supervised run directory must be read | a run directory | counts that stay missing when a measurement is missing, never zero |
-| [`seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set and items authored wrong by construction | a sealed manifest, then a catch rate that refuses rather than guessing |
+| [`plantByPerturbation()` / `seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set, and claims the grader verified | items authored wrong by one value, a sealed manifest, then a catch rate that refuses rather than guessing |
 | [`buildRlDataset()`](./examples/publish-rl-dataset/) — scored runs should become training data | run records and preferences | reward, preference, and supervised rows |
 
 ## Configure Model Calls
