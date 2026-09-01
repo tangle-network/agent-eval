@@ -57,6 +57,12 @@
       "confidence": 0.9
     }
   ],
-  "acceptedIndexes": [0, 1, 2, 3, 4],
+  "acceptedIndexes": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
   "rejections": []
 }

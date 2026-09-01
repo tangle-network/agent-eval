@@ -15,9 +15,13 @@
     "a string row",
     42,
     null,
-    ["nested"]
+    [
+      "nested"
+    ]
   ],
-  "acceptedIndexes": [0],
+  "acceptedIndexes": [
+    0
+  ],
   "rejections": [
     {
       "index": 1,

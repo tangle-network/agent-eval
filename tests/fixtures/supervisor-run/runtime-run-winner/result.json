@@ -106,13 +106,17 @@
       "id": "runner-smoke-20260901:s0",
       "label": "primes",
       "kind": "unreported",
-      "channels": ["usd"]
+      "channels": [
+        "usd"
+      ]
     },
     {
       "id": "runner-smoke-20260901",
       "label": "root",
       "kind": "unreported",
-      "channels": ["usd"]
+      "channels": [
+        "usd"
+      ]
     }
   ],
   "spentBreakdown": {

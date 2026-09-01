@@ -29,7 +29,10 @@
       "confidence": 0.9
     }
   ],
-  "acceptedIndexes": [0, 2],
+  "acceptedIndexes": [
+    0,
+    2
+  ],
   "rejections": [
     {
       "index": 1,
