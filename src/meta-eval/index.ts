@@ -1,5 +1,6 @@
 export * from './calibration'
 export * from './correlation-study'
 export * from './outcome-store'
+export * from './plants'
 export * from './rubric-predictive-validity'
 export * from './sentinel'
