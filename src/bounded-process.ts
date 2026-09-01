@@ -69,7 +69,13 @@ export interface BoundedProcessInput {
    * shell string, and a quoting bug there is a command injection rather than
    * a wrong answer. Each entry arrives verbatim, so there is nothing to
    * quote: `{ command: 'bash', args: ['-n', '-c', body] }` parses `body`
-   * whatever bytes it holds.
+   * whatever shell metacharacters it holds.
+   *
+   * Two limits are the platform's, not this module's. A NUL byte in an entry
+   * cannot be passed to a process at all, and is reported as a `runnerError`
+   * rather than thrown. A lone surrogate is encoded to UTF-8 as U+FFFD, and a
+   * non-string entry from an untypechecked caller is coerced with `String()`,
+   * so an entry is verbatim exactly when it is a string a UTF-8 argv can hold.
    *
    * A shell cannot interpret an argument vector, so `args` and a truthy
    * `shell` are contradictory. Passing both spawns nothing and reports
@@ -97,8 +103,18 @@ export interface BoundedProcessInput {
    * child sees every variable this process has plus the named ones.
    * `'replace'` passes exactly `env` and nothing else, which is what a
    * grader needs when the claim under test is about the variables the
-   * command could read. `PATH` is not re-added under `'replace'`: a command
-   * that must find a binary on `PATH` names `PATH` itself.
+   * command could read. `PATH` is not re-added under `'replace'`, and a
+   * command that must find a binary on `PATH` names `PATH` itself.
+   *
+   * With no `PATH` in the child environment the two forms do NOT search the
+   * same directories, so a caller under `'replace'` that names no `PATH` gets
+   * a resolution that depends on which form it picked. The shell form execs
+   * the shell, which applies its own compiled-in default; the argv form
+   * reaches `execvp`, which falls back to `confstr(_CS_PATH)`. Measured on
+   * Linux/glibc: `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`
+   * against `/bin:/usr/bin`, so a binary in `/usr/local/bin` resolves on the
+   * shell form and reports ENOENT on the argv form. Name `PATH` and both
+   * forms search exactly what was named.
    */
   envMode?: 'merge' | 'replace'
   /** Wall-clock bound in ms. Defaults to 10 minutes. */
@@ -176,7 +192,7 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
   // Reported rather than thrown, because this module's contract is that a
   // call always resolves. A caller bug still reads as a failure and never as
   // a pass: the exit code is non-zero and `runnerError` names the cause.
-  if (input.args !== undefined && input.shell !== undefined && input.shell !== false) {
+  if (input.args !== undefined && input.shell) {
     return {
       exitCode: SPAWN_FAILURE_EXIT_CODE,
       stdout: '',
@@ -185,6 +201,9 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       killedByTimeout: false,
       killedBySignal: false,
       outputTruncated: false,
+      // Shares `SPAWN_FAILURE_EXIT_CODE` with a program that does not exist,
+      // because both mean nothing ran. The `not spawned:` prefix is the stable
+      // discriminator: it marks the caller's own bug, which no retry fixes.
       runnerError:
         'not spawned: `args` passes an argument vector directly to the program, so a shell ' +
         'cannot interpret it — pass `args` or a truthy `shell`, never both',
@@ -200,12 +219,36 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       // `close` never fires.
       detached: process.platform !== 'win32',
     }
-    // The argv form takes the same bounds, the same group, and the same kill
-    // path; only the shell is absent.
-    const child =
-      input.args === undefined
-        ? spawn(input.command, { ...spawnOptions, shell: input.shell ?? true })
-        : spawn(input.command, input.args, { ...spawnOptions, shell: false })
+    // The argv form takes the same bounds, the same group and the same kill
+    // path. Two things differ, and both are stated where they are decided:
+    // no shell reads the command, and executable lookup falls back to a
+    // different default `PATH` when the caller names none (see `envMode`).
+    //
+    // `spawn` validates its arguments and THROWS synchronously — a NUL byte in
+    // `command` or in an `args` entry, or an `args` that is not an array from
+    // an untypechecked caller. A throw inside this executor would reject, and
+    // this module's contract is that a call always resolves. A caller that
+    // grades untrusted text must be able to score that text as failed rather
+    // than die on it.
+    let child: ReturnType<typeof spawn>
+    try {
+      child =
+        input.args === undefined
+          ? spawn(input.command, { ...spawnOptions, shell: input.shell ?? true })
+          : spawn(input.command, input.args, { ...spawnOptions, shell: false })
+    } catch (err) {
+      resolve({
+        exitCode: SPAWN_FAILURE_EXIT_CODE,
+        stdout: '',
+        stderr: '',
+        wallMs: Date.now() - start,
+        killedByTimeout: false,
+        killedBySignal: false,
+        outputTruncated: false,
+        runnerError: String(err),
+      })
+      return
+    }
     let stdout = ''
     let stderr = ''
     let outputBytes = 0

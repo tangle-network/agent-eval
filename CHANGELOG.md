@@ -4,21 +4,33 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## [0.173.0] — 2026-09-01
+## [0.172.1] — 2026-09-01
 
 ### Added
 
 - `runBoundedProcess` accepts `args`, an argument vector delivered to the program with no shell between.
   The runner could only be given a command line for a shell to read, so `interpreter -flag <text>` was expressible only by quoting the text into that line.
   A caller with text it did not author — a script body, a path, a pattern — therefore had to carry its own shell quoter, and a bug in that quoter is a command injection and not a wrong answer.
-  `{ command: 'bash', args: ['-n', '-c', body] }` now parses `body` whatever bytes it holds.
-  The argv form keeps the deadline, the detached process group, the group kill, the output cap, `envMode`, and every result flag; only the shell is absent.
+  `{ command: 'bash', args: ['-n', '-c', body] }` now parses `body` whatever shell metacharacters it holds.
+  The argv form keeps the deadline, the detached process group, the group kill, the output cap, the `envMode` rule and every result flag.
   `args` together with a truthy `shell` is contradictory, because a shell cannot interpret an argument vector: the call spawns nothing and reports `runnerError`, so the caller's bug reads as a failure and never as a pass.
-  The first consumer is agent-knowledge's claim grader, which parses a claim's check under `bash -n -c` before it runs the check.
+  The consumer this was added for is agent-knowledge's claim grader, which parses a claim's check under `bash -n -c` before it runs the check; it moves onto this runner in agent-knowledge 12.1.0 and holds no reference to it yet.
+  Two limits on `args` are the platform's, and are reported rather than thrown: a NUL byte in an entry cannot reach a process at all and comes back as a `runnerError`, and a non-string entry from an untypechecked caller is coerced with `String()`.
+  With `envMode: 'replace'` and no `PATH` named, the two forms do not search the same directories — the shell applies its own compiled-in default and the argv form falls back to `confstr(_CS_PATH)`, measured on Linux/glibc as `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` against `/bin:/usr/bin`. Name `PATH` and both forms search what was named.
+
+### Fixed
+
+- `runBoundedProcess` no longer REJECTS when `spawn` refuses an argument.
+  `spawn` validates `command` and each `args` entry synchronously and throws — a NUL byte, or an `args` that is not an array — and a throw inside the promise executor rejected, against this module's standing guarantee that a call always resolves.
+  The throw is now caught and reported as a `runnerError` result, so a caller running text it did not author scores that text as failed instead of dying on it.
+  The same hole existed for `command` on the shell form and is closed with it.
 
 ### Changed
 
-- Pin the four dependency manifests with digest `73571b4ca9a968bb253899eb556ff0b7cc5e767006244ec79fde72caa53d3365`. Three of the four carry the version, so the lock digest moves with every release.
+- This release is a patch. `args` is optional and purely additive, and the package is pre-1.0, so the compatibility boundary sits at the minor.
+  Every consumer still declares `>=0.171.0 <0.172.0` — agent-runtime, agent-knowledge and agent-app — so all three are already one cohort behind 0.172.0 and have to move to reach it at all.
+  A `0.173.0` would open a third cohort for a change none of them consume; a patch keeps it inside the minor they are moving to.
+- Pin the four dependency manifests with digest `02565ef4ac091a2df7d995186bc2d952fc5f739d5ccad77be63e856d59b8fc07`. Three of the four carry the version, so the lock digest moves with every release.
 
 ---
 

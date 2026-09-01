@@ -282,6 +282,14 @@ describe('runBoundedProcess reports a completed run verbatim', () => {
 })
 
 describe('runBoundedProcess runs an argument vector with no shell', () => {
+  let argvScratch: string
+  beforeEach(() => {
+    argvScratch = mkdtempSync(join(tmpdir(), 'bounded-process-argv-'))
+  })
+  afterEach(() => {
+    rmSync(argvScratch, { recursive: true, force: true })
+  })
+
   it.skipIf(!posixOnly)(
     'delivers an argument the shell form would have to quote',
     async () => {
@@ -306,7 +314,7 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
     async () => {
       // The caller this was added for: check that a body parses before running
       // it. `-n` is an argument to bash, which the shell form cannot express.
-      const marker = join(mkdtempSync(join(tmpdir(), 'bounded-process-argv-')), 'ran')
+      const marker = join(argvScratch, 'ran')
       const body = `printf x > ${marker}`
 
       const parsed = await runBoundedProcess({
@@ -324,8 +332,6 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
       })
       expect(malformed.exitCode).not.toBe(0)
       expect(malformed.stderr).toContain('syntax error')
-
-      rmSync(marker, { force: true })
     },
     20_000,
   )
@@ -387,14 +393,66 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
     expect(res.killedBySignal).toBe(false)
   }, 20_000)
 
-  it('runs the argv form when `shell` is explicitly false', async () => {
+  it.skipIf(!posixOnly)(
+    'runs the argv form when `shell` is explicitly false',
+    async () => {
+      const res = await runBoundedProcess({
+        command: 'printf',
+        args: ['%s', 'ok'],
+        shell: false,
+        timeoutMs: 10_000,
+      })
+      expect(res.exitCode).toBe(0)
+      expect(res.stdout).toBe('ok')
+    },
+    20_000,
+  )
+})
+
+describe('runBoundedProcess argv refusal is exactly the documented rule', () => {
+  it.skipIf(!posixOnly)(
+    'runs the argv form for a falsy shell, which names no shell to contradict it',
+    async () => {
+      // `shell: ''` names no shell, so there is nothing for the argument vector to contradict.
+      // Refusing it here would make the code stricter than the rule it states.
+      const res = await runBoundedProcess({
+        command: 'printf',
+        args: ['%s', 'ok'],
+        shell: '',
+        timeoutMs: 10_000,
+      })
+      expect(res.exitCode).toBe(0)
+      expect(res.stdout).toBe('ok')
+      expect(res.runnerError).toBeUndefined()
+    },
+    20_000,
+  )
+
+  it('resolves instead of rejecting when spawn refuses an argument', async () => {
+    // `spawn` validates argv synchronously and throws, which inside the executor would
+    // reject and break the always-resolves guarantee. A caller grading text it did not
+    // author must be able to score that text as failed rather than die on it.
     const res = await runBoundedProcess({
       command: 'printf',
-      args: ['%s', 'ok'],
-      shell: false,
+      args: ['%s', 'a\u0000b'],
       timeoutMs: 10_000,
     })
-    expect(res.exitCode).toBe(0)
-    expect(res.stdout).toBe('ok')
+    expect(res.exitCode).not.toBe(0)
+    expect(res.runnerError).toContain('null bytes')
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.killedBySignal).toBe(false)
+    expect(res.stdout).toBe('')
+  }, 20_000)
+
+  it('refuses a named shell, not just `true`', async () => {
+    const res = await runBoundedProcess({
+      command: 'printf',
+      args: ['%s', 'never-run'],
+      shell: 'bash',
+      timeoutMs: 10_000,
+    })
+    expect(res.exitCode).not.toBe(0)
+    expect(res.stdout).toBe('')
+    expect(res.runnerError).toContain('never both')
   }, 20_000)
 })
