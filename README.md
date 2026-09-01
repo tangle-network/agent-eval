@@ -105,6 +105,7 @@ Every row is a function you call. Each links to a runnable example.
 | [`deltaRepair()`](./docs/trace-repair-grader.md) — a finding must be graded by executing the repair it proposes | a trajectory, an analyst finding, a sandbox | the repair's measured effect against a no-fix control |
 | [`replayVerify()`](./docs/trajectory-replay.md) — you must know whether a recorded failure still reproduces | a recorded shell trajectory and its pinned image | a re-execution verdict and the divergences found |
 | [`analyzeSupervisorRun()`](./docs/adapters-observability.md) — a recursive or supervised run directory must be read | a run directory | counts that stay missing when a measurement is missing, never zero |
+| [`seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set and items authored wrong by construction | a sealed manifest, then a catch rate that refuses rather than guessing |
 | [`buildRlDataset()`](./examples/publish-rl-dataset/) — scored runs should become training data | run records and preferences | reward, preference, and supervised rows |
 
 ## Configure Model Calls
@@ -148,6 +149,7 @@ and [DSPy](./docs/campaign-proposers.md#use-official-dspy-optimizers).
 | `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
 | `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
 | `@tangle-network/agent-eval/supervisor-run` | Read recursive run directories without collapsing missing measurements to zero. |
+| `@tangle-network/agent-eval/meta-eval` | Measure the grader itself: judge calibration, sentinels, and seeded known-wrong plants. |
 | `@tangle-network/agent-eval/profile-cell` | Create and validate portable agent-profile identities. |
 | `@tangle-network/agent-eval/ledger-core` | Append-only hash-chained journal with idempotent append and chain verification. |
 | `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
@@ -170,6 +172,7 @@ Use a subpath when you want an explicit capability boundary.
 | How do I register an experiment as a sealed object? | [`docs/experiment.md`](./docs/experiment.md) |
 | How is something certified without an answer key? | [`docs/verification-strategies.md`](./docs/verification-strategies.md) |
 | Where does every verifier land its result? | [`docs/verdicts.md`](./docs/verdicts.md) |
+| Does the grader catch a claim that is known to be wrong? | [`docs/plants.md`](./docs/plants.md) |
 | How do I turn a coding-agent session log into runs? | [`docs/code-agent-intake.md`](./docs/code-agent-intake.md) |
 | How do I score a string from another language? | [`docs/wire-protocol.md`](./docs/wire-protocol.md) |
 
