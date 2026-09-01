@@ -230,6 +230,22 @@ export interface Artifact {
 /**
  * The failure taxonomy. `FailureClass` derives from this array, so the type
  * and the runtime list cannot name different sets.
+ *
+ * Two layers, and the split is what `FAILURE_BLAME` reads
+ * (`src/failure-taxonomy.ts`):
+ *   - behaviour classes name what the agent did wrong, and a run that ends in
+ *     one is evidence about the agent;
+ *   - transport classes name a death before or around the model turn — the
+ *     bridge refused, the box never provisioned, the stream tore — and a run
+ *     that ends in one of the machine-blamed members is not evidence about the
+ *     agent at all.
+ *
+ * The transport layer exists because a taxonomy with no name for "the run
+ * never reached a model" charges an infrastructure outage to the agent under
+ * test. Measured: six director cells settled with the runtime journal's own
+ * `infra` flag reading FALSE while the real reason was
+ * `host-executor: acquire timeout after 900000ms (in_flight=10/10)` — the
+ * bridge's host lane had saturated.
  */
 export const FAILURE_CLASSES = [
   'success',
@@ -266,6 +282,48 @@ export const FAILURE_CLASSES = [
   'contradictory_evidence',
   'ambiguous_user_intent',
   'knowledge_readiness_blocked',
+
+  // ── Transport: the run never reached a model, or the turn never completed ──
+  /** The bridge refused the connection or dropped it before a terminal event. */
+  'bridge_unreachable',
+  /** The bridge accepted the request and its execution lane was already full. */
+  'bridge_lane_saturated',
+  /** The router could not reconcile a completion with its own recorded usage. */
+  'router_usage_mismatch',
+  /** A session was bound to one AgentProfile and asked to serve another. */
+  'session_profile_conflict',
+  /** The agent runtime restarted underneath a live run. */
+  'runtime_restart',
+  /** The root driver of a recursive run failed before it could dispatch work. */
+  'root_driver_failed',
+  /** A sandbox box never finished provisioning. Distinct from `sandbox_failure`,
+   *  which is a command the agent ran exiting non-zero inside a live box. */
+  'box_provision_failure',
+  /** A sandbox box did not confirm destruction after the run. */
+  'box_teardown_failure',
+  /** The harness refused an agent-authored profile: an unknown model, a
+   *  workspace file it may not overwrite, a system prompt it may not replace. */
+  'profile_refused',
+  /** The model was reached and returned no visible output. */
+  'empty_completion',
+  /** The response stream carried malformed protocol content. */
+  'stream_protocol_error',
+  /** The response stream ended before a terminal event. */
+  'stream_incomplete',
+  /** A message was appended to a conversation the provider had already sealed. */
+  'message_sealed',
+  /** The model process was killed by a signal or exited with no code. */
+  'process_killed',
+  /** The run was cancelled by an operator. */
+  'cancelled',
+  /** The run was terminated without a more specific reason. */
+  'terminated',
+  /** The agent exhausted its traversal or iteration cap. */
+  'traversal_cap_exhausted',
+
+  /** No reason was recorded at all. Distinct from `unknown`, which means a
+   *  reason exists and no rule matched it. */
+  'unreported',
   'unknown',
 ] as const
 
