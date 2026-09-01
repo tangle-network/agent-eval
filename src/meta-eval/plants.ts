@@ -26,6 +26,15 @@
  *   the digest the sealed-experiment path uses, so the answer key cannot be
  *   revised once the results are in.
  *
+ * Authoring the wrong item is the step before all of that, and it is where the
+ * measurement silently breaks. {@link plantByPerturbation} takes a claim a
+ * grader verified and alters exactly one load-bearing value in its evidence,
+ * so the grader is asked a question it must fail. Hand-rolled perturbation
+ * bumps a number that is part of an identity — `python3`, `file42.txt`, `1.5`,
+ * `utf-8` — and the check stops EXECUTING; the plant then measures the
+ * environment rather than the grader. {@link perturbEvidence} refuses those
+ * digit runs by construction.
+ *
  * Blindness has two halves, and this module owns one. It never puts a plant
  * flag on a graded item: `seedPlants` returns the mixed set and a manifest,
  * and only the manifest knows which ids are seeded. Keeping the manifest out
@@ -149,6 +158,280 @@ export function definePlant(input: {
       ...(item.group === undefined ? {} : { group: item.group }),
     },
     expectedVerdict,
+  }
+}
+
+/**
+ * A claim's executable evidence: the command a grader runs and the output it
+ * must produce.
+ */
+export interface PlantEvidence {
+  /** The command a grader runs to test the claim. */
+  check?: string
+  /** The output that command must produce for the claim to stand. */
+  expect?: string
+}
+
+/** Which evidence field {@link perturbEvidence} altered. */
+export type PerturbedField = 'check' | 'expect'
+
+/** How {@link perturbEvidence} altered it. */
+export type PerturbationKind = 'number-off-by-one' | 'comparison-flipped'
+
+export interface EvidencePerturbation {
+  /** The evidence with exactly one value altered. */
+  evidence: PlantEvidence
+  /** Which field changed. */
+  field: PerturbedField
+  /** How it changed. */
+  how: PerturbationKind
+  /**
+   * The exact substring that was replaced. A comparison token carries its
+   * surrounding spaces, because the spaces are what make ` -ge ` a comparison
+   * and not part of a word.
+   */
+  original: string
+  /** What replaced it. */
+  perturbed: string
+}
+
+/**
+ * Characters that make a digit run part of something larger than a number.
+ *
+ * A run that touches one of these is an identity — `python3`, `file42.txt`,
+ * `1.5`, `utf-8` — and bumping it renames a program, a file, a version, or an
+ * encoding instead of falsifying the claim. The check then stops EXECUTING,
+ * and a plant that cannot run measures the environment rather than the grader:
+ * it reads as caught, for a reason that has nothing to do with the seeded
+ * defect.
+ */
+const NUMBER_GLUE = /[A-Za-z0-9_./-]/
+
+/**
+ * Comparison tokens that mean one thing only, each with its inversion.
+ *
+ * A bare `>` or `<` is absent on purpose: in a shell check it is a
+ * redirection, so flipping it rewrites where output goes rather than what the
+ * test asks, and the check stops testing the claim.
+ */
+const COMPARISON_FLIPS: readonly (readonly [string, string])[] = [
+  [' -ge ', ' -lt '],
+  [' -gt ', ' -le '],
+  [' -le ', ' -gt '],
+  [' -lt ', ' -ge '],
+  [' -eq ', ' -ne '],
+  [' -ne ', ' -eq '],
+  ['>=', '<'],
+  ['<=', '>'],
+  ['==', '!='],
+  ['!=', '=='],
+]
+
+interface Span {
+  start: number
+  end: number
+}
+
+/**
+ * The last digit run in `text` that is a number and nothing else, or null.
+ *
+ * The last is taken because a measured value trails its label — `count=42`,
+ * `n>=5 OK cells=8` — and because the choice has to be deterministic: the same
+ * claim must always yield the same plant, or two runs of the same authoring
+ * step seed two different answer keys for one item.
+ */
+function lastStandaloneNumber(text: string): Span | null {
+  const digits = /\d+/g
+  let found: Span | null = null
+  let match = digits.exec(text)
+  while (match !== null) {
+    const start = match.index
+    const end = start + match[0].length
+    // charAt returns '' outside the string, and NUMBER_GLUE never matches ''.
+    if (!NUMBER_GLUE.test(text.charAt(start - 1)) && !NUMBER_GLUE.test(text.charAt(end))) {
+      found = { start, end }
+    }
+    match = digits.exec(text)
+  }
+  return found
+}
+
+/**
+ * The first flippable comparison in `text`, or null.
+ *
+ * Any single flip inverts the test wherever it sits, so unlike the number rule
+ * there is no safety ordering among the matches. The first is taken so the
+ * result is fixed by the head of the command and does not move when a later
+ * comparison is added.
+ */
+function firstComparison(text: string): { span: Span; flipped: string } | null {
+  for (let index = 0; index < text.length; index += 1) {
+    for (const [token, flipped] of COMPARISON_FLIPS) {
+      if (text.startsWith(token, index)) {
+        return { span: { start: index, end: index + token.length }, flipped }
+      }
+    }
+  }
+  return null
+}
+
+function replaceSpan(text: string, span: Span, value: string): string {
+  return text.slice(0, span.start) + value + text.slice(span.end)
+}
+
+/**
+ * Rebuild the evidence with one field replaced. An absent field is dropped
+ * rather than set to undefined, so the record always has a canonical JSON form.
+ */
+function withField(
+  check: string | undefined,
+  expect: string | undefined,
+  field: PerturbedField,
+  value: string,
+): PlantEvidence {
+  const nextCheck = field === 'check' ? value : check
+  const nextExpect = field === 'expect' ? value : expect
+  return {
+    ...(nextCheck === undefined ? {} : { check: nextCheck }),
+    ...(nextExpect === undefined ? {} : { expect: nextExpect }),
+  }
+}
+
+function offByOne(
+  check: string | undefined,
+  expect: string | undefined,
+  field: PerturbedField,
+  text: string,
+  span: Span,
+): EvidencePerturbation {
+  const original = text.slice(span.start, span.end)
+  const perturbed = (BigInt(original) + 1n).toString()
+  return {
+    evidence: withField(check, expect, field, replaceSpan(text, span, perturbed)),
+    field,
+    how: 'number-off-by-one',
+    original,
+    perturbed,
+  }
+}
+
+/**
+ * Derive a known-wrong version of a claim's evidence by altering exactly one
+ * value, or return null when no value can be altered safely.
+ *
+ * Exactly one value changes. A perturbation that moves two does not name the
+ * defect it seeded, so a grader that catches it says nothing about which defect
+ * the grader can see.
+ *
+ * The preference order IS the safety order:
+ *
+ * 1. the last standalone number in `expect` — it falsifies the claim while the
+ *    command still runs exactly as it did;
+ * 2. a flipped comparison in `check` — it inverts a test that was passing;
+ * 3. the last standalone number in `check` — last because a number in a command
+ *    can name an input (a port, a width, a version) rather than a threshold,
+ *    and renaming an input breaks execution, not the claim.
+ *
+ * "Standalone" excludes a digit run glued to a word, a dot, a slash, or a
+ * hyphen: `python3`, `file42.txt`, `1.5`, `utf-8`. That exclusion is why this
+ * helper exists. Hand-rolled perturbation bumps one of those, the check stops
+ * executing, and the plant measures the environment instead of the grader.
+ *
+ * A number is bumped with BigInt, so a value wider than
+ * `Number.MAX_SAFE_INTEGER` moves by exactly one. Bumped as a `number` it
+ * rounds back to itself, and the plant is then a correct claim the grader is
+ * right to verify.
+ */
+export function perturbEvidence(evidence: PlantEvidence): EvidencePerturbation | null {
+  const check = typeof evidence.check === 'string' ? evidence.check : undefined
+  const expect = typeof evidence.expect === 'string' ? evidence.expect : undefined
+
+  if (expect !== undefined) {
+    const span = lastStandaloneNumber(expect)
+    if (span !== null) return offByOne(check, expect, 'expect', expect, span)
+  }
+  if (check !== undefined) {
+    const comparison = firstComparison(check)
+    if (comparison !== null) {
+      return {
+        evidence: withField(
+          check,
+          expect,
+          'check',
+          replaceSpan(check, comparison.span, comparison.flipped),
+        ),
+        field: 'check',
+        how: 'comparison-flipped',
+        original: check.slice(comparison.span.start, comparison.span.end),
+        perturbed: comparison.flipped,
+      }
+    }
+    const span = lastStandaloneNumber(check)
+    if (span !== null) return offByOne(check, expect, 'check', check, span)
+  }
+  return null
+}
+
+export interface PerturbedPlant {
+  plant: Plant
+  /** The perturbed evidence to write into the item the grader is handed. */
+  evidence: PlantEvidence
+  field: PerturbedField
+  how: PerturbationKind
+  original: string
+  perturbed: string
+}
+
+/**
+ * Derive a reject-direction plant from a claim a grader verified, by perturbing
+ * one value.
+ *
+ * {@link definePlant} takes a {@link GoldenItem} and never authors a wrong item
+ * from a right one, so until now every caller hand-rolled the perturbation.
+ * This is that step, done once and the same way every time: the claim's
+ * evidence is altered by {@link perturbEvidence}, the result is a `wrong-value`
+ * plant the grader owes a `reject`, and the record itself is built by
+ * `definePlant` so every refusal there still applies — in particular the one
+ * that catches an `expectedVerdict` its `humanScore` contradicts.
+ *
+ * Returns null when nothing in the evidence can be perturbed. That is not a
+ * failure: a claim with no executable evidence cannot be made wrong in a way a
+ * grader could execute, and seeding it would measure prose.
+ *
+ * Refuses an empty `id` or `itemId`. Both name the record — one in the manifest
+ * and in `missedIds`, the other in the join with the results — and a miss
+ * nobody can look up is not a measurement.
+ */
+export function plantByPerturbation(input: {
+  id: string
+  itemId: string
+  evidence: PlantEvidence
+  /** Score for the perturbed item. Must sit below the run's accept threshold. Default 0. */
+  humanScore?: number
+  group?: string
+}): PerturbedPlant | null {
+  const { id, itemId, evidence, humanScore = 0, group } = input
+  if (typeof id !== 'string' || id.trim() === '') {
+    throw new ValidationError('plantByPerturbation: id must be a non-empty string')
+  }
+  if (typeof itemId !== 'string' || itemId.trim() === '') {
+    throw new ValidationError(`plantByPerturbation: plant "${id}" has an empty itemId`)
+  }
+  const perturbation = perturbEvidence(evidence)
+  if (perturbation === null) return null
+  const plant = definePlant({
+    id,
+    kind: 'wrong-value',
+    item: { itemId, humanScore, ...(group === undefined ? {} : { group }) },
+    expectedVerdict: 'reject',
+  })
+  return {
+    plant,
+    evidence: perturbation.evidence,
+    field: perturbation.field,
+    how: perturbation.how,
+    original: perturbation.original,
+    perturbed: perturbation.perturbed,
   }
 }
 
