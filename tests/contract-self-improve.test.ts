@@ -163,7 +163,13 @@ describe('selfImprove provenance emission (durable by default)', () => {
     const recomputed = recordOnDisk.winnerHoldoutComposite - recordOnDisk.baselineHoldoutComposite
     expect(recomputed).toBeCloseTo(result.lift, 9)
     expect(recordOnDisk.heldOutLift).toBeCloseTo(result.lift, 9)
-  }, 10_000)
+    // 10 seconds was the vitest default, and this case runs a whole
+    // selfImprove generation and writes its provenance record to a real
+    // directory. It finishes in about 6 seconds on its own and exceeds 10
+    // whenever the full suite runs its 392 files in parallel, so the suite
+    // failed on machine load rather than on this code. Other durable-path
+    // cases in this repo already carry their own bound for the same reason.
+  }, 60_000)
 
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({

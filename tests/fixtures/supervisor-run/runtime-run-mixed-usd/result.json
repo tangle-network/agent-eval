@@ -165,10 +165,7 @@
       "id": "runner-smoke-20260901:s1",
       "label": "primes-unreported",
       "kind": "unreported",
-      "channels": [
-        "tokens",
-        "usd"
-      ]
+      "channels": ["tokens", "usd"]
     }
   ],
   "rootProviderModel": {

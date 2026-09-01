@@ -68,10 +68,7 @@
       "confidence": true
     }
   ],
-  "acceptedIndexes": [
-    0,
-    1
-  ],
+  "acceptedIndexes": [0, 1],
   "rejections": [
     {
       "index": 2,
