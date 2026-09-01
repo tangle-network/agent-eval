@@ -148,6 +148,25 @@ When a measured mean is below 0.5, inspect the lowest-scoring runs before tuning
 
 **Use the histogram for:** finding bimodal failure modes. A bin with `count > 0` near zero and another > 0 near 1 means your agent has two distinct behaviors, not one noisy one.
 
+### Why this is not the same shape as a campaign aggregate
+
+This report uses `ScalarDistribution`.
+A campaign aggregate (`CampaignResult.aggregates`) uses `SeriesDistribution`, the value `summarizeNumberSeries` returns.
+The two shapes stay separate for three reasons, and none of them is an accident of history.
+
+1. `ScalarDistribution` is a wire contract.
+   `ScalarDistributionSchema` in `src/hosted/schemas.ts:45` is a strict Zod object.
+   It is embedded in `InsightReportSchema`, which is embedded in `EvalRunEventSchema`, which the hosted client validates every event against before it ships (`src/hosted/client.ts:182`).
+   A strict object rejects an unknown key, so adding or renaming a field breaks every event a consumer already sends.
+2. `ScalarDistribution` reports what a report needs and a series summary does not have: a histogram, the worst-N `tailRuns` by score, `p95` for a latency question, and `mean` plus `stddev` beside the order statistics.
+   `SeriesDistribution` is the in-memory summary of a plain number series with no run identity attached.
+3. The two answer at different `n = 0` boundaries.
+   `ScalarDistribution` represents an empty series as `n: 0` with every field `null`, because a report always has a slot for a metric it did not measure.
+   `summarizeNumberSeries` returns `null` for an empty series, because there is no distribution to report and a zero-filled summary would read as a measured all-zero series.
+
+Both refuse to encode a missing measurement as a zero.
+That is the shared rule; the shapes differ because the surfaces differ.
+
 ---
 
 ## `costQuality`: cost-vs-quality Pareto

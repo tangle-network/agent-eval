@@ -1,10 +1,15 @@
 /**
  * Campaign aggregation: per-judge and per-scenario summaries with seeded
- * bootstrap CI95 bands, plus the failure-class cell counts.
+ * bootstrap CI95 bands, the order statistics of the same scores, plus the
+ * failure-class cell counts.
+ *
+ * The spread comes from `summarizeNumberSeries`, the package's one
+ * distribution summary, so a campaign aggregate and any other series summary
+ * in this package report the same fields under the same quantile definition.
  */
 
 import type { CostLedgerSummary } from '../cost-ledger'
-import { confidenceInterval } from '../statistics'
+import { confidenceInterval, summarizeNumberSeries } from '../statistics'
 import { projectCampaignCellQuality } from './run-record'
 import type {
   CampaignAggregates,
@@ -44,7 +49,12 @@ export function computeAggregates<TArtifact>(
   }
   for (const [scenarioId, samples] of scenarioGroups) {
     const ag = aggregate(samples, seed)
-    byScenario[scenarioId] = { meanComposite: ag.mean, ci95: ag.ci95, n: ag.n }
+    byScenario[scenarioId] = {
+      meanComposite: ag.mean,
+      ci95: ag.ci95,
+      n: ag.n,
+      distribution: ag.distribution,
+    }
   }
   const dispatchFailures = cells.filter((cell) => cell.errorStage === 'dispatch')
   const judgeFailures = cellQuality
@@ -77,11 +87,15 @@ export function computeAggregates<TArtifact>(
 // seed — same campaign re-run produces identical CI bands. Falls back to
 // degenerate intervals at n<=1 (the bootstrap is undefined there).
 function aggregate(samples: number[], seed: number): JudgeAggregate {
-  const n = samples.length
-  if (n === 0) throw new Error('aggregate requires at least one finite score')
+  // `summarizeNumberSeries` returns null for an empty series, which is the one
+  // input this function has never accepted. Reading the refusal from the helper
+  // keeps one guard instead of two that could drift apart.
+  const distribution = summarizeNumberSeries(samples)
+  if (distribution === null) throw new Error('aggregate requires at least one finite score')
+  const n = distribution.n
   const mean = samples.reduce((a, b) => a + b, 0) / n
   const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1)
   const stdev = Math.sqrt(variance)
   const ci = confidenceInterval(samples, 0.95, { seed, resamples: 1000 })
-  return { mean, stdev, ci95: [ci.lower, ci.upper], n }
+  return { mean, stdev, ci95: [ci.lower, ci.upper], n, distribution }
 }

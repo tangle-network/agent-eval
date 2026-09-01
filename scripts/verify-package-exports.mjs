@@ -158,6 +158,7 @@ try {
         CostLedger,
         AnalystRegistry as RootAnalystRegistry,
         InMemoryTraceStore,
+        attest,
         makeFinding,
         type AnalystRunResult,
         type ChatClient,
@@ -170,6 +171,8 @@ try {
         type RunTerminalOutcome,
         type Scenario,
         runTaskScore,
+        verifyAttestation,
+        type AttestedReport,
         type DefaultVerdict,
       } from '@tangle-network/agent-eval'
       import {
@@ -198,7 +201,9 @@ try {
       } from '@tangle-network/agent-eval/contract'
       import {
         type CostLedgerHandle as CampaignCostLedgerHandle,
+        buildCellSchedule,
         type CampaignStorage,
+        type CellScheduleSlot,
         type CompareOptimizationMethodsOptions,
         decodeExternalTextCandidate,
         type ExternalOptimizerSubmittedCandidate,
@@ -208,6 +213,9 @@ try {
         type ReferenceEquivalenceJudgeOptions as CampaignReferenceEquivalenceJudgeOptions,
         readExternalOptimizerObservationArtifact,
         readGepaCandidatePopulationArtifact,
+        type Scenario as CampaignScenario,
+        type SeriesDistribution as CampaignSeriesDistribution,
+        type JudgeAggregate as CampaignJudgeAggregate,
         type SurfaceProposer as CampaignSurfaceProposer,
       } from '@tangle-network/agent-eval/campaign'
       import {
@@ -573,6 +581,28 @@ try {
       ) {
         throw new Error('packed hosted response schema accepted an invalid response')
       }
+      // The cell grid is readable without a run directory: no filesystem, no
+      // throwaway path.
+      const packedSchedule: CellScheduleSlot<CampaignScenario>[] = buildCellSchedule(
+        [{ id: 'packed-scenario', kind: 'packed' }],
+        42,
+        2,
+      )
+      const packedCellIds: string[] = packedSchedule.map((slot) => slot.cellId)
+      // A campaign aggregate carries the package's one distribution shape.
+      const packedDistribution: CampaignSeriesDistribution | undefined = (
+        undefined as CampaignJudgeAggregate | undefined
+      )?.distribution
+      // Evidence receipts: content-address a report and bind it to provenance.
+      const packedAttestation: AttestedReport = attest(
+        { claim: 'packed' },
+        { modelVersions: {}, codeSha: 'packed', createdAt: '2026-07-24T00:00:00.000Z' },
+      )
+      const packedAttestationValid: boolean = verifyAttestation(
+        { claim: 'packed' },
+        packedAttestation,
+      ).valid
+      if (!packedAttestationValid) throw new Error('packed attestation failed to verify')
       const contextTokens = contextInputTokens({ inputTokens: 10, cachedTokens: 20 })
       const inputTokens = firstNumberAttr(
         { 'gen_ai.usage.input_tokens': '10' },
@@ -650,6 +680,9 @@ try {
         inputTokens,
         traceAttributes,
         LLM_REASONING_TOKENS,
+        packedCellIds,
+        packedDistribution,
+        packedAttestation,
       ]
     `,
   )
@@ -670,11 +703,20 @@ try {
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
   const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
-  if (!/\{ 'ticket-id': \{ mean: 0,/.test(plainQuickstartOutput)) {
+  // Whitespace-tolerant: Node's inspector wraps the aggregate across lines once
+  // it carries its distribution, so the shape of the break is not the contract.
+  if (!/'ticket-id':\s*\{\s*mean: 0,/.test(plainQuickstartOutput)) {
     throw new Error(`README quickstart baseline output changed:\n${quickstartOutput}`)
   }
-  if (!/\{ 'ticket-id': \{ mean: 1,/.test(plainQuickstartOutput)) {
+  if (!/'ticket-id':\s*\{\s*mean: 1,/.test(plainQuickstartOutput)) {
     throw new Error(`README quickstart candidate output changed:\n${quickstartOutput}`)
+  }
+  // The published aggregate carries the spread, not only the mean.
+  if (!/distribution: \{ n: 3, min: 0, p50: 0, p90: 0, max: 0, sum: 0 \}/.test(plainQuickstartOutput)) {
+    throw new Error(`README quickstart baseline distribution is missing:\n${quickstartOutput}`)
+  }
+  if (!/distribution: \{ n: 3, min: 1, p50: 1, p90: 1, max: 1, sum: 3 \}/.test(plainQuickstartOutput)) {
+    throw new Error(`README quickstart candidate distribution is missing:\n${quickstartOutput}`)
   }
   run(
     process.execPath,
@@ -687,6 +729,10 @@ try {
         const analyst = await import('@tangle-network/agent-eval/analyst')
         const traces = await import('@tangle-network/agent-eval/traces')
         if (!('pairedSignTest' in root)) throw new Error('missing root export pairedSignTest')
+        if (!('attest' in root)) throw new Error('missing root export attest')
+        if (!('verifyAttestation' in root)) throw new Error('missing root export verifyAttestation')
+        const campaign = await import('@tangle-network/agent-eval/campaign')
+        if (!('buildCellSchedule' in campaign)) throw new Error('missing campaign export buildCellSchedule')
         if ('rolloutReward' in root) throw new Error('obsolete root export rolloutReward')
         if (!('RawAnalystFindingSchema' in analyst)) throw new Error('missing analyst export RawAnalystFindingSchema')
         for (const name of [

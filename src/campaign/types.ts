@@ -27,6 +27,7 @@ import type {
 } from '../cost-ledger'
 import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
+import type { SeriesDistribution } from '../statistics'
 
 /** Stable identifier + kind tag for any scenario. Consumers
  *  extend with their per-domain payload (persona, task, requirement, ...). */
@@ -634,12 +635,21 @@ export interface JudgeAggregate {
   stdev: number
   ci95: [number, number]
   n: number
+  /** Order statistics over the exact scores `mean` was taken over, from the
+   *  package's one distribution summary (`summarizeNumberSeries`). A mean and
+   *  a CI alone cannot separate a bimodal judge from a tight one, and cannot
+   *  show the outlier that carried the mean. Never null here: an aggregate is
+   *  only recorded for a judge that produced at least one score. */
+  distribution: SeriesDistribution
 }
 
 export interface ScenarioAggregate {
   meanComposite: number
   ci95: [number, number]
   n: number
+  /** Order statistics over the per-cell composites this scenario produced.
+   *  Same type and same contract as {@link JudgeAggregate.distribution}. */
+  distribution: SeriesDistribution
 }
 
 export interface GenerationRecord {
