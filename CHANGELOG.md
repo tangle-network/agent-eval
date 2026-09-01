@@ -4,6 +4,24 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.173.0] — 2026-09-01
+
+### Added
+
+- `runBoundedProcess` accepts `args`, an argument vector delivered to the program with no shell between.
+  The runner could only be given a command line for a shell to read, so `interpreter -flag <text>` was expressible only by quoting the text into that line.
+  A caller with text it did not author — a script body, a path, a pattern — therefore had to carry its own shell quoter, and a bug in that quoter is a command injection and not a wrong answer.
+  `{ command: 'bash', args: ['-n', '-c', body] }` now parses `body` whatever bytes it holds.
+  The argv form keeps the deadline, the detached process group, the group kill, the output cap, `envMode`, and every result flag; only the shell is absent.
+  `args` together with a truthy `shell` is contradictory, because a shell cannot interpret an argument vector: the call spawns nothing and reports `runnerError`, so the caller's bug reads as a failure and never as a pass.
+  The first consumer is agent-knowledge's claim grader, which parses a claim's check under `bash -n -c` before it runs the check.
+
+### Changed
+
+- Pin the four dependency manifests with digest `73571b4ca9a968bb253899eb556ff0b7cc5e767006244ec79fde72caa53d3365`. Three of the four carry the version, so the lock digest moves with every release.
+
+---
+
 ## [0.172.0] — 2026-09-01
 
 ### Added

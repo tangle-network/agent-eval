@@ -280,3 +280,121 @@ describe('runBoundedProcess reports a completed run verbatim', () => {
     expect(res.killedBySignal).toBe(false)
   }, 20_000)
 })
+
+describe('runBoundedProcess runs an argument vector with no shell', () => {
+  it.skipIf(!posixOnly)(
+    'delivers an argument the shell form would have to quote',
+    async () => {
+      // Every metacharacter a shell acts on, in one argument. Under the shell
+      // form this text would need quoting, and a quoting bug here executes it.
+      const hostile = `'"; rm -rf /; $(echo pwned) \`echo pwned\` $HOME | & \n`
+      const res = await runBoundedProcess({
+        command: 'printf',
+        args: ['%s', hostile],
+        timeoutMs: 10_000,
+      })
+      expect(res.exitCode).toBe(0)
+      expect(res.stdout).toBe(hostile)
+      expect(res.stderr).toBe('')
+      expect(res.runnerError).toBeUndefined()
+    },
+    20_000,
+  )
+
+  it.skipIf(!posixOnly)(
+    'parses a script under `bash -n` without executing it',
+    async () => {
+      // The caller this was added for: check that a body parses before running
+      // it. `-n` is an argument to bash, which the shell form cannot express.
+      const marker = join(mkdtempSync(join(tmpdir(), 'bounded-process-argv-')), 'ran')
+      const body = `printf x > ${marker}`
+
+      const parsed = await runBoundedProcess({
+        command: 'bash',
+        args: ['-n', '-c', body],
+        timeoutMs: 10_000,
+      })
+      expect(parsed.exitCode).toBe(0)
+      expect(existsSync(marker)).toBe(false)
+
+      const malformed = await runBoundedProcess({
+        command: 'bash',
+        args: ['-n', '-c', 'if then'],
+        timeoutMs: 10_000,
+      })
+      expect(malformed.exitCode).not.toBe(0)
+      expect(malformed.stderr).toContain('syntax error')
+
+      rmSync(marker, { force: true })
+    },
+    20_000,
+  )
+
+  it.skipIf(!posixOnly)(
+    'keeps the deadline, the group kill and the flags',
+    async () => {
+      const started = Date.now()
+      const res = await runBoundedProcess({
+        command: 'bash',
+        args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
+        timeoutMs: 100,
+      })
+      expect(res.killedByTimeout).toBe(true)
+      expect(res.exitCode).not.toBe(0)
+      expect(Date.now() - started).toBeLessThan(10_000)
+      await expectTreeGone(res.stdout)
+    },
+    30_000,
+  )
+
+  it.skipIf(!posixOnly)(
+    'applies `envMode: replace` to the argv form too',
+    async () => {
+      const res = await runBoundedProcess({
+        command: 'bash',
+        args: ['-c', 'printf "%s|%s" "$PATH" "$SECRET"'],
+        env: { PATH: process.env.PATH ?? '', SECRET: 'kept' },
+        envMode: 'replace',
+        timeoutMs: 10_000,
+      })
+      expect(res.exitCode).toBe(0)
+      expect(res.stdout.split('|')[1]).toBe('kept')
+    },
+    20_000,
+  )
+
+  it('reports a spawn failure as a runner error rather than a clean exit', async () => {
+    const res = await runBoundedProcess({
+      command: '/nonexistent/bounded-process-binary',
+      args: ['--flag'],
+      timeoutMs: 10_000,
+    })
+    expect(res.exitCode).not.toBe(0)
+    expect(res.runnerError).toContain('ENOENT')
+  }, 20_000)
+
+  it('refuses `args` together with a truthy shell instead of quoting them together', async () => {
+    const res = await runBoundedProcess({
+      command: 'printf',
+      args: ['%s', 'never-run'],
+      shell: true,
+      timeoutMs: 10_000,
+    })
+    expect(res.exitCode).not.toBe(0)
+    expect(res.stdout).toBe('')
+    expect(res.runnerError).toContain('never both')
+    expect(res.killedByTimeout).toBe(false)
+    expect(res.killedBySignal).toBe(false)
+  }, 20_000)
+
+  it('runs the argv form when `shell` is explicitly false', async () => {
+    const res = await runBoundedProcess({
+      command: 'printf',
+      args: ['%s', 'ok'],
+      shell: false,
+      timeoutMs: 10_000,
+    })
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).toBe('ok')
+  }, 20_000)
+})

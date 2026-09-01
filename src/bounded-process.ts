@@ -53,14 +53,36 @@ const SPAWN_FAILURE_EXIT_CODE = 127
 const UNKNOWN_EXIT_CODE = 1
 
 export interface BoundedProcessInput {
-  /** The command line, interpreted by a shell unless `shell` is `false`. */
+  /**
+   * The command line, interpreted by a shell unless `shell` is `false`. When
+   * {@link BoundedProcessInput.args} is present this is a program path
+   * instead, and no shell reads it.
+   */
   command: string
+  /**
+   * Argument vector for `command`, delivered to the program as separate
+   * argv entries with no shell between them.
+   *
+   * This is the form to use whenever an argument carries text the caller did
+   * not author — a script body, a path, a pattern. Without it, `interpreter
+   * -flag <script>` can only be expressed by quoting the script into a
+   * shell string, and a quoting bug there is a command injection rather than
+   * a wrong answer. Each entry arrives verbatim, so there is nothing to
+   * quote: `{ command: 'bash', args: ['-n', '-c', body] }` parses `body`
+   * whatever bytes it holds.
+   *
+   * A shell cannot interpret an argument vector, so `args` and a truthy
+   * `shell` are contradictory. Passing both spawns nothing and reports
+   * `runnerError`.
+   */
+  args?: string[]
   /**
    * Shell that interprets `command`. `true` (the default) uses the platform
    * default — `/bin/sh` on POSIX, `cmd.exe` on Windows. A string names the
    * shell binary, e.g. `'bash'`, which is required for a bash-only construct
    * such as `[[ ]]` or `$BASH_VERSION`. `false` executes `command` directly
-   * as a program path with no arguments.
+   * as a program path with no arguments. Ignored — and refused when truthy —
+   * once {@link BoundedProcessInput.args} is present.
    */
   shell?: boolean | string
   /** Working directory. The parent's cwd is inherited when omitted. */
@@ -151,16 +173,39 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
     }
   }
 
+  // Reported rather than thrown, because this module's contract is that a
+  // call always resolves. A caller bug still reads as a failure and never as
+  // a pass: the exit code is non-zero and `runnerError` names the cause.
+  if (input.args !== undefined && input.shell !== undefined && input.shell !== false) {
+    return {
+      exitCode: SPAWN_FAILURE_EXIT_CODE,
+      stdout: '',
+      stderr: '',
+      wallMs: Date.now() - start,
+      killedByTimeout: false,
+      killedBySignal: false,
+      outputTruncated: false,
+      runnerError:
+        'not spawned: `args` passes an argument vector directly to the program, so a shell ' +
+        'cannot interpret it — pass `args` or a truthy `shell`, never both',
+    }
+  }
+
   return await new Promise<BoundedProcessResult>((resolve) => {
-    const child = spawn(input.command, {
-      shell: input.shell ?? true,
+    const spawnOptions = {
       cwd: input.cwd,
       env,
       // Own process group so a kill reaches the whole tree, not just the
       // shell — otherwise a runaway grandchild keeps the pipes open and
       // `close` never fires.
       detached: process.platform !== 'win32',
-    })
+    }
+    // The argv form takes the same bounds, the same group, and the same kill
+    // path; only the shell is absent.
+    const child =
+      input.args === undefined
+        ? spawn(input.command, { ...spawnOptions, shell: input.shell ?? true })
+        : spawn(input.command, input.args, { ...spawnOptions, shell: false })
     let stdout = ''
     let stderr = ''
     let outputBytes = 0
