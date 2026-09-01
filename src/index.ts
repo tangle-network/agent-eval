@@ -382,6 +382,8 @@ export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequen
 // Reading results: core statistics, paired comparisons, insight
 // reports, trace analysts, canned pipeline views, and knowledge readiness.
 
+export type { ChatTraceEngineOptions } from './analyst/chat-trace-engine'
+export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export type { DefaultAnalystRegistryOptions } from './analyst/default-registry'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
 
