@@ -163,7 +163,14 @@ describe('selfImprove provenance emission (durable by default)', () => {
     const recomputed = recordOnDisk.winnerHoldoutComposite - recordOnDisk.baselineHoldoutComposite
     expect(recomputed).toBeCloseTo(result.lift, 9)
     expect(recordOnDisk.heldOutLift).toBeCloseTo(result.lift, 9)
-  }, 10_000)
+    // The bound below is not the vitest default, which is 5 seconds here; 10
+    // was an explicit bound, and it was under what this case costs. The case
+    // runs a whole selfImprove generation and writes its provenance record to
+    // a real directory, which measures at about 11 seconds of test time on an
+    // idle machine. So `pnpm test` failed on machine load rather than on this
+    // code. Other durable-path cases in this repo already carry their own
+    // bound for the same reason.
+  }, 60_000)
 
   it('a mem:// runDir keeps everything in-memory (explicit opt-out path)', async () => {
     const result = await selfImprove<S, A>({

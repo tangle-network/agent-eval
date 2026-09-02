@@ -16,7 +16,6 @@
  * SDK-specific Box / Sandbox types that don't belong in this package.
  */
 
-import { spawnSync } from 'node:child_process'
 import {
   accessSync,
   existsSync,
@@ -26,6 +25,7 @@ import {
   statSync,
 } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS, runBoundedProcess } from './bounded-process'
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -39,6 +39,12 @@ export interface RunCommandInput {
   /**
    * Wall-clock cap in ms. The runner SHOULD return `timedOut: true` when
    * exceeded; callers MAY treat status null + timedOut as "killed."
+   *
+   * Omitting it does NOT mean unbounded: {@link localCommandRunner} then
+   * applies {@link LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS}. A command that
+   * legitimately runs longer than that names its own `capMs`; it is never
+   * killed silently, because a run stopped by the bound comes back with
+   * `timedOut: true` and `status: null`.
    */
   capMs?: number
   /** Env overrides merged on top of the runner's base environment. */
@@ -84,36 +90,60 @@ export interface CommandRunner {
 // ─── Local runner ───────────────────────────────────────────────────────
 
 /**
- * Host-process runner. Uses node:child_process spawnSync (synchronous
- * under the hood — wrapped in a Promise to satisfy the interface). For
- * very long-running commands consider an async-spawn variant; this
- * shape matches VB's existing behavior and is fine for build/test/lint
- * subprocesses that finish in seconds-to-minutes.
+ * Host-process runner, mapped onto {@link runBoundedProcess} so the package
+ * has one spawn site rather than two.
+ *
+ * It used `spawnSync` and therefore had none of the bounds that runner exists
+ * to provide: a `capMs` timeout killed the direct child and left any
+ * descendant it had started running, a killed run could still report exit
+ * code 0, captured output was unbounded, and the whole run blocked the event
+ * loop. This runner spawns build, test and lint commands, which are exactly
+ * the commands most likely to start descendants.
+ *
+ * It is not the package's last private spawn: `nodeProcessRunner`
+ * (`src/trace-repair/docker-environment.ts`) and `runProcess`
+ * (`src/campaign/external-optimizer-subprocess.ts`) still spawn their own
+ * detached children, and several one-shot `spawnSync` git and CLI calls
+ * remain. What this removes is the second spawn behind the `CommandRunner`
+ * contract, which is the one that graded build, test and lint commands.
+ *
+ * Two behaviours the mapping changes on purpose:
+ *   - a run with no `capMs` is now bounded by
+ *     {@link LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS} instead of running forever;
+ *   - the run no longer blocks the event loop, so a minutes-long `capMs` no
+ *     longer stalls everything else in the process.
  */
+/**
+ * Wall clock {@link localCommandRunner} applies when the caller names no
+ * `capMs`. It is `runBoundedProcess`'s own default, stated here because this
+ * runner used to be unbounded: a consumer whose command runs longer names its
+ * own `capMs`, and a run the bound stops says so with `timedOut: true`.
+ */
+export const LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS = DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS
+
 export const localCommandRunner: CommandRunner = {
   name: 'local',
   async run(input: RunCommandInput): Promise<RunCommandResult> {
-    const start = Date.now()
-    const res = spawnSync(input.cmd, input.argv, {
-      cwd: input.cwd,
-      encoding: 'utf8',
-      timeout: input.capMs,
-      env: { ...process.env, CI: '1', ...(input.env ?? {}) },
-      input: input.stdin,
+    const result = await runBoundedProcess({
+      command: input.cmd,
+      args: input.argv,
+      envMode: 'merge',
+      env: { CI: '1', ...(input.env ?? {}) },
+      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+      ...(input.capMs === undefined ? {} : { timeoutMs: input.capMs }),
+      ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
     })
-    const durationMs = Date.now() - start
-    const timedOut = !!(
-      res.error &&
-      'code' in res.error &&
-      (res.error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
-    )
+    // `status: null` keeps its documented meaning — the process could not
+    // start, or it was killed. A stdin payload the child did not drain is
+    // neither: that command ran and exited on its own, so it keeps its code.
+    const killed = result.killedByTimeout || result.killedBySignal
     return {
-      status: res.status ?? null,
-      stdout: (res.stdout ?? '').toString(),
-      stderr: (res.stderr ?? '').toString(),
-      durationMs,
-      timedOut,
-      runnerError: res.error && !timedOut ? String(res.error.message ?? res.error) : undefined,
+      status: killed || !result.spawned ? null : result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      durationMs: result.wallMs,
+      timedOut: result.killedByTimeout,
+      ...(result.runnerError === undefined ? {} : { runnerError: result.runnerError }),
     }
   },
   async hasBin(name: string): Promise<boolean> {

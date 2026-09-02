@@ -858,8 +858,7 @@ describe('external optimizer model proxy', () => {
   })
 
   it('accepts and preserves a provider-qualified snapshot of the requested model', async () => {
-    const servedModel =
-      'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const servedModel = 'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const ledger = new CostLedger()
     const proxy = await startRuntimeOwnedModelProxy({
       callRef: 'runtime-profile:qualified-snapshot',

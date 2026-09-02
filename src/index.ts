@@ -263,7 +263,7 @@ export type { ActiveLearningOptions, SynthesisTarget } from './active-learning'
 export { proposeSynthesisTargets } from './active-learning'
 
 export type { BoundedProcessInput, BoundedProcessResult } from './bounded-process'
-export { runBoundedProcess } from './bounded-process'
+export { DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS, runBoundedProcess } from './bounded-process'
 
 export type {
   CampaignCellFailureReceipt,
@@ -271,14 +271,14 @@ export type {
   RunCampaignOptions,
 } from './campaign/run-campaign'
 export { runCampaign } from './campaign/run-campaign'
-export { transientDispatchFailure } from './campaign/transient-failure'
+export { quotaExhaustedUntil, transientDispatchFailure } from './campaign/transient-failure'
 
 export type { CampaignResult } from './campaign/types'
 
 export { ProductClient } from './client'
 
 export type { CommandRunner, DirEntry, RunCommandInput, RunCommandResult } from './command-runner'
-export { localCommandRunner } from './command-runner'
+export { LOCAL_COMMAND_RUNNER_DEFAULT_CAP_MS, localCommandRunner } from './command-runner'
 
 export type {
   ControlActionOutcome,
@@ -382,6 +382,8 @@ export { evaluateInterimReleaseConfidence, pairedEvalueSequence } from './sequen
 // Reading results: core statistics, paired comparisons, insight
 // reports, trace analysts, canned pipeline views, and knowledge readiness.
 
+export type { ChatTraceEngineOptions } from './analyst/chat-trace-engine'
+export { createChatTraceEngine } from './analyst/chat-trace-engine'
 export type { DefaultAnalystRegistryOptions } from './analyst/default-registry'
 export { buildDefaultAnalystRegistry } from './analyst/default-registry'
 
@@ -389,6 +391,7 @@ export type { DspyRlmTraceEngineOptions } from './analyst/dspy-rlm-engine'
 export { createDspyRlmTraceEngine } from './analyst/dspy-rlm-engine'
 
 export type { TraceAnalysisEngine, TraceAnalysisEngineResult } from './analyst/engine'
+export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS } from './analyst/engine'
 
 export type {
   ExactAnalystRunEvent,
@@ -495,12 +498,22 @@ export type { ErrorCountPattern, ExtractOptions, ExtractResult } from './error-c
 export { ERROR_COUNT_PATTERNS, extractErrorCount } from './error-count-extractor'
 
 export type {
+  FailureBlame,
   FailureClass,
   FailureClassification,
   FailureContext,
+  FailureReasonRule,
   FailureRule,
 } from './failure-taxonomy'
-export { classifyFailure, FAILURE_CLASSES } from './failure-taxonomy'
+export {
+  classifyFailure,
+  classifyFailureReason,
+  DEFAULT_FAILURE_REASON_RULES,
+  FAILURE_BLAME,
+  FAILURE_CLASSES,
+  failureBlame,
+  INFRA_FAILURE_BLAMES,
+} from './failure-taxonomy'
 
 export {
   acquisitionPlansForKnowledgeGaps,
@@ -952,17 +965,24 @@ export type { VerdictCacheStore } from './verdict-cache'
 export { canonicalJson, contentHash, fileVerdictCache } from './verdict-cache'
 
 // ── utilities ─────────────────────────────────────────────────────────
-// Provider-neutral model contracts and shared error types. The transport that
-// executes a paid model is NOT part of this surface: a consumer binds its own
-// through `createChatClient({ transport: 'custom' })`, or uses
-// `profileChatClient` from `@tangle-network/agent-runtime/kernel`.
+// Provider-neutral model contracts and shared error types. A consumer binds
+// its own transport through `createChatClient` — `custom` for a chat function
+// it wrote, `openai-compatible` for an endpoint and a credential it passes as
+// values — or uses `profileChatClient` from
+// `@tangle-network/agent-runtime/kernel`. agent-eval reads no environment
+// variable to find a provider credential in either case.
 
 export type {
   ChatCallOpts,
   ChatClient,
   ChatRequest,
   ChatResponse,
+  ChatTransport,
   CreateChatClientOpts,
+  CustomTransportOpts,
+  MockTransportOpts,
+  OpenAiCompatibleTransportOpts,
+  SandboxSdkTransportOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
 export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'

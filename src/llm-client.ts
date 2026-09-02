@@ -1,9 +1,16 @@
 /**
- * INTERNAL OpenAI-compatible client. NOT part of the published surface.
+ * OpenAI-compatible client. The CLASS is internal; one transport now drives it
+ * for public callers.
  *
- * agent-eval executes no paid model on behalf of a consumer: `createChatClient`
- * binds a caller-supplied transport, and this module is not reachable through
- * any export subpath. Two in-repo callers hold it:
+ * agent-eval never goes looking for a credential — it reads no environment
+ * variable to find one — and this module is still not reachable through any
+ * export subpath. What reaches a consumer is `createChatClient({ transport:
+ * 'openai-compatible', baseUrl, apiKey })`, the sanctioned public route, which
+ * constructs this client from an endpoint and a credential the caller passed as
+ * values. Anything richer than that transport's options stays in-repo.
+ *
+ * Three in-repo callers hold the class directly:
+ *   - `src/analyst/chat-client.ts`, the public transport above;
  *   - the `agent-eval` binary (`src/cli-config.ts`), a deployed server whose
  *     caller is a JSON-RPC client in another language and which therefore
  *     configures its own endpoint from its own environment;

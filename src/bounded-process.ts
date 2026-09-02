@@ -26,9 +26,10 @@
  */
 
 import { spawn } from 'node:child_process'
+import { StringDecoder } from 'node:string_decoder'
 
 /** Wall-clock bound applied when the caller names none. */
-const DEFAULT_TIMEOUT_MS = 10 * 60_000
+export const DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS = 10 * 60_000
 
 /** Cap on captured stdout+stderr applied when the caller names none. */
 const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
@@ -83,6 +84,33 @@ export interface BoundedProcessInput {
    */
   args?: string[]
   /**
+   * Text written to the child's standard input. The stream is closed after
+   * the write, so a command that reads until end-of-file sees exactly this
+   * payload and then EOF.
+   *
+   * The child's stdin is closed whether or not this field is present. A pipe
+   * nobody closes is a hang: a command that reads stdin waits for bytes that
+   * never arrive until the deadline kills it, which reads downstream as a
+   * slow command rather than as a caller that forgot to send input.
+   *
+   * The payload is written as UTF-8 and is otherwise verbatim: a NUL byte,
+   * a newline, a quote and a backslash all arrive as themselves, because
+   * nothing parses this text. The one platform limit is the one `args`
+   * already states — a lone surrogate is encoded as U+FFFD, since no UTF-8
+   * stream can carry it.
+   *
+   * A child that exits before reading breaks the pipe. That is the child's
+   * behaviour, not a runner failure, so the run still settles on the child's
+   * own exit code, and the undelivered payload is reported in `runnerError`
+   * with the `stdin not delivered:` prefix. Whether a SMALL payload to a
+   * command that ignores stdin reports this is a race — the write may land in
+   * the pipe buffer before the child exits — so the flag is a statement about
+   * delivery, never about the command. It is not a race for the case that
+   * matters: a payload larger than the pipe buffer that the child never
+   * drains cannot be delivered, and reports every time.
+   */
+  stdin?: string
+  /**
    * Shell that interprets `command`. `true` (the default) uses the platform
    * default — `/bin/sh` on POSIX, `cmd.exe` on Windows. A string names the
    * shell binary, e.g. `'bash'`, which is required for a bash-only construct
@@ -135,6 +163,26 @@ export interface BoundedProcessInput {
 
 export interface BoundedProcessResult {
   /**
+   * The process actually started. False when nothing ran at all: an
+   * already-aborted signal, `args` with a truthy `shell`, an argument the
+   * platform refuses, or a program that does not exist.
+   *
+   * This is the field to branch on, never the text of `runnerError`. A caller
+   * deciding whether a run produced an outcome at all is asking exactly this,
+   * and asking it here is type-checked rather than held by a wording
+   * convention.
+   */
+  spawned: boolean
+  /**
+   * The `stdin` payload reached the child in full. True whenever the caller
+   * supplied none, because nothing could fail to arrive.
+   *
+   * False means the command ran on partial input, which is a fact about the
+   * answer it produced: a checksum over a truncated payload is a wrong answer,
+   * not a failed run. `spawned` stays true and `exitCode` stays the child's.
+   */
+  stdinDelivered: boolean
+  /**
    * Exit code. Forced non-zero whenever `killedByTimeout` or
    * `killedBySignal` is set, because a SIGKILLed child can close with 0 and
    * a killed run must never read as a pass.
@@ -157,9 +205,19 @@ export interface BoundedProcessResult {
   /** `maxOutputBytes` was reached and later output was discarded. */
   outputTruncated: boolean
   /**
-   * Runner-side failure: the process could not be spawned, or the signal was
-   * already aborted so nothing was spawned. Absent when the command itself
-   * ran, however it exited.
+   * Human-readable diagnosis of a runner-side failure, in one of three shapes:
+   *
+   *   - `not spawned:` — the caller's own bug, such as `args` with a truthy
+   *     `shell`, or an already-aborted signal. No retry helps.
+   *   - `stdin not delivered:` — the command ran and exited on its own, and
+   *     the stdin payload did not reach it in full because the child closed
+   *     the pipe first.
+   *   - anything else — the process could not be spawned (a missing binary, a
+   *     NUL byte in an argument).
+   *
+   * Absent when the command ran and read everything it was sent, however it
+   * exited. The prefixes are for a person reading a log; code reads `spawned`
+   * and `stdinDelivered`, which say the same things and are type-checked.
    */
   runnerError?: string
 }
@@ -167,7 +225,7 @@ export interface BoundedProcessResult {
 export async function runBoundedProcess(input: BoundedProcessInput): Promise<BoundedProcessResult> {
   const start = Date.now()
   const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = input.timeoutMs ?? DEFAULT_BOUNDED_PROCESS_TIMEOUT_MS
   const envMode = input.envMode ?? 'merge'
   const env =
     input.env === undefined && envMode === 'merge'
@@ -178,6 +236,8 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
 
   if (input.signal?.aborted) {
     return {
+      spawned: false,
+      stdinDelivered: true,
       exitCode: ABORT_EXIT_CODE,
       stdout: '',
       stderr: '',
@@ -194,6 +254,8 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
   // a pass: the exit code is non-zero and `runnerError` names the cause.
   if (input.args !== undefined && input.shell) {
     return {
+      spawned: false,
+      stdinDelivered: true,
       exitCode: SPAWN_FAILURE_EXIT_CODE,
       stdout: '',
       stderr: '',
@@ -238,6 +300,8 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
           : spawn(input.command, input.args, { ...spawnOptions, shell: false })
     } catch (err) {
       resolve({
+        spawned: false,
+        stdinDelivered: true,
         exitCode: SPAWN_FAILURE_EXIT_CODE,
         stdout: '',
         stderr: '',
@@ -249,6 +313,25 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       })
       return
     }
+    // A pipe nobody closes is a hang, so stdin is always ended — after the
+    // payload when there is one, immediately when there is not. A write that
+    // fails is recorded and never thrown: the child already ran, and this
+    // module's contract is that a call always resolves.
+    let stdinError: string | undefined
+    const childStdin = child.stdin
+    if (childStdin) {
+      childStdin.on('error', (err) => {
+        // Closing an unused pipe races a command that exits at once, and that
+        // broken pipe says nothing about a caller who sent nothing. Only a
+        // payload the caller supplied can fail to be delivered.
+        if (input.stdin !== undefined) stdinError ??= `stdin not delivered: ${String(err)}`
+      })
+      if (input.stdin === undefined) childStdin.end()
+      else childStdin.end(input.stdin, 'utf8')
+    } else if (input.stdin !== undefined) {
+      stdinError = 'stdin not delivered: the child was spawned with no stdin pipe'
+    }
+
     let stdout = ''
     let stderr = ''
     let outputBytes = 0
@@ -275,12 +358,22 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       return s
     }
 
+    // Decoded across chunk boundaries. A stream arrives as Buffers split at
+    // arbitrary byte offsets, so decoding each chunk on its own replaces any
+    // multi-byte character that straddles a boundary with U+FFFD — the output
+    // is then corrupted at every 64 KiB of non-ASCII text. The decoder holds
+    // the partial sequence until its remaining bytes arrive.
+    const stdoutDecoder = new StringDecoder('utf8')
+    const stderrDecoder = new StringDecoder('utf8')
+    const decode = (decoder: StringDecoder, d: unknown): string =>
+      Buffer.isBuffer(d) ? decoder.write(d) : String(d)
+
     const onStdout = (d: unknown) => {
-      const chunk = capture(String(d))
+      const chunk = capture(decode(stdoutDecoder, d))
       if (chunk) stdout += chunk
     }
     const onStderr = (d: unknown) => {
-      const chunk = capture(String(d))
+      const chunk = capture(decode(stderrDecoder, d))
       if (chunk) stderr += chunk
     }
 
@@ -295,6 +388,9 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
       input.signal?.removeEventListener('abort', onAbort)
       child.stdout?.off('data', onStdout)
       child.stderr?.off('data', onStderr)
+      // The stdin `error` listener stays attached on purpose: a stream that
+      // emits `error` with no listener throws, and a late EPIPE after the run
+      // has settled must not take the process down.
       child.removeAllListeners('close')
       child.removeAllListeners('error')
     }
@@ -302,11 +398,16 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
     // Resolve exactly once. `code` comes from `close`; on a kill path the
     // exit code is forced non-zero so a SIGKILLed child that reports 0 can
     // never read as a clean pass downstream.
-    const finish = (outcome: { code: number | null; runnerError?: string }) => {
+    const finish = (outcome: { code: number | null; spawned?: boolean; runnerError?: string }) => {
       if (settled) return
       settled = true
       cleanup()
+      const spawned = outcome.spawned ?? true
       resolve({
+        spawned,
+        // A program that never started was sent nothing, whatever the write to
+        // its doomed pipe reported.
+        stdinDelivered: spawned ? stdinError === undefined : true,
         exitCode: exitCodeFor(outcome.code, killedByTimeout, killedBySignal),
         stdout,
         stderr,
@@ -314,7 +415,7 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
         killedByTimeout,
         killedBySignal,
         outputTruncated,
-        runnerError: outcome.runnerError,
+        runnerError: outcome.runnerError ?? stdinError,
       })
     }
 
@@ -369,7 +470,9 @@ export async function runBoundedProcess(input: BoundedProcessInput): Promise<Bou
     })
     child.on('error', (err) => {
       if (forceResolve) clearTimeout(forceResolve)
-      finish({ code: SPAWN_FAILURE_EXIT_CODE, runnerError: String(err) })
+      // `error` on a child means the program never started — a missing binary,
+      // a refused argument. Nothing ran, whatever the stdin write did.
+      finish({ code: SPAWN_FAILURE_EXIT_CODE, spawned: false, runnerError: String(err) })
     })
   })
 }

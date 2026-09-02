@@ -4,6 +4,25 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.173.0] — 2026-09-01
+
+### Added
+
+- `createChatClient({ transport: 'openai-compatible' })` exposes the OpenAI-compatible HTTP transport the CLI already used, with `baseUrl` and one credential form as required arguments and no env fallback (#723). A consumer such as discovery-lab's two-vendor judge panel no longer hand-rolls a transport.
+- `createChatTraceEngine`: a `TraceAnalysisEngine` that runs in Node over a caller-owned `ChatClient`, so `buildDefaultAnalystRegistry({ engine })` constructs and runs every default analyst without Python (#719).
+- Failure taxonomy: `FailureBlame`, `FAILURE_BLAME`, `INFRA_FAILURE_BLAMES`, `classifyFailureReason` and `DEFAULT_FAILURE_REASON_RULES`; `FAILURE_CLASSES` widens from 35 to 52 and every `FailureClassification` carries a `blame` (#720).
+- `runBoundedProcess` accepts `stdin`; `BoundedProcessResult` reports `spawned` and `stdinDelivered`; `localCommandRunner` runs on the same bounded runner (#721).
+- `quotaExhaustedUntil`: a dated provider quota refusal is terminal for its seat until the stated instant, never transient (#725).
+- Plants: `plantByPerturbation` and `perturbEvidence` author a reject-direction plant from a verified claim by changing one value (#726).
+- `observeCodeAgentStore(scope)`: a run-scoped finder over a harness session store that attributes a session only by its own recorded place, and reports `unavailable` with no counts when nothing is attributable (#727).
+
+### Fixed
+
+- Output of a bounded process is decoded as one stream, so a multi-byte character straddling a chunk boundary no longer becomes U+FFFD (#721).
+- The durable `selfImprove` provenance test is bounded by its measured cost, so `pnpm test` is green on `main` again (#722).
+
+---
+
 ## [0.172.1] — 2026-09-01
 
 ### Added

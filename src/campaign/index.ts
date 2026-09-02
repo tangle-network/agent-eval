@@ -444,6 +444,7 @@ export {
 } from './surface-identity'
 export {
   isTransientTransportFailure,
+  quotaExhaustedUntil,
   type TransientFailureOptions,
   transientDispatchFailure,
 } from './transient-failure'

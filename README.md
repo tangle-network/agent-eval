@@ -105,13 +105,15 @@ Every row is a function you call. Each links to a runnable example.
 | [`deltaRepair()`](./docs/trace-repair-grader.md) — a finding must be graded by executing the repair it proposes | a trajectory, an analyst finding, a sandbox | the repair's measured effect against a no-fix control |
 | [`replayVerify()`](./docs/trajectory-replay.md) — you must know whether a recorded failure still reproduces | a recorded shell trajectory and its pinned image | a re-execution verdict and the divergences found |
 | [`analyzeSupervisorRun()`](./docs/adapters-observability.md) — a recursive or supervised run directory must be read | a run directory | counts that stay missing when a measurement is missing, never zero |
-| [`seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set and items authored wrong by construction | a sealed manifest, then a catch rate that refuses rather than guessing |
+| [`plantByPerturbation()` / `seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set, and claims the grader verified | items authored wrong by one value, a sealed manifest, then a catch rate that refuses rather than guessing |
 | [`buildRlDataset()`](./examples/publish-rl-dataset/) — scored runs should become training data | run records and preferences | reward, preference, and supervised rows |
 
 ## Configure Model Calls
 
 Benchmarks, user drivers, executors, built-in judges, completion checkers, and judge adapters all take the same `ChatClient`.
-You own model execution: Agent Eval issues no provider request and never receives a provider credential.
+You own model execution, and Agent Eval never goes looking for a credential: it reads no environment variable to find one, and every transport is bound at the call site.
+
+Bind a transport one of two ways. Pass a `chat` function you wrote:
 
 ```ts
 import { createChatClient } from '@tangle-network/agent-eval'
@@ -123,6 +125,19 @@ const chat = createChatClient({
   chat: async (request, opts) => myProviderClient(request, opts),
 })
 ```
+
+Or name an OpenAI-compatible endpoint and hand over a credential as values, and Agent Eval drives `POST {baseUrl}/chat/completions` for you:
+
+```ts
+const chat = createChatClient({
+  transport: 'openai-compatible',
+  baseUrl: 'https://router.example/v1',   // ends at /v1; the path is ours to append
+  apiKey: process.env.MY_ROUTER_KEY,      // or `bearer`, or `authHeader`
+  defaultModel: 'claude-sonnet-4-6',
+})
+```
+
+Prefer the second over hand-rolling a fetch loop. It carries the retry, degrade, and — load-bearing — the `servedModel` echo that `assertServedModel` and `assertCrossFamilyServed` read; a transport that omits that field makes both checks report `unreported`, so the cross-vendor rules they enforce measure nothing. `baseUrl` and one credential form are required arguments with no default and no fallback: a half-configured client is refused at construction rather than reaching an endpoint you did not name.
 
 On Agent Runtime, `profileChatClient({ profile, executor, context })` from `@tangle-network/agent-runtime/kernel` is that transport: every call runs one exact `AgentProfile` and reports its measured usage, retries, and served model identity.
 Use `sandbox-sdk` for Sandbox and `mock` in tests.

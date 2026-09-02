@@ -204,9 +204,12 @@ export type {
   CreateChatClientOpts,
   CustomTransportOpts,
   MockTransportOpts,
+  OpenAiCompatibleTransportOpts,
   SandboxSdkTransportOpts,
 } from './chat-client'
 export { createChatClient } from './chat-client'
+export type { ChatTraceEngineOptions } from './chat-trace-engine'
+export { createChatTraceEngine } from './chat-trace-engine'
 export {
   buildDefaultAnalystRegistry,
   type DefaultAnalystRegistryOptions,
@@ -245,7 +248,7 @@ export type {
   TraceAnalysisEngineResult,
   TraceAnalystLimits,
 } from './engine'
-export { resolveTraceAnalystLimits } from './engine'
+export { DEFAULT_TRACE_ANALYST_OUTPUT_TOKENS, resolveTraceAnalystLimits } from './engine'
 export type {
   ExactAnalystBudgetSnapshot,
   ExactAnalystExecutionPlanSnapshot,
