@@ -965,17 +965,24 @@ export type { VerdictCacheStore } from './verdict-cache'
 export { canonicalJson, contentHash, fileVerdictCache } from './verdict-cache'
 
 // ── utilities ─────────────────────────────────────────────────────────
-// Provider-neutral model contracts and shared error types. The transport that
-// executes a paid model is NOT part of this surface: a consumer binds its own
-// through `createChatClient({ transport: 'custom' })`, or uses
-// `profileChatClient` from `@tangle-network/agent-runtime/kernel`.
+// Provider-neutral model contracts and shared error types. A consumer binds
+// its own transport through `createChatClient` — `custom` for a chat function
+// it wrote, `openai-compatible` for an endpoint and a credential it passes as
+// values — or uses `profileChatClient` from
+// `@tangle-network/agent-runtime/kernel`. agent-eval reads no environment
+// variable to find a provider credential in either case.
 
 export type {
   ChatCallOpts,
   ChatClient,
   ChatRequest,
   ChatResponse,
+  ChatTransport,
   CreateChatClientOpts,
+  CustomTransportOpts,
+  MockTransportOpts,
+  OpenAiCompatibleTransportOpts,
+  SandboxSdkTransportOpts,
 } from './analyst/chat-client'
 export { createChatClient } from './analyst/chat-client'
 export { analyzeAntiSlop, createAntiSlopJudge } from './anti-slop'

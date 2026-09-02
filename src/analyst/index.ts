@@ -204,6 +204,7 @@ export type {
   CreateChatClientOpts,
   CustomTransportOpts,
   MockTransportOpts,
+  OpenAiCompatibleTransportOpts,
   SandboxSdkTransportOpts,
 } from './chat-client'
 export { createChatClient } from './chat-client'
