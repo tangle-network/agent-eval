@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.173.1] — 2026-09-01
+
+### Fixed
+
+- A malformed string in `findings_json` now uses the existing bounded repair turn instead of aborting the trace analysis.
+  Non-string values still stop the run because they are adapter contract defects, not recoverable model output.
+
+---
+
 ## [0.173.0] — 2026-09-01
 
 ### Added

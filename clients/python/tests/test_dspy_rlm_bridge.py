@@ -670,6 +670,50 @@ def test_prose_only_final_turn_uses_exactly_one_repair_turn(
     assert output["modelCalls"] == 4
 
 
+def test_malformed_findings_string_reaches_the_existing_repair_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    fake = _fake_dspy(
+        calls,
+        answer="Step 5 wrote an invalid configuration.",
+        findings_json="The findings are described in the answer instead of JSON.",
+        invoke_tool=False,
+        repair_completion=json.dumps([_VALID_FINDING]),
+    )
+
+    output = _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert output["findings"] == [_VALID_FINDING]
+    assert output["runtime"]["format_repair_used"] is True
+    assert output["runtime"]["findings_parse_error"] == (
+        "findings must be a JSON array; the string received is not JSON"
+    )
+    assert len(calls["repair_calls"]) == 1
+    assert "findings_json: findings must be a JSON array" in json.dumps(
+        calls["repair_calls"][0]
+    )
+    assert output["modelCalls"] == 4
+
+
+def test_non_string_findings_contract_defect_still_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+    fake = _fake_dspy(
+        calls,
+        findings_json=42,
+        invoke_tool=False,
+    )
+
+    with pytest.raises(TypeError, match="received int"):
+        _run_analyze_main(monkeypatch, tmp_path, fake)
+
+    assert "repair_calls" not in calls
+
+
 def test_empty_final_answer_stays_empty_without_a_repair_call(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -694,7 +738,7 @@ def test_empty_final_answer_stays_empty_without_a_repair_call(
 def _fake_dspy(
     calls: dict[str, Any],
     *,
-    findings_json: str | None = None,
+    findings_json: Any = None,
     answer: str = "The first failing operation is step 2.",
     invoke_tool: bool = True,
     probe_output: str = "2\n",

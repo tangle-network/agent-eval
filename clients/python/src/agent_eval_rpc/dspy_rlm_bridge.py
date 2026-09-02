@@ -512,6 +512,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
                 )
     answer = _prediction_string(prediction, "answer")
     findings_salvage: str | None = None
+    findings_parse_error: str | None = None
     format_repair_used = False
     repair_error: str | None = None
     rejected_rows: list[RejectedFindingRow] = []
@@ -537,7 +538,16 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         raw_findings_json = _prediction_field(prediction, "findings_json")
         if isinstance(raw_findings_json, str):
             raw_findings_json = raw_findings_json.strip()
-        findings, rejected_rows = _parse_findings_json(raw_findings_json)
+        try:
+            findings, rejected_rows = _parse_findings_json(raw_findings_json)
+        except TypeError as error:
+            # A malformed string is model output that the existing salvage and
+            # repair paths can recover. Other types are contract defects and
+            # must still stop the run.
+            if not isinstance(raw_findings_json, str):
+                raise
+            findings = []
+            findings_parse_error = " ".join(str(error).split())[:300]
         # The recovered-answer placeholder is adapter output, not model text, so
         # it never feeds salvage and never earns a repair turn.
         answer_text = "" if answer == _SAFE_FIELD_DEFAULTS["answer"] else answer
@@ -559,10 +569,20 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             # visible in modelCalls (counted below) and flagged in the runtime
             # record.
             format_repair_used = True
+            repair_defects = describe_rejected_rows(rejected_rows)
+            if findings_parse_error is not None:
+                repair_defects = "\n".join(
+                    part
+                    for part in (
+                        f"findings_json: {findings_parse_error}",
+                        repair_defects,
+                    )
+                    if part
+                )
             findings, repaired_rejections, repair_error = _repair_findings_turn(
                 lm,
                 answer_text,
-                describe_rejected_rows(rejected_rows),
+                repair_defects,
             )
             if findings:
                 rejected_rows = repaired_rejections
@@ -591,6 +611,11 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
             **runtime,
             "findings_salvage": findings_salvage,
             "format_repair_used": format_repair_used,
+            **(
+                {"findings_parse_error": findings_parse_error}
+                if findings_parse_error is not None
+                else {}
+            ),
             **({"format_repair_error": repair_error} if repair_error is not None else {}),
         },
     }
