@@ -214,14 +214,27 @@ Install the bridge and the published GEPA package for the standard engine:
 
 ```sh
 python -m pip install agent-eval-rpc
-python -m pip install "gepa[full]==0.1.4"
+python -m pip install \
+  "gepa==0.1.4" \
+  "litellm>=1.83.0,<1.92" \
+  "tqdm>=4.66.1" \
+  "cloudpickle>=3.0.0" \
+  "datasets>=2.14.6" \
+  "wandb"
 ```
+
+Do not install `gepa[full]`; its MLflow server dependency is unpatched.
 
 Use the tested official source revision for composed recipes and the source-only engines:
 
 ```sh
 python -m pip install \
-  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f" \
+  "litellm>=1.83.0,<1.92" \
+  "tqdm>=4.66.1" \
+  "cloudpickle>=3.0.0" \
+  "datasets>=2.14.6" \
+  "wandb"
 ```
 
 From this repository:

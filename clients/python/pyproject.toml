@@ -42,12 +42,35 @@ dspy = [
 [dependency-groups]
 skillopt-source = [
   "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90",
+  "cryptography>=50.0.1",
 ]
 gepa-source = [
-  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+  "litellm>=1.83.0,<1.92",
+  "tqdm>=4.66.1",
+  "cloudpickle>=3.0.0",
+  "datasets>=2.14.6; python_version < '3.14'",
+  "datasets>=4.5.0; python_version >= '3.14'",
+  "wandb; python_version < '3.14'",
+  "wandb>=0.23.0; python_version >= '3.14'",
+  "pandas>=2.3.3; python_version >= '3.14'",
+  "pyarrow>=22.0.0; python_version >= '3.14'",
+  "pydantic>=2.12.0; python_version >= '3.14'",
+  "tiktoken>=0.12.0; python_version >= '3.14'",
 ]
 gepa-release = [
-  "gepa[full]==0.1.4",
+  "gepa==0.1.4",
+  "litellm>=1.83.0,<1.92",
+  "tqdm>=4.66.1",
+  "cloudpickle>=3.0.0",
+  "datasets>=2.14.6; python_version < '3.14'",
+  "datasets>=4.5.0; python_version >= '3.14'",
+  "wandb; python_version < '3.14'",
+  "wandb>=0.23.0; python_version >= '3.14'",
+  "pandas>=2.3.3; python_version >= '3.14'",
+  "pyarrow>=22.0.0; python_version >= '3.14'",
+  "pydantic>=2.12.0; python_version >= '3.14'",
+  "tiktoken>=0.12.0; python_version >= '3.14'",
 ]
 
 [project.urls]

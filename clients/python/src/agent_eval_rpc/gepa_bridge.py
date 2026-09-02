@@ -57,8 +57,9 @@ def _require_model_proxy_dependencies(input_value: dict[str, Any]) -> None:
         import litellm  # noqa: F401
     except ImportError as error:
         raise RuntimeError(
-            "GEPA model-backed reflection requires the full GEPA dependency set. "
-            'Install "gepa[full]==0.1.4" or the documented source revision.'
+            "GEPA model-backed reflection requires the documented GEPA dependency set. "
+            'Install "gepa==0.1.4" with the documented dependencies or '
+            "the documented source revision."
         ) from error
 
 

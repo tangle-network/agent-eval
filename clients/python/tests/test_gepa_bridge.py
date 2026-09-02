@@ -333,11 +333,11 @@ def test_engine_config_forwards_the_run_seed_on_both_config_shapes(tmp_path: Pat
     assert launcher_config["engine"]["seed"] == 42
 
 
-def test_model_proxy_requires_full_gepa_dependencies(
+def test_model_proxy_requires_gepa_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "litellm", None)
-    with pytest.raises(RuntimeError, match=r"gepa\[full\]==0\.1\.4"):
+    with pytest.raises(RuntimeError, match=r"gepa==0\.1\.4"):
         gepa_bridge._require_model_proxy_dependencies({"modelProxy": {}})
     gepa_bridge._require_model_proxy_dependencies({})
 

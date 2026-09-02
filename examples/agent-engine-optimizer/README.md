@@ -23,8 +23,16 @@ Install the Python bridge and the published GEPA package:
 
 ```sh
 python -m pip install agent-eval-rpc
-python -m pip install "gepa[full]==0.1.4"
+python -m pip install \
+  "gepa==0.1.4" \
+  "litellm>=1.83.0,<1.92" \
+  "tqdm>=4.66.1" \
+  "cloudpickle>=3.0.0" \
+  "datasets>=2.14.6" \
+  "wandb"
 ```
+
+Do not install `gepa[full]`; its MLflow server dependency is unpatched.
 
 The engine also needs the `claude` CLI on `PATH`.
 It runs against the loopback proxy, not against Anthropic; no Anthropic account is needed.

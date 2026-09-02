@@ -28,7 +28,8 @@ def load_gepa_api() -> GepaApi:
     except ImportError as error:
         raise RuntimeError(
             "GEPA bridge requires the official gepa package. "
-            'Install "gepa[full]==0.1.4" or the documented source revision.'
+            'Install "gepa==0.1.4" with the documented dependencies or '
+            "the documented source revision."
         ) from error
 
     optimize_anything = getattr(module, "optimize_anything", None)

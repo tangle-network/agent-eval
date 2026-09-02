@@ -14,8 +14,15 @@ python -m pip install agent-eval-rpc
 python -m pip install \
   "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 python -m pip install \
-  "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f" \
+  "litellm>=1.83.0,<1.92" \
+  "tqdm>=4.66.1" \
+  "cloudpickle>=3.0.0" \
+  "datasets>=2.14.6" \
+  "wandb"
 ```
+
+Do not install `gepa[full]`; its MLflow server dependency is unpatched.
 
 From this repository:
 
