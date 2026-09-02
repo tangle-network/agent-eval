@@ -142,16 +142,21 @@ jobs:
 
   publish-npm:
     needs: verify
-    # Publish on a v* tag OR a manual dispatch — always via OIDC trusted
-    # publishing (tokenless). The Trusted Publisher on npmjs (package Settings →
-    # Trusted Publisher → GitHub Actions: org tangle-network, repo agent-eval,
-    # workflow publish.yml) mints a short-lived credential from the id-token —
-    # no NPM_TOKEN, nothing to rotate, plus provenance attestation.
+    # Publish on a v* tag OR a manual dispatch — tokenless by default. The
+    # Trusted Publisher on npmjs (package Settings → Trusted Publisher → GitHub
+    # Actions: org tangle-network, repo agent-eval, workflow publish.yml, no
+    # environment) mints a short-lived credential from the id-token — no
+    # NPM_TOKEN, nothing to rotate, plus a provenance attestation.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      # Attest every publish on both the OIDC path and the token fallback. The
+      # `--provenance` flag says the same thing; the variable also covers a
+      # publish an npm lifecycle script starts.
+      NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/checkout@v7
 
@@ -167,26 +172,44 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
-      # Both publish steps are idempotent: re-running a version already on the
-      # registry (e.g. after a manual publish) skips rather than fails, so the
-      # downstream PyPI step still runs.
+      # The id-token→publish-credential exchange is an npm-CLI feature (>= 11.5.1)
+      # and Node 22 bundles npm 10, so install the CLI that can do the exchange.
+      # npm 12.0.0 (2026-07) ships a broken provenance publish (libnpmpublish
+      # requires 'sigstore' without bundling it), so pin an exact 11.x release
+      # instead of a floating range, the same pin agent-sdk release.yml carries.
+      - name: Pin the npm CLI that supports trusted publishing
+        run: |
+          npm install -g npm@11.18.0
+          test "$(npm --version)" = '11.18.0'
 
-      # Tokenless OIDC trusted publishing. The id-token→publish-credential
-      # exchange is an npm-CLI feature (>= 11.5.1) and Node 22 bundles npm 10, so
-      # upgrade npm and publish with it (pnpm only signs provenance — the PUT
-      # then 404s on auth). agent-eval has no `workspace:` deps, so `npm publish`
-      # is safe here. Idempotent: a version already on the registry is skipped so
-      # the downstream PyPI step still runs.
+      # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
+      # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
+      # OIDC (agent-sdk #284: a repo token whose package scope missed three
+      # packages made every publish 404 on the PUT), so leave it unset.
+      - name: Configure npm auth (OIDC by default, token only when set)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # An empty _authToken line also blocks the exchange, so drop any line a
+          # previous step wrote and write one back only for a real token.
+          sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo 'NPM_TOKEN is set: publishing with the token fallback, still attested.'
+          else
+            echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
+          fi
+
+      # pnpm only signs provenance — its PUT then 404s on auth — so publish with
+      # npm. agent-eval has no `workspace:` deps, so `npm publish` is safe here.
+      # Idempotent: a version already on the registry is skipped so the downstream
+      # PyPI step still runs.
       - name: Publish to npm (OIDC trusted publishing)
         env:
           # `npm publish` re-runs the `prepublishOnly` build hook. Match the heap
           # used by the standalone build steps for deterministic release builds.
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
-          # npm 12.0.0 (2026-07) ships a broken provenance publish (libnpmpublish
-          # requires 'sigstore' without bundling it), so pin major 11: OIDC needs
-          # npm >= 11.5.1 and 11.x is the last known-good line.
-          npm install -g npm@11
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
