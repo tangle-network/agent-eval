@@ -237,6 +237,8 @@
     "overrides": {
       "@arizeai/openinference-core>@opentelemetry/core": "^2.10.0",
       "esbuild@>=0.27.3 <0.28.1": "^0.28.1",
+      "fast-uri": "3.1.5",
+      "js-yaml": "4.3.1",
       "postcss@<8.5.18": "^8.5.18",
       "vite@>=7.0.0 <=7.3.4": "^7.3.5",
       "ws@>=8.0.0 <8.21.0": "^8.21.0"
