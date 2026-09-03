@@ -62,6 +62,11 @@ describe('judgeFamily + assertCrossFamily', () => {
     expect(judgeFamily('anthropic/claude-opus-4-5-20251101')).toBe('anthropic')
     expect(judgeFamily('openai/gpt-4o')).toBe('openai')
     expect(judgeFamily('claude-sonnet-4-6@2026-05-08')).toBe('anthropic')
+    // Anthropic's bare CLI aliases: an alias resolution is within-family, never a cross-family substitution.
+    expect(judgeFamily('sonnet')).toBe('anthropic')
+    expect(judgeFamily('opus')).toBe('anthropic')
+    expect(judgeFamily('haiku@2026-09-03')).toBe('anthropic')
+    expect(judgeFamily('sonnetful-model')).toBe('unknown')
     expect(judgeFamily('gemini-2.5-pro')).toBe('google')
     expect(judgeFamily('meta-llama/llama-3.3-70b')).toBe('meta')
     expect(judgeFamily('some-internal-model')).toBe('unknown')
