@@ -56,6 +56,10 @@ const PROVIDER_PREFIX: Record<string, JudgeFamily> = {
 /** Fallback model-name patterns when there's no recognised provider prefix. */
 const NAME_PATTERNS: Array<[RegExp, JudgeFamily]> = [
   [/claude/i, 'anthropic'],
+  // Anthropic's own bare aliases (`claude --model sonnet|opus|haiku`). A run that requested `sonnet`
+  // and was served claude-sonnet-5 is an alias resolution, not a cross-family substitution: without
+  // this row the alias classified as `unknown` and assertServedModel refused the pair.
+  [/^(?:sonnet|opus|haiku)(?:[-@\s]|$)/i, 'anthropic'],
   [/\b(gpt|davinci|babbage)\b|^o[134]\b|[-/]o[134]\b|gpt-/i, 'openai'],
   [/gemini|palm|gemma|bison/i, 'google'],
   [/llama/i, 'meta'],
