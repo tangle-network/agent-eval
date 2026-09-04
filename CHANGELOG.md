@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.173.2] — 2026-09-04
+
+### Fixed
+
+- The Runtime supervisor reader now follows `spawned.ownedTreeRoot` when recursive child tree paths differ from child ids.
+  It still accepts child-id tree roots with one duplicate root marker and verifies both recorded profile identities.
+
+---
+
 ## [0.173.1] — 2026-09-01
 
 ### Fixed
