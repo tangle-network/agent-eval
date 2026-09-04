@@ -570,6 +570,92 @@ describe('Runtime FileRunContext supervisor reader', () => {
     ])
   })
 
+  it('refuses a legacy child-id tree when the spawn names a different owned tree', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'ambiguous-owned-tree-root')
+    const childId = 'root:s0'
+    const ownedTreeRoot = `root/${childId}`
+    await writeJournal(runDir, [
+      begin('root', 0),
+      event('root', {
+        kind: 'spawned',
+        id: 'root',
+        parent: null,
+        label: 'root',
+        identity: { profileDigest: ROOT_PROFILE },
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: childId,
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'nested-researcher',
+        identity: { profileDigest: CHILD_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      begin(childId, 1),
+      begin(ownedTreeRoot, 1),
+    ])
+
+    await expect(readRuntimeSupervisorRun(runDir, { strict: true })).rejects.toThrow(
+      /expected one top-level tree, found 2/,
+    )
+  })
+
+  it('refuses a descendant spawn outside the tree owned by its parent', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'misplaced-descendant')
+    const childId = 'root:s0'
+    const ownedTreeRoot = `root/${childId}`
+    await writeJournal(runDir, [
+      begin('root', 0),
+      event('root', {
+        kind: 'spawned',
+        id: 'root',
+        parent: null,
+        label: 'root',
+        identity: { profileDigest: ROOT_PROFILE },
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: childId,
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'nested-researcher',
+        identity: { profileDigest: CHILD_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      begin(ownedTreeRoot, 1),
+      event('root', {
+        kind: 'spawned',
+        id: `${childId}:s0`,
+        parent: childId,
+        label: 'misplaced-leaf',
+        identity: { profileDigest: LEAF_PROFILE },
+        runtime: 'cli',
+        budget: {},
+        seq: 0,
+        at: at(2),
+      }),
+    ])
+
+    await expect(readRuntimeSupervisorRun(runDir, { strict: true })).rejects.toThrow(
+      /parent "root:s0" owns tree "root\/root:s0"/,
+    )
+  })
+
   it('retains a current Runtime tree and classifies transport rows as unavailable only', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'arena-full1-ramsey-bundle-a')

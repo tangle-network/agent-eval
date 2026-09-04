@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.173.3] — 2026-09-04
+
+### Fixed
+
+- The Runtime supervisor reader now treats `spawned.ownedTreeRoot` as the exclusive nested tree when present.
+  It rejects an additional child-id tree and any descendant spawn outside its parent's owned tree.
+
+---
+
 ## [0.173.2] — 2026-09-04
 
 ### Fixed
