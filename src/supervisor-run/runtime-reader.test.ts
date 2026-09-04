@@ -513,6 +513,63 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(tree.gaps.filter((gap) => gap.code === 'node-role-unavailable')).toHaveLength(0)
   })
 
+  it('reads Runtime-owned nested tree roots without duplicate self-spawn markers', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'owned-tree-root')
+    const childId = 'root:s0'
+    const ownedTreeRoot = `root/${childId}`
+    await writeJournal(runDir, [
+      begin('root', 0),
+      event('root', {
+        kind: 'spawned',
+        id: 'root',
+        parent: null,
+        label: 'root',
+        identity: { profileDigest: ROOT_PROFILE },
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: childId,
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'nested-researcher',
+        identity: { profileDigest: CHILD_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      begin(ownedTreeRoot, 1),
+      event(ownedTreeRoot, {
+        kind: 'spawned',
+        id: `${childId}:s0`,
+        parent: childId,
+        label: 'leaf',
+        identity: { profileDigest: LEAF_PROFILE },
+        runtime: 'cli',
+        budget: {},
+        seq: 0,
+        at: at(2),
+      }),
+    ])
+
+    const source = await readRuntimeSupervisorRun(runDir, { strict: true })
+    const facts = parseSupervisorTree(source)
+
+    expect(facts.spawns).toEqual([
+      expect.objectContaining({ id: 'root', role: 'supervisor', profileDigest: ROOT_PROFILE }),
+      expect.objectContaining({
+        id: childId,
+        role: 'supervisor',
+        profileDigest: CHILD_PROFILE,
+      }),
+      expect.objectContaining({ id: `${childId}:s0`, role: 'worker', profileDigest: LEAF_PROFILE }),
+    ])
+  })
+
   it('retains a current Runtime tree and classifies transport rows as unavailable only', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'arena-full1-ramsey-bundle-a')
@@ -879,6 +936,51 @@ describe('Runtime FileRunContext supervisor reader', () => {
     await expect(readRuntimeSupervisorRun(runDir)).rejects.toThrow(
       /disagrees with its parent profile digest/,
     )
+  })
+
+  it('refuses a nested tree owned by more than one parent spawn', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(root, 'duplicate-owner')
+    const ownedTreeRoot = 'root/root:s0'
+    await writeJournal(runDir, [
+      begin('root', 0),
+      event('root', {
+        kind: 'spawned',
+        id: 'root',
+        label: 'root',
+        profileDigest: ROOT_PROFILE,
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: 'root:s0',
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'child-a',
+        profileDigest: CHILD_PROFILE,
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: 'root:s1',
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'child-b',
+        profileDigest: LEAF_PROFILE,
+        runtime: 'driver',
+        budget: {},
+        seq: 1,
+        at: at(1),
+      }),
+      begin(ownedTreeRoot, 1),
+    ])
+
+    await expect(readRuntimeSupervisorRun(runDir)).rejects.toThrow(/has 2 parent spawns/)
   })
 
   it('refuses a Runtime result attached to a different journal root', async () => {
