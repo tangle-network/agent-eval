@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { type FileHandle, open, readdir } from 'node:fs/promises'
+import { type FileHandle, open, readdir, realpath } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 import { compareCodeUnits } from '../ledger-core/canonical'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
@@ -178,7 +178,6 @@ export async function preparePublicAnalystBenchmark(options: {
 }): Promise<PreparedPublicAnalystBenchmark> {
   const labelsPath = resolve(options.labelsPath)
   const traceRoot = resolve(options.traceDir)
-  const artifactRoot = options.artifactDir ? resolve(options.artifactDir) : undefined
   const labelSnapshot = await readImmutableInputSnapshot(
     labelsPath,
     DEFAULT_MAX_PUBLIC_BENCHMARK_LABEL_BYTES,
@@ -218,8 +217,9 @@ export async function preparePublicAnalystBenchmark(options: {
           '--artifact-dir is required for CodeTraceBench so final verification evidence is not omitted',
         )
       }
+      const artifactRoot = await realpath(options.artifactDir)
       const artifacts = await loadCodeTraceVerificationArtifacts({
-        artifactDir: options.artifactDir,
+        artifactDir: artifactRoot,
         row: row as unknown as CodeTraceBenchRow,
         maxBytes: options.maxArtifactBytes ?? DEFAULT_MAX_VERIFICATION_ARTIFACT_BYTES,
       })
@@ -230,10 +230,7 @@ export async function preparePublicAnalystBenchmark(options: {
           content: artifact.content,
         })
       }
-      verificationManifest = shareableVerificationManifest(
-        artifacts.manifest,
-        artifactRoot ?? resolve(options.artifactDir),
-      )
+      verificationManifest = shareableVerificationManifest(artifacts.manifest, artifactRoot)
       const collisions = await indexed.store.hasSpans({
         trace_id: trajectoryId,
         span_ids: [

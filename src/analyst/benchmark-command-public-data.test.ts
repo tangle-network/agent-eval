@@ -1,7 +1,7 @@
 /** `node:fs/promises` is wrapped, not replaced: `open` is counted and the input
  *  is swapped mid-run to reproduce the input-substitution race the command must
  *  detect. Every other call goes to the real filesystem. */
-import { mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -70,6 +70,28 @@ describe('public analyst benchmark input', () => {
     await writeFile(path, JSON.stringify({ benchmark: 'AgentRx public', cases }))
 
     await expect(loadPublicBenchmarkRows(path)).resolves.toEqual(cases)
+  })
+
+  it('keeps verification artifact paths relative to a symlinked root', async () => {
+    const fixture = await codeTraceFixture()
+    const linkedRoot = join(fixture.root, 'linked-artifacts')
+    await symlink(fixture.artifactDir, linkedRoot, 'junction')
+
+    const prepare = (artifactDir: string) =>
+      preparePublicAnalystBenchmark({
+        dataset: 'codetracebench',
+        labelsPath: fixture.labelsPath,
+        traceDir: fixture.traceDir,
+        artifactDir,
+        limit: 1,
+        seed: 0,
+      })
+    const direct = await prepare(fixture.artifactDir)
+    const linked = await prepare(linkedRoot)
+
+    expect(linked.verificationArtifacts).toEqual(direct.verificationArtifacts)
+    expect(linked.verificationArtifacts[0]?.caseDirectory).toBe('trace-1/cases/trace-1')
+    expect(linked.verificationArtifacts[0]?.files).toHaveLength(2)
   })
 
   it.skipIf(process.platform === 'win32')(
