@@ -6,9 +6,9 @@
 import { contentHash } from '../verdict-cache'
 import type { DispatchFn, JudgeConfig, Scenario } from './types'
 
-export function computeManifestHash(input: {
-  scenarios: Scenario[]
-  judges: JudgeConfig<unknown>[]
+export function computeManifestHash<TScenario extends Scenario, TArtifact>(input: {
+  scenarios: TScenario[]
+  judges: JudgeConfig<TArtifact, TScenario>[]
   dispatchRef: string
   seed: number
   reps: number
@@ -26,7 +26,9 @@ export function computeManifestHash(input: {
   })
 }
 
-function judgeVersionFor(judge: JudgeConfig<unknown>): string {
+function judgeVersionFor<TScenario extends Scenario, TArtifact>(
+  judge: JudgeConfig<TArtifact, TScenario>,
+): string {
   if (judge.judgeVersion !== undefined) {
     const version = judge.judgeVersion.trim()
     if (version.length === 0) {

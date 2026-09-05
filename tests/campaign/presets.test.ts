@@ -1740,7 +1740,7 @@ describe('runImprovementLoop — no-op guard (empty-diff false-ship killer)', ()
       seed: 7,
     })
     expect(result.gateResult.decision).toBe('hold')
-    expect(result.gateResult.reasons.join(' ')).toMatch(/winner == baseline/)
+    expect(result.gateResult.reasons.join(' ')).toMatch(/selected surface equals the baseline/)
     expect(result.promotedDiff).toBe('')
     // The winner surface is byte-identical to the baseline.
     expect(String(result.winnerSurface)).toBe(STRONG)

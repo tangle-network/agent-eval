@@ -10,11 +10,10 @@
 import type { ProposalFinding } from '../analyst/types'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
-import {
-  assertOptimizationResult,
-  type OptimizationMethod,
-  type OptimizationMethodProvenance,
-  type OptimizationMethodResult,
+import type {
+  OptimizationMethod,
+  OptimizationMethodProvenance,
+  OptimizationMethodResult,
 } from '../campaign/presets/compare-optimization-methods'
 import {
   type RunImprovementLoopResult,
@@ -35,7 +34,6 @@ import {
   campaignCellExecutionEvidence,
   campaignCellJudgeDimensions,
   campaignCellTaskScore,
-  campaignCellToRunRecord,
 } from '../campaign/run-record'
 import type { SearchHistoryReceipt } from '../campaign/search-history-receipt'
 import {
@@ -44,9 +42,8 @@ import {
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
-import { surfaceContentHash, surfaceHash } from '../campaign/surface-identity'
+import { surfaceHash } from '../campaign/surface-identity'
 import type {
-  CampaignCellResult,
   DispatchContext,
   Gate,
   JudgeConfig,
@@ -56,12 +53,19 @@ import type {
   SurfaceProposer,
 } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
-import { ValidationError } from '../errors'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
-import { modelHasSnapshot, type RunRecord, type RunSplitTag } from '../run-record'
+import type { RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
+import {
+  runSelfImproveMethod,
+  type SelfImproveMethodProvenance,
+  type SelfImproveMethodResult,
+} from './self-improve-method'
+import { cellsToRunRecords, meanComposite } from './self-improve-reporting'
+
+export type { SelfImproveMethodProvenance, SelfImproveMethodResult } from './self-improve-method'
 
 export interface SelfImproveBudget {
   /** Hard spend cap across the full run. Each paid call reserves its enforced
@@ -138,6 +142,8 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    * Omit this when every cell reports its concrete model in a receipt.
    */
   model?: string
+  /** Version of execution behavior outside the candidate surface, used by measurement caches. */
+  dispatchRef?: string
 
   /** Scenarios to evaluate against. Train/holdout split is computed from
    *  these unless `budget.holdoutScenarios` is set explicitly. */
@@ -156,13 +162,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   /**
    * Complete prior measurement of `baselineSurface` over the TRAIN split.
    * Forwarded to the loop body, which validates its surface hash, scenario
-   * split, seed (42), reps, and coverage, then skips the baseline search
+   * split, seed (42), reps, evaluator manifest, and coverage, then skips the baseline search
    * campaign entirely — no baseline dispatch, no resumability lookup. The
    * train split is `scenarios` minus the holdout split, so premeasure with
    * exactly that scenario set (explicit `budget.holdoutScenarios`, or
    * `budget.holdout: 'deferred'` with no reserved set, makes the train split
    * deterministic). Prior spend stays in the imported campaign aggregates and
-   * is not re-added to this run's cost ledger.
+   * is not re-added to this run's cost ledger. Premeasure with
+   * `dispatchRef: surfaceDispatchRef(baselineSurface, dispatchRef)` and the same judge revision.
    */
   premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
 
@@ -206,9 +213,9 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  `.agent-eval/runs/self-improve-<timestamp>`. */
   runDir?: string
 
-  /** Fires once the durable provenance record + OTel spans are emitted.
+  /** Fires once the durable provenance record is written.
    *  Receives the structured record for inline assertions / custom routing. */
-  onProvenance?: (record: LoopProvenanceRecord) => void
+  onProvenance?: (record: LoopProvenanceRecord | SelfImproveMethodProvenance) => void
 
   /** Distributed execution seam — same as `RunCampaignOptions.cellPlacement`.
    *  Returns an opaque placement key the substrate forwards to your agent
@@ -314,7 +321,8 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
   searchLedger?: RunOptimizationOptions<TScenario, TArtifact>['searchLedger']
 }
 
-export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
+export interface SelfImproveProposerResult<TScenario extends Scenario, TArtifact> {
+  mode: 'proposer'
   /** Composite mean across all scenarios, baseline run. When
    *  `budget.holdout === 'deferred'` this is measured on the improvement
    *  (search) split — no holdout campaign ran. */
@@ -393,6 +401,27 @@ export interface SelfImproveResult<TScenario extends Scenario, TArtifact> {
   raw: RunImprovementLoopResult<TArtifact, TScenario>
 }
 
+export type SelfImproveResult<TScenario extends Scenario, TArtifact> =
+  | SelfImproveProposerResult<TScenario, TArtifact>
+  | SelfImproveMethodResult<TScenario, TArtifact>
+
+export type SelfImproveMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
+  SelfImproveOptions<TScenario, TArtifact>,
+  'proposer' | 'onProvenance'
+> & {
+  method: OptimizationMethod<TScenario, TArtifact>
+  proposer?: never
+  onProvenance?: (record: SelfImproveMethodProvenance) => void
+}
+
+export type SelfImproveProposerOptions<TScenario extends Scenario, TArtifact> = Omit<
+  SelfImproveOptions<TScenario, TArtifact>,
+  'method' | 'onProvenance'
+> & {
+  method?: never
+  onProvenance?: (record: LoopProvenanceRecord) => void
+}
+
 /** Failed self-improvement run with an immutable receipt snapshot. */
 export class SelfImproveRunError extends Error {
   readonly cost: CostLedgerSummary
@@ -428,12 +457,14 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: method must have a trimmed name and optimize(input)')
   }
   const budget = opts.budget
-  if (budget?.generations !== undefined && budget.generations !== 1) {
-    throw new Error('selfImprove: method owns its rounds; budget.generations must be 1 when set')
-  }
-  if (budget?.populationSize !== undefined && budget.populationSize !== 1) {
+  if (budget?.generations !== undefined) {
     throw new Error(
-      'selfImprove: method owns its candidates; budget.populationSize must be 1 when set',
+      'selfImprove: method owns its rounds; budget.generations applies only to proposer mode',
+    )
+  }
+  if (budget?.populationSize !== undefined) {
+    throw new Error(
+      'selfImprove: method owns its candidates; budget.populationSize applies only to proposer mode',
     )
   }
   if (
@@ -441,10 +472,13 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
     budget?.maxImprovementShots !== undefined ||
     opts.analyzeGeneration !== undefined ||
     opts.findings !== undefined ||
-    opts.selectParent !== undefined
+    opts.selectParent !== undefined ||
+    opts.premeasuredBaseline !== undefined ||
+    opts.selectionRankKey !== undefined ||
+    opts.searchLedger !== undefined
   ) {
     throw new Error(
-      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, findings, and selectParent apply only to proposer mode',
+      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, findings, selectParent, premeasuredBaseline, selectionRankKey, and searchLedger apply only to proposer mode',
     )
   }
 }
@@ -502,10 +536,6 @@ function splitMethodPartitions<TScenario extends Scenario>(
   }
 }
 
-function safeRunComponent(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
 /** 32-bit FNV-1a over raw UTF-16 code units, read as an unsigned int and used
  *  only to order scenarios deterministically.
  *
@@ -535,22 +565,6 @@ function splitTrainHoldout<TScenario extends Scenario>(
   return {
     holdout: sorted.slice(0, nHoldout),
     train: sorted.slice(nHoldout),
-  }
-}
-
-function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
-  compositeMean: number
-  perScenario: Record<string, number>
-} {
-  const perScenario: Record<string, number> = {}
-  const values: number[] = []
-  for (const [id, agg] of Object.entries(byScenario)) {
-    perScenario[id] = agg.meanComposite
-    values.push(agg.meanComposite)
-  }
-  return {
-    compositeMean: values.length === 0 ? 0 : values.reduce((s, v) => s + v, 0) / values.length,
-    perScenario,
   }
 }
 
@@ -597,8 +611,20 @@ function winnerSearchCampaign<TScenario extends Scenario, TArtifact>(
  *     budget: { maxConcurrency: 12 },
  *   })
  */
-export async function selfImprove<TScenario extends Scenario, TArtifact>(
+export function selfImprove<TScenario extends Scenario, TArtifact>(
+  opts: SelfImproveMethodOptions<TScenario, TArtifact>,
+): Promise<SelfImproveMethodResult<TScenario, TArtifact>>
+export function selfImprove<TScenario extends Scenario, TArtifact>(
+  opts: SelfImproveProposerOptions<TScenario, TArtifact>,
+): Promise<SelfImproveProposerResult<TScenario, TArtifact>>
+export function selfImprove<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
+): Promise<SelfImproveResult<TScenario, TArtifact>>
+export async function selfImprove<TScenario extends Scenario, TArtifact>(
+  opts:
+    | SelfImproveOptions<TScenario, TArtifact>
+    | SelfImproveMethodOptions<TScenario, TArtifact>
+    | SelfImproveProposerOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const startedAt = Date.now()
   const requestedRunDir =
@@ -613,7 +639,13 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     costCeilingUsd: opts.budget?.dollars,
   })
   try {
-    return await runSelfImprove(opts, costLedger, startedAt, runDir, storage)
+    return await runSelfImprove(
+      opts as SelfImproveOptions<TScenario, TArtifact>,
+      costLedger,
+      startedAt,
+      runDir,
+      storage,
+    )
   } catch (error) {
     throw new SelfImproveRunError(error, costLedger)
   }
@@ -628,8 +660,6 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   const budget = opts.budget ?? {}
   assertSelfImproveSearchMode(opts)
-  const generations = opts.method ? 1 : (budget.generations ?? 3)
-  const populationSize = opts.method ? 1 : (budget.populationSize ?? 2)
   const maxConcurrency = budget.maxConcurrency ?? 2
   const holdoutFraction = budget.holdoutFraction ?? 0.25
   const holdoutMode = budget.holdout ?? 'measured'
@@ -659,60 +689,34 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
-  if (generations > 0 && !opts.proposer && !opts.method) {
+  if (opts.method) {
+    const partitions = splitMethodPartitions(
+      train,
+      opts.selectionScenarios,
+      budget.selectionFraction ?? 0.25,
+    )
+    return runSelfImproveMethod({
+      opts: { ...opts, method: opts.method },
+      train: partitions.train,
+      selection: partitions.selection,
+      holdout,
+      costLedger,
+      storage,
+      runDir,
+      startedAt,
+    })
+  }
+  const generations = budget.generations ?? 3
+  const populationSize = budget.populationSize ?? 2
+  if (generations > 0 && !opts.proposer) {
     throw new Error(
       'selfImprove: method or proposer is required when budget.generations is greater than zero',
     )
   }
-  let optimizationResult: OptimizationMethodResult | undefined
-  const methodPartitions = opts.method
-    ? splitMethodPartitions(train, opts.selectionScenarios, budget.selectionFraction ?? 0.25)
-    : undefined
-  const proposer: SurfaceProposer<ProposalFinding> = opts.method
-    ? {
-        kind: `method:${opts.method.name}`,
-        propose: async (context) => {
-          if (context.generation > 0) return []
-          const result = await opts.method!.optimize(
-            Object.freeze({
-              baselineSurface: structuredClone(context.currentSurface),
-              trainScenarios: Object.freeze(
-                methodPartitions!.train.map((scenario) => structuredClone(scenario)),
-              ),
-              selectionScenarios: Object.freeze(
-                methodPartitions!.selection.map((scenario) => structuredClone(scenario)),
-              ),
-              dispatchWithSurface: opts.agent,
-              judges: Object.freeze([opts.judge]),
-              runDir: `${runDir}/optimization/${safeRunComponent(opts.method!.name)}`,
-              seed: 42,
-              runOptions: Object.freeze({
-                storage,
-                maxConcurrency,
-                reps: budget.reps,
-                dispatchTimeoutMs: opts.dispatchTimeoutMs,
-                cellRetry: opts.cellRetry,
-                expectUsage,
-                costCeiling: budget.dollars,
-              }),
-              costLedger,
-            }),
-          )
-          assertOptimizationResult(opts.method!.name, result)
-          optimizationResult = structuredClone(result)
-          return [
-            {
-              surface: structuredClone(result.winnerSurface),
-              label: opts.method!.name,
-              rationale: `${opts.method!.name} selected this surface without final cases.`,
-            },
-          ]
-        },
-      }
-    : (opts.proposer ?? {
-        kind: 'baseline-only',
-        propose: async () => [],
-      })
+  const proposer: SurfaceProposer<ProposalFinding> = opts.proposer ?? {
+    kind: 'baseline-only',
+    propose: async () => [],
+  }
 
   const gate: Gate<TArtifact, TScenario> =
     opts.gate ??
@@ -730,6 +734,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     baselineSurface: opts.baselineSurface,
     premeasuredBaseline: opts.premeasuredBaseline,
     dispatchWithSurface: opts.agent,
+    dispatchRef: opts.dispatchRef,
     proposer,
     judges: [opts.judge],
     populationSize,
@@ -842,17 +847,19 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
         reportSplit,
         opts.model,
       ),
-      ...cellsToRunRecords(
-        reportWinnerCampaign.cells,
-        'winner',
-        runDir,
-        result.winnerSurface,
-        reportSplit,
-        opts.model,
-      ),
+      ...(reportWinnerCampaign === reportBaselineCampaign
+        ? []
+        : cellsToRunRecords(
+            reportWinnerCampaign.cells,
+            'winner',
+            runDir,
+            result.winnerSurface,
+            reportSplit,
+            opts.model,
+          )),
     ],
     baselineCandidateId: 'baseline',
-    candidateCandidateId: 'winner',
+    ...(reportWinnerCampaign === reportBaselineCampaign ? {} : { candidateCandidateId: 'winner' }),
   })
 
   // ── Durable provenance: candidate→cell→gate→promote chain + rationale +
@@ -869,26 +876,13 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       totalCostUsd: totalCost,
       totalDurationMs: durationMs,
     }),
-    ...(optimizationResult
-      ? {
-          optimizationMethod: {
-            name: opts.method!.name,
-            cost: structuredClone(optimizationResult.cost),
-            ...(optimizationResult.durationMs === undefined
-              ? {}
-              : { durationMs: optimizationResult.durationMs }),
-            ...(optimizationResult.provenance === undefined
-              ? {}
-              : { provenance: structuredClone(optimizationResult.provenance) }),
-          },
-        }
-      : {}),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
   })
   if (opts.onProvenance) opts.onProvenance(provenance)
 
-  const summary: SelfImproveResult<TScenario, TArtifact> = {
+  const summary: SelfImproveProposerResult<TScenario, TArtifact> = {
+    mode: 'proposer',
     baseline,
     winner: {
       ...winnerStats,
@@ -905,20 +899,6 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     totalCostUsd: totalCost,
     cost,
     receipts: costLedger.list(),
-    ...(optimizationResult
-      ? {
-          optimization: {
-            name: opts.method!.name,
-            cost: structuredClone(optimizationResult.cost),
-            ...(optimizationResult.durationMs === undefined
-              ? {}
-              : { durationMs: optimizationResult.durationMs }),
-            ...(optimizationResult.provenance === undefined
-              ? {}
-              : { provenance: structuredClone(optimizationResult.provenance) }),
-          },
-        }
-      : {}),
     ...(result.searchHistory ? { searchHistory: result.searchHistory } : {}),
     insight,
     ...(power ? { power } : {}),
@@ -943,7 +923,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
 async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
   tenant: HostedTenant,
   opts: SelfImproveOptions<TScenario, TArtifact>,
-  summary: SelfImproveResult<TScenario, TArtifact>,
+  summary: SelfImproveProposerResult<TScenario, TArtifact>,
   raw: RunImprovementLoopResult<TArtifact, TScenario>,
   runDir: string,
 ): Promise<void> {
@@ -1028,77 +1008,4 @@ function averageComposite(
 ): number {
   const aggs = Object.values(campaign.aggregates.byScenario)
   return aggs.length === 0 ? 0 : aggs.reduce((s, a) => s + a.meanComposite, 0) / aggs.length
-}
-
-/** 32-bit FNV-1a over raw UTF-16 code units, rendered as hex for a cell key.
- *
- *  Frozen: the key names a persisted cell, so a change orphans every cell
- *  already written. Same loop as `stableScenarioHash` above but a different
- *  return form; neither is a general-purpose hash. */
-function hashString(s: string): string {
-  let h = 2166136261 >>> 0
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619) >>> 0
-  }
-  return h.toString(16).padStart(8, '0')
-}
-
-/**
- * Adapt campaign cells into the `RunRecord` shape `analyzeRuns()` consumes.
- * Each cell becomes one run; `candidateId` is the caller-supplied label so
- * baseline + winner pair cleanly on `(experimentId, scenarioId, seed)`.
- *
- * `promptHash` is the REAL sha256 content hash of the surface this cell ran
- * (baseline vs winner are byte-distinguishable + byte-identical-verifiable);
- * `configHash` is the sha256 of the candidate label so the two candidates'
- * config rows differ. Both were previously the literal `'sha256:cell'`, which
- * made baseline and winner indistinguishable in every downstream record.
- */
-function cellsToRunRecords<TArtifact>(
-  cells: ReadonlyArray<CampaignCellResult<TArtifact>>,
-  candidateId: 'baseline' | 'winner',
-  runId: string,
-  surface: MutableSurface,
-  splitTag: RunSplitTag,
-  fallbackModel?: string,
-): RunRecord[] {
-  const promptHash = surfaceContentHash(surface)
-  const configHash = surfaceContentHash(candidateId)
-  return cells.map((cell) => {
-    const receiptModels = cell.resolvedModels ?? (cell.resolvedModel ? [cell.resolvedModel] : [])
-    if (receiptModels.length > 1) {
-      throw new ValidationError(
-        `selfImprove cell ${cell.cellId} used multiple agent models: ${receiptModels.join(', ')}`,
-      )
-    }
-    const model = receiptModels[0] ?? fallbackModel
-    if (!model) {
-      throw new ValidationError(
-        `selfImprove.model is required when cell ${cell.cellId} has no paid-call model receipt`,
-      )
-    }
-    if (!modelHasSnapshot(model)) {
-      throw new ValidationError(
-        `selfImprove model "${model}" lacks a snapshot version for cell ${cell.cellId}`,
-      )
-    }
-    return campaignCellToRunRecord(cell, {
-      runId: `${runId}::${candidateId}::${cell.cellId}`,
-      experimentId: runId,
-      candidateId,
-      // scenarioId is explicit; seed keeps repeated runs distinct.
-      seed:
-        cell.rep * 1_000_000 +
-        hashString(cell.scenarioId)
-          .slice(0, 6)
-          .split('')
-          .reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 0),
-      model,
-      promptHash,
-      configHash,
-      commitSha: 'cell',
-      splitTag,
-    })
-  })
 }

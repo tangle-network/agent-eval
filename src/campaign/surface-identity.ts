@@ -206,3 +206,11 @@ export function renderSurfaceDiff(
 
   return `--- baseline\n${describe(baselineSurface)}\n+++ winner\n${describe(winnerSurface)}`
 }
+
+/** Bind a campaign cache entry to the exact surface and caller-owned execution revision. */
+export function surfaceDispatchRef(surface: MutableSurface, executionRef = 'anonymous'): string {
+  if (!executionRef.trim() || executionRef.trim() !== executionRef) {
+    throw new Error('surfaceDispatchRef: executionRef must be trimmed and non-empty')
+  }
+  return `surface:${executionRef}:${surfaceContentHash(surface)}`
+}

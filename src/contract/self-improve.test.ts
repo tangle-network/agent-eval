@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { OptimizationMethod } from '../campaign/presets/compare-optimization-methods'
 import { runCampaign } from '../campaign/run-campaign'
 import { inMemoryCampaignStorage } from '../campaign/storage'
-import { surfaceHash } from '../campaign/surface-identity'
+import { surfaceDispatchRef, surfaceHash } from '../campaign/surface-identity'
 import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
 import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { DispatchContext, Scenario } from './index'
@@ -258,8 +258,6 @@ describe('selfImprove — complete optimization methods', () => {
       storage: inMemoryCampaignStorage(),
       expectUsage: 'off',
       budget: {
-        generations: 1,
-        populationSize: 1,
         holdoutScenarios: finalCases,
       },
     })
@@ -348,7 +346,7 @@ describe('selfImprove — complete optimization methods', () => {
         expectUsage: 'off',
         selectParent: ({ frontier }) => frontier[0]!,
       }),
-    ).rejects.toThrow('selectParent apply only to proposer mode')
+    ).rejects.toThrow('searchLedger apply only to proposer mode')
   })
 })
 
@@ -695,7 +693,7 @@ describe('selfImprove — premeasured baseline passthrough', () => {
     const premeasured = await runCampaign<Scenario, { text: string }>({
       scenarios: trainScenarios,
       dispatch: (scenario, ctx) => stubAgent('BASE', scenario, ctx),
-      dispatchRef: 'test:selfimprove-premeasured',
+      dispatchRef: surfaceDispatchRef('BASE'),
       judges: [winJudge],
       seed: 42,
       reps: 1,

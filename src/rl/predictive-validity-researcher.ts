@@ -1,22 +1,16 @@
 /**
- * `PredictiveValidityResearcher` — concrete `Researcher` implementation
- * that drives selection from outcome-anchored predictive validity.
+ * `PredictiveValidityResearcher` reports failures and recommends rubric changes
+ * from supplied scores and observed outcomes.
  *
- * Each method:
+ * `inspectFailures` groups runs below the configured score threshold.
+ * `runValidityCheck` stores a correlation report for subsequent recommendations.
+ * `proposeChange` recommends rubric changes from that report.
+ * `applyChange` appends those recommendations to an experiment plan.
+ * `evaluateChange` returns no runs and declines promotion because this class
+ * does not execute plans.
  *
- *   - `inspectFailures(runs)` — synthesizes failure modes from the
- *     bottom-quartile of `RunRecord`s on the configured proxy reward.
- *   - `proposeChange(failures)` — proposes steering changes that target
- *     the rubrics with the lowest predictive validity (decorative ones).
- *     Either reduce their weight in the composite, or recalibrate them.
- *   - `applyChange(changes, baseline)` — merges the proposed steering
- *     into the experiment plan.
- *   - `evaluateChange(plan)` — re-runs the predictive-validity check on
- *     the post-change runs and reports the delta.
- *
- * The result is a closed loop: the rubric weights drift toward the ones
- * that actually predict deployment outcomes, automatically. Pair with
- * `runRLCampaign` for the full auto-research story.
+ * Callers apply rubric changes, execute the experiment, and supply fresh results
+ * for the next validity check.
  */
 
 import type { GateDecision, SplitCoverage } from '../held-out-gate'

@@ -1,6 +1,7 @@
 import type { RunEvalOptions } from '../campaign/presets/run-eval'
 import { runEval } from '../campaign/presets/run-eval'
 import { inMemoryCampaignStorage } from '../campaign/storage'
+import { surfaceDispatchRef } from '../campaign/surface-identity'
 import type {
   CampaignResult,
   DispatchContext,
@@ -109,6 +110,10 @@ export function defineAgentEval<TScenario extends Scenario, TArtifact>(
         runDir: selectedRunDir,
         scenarios: scenarios ?? defaults.scenarios,
         dispatch: (scenario, ctx) => selectedAgent(selectedSurface, scenario, ctx),
+        dispatchRef: surfaceDispatchRef(
+          selectedSurface,
+          campaignOpts.dispatchRef ?? defaults.dispatchRef,
+        ),
         judges: evaluateJudges(judges, judge ?? defaults.judge),
       }
       if (evalOptions.reps !== undefined)

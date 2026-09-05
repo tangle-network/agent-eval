@@ -76,7 +76,7 @@ describe.skipIf(!posixOnly)('runBoundedProcess kills the whole process group', (
     const res = await runBoundedProcess({
       command: PGID_PID_THEN_BACKGROUND_SLEEP,
       shell: 'bash',
-      timeoutMs: 100,
+      timeoutMs: 1000,
     })
     const elapsed = Date.now() - started
 
@@ -218,22 +218,36 @@ describe.skipIf(!posixOnly)('runBoundedProcess abort handling', () => {
 
   it('an abort mid-run kills the group and reports killedBySignal', async () => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 300)
-    const started = Date.now()
-    const res = await runBoundedProcess({
-      command: PGID_PID_THEN_BACKGROUND_SLEEP,
+    const ready = join(dir, 'ready')
+    const running = runBoundedProcess({
+      command: 'echo $$; sleep 60 & echo $!; : > "$BOUNDED_PROCESS_READY"; wait',
+      env: { BOUNDED_PROCESS_READY: ready },
       shell: 'bash',
       signal: controller.signal,
       timeoutMs: 60_000,
     })
-    clearTimeout(timer)
+    const settled = Promise.allSettled([running])
 
-    expect(res.killedBySignal).toBe(true)
-    expect(res.killedByTimeout).toBe(false)
-    expect(res.exitCode).not.toBe(0)
-    expect(Date.now() - started).toBeLessThan(10_000)
+    try {
+      const readyDeadline = Date.now() + 5_000
+      while (!existsSync(ready) && Date.now() < readyDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      expect(existsSync(ready)).toBe(true)
+      const abortedAt = Date.now()
+      controller.abort()
+      const res = await running
 
-    await expectTreeGone(res.stdout)
+      expect(res.killedBySignal).toBe(true)
+      expect(res.killedByTimeout).toBe(false)
+      expect(res.exitCode).not.toBe(0)
+      expect(Date.now() - abortedAt).toBeLessThan(10_000)
+
+      await expectTreeGone(res.stdout)
+    } finally {
+      controller.abort()
+      await settled
+    }
   }, 30_000)
 })
 
@@ -344,7 +358,7 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
       const res = await runBoundedProcess({
         command: 'bash',
         args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],
-        timeoutMs: 100,
+        timeoutMs: 1000,
       })
       expect(res.killedByTimeout).toBe(true)
       expect(res.exitCode).not.toBe(0)
@@ -383,7 +397,7 @@ describe('runBoundedProcess runs an argument vector with no shell', () => {
       // The abort path shares `killAndDrain` with the shell form, but the flags and
       // the forced non-zero exit had no coverage for an argv caller.
       const controller = new AbortController()
-      setTimeout(() => controller.abort(), 150)
+      setTimeout(() => controller.abort(), 1000)
       const res = await runBoundedProcess({
         command: 'bash',
         args: ['-c', PGID_PID_THEN_BACKGROUND_SLEEP],

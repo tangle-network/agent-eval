@@ -16,6 +16,7 @@ import type { ProposalFinding } from '../../analyst/types'
 import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
 import { type Objective, paretoFrontier } from '../../pareto'
+import { computeManifestHash } from '../campaign-manifest'
 import {
   assertCampaignSplitIdentity,
   type CampaignCoverage,
@@ -36,7 +37,7 @@ import {
 import type { SearchHistoryReceipt } from '../search-history-receipt'
 import { type SearchLedgerBinding, SearchRecorder } from '../search-ledger-recording'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
-import { surfaceHash, surfaceHashMatches } from '../surface-identity'
+import { surfaceDispatchRef, surfaceHash, surfaceHashMatches } from '../surface-identity'
 import {
   type CampaignResult,
   type GenerationRecord,
@@ -235,11 +236,14 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         scenarios: opts.scenarios,
         reps,
         seed: opts.seed ?? 42,
+        judges: opts.judges ?? [],
+        dispatchRef: surfaceDispatchRef(baselineSurface, opts.dispatchRef),
       })
     : await runCampaign<TScenario, TArtifact>({
         ...opts,
         costLedger,
         costPhase: 'search.baseline',
+        dispatchRef: surfaceDispatchRef(baselineSurface, opts.dispatchRef),
         dispatch: (scenario, ctx) => opts.dispatchWithSurface(baselineSurface, scenario, ctx),
         runDir: `${opts.runDir}/baseline`,
       })
@@ -456,6 +460,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           signal,
           costLedger,
           costPhase: 'search.candidate',
+          dispatchRef: surfaceDispatchRef(surface, opts.dispatchRef),
           dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
           runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
         })
@@ -550,7 +555,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
         const candidate: GenerationRecord['candidates'][number] = {
           surfaceHash: s.surfaceHash,
           composite: s.composite,
-          ci95: s.composite === null ? null : [s.composite, s.composite],
+          ci95: null,
           parentSurfaceHash,
           parentComposite,
           ...(s.coverage.complete
@@ -691,6 +696,8 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
   scenarios: TScenario[]
   reps: number
   seed: number
+  judges: NonNullable<RunCampaignOptions<TScenario, TArtifact>['judges']>
+  dispatchRef: string
 }): CampaignResult<TArtifact, TScenario> {
   const { input } = args
   if (!surfaceHashMatches(args.baselineSurface, input.surfaceHash)) {
@@ -721,6 +728,18 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
   if (campaign.splitDigest !== campaignSplitDigest(args.scenarios, args.reps)) {
     throw new Error(
       'runOptimization: premeasured baseline split does not match the requested scenarios',
+    )
+  }
+  const expectedManifest = computeManifestHash({
+    scenarios: args.scenarios,
+    judges: args.judges,
+    dispatchRef: args.dispatchRef,
+    seed: args.seed,
+    reps: args.reps,
+  })
+  if (campaign.manifestHash !== expectedManifest) {
+    throw new Error(
+      'runOptimization: premeasured baseline evaluator identity does not match the requested dispatch and judges',
     )
   }
   return campaign

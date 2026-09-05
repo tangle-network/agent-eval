@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { inMemoryCampaignStorage } from '../src/campaign/storage'
 import {
   defineAgentEval,
   type JudgeConfig,
@@ -129,6 +130,24 @@ describe('defineAgentEval', () => {
     expect(result.cells.every((cell) => cell.artifact.surface === 'candidate better')).toBe(true)
     expect(result.aggregates.byJudge.strict?.mean).toBe(1)
     expect(result.aggregates.byJudge.quality).toBeUndefined()
+  })
+
+  it('does not reuse baseline scores for another surface in the same run directory', async () => {
+    const evalKit = defineAgentEval({
+      scenarios,
+      agent,
+      judge,
+      baselineSurface: 'base',
+      expectUsage: 'off',
+      storage: inMemoryCampaignStorage(),
+      runDir: 'mem://evaluate-surface-identity',
+    })
+    const baseline = await evalKit.evaluate()
+    const candidate = await evalKit.evaluate({ surface: 'candidate better' })
+    expect(baseline.aggregates.byJudge.quality?.mean).toBeCloseTo(0.3)
+    expect(candidate.cells.every((cell) => cell.artifact.surface === 'candidate better')).toBe(true)
+    expect(candidate.aggregates.byJudge.quality?.mean).toBeCloseTo(0.9)
+    expect(candidate.manifestHash).not.toBe(baseline.manifestHash)
   })
 
   it('fails loudly when evaluate callers pass an empty judge list', async () => {

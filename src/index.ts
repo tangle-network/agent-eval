@@ -47,7 +47,15 @@ export { defineAgentEval } from './contract/define-agent-eval'
 
 export type { InsightReport } from './contract/insight-report'
 
-export type { SelfImproveOptions, SelfImproveResult } from './contract/self-improve'
+export type {
+  SelfImproveMethodOptions,
+  SelfImproveMethodProvenance,
+  SelfImproveMethodResult,
+  SelfImproveOptions,
+  SelfImproveProposerOptions,
+  SelfImproveProposerResult,
+  SelfImproveResult,
+} from './contract/self-improve'
 export { selfImprove } from './contract/self-improve'
 
 export type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'

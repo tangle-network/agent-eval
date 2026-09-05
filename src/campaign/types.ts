@@ -666,7 +666,7 @@ export interface GenerationCandidate {
   surfaceHash: string
   /** Mean over complete task-quality scores, or null when none were produced. */
   composite: number | null
-  /** Descriptive interval for `composite`, or null when no score exists. */
+  /** Estimated interval for `composite`, or null when uncertainty was not estimated. */
   ci95: [number, number] | null
   /** Exact surface this candidate mutated. */
   parentSurfaceHash?: string
