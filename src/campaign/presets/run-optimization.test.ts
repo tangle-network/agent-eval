@@ -3,7 +3,7 @@ import type { ParentSelector } from '../parent-selection'
 import { runCampaign } from '../run-campaign'
 import { campaignMeanComposite, compareRankKeys } from '../score-utils'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../storage'
-import { surfaceHash } from '../surface-identity'
+import { surfaceDispatchRef, surfaceHash } from '../surface-identity'
 import type {
   CampaignResult,
   JudgeConfig,
@@ -43,7 +43,7 @@ async function measureBaseline(
       await ctx.artifacts.write('baseline.txt', 'exact baseline artifact')
       return { surface: 'BASELINE' }
     },
-    dispatchRef: 'test:premeasured-baseline',
+    dispatchRef: surfaceDispatchRef('BASELINE', 'test:premeasured-baseline'),
     judges: [qualityJudge],
     seed: 7,
     reps: 1,
@@ -105,6 +105,7 @@ describe('runOptimization premeasured baseline', () => {
 
     const result = await runOptimization({
       baselineSurface: 'BASELINE',
+      dispatchRef: 'test:premeasured-baseline',
       premeasuredBaseline: {
         surfaceHash: surfaceHash('BASELINE'),
         campaign: baseline,
@@ -114,7 +115,6 @@ describe('runOptimization premeasured baseline', () => {
         dispatches.push(surface)
         return { surface: String(surface) }
       },
-      dispatchRef: 'test:continuation',
       judges: [qualityJudge],
       proposer: proposer(),
       populationSize: 1,
@@ -177,6 +177,7 @@ describe('runOptimization premeasured baseline', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('BASELINE'),
           campaign: { ...baseline, cells: [] },
@@ -214,6 +215,7 @@ describe('runOptimization premeasured baseline', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('BASELINE'),
           campaign: withoutJudgeScores,
@@ -240,6 +242,7 @@ describe('runOptimization premeasured baseline', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('BASELINE'),
           campaign: baseline,
@@ -266,6 +269,7 @@ describe('runOptimization premeasured baseline', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('OTHER'),
           campaign: baseline,
@@ -292,6 +296,7 @@ describe('runOptimization premeasured baseline', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('BASELINE'),
           campaign: baseline,
@@ -610,6 +615,7 @@ describe('runOptimization candidate concurrency', () => {
     await expect(
       runOptimization({
         baselineSurface: 'BASELINE',
+        dispatchRef: 'test:premeasured-baseline',
         premeasuredBaseline: {
           surfaceHash: surfaceHash('BASELINE'),
           campaign: await measureBaseline(failFastScenarios),
@@ -671,6 +677,7 @@ describe('runOptimization candidate concurrency', () => {
 
     const pending = runOptimization({
       baselineSurface: 'BASELINE',
+      dispatchRef: 'test:premeasured-baseline',
       premeasuredBaseline: {
         surfaceHash: surfaceHash('BASELINE'),
         campaign: await measureBaseline(),

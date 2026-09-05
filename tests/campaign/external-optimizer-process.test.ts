@@ -647,32 +647,32 @@ describe('external optimizer process', () => {
     const marker = join(dir, 'descendant-survived.txt')
     const descendant = [
       "const { writeFileSync } = require('node:fs')",
+      `writeFileSync(${JSON.stringify(ready)}, 'ready')`,
       `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'survived'), 1_000)`,
       'setInterval(() => {}, 1_000)',
     ].join(';')
     const parent = [
       "const { spawn } = require('node:child_process')",
-      "const { writeFileSync } = require('node:fs')",
       `spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: 'ignore' })`,
-      `writeFileSync(${JSON.stringify(ready)}, 'ready')`,
       'setInterval(() => {}, 1_000)',
     ].join(';')
     const owner = new AbortController()
+    const running = runExternalOptimizerProcess({
+      label: 'aborted optimizer',
+      tempPrefix: 'agent-eval-aborted-',
+      module: 'unused',
+      input: {},
+      runner: {
+        command: process.execPath,
+        args: ['-e', parent, '--'],
+      },
+      timeoutMs: 10_000,
+      signal: owner.signal,
+    })
+    const settled = Promise.allSettled([running])
 
     try {
-      const running = runExternalOptimizerProcess({
-        label: 'aborted optimizer',
-        tempPrefix: 'agent-eval-aborted-',
-        module: 'unused',
-        input: {},
-        runner: {
-          command: process.execPath,
-          args: ['-e', parent, '--'],
-        },
-        timeoutMs: 10_000,
-        signal: owner.signal,
-      })
-      await waitFor(() => existsSync(ready))
+      await waitFor(() => existsSync(ready), 5_000)
       const abortedAt = performance.now()
       owner.abort(new Error('owner cancelled optimizer'))
 
@@ -682,6 +682,7 @@ describe('external optimizer process', () => {
       expect(existsSync(marker)).toBe(false)
     } finally {
       owner.abort(new Error('test cleanup'))
+      await settled
       await rm(dir, { recursive: true, force: true })
     }
   }, 10_000)
@@ -2264,11 +2265,12 @@ function postResponses(
   })
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitFor(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = performance.now() + timeoutMs
+  do {
     if (predicate()) return
     await new Promise((resolve) => setTimeout(resolve, 5))
-  }
+  } while (performance.now() < deadline)
   throw new Error('condition was not met')
 }
 

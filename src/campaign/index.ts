@@ -440,6 +440,7 @@ export {
   componentSurfaceIdentityMaterial,
   renderSurfaceDiff,
   surfaceContentHash,
+  surfaceDispatchRef,
   surfaceHash,
 } from './surface-identity'
 export {

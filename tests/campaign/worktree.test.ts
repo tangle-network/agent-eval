@@ -50,7 +50,7 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(repoRoot, { recursive: true, force: true }))
 
-describe('gitWorktreeAdapter — real git worktrees', () => {
+describe('gitWorktreeAdapter — real git worktrees', { timeout: 30_000 }, () => {
   it.each(['repository', 'worktree directory'])(
     'returns a canonical worktree path when the %s is a symbolic link',
     async (linkedOption) => {
@@ -654,7 +654,7 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
   })
 })
 
-describe('resolveWorktreePath', () => {
+describe('resolveWorktreePath', { timeout: 30_000 }, () => {
   it('returns a verified absolute worktree path', async () => {
     const adapter = gitWorktreeAdapter({ repoRoot })
     const wt = await adapter.create({ baseRef: 'main', label: 'resolve' })

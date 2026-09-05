@@ -205,7 +205,7 @@ describe('localCommandRunner on runBoundedProcess', () => {
       const r = await localCommandRunner.run({
         cmd: 'sh',
         argv: ['-c', 'sleep 60 & echo $!; wait'],
-        capMs: 400,
+        capMs: 1000,
       })
       expect(r.timedOut).toBe(true)
       expect(r.status).toBeNull()

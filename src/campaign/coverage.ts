@@ -1,5 +1,10 @@
 import { contentHash } from '../verdict-cache'
-import type { CampaignCellResult, CampaignScenarioIdentity, Scenario } from './types'
+import type {
+  CampaignCellResult,
+  CampaignResult,
+  CampaignScenarioIdentity,
+  Scenario,
+} from './types'
 
 export interface CampaignCoverage {
   complete: boolean
@@ -198,4 +203,20 @@ function designedCellIds<TScenario extends Scenario>(
     for (let rep = 0; rep < reps; rep++) ids.push(`${scenario.id}:${rep}`)
   }
   return ids
+}
+
+/** Require the complete designed denominator before a final comparison. */
+export function assertCompleteCampaign<TArtifact, TScenario extends Scenario>(
+  campaign: CampaignResult<TArtifact, TScenario>,
+  scenarios: readonly TScenario[],
+  reps: number,
+  requireJudgeScore: boolean,
+  label: string,
+): void {
+  const coverage = campaignCoverage(campaign.cells, scenarios, reps, requireJudgeScore)
+  if (!coverage.complete) {
+    throw new Error(
+      `${label} is incomplete (${coverage.scorableCellIds.length}/${coverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(coverage)}. Refusing to compare unequal results.`,
+    )
+  }
 }

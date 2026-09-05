@@ -7,15 +7,10 @@
 
 import { combineAbortSignals } from '../../abort-signal'
 import { mapConcurrent } from '../../concurrency'
-import type {
-  CostLedgerHandle,
-  CostLedgerSummary,
-  CostProvenance,
-  CostReceipt,
-} from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { pairedBootstrap } from '../../statistics'
 import { contentHash } from '../../verdict-cache'
-import { assertCampaignDesign } from '../coverage'
+import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
 import type { ExternalOptimizerWireCounts } from '../external-optimizer-contracts'
 import type {
   ExternalOptimizerExecutionSummary,
@@ -25,6 +20,20 @@ import {
   assertGepaCandidatePopulationSummary,
   type GepaCandidatePopulationSummary,
 } from '../gepa-candidate-population'
+import {
+  assertComparisonCost,
+  type ComparisonCost,
+  combineComparisonCosts,
+  costFromLedgerSummary,
+  createMethodCostScope,
+} from '../optimization-cost'
+
+export {
+  type ComparisonCost,
+  combineComparisonCosts,
+  costFromLedgerSummary,
+} from '../optimization-cost'
+
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
@@ -50,16 +59,6 @@ export type OptimizationMethodRunOptions<TScenario extends Scenario, TArtifact> 
   RunCampaignOptions<TScenario, TArtifact>,
   'costCeiling' | 'costLedger' | 'dispatch' | 'judges' | 'runDir' | 'scenarios' | 'seed'
 >
-
-/** Cost reported by a method or by final test scoring. */
-export interface ComparisonCost {
-  /** Known subtotal. Consult `costProvenance` before treating this as total spend. */
-  totalCostUsd: number
-  /** Exact origin of the total; uncaptured means `totalCostUsd` is only a known subtotal. */
-  costProvenance: CostProvenance
-  accountingComplete: boolean
-  incompleteReasons: string[]
-}
 
 export interface OptimizationPackageSource {
   kind: 'package'
@@ -194,7 +193,7 @@ export interface OptimizationMethodScore {
   /** Simultaneous paired-bootstrap interval for per-scenario lift.
    *  `low > 0` excludes zero after adjustment for all reported contrasts. */
   liftCi: { low: number; high: number }
-  /** Optimization spend reported by the method. Excludes final test scoring. */
+  /** Search spend reconciled with recorded method calls. Excludes final test scoring. */
   optimizationCost: ComparisonCost
   /** Optimization duration reported by the method. Excludes final test scoring. */
   durationMs?: number
@@ -231,7 +230,7 @@ export interface OptimizationMethodComparison {
   /** Best vs each other method, using simultaneous paired-bootstrap intervals. */
   pairwise: OptimizationMethodPairwise[]
   testScenarioIds: string[]
-  /** Sum of the costs reported by every optimization method. */
+  /** Sum of method reports reconciled against each method's recorded calls. */
   optimizationCost: ComparisonCost
   /** Baseline and distinct winner scoring on the final test partition. */
   testCost: ComparisonCost
@@ -340,6 +339,13 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       dispatchRef: finalDispatchRef(opts, measuredSurface),
       runDir: `${resolvedRunDir}/${tag}`,
     })
+    assertCompleteCampaign(
+      campaign,
+      opts.testScenarios,
+      opts.reps ?? 1,
+      true,
+      `compareOptimizationMethods: ${tag} final comparison`,
+    )
     const byScenario: Record<string, number> = {}
     for (const { scenarioId, composite } of campaignBreakdown(campaign).scenarios) {
       byScenario[scenarioId] = composite
@@ -367,6 +373,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   const optimizationOwner = new AbortController()
   const optimized = await mapConcurrent(opts.methods, optimizationConcurrency, async (method) => {
     try {
+      const methodCost = createMethodCostScope(costLedger, method.name)
       const out = await method.optimize(
         createOptimizationMethodInput(
           opts,
@@ -374,7 +381,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
           resolvedRunDir,
           seed,
           baselineSurface,
-          costLedger,
+          methodCost.ledger,
           optimizationOwner.signal,
         ),
       )
@@ -387,7 +394,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       return {
         name: method.name,
         winnerSurface,
-        cost: out.cost,
+        cost: methodCost.reconcile(out.cost),
         ...(out.durationMs === undefined ? {} : { durationMs: out.durationMs }),
         ...(out.provenance === undefined ? {} : { provenance: out.provenance }),
         searchHistoryCoverage,
@@ -1082,18 +1089,6 @@ function callerDispatchRef<TScenario extends Scenario, TArtifact>(
   return (opts.dispatchRef ?? opts.dispatchWithSurface.name) || 'anonymous'
 }
 
-/** Keep the cost fields a custom optimization method must report. */
-export function costFromLedgerSummary(summary: CostLedgerSummary): ComparisonCost {
-  const cost = {
-    totalCostUsd: summary.totalCostUsd,
-    costProvenance: structuredClone(summary.costProvenance),
-    accountingComplete: summary.accountingComplete,
-    incompleteReasons: [...summary.incompleteReasons],
-  }
-  assertComparisonCost(cost, 'cost ledger')
-  return cost
-}
-
 /** Preserve every optimizer token class while keeping total input and output explicit. */
 export function optimizationTokenUsageFromSummary(
   summary: CostLedgerSummary,
@@ -1120,75 +1115,5 @@ export function optimizationTokenUsageFromSummary(
     ...(reasoningComplete ? { reasoningTokens: summary.reasoningTokens ?? 0 } : {}),
     totalTokens: inputTokens + summary.outputTokens,
     calls: summary.totalCalls,
-  }
-}
-
-/** Combine method costs without turning one unknown bill into a known total. */
-export function combineComparisonCosts(
-  entries: ReadonlyArray<{ label: string; cost: ComparisonCost }>,
-): ComparisonCost {
-  const totalCostUsd = entries.reduce((total, entry) => total + entry.cost.totalCostUsd, 0)
-  const costProvenance: CostProvenance = entries.some(
-    (entry) => entry.cost.costProvenance.kind === 'uncaptured',
-  )
-    ? { kind: 'uncaptured', usd: null }
-    : entries.every((entry) => entry.cost.costProvenance.kind === 'observed')
-      ? { kind: 'observed', usd: totalCostUsd }
-      : { kind: 'estimated', usd: totalCostUsd }
-  const cost = {
-    totalCostUsd,
-    costProvenance,
-    accountingComplete: entries.every((entry) => entry.cost.accountingComplete),
-    incompleteReasons: entries.flatMap((entry) =>
-      entry.cost.incompleteReasons.map((reason) => `${entry.label}: ${reason}`),
-    ),
-  }
-  assertComparisonCost(cost, 'combined cost')
-  return cost
-}
-
-function assertComparisonCost(cost: ComparisonCost, label: string): void {
-  if (!cost || typeof cost !== 'object') {
-    throw new Error(`compareOptimizationMethods: ${label} returned no cost`)
-  }
-  if (!Number.isFinite(cost.totalCostUsd) || cost.totalCostUsd < 0) {
-    throw new Error(`compareOptimizationMethods: ${label} returned an invalid totalCostUsd`)
-  }
-  const provenance = cost.costProvenance
-  if (
-    !provenance ||
-    typeof provenance !== 'object' ||
-    (provenance.kind !== 'observed' &&
-      provenance.kind !== 'estimated' &&
-      provenance.kind !== 'uncaptured') ||
-    (provenance.kind === 'uncaptured'
-      ? provenance.usd !== null
-      : !Number.isFinite(provenance.usd) || provenance.usd < 0)
-  ) {
-    throw new Error(`compareOptimizationMethods: ${label} returned invalid costProvenance`)
-  }
-  if (provenance.kind !== 'uncaptured' && provenance.usd !== cost.totalCostUsd) {
-    throw new Error(
-      `compareOptimizationMethods: ${label} returned costProvenance inconsistent with totalCostUsd`,
-    )
-  }
-  if (typeof cost.accountingComplete !== 'boolean') {
-    throw new Error(`compareOptimizationMethods: ${label} returned invalid accountingComplete`)
-  }
-  if (
-    !Array.isArray(cost.incompleteReasons) ||
-    cost.incompleteReasons.some(
-      (reason) => typeof reason !== 'string' || reason.trim().length === 0,
-    )
-  ) {
-    throw new Error(`compareOptimizationMethods: ${label} returned invalid incompleteReasons`)
-  }
-  if (cost.accountingComplete !== (cost.incompleteReasons.length === 0)) {
-    throw new Error(
-      `compareOptimizationMethods: ${label} returned inconsistent cost completeness and reasons`,
-    )
-  }
-  if (cost.accountingComplete && provenance.kind === 'uncaptured') {
-    throw new Error(`compareOptimizationMethods: ${label} cannot mark uncaptured cost as complete`)
   }
 }

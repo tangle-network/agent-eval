@@ -217,6 +217,9 @@ async function main() {
     `Backend:       ${MODEL} via ${BASE_URL} (${integrity.verdict}, ${records.length} calls)`,
   )
   console.log(`Gate decision: ${result.gateDecision}`)
+  if (result.baseline === null || result.winner.compositeMean === null) {
+    throw new Error('This example requires a measured final comparison')
+  }
   console.log(`Baseline:      ${result.baseline.compositeMean.toFixed(3)} (held-out composite)`)
   console.log(`Winner:        ${result.winner.compositeMean.toFixed(3)} (held-out composite)`)
   console.log(`Lift:          ${result.lift === undefined ? 'not measured' : signed(result.lift)}`)

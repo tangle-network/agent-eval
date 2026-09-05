@@ -113,6 +113,7 @@ async function main() {
   })
 
   const result = await evalKit.improve()
+  if (result.mode !== 'proposer') throw new Error('This example requires a native proposer result')
 
   const i = result.insight
   console.log('Improvement result')

@@ -217,8 +217,13 @@ export {
 } from './profile-measured-comparison'
 export {
   type SelfImproveBudget,
+  type SelfImproveMethodOptions,
+  type SelfImproveMethodProvenance,
+  type SelfImproveMethodResult,
   type SelfImproveOptions,
   type SelfImproveProgressEvent,
+  type SelfImproveProposerOptions,
+  type SelfImproveProposerResult,
   type SelfImproveResult,
   SelfImproveRunError,
   selfImprove,

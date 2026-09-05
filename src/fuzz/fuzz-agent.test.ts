@@ -195,6 +195,40 @@ describe('fuzzAgent (adversarial preset)', () => {
 })
 
 describe('BehaviorExplorer session + tools', () => {
+  it('uses observed cell variance to change allocation in the second round', async () => {
+    const allocations: Array<{ cellId: string; count: number }> = []
+    const executedIds: string[] = []
+    let nextId = 0
+    const explorer = new BehaviorExplorer<{ id: string; score: number }>({
+      target: 'curriculum-feedback',
+      space: { axes: [{ name: 'kind', values: ['stable', 'noisy'] }] },
+      budget: 80,
+      floorPerCell: 2,
+      allocation: 'variance',
+      seedsFor: () => [],
+      proposer: ({ cell, count }) =>
+        Array.from({ length: count }, (_, index) => ({
+          id: `scenario-${nextId++}`,
+          score: cell.coords.kind === 'stable' ? 0.5 : index % 2,
+        })),
+      evaluate: async (scenario) => {
+        executedIds.push(scenario.id)
+        return { valid: true, score: scenario.score }
+      },
+      scenarioId: (scenario) => scenario.id,
+      onProgress: (event) => {
+        if (event.type === 'cell-allocated')
+          allocations.push({ cellId: event.cell.id, count: event.count })
+      },
+    })
+    await explorer.step()
+    expect(allocations.map((allocation) => allocation.count)).toEqual([10, 10])
+    await explorer.step()
+    expect(allocations.slice(2).map((allocation) => allocation.count)).toEqual([8, 12])
+    expect(executedIds).toHaveLength(40)
+    expect(new Set(executedIds).size).toBe(40)
+  })
+
   it('step() makes incremental progress an agent can drive', async () => {
     const explorer = new BehaviorExplorer(base)
     const first = await explorer.step()

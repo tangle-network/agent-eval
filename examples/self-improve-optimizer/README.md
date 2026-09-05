@@ -72,6 +72,9 @@ Hard limits: `MAX_TOTAL_COST_USD` (default 10) caps the whole run and `GEPA_MAX_
 ## Read The Result
 
 The script prints the gate decision, the held-out baseline and winner composites, the lift, the total spend, and the baseline-to-winner diff.
+Method results use `mode: 'method'`; search evidence is in `raw.method` and optional `searchHistory`.
+They do not contain native `raw.generations` or `generationsExplored`.
+With deferred holdout, baseline and winner scores are `null` and no lift exists.
 Four held-out cases are wiring-scale, not statistical evidence: a `need_more_work` decision at this size is the gate refusing to claim significance, not a failure.
 Grow the case list and set `budget.reps` above 1 before treating the decision as a production threshold.
 

@@ -332,6 +332,78 @@ describe('compareOptimizationMethods', () => {
     expect(result.testCost.incompleteReasons).toEqual([])
   })
 
+  it('reconciles concurrent methods independently from prior spending and incomplete reports', async () => {
+    const costLedger = new CostLedger()
+    const prior = await costLedger.runPaidCall({
+      channel: 'optimizer',
+      phase: 'prior',
+      actor: 'prior',
+      model: 'fixture',
+      execute: async () => undefined,
+      receipt: () => ({ model: 'fixture', inputTokens: 1, outputTokens: 1, actualCostUsd: 11 }),
+    })
+    if (!prior.succeeded) throw prior.error
+    let started = 0
+    let release!: () => void
+    const bothStarted = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const metered = (
+      name: string,
+      usd: number,
+      report: number,
+      usageUnknown: boolean,
+    ): OptimizationMethod<S, A> => ({
+      name,
+      async optimize(input) {
+        const paid = await input.costLedger.runPaidCall({
+          channel: 'optimizer',
+          phase: 'search',
+          actor: name,
+          model: 'fixture',
+          execute: async () => {
+            if (++started === 2) release()
+            await bothStarted
+            return 'SOLVE_h1'
+          },
+          receipt: () => ({
+            model: 'fixture',
+            inputTokens: 1,
+            outputTokens: 1,
+            actualCostUsd: usd,
+            usageUnknown,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return { winnerSurface: paid.value, cost: completeCost(report) }
+      },
+    })
+    const result = await compareOptimizationMethods<S, A>({
+      methods: [metered('underreported', 3, 0, false), metered('unknown-usage', 5, 5, true)],
+      optimizationConcurrency: 2,
+      baselineSurface: 'nothing',
+      ...PARTITIONS,
+      dispatchWithSurface: async (surface) => ({ text: String(surface) }),
+      judges: [judge],
+      runDir,
+      costLedger,
+      expectUsage: 'off',
+    })
+    expect(result.optimizationCost.totalCostUsd).toBe(8)
+    expect(result.totalCost.totalCostUsd).toBe(8)
+    expect(costLedger.summary().totalCostUsd).toBe(19)
+    const costs = Object.fromEntries(
+      result.scores.map((score) => [score.name, score.optimizationCost]),
+    )
+    expect(costs.underreported?.totalCostUsd).toBe(3)
+    expect(costs['unknown-usage']?.totalCostUsd).toBe(5)
+    expect(costs.underreported?.incompleteReasons.join(' ')).toContain(
+      'reported 0 USD below recorded 3 USD',
+    )
+    expect(costs['unknown-usage']?.incompleteReasons.join(' ')).toContain('token usage unknown')
+    expect(result.optimizationCost.accountingComplete).toBe(false)
+  })
+
   it('applies one cost ceiling across baseline and winner test scoring', async () => {
     let paidCalls = 0
     await expect(
@@ -348,7 +420,7 @@ describe('compareOptimizationMethods', () => {
         costCeiling: 0.05,
         expectUsage: 'assert',
       }),
-    ).rejects.toThrow(/produced no test score/)
+    ).rejects.toThrow(/final comparison is incomplete/)
     expect(paidCalls).toBe(5)
   })
 
@@ -552,7 +624,9 @@ describe('compareOptimizationMethods', () => {
         runDir,
         expectUsage: 'off',
       }),
-    ).rejects.toThrow(/compareOptimizationMethods: baseline produced no test score.*h3/)
+    ).rejects.toThrow(
+      /compareOptimizationMethods: test\/baseline final comparison is incomplete.*h3/,
+    )
   })
 
   const invalidControls: Array<[string, Partial<CompareOptimizationMethodsOptions<S, A>>, RegExp]> =

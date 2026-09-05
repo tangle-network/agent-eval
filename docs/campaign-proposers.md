@@ -20,6 +20,48 @@ Use it when one surface must get better.
 Use it when two or more methods must be compared at equal budget.
 Runnable versions: [`examples/self-improve-optimizer`](../examples/self-improve-optimizer/) and [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
+## Read An Improvement Result
+
+`selfImprove({ method })` executes the complete method once and measures its selected surface on final cases.
+The method may select the unchanged baseline; that result returns `gateDecision: 'hold'` and an empty diff.
+Agent Eval does not score train and selection cases again or choose a different surface after the method finishes.
+
+The result type has two modes:
+
+| Mode | Result | Search evidence | Cost |
+|---|---|---|---|
+| `proposer` | `SelfImproveProposerResult` | Native `raw.generations`, `generationsExplored`, and optional `searchHistory` | Shared `cost` ledger summary |
+| `method` | `SelfImproveMethodResult` | Actual `raw.method` and its optional `searchHistory` | Combined method and final `cost`; receipt breakdown in `ledgerCost` |
+
+Both types are exported from the package root and `/contract`.
+`SelfImproveResult` is their union; branch on `result.mode` before reading mode-specific fields.
+Calls with a concrete `method` or `proposer` infer the corresponding result type.
+Method mode has no native generation count or fabricated native search measurements.
+Its durable `method-provenance.json` uses schema `tangle.method-improvement` and records partition, measurement, and cost-receipt digests.
+Proposer mode retains `LoopProvenanceRecord`.
+
+When method holdout is deferred, `baseline` and `winner.compositeMean` are `null`, `lift` is absent, and the decision is `hold`.
+The selected surface remains available in `winner.surface`.
+Method cost preserves the larger of reported search spend and newly recorded search receipts, then adds final measurements without counting receipts twice.
+Underreported spending and incomplete receipts remain explicit; `raw.method.cost` retains the original report.
+Inspect `cost.accountingComplete` and `cost.incompleteReasons` before treating the known subtotal as complete spending.
+The shared dollar limit controls calls admitted through the cost ledger; arbitrary off-ledger callbacks must enforce their own spending limits.
+
+Native generation records report `ci95: null` because search does not estimate candidate uncertainty.
+Final comparisons retain their independently computed statistics.
+Every final case and replica must have complete execution and judge results before comparison.
+
+## Bind Cached Measurements To Their Evaluator
+
+Candidate surface content is part of native search and final measurement identity.
+Pass a stable `dispatchRef` for execution behavior outside that surface, such as the worker revision and tool configuration.
+Change it when that behavior changes; function names cannot identify captured state.
+Set `judgeVersion` when a judge's scoring behavior changes.
+
+To reuse `premeasuredBaseline` in proposer mode, measure the same train cases, seed, replicas, execution revision, and judges.
+The standalone campaign must use `dispatchRef: surfaceDispatchRef(baselineSurface, dispatchRef)` from `/campaign`.
+Agent Eval refuses a prior baseline whose evaluator manifest differs.
+
 ## Adapt A Third-Party Text Optimizer
 
 `externalTextOptimizationMethod()` is the general adapter for a package that already owns text or component search.

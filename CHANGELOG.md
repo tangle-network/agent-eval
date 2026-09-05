@@ -4,6 +4,37 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.174.0] — 2026-09-05
+
+### Changed
+
+- `selfImprove({ method })` executes the method directly and measures its selected surface on final cases.
+  It returns `SelfImproveMethodResult` with `mode: 'method'`, actual `raw.method` evidence, and `tangle.method-improvement` provenance.
+  It does not expose native `raw.generations` or `generationsExplored`.
+- `selfImprove({ proposer })` returns `SelfImproveProposerResult` with `mode: 'proposer'` and the existing native history.
+  `SelfImproveResult` is the union; consumers must narrow by `mode` before reading fields specific to one mode.
+- Method results with deferred holdout return `baseline: null`, `winner.compositeMean: null`, and no lift.
+  Method `cost` includes reported search and final spending; `ledgerCost` retains the actual receipt breakdown.
+- Premeasured native baselines must match the evaluator manifest.
+  Use `surfaceDispatchRef(baselineSurface, dispatchRef)` when creating the baseline campaign.
+  See [the result and cache contracts](docs/campaign-proposers.md#read-an-improvement-result).
+
+### Fixed
+
+- Complete methods can select the unchanged baseline without triggering native duplicate-candidate rejection.
+- Native ranking cannot override a complete method's selected winner or repeat its train and selection evaluations.
+- Method-reported spend and incomplete accounting remain in the total without duplicating metered costs.
+  Both improvement and method comparison reconcile each method's report against its attributed ledger receipts.
+- Final method comparisons reject missing replicas before averaging surviving scores.
+- Native search and final caches bind the candidate's surface content to execution identity.
+- Premeasured baselines from a different judge revision are refused before candidate execution.
+- Native candidate history reports `ci95: null` when uncertainty was not estimated.
+- An unchanged baseline's shared campaign contributes once to result analysis, including execution count, tokens, and cost.
+- `BehaviorExplorer` uses observed scores when assigning the next round's evaluations by behavior cell.
+  Scenario records retain their individual identities; allocation uses the pooled cell identity.
+
+---
+
 ## [0.173.3] — 2026-09-04
 
 ### Fixed

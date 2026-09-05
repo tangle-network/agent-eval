@@ -141,7 +141,7 @@ export class BehaviorExplorer<S> {
     return varianceBasedCurriculum(
       this.log.map((r) => ({
         variantId: r.cell.id,
-        scenarioId: r.scenarioId,
+        scenarioId: '*',
         score: r.ev.score,
         pass: r.ev.valid && r.ev.score >= 0.5,
       })),
