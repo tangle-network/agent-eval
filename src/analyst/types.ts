@@ -1,6 +1,6 @@
 /**
  * Analyst contract — the missing orchestration layer over agent-eval's
- * existing analyzers (analyzeTraces, MultiLayerVerifier, RunCritic,
+ * existing analyzers (analyzeTraces, MultiLayerVerifier,
  * SemanticConceptJudge, JudgeFn, ...).
  *
  * Each existing primitive returns its own output shape. The Analyst
