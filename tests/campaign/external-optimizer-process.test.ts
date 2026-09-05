@@ -498,7 +498,7 @@ describe('external optimizer process', () => {
       "process.stderr.write('HEAD_MARKER\\n')",
       "process.stderr.write('x'.repeat(70_000))",
       "process.stderr.write('\\nTAIL_MARKER\\n')",
-      'process.exit(9)',
+      'process.exitCode = 9',
     ].join(';')
 
     await expect(

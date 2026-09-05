@@ -704,7 +704,13 @@ export function gitWorktreeAdapter(opts: GitWorktreeAdapterOptions): WorktreeAda
         opts.repoRoot,
       )
       gitText(git, ['worktree', 'add', '-b', branch, path, baseCommit], opts.repoRoot)
-      return { path, branch, baseRef, baseCommit, baseTree }
+      return {
+        path: realpathSync(resolve(opts.repoRoot, path)),
+        branch,
+        baseRef,
+        baseCommit,
+        baseTree,
+      }
     },
 
     async finalize(worktree, summary) {

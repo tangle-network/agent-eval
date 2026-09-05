@@ -4,6 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -50,6 +51,27 @@ beforeEach(() => {
 afterEach(() => rmSync(repoRoot, { recursive: true, force: true }))
 
 describe('gitWorktreeAdapter — real git worktrees', () => {
+  it.each(['repository', 'worktree directory'])(
+    'returns a canonical worktree path when the %s is a symbolic link',
+    async (linkedOption) => {
+      const linkedRoot = join(repoRoot, 'linked-root')
+      const target = linkedOption === 'repository' ? repoRoot : join(repoRoot, '.worktrees')
+      mkdirSync(target, { recursive: true })
+      symlinkSync(target, linkedRoot, 'junction')
+      const adapter = gitWorktreeAdapter({
+        repoRoot: linkedOption === 'repository' ? linkedRoot : repoRoot,
+        ...(linkedOption === 'worktree directory' ? { worktreeDir: linkedRoot } : {}),
+      })
+      const worktree = await adapter.create({ baseRef: 'main', label: 'canonical-root' })
+
+      expect(worktree.path).toBe(realpathSync(worktree.path))
+      const surface = await adapter.finalize(worktree, 'unchanged candidate')
+      expect(verifyCodeSurface(surface).path).toBe(worktree.path)
+      await adapter.discard(worktree)
+      expect(git(['worktree', 'list'], repoRoot)).not.toContain(worktree.path)
+    },
+  )
+
   it('creates an isolated worktree on a fresh branch off baseRef', async () => {
     const adapter = gitWorktreeAdapter({ repoRoot })
     const wt = await adapter.create({ baseRef: 'main', label: 'Tighten the rubric!' })
@@ -476,7 +498,7 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     writeFileSync(join(wt.path, 'prompt.txt'), 'candidate\n')
     const surface = await adapter.finalize(wt, 'candidate')
 
-    const otherRepo = mkdtempSync(join(tmpdir(), 'wt-wrong-repo-'))
+    const otherRepo = realpathSync(mkdtempSync(join(tmpdir(), 'wt-wrong-repo-')))
     try {
       git(['init', '-q', '-b', 'main'], otherRepo)
       git(['config', 'user.email', 'test@test.dev'], otherRepo)
@@ -502,7 +524,7 @@ describe('gitWorktreeAdapter — real git worktrees', () => {
     writeFileSync(join(wt.path, 'prompt.txt'), 'candidate\n')
     const surface = await adapter.finalize(wt, 'candidate')
 
-    const otherRepo = mkdtempSync(join(tmpdir(), 'wt-env-wrong-repo-'))
+    const otherRepo = realpathSync(mkdtempSync(join(tmpdir(), 'wt-env-wrong-repo-')))
     const priorGitDir = process.env.GIT_DIR
     const priorGitWorkTree = process.env.GIT_WORK_TREE
     try {

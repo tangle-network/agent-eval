@@ -1,7 +1,7 @@
 /** `node:fs/promises` is wrapped, not replaced: the artifact is swapped between
  *  `open` and the read that follows it, which reproduces the TOCTOU race the
  *  verification path must refuse. A real filesystem cannot be timed reliably. */
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -317,7 +317,7 @@ async function writeResult(
   content: string
   resultPath: string
 }> {
-  const artifactDir = await mkdtemp(join(tmpdir(), 'agent-eval-verification-'))
+  const artifactDir = await realpath(await mkdtemp(join(tmpdir(), 'agent-eval-verification-')))
   temporaryDirectories.push(artifactDir)
   const row: CodeTraceBenchRow = {
     traj_id: 'case-1',
