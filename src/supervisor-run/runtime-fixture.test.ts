@@ -35,12 +35,17 @@ describe('real agent-runtime run — a clean run reports no gaps it does not hav
     // knew `completed`/`interrupted` reported "no state.json / result.json status" on a
     // run whose result.json says exactly what happened.
     expect(report.outcome.supStatus).toBe('winner')
-    expect(report.gaps).not.toContain('supStatus: no state.json / result.json status')
+    expect(report.outcome.supStatusSource).toBe('runtime-result')
+    expect(report.outcome.supReason).toBeNull()
+    expect(report.outcome.failure).toBeNull()
+    expect(report.gaps.some((gap) => gap.startsWith('supStatus:'))).toBe(false)
+    // The begin stamp carries identity and start only; the status is read from
+    // result.json by name, never copied onto a synthetic legacy state document.
     expect(JSON.parse(source.state as string)).toEqual({
       id: ROOT,
       startedAt: '2026-09-01T15:12:25.228Z',
-      status: 'winner',
     })
+    expect(source.failure).toBeNull()
   })
 
   it('counts the settled valid verdict Runtime recorded as accepted', async () => {

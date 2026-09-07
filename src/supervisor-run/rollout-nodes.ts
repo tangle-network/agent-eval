@@ -30,11 +30,13 @@ import {
   type RolloutSplit,
 } from '../rollout/schema'
 import { asRecord, parseJson, parseSupervisorTree, type SupervisorTreeFacts } from './source-facts'
-import type {
-  SupervisorRunSources,
-  SupervisorRunTree,
-  SupervisorRunTreeGap,
-  WorkerLogSource,
+import { readTerminalRecord } from './terminal-record'
+import {
+  isUnavailable,
+  type SupervisorRunSources,
+  type SupervisorRunTree,
+  type SupervisorRunTreeGap,
+  type WorkerLogSource,
 } from './types'
 
 export interface SupervisorRolloutOptions {
@@ -123,6 +125,13 @@ export function supervisorRunRolloutLinesFromFacts(
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
   const stateResult = asRecord(state?.result)
+  // One derivation with the analyzer, so the root row and the report never
+  // disagree about which record the status came from.
+  const terminal = readTerminalRecord({
+    state,
+    result,
+    failure: src.failure === undefined ? undefined : parseJson(src.failure),
+  })
 
   const rootId = tree.rootId
   const runId = opts.runId ?? rootId ?? src.runRef
@@ -199,7 +208,7 @@ export function supervisorRunRolloutLinesFromFacts(
         verdict: judge ?? null,
         metrics: {
           arm: src.arm,
-          sup_status: typeof state?.status === 'string' ? state.status : null,
+          sup_status: isUnavailable(terminal.supStatus) ? null : terminal.supStatus,
           sup_verdict: typeof state?.verdict === 'string' ? state.verdict : null,
           delivered: typeof stateResult.delivered === 'boolean' ? stateResult.delivered : null,
           verify_pass: typeof result?.verify_pass === 'boolean' ? result.verify_pass : null,
@@ -210,12 +219,19 @@ export function supervisorRunRolloutLinesFromFacts(
           runtime: rootSpawn?.runtime ?? null,
           profile_digest: rootSpawn?.profileDigest ?? null,
         },
-        is_completed: state?.status === 'completed',
+        is_completed: terminal.completed === true,
         is_truncated: false,
+        // A recorded non-delivery names its cause: Runtime's no-winner reason,
+        // else the recorded error's message. A run with no terminal record has
+        // no error to report, and a delivered run has none.
         error:
-          result?.kind === 'interrupted' && typeof result.reason === 'string'
-            ? result.reason
-            : null,
+          terminal.completed !== false
+            ? null
+            : !isUnavailable(terminal.supReason) && terminal.supReason !== null
+              ? terminal.supReason
+              : !isUnavailable(terminal.failure) && terminal.failure !== null
+                ? (terminal.failure.message ?? terminal.failure.name)
+                : null,
         realness_gated: false,
       },
       cost: {

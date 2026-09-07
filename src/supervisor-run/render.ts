@@ -11,6 +11,7 @@ import {
   type SupervisorRunReport,
   type SupervisorRunRollup,
   showMeasured,
+  type TerminalFailure,
 } from './types'
 
 /**
@@ -26,6 +27,8 @@ export function renderSupervisorRunHeadline(r: SupervisorRunReport): string {
       : `${o.steers} queued / ${showMeasured(o.steersDelivered)} delivered`
   return [
     `RUN-REPORT ${r.instanceId ?? '?'} [${r.arm ?? '?'}]`,
+    `  status=${showMeasured(r.outcome.supStatus)} source=${showMeasured(r.outcome.supStatusSource)}` +
+      ` reason=${showMeasured(r.outcome.supReason)} failure=${fmtFailure(r.outcome.failure)}`,
     `  steers=${steerNote}`,
     `  waves=${showMeasured(o.waves)} sizes=${isUnavailable(o.waveSizes) ? `unavailable — ${o.waveSizes.unavailable}` : `[${o.waveSizes.join(',')}]`}` +
       ` workers=${showMeasured(o.workersSpawned)} settled=${showMeasured(o.workersSettled)} cancelled=${showMeasured(o.workersCancelled)}`,
@@ -40,6 +43,20 @@ export function renderSupervisorRunHeadline(r: SupervisorRunReport): string {
       ` verify=${showMeasured(r.outcome.verifyPass)}`,
     r.gaps.length > 0 ? `  gaps(${r.gaps.length}): ${r.gaps.join('; ')}` : '  gaps: none',
   ].join('\n')
+}
+
+/**
+ * The recorded error on one line; `none recorded` and `unavailable` stay
+ * distinct, and a throw the run outlived is labeled so it is not read as the
+ * outcome of the settled result beside it.
+ */
+function fmtFailure(v: Measured<TerminalFailure | null>): string {
+  if (isUnavailable(v)) return `unavailable — ${v.unavailable}`
+  if (v === null) return 'none recorded'
+  const name = v.name ?? 'unavailable — record has no error.name'
+  const message = v.message ?? 'unavailable — record has no error.message'
+  const attempt = v.earlierAttempt ? ', earlier attempt' : ''
+  return `${name}: ${message} [${v.source}${v.at === null ? '' : ` at ${v.at}`}${attempt}]`
 }
 
 function fmtMs(v: Measured<number>): string {
@@ -185,6 +202,9 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
   out.push('| Metric | Value |')
   out.push('|---|---|')
   out.push(`| Supervisor status | ${showMeasured(r.outcome.supStatus)} |`)
+  out.push(`| Status source | ${showMeasured(r.outcome.supStatusSource)} |`)
+  out.push(`| Terminal reason | ${showMeasured(r.outcome.supReason)} |`)
+  out.push(`| Failure | ${fmtFailure(r.outcome.failure)} |`)
   out.push(`| Supervisor verdict | ${showMeasured(r.outcome.supVerdict)} |`)
   out.push(`| Delivered | ${showMeasured(r.outcome.delivered)} |`)
   out.push(`| Judge resolved | ${showMeasured(r.outcome.judgeResolved)} |`)

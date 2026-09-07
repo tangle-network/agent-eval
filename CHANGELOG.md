@@ -4,6 +4,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.175.0] — 2026-09-06
+
+### Added
+
+- `agent-eval supervisor-run report <runDir> [--format headline|markdown|json]` prints one run directory's report.
+  It exits 1 when the directory cannot be read and 2 on a usage error.
+- `OutcomeMetrics.supStatusSource`, `supReason`, and `failure` name the record a status came from, Runtime's no-winner reason, and the recorded error.
+  `readTerminalRecord` is the one derivation the analyzer and the rollout minter share.
+
+### Changed
+
+- The supervisor-run reader takes a run's status from Runtime's own settle record.
+  `result.json` is the `SupervisedResult` that `supervise()` returned, and its `kind` is the status (`runtime-result`).
+  The control-plane-era `state.json` `status` and `result.json` `sup_status` remain readable as named legacy sources (`legacy-state`, `legacy-result`).
+- A Runtime `failure.json` without a `result.json` reports status `failed` with the recorded error (`runtime-failure`) instead of an unavailable status.
+  A `failure.json` beside a settled result is reported with `earlierAttempt: true`; the settled result stays the status.
+- A directory holding `observer.jsonl` or `failure.json` is a Runtime run directory before its spawn journal exists.
+  `isRuntimeSupervisorRunDir`, `analyzeSupervisorRun`, and `findSupervisorRunDirs` recognize it, and every journal metric stays a named absence.
+- The Runtime reader no longer copies the result status onto its begin-stamp state document; `SupervisorRunSources.state` for a Runtime run carries `id` and `startedAt` only.
+  It no longer reads `trajectory.json`, which Runtime never wrote.
+
+---
+
 ## [0.174.0] — 2026-09-05
 
 ### Changed

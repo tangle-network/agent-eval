@@ -11,10 +11,16 @@
  * identity below `identity` and does not emit Eval's role field. This boundary
  * projects those fields without changing Runtime's dialect.
  *
- * The run's terminal status is Runtime's own `result.json` `kind` — `winner`,
- * `no-winner`, or whatever a later arm is called — read verbatim. The reader
- * does not decide which kinds count: a kind it refuses is a run that recorded
- * its outcome and got reported as having none.
+ * The run's terminal record is Runtime's own: `result.json` is the
+ * `SupervisedResult` that `supervise()` returned, verbatim, and its `kind`
+ * (`winner`, `no-winner`, or whatever a later arm is called) is the status.
+ * `failure.json` (`{ runId, pursuitId, at, error: { name, message } }`) is the
+ * record Runtime writes when `supervise()` threw before a result landed. Both
+ * pass through as bytes; `terminal-record.ts` reads them. The reader does not
+ * decide which kinds count: a kind it refuses is a run that recorded its
+ * outcome and got reported as having none. Nothing here manufactures a loops
+ * `state.json` status from Runtime's documents: the analyzer names the record
+ * a status came from, and a synthetic legacy document would mislabel it.
  *
  * `usdKnown: false` / `tokensKnown: false` on ONE record is not a limit of this
  * store. The store recorded every other record completely, so the flags travel
@@ -33,8 +39,24 @@ import {
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
+const OBSERVER_FILE = 'observer.jsonl'
 const RESULT_FILE = 'result.json'
-const TRAJECTORY_FILE = 'trajectory.json'
+const FAILURE_FILE = 'failure.json'
+
+/**
+ * The files only Runtime's durable layer writes. Any one of them marks a
+ * Runtime run directory: `supervise()` opens the spawn journal on its first
+ * event, and `supervisePursuit` appends the observer's `before` event and, on
+ * a throw, the failure record before any spawn.
+ *
+ * Measured motive (discovery-lab recursive smoke r1, 2026-09-06): the first
+ * attempt threw on a caller input error 16 minutes before the corrected attempt
+ * opened the spawn journal. At that instant the directory held `observer.jsonl`
+ * (2 records) and the failure record and no journal, so a journal-only test
+ * routed it to the loops reader, which reads neither file, and the recorded
+ * throw was reported as no run at all.
+ */
+const RUNTIME_RUN_DIR_MARKERS: readonly string[] = [JOURNAL_FILE, OBSERVER_FILE, FAILURE_FILE]
 
 interface BeginRecord {
   readonly root: string
@@ -418,59 +440,51 @@ function sourceLimits(
   }
 }
 
-function runtimeState(
+/**
+ * Refuse a `result.json` that belongs to another run. Runtime's result carries
+ * its own `tree.root`; a settled record with a different root is a copied or
+ * misplaced file, and reading its status onto this journal misreports the run.
+ */
+function assertResultMatchesJournal(
   root: string,
-  startedAt: string,
   result: Record<string, unknown> | null,
-  trajectory: Record<string, unknown> | null,
   resultPath: string,
-  trajectoryPath: string,
-): string {
-  // Runtime's own terminal discriminant, read verbatim: `winner` when a child delivered,
-  // `no-winner` when none did, and whatever a later arm is named. The reader translates the
-  // envelope; it does not decide which kinds count, because a kind it fails to recognize is
-  // reported as a missing status on a run that recorded one.
+): void {
   const resultKind = result === null ? null : nonEmptyString(result.kind)
-  if (resultKind !== null && result !== null) {
-    const resultRoot = nonEmptyString(record(result.tree)?.root)
-    if (resultRoot === null) {
-      throw new Error(`${resultPath}: Runtime ${resultKind} result has no tree.root`)
-    }
-    if (resultRoot !== root) {
-      throw new Error(
-        `${resultPath}: root ${JSON.stringify(resultRoot)} does not match journal root ${JSON.stringify(root)}`,
-      )
-    }
+  if (resultKind === null || result === null) return
+  const resultRoot = nonEmptyString(record(result.tree)?.root)
+  if (resultRoot === null) {
+    throw new Error(`${resultPath}: Runtime ${resultKind} result has no tree.root`)
   }
-
-  if (trajectory !== null && nonEmptyString(trajectory.root) === null) {
-    throw new Error(`${trajectoryPath}: Runtime trajectory has no root`)
-  }
-  if (typeof trajectory?.root === 'string' && trajectory.root !== root) {
+  if (resultRoot !== root) {
     throw new Error(
-      `${trajectoryPath}: root ${JSON.stringify(trajectory.root)} does not match journal root ${JSON.stringify(root)}`,
+      `${resultPath}: root ${JSON.stringify(resultRoot)} does not match journal root ${JSON.stringify(root)}`,
     )
   }
-  if (trajectory !== null && !Array.isArray(trajectory.nodes)) {
-    throw new Error(`${trajectoryPath}: Runtime trajectory nodes must be an array`)
-  }
+}
 
-  let status: string | null = resultKind
-  if (status === null && Array.isArray(trajectory?.nodes)) {
-    const rootNodes = trajectory.nodes
-      .map((node) => record(node))
-      .filter((node) => node?.id === root)
-    if (rootNodes.length > 1) {
-      throw new Error(`${trajectoryPath}: Runtime trajectory contains duplicate root nodes`)
-    }
-    status = nonEmptyString(rootNodes[0]?.status)
+/**
+ * Refuse a `failure.json` that is not a failure record. Runtime writes
+ * `{ runId, pursuitId, at, error: { name, message } }`; a document without an
+ * `error` object is not one, and reading it as a failure invents a terminal
+ * state the run never recorded. The record carries no tree root, so its
+ * identity is not checked against the journal.
+ */
+function assertFailureRecord(failure: Record<string, unknown> | null, failurePath: string): void {
+  if (failure === null) return
+  if (record(failure.error) === null) {
+    throw new Error(`${failurePath}: Runtime failure record has no error object`)
   }
+}
 
-  return JSON.stringify({
-    id: root,
-    startedAt,
-    ...(status === null ? {} : { status }),
-  })
+/**
+ * The journal's begin stamp in the analyzer's state-document shape. It carries
+ * the run identity and start instant only; the terminal status lives in
+ * Runtime's own `result.json` / `failure.json`, which the analyzer reads by
+ * name, so no legacy `status` field is fabricated here.
+ */
+function runtimeBeginState(root: string, startedAt: string): string {
+  return JSON.stringify({ id: root, startedAt })
 }
 
 export interface RuntimeReaderOptions {
@@ -487,14 +501,29 @@ export interface RuntimeReaderOptions {
  * absent shape `readLoopsSupervisorRun` returns for a missing store: every
  * journal-dependent metric downstream reads `unavailable`, never 0.
  */
+/**
+ * The run identity a terminal record names when no journal exists yet: the
+ * settle record's `tree.root`, else the failure record's `runId`. Both are
+ * Runtime's own `runId`, so the report names the run the record is about
+ * instead of `?`.
+ */
+function recordedRunId(
+  result: Record<string, unknown> | null,
+  failure: Record<string, unknown> | null,
+): string | null {
+  return nonEmptyString(record(result?.tree)?.root) ?? nonEmptyString(failure?.runId)
+}
+
 function absentRuntimeSupervisorRun(
   runDir: string,
   resultText: string | null,
+  failureText: string | null,
+  instanceId: string | null,
 ): SupervisorRunSources {
   const reason = `no Runtime spawn journal (${JOURNAL_FILE}) under ${runDir}`
   return {
     runRef: runDir,
-    instanceId: null,
+    instanceId,
     arm: null,
     supRunDir: null,
     journal: null,
@@ -507,6 +536,7 @@ function absentRuntimeSupervisorRun(
     workers: null,
     workersMissingReason: reason,
     result: resultText,
+    failure: failureText,
     judge: null,
     judgeSource: null,
     patch: null,
@@ -525,9 +555,12 @@ function absentRuntimeSupervisorRun(
  * A run dir without `spawn-journal.jsonl` returns the same absent-shaped
  * sources `readLoopsSupervisorRun` returns for a missing store: `journal` and
  * `workers` null, each with its reason, so every dependent metric reads
- * `unavailable` — never 0 and never a throw. Pass `strict: true` to throw on
- * the missing journal instead. A journal that exists but cannot be parsed
- * always throws: a corrupt journal is a defect, not an absence.
+ * `unavailable` — never 0 and never a throw. Its `result.json` and
+ * `failure.json` are still read, so a run that died before its first spawn
+ * reports the failure Runtime recorded. Pass `strict: true` to throw on the
+ * missing journal instead. A journal, result, or failure document that exists
+ * but cannot be parsed always throws: a corrupt record is a defect, not an
+ * absence.
  *
  * The reader translates storage envelopes only. It does not assign research
  * roles, interpret artifacts, or turn process completion into a quality
@@ -540,16 +573,23 @@ export async function readRuntimeSupervisorRun(
   const journalPath = join(runDir, JOURNAL_FILE)
   const rawJournal =
     opts.strict === true ? await readFile(journalPath, 'utf8') : await readMaybe(journalPath)
+  const resultPath = join(runDir, RESULT_FILE)
+  const failurePath = join(runDir, FAILURE_FILE)
+  const resultText = await readMaybe(resultPath)
+  const failureText = await readMaybe(failurePath)
+  const failure = parseOptionalRecord(failureText, failurePath)
+  assertFailureRecord(failure, failurePath)
+  const result = parseOptionalRecord(resultText, resultPath)
   if (rawJournal === null) {
-    return absentRuntimeSupervisorRun(runDir, await readMaybe(join(runDir, RESULT_FILE)))
+    return absentRuntimeSupervisorRun(
+      runDir,
+      resultText,
+      failureText,
+      recordedRunId(result, failure),
+    )
   }
   const normalized = parseEnvelopeJournal(rawJournal, journalPath)
-  const resultText = await readMaybe(join(runDir, RESULT_FILE))
-  const trajectoryText = await readMaybe(join(runDir, TRAJECTORY_FILE))
-  const result = parseOptionalRecord(resultText, join(runDir, RESULT_FILE))
-  const trajectory = parseOptionalRecord(trajectoryText, join(runDir, TRAJECTORY_FILE))
-  const resultPath = join(runDir, RESULT_FILE)
-  const trajectoryPath = join(runDir, TRAJECTORY_FILE)
+  assertResultMatchesJournal(normalized.root, result, resultPath)
 
   const spawns = normalized.events.filter(
     (event) => event.kind === 'spawned' && nonEmptyString(event.id) !== null,
@@ -577,18 +617,12 @@ export async function readRuntimeSupervisorRun(
     brainLog: null,
     brainLogMissingReason:
       'Runtime FileRunContext records spend but not model completion finish reasons',
-    state: runtimeState(
-      normalized.root,
-      normalized.startedAt,
-      result,
-      trajectory,
-      resultPath,
-      trajectoryPath,
-    ),
+    state: runtimeBeginState(normalized.root, normalized.startedAt),
     progress: null,
     workers,
     workersMissingReason: null,
     result: resultText,
+    failure: failureText,
     judge: null,
     judgeSource: null,
     patch: null,
@@ -609,9 +643,20 @@ export function runtimeSupervisorRunReader(
   return { runRef: runDir, read: () => readRuntimeSupervisorRun(runDir, opts) }
 }
 
-/** True when a directory contains Runtime's canonical file-backed journal. */
+/**
+ * True when a directory holds any file only Runtime's durable layer writes:
+ * the spawn journal, the observer journal, or the failure record. A run that
+ * threw before its first spawn has no journal yet and is still a Runtime run.
+ */
 export async function isRuntimeSupervisorRunDir(runDir: string): Promise<boolean> {
-  return stat(join(runDir, JOURNAL_FILE))
+  for (const marker of RUNTIME_RUN_DIR_MARKERS) {
+    if (await isFile(join(runDir, marker))) return true
+  }
+  return false
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return stat(path)
     .then((entry) => entry.isFile())
     .catch((error: unknown) => {
       if (

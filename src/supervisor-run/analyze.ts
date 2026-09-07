@@ -15,6 +15,7 @@ import {
   type WorkerLogFacts,
   workerSourceKey,
 } from './source-facts'
+import { readTerminalRecord } from './terminal-record'
 import {
   type DecisionMetrics,
   type EconomicsMetrics,
@@ -82,6 +83,13 @@ export function analyzeSupervisorRunSources(
   const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
+  // Runtime's settle record outranks the legacy loops documents; the record
+  // that answered is named on the report so a status never arrives unlabeled.
+  const terminal = readTerminalRecord({
+    state,
+    result,
+    failure: src.failure === undefined ? undefined : parseJson(src.failure),
+  })
   const { rootId, workerSpawns, workerCloses, startedAt, completedAt } = tree
   const rootSpawn =
     rootId === null ? null : (tree.spawns.find((spawn) => spawn.id === rootId) ?? null)
@@ -829,10 +837,12 @@ export function analyzeSupervisorRunSources(
       : parsePatch(src.patch)
 
   const outcome: OutcomeMetrics = {
-    supStatus:
-      pickString(state, 'status') ??
-      pickString(result, 'sup_status') ??
-      gap('supStatus', 'no state.json / result.json status'),
+    supStatus: isUnavailable(terminal.supStatus)
+      ? gap('supStatus', terminal.supStatus.unavailable)
+      : terminal.supStatus,
+    supStatusSource: terminal.supStatusSource,
+    supReason: terminal.supReason,
+    failure: terminal.failure,
     supVerdict:
       pickString(state, 'verdict') ??
       pickString(result, 'sup_verdict') ??

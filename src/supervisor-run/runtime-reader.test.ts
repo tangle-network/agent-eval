@@ -810,6 +810,74 @@ describe('Runtime FileRunContext supervisor reader', () => {
     expect(tree.nodes[0]?.outcome.error).toBe('budget-exhausted')
   })
 
+  it('reports Runtime failure.json as the terminal status when supervise threw after spawning', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'threw')
+    await writeJournal(runDir, [
+      begin('threw-root', 0),
+      event('threw-root', {
+        kind: 'spawned',
+        id: 'threw-root',
+        label: 'root',
+        profileDigest: ROOT_PROFILE,
+        budget: { maxIterations: 1, maxTokens: 100 },
+        seq: 0,
+        at: at(0),
+      }),
+      event('threw-root', {
+        kind: 'spawned',
+        id: 'threw-root:s0',
+        parent: 'threw-root',
+        label: 'worker',
+        profileDigest: CHILD_PROFILE,
+        budget: { maxIterations: 1, maxTokens: 100 },
+        seq: 0,
+        at: at(1),
+      }),
+    ])
+    await writeFile(
+      join(runDir, 'failure.json'),
+      JSON.stringify({
+        runId: 'threw-root',
+        pursuitId: 'threw',
+        at: at(2),
+        error: { name: 'Error', message: 'executor bridge closed' },
+      }),
+    )
+
+    const source = await readRuntimeSupervisorRun(runDir)
+    const report = await analyzeSupervisorRun(runDir)
+    const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
+    expect(report.outcome.supStatus).toBe('failed')
+    expect(report.outcome.supStatusSource).toBe('runtime-failure')
+    expect(report.outcome.supReason).toBeNull()
+    expect(report.outcome.failure).toEqual({
+      source: 'runtime-failure',
+      name: 'Error',
+      message: 'executor bridge closed',
+      at: at(2),
+      earlierAttempt: false,
+    })
+    // The journal is still read: the spawn that happened before the throw is counted.
+    expect(report.orchestration.workersSpawned).toBe(1)
+    expect(report.orchestration.workersSettled).toBe(0)
+    expect(tree.nodes[0]?.outcome.metrics.sup_status).toBe('failed')
+    expect(tree.nodes[0]?.outcome.is_completed).toBe(false)
+    expect(tree.nodes[0]?.outcome.error).toBe('executor bridge closed')
+  })
+
+  it('refuses a failure.json that is not a failure record', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'bad-failure')
+    await writeJournal(runDir, [begin('bad-root', 0)])
+    await writeFile(join(runDir, 'failure.json'), JSON.stringify({ runId: 'bad-root' }))
+    await expect(readRuntimeSupervisorRun(runDir)).rejects.toThrow(
+      /failure\.json: Runtime failure record has no error object/,
+    )
+    await writeFile(join(runDir, 'failure.json'), '{not json')
+    await expect(readRuntimeSupervisorRun(runDir)).rejects.toThrow(/failure\.json: invalid JSON/)
+  })
+
   it('keeps explicitly unknown Runtime prices unavailable while retaining measured tokens', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'unknown-usd')
