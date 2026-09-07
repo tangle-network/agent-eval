@@ -28,6 +28,7 @@ import {
   type LedgerProjector,
   type LedgerTrustedHead,
   type LedgerTrustedHeadRemoval,
+  replayLedgerText,
 } from '../ledger-core'
 import { modelHasSnapshot } from '../run-record'
 import {
@@ -871,6 +872,15 @@ export interface SearchLedger {
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
   if (options.path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
   return new FileSearchLedger(options.path, options.campaignId, options.trustedHead)
+}
+
+/** Replay immutable search-ledger JSONL through the same codec as FileSearchLedger. */
+export function replaySearchLedgerText(
+  text: string,
+  campaignId: string,
+  source: string,
+): SearchLedgerReplay {
+  return replayLedgerText(text, source, searchLedgerCodec(campaignId)).projection
 }
 
 interface SearchLedgerHeader {

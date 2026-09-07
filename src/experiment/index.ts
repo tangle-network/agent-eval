@@ -167,6 +167,7 @@ export {
   type MatchedBudgetVerdict,
   verifyMatchedBudgets,
 } from './budget'
+export { type CampaignEvidenceContext, createCampaignEvidenceReceipt } from './campaign-evidence'
 // ── Define, seal, amend, execute ─────────────────────────────────────
 export {
   type ArmSpec,

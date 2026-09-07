@@ -4,6 +4,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.176.0] — 2026-09-07
+
+### Added
+
+- Complete-method workflows share input preparation, result validation, accounting, and search-history admission.
+  `selfImprove({ method })` now accepts the same optional history policy as `compareOptimizationMethods`.
+- `searchHistoryVerification: 'ledger'` verifies referenced bytes and canonical replay through campaign storage before final assessment.
+  Coverage reports `ledgerVerified` only after those checks pass.
+- Optional final-measurement `evidence` creates existing evidence receipts from actual baseline and winner campaigns.
+  Callers supply evaluator, environment, and authority; Eval derives measured identities without changing selection or promotion.
+- `/experiment` exports `createCampaignEvidenceReceipt`; `/campaign` exports artifact verification and immutable search-ledger replay.
+  Ledger text replay reuses the filesystem journal's canonical parser and state machine.
+
+
 ## [0.175.0] — 2026-09-06
 
 ### Added

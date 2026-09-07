@@ -147,6 +147,37 @@ const comparison = await compareOptimizationMethods({
 })
 ```
 
+`selfImprove({ method })` accepts the same `searchHistoryPolicy` and `searchHistoryVerification` options.
+Both workflows use the same method preparation, result validation, cost reconciliation, and history admission.
+`selfImprove` returns `searchHistoryCoverage`; comparison returns coverage for every method.
+The default remains `allow-missing` with receipt verification.
+
+### Verify referenced history before final assessment
+
+Set `searchHistoryVerification: 'ledger'` to require the referenced bytes, even with `allow-missing`.
+Combine it with `require-complete` to require both verified bytes and complete history.
+
+```ts
+const comparison = await compareOptimizationMethods({
+  // ...methods, partitions, dispatch, judges, runDir
+  searchHistoryPolicy: 'require-complete',
+  searchHistoryVerification: 'ledger',
+  storage,
+})
+```
+
+Eval reads the receipt URI through `storage.read`.
+A `file:` URI becomes a local path; other URIs remain opaque storage keys.
+A custom `CampaignStorage` can resolve retained artifacts without another ledger implementation.
+Missing bytes, length or digest mismatches, invalid chains, and replay discrepancies refuse final dispatch.
+A verified coverage row carries `ledgerVerified: true`.
+Receipt-only coverage does not make that claim.
+
+Existing search recorders compute `ledger.sha256` with `hashCanonical` over the complete JSONL string.
+It hashes that string's canonical JSON encoding, rather than the raw UTF-8 file.
+Verification preserves this existing identity scheme.
+`byteLength` measures the UTF-8 JSONL bytes.
+
 Every method finishes optimization before the first untouched-final-test dispatch. Under `require-complete`, missing, malformed, producer-mismatched, interrupted, or denominator-incomplete evidence aborts at that boundary.
 
 ## Verification boundary
@@ -155,7 +186,8 @@ Every method finishes optimization before the first untouched-final-test dispatc
 
 `assertSearchHistoryMatchesReplay()` additionally proves that the envelope was derived from the supplied canonical replay.
 
-Neither function fetches or retains the ledger artifact. A skeptical consumer must resolve `receipt.ledger`, verify its digest and byte length, replay it with `SearchLedger`, and then call `assertSearchHistoryMatchesReplay()`.
+`verifySearchHistoryArtifact(receipt, storage)` resolves bytes and runs both checks through the canonical journal codec.
+The two receipt-only functions do not fetch or retain the ledger artifact. A skeptical consumer must resolve `receipt.ledger`, verify its digest and byte length, replay it with `SearchLedger`, and then call `assertSearchHistoryMatchesReplay()`.
 
 The receipt does not prove that:
 
@@ -175,3 +207,18 @@ Those claims require held-out evaluation, artifact retention, provenance verific
 - **Knowledge** owns what information was visible, retrieved, and selected for use.
 - **Interface** owns portable profiles, diffs, identities, and digest primitives.
 - **SDKs** should automate these owner contracts, not copy their types or introduce another optimizer loop.
+
+## Bind final measurements to execution evidence
+
+Both complete-method workflows accept optional `evidence: CampaignEvidenceContext`.
+It requires the caller's pursuit, evaluator, environment, authority, and attestation provenance.
+Eval does not infer independent authority or certify those external declarations.
+
+Each measured baseline and winner receives the existing `EvidenceReceipt` format.
+Eval derives candidate, input-set, output, and result digests from the executed surface and complete campaign.
+A missing or deferred final measurement cannot produce a receipt.
+Receipts describe measurements; they do not override the release gate or replace the method's selected winner.
+
+`createCampaignEvidenceReceipt` on `/experiment` provides the same binding for other complete campaign consumers.
+Changing an output changes its output digest; changing a judge result changes its measurement digest.
+The final receipt retains caller authority, including `candidate-self-report`, without upgrading it.

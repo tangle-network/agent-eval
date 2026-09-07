@@ -37,6 +37,10 @@ import {
 } from '../campaign/run-record'
 import type { SearchHistoryReceipt } from '../campaign/search-history-receipt'
 import {
+  assertSearchHistoryAdmissionOptions,
+  type SearchHistoryAdmissionOptions,
+} from '../campaign/search-history-receipt'
+import {
   type CampaignStorage,
   createRunCostLedger,
   fsCampaignStorage,
@@ -53,6 +57,7 @@ import type {
   SurfaceProposer,
 } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
+import type { CampaignEvidenceContext } from '../experiment/campaign-evidence'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
 import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
 import type { RunSplitTag } from '../run-record'
@@ -119,7 +124,8 @@ export type SelfImproveProgressEvent =
   | { kind: 'gate.decided'; decision: string; lift?: number }
   | { kind: 'power.estimated'; n: number; sd: number; mde: number; underpowered: boolean }
 
-export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
+export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
+  extends SearchHistoryAdmissionOptions {
   /**
    * Your agent — a function that takes the current `MutableSurface`
    * (typically a system prompt the loop is optimizing) plus the
@@ -319,6 +325,8 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact> {
    *  return the bounded receipt on `searchHistory`. See
    *  `RunOptimizationOptions.searchLedger`. */
   searchLedger?: RunOptimizationOptions<TScenario, TArtifact>['searchLedger']
+  /** Complete-method final measurement receipts; authority and environment remain caller-owned. */
+  evidence?: CampaignEvidenceContext
 }
 
 export interface SelfImproveProposerResult<TScenario extends Scenario, TArtifact> {
@@ -439,6 +447,14 @@ export class SelfImproveRunError extends Error {
 function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
   opts: SelfImproveOptions<TScenario, TArtifact>,
 ): void {
+  assertSearchHistoryAdmissionOptions(opts)
+  if (
+    !opts.method &&
+    (opts.searchHistoryPolicy !== undefined ||
+      opts.searchHistoryVerification !== undefined ||
+      opts.evidence !== undefined)
+  )
+    throw new Error('selfImprove: search history admission requires method')
   if (opts.method && opts.proposer) {
     throw new Error('selfImprove: method and proposer are mutually exclusive')
   }

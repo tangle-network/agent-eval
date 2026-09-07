@@ -316,85 +316,102 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
 
   private readEntries(): LedgerEntryOf<Header, Event>[] {
     if (!existsSync(this.path)) return []
-    const text = readFileSync(this.path, 'utf8')
-    if (text.length === 0) return []
-    if (!text.endsWith('\n')) {
-      throw this.codec.integrityError(
-        `${this.codec.subject} ${this.path} has a truncated final record (missing newline)`,
-      )
-    }
-
-    const lines = text.slice(0, -1).split('\n')
-    const entries: LedgerEntryOf<Header, Event>[] = []
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]!
-      if (line.length === 0) {
-        throw this.codec.integrityError(
-          `${this.codec.subject} ${this.path} has a blank row at line ${index + 1}`,
-        )
-      }
-      let raw: unknown
-      try {
-        raw = JSON.parse(line)
-      } catch (error) {
-        throw this.codec.integrityError(
-          `${this.codec.subject} ${this.path} has invalid JSON at line ${index + 1}`,
-          { cause: error },
-        )
-      }
-      const entry = this.codec.parseEntry(raw, { path: this.path, line: index + 1 })
-      let canonical: string
-      try {
-        canonical = canonicalString(entry)
-      } catch (error) {
-        throw this.codec.integrityError(
-          `${this.codec.subject} ${this.path} has a row with no canonical JSON form at line ${index + 1}`,
-          { cause: error },
-        )
-      }
-      if (line !== canonical) {
-        throw this.codec.integrityError(
-          `${this.codec.subject} ${this.path} has non-canonical bytes at line ${index + 1}`,
-        )
-      }
-      entries.push(entry)
-    }
-    return entries
+    return parseLedgerText(readFileSync(this.path, 'utf8'), this.path, this.codec)
   }
 
   private project(entries: LedgerEntryOf<Header, Event>[]): Projection {
-    const projector = this.codec.createProjector()
-    const eventIds = new Set<string>()
-    let expectedPrevious: LedgerHash | null = null
-    for (let index = 0; index < entries.length; index += 1) {
-      const entry = entries[index]!
-      this.codec.checkEntryHeader(entry, index)
-      if (entry.sequence !== index) {
-        throw this.codec.integrityError(
-          `entry ${entry.event.eventId} has sequence ${entry.sequence}, expected ${index}`,
-        )
-      }
-      if (entry.previousHash !== expectedPrevious) {
-        throw this.codec.integrityError(
-          `entry ${entry.event.eventId} does not extend the previous hash`,
-        )
-      }
-      const { entryHash: _entryHash, ...material } = entry
-      const expectedHash = hashCanonical(material)
-      if (entry.entryHash !== expectedHash) {
-        throw this.codec.integrityError(
-          `entry ${entry.event.eventId} hash mismatch: expected ${expectedHash}, got ${entry.entryHash}`,
-        )
-      }
-      expectedPrevious = entry.entryHash
-      if (eventIds.has(entry.event.eventId)) {
-        throw this.codec.integrityError(
-          `duplicate eventId ${entry.event.eventId} in durable ledger`,
-        )
-      }
-      eventIds.add(entry.event.eventId)
-      projector.apply(entry, index)
-    }
-    return projector.finish(entries)
+    return projectLedgerEntries(entries, this.codec)
   }
+}
+
+/** Verify and replay resolved immutable journal bytes without filesystem I/O. */
+export function replayLedgerText<Header extends object, Event extends LedgerEventBase, Projection>(
+  text: string,
+  path: string,
+  codec: LedgerJournalCodec<Header, Event, Projection>,
+): LedgerReplayResult<LedgerEntryOf<Header, Event>, Projection> {
+  const entries = parseLedgerText(text, path, codec)
+  return { entries, projection: projectLedgerEntries(entries, codec) }
+}
+
+function parseLedgerText<Header extends object, Event extends LedgerEventBase, Projection>(
+  text: string,
+  path: string,
+  codec: LedgerJournalCodec<Header, Event, Projection>,
+): LedgerEntryOf<Header, Event>[] {
+  if (text.length === 0) return []
+  if (!text.endsWith('\n')) {
+    throw codec.integrityError(
+      `${codec.subject} ${path} has a truncated final record (missing newline)`,
+    )
+  }
+
+  const lines = text.slice(0, -1).split('\n')
+  const entries: LedgerEntryOf<Header, Event>[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!
+    if (line.length === 0) {
+      throw codec.integrityError(`${codec.subject} ${path} has a blank row at line ${index + 1}`)
+    }
+    let raw: unknown
+    try {
+      raw = JSON.parse(line)
+    } catch (error) {
+      throw codec.integrityError(`${codec.subject} ${path} has invalid JSON at line ${index + 1}`, {
+        cause: error,
+      })
+    }
+    const entry = codec.parseEntry(raw, { path: path, line: index + 1 })
+    let canonical: string
+    try {
+      canonical = canonicalString(entry)
+    } catch (error) {
+      throw codec.integrityError(
+        `${codec.subject} ${path} has a row with no canonical JSON form at line ${index + 1}`,
+        { cause: error },
+      )
+    }
+    if (line !== canonical) {
+      throw codec.integrityError(
+        `${codec.subject} ${path} has non-canonical bytes at line ${index + 1}`,
+      )
+    }
+    entries.push(entry)
+  }
+  return entries
+}
+
+function projectLedgerEntries<Header extends object, Event extends LedgerEventBase, Projection>(
+  entries: LedgerEntryOf<Header, Event>[],
+  codec: LedgerJournalCodec<Header, Event, Projection>,
+): Projection {
+  const projector = codec.createProjector()
+  const eventIds = new Set<string>()
+  let expectedPrevious: LedgerHash | null = null
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!
+    codec.checkEntryHeader(entry, index)
+    if (entry.sequence !== index) {
+      throw codec.integrityError(
+        `entry ${entry.event.eventId} has sequence ${entry.sequence}, expected ${index}`,
+      )
+    }
+    if (entry.previousHash !== expectedPrevious) {
+      throw codec.integrityError(`entry ${entry.event.eventId} does not extend the previous hash`)
+    }
+    const { entryHash: _entryHash, ...material } = entry
+    const expectedHash = hashCanonical(material)
+    if (entry.entryHash !== expectedHash) {
+      throw codec.integrityError(
+        `entry ${entry.event.eventId} hash mismatch: expected ${expectedHash}, got ${entry.entryHash}`,
+      )
+    }
+    expectedPrevious = entry.entryHash
+    if (eventIds.has(entry.event.eventId)) {
+      throw codec.integrityError(`duplicate eventId ${entry.event.eventId} in durable ledger`)
+    }
+    eventIds.add(entry.event.eventId)
+    projector.apply(entry, index)
+  }
+  return projector.finish(entries)
 }
