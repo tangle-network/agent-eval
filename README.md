@@ -163,7 +163,7 @@ and [DSPy](./docs/campaign-proposers.md#use-official-dspy-optimizers).
 | `@tangle-network/agent-eval/trajectory-replay` | Re-execute a recorded shell trajectory and check whether its failure reproduces. |
 | `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
 | `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
-| `@tangle-network/agent-eval/supervisor-run` | Read recursive run directories without collapsing missing measurements to zero. |
+| `@tangle-network/agent-eval/supervisor-run` | Read recursive run directories without collapsing missing measurements to zero; `agent-eval supervisor-run report <runDir>` prints one. |
 | `@tangle-network/agent-eval/meta-eval` | Measure the grader itself: judge calibration, sentinels, and seeded known-wrong plants. |
 | `@tangle-network/agent-eval/profile-cell` | Create and validate portable agent-profile identities. |
 | `@tangle-network/agent-eval/ledger-core` | Append-only hash-chained journal with idempotent append and chain verification. |

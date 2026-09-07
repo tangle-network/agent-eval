@@ -1,0 +1,9 @@
+{
+  "runId": "meta-operator-recursion-smoke-r1",
+  "pursuitId": "meta-operator-recursion-smoke-r1",
+  "at": "2026-09-06T05:58:29.604Z",
+  "error": {
+    "name": "TypeError",
+    "message": "supervise budget.deadlineMs must be a non-negative finite number"
+  }
+}

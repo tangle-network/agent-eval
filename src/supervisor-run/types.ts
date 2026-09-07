@@ -164,8 +164,19 @@ export interface SupervisorRunSources {
   readonly workers: readonly WorkerLogSource[] | null
   /** Why `workers` is null (only set when it is). */
   readonly workersMissingReason: string | null
-  /** Run result document (JSON). */
+  /**
+   * Run result document (JSON). For a Runtime run dir this is `result.json`,
+   * the `SupervisedResult` that `supervise()` returned, verbatim; its `kind`
+   * is the run's status. For a loops run dir it is the legacy result document.
+   */
   readonly result: string | null
+  /**
+   * Runtime's terminal failure record (`failure.json`), written when
+   * `supervise()` threw before a result landed. `null` = the store was read and
+   * holds no such record; `undefined` = the store has no failure document at
+   * all (the loops layout), which the analyzer reports as its own absence.
+   */
+  readonly failure?: string | null
   /**
    * Judge verdict document (JSON), or the matching ledger row re-encoded as
    * one. Runners that write the verdict straight to a ledger leave no judge
@@ -424,8 +435,61 @@ export interface PatchStats {
   readonly testFilesTouched: readonly string[]
 }
 
+/** Which record a run's terminal status was read from, so no source is a silent substitution. */
+export type SupervisorStatusSource =
+  /** Runtime's `result.json` `kind`: the `SupervisedResult` discriminant, read verbatim. */
+  | 'runtime-result'
+  /** Runtime's `failure.json`: `supervise()` threw before a result landed. */
+  | 'runtime-failure'
+  /** Control-plane-era loops `state.json` `status`. */
+  | 'legacy-state'
+  /** Control-plane-era loops `result.json` `sup_status`. */
+  | 'legacy-result'
+
+/** The error a run directory recorded. */
+export interface TerminalFailure {
+  /**
+   * Which record carried the error: Runtime's `failure.json`, or the driver
+   * rejection inside a `driver-failed` no-winner `result.json`.
+   */
+  readonly source: 'runtime-failure' | 'runtime-result'
+  /** `error.name` exactly as recorded; null when the record has none. */
+  readonly name: string | null
+  /** `error.message` exactly as recorded; null when the record has none. */
+  readonly message: string | null
+  /** ISO timestamp the record carries; null when it carries none. */
+  readonly at: string | null
+  /**
+   * True when the directory also holds a settled `result.json`. Runtime writes
+   * `failure.json` only when `supervise()` threw, never after a settle, and
+   * refuses to re-enter a settled directory, so a failure beside a result is
+   * the throw of an earlier attempt that a later attempt outlived. The status
+   * is the settled result's; this record explains the retry, not the outcome.
+   */
+  readonly earlierAttempt: boolean
+}
+
 export interface OutcomeMetrics {
+  /**
+   * The run's terminal status, exactly as its record spells it: Runtime's
+   * `winner` / `no-winner`, `failed` for a Runtime failure record, or the
+   * legacy loops status. `supStatusSource` names the record it came from.
+   */
   readonly supStatus: Measured<string>
+  readonly supStatusSource: Measured<SupervisorStatusSource>
+  /**
+   * Runtime's `reason` on a `no-winner` result (`all-children-down`,
+   * `budget-exhausted`, `aborted`, `driver-failed`). `null` = the terminal
+   * record carries no reason (a winner, a failure record, a legacy document).
+   */
+  readonly supReason: Measured<string | null>
+  /**
+   * The recorded error: Runtime's `failure.json`, or the driver rejection a
+   * `driver-failed` no-winner carries. `null` = the run recorded a result and
+   * no error. A `failure.json` beside a settled result is reported with
+   * `earlierAttempt: true`. Unavailable when the store has no terminal record.
+   */
+  readonly failure: Measured<TerminalFailure | null>
   readonly supVerdict: Measured<string>
   readonly delivered: Measured<boolean>
   readonly judgeResolved: Measured<boolean | null>

@@ -60,6 +60,11 @@ export {
   renderSupervisorRunHeadline,
   renderSupervisorRunMarkdown,
 } from './render'
+export {
+  runSupervisorRunCommand,
+  type SupervisorRunCommandIo,
+  type SupervisorRunReportFormat,
+} from './report-command'
 export { type SupervisorRolloutOptions, supervisorRunRolloutLines } from './rollout-nodes'
 export {
   isRuntimeSupervisorRunDir,
@@ -67,6 +72,13 @@ export {
   readRuntimeSupervisorRun,
   runtimeSupervisorRunReader,
 } from './runtime-reader'
+export {
+  NO_TERMINAL_RECORD,
+  RUNTIME_FAILED_STATUS,
+  readTerminalRecord,
+  type TerminalRecord,
+  type TerminalRecordInput,
+} from './terminal-record'
 export {
   type DecisionMetrics,
   type EconomicsMetrics,
@@ -93,7 +105,9 @@ export {
   type SupervisorRunTree,
   type SupervisorRunTreeGap,
   type SupervisorRunTreeGapCode,
+  type SupervisorStatusSource,
   showMeasured,
+  type TerminalFailure,
   type Unavailable,
   unavailable,
   type WallDistribution,

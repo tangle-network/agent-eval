@@ -6,6 +6,7 @@
  *   agent-eval rpc <method>          # one request from stdin → one response on stdout
  *   agent-eval rpc-batch <method>    # JSONL stdin → JSONL stdout
  *   agent-eval analyst-benchmark ... # benchmark a real-model trace analyst
+ *   agent-eval supervisor-run report <runDir> [--format headline|markdown|json]
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -16,6 +17,7 @@ import { writeFileSync } from 'node:fs'
 import { runAnalystBenchmarkCommand } from './analyst/benchmark-command'
 import { resolveCliLlmConfig } from './cli-config'
 import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
+import { runSupervisorRunCommand } from './supervisor-run/report-command'
 import { handleVersion } from './wire/handlers'
 import { buildOpenApi } from './wire/openapi'
 import { runRpcBatch, runRpcOnce } from './wire/rpc'
@@ -79,6 +81,10 @@ Commands:
   analyst-benchmark --dataset <agentrx|codetracebench> --labels <path> --trace-dir <path> [--artifact-dir <path>] --out <dir> ...
         Compare an empty baseline with a real-model trace analyst on public labels.
         Run with --help for all required inputs and controls.
+  supervisor-run report <runDir> [--format headline|markdown|json]
+        Report one Runtime or loops supervisor run directory. The status comes
+        from Runtime's own result.json / failure.json; every missing measurement
+        stays named. Exits 1 when the directory cannot be read.
   version
         Print server + wire-protocol version JSON.
 
@@ -159,6 +165,10 @@ async function main(): Promise<number> {
     case 'analyst-benchmark': {
       return await runAnalystBenchmarkCommand(process.argv.slice(3))
     }
+    case 'supervisor-run': {
+      // The subcommand owns its own flag grammar; pass raw argv through.
+      return await runSupervisorRunCommand(process.argv.slice(3))
+    }
     case 'version': {
       process.stdout.write(`${JSON.stringify(handleVersion(), null, 2)}\n`)
       return 0
@@ -194,7 +204,13 @@ const FLAGS_BY_COMMAND: Record<string, ReadonlySet<string>> = {
 
 function assertKnownFlags(command: string, flags: Record<string, string>): void {
   // These subcommands parse their own argv.
-  if (command === 'rollout-release' || command === 'analyst-benchmark') return
+  if (
+    command === 'rollout-release' ||
+    command === 'analyst-benchmark' ||
+    command === 'supervisor-run'
+  ) {
+    return
+  }
   const allowed = FLAGS_BY_COMMAND[command]
   if (!allowed) return
   const unknown = Object.keys(flags).filter((flag) => !allowed.has(flag))
