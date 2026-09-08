@@ -59,6 +59,13 @@ The returned `composition.stages` preserves each baseline hash, selected surface
 Missing child usage remains missing in that child's provenance.
 Comparison scores retain this composition.
 
+Hosts can supply `OptimizationMethodInput.invokeMethod` to enforce controls at each method invocation, including every composed child.
+The adapter calls `method.optimize(input)` after installing its candidate guards and accounting scope.
+Use `input.surfaceToRoot` to map a child's baseline or proposal into the complete candidate before validation.
+An absent mapper means the local surface is already complete.
+Scoped methods compose this mapping through every projection; sequential stages preserve it as their baselines change.
+Validate the active child's mapped baseline before starting that optimizer because it can export baseline evidence before dispatch.
+
 Set `searchHistoryPolicy: 'require-complete'` on the outer comparison or `selfImprove()` call to require every child receipt.
 Set `searchHistoryVerification: 'ledger'` to verify each referenced ledger before final assessment.
 Composite history coverage contains recursive `stages`; it does not fabricate one aggregate receipt.

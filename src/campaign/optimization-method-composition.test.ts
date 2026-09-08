@@ -94,6 +94,76 @@ function scope(key: string, method: OptimizationMethod<Scenario, string>) {
 }
 
 describe('optimization method composition', () => {
+  it('invokes active methods with nested projections mapped to the current complete candidate', async () => {
+    const ctx = input()
+    const seen: Array<{ name: string; root: MutableSurface }> = []
+    const leaf = paidMethod('instructions', 'updated learner', 0.01)
+    const nested = scope(
+      'learner',
+      scopedOptimizationMethod({
+        name: 'instructions-scope',
+        method: leaf,
+        project: (surface) => JSON.parse(String(surface)).instructions,
+        merge: (surface, selected) =>
+          JSON.stringify({ ...JSON.parse(String(surface)), instructions: selected }),
+      }),
+    )
+    const method = sequentialOptimizationMethod({
+      name: 'pipeline',
+      methods: [nested, scope('specialist', paidMethod('specialist', 'updated specialist', 0.02))],
+    })
+    const invokeMethod: NonNullable<typeof ctx.invokeMethod> = async (active, local) => {
+      expect(Object.isFrozen(local)).toBe(true)
+      expect(local).not.toHaveProperty('testScenarios')
+      const map = local.surfaceToRoot ?? structuredClone
+      seen.push({ name: active.name, root: map(local.baselineSurface) })
+      return active.optimize(local)
+    }
+    const result = await executeOptimizationMethod({
+      method,
+      input: { ...ctx, invokeMethod },
+      storage: ctx.runOptions.storage!,
+    })
+    expect(seen.map((entry) => entry.name)).toEqual([
+      'pipeline',
+      'learner-scope',
+      'instructions-scope',
+      'instructions',
+      'specialist-scope',
+      'specialist',
+    ])
+    expect(seen.find((entry) => entry.name === 'instructions')?.root).toEqual(baseline)
+    const specialistRoot = components(seen.find((entry) => entry.name === 'specialist')!.root)
+    expect(JSON.parse(specialistRoot.components.learner!).instructions).toBe('updated learner')
+    expect(specialistRoot.components.state).toBe(baseline.components.state)
+    expect(components(result.selected.winnerSurface).components.specialist).toBe(
+      'updated specialist',
+    )
+    expect(result.cost.totalCostUsd).toBeCloseTo(0.03)
+  })
+
+  it('lets an active child guard reject its mapped baseline before paid execution', async () => {
+    const ctx = input()
+    const method = sequentialOptimizationMethod({
+      name: 'guarded-pipeline',
+      methods: [scope('learner', paidMethod('private-leaf', 'forbidden', 0.01))],
+    })
+    const guardedInput: OptimizationMethodInput<Scenario, string> = {
+      ...ctx,
+      invokeMethod: async (active, local) => {
+        if (active.name === 'private-leaf') {
+          expect(local.surfaceToRoot?.(local.baselineSurface)).toEqual(baseline)
+          throw new Error('exact child baseline is not authorized')
+        }
+        return active.optimize(local)
+      },
+    }
+    await expect(
+      executeOptimizationMethod({ method, input: guardedInput, storage: ctx.runOptions.storage! }),
+    ).rejects.toThrow('exact child baseline is not authorized')
+    expect(ctx.costLedger.summary().totalCalls).toBe(0)
+  })
+
   it('continues joint -> learner -> specialist through a worse intermediate and retains exact state and all usage', async () => {
     const ctx = input()
     const joint: OptimizationMethod<Scenario, string> = {
