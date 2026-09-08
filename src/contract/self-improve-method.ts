@@ -1,9 +1,8 @@
 import { openAutoPr } from '../campaign/auto-pr'
 import { campaignSplitDigest } from '../campaign/coverage'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
-import { createMethodCostScope } from '../campaign/optimization-cost'
+import { executeOptimizationMethod } from '../campaign/optimization-method'
 import {
-  assertOptimizationResult,
   type ComparisonCost,
   combineComparisonCosts,
   costFromLedgerSummary,
@@ -16,10 +15,13 @@ import {
   campaignCellJudgeDimensions,
   campaignCellTaskScore,
 } from '../campaign/run-record'
+import type { SearchHistoryCoverageRow } from '../campaign/search-history-receipt'
 import type { CampaignStorage } from '../campaign/storage'
 import { surfaceContentHash, surfaceHash } from '../campaign/surface-identity'
 import type { Scenario } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary } from '../cost-ledger'
+import { createCampaignEvidenceReceipt } from '../experiment/campaign-evidence'
+import type { EvidenceReceipt } from '../experiment/evidence-receipt'
 import { createHostedClient } from '../hosted/client'
 import type { EvalRunGenerationSnapshot } from '../hosted/types'
 import { analyzeRuns } from './analyze-runs'
@@ -72,6 +74,8 @@ export interface SelfImproveMethodResult<TScenario extends Scenario, TArtifact>
     | 'optimization'
     | 'insight'
   > {
+  evidence?: { baseline: EvidenceReceipt; winner: EvidenceReceipt }
+  searchHistoryCoverage: SearchHistoryCoverageRow
   mode: 'method'
   /** No final measurement exists when holdout is deferred. */
   baseline: SelfImproveProposerResult<TScenario, TArtifact>['baseline'] | null
@@ -113,24 +117,32 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
   if (opts.autoOnPromote === 'pr' && (!opts.ghOwner || !opts.ghRepo)) {
     throw new Error("selfImprove: autoOnPromote='pr' requires ghOwner + ghRepo")
   }
+  const evidenceContext = opts.evidence === undefined ? undefined : structuredClone(opts.evidence)
+  if (evidenceContext && budget.holdout === 'deferred')
+    throw new Error('selfImprove: evidence receipts require measured holdout')
   const baselineSurface = structuredClone(opts.baselineSurface)
   const judge = {
     ...opts.judge,
-    dimensions: opts.judge.dimensions.map((dimension) => Object.freeze({ ...dimension })),
+    dimensions: opts.judge.dimensions.map((dimension) => ({ ...dimension })),
   }
-  Object.freeze(judge.dimensions)
-  Object.freeze(judge)
-  const methodCostScope = createMethodCostScope(costLedger, opts.method.name)
-  const method = await opts.method.optimize(
-    Object.freeze({
-      baselineSurface: structuredClone(baselineSurface),
-      trainScenarios: Object.freeze(train.map((scenario) => structuredClone(scenario))),
-      selectionScenarios: Object.freeze(selection.map((scenario) => structuredClone(scenario))),
+  const {
+    selected,
+    cost: methodCost,
+    history,
+  } = await executeOptimizationMethod({
+    method: opts.method,
+    storage,
+    searchHistoryPolicy: opts.searchHistoryPolicy,
+    searchHistoryVerification: opts.searchHistoryVerification,
+    input: {
+      baselineSurface,
+      trainScenarios: train,
+      selectionScenarios: selection,
       dispatchWithSurface: opts.agent,
-      judges: Object.freeze([judge]),
+      judges: [judge],
       runDir: `${runDir}/optimization/${opts.method.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
       seed: 42,
-      runOptions: Object.freeze({
+      runOptions: {
         storage,
         maxConcurrency: budget.maxConcurrency ?? 2,
         reps: budget.reps,
@@ -141,13 +153,10 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
         labeledStore: opts.labeledStore,
         captureSource: opts.captureSource,
         expectUsage: opts.expectUsage ?? 'assert',
-      }),
-      costLedger: methodCostScope.ledger,
-    }),
-  )
-  assertOptimizationResult(opts.method.name, method)
-  const selected = structuredClone(method)
-  const methodCost = methodCostScope.reconcile(selected.cost)
+      },
+      costLedger,
+    },
+  })
   const finalPhase = 'selfImprove.method-final'
   const finalCost = (): ComparisonCost =>
     combineComparisonCosts(
@@ -213,6 +222,20 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
     expectUsage: opts.expectUsage ?? 'assert',
     label: 'selfImprove',
   })
+  const evidence = evidenceContext
+    ? {
+        baseline: createCampaignEvidenceReceipt({
+          campaign: comparison.baselineOnHoldout,
+          surface: baselineSurface,
+          context: evidenceContext,
+        }),
+        winner: createCampaignEvidenceReceipt({
+          campaign: comparison.winnerOnHoldout,
+          surface: selected.winnerSurface,
+          context: evidenceContext,
+        }),
+      }
+    : undefined
   const deferred = comparison.holdout === 'deferred'
   const baseline = deferred
     ? null
@@ -316,7 +339,9 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
         })
       : undefined
   const result: SelfImproveMethodResult<TScenario, TArtifact> = {
+    ...(evidence ? { evidence } : {}),
     mode: 'method',
+    searchHistoryCoverage: history,
     baseline,
     winner: {
       surface: selected.winnerSurface,

@@ -3,8 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { selfImprove } from '../../contract/self-improve'
+import { verifyEvidenceReceipt } from '../../experiment/evidence-receipt'
+import { canonicalString, hashCanonical } from '../../ledger-core/canonical'
 import { readGepaCandidatePopulationArtifact } from '../gepa-candidate-population'
-import { type SearchHistoryReceipt, SearchHistoryRequiredError } from '../search-history-receipt'
+import {
+  createSearchHistoryReceipt,
+  type SearchHistoryReceipt,
+  SearchHistoryRequiredError,
+} from '../search-history-receipt'
 import { openSearchLedger } from '../search-ledger'
 import { recordCandidatePopulationSearch, type SearchRunIdentity } from '../search-ledger-recording'
 import { fsCampaignStorage, inMemoryCampaignStorage } from '../storage'
@@ -29,6 +36,14 @@ const testScenarios: FixtureScenario[] = [
   { id: 'test-1', kind: 'fixture' },
   { id: 'test-2', kind: 'fixture' },
 ]
+
+const evidence = {
+  pursuitId: 'registered-pursuit',
+  evaluatorDigest: `sha256:${'e'.repeat(64)}`,
+  environmentDigest: `sha256:${'f'.repeat(64)}`,
+  authority: { kind: 'candidate-self-report' as const, id: 'declared-fixture-authority' },
+  provenance: { modelVersions: {}, codeSha: 'a'.repeat(40), createdAt: '2026-09-07T00:00:00Z' },
+}
 
 const judge: JudgeConfig<FixtureArtifact, FixtureScenario> = {
   name: 'history-comparison-fixture',
@@ -80,6 +95,7 @@ function options(
     runDir: 'mem://search-history-comparison',
     storage: inMemoryCampaignStorage(),
     seed: 7,
+    expectUsage: 'off',
     reps: 1,
   }
 }
@@ -222,7 +238,7 @@ describe('a first-party method that records its candidate population', () => {
     })
   }
 
-  it('passes require-complete with a receipt replayable from the ledger bytes', async () => {
+  async function recordedMethod() {
     const storage = fsCampaignStorage()
     const population = populationArtifact(storage)
     const ledgerPath = join(runDir, 'search-ledger.jsonl')
@@ -258,34 +274,199 @@ describe('a first-party method that records its candidate population', () => {
       },
     }
 
-    const comparison = await compareOptimizationMethods({
-      ...options([recorded], async (surface, scenario) => {
-        const rendered = typeof surface === 'string' ? surface : JSON.stringify(surface)
-        return { text: `${rendered}:${scenario.id}` }
-      }),
-      searchHistoryPolicy: 'require-complete',
-    })
+    return { recorded, storage, ledgerPath }
+  }
 
-    expect(comparison.searchHistory).toMatchObject({
-      policy: 'require-complete',
-      allComplete: true,
-      producers: [{ producerId: 'method-with-population-history', status: 'complete' }],
-    })
+  it.each(['comparison', 'selfImprove'] as const)(
+    'verifies complete ledger bytes before final assessment through %s',
+    async (workflow) => {
+      const { recorded, storage, ledgerPath } = await recordedMethod()
+      const dispatch = async (surface: MutableSurface) => ({ text: String(surface) })
+      if (workflow === 'selfImprove') {
+        const result = await selfImprove({
+          evidence,
+          agent: dispatch,
+          judge,
+          method: recorded,
+          baselineSurface: 'baseline prompt',
+          model: 'fixture@2026-08-01',
+          scenarios: [...trainScenarios, ...selectionScenarios, ...testScenarios],
+          selectionScenarios,
+          budget: { holdoutScenarios: testScenarios },
+          storage,
+          runDir: join(runDir, 'improvement'),
+          expectUsage: 'off',
+          searchHistoryPolicy: 'require-complete',
+          searchHistoryVerification: 'ledger',
+          gate: {
+            name: 'fixture',
+            decide: async () => ({ decision: 'hold', reasons: [], contributingGates: [] }),
+          },
+        })
+        expect(result.searchHistoryCoverage).toMatchObject({
+          status: 'complete',
+          ledgerVerified: true,
+        })
+        expect(result.winner.surface).toBe('candidate prompt')
+        expect(result.evidence?.winner.binding.authority).toEqual(evidence.authority)
+        expect(verifyEvidenceReceipt(result.evidence!.winner).valid).toBe(true)
+        return
+      }
+      const comparison = await compareOptimizationMethods({
+        ...options([recorded], async (surface, scenario) => {
+          const rendered = typeof surface === 'string' ? surface : JSON.stringify(surface)
+          return { text: `${rendered}:${scenario.id}` }
+        }),
+        storage,
+        runDir: join(runDir, 'comparison'),
+        evidence,
+        searchHistoryPolicy: 'require-complete',
+        searchHistoryVerification: 'ledger',
+      })
 
-    // The receipt is a cover sheet over durable bytes: replaying the file
-    // reproduces the candidate graph the optimizer reported.
-    const replay = await openSearchLedger({
-      path: ledgerPath,
-      campaignId: 'population-run',
-    }).replay()
-    expect(replay.candidates.map((event) => event.lineage.generation)).toEqual([0, 1])
-    expect(replay.candidates[1]?.lineage.parentCandidateIds).toEqual([
-      replay.candidates[0]?.candidateId,
-    ])
-    expect(replay.audit).toMatchObject({
-      status: 'selected',
-      attemptCount: 2 * selectionScenarios.length,
-      expected: { missingTaskOutcomes: [], missingCandidateSlots: [], missingOperations: [] },
-    })
+      expect(comparison.searchHistory).toMatchObject({
+        policy: 'require-complete',
+        allComplete: true,
+        producers: [
+          {
+            producerId: 'method-with-population-history',
+            status: 'complete',
+            ledgerVerified: true,
+          },
+        ],
+      })
+
+      expect(comparison.best.evidence?.winner.binding.authority).toEqual(evidence.authority)
+      expect(verifyEvidenceReceipt(comparison.best.evidence!.winner).valid).toBe(true)
+
+      // The receipt is a cover sheet over durable bytes: replaying the file
+      // reproduces the candidate graph the optimizer reported.
+      const replay = await openSearchLedger({
+        path: ledgerPath,
+        campaignId: 'population-run',
+      }).replay()
+      expect(replay.candidates.map((event) => event.lineage.generation)).toEqual([0, 1])
+      expect(replay.candidates[1]?.lineage.parentCandidateIds).toEqual([
+        replay.candidates[0]?.candidateId,
+      ])
+      expect(replay.audit).toMatchObject({
+        status: 'selected',
+        attemptCount: 2 * selectionScenarios.length,
+        expected: { missingTaskOutcomes: [], missingCandidateSlots: [], missingOperations: [] },
+      })
+    },
+  )
+  it.each([
+    'missing receipt',
+    'incomplete',
+    'missing bytes',
+    'tampered bytes',
+    'forged envelope',
+    'invalid chain',
+    'changed replay',
+  ] as const)('refuses %s before either workflow exposes final cases', async (defect) => {
+    const { recorded, storage, ledgerPath } = await recordedMethod()
+    let calls = 0
+    let genuineBytes: string | undefined
+    const corrupted = {
+      ...recorded,
+      async optimize(input: Parameters<typeof recorded.optimize>[0]) {
+        const selected = await recorded.optimize(input)
+        if (defect === 'missing receipt') return { ...selected, searchHistory: undefined }
+        genuineBytes = storage.read(ledgerPath)
+        const receipt = selected.searchHistory!
+        if (defect === 'missing bytes') rmSync(ledgerPath)
+        if (defect === 'tampered bytes')
+          storage.write(
+            ledgerPath,
+            storage.read(ledgerPath)!.replace('population-run', 'populatiox-run'),
+          )
+        if (defect === 'forged envelope')
+          return {
+            ...selected,
+            searchHistory: { ...receipt, receiptDigest: `sha256:${'0'.repeat(64)}` as const },
+          }
+        if (defect === 'invalid chain') {
+          const rows = storage
+            .read(ledgerPath)!
+            .trimEnd()
+            .split('\n')
+            .map((line) => JSON.parse(line))
+          rows[0].entryHash = `sha256:${'0'.repeat(64)}`
+          const text = rows.map((row) => `${canonicalString(row)}\n`).join('')
+          storage.write(ledgerPath, text)
+          const { receiptDigest: _, ...material } = receipt
+          const forged = {
+            ...material,
+            ledger: {
+              ...receipt.ledger,
+              sha256: hashCanonical(text),
+              byteLength: new TextEncoder().encode(text).byteLength,
+            },
+          }
+          return { ...selected, searchHistory: { ...forged, receiptDigest: hashCanonical(forged) } }
+        }
+        if (defect === 'incomplete' || defect === 'changed replay') {
+          const replay = await openSearchLedger({
+            path: ledgerPath,
+            campaignId: 'population-run',
+          }).replay()
+          const changed = {
+            ...replay,
+            audit: {
+              ...replay.audit,
+              ...(defect === 'incomplete'
+                ? { status: 'in-progress' as const }
+                : { operationCount: replay.audit.operationCount + 1 }),
+            },
+          }
+          return {
+            ...selected,
+            searchHistory: createSearchHistoryReceipt({
+              producerId: recorded.name,
+              runId: receipt.runId,
+              ledger: receipt.ledger,
+              replay: changed,
+            }),
+          }
+        }
+        return selected
+      },
+    }
+    const dispatch = async () => {
+      calls++
+      return { text: 'unused' }
+    }
+    for (const workflow of ['comparison', 'selfImprove']) {
+      // Each method writes immutable ledger bytes; restore its genuine bytes between checks.
+      const original = storage.read(ledgerPath)
+      const run =
+        workflow === 'comparison'
+          ? compareOptimizationMethods({
+              ...options([corrupted], dispatch),
+              storage,
+              searchHistoryPolicy: 'require-complete',
+              searchHistoryVerification: 'ledger',
+            })
+          : selfImprove({
+              agent: dispatch,
+              judge,
+              method: corrupted,
+              baselineSurface: 'baseline prompt',
+              model: 'fixture@2026-08-01',
+              scenarios: [...trainScenarios, ...selectionScenarios, ...testScenarios],
+              selectionScenarios,
+              budget: { holdoutScenarios: testScenarios },
+              storage,
+              runDir: join(runDir, 'improvement'),
+              expectUsage: 'off',
+              searchHistoryPolicy: 'require-complete',
+              searchHistoryVerification: 'ledger',
+            })
+      await expect(run).rejects.toThrow()
+      if (genuineBytes !== undefined) storage.write(ledgerPath, genuineBytes)
+      else if (original !== undefined) storage.write(ledgerPath, original)
+    }
+    expect(calls).toBe(0)
   })
 })

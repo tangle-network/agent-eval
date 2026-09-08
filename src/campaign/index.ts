@@ -353,6 +353,7 @@ export {
   assertSearchHistoryMatchesReplay,
   type CreateSearchHistoryReceiptInput,
   createSearchHistoryReceipt,
+  type SearchHistoryAdmissionOptions,
   type SearchHistoryAuditSummary,
   type SearchHistoryCoverage,
   type SearchHistoryCoverageRow,
@@ -360,6 +361,7 @@ export {
   type SearchHistoryReceipt,
   SearchHistoryRequiredError,
   searchHistoryCoverageRow,
+  verifySearchHistoryArtifact,
   verifySearchHistoryReceipt,
 } from './search-history-receipt'
 // ── Durable improvement-search audit log ────────────────────────────
@@ -367,6 +369,7 @@ export {
   FileSearchLedger,
   type OpenSearchLedgerOptions,
   openSearchLedger,
+  replaySearchLedgerText,
   type SearchAccountingAudit,
   type SearchArtifactRef,
   type SearchAttemptAccounting,

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { hashCanonical } from '../ledger-core/canonical'
 import type {
   SearchArtifactRef,
@@ -5,6 +6,8 @@ import type {
   SearchLedgerHash,
   SearchLedgerReplay,
 } from './search-ledger'
+import { replaySearchLedgerText } from './search-ledger'
+import type { CampaignStorage } from './storage'
 
 const SEARCH_HISTORY_RECEIPT_SCHEMA_VERSION = '1.0.0' as const
 const SEARCH_HISTORY_RECEIPT_DIGEST_ALGORITHM = 'rfc8785-sha256' as const
@@ -67,11 +70,60 @@ export interface CreateSearchHistoryReceiptInput {
 
 export type SearchHistoryPolicy = 'allow-missing' | 'require-complete'
 
+export interface SearchHistoryAdmissionOptions {
+  /** Missing history is reported by default; require-complete refuses final assessment without a complete receipt. */
+  searchHistoryPolicy?: SearchHistoryPolicy
+  /** Receipt checks are the default. Ledger checks also resolve bytes through CampaignStorage.read. */
+  searchHistoryVerification?: 'receipt' | 'ledger'
+}
+
+export function assertSearchHistoryAdmissionOptions(options: SearchHistoryAdmissionOptions): void {
+  if (
+    options.searchHistoryPolicy !== undefined &&
+    !['allow-missing', 'require-complete'].includes(options.searchHistoryPolicy)
+  ) {
+    throw new Error(`unknown searchHistoryPolicy '${String(options.searchHistoryPolicy)}'`)
+  }
+  if (
+    options.searchHistoryVerification !== undefined &&
+    !['receipt', 'ledger'].includes(options.searchHistoryVerification)
+  ) {
+    throw new Error(
+      `unknown searchHistoryVerification '${String(options.searchHistoryVerification)}'`,
+    )
+  }
+}
+
+/** Verify resolved bytes with the canonical codec, never a caller-supplied replay projection. */
+export function verifySearchHistoryArtifact(
+  receipt: SearchHistoryReceipt,
+  storage: Pick<CampaignStorage, 'read'>,
+): void {
+  verifySearchHistoryReceipt(receipt)
+  const path = receipt.ledger.uri.startsWith('file:')
+    ? fileURLToPath(receipt.ledger.uri)
+    : receipt.ledger.uri
+  const text = storage.read(path)
+  if (text === undefined)
+    throw new Error(`search history ledger is missing or unreadable at '${path}'`)
+  if (new TextEncoder().encode(text).byteLength !== receipt.ledger.byteLength)
+    throw new Error('search history ledger byte length mismatch')
+  // Existing search recorders bind the canonical JSON encoding of the complete text.
+  if (hashCanonical(text) !== receipt.ledger.sha256)
+    throw new Error('search history ledger digest mismatch')
+  assertSearchHistoryMatchesReplay(
+    receipt,
+    replaySearchLedgerText(text, receipt.summary.campaignId, path),
+  )
+}
+
 export interface SearchHistoryCoverageRow {
   readonly producerId: string
   readonly status: 'complete' | 'incomplete' | 'missing'
   readonly reasons: readonly string[]
   readonly receipt?: SearchHistoryReceipt
+  /** Present only after the referenced bytes and replay were verified. */
+  readonly ledgerVerified?: true
 }
 
 export interface SearchHistoryCoverage {

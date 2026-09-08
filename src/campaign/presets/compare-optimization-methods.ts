@@ -8,6 +8,11 @@
 import { combineAbortSignals } from '../../abort-signal'
 import { mapConcurrent } from '../../concurrency'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
+import {
+  type CampaignEvidenceContext,
+  createCampaignEvidenceReceipt,
+} from '../../experiment/campaign-evidence'
+import type { EvidenceReceipt } from '../../experiment/evidence-receipt'
 import { pairedBootstrap } from '../../statistics'
 import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
@@ -16,33 +21,29 @@ import type {
   ExternalOptimizerExecutionSummary,
   ExternalOptimizerObservationSummary,
 } from '../external-optimizer-observations'
+import type { GepaCandidatePopulationSummary } from '../gepa-candidate-population'
 import {
-  assertGepaCandidatePopulationSummary,
-  type GepaCandidatePopulationSummary,
-} from '../gepa-candidate-population'
-import {
-  assertComparisonCost,
   type ComparisonCost,
   combineComparisonCosts,
   costFromLedgerSummary,
-  createMethodCostScope,
 } from '../optimization-cost'
+import { executeOptimizationMethod } from '../optimization-method'
 
 export {
   type ComparisonCost,
   combineComparisonCosts,
   costFromLedgerSummary,
 } from '../optimization-cost'
+export { assertOptimizationResult } from '../optimization-method'
 
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
 import {
-  assertCompleteSearchHistory,
+  assertSearchHistoryAdmissionOptions,
+  type SearchHistoryAdmissionOptions,
   type SearchHistoryCoverage,
-  type SearchHistoryPolicy,
   type SearchHistoryReceipt,
-  searchHistoryCoverageRow,
 } from '../search-history-receipt'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceContentHash } from '../surface-identity'
@@ -183,6 +184,7 @@ export interface OptimizationMethod<TScenario extends Scenario = Scenario, TArti
 }
 
 export interface OptimizationMethodScore {
+  evidence?: { baseline: EvidenceReceipt; winner: EvidenceReceipt }
   name: string
   /** Mean final-test composite of the baseline (identical across methods). */
   baselineComposite: number
@@ -253,7 +255,10 @@ export interface OptimizationMethodComparison {
 }
 
 export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, TArtifact>
-  extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch' | 'judges' | 'scenarios'> {
+  extends Omit<RunCampaignOptions<TScenario, TArtifact>, 'dispatch' | 'judges' | 'scenarios'>,
+    SearchHistoryAdmissionOptions {
+  /** Explicit caller authority and environment for receipts over actual final measurements. */
+  evidence?: CampaignEvidenceContext
   methods: OptimizationMethod<TScenario, TArtifact>[]
   baselineSurface: MutableSurface
   /** Evidence used by every optimizer to author or fit candidates. */
@@ -281,11 +286,6 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
   confidence?: number
   /** Shared spend limit across every method's optimizer and evaluation calls plus final scoring. */
   costCeiling?: number
-  /**
-   * Missing history is reported by default. Publication-grade or autonomous
-   * callers set `require-complete`, which aborts before the first final-test call.
-   */
-  searchHistoryPolicy?: SearchHistoryPolicy
 }
 
 /**
@@ -297,11 +297,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   assertOptimizationMethods(opts.methods)
   assertComparisonPartitions(opts)
   const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'
-  if (searchHistoryPolicy !== 'allow-missing' && searchHistoryPolicy !== 'require-complete') {
-    throw new TypeError(
-      `compareOptimizationMethods: unknown searchHistoryPolicy '${String(searchHistoryPolicy)}'`,
-    )
-  }
+  assertSearchHistoryAdmissionOptions(opts)
   const seed = opts.seed ?? 42
   const confidence = opts.confidence ?? 0.95
   assertConfidence(confidence)
@@ -311,6 +307,8 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   const minimumResamples = minimumBootstrapResamples(confidence, comparisonCount)
   const resamples = opts.resamples ?? Math.max(2000, minimumResamples)
   assertComparisonControls(opts, seed, resamples, confidence)
+  const evidence = opts.evidence === undefined ? undefined : structuredClone(opts.evidence)
+  const evidenceBySurface = new Map<string, EvidenceReceipt>()
   const storage = opts.storage ?? fsCampaignStorage()
   const resolvedRunDir = resolveRunDir(opts.runDir, opts.repo)
   const baselineSurface = structuredClone(opts.baselineSurface)
@@ -346,6 +344,11 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       true,
       `compareOptimizationMethods: ${tag} final comparison`,
     )
+    if (evidence)
+      evidenceBySurface.set(
+        surfaceContentHash(measuredSurface),
+        createCampaignEvidenceReceipt({ campaign, surface: measuredSurface, context: evidence }),
+      )
     const byScenario: Record<string, number> = {}
     for (const { scenarioId, composite } of campaignBreakdown(campaign).scenarios) {
       byScenario[scenarioId] = composite
@@ -373,28 +376,30 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   const optimizationOwner = new AbortController()
   const optimized = await mapConcurrent(opts.methods, optimizationConcurrency, async (method) => {
     try {
-      const methodCost = createMethodCostScope(costLedger, method.name)
-      const out = await method.optimize(
-        createOptimizationMethodInput(
+      const {
+        selected: out,
+        cost,
+        history: searchHistoryCoverage,
+      } = await executeOptimizationMethod({
+        method,
+        input: createOptimizationMethodInput(
           opts,
           method.name,
           resolvedRunDir,
           seed,
           baselineSurface,
-          methodCost.ledger,
+          costLedger,
           optimizationOwner.signal,
         ),
-      )
-      assertOptimizationResult(method.name, out)
-      const searchHistoryCoverage = searchHistoryCoverageRow(method.name, out.searchHistory)
-      if (searchHistoryPolicy === 'require-complete') {
-        assertCompleteSearchHistory(method.name, out.searchHistory)
-      }
-      const winnerSurface = structuredClone(out.winnerSurface)
+        storage,
+        searchHistoryPolicy: opts.searchHistoryPolicy,
+        searchHistoryVerification: opts.searchHistoryVerification,
+      })
+      const winnerSurface = out.winnerSurface
       return {
         name: method.name,
         winnerSurface,
-        cost: methodCost.reconcile(out.cost),
+        cost,
         ...(out.durationMs === undefined ? {} : { durationMs: out.durationMs }),
         ...(out.provenance === undefined ? {} : { provenance: out.provenance }),
         searchHistoryCoverage,
@@ -463,6 +468,12 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       })),
       winnerSurface: structuredClone(w.winnerSurface),
       rank: 0,
+    }
+    if (evidence) {
+      const baseline = evidenceBySurface.get(surfaceContentHash(baselineSurface))
+      const winner = evidenceBySurface.get(surfaceContentHash(w.winnerSurface))
+      if (!baseline || !winner) throw new Error('final measurement evidence is missing')
+      score.evidence = { baseline, winner }
     }
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
     if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
@@ -591,172 +602,6 @@ function assertOptimizationMethods<TScenario extends Scenario, TArtifact>(
       )
     }
     pathOwners.set(pathKey, method.name)
-  }
-}
-
-export function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
-  if (!result || typeof result !== 'object') {
-    throw new Error(`compareOptimizationMethods: method '${name}' returned no result`)
-  }
-  try {
-    surfaceContentHash(result.winnerSurface)
-  } catch (cause) {
-    throw new Error(
-      `compareOptimizationMethods: method '${name}' returned an invalid winnerSurface`,
-      { cause },
-    )
-  }
-  assertComparisonCost(result.cost, `method '${name}'`)
-  if (
-    result.durationMs !== undefined &&
-    (!Number.isFinite(result.durationMs) || result.durationMs < 0)
-  ) {
-    throw new Error(`compareOptimizationMethods: method '${name}' returned an invalid durationMs`)
-  }
-  if (result.provenance !== undefined) {
-    assertOptimizationProvenance(name, result.provenance)
-  }
-}
-
-function assertOptimizationProvenance(
-  methodName: string,
-  value: OptimizationMethodProvenance,
-): void {
-  const fail = (field: string): never => {
-    throw new Error(
-      `compareOptimizationMethods: method '${methodName}' returned invalid provenance.${field}`,
-    )
-  }
-  if (!value || typeof value !== 'object') fail('value')
-  if (
-    value.source?.kind !== 'package' ||
-    !['observed', 'declared'].includes(value.source.evidence) ||
-    typeof value.source.package !== 'string' ||
-    !value.source.package.trim() ||
-    typeof value.source.version !== 'string' ||
-    !value.source.version.trim()
-  ) {
-    fail('source')
-  }
-  for (const [field, entry] of [
-    ['sourceUrl', value.source.sourceUrl],
-    ['revision', value.source.revision],
-  ] as const) {
-    if (entry !== undefined && (typeof entry !== 'string' || !entry.trim())) fail(`source.${field}`)
-  }
-  if (typeof value.runId !== 'string' || !value.runId.trim()) fail('runId')
-  if (
-    value.optimizerModel !== undefined &&
-    (typeof value.optimizerModel !== 'string' ||
-      !value.optimizerModel.trim() ||
-      value.optimizerModel.trim() !== value.optimizerModel)
-  ) {
-    fail('optimizerModel')
-  }
-  if (
-    value.optimizerCallRef !== undefined &&
-    (typeof value.optimizerCallRef !== 'string' ||
-      !value.optimizerCallRef.trim() ||
-      value.optimizerCallRef.trim() !== value.optimizerCallRef)
-  ) {
-    fail('optimizerCallRef')
-  }
-  if (typeof value.resumed !== 'boolean') fail('resumed')
-  if (value.seedApplied !== undefined && typeof value.seedApplied !== 'boolean') {
-    fail('seedApplied')
-  }
-  if (!Number.isSafeInteger(value.evaluationCount) || value.evaluationCount < 0) {
-    fail('evaluationCount')
-  }
-  if (typeof value.artifactDir !== 'string' || !value.artifactDir.trim()) fail('artifactDir')
-  if (value.tokenUsage !== undefined) {
-    for (const field of ['inputTokens', 'outputTokens', 'totalTokens', 'calls'] as const) {
-      if (!Number.isSafeInteger(value.tokenUsage[field]) || value.tokenUsage[field] < 0) {
-        fail(`tokenUsage.${field}`)
-      }
-    }
-    for (const field of [
-      'cachedInputTokens',
-      'cacheWriteInputTokens',
-      'reasoningTokens',
-    ] as const) {
-      const entry = value.tokenUsage[field]
-      if (entry !== undefined && (!Number.isSafeInteger(entry) || entry < 0)) {
-        fail(`tokenUsage.${field}`)
-      }
-    }
-    if (
-      (value.tokenUsage.cachedInputTokens ?? 0) + (value.tokenUsage.cacheWriteInputTokens ?? 0) >
-      value.tokenUsage.inputTokens
-    ) {
-      fail('tokenUsage.inputTokens')
-    }
-    if (
-      value.tokenUsage.reasoningTokens !== undefined &&
-      value.tokenUsage.reasoningTokens > value.tokenUsage.outputTokens
-    ) {
-      fail('tokenUsage.reasoningTokens')
-    }
-    if (
-      value.tokenUsage.totalTokens !==
-      value.tokenUsage.inputTokens + value.tokenUsage.outputTokens
-    ) {
-      fail('tokenUsage.totalTokens')
-    }
-  }
-  if (value.observations !== undefined) {
-    if (
-      value.observations.scope !== 'callback-submitted-candidates' ||
-      typeof value.observations.path !== 'string' ||
-      !value.observations.path.trim() ||
-      typeof value.observations.sha256 !== 'string' ||
-      !/^sha256:[0-9a-f]{64}$/.test(value.observations.sha256)
-    ) {
-      fail('observations')
-    }
-    for (const field of ['submittedCandidates', 'evaluations', 'refusals'] as const) {
-      if (!Number.isSafeInteger(value.observations[field]) || value.observations[field] < 0) {
-        fail(`observations.${field}`)
-      }
-    }
-  }
-  if (value.gepaCandidatePopulation !== undefined) {
-    try {
-      assertGepaCandidatePopulationSummary(value.gepaCandidatePopulation)
-    } catch {
-      fail('gepaCandidatePopulation')
-    }
-    if (value.gepaCandidatePopulation.runId !== value.runId) {
-      fail('gepaCandidatePopulation.runId')
-    }
-  }
-  if (value.modelExecutions !== undefined) {
-    if (
-      value.modelExecutions.scope !== 'runtime-model-calls' ||
-      typeof value.modelExecutions.path !== 'string' ||
-      !value.modelExecutions.path.trim() ||
-      typeof value.modelExecutions.sha256 !== 'string' ||
-      !/^sha256:[0-9a-f]{64}$/.test(value.modelExecutions.sha256)
-    ) {
-      fail('modelExecutions')
-    }
-    for (const field of ['calls', 'succeeded', 'failed'] as const) {
-      if (!Number.isSafeInteger(value.modelExecutions[field]) || value.modelExecutions[field] < 0) {
-        fail(`modelExecutions.${field}`)
-      }
-    }
-    if (
-      value.modelExecutions.calls !==
-      value.modelExecutions.succeeded + value.modelExecutions.failed
-    ) {
-      fail('modelExecutions.calls')
-    }
-  }
-  if (
-    (value.optimizerModel === undefined) !== (value.optimizerCallRef === undefined) ||
-    (value.optimizerModel === undefined) !== (value.modelExecutions === undefined)
-  ) {
-    fail('optimizerModel execution provenance')
   }
 }
 
@@ -1012,16 +857,6 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   optimizationSignal: AbortSignal,
 ): OptimizationMethodInput<TScenario, TArtifact> {
   const methodRunDir = `${resolvedRunDir}/optimization/${slug(methodName)}`
-  const cloneScenarios = (scenarios: readonly TScenario[]): readonly TScenario[] =>
-    Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))
-  const judges = opts.judges.map((judge) =>
-    Object.freeze({
-      ...judge,
-      dimensions: Object.freeze(
-        judge.dimensions.map((dimension) => Object.freeze({ ...dimension })),
-      ),
-    }),
-  ) as JudgeConfig<TArtifact, TScenario>[]
   const signal = combineAbortSignals(
     opts.signal,
     opts.optimizationRunOptions?.signal,
@@ -1029,10 +864,10 @@ function createOptimizationMethodInput<TScenario extends Scenario, TArtifact>(
   )
   return Object.freeze({
     baselineSurface: structuredClone(baselineSurface),
-    trainScenarios: cloneScenarios(opts.trainScenarios),
-    selectionScenarios: cloneScenarios(opts.selectionScenarios),
+    trainScenarios: opts.trainScenarios,
+    selectionScenarios: opts.selectionScenarios,
     dispatchWithSurface: opts.dispatchWithSurface,
-    judges: Object.freeze(judges),
+    judges: opts.judges,
     runDir: methodRunDir,
     seed,
     runOptions: Object.freeze({
