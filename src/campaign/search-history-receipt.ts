@@ -121,6 +121,7 @@ export interface SearchHistoryCoverageRow {
   readonly producerId: string
   readonly status: 'complete' | 'incomplete' | 'missing'
   readonly reasons: readonly string[]
+  readonly stages?: readonly SearchHistoryCoverageRow[]
   readonly receipt?: SearchHistoryReceipt
   /** Present only after the referenced bytes and replay were verified. */
   readonly ledgerVerified?: true

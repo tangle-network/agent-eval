@@ -8,6 +8,10 @@ import { verifyEvidenceReceipt } from '../../experiment/evidence-receipt'
 import { canonicalString, hashCanonical } from '../../ledger-core/canonical'
 import { readGepaCandidatePopulationArtifact } from '../gepa-candidate-population'
 import {
+  scopedOptimizationMethod,
+  sequentialOptimizationMethod,
+} from '../optimization-method-composition'
+import {
   createSearchHistoryReceipt,
   type SearchHistoryReceipt,
   SearchHistoryRequiredError,
@@ -276,6 +280,123 @@ describe('a first-party method that records its candidate population', () => {
 
     return { recorded, storage, ledgerPath }
   }
+
+  it('admits nested complete history and retains stage coverage on comparison scores', async () => {
+    const { recorded, storage } = await recordedMethod()
+    const nested = sequentialOptimizationMethod({
+      name: 'sequence',
+      methods: [
+        scopedOptimizationMethod({
+          name: 'scope',
+          method: recorded,
+          project: (surface) => surface,
+          merge: (_baseline, selected) => selected,
+        }),
+      ],
+    })
+    const comparison = await compareOptimizationMethods({
+      ...options([nested], async (surface) => ({ text: String(surface) })),
+      storage,
+      runDir,
+      searchHistoryPolicy: 'require-complete',
+      searchHistoryVerification: 'ledger',
+    })
+    expect(comparison.searchHistory).toMatchObject({
+      allComplete: true,
+      producers: [
+        {
+          producerId: 'sequence',
+          status: 'complete',
+          ledgerVerified: true,
+          stages: [
+            {
+              producerId: 'scope',
+              status: 'complete',
+              stages: [
+                {
+                  producerId: recorded.name,
+                  status: 'complete',
+                  ledgerVerified: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    expect(comparison.scores[0]?.composition?.stages[0]?.name).toBe('scope')
+  })
+
+  it.each([false, true])(
+    'validates a supplied parent receipt alongside children (corrupt=%s)',
+    async (corrupt) => {
+      const { recorded, storage } = await recordedMethod()
+      const composed = sequentialOptimizationMethod({ name: 'sequence', methods: [recorded] })
+      const withParent: OptimizationMethod<FixtureScenario, FixtureArtifact> = {
+        name: composed.name,
+        async optimize(input) {
+          const selected = await composed.optimize(input)
+          const receipt = selected.composition!.stages[0]!.result.searchHistory!
+          const { receiptDigest: _digest, ...body } = receipt
+          const parentBody = { ...body, producerId: composed.name }
+          return {
+            ...selected,
+            searchHistory: {
+              ...parentBody,
+              receiptDigest: corrupt
+                ? (`sha256:${'0'.repeat(64)}` as const)
+                : hashCanonical(parentBody),
+            },
+          }
+        },
+      }
+      let finalCalls = 0
+      const running = compareOptimizationMethods({
+        ...options([withParent], async (surface) => {
+          finalCalls++
+          return { text: String(surface) }
+        }),
+        storage,
+        runDir,
+        searchHistoryPolicy: 'require-complete',
+        searchHistoryVerification: 'ledger',
+      })
+      if (corrupt) {
+        await expect(running).rejects.toThrow('digest')
+        expect(finalCalls).toBe(0)
+      } else {
+        const comparison = await running
+        expect(comparison.searchHistory.producers[0]).toMatchObject({
+          status: 'complete',
+          ledgerVerified: true,
+          receipt: { producerId: composed.name },
+          stages: [{ producerId: recorded.name, status: 'complete' }],
+        })
+      }
+    },
+  )
+
+  it('does not let a complete last stage conceal missing earlier history', async () => {
+    const { recorded, storage } = await recordedMethod()
+    const nested = sequentialOptimizationMethod({
+      name: 'sequence',
+      methods: [method('missing-first'), recorded],
+    })
+    let finalCalls = 0
+    await expect(
+      compareOptimizationMethods({
+        ...options([nested], async () => {
+          finalCalls++
+          return { text: 'candidate' }
+        }),
+        storage,
+        runDir,
+        searchHistoryPolicy: 'require-complete',
+        searchHistoryVerification: 'ledger',
+      }),
+    ).rejects.toThrow('missing-first')
+    expect(finalCalls).toBe(0)
+  })
 
   it.each(['comparison', 'selfImprove'] as const)(
     'verifies complete ledger bytes before final assessment through %s',
