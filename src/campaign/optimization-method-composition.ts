@@ -31,6 +31,10 @@ export function scopedOptimizationMethod<S extends Scenario, A>(options: {
         input: {
           ...input,
           baselineSurface: projected,
+          surfaceToRoot: (surface) => {
+            const merged = merge(surface)
+            return input.surfaceToRoot ? input.surfaceToRoot(merged) : merged
+          },
           runDir: join(input.runDir, `scope-${baselineSurfaceHash.slice('sha256:'.length)}`),
           runOptions: {
             ...input.runOptions,

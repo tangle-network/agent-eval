@@ -35,24 +35,25 @@ export async function executeOptimizationMethod<S extends Scenario, A>(
   const costScope = createMethodCostScope(input.costLedger, method.name)
   const cloneScenarios = (scenarios: readonly S[]) =>
     Object.freeze(scenarios.map((scenario) => structuredClone(scenario)))
-  const selected = structuredClone(
-    await method.optimize(
-      Object.freeze({
-        ...input,
-        baselineSurface: structuredClone(input.baselineSurface),
-        trainScenarios: cloneScenarios(input.trainScenarios),
-        selectionScenarios: cloneScenarios(input.selectionScenarios),
-        judges: Object.freeze(
-          input.judges.map((judge) => {
-            const dimensions = judge.dimensions.map((dimension) => Object.freeze({ ...dimension }))
-            Object.freeze(dimensions)
-            return Object.freeze({ ...judge, dimensions })
-          }),
-        ),
-        runOptions: Object.freeze({ ...input.runOptions }),
-        costLedger: costScope.ledger,
+  const detachedInput: OptimizationMethodInput<S, A> = Object.freeze({
+    ...input,
+    baselineSurface: structuredClone(input.baselineSurface),
+    trainScenarios: cloneScenarios(input.trainScenarios),
+    selectionScenarios: cloneScenarios(input.selectionScenarios),
+    judges: Object.freeze(
+      input.judges.map((judge) => {
+        const dimensions = judge.dimensions.map((dimension) => Object.freeze({ ...dimension }))
+        Object.freeze(dimensions)
+        return Object.freeze({ ...judge, dimensions })
       }),
     ),
+    runOptions: Object.freeze({ ...input.runOptions }),
+    costLedger: costScope.ledger,
+  })
+  const selected = structuredClone(
+    await (input.invokeMethod
+      ? input.invokeMethod(method, detachedInput)
+      : method.optimize(detachedInput)),
   )
   assertOptimizationResult(method.name, selected)
   if (

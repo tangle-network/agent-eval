@@ -159,6 +159,13 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly runOptions: Readonly<OptimizationMethodRunOptions<TScenario, TArtifact>>
   /** Durable spend account shared by every method and final scoring. */
   readonly costLedger: CostLedgerHandle
+  /** Invokes each method at the shared execution boundary, including composed children. */
+  invokeMethod?(
+    method: OptimizationMethod<TScenario, TArtifact>,
+    input: OptimizationMethodInput<TScenario, TArtifact>,
+  ): Promise<OptimizationMethodResult>
+  /** Maps this method's local surface into the complete outer candidate. */
+  readonly surfaceToRoot?: (surface: MutableSurface) => MutableSurface
 }
 
 /** Exact child results; costs and usage remain attributable to their owning methods. */

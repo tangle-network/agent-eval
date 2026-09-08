@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '0c437ee6ea289cb9f57261db0ba0d53aa853ffa455c77050f81a728147565caf'
+  '20225616b2261be84b16fb253275d681ec2e9ae53c1ec00c4ab5a58f87549d7e'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
