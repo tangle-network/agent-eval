@@ -4,6 +4,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.177.0] — 2026-09-08
+
+### Added
+
+- `scopedOptimizationMethod()` optimizes a caller-defined projection while evaluating the complete candidate.
+  It verifies the baseline roundtrip and binds child caches and dispatch identity to the complete parent.
+- `sequentialOptimizationMethod()` passes selected candidates through arbitrary methods without an intermediate release gate.
+  It retains exact stage identities, provenance, usage, and history, and stops before another stage when cancelled.
+- Composed search history validates every child and any supplied parent receipt before final assessment.
+  Comparison scores retain recursive composition evidence.
+
+### Fixed
+
+- Nested optimization cost scopes preserve outer and child attribution without duplicate charges.
+  Composed costs retain incomplete accounting and cannot omit a child's reported spend.
+
 ## [0.176.0] — 2026-09-07
 
 ### Added

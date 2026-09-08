@@ -20,6 +20,50 @@ Use it when one surface must get better.
 Use it when two or more methods must be compared at equal budget.
 Runnable versions: [`examples/self-improve-optimizer`](../examples/self-improve-optimizer/) and [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
+## Compose searches over a candidate
+
+Use `scopedOptimizationMethod()` to change one projection while scoring the complete candidate.
+The caller supplies `project` and `merge`; Eval does not prescribe profile names or learning procedures.
+Their roundtrip must preserve the exact baseline before any child search runs.
+Scoped artifact paths and dispatch identity include the complete parent hash to prevent reuse across different evaluation contexts.
+A text or component surface can include serialized profiles, working evaluation definitions, and immutable state references.
+The host must resolve and verify those references when executing a candidate.
+Keep final decision cases outside the working candidate and every optimizer callback.
+
+Use `sequentialOptimizationMethod()` to pass each selected candidate into the next method.
+It does not require an intermediate candidate to beat the original baseline.
+Each child can use GEPA, SkillOpt, or an arbitrary `OptimizationMethod` callback.
+Use the existing GEPA recipe when only the optimizer engines change over one shared surface.
+
+```ts
+const learnerThenSpecialist = sequentialOptimizationMethod({
+  name: 'learner-then-specialist',
+  methods: [
+    scopedOptimizationMethod({
+      name: 'learner', method: learnerSearch,
+      project: selectLearner, merge: replaceLearner,
+    }),
+    scopedOptimizationMethod({
+      name: 'specialist', method: specialistSearch,
+      project: selectSpecialist, merge: replaceSpecialist,
+    }),
+  ],
+})
+```
+
+Pass this method and a joint method to `compareOptimizationMethods()` to compare their final candidates.
+Its existing `optimizationConcurrency` controls independent searches; stages inside a sequence run in order.
+All children share the spend account and receive only train and selection cases.
+Child costs are reconciled separately and summed without adding ledger charges.
+The returned `composition.stages` preserves each baseline hash, selected surface, cost, provenance, token usage, and history receipt.
+Missing child usage remains missing in that child's provenance.
+Comparison scores retain this composition.
+
+Set `searchHistoryPolicy: 'require-complete'` on the outer comparison or `selfImprove()` call to require every child receipt.
+Set `searchHistoryVerification: 'ledger'` to verify each referenced ledger before final assessment.
+Composite history coverage contains recursive `stages`; it does not fabricate one aggregate receipt.
+Any parent receipt supplied by a custom method is also verified; it cannot replace missing child evidence.
+
 ## Read An Improvement Result
 
 `selfImprove({ method })` executes the complete method once and measures its selected surface on final cases.

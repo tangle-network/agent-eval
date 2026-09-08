@@ -224,6 +224,10 @@ export {
   LabeledScenarioStoreError,
 } from './labeled-store/fs-adapter'
 export { neutralizeText } from './neutralize'
+export {
+  scopedOptimizationMethod,
+  sequentialOptimizationMethod,
+} from './optimization-method-composition'
 export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,
@@ -243,6 +247,7 @@ export {
   costFromLedgerSummary,
   type OptimizationMethod,
   type OptimizationMethodComparison,
+  type OptimizationMethodComposition,
   type OptimizationMethodInput,
   type OptimizationMethodPairwise,
   type OptimizationMethodProvenance,

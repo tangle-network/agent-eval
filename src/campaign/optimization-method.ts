@@ -1,5 +1,9 @@
 import { assertGepaCandidatePopulationSummary } from './gepa-candidate-population'
-import { assertComparisonCost, createMethodCostScope } from './optimization-cost'
+import {
+  assertComparisonCost,
+  combineComparisonCosts,
+  createMethodCostScope,
+} from './optimization-cost'
 import type {
   OptimizationMethod,
   OptimizationMethodInput,
@@ -10,6 +14,7 @@ import {
   assertCompleteSearchHistory,
   assertSearchHistoryAdmissionOptions,
   type SearchHistoryAdmissionOptions,
+  type SearchHistoryCoverageRow,
   searchHistoryCoverageRow,
   verifySearchHistoryArtifact,
 } from './search-history-receipt'
@@ -50,27 +55,74 @@ export async function executeOptimizationMethod<S extends Scenario, A>(
     ),
   )
   assertOptimizationResult(method.name, selected)
-  const history = searchHistoryCoverageRow(method.name, selected.searchHistory)
+  if (
+    selected.composition &&
+    selected.composition.baselineSurfaceHash !== surfaceContentHash(input.baselineSurface)
+  )
+    throw new Error(`optimization method '${method.name}' returned a disconnected baseline`)
+  const history = admitHistory(method.name, selected, options)
+  return { selected, cost: costScope.reconcile(selected.cost), history }
+}
+
+function admitHistory(
+  name: string,
+  result: OptimizationMethodResult,
+  options: SearchHistoryAdmissionOptions & { storage: CampaignStorage },
+): SearchHistoryCoverageRow {
+  if (result.composition) {
+    const parent =
+      result.searchHistory === undefined
+        ? undefined
+        : admitHistory(name, { ...result, composition: undefined }, options)
+    const stages = result.composition.stages.map((stage) =>
+      admitHistory(stage.name, stage.result, options),
+    )
+    return Object.freeze({
+      producerId: name,
+      status:
+        stages.every((stage) => stage.status === 'complete') &&
+        (parent === undefined || parent.status === 'complete')
+          ? 'complete'
+          : 'incomplete',
+      reasons: Object.freeze([
+        ...(parent?.reasons ?? []),
+        ...stages.flatMap((stage) =>
+          stage.reasons.map((reason) => `${stage.producerId}: ${reason}`),
+        ),
+      ]),
+      stages: Object.freeze(stages),
+      ...(parent?.receipt ? { receipt: parent.receipt } : {}),
+      ...(options.searchHistoryVerification === 'ledger' ? { ledgerVerified: true as const } : {}),
+    })
+  }
+  const history = searchHistoryCoverageRow(name, result.searchHistory)
   if (options.searchHistoryPolicy === 'require-complete')
-    assertCompleteSearchHistory(method.name, selected.searchHistory)
+    assertCompleteSearchHistory(name, result.searchHistory)
   if (options.searchHistoryVerification === 'ledger') {
-    if (!selected.searchHistory) assertCompleteSearchHistory(method.name, selected.searchHistory)
-    verifySearchHistoryArtifact(selected.searchHistory, options.storage)
+    if (!result.searchHistory) assertCompleteSearchHistory(name, result.searchHistory)
+    verifySearchHistoryArtifact(result.searchHistory, options.storage)
+    return Object.freeze({ ...history, ledgerVerified: true as const })
   }
-  return {
-    selected,
-    cost: costScope.reconcile(selected.cost),
-    history:
-      options.searchHistoryVerification === 'ledger'
-        ? Object.freeze({ ...history, ledgerVerified: true as const })
-        : history,
-  }
+  return history
 }
 
 export function assertOptimizationResult(name: string, result: OptimizationMethodResult): void {
+  assertResult(name, result, new Set())
+}
+
+function assertResult(
+  name: string,
+  result: OptimizationMethodResult,
+  ancestors: Set<object>,
+): void {
   if (!result || typeof result !== 'object') {
     throw new Error(`compareOptimizationMethods: method '${name}' returned no result`)
   }
+  if (ancestors.has(result) || ancestors.size >= 128)
+    throw new Error(
+      `optimization method '${name}' returned cyclic or excessive composition nesting`,
+    )
+  ancestors.add(result)
   try {
     surfaceContentHash(result.winnerSurface)
   } catch (cause) {
@@ -86,9 +138,50 @@ export function assertOptimizationResult(name: string, result: OptimizationMetho
   ) {
     throw new Error(`compareOptimizationMethods: method '${name}' returned an invalid durationMs`)
   }
+  if (result.composition !== undefined) {
+    const { kind, stages, baselineSurfaceHash } = result.composition
+    if (
+      !['scoped', 'sequential'].includes(kind) ||
+      !/^sha256:[a-f0-9]{64}$/.test(baselineSurfaceHash) ||
+      !Array.isArray(stages) ||
+      !stages.length ||
+      (kind === 'scoped' && stages.length !== 1)
+    ) {
+      throw new Error(`optimization method '${name}' returned invalid composition`)
+    }
+    stages.forEach((stage, index) => {
+      if (!stage.name?.trim() || !/^sha256:[a-f0-9]{64}$/.test(stage.baselineSurfaceHash))
+        throw new Error(`optimization method '${name}' returned invalid stage identity`)
+      assertResult(stage.name, stage.result, ancestors)
+      if (
+        kind === 'sequential' &&
+        index > 0 &&
+        stage.baselineSurfaceHash !== surfaceContentHash(stages[index - 1]!.result.winnerSurface)
+      )
+        throw new Error(`optimization method '${name}' returned disconnected stages`)
+    })
+    if (kind === 'sequential' && stages[0]!.baselineSurfaceHash !== baselineSurfaceHash)
+      throw new Error(`optimization method '${name}' returned a disconnected first stage`)
+    const accumulated = combineComparisonCosts(
+      stages.map((stage) => ({ label: stage.name, cost: stage.result.cost })),
+    )
+    if (
+      result.cost.totalCostUsd !== accumulated.totalCostUsd ||
+      result.cost.accountingComplete !== accumulated.accountingComplete ||
+      result.cost.costProvenance.kind !== accumulated.costProvenance.kind
+    )
+      throw new Error(`optimization method '${name}' returned inconsistent composed cost`)
+    if (
+      kind === 'sequential' &&
+      surfaceContentHash(result.winnerSurface) !==
+        surfaceContentHash(stages[stages.length - 1]!.result.winnerSurface)
+    )
+      throw new Error(`optimization method '${name}' returned a disconnected winner`)
+  }
   if (result.provenance !== undefined) {
     assertOptimizationProvenance(name, result.provenance)
   }
+  ancestors.delete(result)
 }
 
 function assertOptimizationProvenance(

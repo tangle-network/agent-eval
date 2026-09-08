@@ -161,9 +161,21 @@ export interface OptimizationMethodInput<TScenario extends Scenario, TArtifact> 
   readonly costLedger: CostLedgerHandle
 }
 
+/** Exact child results; costs and usage remain attributable to their owning methods. */
+export interface OptimizationMethodComposition {
+  kind: 'scoped' | 'sequential'
+  baselineSurfaceHash: string
+  stages: Array<{
+    name: string
+    baselineSurfaceHash: string
+    result: OptimizationMethodResult
+  }>
+}
+
 export interface OptimizationMethodResult {
   /** Surface selected without using the final test partition. */
   winnerSurface: MutableSurface
+  composition?: OptimizationMethodComposition
   /** Optimization spend. Excludes final test scoring. */
   cost: ComparisonCost
   /** Optimization duration. Excludes final test scoring. */
@@ -209,6 +221,7 @@ export interface OptimizationMethodScore {
     lift: number
   }>
   winnerSurface: MutableSurface
+  composition?: OptimizationMethodComposition
   /** 1-based, by descending lift. */
   rank: number
 }
@@ -401,6 +414,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
         winnerSurface,
         cost,
         ...(out.durationMs === undefined ? {} : { durationMs: out.durationMs }),
+        ...(out.composition === undefined ? {} : { composition: out.composition }),
         ...(out.provenance === undefined ? {} : { provenance: out.provenance }),
         searchHistoryCoverage,
       }
@@ -475,6 +489,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
       if (!baseline || !winner) throw new Error('final measurement evidence is missing')
       score.evidence = { baseline, winner }
     }
+    if (w.composition !== undefined) score.composition = structuredClone(w.composition)
     if (w.durationMs !== undefined) score.durationMs = w.durationMs
     if (w.provenance !== undefined) score.provenance = structuredClone(w.provenance)
     return score

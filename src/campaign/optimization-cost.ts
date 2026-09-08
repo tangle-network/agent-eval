@@ -12,7 +12,7 @@ export interface ComparisonCost {
 
 /** Attribute method calls while retaining the shared account's admission and read behavior. */
 export function createMethodCostScope(account: CostLedgerHandle, methodName: string) {
-  const tags = { optimizationAttempt: crypto.randomUUID() }
+  const tags = { [`optimizationAttempt:${crypto.randomUUID()}`]: methodName }
   const ledger: CostLedgerHandle = Object.freeze({
     costCeilingUsd: account.costCeilingUsd,
     runPaidCall: (input) => account.runPaidCall({ ...input, tags: { ...input.tags, ...tags } }),
