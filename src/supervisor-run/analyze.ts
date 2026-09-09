@@ -698,6 +698,10 @@ export function analyzeSupervisorRunSources(
   const brainCalls = parseJsonl(src.brainLog)
   const managerTokenLimit = src.limits.managerTokens
   const economics: EconomicsMetrics = {
+    resourceRecords:
+      src.journal === null && !tree.resourceRecords?.length
+        ? unavailable(journalMissing)
+        : (tree.resourceRecords ?? []),
     brain: {
       tokensIn:
         managerTokenLimit !== null
@@ -1017,6 +1021,9 @@ export function rollupSupervisorRuns(reports: readonly SupervisorRunReport[]): S
     idlePct: r.orchestration.idlePct,
     resolved: r.outcome.judgeResolved,
     usd: r.economics.totalUsd,
+    ...(r.economics.resourceRecords === undefined
+      ? {}
+      : { resourceRecords: r.economics.resourceRecords }),
   }))
 
   return {

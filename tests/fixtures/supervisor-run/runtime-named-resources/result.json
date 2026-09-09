@@ -1,0 +1,26 @@
+{
+  "kind": "no-winner",
+  "reason": "fixture",
+  "spentTotal": {
+    "tokens": {
+      "input": 1,
+      "output": 1
+    },
+    "usd": 0,
+    "resources": {
+      "compute": {
+        "unit": "millisecond",
+        "amount": 5,
+        "known": true
+      },
+      "transfer": {
+        "unit": "byte",
+        "amount": 7,
+        "known": false
+      }
+    }
+  },
+  "tree": {
+    "root": "resource-root"
+  }
+}

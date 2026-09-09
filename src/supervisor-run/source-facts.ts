@@ -1,4 +1,11 @@
-import type { SupervisorRunNodeRole, SupervisorRunSources } from './types'
+import {
+  type Measured,
+  type NamedResourceReceipt,
+  type ResourceSpendRecord,
+  type SupervisorRunNodeRole,
+  type SupervisorRunSources,
+  unavailable,
+} from './types'
 
 // ---------------------------------------------------------------------------
 // Journal shapes — structurally parsed. The journal is the contract, not the type.
@@ -38,6 +45,7 @@ interface Tokens {
 }
 
 export interface SpendLike {
+  readonly resources?: Measured<readonly NamedResourceReceipt[]>
   tokens: Tokens
   /**
    * False only when the record carried `tokensKnown: false` — Runtime's mark for work that
@@ -62,6 +70,31 @@ function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }
 
+function readResources(value: unknown): Measured<readonly NamedResourceReceipt[]> {
+  if (value === undefined) return unavailable('resource map not recorded')
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return unavailable('resource map is malformed')
+  }
+  return Object.entries(value).map(([name, raw]) => {
+    const entry = asRecord(raw)
+    return {
+      name: name.trim() ? name : unavailable('resource name is empty'),
+      unit:
+        typeof entry.unit === 'string' && entry.unit.trim()
+          ? entry.unit
+          : unavailable('resource unit is missing or invalid'),
+      amount:
+        typeof entry.amount === 'number' && Number.isFinite(entry.amount) && entry.amount >= 0
+          ? entry.amount
+          : unavailable('resource amount is missing or invalid'),
+      known:
+        typeof entry.known === 'boolean'
+          ? entry.known
+          : unavailable('resource completeness is missing or invalid'),
+    }
+  })
+}
+
 function readSpend(v: unknown): SpendLike {
   const rec = asRecord(v)
   const tok = asRecord(rec.tokens)
@@ -76,6 +109,7 @@ function readSpend(v: unknown): SpendLike {
       hasCache: cacheRead !== undefined || cacheWrite !== undefined,
       breakdownKnown: tok.cacheBreakdownKnown !== false,
     },
+    resources: readResources(rec.resources),
     tokensKnown: rec.tokensKnown !== false,
     usd: num(rec.usd),
     usdKnown: rec.usdKnown !== false,
@@ -224,6 +258,7 @@ export interface SteerAcknowledgementFact {
  * minter needs exactly the same parse (one parser, two consumers).
  */
 export interface SupervisorTreeFacts {
+  readonly resourceRecords?: readonly ResourceSpendRecord[]
   readonly rootId: string | null
   readonly spawns: readonly SpawnRow[]
   readonly closes: readonly CloseRow[]
@@ -451,6 +486,7 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   let unreadableRows = 0
   const ignoredByKind = new Map<string, number>()
   const dialectsSeen = new Set<JournalRowDialect>()
+  const resourceRecords: ResourceSpendRecord[] = []
   const meteredRows: Array<{ id: string; spend: SpendLike; at: number | null }> = []
   for (const [sourceRow, row] of events.entries()) {
     const reading = readJournalRow(row)
@@ -465,6 +501,15 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
     }
     const { kind, event: ev } = reading
     const id = typeof ev.id === 'string' ? ev.id : ''
+    if (kind === 'metered' || kind === 'settled' || kind === 'cancelled') {
+      const field = kind === 'metered' ? 'spend' : 'spent'
+      resourceRecords.push({
+        nodeId: id || null,
+        kind,
+        source: `journal.rows[${sourceRow}].${reading.dialect === 'runtime-envelope' ? 'event.' : ''}${field}.resources`,
+        resources: readResources(asRecord(kind === 'metered' ? ev.spend : ev.spent).resources),
+      })
+    }
     if (kind === 'spawned') {
       const parent = typeof ev.parent === 'string' && ev.parent.length > 0 ? ev.parent : null
       const label = typeof ev.label === 'string' ? ev.label : ''
@@ -725,7 +770,18 @@ export function parseSupervisorTree(src: SupervisorRunSources): SupervisorTreeFa
   for (const close of closes) widenEventSpan(close.at)
   for (const metered of meteredRows) widenEventSpan(metered.at)
 
+  const result = parseJson(src.result)
+  if (result && Object.hasOwn(result, 'spentTotal')) {
+    resourceRecords.push({
+      nodeId: rootId,
+      kind: 'result',
+      source: 'result.spentTotal.resources',
+      resources: readResources(asRecord(result.spentTotal).resources),
+    })
+  }
+
   return {
+    resourceRecords,
     rootId,
     spawns,
     closes,

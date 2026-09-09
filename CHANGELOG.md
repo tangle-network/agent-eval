@@ -4,6 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.180.0] — 2026-09-09
+
+- Preserve named-resource receipts in supervisor-run facts, JSON reports, and comparison cells.
+- Render each receipt's source, node, name, unit, amount, and completeness without adding inclusive parent and child totals.
+- Distinguish missing maps, recorded empty maps, malformed measurements, and measured zero.
+
 ## [0.179.0] — 2026-09-08
 
 ### Added

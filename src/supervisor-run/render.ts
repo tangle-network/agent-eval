@@ -8,6 +8,7 @@ import { round } from './analyze'
 import {
   isUnavailable,
   type Measured,
+  type ResourceSpendRecord,
   type SupervisorRunReport,
   type SupervisorRunRollup,
   showMeasured,
@@ -57,6 +58,35 @@ function fmtFailure(v: Measured<TerminalFailure | null>): string {
   const message = v.message ?? 'unavailable — record has no error.message'
   const attempt = v.earlierAttempt ? ', earlier attempt' : ''
   return `${name}: ${message} [${v.source}${v.at === null ? '' : ` at ${v.at}`}${attempt}]`
+}
+
+function resourceRows(records: Measured<readonly ResourceSpendRecord[]>): string[] {
+  if (isUnavailable(records)) return [`unavailable — ${records.unavailable}`, '']
+  const out = [
+    'Receipts are source records, not additive totals.',
+    'A false completeness flag means the amount is a recorded subtotal, not complete usage.',
+    '',
+    '| Node | Source | Resource | Unit | Amount | Known |',
+    '|---|---|---|---|---:|---|',
+  ]
+  const cell = (value: string) => value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+  for (const record of records) {
+    const prefix = `| ${cell(record.nodeId ?? 'unavailable')} | ${cell(record.source)} |`
+    if (isUnavailable(record.resources)) {
+      out.push(`${prefix} ${cell(showMeasured(record.resources))} | — | — | — |`)
+    } else if (record.resources.length === 0) {
+      out.push(`${prefix} recorded empty map | — | — | — |`)
+    } else {
+      for (const receipt of record.resources) {
+        out.push(
+          `${prefix} ${cell(showMeasured(receipt.name))} | ${cell(showMeasured(receipt.unit))} | ${cell(showMeasured(receipt.amount))} | ${cell(showMeasured(receipt.known))} |`,
+        )
+      }
+    }
+  }
+  if (!records.length) out.push('| — | — | no spend records | — | — | — |')
+  out.push('')
+  return out
 }
 
 function fmtMs(v: Measured<number>): string {
@@ -197,6 +227,10 @@ export function renderSupervisorRunMarkdown(r: SupervisorRunReport): string {
     out.push('')
   }
 
+  if (e.resourceRecords !== undefined) {
+    out.push('## Named resource receipts', '', ...resourceRows(e.resourceRecords))
+  }
+
   out.push('## Outcome')
   out.push('')
   out.push('| Metric | Value |')
@@ -279,5 +313,14 @@ export function renderSupervisorRollupMarkdown(
     )
   }
   out.push('')
+  for (const cell of rollup.perCell) {
+    if (cell.resourceRecords !== undefined) {
+      out.push(
+        `## Resource receipts — ${cell.instanceId ?? '?'} [${cell.arm ?? '?'}]`,
+        '',
+        ...resourceRows(cell.resourceRecords),
+      )
+    }
+  }
   return out.join('\n')
 }
