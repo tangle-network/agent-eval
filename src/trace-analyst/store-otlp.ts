@@ -56,6 +56,8 @@ import {
   truncateForBudget,
   validateInteger,
 } from './store'
+import { bindSpanSourceReader } from './store-boundary'
+import type { SpanSourceReader } from './store-contract'
 import {
   type DatasetOverview,
   DEFAULT_TRACE_ANALYST_BUDGETS,
@@ -137,6 +139,8 @@ interface DatasetIndex {
 }
 
 export interface ToolSpansToTraceAnalysisStoreOptions {
+  /** Authorized original-record lookup, exposed only when supplied. */
+  sourceReader?: SpanSourceReader
   /** Override the discovery (`viewTrace`) per-attribute byte cap. */
   perAttributeViewBudget?: number
   /** Override the surgical (`viewSpans`) per-attribute byte cap. */
@@ -166,6 +170,7 @@ export interface OtlpFileTraceStoreOptions extends BufferedOtlpTraceStoreOptions
 export const DEFAULT_MAX_TRACE_FILE_BYTES = 256 * 1024 * 1024
 
 abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
+  readonly readSpanSource?: SpanSourceReader
   private readonly perAttributeViewBudget: number
   private readonly perAttributeSpanBudget: number
   private readonly perCallByteCeiling: number
@@ -196,6 +201,12 @@ abstract class BufferedOtlpTraceStore implements TraceAnalysisStore {
       'perMatchTextBudget',
       TRACE_ANALYSIS_LIMITS.minimumTextBudget,
     )
+    if (opts.sourceReader !== undefined) {
+      this.readSpanSource = bindSpanSourceReader(this, opts.sourceReader, {
+        perAttributeSpanBudget: this.perAttributeSpanBudget,
+        perCallByteCeiling: this.perCallByteCeiling,
+      })
+    }
   }
 
   // ─── Public API ────────────────────────────────────────────────────

@@ -232,6 +232,7 @@ def test_analyze_accepts_all_canonical_node_tool_schemas(tmp_path: Path) -> None
     input_path, _ = _write_analyze_input(tmp_path)
     input_value = json.loads(input_path.read_text())
     arguments = {
+        "readSpanSource": ["trace_id", "span_id", "attribute", "offset", "limit", "source_index"],
         "getDatasetOverview": ["filters"],
         "queryTraces": ["filters", "limit", "offset"],
         "countTraces": ["filters"],
@@ -241,6 +242,7 @@ def test_analyze_accepts_all_canonical_node_tool_schemas(tmp_path: Path) -> None
         "searchSpan": ["trace_id", "span_id", "regex_pattern", "max_matches"],
     }
     required = {
+        "readSpanSource": ["trace_id", "span_id", "attribute", "offset", "limit"],
         "getDatasetOverview": [],
         "queryTraces": ["limit"],
         "countTraces": [],
@@ -316,9 +318,7 @@ def test_probed_interpreter_pins_pyodide_through_the_import_map(
 
     assert observed["import_map"] == {
         "imports": {
-            "npm:pyodide/pyodide.js": (
-                f"npm:pyodide@{dspy_rlm_bridge._PYODIDE_VERSION}/pyodide.js"
-            )
+            "npm:pyodide/pyodide.js": (f"npm:pyodide@{dspy_rlm_bridge._PYODIDE_VERSION}/pyodide.js")
         }
     }
     assert calls["interpreter_shutdown"] is True
@@ -354,6 +354,24 @@ def test_broken_sandbox_fails_before_lm_construction(
 @pytest.mark.parametrize(
     ("function_name", "kwargs", "expected_args"),
     [
+        (
+            "readSpanSource",
+            {
+                "trace_id": "t1",
+                "span_id": "s1",
+                "attribute": "output.value",
+                "offset": 1024,
+                "limit": 64,
+            },
+            {
+                "trace_id": "t1",
+                "span_id": "s1",
+                "attribute": "output.value",
+                "offset": 1024,
+                "limit": 64,
+                "source_index": 0,
+            },
+        ),
         ("getDatasetOverview", {}, {}),
         ("queryTraces", {"limit": 5, "offset": 2}, {"limit": 5, "offset": 2}),
         ("countTraces", {"filters": {"has_errors": True}}, {"filters": {"has_errors": True}}),
@@ -413,7 +431,7 @@ def test_fixed_trace_tools_send_authenticated_callback_payloads(
 
 def test_parse_findings_json_recovers_and_reports_defects() -> None:
     # a fenced or prose-wrapped array is recovered
-    fenced = "```json\n[{\"severity\": \"high\", \"claim\": \"c\", \"confidence\": 0.5, \"evidence\": [{\"uri\": \"trace://t/span/s\"}]}]\n```"
+    fenced = '```json\n[{"severity": "high", "claim": "c", "confidence": 0.5, "evidence": [{"uri": "trace://t/span/s"}]}]\n```'
     rows, rejected = dspy_rlm_bridge._parse_findings_json(fenced)
     assert len(rows) == 1 and rows[0]["claim"] == "c"
     assert rejected == []
@@ -451,6 +469,7 @@ def test_parse_findings_json_recovers_and_reports_defects() -> None:
     rows, rejected = dspy_rlm_bridge._parse_findings_json(mixed)
     assert [row["claim"] for row in rows] == ["keep me"]
     assert [(row.index, row.path) for row in rejected] == [(1, "severity")]
+
 
 def test_analyze_strips_model_output_whitespace(
     monkeypatch: pytest.MonkeyPatch,
@@ -580,9 +599,8 @@ _VALID_FINDING = {
 
 
 def test_salvage_recovers_json_after_a_malformed_marker() -> None:
-    text = (
-        "Every other step was correct.\n\n"
-        "[[ ## findings_json ## ]\n" + json.dumps([_VALID_FINDING])
+    text = "Every other step was correct.\n\n[[ ## findings_json ## ]\n" + json.dumps(
+        [_VALID_FINDING]
     )
     salvaged = dspy_rlm_bridge._salvage_findings_json(text)
     assert salvaged is not None
@@ -691,9 +709,7 @@ def test_malformed_findings_string_reaches_the_existing_repair_turn(
         "findings must be a JSON array; the string received is not JSON"
     )
     assert len(calls["repair_calls"]) == 1
-    assert "findings_json: findings must be a JSON array" in json.dumps(
-        calls["repair_calls"][0]
-    )
+    assert "findings_json: findings must be a JSON array" in json.dumps(calls["repair_calls"][0])
     assert output["modelCalls"] == 4
 
 

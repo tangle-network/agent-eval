@@ -1,7 +1,7 @@
 /**
  * Pre-curated tool subsets for analyst kinds.
  *
- * The full trace-analyst tool set is seven functions. Most kinds only
+ * The trace-analyst tool set includes optional source reads. Most kinds only
  * need three or four. Picking from named groups instead of importing
  * the whole bundle keeps every kind's actor-context budget tight and
  * makes "what can this analyst see?" obvious at registration time.
@@ -18,7 +18,7 @@ import {
 
 /** Named tool sets. Kinds pass `tools: TRACE_TOOL_GROUPS.failureForensics` etc. */
 export type TraceToolGroupName =
-  /** All seven tools. Use for open-ended discovery kinds. */
+  /** All available tools. Use for open-ended discovery kinds. */
   | 'all'
   /** Overview + paginated query + count. No deep reads. Cheap. */
   | 'discovery'
@@ -40,6 +40,7 @@ const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
     'countTraces',
     'viewTrace',
     'viewSpans',
+    'readSpanSource',
   ]),
   discoveryAndSearch: new Set([
     'getDatasetOverview',
@@ -47,12 +48,20 @@ const TOOL_NAMES_BY_GROUP: Record<TraceToolGroupName, ReadonlySet<string>> = {
     'countTraces',
     'searchTrace',
     'searchSpan',
+    'readSpanSource',
   ]),
-  targeted: new Set(['getDatasetOverview', 'queryTraces', 'viewSpans', 'searchSpan']),
+  targeted: new Set([
+    'getDatasetOverview',
+    'queryTraces',
+    'viewSpans',
+    'searchSpan',
+    'readSpanSource',
+  ]),
   singleTrace: new Set([
     'getDatasetOverview',
     'viewTrace',
     'viewSpans',
+    'readSpanSource',
     'searchTrace',
     'searchSpan',
   ]),

@@ -4,6 +4,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.179.0] — 2026-09-08
+
+### Added
+
+- Optional `readSpanSource` retrieves bounded original-record evidence through existing trace stores and analyst tools.
+  Caller-owned providers resolve authorized records and retain immutable source hashes.
+  Scope checks, UTF-8 byte windows, continuation, cancellation, and existing byte budgets apply to each read.
+- Chat and DSPy analysts share the optional source-read descriptor and existing tool-call accounting.
+
 ## [0.177.0] — 2026-09-08
 
 ### Added

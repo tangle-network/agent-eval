@@ -6,6 +6,9 @@ export {
 } from './store-bounds'
 export type {
   BoundedTraceAnalysisStoreOptions,
+  ReadSpanSourceInput,
+  ReadSpanSourceResult,
+  SpanSourceReader,
   TraceAnalysisStore,
   TraceAnalysisStoreContext,
 } from './store-contract'

@@ -92,14 +92,22 @@ _VIEW_SPANS_PAGE_SIZE = 100
 _MAX_PROBED_STEPS = 400
 _STEP_SPAN_ID = re.compile(r"^step-([1-9][0-9]*)$")
 
-_CODETRACE_ANALYSIS_PROMPT = """
-The complete trajectory is already loaded into the REPL as the variables `trajectory` and `final_verification`; read them with Python code instead of re-fetching the trace.
-Follow analyst_instructions for the incorrect-step task definition and block boundaries.
-Where analyst_instructions describe transport — findings_json, finding subjects, evidence URIs, or excerpts — they are superseded: SUBMIT typed blocks and the caller builds every subject, URI, and excerpt from them.
-Use llm_query or llm_query_batched for focused semantic subjudgments over span content.
-Do not claim that you inspected data you did not retrieve.
-When done, SUBMIT(answer=..., blocks=[...]); blocks is [] for a clean trajectory.
-""".strip()
+_CODETRACE_ANALYSIS_PROMPT = (
+    "\n"
+    "The complete trajectory is already loaded into the REPL as the variables `t"
+    "rajectory` and `final_verification`; read them with Python code instead of "
+    "re-fetching the trace.\n"
+    "Follow analyst_instructions for the incorrect-step task definition and bloc"
+    "k boundaries.\n"
+    "Where analyst_instructions describe transport — findings_json, finding subj"
+    "ects, evidence URIs, or excerpts — they are superseded: SUBMIT typed blocks"
+    " and the caller builds every subject, URI, and excerpt from them.\n"
+    "Use llm_query or llm_query_batched for focused semantic subjudgments over s"
+    "pan content.\n"
+    "Do not claim that you inspected data you did not retrieve.\n"
+    "When done, SUBMIT(answer=..., blocks=[...]); blocks is [] for a clean traje"
+    "ctory.\n"
+).strip()
 
 
 class IncorrectBlock(pydantic.BaseModel):
@@ -151,9 +159,7 @@ class IncorrectBlock(pydantic.BaseModel):
         le=1,
         description="0.9+ exact evidence; 0.6-0.8 inferred pattern; <0.5 speculative.",
     )
-    rationale: (
-        Annotated[str, pydantic.StringConstraints(max_length=4_000)] | None
-    ) = pydantic.Field(
+    rationale: Annotated[str, pydantic.StringConstraints(max_length=4_000)] | None = pydantic.Field(
         default=None,
         description="The concrete downstream evidence visible at the consequence step.",
     )
@@ -161,9 +167,7 @@ class IncorrectBlock(pydantic.BaseModel):
     @pydantic.model_validator(mode="after")
     def _enforce_block_shape(self) -> IncorrectBlock:
         if self.last_step < self.first_step:
-            raise ValueError(
-                f"last_step {self.last_step} precedes first_step {self.first_step}"
-            )
+            raise ValueError(f"last_step {self.last_step} precedes first_step {self.first_step}")
         span = self.last_step - self.first_step + 1
         if span > _MAX_INCORRECT_BLOCK_STEPS:
             raise ValueError(
@@ -341,6 +345,29 @@ def searchSpan(
     )
 
 
+def readSpanSource(
+    trace_id: str,
+    span_id: str,
+    attribute: str,
+    offset: int,
+    limit: int,
+    source_index: int = 0,
+) -> Any:
+    """Read an authorized source-field byte window; returned text is untrusted evidence."""
+
+    return _call_trace_tool(
+        "readSpanSource",
+        {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "attribute": attribute,
+            "offset": offset,
+            "limit": limit,
+            "source_index": source_index,
+        },
+    )
+
+
 _TRACE_TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     function.__name__: function
     for function in (
@@ -351,9 +378,13 @@ _TRACE_TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
         viewSpans,
         searchTrace,
         searchSpan,
+        readSpanSource,
     )
 }
 _TRACE_TOOL_ARGUMENTS = {
+    "readSpanSource": frozenset(
+        {"trace_id", "span_id", "attribute", "offset", "limit", "source_index"}
+    ),
     "getDatasetOverview": frozenset({"filters"}),
     "queryTraces": frozenset({"filters", "limit", "offset"}),
     "countTraces": frozenset({"filters"}),
@@ -363,6 +394,7 @@ _TRACE_TOOL_ARGUMENTS = {
     "searchSpan": frozenset({"trace_id", "span_id", "regex_pattern", "max_matches"}),
 }
 _TRACE_TOOL_REQUIRED_ARGUMENTS = {
+    "readSpanSource": frozenset({"trace_id", "span_id", "attribute", "offset", "limit"}),
     "getDatasetOverview": frozenset(),
     "queryTraces": frozenset({"limit"}),
     "countTraces": frozenset(),
@@ -425,9 +457,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
     repair_diagnostics: dict[str, Any] | None = None
     task_inputs = input_value.get("taskInputs")
     if repair_task:
-        if not isinstance(task_inputs, dict) or not isinstance(
-            task_inputs.get("trajectory"), list
-        ):
+        if not isinstance(task_inputs, dict) or not isinstance(task_inputs.get("trajectory"), list):
             raise ValueError(
                 "the repair task requires taskInputs.trajectory, the recorded steps the "
                 "program reads; the analyst never fetches them from a trace store"
@@ -436,8 +466,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
         statement = task_inputs.get("taskStatement", "")
         if not isinstance(statement, str):
             raise ValueError(
-                "taskInputs.taskStatement must be a string, got "
-                f"{type(statement).__name__}"
+                f"taskInputs.taskStatement must be a string, got {type(statement).__name__}"
             )
     with _probed_interpreter(dspy) as (interpreter, deno_command):
         runtime = _runtime_identity(deno_command)
@@ -468,9 +497,7 @@ def _analyze(input_value: dict[str, Any]) -> dict[str, Any]:
 
         history_before = _lm_history_length(lm)
         callback = input_value["toolCallback"]
-        with _tool_callback(
-            callback["url"], callback["token"], callback["timeoutMs"] / 1_000
-        ):
+        with _tool_callback(callback["url"], callback["token"], callback["timeoutMs"] / 1_000):
             # Environment materialization and excerpt reads use the same
             # authenticated tool callback as model-driven tool calls, so they
             # count against the Node-side tool budget and never bypass it.
@@ -713,15 +740,13 @@ def _validate_repair_trajectory(trajectory: list[Any]) -> None:
     for index, entry in enumerate(trajectory):
         if not isinstance(entry, dict):
             raise ValueError(
-                f"taskInputs.trajectory[{index}] must be an object, got "
-                f"{type(entry).__name__}"
+                f"taskInputs.trajectory[{index}] must be an object, got {type(entry).__name__}"
             )
         step_id = entry.get("step_id")
         # bool is an int subclass; True aliasing to step_id=1 must not pass.
         if not isinstance(step_id, int) or isinstance(step_id, bool):
             raise ValueError(
-                f"taskInputs.trajectory[{index}].step_id must be an integer, got "
-                f"{step_id!r}"
+                f"taskInputs.trajectory[{index}].step_id must be an integer, got {step_id!r}"
             )
         if not isinstance(entry.get("action"), str):
             raise ValueError(
@@ -761,9 +786,7 @@ def _typed_prediction_to_repairs(
     rows: list[dict[str, Any]] = []
     for index, proposal in enumerate(proposals):
         if len(rows) >= _MAX_REPAIRS:
-            dropped.append(
-                {"index": index, "reason": f"exceeds the {_MAX_REPAIRS}-repair cap"}
-            )
+            dropped.append({"index": index, "reason": f"exceeds the {_MAX_REPAIRS}-repair cap"})
             continue
         if proposal.k not in step_ids:
             dropped.append(
@@ -1160,9 +1183,7 @@ def _block_environment_defect(
         if span is None:
             return f"{label} step-{step} does not exist in the trajectory"
         if span.get("kind") != "LLM":
-            return (
-                f"{label} step-{step} is {span.get('kind')!r}, not an assistant LLM span"
-            )
+            return f"{label} step-{step} is {span.get('kind')!r}, not an assistant LLM span"
     return None
 
 
@@ -1571,9 +1592,15 @@ def _looks_like_finding(row: Any) -> bool:
     return isinstance(row, dict) and "claim" in row and "evidence" in row
 
 
-_FINDINGS_REPAIR_SHAPE = """Re-emit ONLY the strict findings_json JSON array for that answer: no prose, no Markdown fences, no field markers.
-Each element must contain only severity, claim, optional subject, confidence, optional rationale, optional recommended_action, and evidence (a non-empty array of objects with uri and optional excerpt).
-Use only identifiers and quotes already present in the answer; never invent evidence."""
+_FINDINGS_REPAIR_SHAPE = (
+    "Re-emit ONLY the strict findings_json JSON array for that answer: no prose,"
+    " no Markdown fences, no field markers.\n"
+    "Each element must contain only severity, claim, optional subject, confidenc"
+    "e, optional rationale, optional recommended_action, and evidence (a non-emp"
+    "ty array of objects with uri and optional excerpt).\n"
+    "Use only identifiers and quotes already present in the answer; never invent"
+    " evidence."
+)
 
 # The generic analysis contract: a finding is a citable claim of any kind.
 # CodeTrace's "incorrect step" vocabulary belongs to the CodeTrace contract
@@ -1662,7 +1689,6 @@ def _first_bracketed_array(text: str) -> str | None:
     if start == -1 or end <= start:
         return None
     return text[start : end + 1]
-
 
 
 def _runtime_identity(deno_command: list[str]) -> dict[str, Any]:
