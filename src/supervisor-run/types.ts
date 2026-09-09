@@ -394,7 +394,25 @@ export interface SpendMeasurements {
   readonly closeRecord: SpendMeasurement
 }
 
+/** One source receipt; unknown amounts remain lower bounds when known is false. */
+export interface NamedResourceReceipt {
+  readonly name: Measured<string>
+  readonly unit: Measured<string>
+  readonly amount: Measured<number>
+  readonly known: Measured<boolean>
+}
+
+/** Recorded spend evidence. Inclusive parent and child records must not be summed together. */
+export interface ResourceSpendRecord {
+  readonly nodeId: string | null
+  readonly source: string
+  readonly kind: 'metered' | 'settled' | 'cancelled' | 'result'
+  readonly resources: Measured<readonly NamedResourceReceipt[]>
+}
+
 export interface EconomicsMetrics {
+  /** Per-journal-record resource receipts, without cross-node aggregation. */
+  readonly resourceRecords?: Measured<readonly ResourceSpendRecord[]>
   /** Driver/brain inference — journal `metered` events. */
   readonly brain: RoleSpend
   /**
@@ -523,6 +541,8 @@ export interface SupervisorRunReport {
 }
 
 export interface RollupCellRow {
+  /** Per-source receipts remain attached to their comparison cell. */
+  readonly resourceRecords?: Measured<readonly ResourceSpendRecord[]>
   readonly instanceId: string | null
   readonly arm: string | null
   readonly steers: Measured<number>
