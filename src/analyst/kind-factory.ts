@@ -1,6 +1,6 @@
 import { CostLedger } from '../cost-ledger'
 import { hashCanonical } from '../ledger-core/canonical'
-import type { TraceAnalysisStore } from '../trace-analyst/store'
+import type { ReadSpanSourceResult, TraceAnalysisStore } from '../trace-analyst/store'
 import type { TraceAnalysisEngine, TraceAnalysisEngineResult, TraceAnalystLimits } from './engine'
 import { resolveTraceAnalystLimits } from './engine'
 import { type ExactCapableAnalyst, snapshotExactExecutionComponentIdentity } from './exact-types'
@@ -85,11 +85,29 @@ export async function runTraceAnalyst(args: {
       .filter(Boolean)
       .join('\n\n')
 
+    const sourceReads: ReadSpanSourceResult[] = []
+    const tools = buildTraceToolsForGroup(definition.toolGroup, args.store).map((tool) => {
+      if (tool.name !== 'readSpanSource') return tool
+      return {
+        ...tool,
+        handler: async (...input: Parameters<typeof tool.handler>) => {
+          // This canonical handler validates the provider result before evidence admission.
+          const result = (await tool.handler(...input)) as ReadSpanSourceResult
+          // Detach before returning: engine-owned result mutation cannot alter cited evidence.
+          sourceReads.push(
+            result.status === 'available'
+              ? { ...result, source: { ...result.source } }
+              : { ...result },
+          )
+          return result
+        },
+      }
+    })
     const completed = await args.engine.analyze({
       analystId: definition.id,
       question: deriveQuestion(context, definition),
       instructions,
-      tools: buildTraceToolsForGroup(definition.toolGroup, args.store),
+      tools,
       limits: resolveTraceAnalystLimits(definition.limits),
       costLedger,
       costPhase: context.costPhase ?? 'trace-analysis',
@@ -97,12 +115,14 @@ export async function runTraceAnalyst(args: {
       ...(context.signal ? { signal: context.signal } : {}),
       ...(context.log ? { log: context.log } : {}),
     })
+    const observedSourceReads = sourceReads.slice()
     const findings = await acceptFindings(
       definition,
       completed.findings,
       args.store,
       context,
       minimumEvidenceCitations,
+      observedSourceReads.filter((read) => read.status === 'available'),
     )
     if (definition.requireStructuredFindings && findings.length === 0) {
       throw new Error(
@@ -116,7 +136,19 @@ export async function runTraceAnalyst(args: {
       submitted_findings: completed.findings.length,
       accepted_findings: findings.length,
     })
-    return { ...completed, findings }
+    return {
+      ...completed,
+      findings,
+      runtime: {
+        ...completed.runtime,
+        // Only canonical handler observations can populate this provenance field.
+        source_reads: observedSourceReads.map((read) => {
+          if (read.status === 'unavailable') return read
+          const { text, ...receipt } = read
+          return { ...receipt, byte_length: Buffer.byteLength(text, 'utf8') }
+        }),
+      },
+    }
   } finally {
     const usage = await settleUsageReceiptFromCostLedger(costLedger, {
       channel: 'analyst',
@@ -214,6 +246,7 @@ async function acceptFindings(
   store: TraceAnalysisStore,
   context: AnalystContext,
   minimumEvidenceCitations: number,
+  sourceWindows: ReadonlyArray<Extract<ReadSpanSourceResult, { status: 'available' }>>,
 ): Promise<RawAnalystFinding[]> {
   const expectedSubjects = KIND_EXPECTED_SUBJECTS[definition.id]
   const accepted: RawAnalystFinding[] = []
@@ -244,7 +277,7 @@ async function acceptFindings(
       })
       continue
     }
-    if (!(await evidenceIsResolvable(validated, store, context))) continue
+    if (!(await evidenceIsResolvable(validated, store, context, sourceWindows))) continue
     accepted.push(validated)
   }
   return accepted
@@ -254,6 +287,7 @@ async function evidenceIsResolvable(
   finding: RawAnalystFinding,
   store: TraceAnalysisStore,
   context: AnalystContext,
+  sourceWindows: ReadonlyArray<Extract<ReadSpanSourceResult, { status: 'available' }>>,
 ): Promise<boolean> {
   const knownFindings = new Map(
     [...(context.priorFindings ?? []), ...(context.upstreamFindings ?? [])].map((entry) => [
@@ -289,7 +323,17 @@ async function evidenceIsResolvable(
           storeContext,
         )
         const span = viewed.spans.find((entry) => entry.span_id === traceLocation.spanId)
-        if (!span || !containsExactText([span.attributes, span.status_message], citation.excerpt)) {
+        const excerpt = citation.excerpt
+        const observedSource = sourceWindows.some(
+          (window) =>
+            window.trace_id === traceLocation.traceId &&
+            window.span_id === traceLocation.spanId &&
+            window.text.includes(excerpt),
+        )
+        if (
+          (!span || !containsExactText([span.attributes, span.status_message], excerpt)) &&
+          !observedSource
+        ) {
           rejectEvidence(context, citation.uri, 'excerpt is not present in the cited span content')
           return false
         }
@@ -339,7 +383,7 @@ const MINIMUM_EXCERPT_LENGTH = 8
 
 /** Bumped whenever the evidence-acceptance rules change, so two differently
  *  strict builds cannot seal identical execution plans. */
-const EVIDENCE_VERIFICATION_VERSION = 'resolvable-excerpt-v1'
+const EVIDENCE_VERIFICATION_VERSION = 'resolvable-excerpt-source-window-v2'
 
 /** Matches only within the passed content-bearing values — callers must not
  *  hand this whole spans or findings, or identifier fields become quotable. */

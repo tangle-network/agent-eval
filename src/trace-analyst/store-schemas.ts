@@ -28,6 +28,16 @@ const byteCap = z.number().int().min(TRACE_ANALYSIS_LIMITS.minimumTextBudget)
 const searchPattern = z.string().min(1).max(TRACE_ANALYSIS_LIMITS.regexCharacters)
 
 export const traceStoreInputSchemas = {
+  readSpanSource: z
+    .object({
+      trace_id: identifier,
+      span_id: identifier,
+      attribute: identifier,
+      offset: nonNegativeInteger,
+      limit: z.number().int().positive(),
+      source_index: nonNegativeInteger.optional(),
+    })
+    .strict(),
   hasTrace: z.object({ trace_id: identifier }).strict(),
   hasSpans: z
     .object({
@@ -230,6 +240,40 @@ const spanSearch = traceSearch
   .strict()
 
 export const traceStoreOutputSchemas = {
+  readSpanSource: z.discriminatedUnion('status', [
+    z
+      .object({
+        status: z.literal('unavailable'),
+        source_index: nonNegativeInteger,
+        trace_id: identifier,
+        span_id: identifier,
+        attribute: identifier,
+        reason: z.string().min(1).max(4_096),
+      })
+      .strict(),
+    z
+      .object({
+        status: z.literal('available'),
+        source_index: nonNegativeInteger,
+        trace_id: identifier,
+        span_id: identifier,
+        attribute: identifier,
+        text: z.string(),
+        offset: nonNegativeInteger,
+        total_bytes: z.number().int().positive(),
+        next_offset: nonNegativeInteger.nullable(),
+        source: z
+          .object({
+            source_id: identifier,
+            source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            record_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            field_locator: z.string().min(1).max(4_096),
+            value_encoding: z.enum(['utf8-string', 'json']),
+          })
+          .strict(),
+      })
+      .strict(),
+  ]),
   hasTrace: z.boolean(),
   hasSpans: z.array(identifier).max(TRACE_ANALYSIS_LIMITS.viewSpans),
   getOverview: overview,

@@ -333,7 +333,7 @@ describe('createTraceAnalyst wires a definition into the Analyst contract', () =
       max_llm_calls: 8,
       max_tool_calls: 48,
       max_output_chars: 10_000,
-      evidence_verification: 'resolvable-excerpt-v1',
+      evidence_verification: 'resolvable-excerpt-source-window-v2',
     })
   })
 

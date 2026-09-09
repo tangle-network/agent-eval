@@ -1,5 +1,6 @@
 import {
   SpanNotFoundError,
+  TraceAnalysisLimitError,
   TraceAnalysisStoreContractError,
   TraceAnalysisValidationError,
   TraceNotFoundError,
@@ -16,6 +17,7 @@ import {
 } from './store-bounds'
 import type {
   BoundedTraceAnalysisStoreOptions,
+  SpanSourceReader,
   TraceAnalysisStore,
   TraceAnalysisStoreContext,
 } from './store-contract'
@@ -25,6 +27,7 @@ import {
   traceStoreInputSchemas,
   traceStoreOutputSchemas,
 } from './store-schemas'
+import type { TraceAnalystByteBudgets } from './types'
 
 /** Apply the public validation, cancellation, not-found, and size rules to any adapter. */
 export function createBoundedTraceAnalysisStore(
@@ -34,6 +37,11 @@ export function createBoundedTraceAnalysisStore(
   const budgets = resolveTraceBudgets(options.budgets)
 
   return {
+    ...(source.readSpanSource === undefined
+      ? {}
+      : {
+          readSpanSource: bindSpanSourceReader(source, source.readSpanSource.bind(source), budgets),
+        }),
     async hasTrace(traceId, context) {
       throwIfAborted(context)
       const { trace_id } = parseTraceInput('hasTrace', traceStoreInputSchemas.hasTrace, {
@@ -235,4 +243,64 @@ function assertUniqueIds(ids: readonly string[], label: string): void {
 
 function throwIfAborted(context: TraceAnalysisStoreContext | undefined): void {
   context?.signal?.throwIfAborted()
+}
+
+/** Shared by the file adapter and third-party store bindings. */
+export function bindSpanSourceReader(
+  source: TraceAnalysisStore,
+  reader: SpanSourceReader,
+  budgets: Pick<TraceAnalystByteBudgets, 'perAttributeSpanBudget' | 'perCallByteCeiling'>,
+): SpanSourceReader {
+  return async (input, context) => {
+    const operation = 'readSpanSource'
+    throwIfAborted(context)
+    const validated = parseTraceInput(operation, traceStoreInputSchemas.readSpanSource, input)
+    const parsed = { ...validated, source_index: validated.source_index ?? 0 }
+    if (parsed.limit > budgets.perAttributeSpanBudget) {
+      throw new TraceAnalysisLimitError(operation, parsed.limit, budgets.perAttributeSpanBudget)
+    }
+    if (!Number.isSafeInteger(parsed.offset + parsed.limit)) {
+      throw new TraceAnalysisValidationError(
+        'readSpanSource: byte window exceeds safe integer range',
+      )
+    }
+    await requireTrace(source, parsed.trace_id, context)
+    await requireSpan(source, parsed.trace_id, parsed.span_id, context)
+    const result = await reader({ ...parsed }, context)
+    throwIfAborted(context)
+    const output = parseStoreOutput(operation, traceStoreOutputSchemas.readSpanSource, result)
+    if (
+      output.trace_id !== parsed.trace_id ||
+      output.span_id !== parsed.span_id ||
+      output.attribute !== parsed.attribute ||
+      output.source_index !== parsed.source_index
+    ) {
+      throw new TraceAnalysisStoreContractError(
+        operation,
+        'source result does not match the requested span attribute',
+      )
+    }
+    if (output.status === 'available') {
+      const bytes = Buffer.byteLength(output.text, 'utf8')
+      const end = output.offset + bytes
+      if (
+        output.offset !== parsed.offset ||
+        bytes > parsed.limit ||
+        end > output.total_bytes ||
+        output.next_offset !== (end < output.total_bytes ? end : null) ||
+        (bytes === 0 && end < output.total_bytes) ||
+        Buffer.from(output.text, 'utf8').toString('utf8') !== output.text
+      ) {
+        throw new TraceAnalysisStoreContractError(
+          operation,
+          'invalid source byte window or continuation',
+        )
+      }
+    }
+    const responseBytes = Buffer.byteLength(JSON.stringify(output), 'utf8')
+    if (responseBytes > budgets.perCallByteCeiling) {
+      throw new TraceAnalysisLimitError(operation, responseBytes, budgets.perCallByteCeiling)
+    }
+    return output
+  }
 }

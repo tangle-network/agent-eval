@@ -242,6 +242,51 @@ Custom stores implement `TraceAnalysisStore`.
 `OtlpFileTraceStore`, `otlpTextToTraceAnalysisStore()`, and `toolSpansToTraceAnalysisStore()` provide common adapters.
 Store results are checked for missing fields, undeclared fields, inconsistent counts, invalid continuation flags, oversized responses, and unsafe search patterns.
 
+### Original source fields
+
+Supply `sourceReader` when constructing `OtlpFileTraceStore` or `otlpTextToTraceAnalysisStore` to enable `readSpanSource`.
+Custom stores can implement the optional `TraceAnalysisStore.readSpanSource` method.
+The canonical descriptors expose this operation only when the capability exists.
+Both recursive engines and the existing deep-read tool groups use that descriptor.
+Discovery-only groups do not receive it.
+
+`ReadSpanSourceInput` contains `trace_id`, `span_id`, `attribute`, `offset`, `limit`, and optional `source_index`.
+The source index defaults to zero and selects an ordered record when one attribute aggregates multiple records.
+Offsets and limits count UTF-8 bytes in the selected source field, not characters or bytes in the normalized attribute.
+`limit` cannot exceed `perAttributeSpanBudget`; the complete response must fit `perCallByteCeiling`.
+These defaults are 16,384 and 150,000 bytes.
+
+`ReadSpanSourceResult` explicitly reports `available` or `unavailable` and echoes the requested span, attribute, and effective source index.
+An available result includes `text`, `offset`, `total_bytes`, and `next_offset`.
+Its exclusive end is `offset + Buffer.byteLength(text, 'utf8')`.
+`next_offset` equals that end when bytes remain, otherwise it is `null`.
+An empty window is valid only at the end of a nonempty field.
+Unavailable results carry a reason; missing records must never become successful empty results.
+
+The source reference contains an opaque immutable `source_id`, lowercase `source_sha256` and `record_sha256` digests, a `field_locator`, and `value_encoding`.
+The caller verifies those hashes against retained bytes and resolves the field locator in the original record.
+`value_encoding` is `utf8-string` for a decoded string or `json` for a JSON serialization of the selected field.
+The selected field must belong to the requested span attribute; returning a surrounding document can expose unrelated evidence.
+The store validates reference shapes and scope; it cannot authenticate a caller's external storage.
+Model inputs cannot supply file paths or storage identifiers.
+The caller owns authorization, immutable record selection, and cancellation of source reads.
+Providers must return exact UTF-8 text and report unavailable when a window cannot start at the requested byte boundary.
+They can shorten the end to a character boundary, but continuation must make progress.
+
+The binding checks trace and span existence before invoking the provider.
+It rejects wrong-scope results, malformed windows, inconsistent continuation, unsafe integers, and oversized responses.
+The same abort signal reaches existence checks and the provider.
+These reads count against the existing tool-call budget.
+
+`runTraceAnalyst` can validate an exact span-citation excerpt against source windows obtained during that invocation.
+It retains a detached copy only after the canonical handler validates a successful result.
+The excerpt must occur within one observed window for the same trace and span.
+Engine-reported evidence, unread windows, sibling fields, and source-reference metadata do not authorize an excerpt.
+The existing finding URI and schema remain unchanged.
+Returned `runtime.source_reads` retains validated scope, byte-window, and source-reference metadata, without raw source text.
+It also retains explicit unavailable outcomes.
+Engine-supplied values cannot populate this field.
+
 ## Result Contract
 
 Every recursive run returns:

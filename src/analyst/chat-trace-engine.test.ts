@@ -201,6 +201,56 @@ describe('createChatTraceEngine', () => {
     expect(result.runtime.investigation_stopped_on_answer).toBe(true)
   })
 
+  it('reads original source evidence through the same metered tool loop', async () => {
+    const sourceStore = otlpTextToTraceAnalysisStore(otlpLine(SPAN_A, '[truncated]'), {
+      sourceReader: async (input) => ({
+        status: 'available',
+        trace_id: input.trace_id,
+        span_id: input.span_id,
+        attribute: input.attribute,
+        source_index: input.source_index ?? 0,
+        text: 'tail evidence',
+        offset: input.offset,
+        total_bytes: input.offset + 13,
+        next_offset: null,
+        source: {
+          source_id: 'immutable-record',
+          source_sha256: 'a'.repeat(64),
+          record_sha256: 'b'.repeat(64),
+          field_locator: '/content',
+          value_encoding: 'utf8-string',
+        },
+      }),
+    })
+    const engine = createChatTraceEngine({
+      chat: mockChat((req) => {
+        if (req.jsonMode) return response({ content: reportBody({ findings: [] }) })
+        const read = req.messages.find((message) => message.role === 'tool')
+        if (read) {
+          expect(String(read.content)).toContain('tail evidence')
+          expect(String(read.content)).toContain('record_sha256')
+          return response({ content: 'done' })
+        }
+        return response({
+          toolCalls: [
+            toolCall('source-1', 'readSpanSource', {
+              trace_id: TRACE_ID,
+              span_id: SPAN_A,
+              attribute: 'content',
+              offset: 20_000,
+              limit: 64,
+            }),
+          ],
+        })
+      }).client,
+    })
+    const result = await engine.analyze(
+      engineRequest({ tools: buildTraceToolsForGroup('targeted', sourceStore) }),
+    )
+    expect(result.toolCalls).toBe(1)
+    expect(result.modelCalls).toBe(3)
+  })
+
   it('meters every call on the shared cost ledger', async () => {
     const ledger = new CostLedger()
     const engine = createChatTraceEngine({ chat: mockChat(investigateThenReport).client })

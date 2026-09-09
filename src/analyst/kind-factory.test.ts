@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { TraceAnalysisStore } from '../trace-analyst/store'
+import type { ReadSpanSourceResult, TraceAnalysisStore } from '../trace-analyst/store'
+import { otlpTextToTraceAnalysisStore } from '../trace-analyst/store-otlp'
 import type { TraceAnalystSpan } from '../trace-analyst/types'
 import type { TraceAnalysisEngine, TraceAnalysisEngineRequest } from './engine'
 import { createTraceAnalyst, runTraceAnalyst, type TraceAnalystDefinition } from './kind-factory'
@@ -88,6 +90,167 @@ describe('runTraceAnalyst', () => {
     expect(request?.instructions).toContain('strict findings array')
     expect(result.findings).toHaveLength(1)
     expect(result.trajectory).toHaveLength(1)
+  })
+
+  it.each([
+    'read',
+    'unread',
+    'other-span',
+    'other-trace',
+    'unread-window',
+    'invented',
+    'mutated',
+    'sibling',
+    'discovery',
+    'unavailable',
+  ] as const)('validates source excerpts only against observed field windows: %s', async (mode) => {
+    const tail = 'exact original tail evidence'
+    const field = `${'prefix '.repeat(100)}${tail}`
+    const original = JSON.stringify({
+      records: [{ content: field }, { content: 'private sibling evidence' }],
+    })
+    const digest = createHash('sha256').update(original).digest('hex')
+    const sourceStore = otlpTextToTraceAnalysisStore(
+      [
+        { ...traceSpan('step-1', '[truncated]'), attributes: { content: '[truncated]' } },
+        { ...traceSpan('step-2', '[truncated]'), attributes: { content: '[truncated]' } },
+        {
+          ...traceSpan('step-2', '[truncated]'),
+          trace_id: 'other-run',
+          attributes: { content: '[truncated]' },
+        },
+      ]
+        .map((span) => JSON.stringify(span))
+        .join('\n'),
+      {
+        sourceReader: async (input) => {
+          if (mode === 'unavailable')
+            return {
+              status: 'unavailable',
+              trace_id: input.trace_id,
+              span_id: input.span_id,
+              attribute: input.attribute,
+              source_index: input.source_index ?? 0,
+              reason: 'source field is not retained',
+            }
+          const full = Buffer.from(field)
+          const text = full.subarray(input.offset, input.offset + input.limit).toString('utf8')
+          const end = input.offset + Buffer.byteLength(text)
+          return {
+            status: 'available',
+            trace_id: input.trace_id,
+            span_id: input.span_id,
+            attribute: input.attribute,
+            source_index: input.source_index ?? 0,
+            text,
+            offset: input.offset,
+            total_bytes: full.length,
+            next_offset: end < full.length ? end : null,
+            source: {
+              source_id: 'original-document',
+              source_sha256: digest,
+              record_sha256: digest,
+              field_locator: '/records/0/content',
+              value_encoding: 'utf8-string',
+            },
+          }
+        },
+      },
+    )
+    const engine = fakeEngine(async (request) => {
+      const sourceTool = request.tools.find((tool) => tool.name === 'readSpanSource')
+      if (mode === 'discovery') expect(sourceTool).toBeUndefined()
+      if (mode !== 'unread' && mode !== 'discovery') {
+        const read = (await sourceTool!.handler({
+          trace_id: 'run-1',
+          span_id: 'step-2',
+          attribute: 'content',
+          offset: mode === 'unread-window' ? 0 : Buffer.byteLength(field) - Buffer.byteLength(tail),
+          limit: 64,
+        })) as ReadSpanSourceResult
+        if (mode === 'mutated' && read.status === 'available') {
+          read.text = 'invented source evidence'
+          read.offset = 999
+          read.source.record_sha256 = 'c'.repeat(64)
+        }
+      }
+      const quote =
+        mode === 'invented' || mode === 'mutated'
+          ? 'invented source evidence'
+          : mode === 'sibling'
+            ? 'private sibling evidence'
+            : tail
+      const traceId = mode === 'other-trace' ? 'other-run' : 'run-1'
+      const spanId = mode === 'other-span' ? 'step-1' : 'step-2'
+      return {
+        answer: 'Source evidence inspected.',
+        findings: [
+          {
+            severity: 'high',
+            claim: 'The source records the causal failure.',
+            confidence: 0.9,
+            evidence: [{ uri: `trace://${traceId}/span/${spanId}`, excerpt: quote }],
+          },
+        ],
+        trajectory: [],
+        modelCalls: 1,
+        toolCalls: 1,
+        // Engine-reported text is never a substitute for canonical handler observations.
+        runtime: { source_reads: [{ trace_id: traceId, span_id: spanId, text: quote }] },
+      }
+    })
+    const result = await runTraceAnalyst({
+      definition: { ...definition, toolGroup: mode === 'discovery' ? 'discovery' : 'targeted' },
+      engine,
+      store: sourceStore,
+      context: context(),
+    })
+    expect(result.findings).toHaveLength(mode === 'read' ? 1 : 0)
+    if (mode === 'unread' || mode === 'discovery') {
+      expect(result.runtime.source_reads).toEqual([])
+    } else if (mode === 'unavailable') {
+      expect(result.runtime.source_reads).toEqual([
+        {
+          status: 'unavailable',
+          trace_id: 'run-1',
+          span_id: 'step-2',
+          attribute: 'content',
+          source_index: 0,
+          reason: 'source field is not retained',
+        },
+      ])
+    } else {
+      expect(result.runtime.source_reads).toEqual([
+        {
+          status: 'available',
+          trace_id: 'run-1',
+          span_id: 'step-2',
+          attribute: 'content',
+          source_index: 0,
+          offset: mode === 'unread-window' ? 0 : Buffer.byteLength(field) - Buffer.byteLength(tail),
+          total_bytes: Buffer.byteLength(field),
+          next_offset: mode === 'unread-window' ? 64 : null,
+          byte_length: mode === 'unread-window' ? 64 : Buffer.byteLength(tail),
+          source: {
+            source_id: 'original-document',
+            source_sha256: digest,
+            record_sha256: digest,
+            field_locator: '/records/0/content',
+            value_encoding: 'utf8-string',
+          },
+        },
+      ])
+      expect(JSON.stringify(result.runtime.source_reads)).not.toContain(tail)
+    }
+    if (mode === 'read') {
+      const unreadRun = await runTraceAnalyst({
+        definition: { ...definition, toolGroup: 'targeted' },
+        engine: findingEngine({ uri: 'trace://run-1/span/step-2', excerpt: tail }),
+        store: sourceStore,
+        context: context(),
+      })
+      expect(unreadRun.findings).toEqual([])
+    }
   })
 
   it('applies a null post-processor as a rejection', async () => {
