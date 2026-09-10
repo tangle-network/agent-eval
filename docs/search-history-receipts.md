@@ -222,3 +222,11 @@ Receipts describe measurements; they do not override the release gate or replace
 `createCampaignEvidenceReceipt` on `/experiment` provides the same binding for other complete campaign consumers.
 Changing an output changes its output digest; changing a judge result changes its measurement digest.
 The final receipt retains caller authority, including `candidate-self-report`, without upgrading it.
+
+## Implementation ownership
+
+`src/campaign/search-ledger.ts` owns validation, canonical event normalization, and composition with the shared ledger journal.
+`search-ledger-projector.ts` owns campaign replay invariants and audit projection.
+`search-ledger-types.ts` defines the shared data contracts, reexported through the existing facade.
+`search-ledger-ordering.ts` shares artifact identity and deterministic string ordering between normalization and replay.
+The journal in `src/ledger-core` owns hashing, locking, durable appends, and chain verification.
