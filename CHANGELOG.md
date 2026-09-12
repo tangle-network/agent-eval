@@ -10,6 +10,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - Pareto promotion applies regression floors to the deciding confidence interval.
   Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
+  Zero-width or non-finite deciding intervals now produce an `indeterminate` axis and `not_evaluated` check.
+  They require more evidence before promotion, including all-zero outcomes and constant continuous differences.
 
 ## [0.180.0] — 2026-09-09
 

@@ -60,8 +60,8 @@ export interface PromotionObjective {
   floorTolerance?: number
 }
 
-/** Per-axis verdict from the good-direction paired bootstrap. */
-export type AxisVerdict = 'improved' | 'regressed' | 'flat' | 'few_runs'
+/** Per-axis verdict from the shared paired decision rule. */
+export type AxisVerdict = 'improved' | 'regressed' | 'flat' | 'few_runs' | 'indeterminate'
 
 export interface AxisEvidence {
   name: string
@@ -87,8 +87,8 @@ export interface AxisEvidence {
   decisionStatistic: PairedDecisionStatistic
   /** McNemar's exact evidence on a pass/fail axis; null otherwise. */
   mcnemar: PairedMcNemarEvidence | null
-  /** `ci` has zero width — no evidence in either direction, so the axis is
-   *  neither improved nor regressed however the point estimate sits. */
+  /** `ci` has zero width or non-finite bounds. It cannot establish a gain or
+   *  clear a regression floor, regardless of the point estimate. */
   indeterminate: boolean
   /** Paired observations contributing to this axis. */
   n: number
@@ -233,11 +233,13 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     // floor breach classified as a gain — anti-Goodhart wins the tie.
     const verdict: AxisVerdict = !improvement.sufficient
       ? 'few_runs'
-      : floorBreached
-        ? 'regressed'
-        : improvement.promote
-          ? 'improved'
-          : 'flat'
+      : improvement.indeterminate
+        ? 'indeterminate'
+        : floorBreached
+          ? 'regressed'
+          : improvement.promote
+            ? 'improved'
+            : 'flat'
     axes.push({
       name: obj.name,
       source: obj.source,
@@ -266,7 +268,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
  * the candidate weakly dominates the baseline at the confidence level — no axis
  * credibly worse AND ≥1 axis credibly better. Floor breach on any axis → hold
  * (anti-Goodhart, dominates everything). Insufficient evidence on any axis →
- * need_more_work. Statistically equivalent → hold (never ship noise).
+ * need_more_work. No significant gain → hold (never ship noise).
  */
 export const paretoPolicy: PromotionPolicy = (ev) => {
   const contributingGates = ev.axes.map((ax) => ({
@@ -274,7 +276,7 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
     status:
       ax.verdict === 'regressed'
         ? ('fail' as const)
-        : ax.verdict === 'few_runs'
+        : ax.verdict === 'few_runs' || ax.verdict === 'indeterminate'
           ? ('not_evaluated' as const)
           : ('pass' as const),
     detail: {
@@ -298,7 +300,9 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
   }))
 
   const regressed = ev.axes.filter((a) => a.verdict === 'regressed')
-  const fewRuns = ev.axes.filter((a) => a.verdict === 'few_runs')
+  const insufficient = ev.axes.filter(
+    (a) => a.verdict === 'few_runs' || a.verdict === 'indeterminate',
+  )
   const improved = ev.axes.filter((a) => a.verdict === 'improved')
 
   let decision: GateDecision
@@ -313,13 +317,14 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
         `objective '${a.name}' regressed: good-direction CI.low ${a.ci.low.toFixed(3)} < -${a.floorTolerance} (n=${a.n})`,
       )
     }
-  } else if (fewRuns.length > 0) {
-    // No credible regression on the scored axes, but ≥1 axis lacks the evidence
-    // to claim a gain ⇒ gather more reps, do NOT reject.
+  } else if (insufficient.length > 0) {
+    // An unresolved axis cannot establish either a gain or a safe floor.
     decision = 'need_more_work'
-    for (const a of fewRuns) {
+    for (const a of insufficient) {
       reasons.push(
-        `objective '${a.name}' has only n=${a.n} paired runs — insufficient evidence to claim significance`,
+        a.verdict === 'few_runs'
+          ? `objective '${a.name}' has only n=${a.n} paired runs — insufficient evidence to claim significance`
+          : `objective '${a.name}' has an indeterminate deciding CI [${a.ci.low}, ${a.ci.high}] — insufficient evidence to clear its regression floor (n=${a.n})`,
       )
     }
   } else if (improved.length > 0) {
@@ -335,11 +340,10 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
         .join(', ')}; no objective regressed`,
     )
   } else {
-    // Enough evidence, nothing credibly better or worse ⇒ statistically
-    // equivalent. Do NOT ship a no-op.
+    // Every floor cleared, but no objective demonstrated a significant gain.
     decision = 'hold'
     reasons.push(
-      'no Pareto improvement: candidate statistically equivalent to baseline on every objective',
+      'no Pareto improvement: no objective shows a significant gain; every regression floor cleared',
     )
   }
 

@@ -94,10 +94,15 @@ Run history is shared input only.
 Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
 
 `paretoSignificanceGate()` applies each objective's regression floor to its deciding confidence interval.
-For binary outcomes, that interval accounts for uncertainty even when every observed pair agrees.
-At 95% confidence, 20 matching binary pairs leave approximately 16 percentage points of uncertainty in either direction.
+For detected binary outcomes, that interval accounts for uncertainty even when every observed pair agrees.
+At 95% confidence, 20 matching all-positive binary pairs leave approximately 16 percentage points of uncertainty in either direction.
 A declared five-point regression tolerance therefore holds that candidate; 100 matching pairs narrow the interval enough to clear that floor.
 Another objective must still show a significant gain before promotion.
+An interval with zero width or non-finite bounds produces an `indeterminate` axis verdict and a `not_evaluated` check.
+If no other axis breaches its regression floor, the gate returns `need_more_work`.
+This includes all-zero outcomes, whose binary scale cannot be inferred, and continuous observations with constant paired differences.
+Additional identical observations do not resolve an unknown outcome scale or a collapsed bootstrap interval.
+Consumers with custom policies must handle `indeterminate` as unresolved evidence.
 
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
