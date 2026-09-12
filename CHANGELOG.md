@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- Pareto promotion applies regression floors to the deciding confidence interval.
+  Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
+
 ## [0.180.0] — 2026-09-09
 
 - Preserve named-resource receipts in supervisor-run facts, JSON reports, and comparison cells.

@@ -222,19 +222,10 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     //   - `regression.promote` — a PROVEN drop past the tolerance. Adds the
     //     small-sample path, where the decision is an exact sign test because
     //     the bootstrap interval is descriptive only.
-    // The credible-worst-case arm stays on the BOOTSTRAP, deliberately. Reading
-    // it off the score interval instead would change what the floor MEANS on a
-    // pass/fail axis: with every pair concordant the score interval is
-    // ±z²/(n+z²) — ±0.39 at n=6, ±0.16 at n=20 — so a completely unchanged
-    // safety axis would breach a 0.05 floor at any realistic n, and the gate
-    // would refuse everything. That the bootstrap arm is instead fail-OPEN on a
-    // tied pass/fail axis is a real and separate weakness: the honest fix is a
-    // minimum-power requirement on the floor, not a wider interval, because the
-    // data genuinely cannot rule a 5pp drop out at n=20 and a gate that says so
-    // by blocking every candidate is not usable. `regression.promote` — the
-    // PROVEN-drop arm — does route through the shared rule, so a real pass/fail
-    // regression is now caught on an interval valid at the nonzero tolerance.
-    const floorBreached = bootstrap.low < -floorTolerance || regression.promote
+    // A tied binary axis still has uncertainty about unseen discordant pairs.
+    // Its diagnostic bootstrap collapses to zero, so only the deciding score
+    // interval can establish that a regression stays within the declared floor.
+    const floorBreached = improvement.low < -floorTolerance || regression.promote
     // Floor check precedes the gain check: a credible regression must never be
     // masked as "improved". With the defaults (gainThreshold 0, positive floor)
     // the regions are disjoint and order is moot, but a consumer who sets a

@@ -93,6 +93,12 @@ An absent optional check records `not_evaluated` and never appears as a successf
 Run history is shared input only.
 Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
 
+`paretoSignificanceGate()` applies each objective's regression floor to its deciding confidence interval.
+For binary outcomes, that interval accounts for uncertainty even when every observed pair agrees.
+At 95% confidence, 20 matching binary pairs leave approximately 16 percentage points of uncertainty in either direction.
+A declared five-point regression tolerance therefore holds that candidate; 100 matching pairs narrow the interval enough to clear that floor.
+Another objective must still show a significant gain before promotion.
+
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
 runtime loop: observe typed state, validate it, decide the next action, act,

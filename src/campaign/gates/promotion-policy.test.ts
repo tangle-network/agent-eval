@@ -68,15 +68,69 @@ const QUALITY: PromotionObjective = {
 }
 
 describe('paretoSignificanceGate — multi-objective promotion over the evidence vector', () => {
+  it.each([1, 100])(
+    'holds when tied binary safety scores on scale %i cannot exclude the declared regression',
+    async (scale) => {
+      const ctx = ctxFrom(
+        cells(
+          (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: scale } }),
+          () => ({ composite: 0.5, dimensions: { safety: scale } }),
+          20,
+        ),
+      )
+      const objectives: PromotionObjective[] = [
+        QUALITY,
+        {
+          name: 'safety',
+          source: { kind: 'dimension', dimension: 'safety' },
+          direction: 'maximize',
+          floorTolerance: 0.05 * scale,
+        },
+      ]
+      const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+      expect(safety.bootstrap.low).toBe(0)
+      expect(safety.ci.low).toBeLessThan(-safety.floorTolerance)
+
+      const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+      expect(result.decision).toBe('hold')
+      expect(
+        result.contributingGates?.find((gate) => gate.name === 'objective:safety')?.status,
+      ).toBe('fail')
+    },
+  )
+
+  it('ships when tied binary safety scores exclude the declared regression', async () => {
+    const ctx = ctxFrom(
+      cells(
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 1 } }),
+        () => ({ composite: 0.5, dimensions: { safety: 1 } }),
+        100,
+      ),
+    )
+    const objectives: PromotionObjective[] = [
+      QUALITY,
+      {
+        name: 'safety',
+        source: { kind: 'dimension', dimension: 'safety' },
+        direction: 'maximize',
+        floorTolerance: 0.05,
+      },
+    ]
+    const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+    expect(safety.ci.low).toBeGreaterThan(-safety.floorTolerance)
+    expect(safety.verdict).toBe('flat')
+    expect((await paretoSignificanceGate({ objectives }).decide(ctx)).decision).toBe('ship')
+  })
+
   it('ships a Pareto improvement: one axis credibly up, the other flat (a flat axis must not veto a real gain)', async () => {
     // quality: baseline 0.50 → candidate 0.80 on every cell (CI.low ≫ 0 → improved).
     // safety:  baseline 0.90 → candidate 0.90 (flat). A flat second axis is NOT a
-    // regression, so it must not block the ship — the bug this guards is treating
-    // "unchanged" as "failed".
+    // regression. One hundred observations exclude a drop beyond the 0.05 floor.
     const ctx = ctxFrom(
       cells(
         (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
+        100,
       ),
     )
     const gate = paretoSignificanceGate({
@@ -231,6 +285,7 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
       // information about its own error and is refused however large the gain.
       (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
       () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
+      100,
     ),
   )
   const objectives: PromotionObjective[] = [
@@ -265,9 +320,9 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
 
   it('exposes per-axis CIs (the non-collapsed vector) with a binding minN', () => {
     const ev = buildEvidenceVector(ctx, objectives)
-    expect(ev.minN).toBe(6)
+    expect(ev.minN).toBe(100)
     for (const axis of ev.axes) {
-      expect(axis.n).toBe(6)
+      expect(axis.n).toBe(100)
       expect(typeof axis.bootstrap.low).toBe('number')
       expect(typeof axis.bootstrap.high).toBe('number')
       expect(axis.bootstrap.low).toBeLessThanOrEqual(axis.bootstrap.high)
@@ -372,8 +427,11 @@ describe('buildEvidenceVector — binary (0/1) axes', () => {
   it('decides continuous axes on the mean, and still offers the median', () => {
     const continuous = ctxFrom(
       cells(
-        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
-        () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
+        (i) => ({
+          composite: 0.78 + (i % 3) * 0.02,
+          dimensions: { speed: 0.49 + (i % 3) * 0.01 },
+        }),
+        (i) => ({ composite: 0.5, dimensions: { speed: 0.49 + (i % 3) * 0.01 } }),
       ),
     )
     const objectives = [
