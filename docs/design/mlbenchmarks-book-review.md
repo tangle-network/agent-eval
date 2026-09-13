@@ -137,7 +137,12 @@ The observations below are intentionally narrower than production reliability cl
 They use the actual library functions at the inspected revision.
 The [probe source](./mlbenchmarks-review/probes.mts) contains the complete inputs and invocation paths.
 Run `pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts` after installing the locked dependencies.
+Use an isolated checkout without concurrent source edits.
 It prints current observations without asserting that the recorded defects must persist.
+The source identity hashes actual files under `src`, plus `package.json`, `pnpm-lock.yaml`, and `tsconfig.json`.
+A separate hash identifies the diagnostic itself.
+These identities survive documentation commits and change with local source edits, including untracked files.
+They assume dependencies were installed from the lockfile; they do not fingerprint installed packages or the host environment.
 
 | Finding | Observed result | Consequence and bounded correction |
 | --- | --- | --- |
@@ -421,6 +426,8 @@ The book supplies reasons to distrust those shortcuts, not evidence that a large
 
 Local typechecking, build, and package verification passed at the inspected revision.
 The diagnostic passed a separate strict TypeScript check, and all seven outputs reproduced exactly on a second execution.
+An isolated archive of the reviewed source reproduced the complete diagnostic output, including source identity.
+Eleven focused provenance checks covered that reproduction, local changes, documentation stability, and refusal of symlinks and special files.
 The Vitest run completed with **399 passed files, 2 skipped files; 5,876 passed tests, 3 skipped tests**.
 The recorded test invocation expanded to the full suite; the exact command is preserved with the observations.
 No production evaluation campaign, paid optimization experiment, or deployment was performed.

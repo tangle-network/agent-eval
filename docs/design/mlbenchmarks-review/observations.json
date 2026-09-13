@@ -1,6 +1,21 @@
 {
   "reviewedBaseRevision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
-  "sourceRevision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
+  "sourceIdentity": {
+    "algorithm": "sha256-canonical-file-manifest",
+    "paths": [
+      "src",
+      "package.json",
+      "pnpm-lock.yaml",
+      "tsconfig.json"
+    ],
+    "fileCount": 765,
+    "digest": "sha256:d743fe180fb7f89c2add26f3f66344a8586b2798f1edcaf8b881b914c10bc009",
+    "dependencyScope": "Records the manifest and lockfile; assumes dependencies were installed from that lockfile."
+  },
+  "diagnosticIdentity": {
+    "path": "docs/design/mlbenchmarks-review/probes.mts",
+    "sha256": "29d0bba079d8b76247bd3d92a24ea8b256080e22ee37db9ca28f0ac3330c793a"
+  },
   "command": "pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts",
   "paidModelCalls": 0,
   "execution": {

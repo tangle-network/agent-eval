@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { lstat, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import type { JudgeScore } from '../../../src/campaign/types.ts'
 import { HoldoutAuditor } from '../../../src/contamination-guard.ts'
 import { selfImprove } from '../../../src/contract/self-improve.ts'
 import { evaluatePowerFloorGate } from '../../../src/experiment/ast.ts'
+import { compareCodeUnits, hashCanonical } from '../../../src/ledger-core/canonical.ts'
 import { correlationStudy } from '../../../src/meta-eval/correlation-study.ts'
 import { InMemoryOutcomeStore } from '../../../src/meta-eval/outcome-store.ts'
 import { rubricPredictiveValidity } from '../../../src/meta-eval/rubric-predictive-validity.ts'
@@ -23,10 +24,35 @@ import { InMemoryTraceStore } from '../../../src/trace/store.ts'
 const reviewedBaseRevision = 'fe1cc5111aab5d588bf7db3a3785325635937a91'
 const command = 'pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts'
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url))
-const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], {
-  cwd: repositoryRoot,
-  encoding: 'utf8',
-}).trim()
+const sourcePaths = ['src', 'package.json', 'pnpm-lock.yaml', 'tsconfig.json']
+
+async function fileEntries(path: string): Promise<Array<{ path: string; sha256: string }>> {
+  const absolutePath = join(repositoryRoot, path)
+  const metadata = await lstat(absolutePath)
+  if (metadata.isDirectory()) {
+    const children = await readdir(absolutePath)
+    return (await Promise.all(children.map(child => fileEntries(`${path}/${child}`)))).flat()
+  }
+  if (!metadata.isFile()) throw new Error(`Source identity requires a regular file: ${path}`)
+  return [{ path, sha256: createHash('sha256').update(await readFile(absolutePath)).digest('hex') }]
+}
+
+// Hash working files, including untracked files, so Git index state cannot hide changes.
+const sourceFiles = (await Promise.all(sourcePaths.map(fileEntries)))
+  .flat()
+  .sort((left, right) => compareCodeUnits(left.path, right.path))
+const sourceIdentity = {
+  algorithm: 'sha256-canonical-file-manifest',
+  paths: sourcePaths,
+  fileCount: sourceFiles.length,
+  digest: hashCanonical({ domain: 'agent-eval-mlbenchmarks-review-source-v1', files: sourceFiles }),
+  dependencyScope: 'Records the manifest and lockfile; assumes dependencies were installed from that lockfile.',
+}
+const diagnosticPath = 'docs/design/mlbenchmarks-review/probes.mts'
+const diagnosticIdentity = {
+  path: diagnosticPath,
+  sha256: createHash('sha256').update(await readFile(join(repositoryRoot, diagnosticPath))).digest('hex'),
+}
 
 async function holdoutReuse() {
   const runRoot = await mkdtemp(join(tmpdir(), 'agent-eval-mlbenchmarks-review-'))
@@ -407,7 +433,8 @@ function powerFloor() {
 
 const observations = {
   reviewedBaseRevision,
-  sourceRevision,
+  sourceIdentity,
+  diagnosticIdentity,
   command,
   paidModelCalls: 0,
   execution: {
