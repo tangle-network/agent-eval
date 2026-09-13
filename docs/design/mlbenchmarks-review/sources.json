@@ -1,0 +1,200 @@
+{
+  "accessed_at_utc": "2026-09-13T01:01:32.062338+00:00",
+  "index_url": "https://mlbenchmarks.org/",
+  "index_sha256": "edd63754d75578741714d1fcbf8766e97782c865a4e65345f00967a26b8b4589",
+  "pages": [
+    {
+      "file": "00-preface.html",
+      "url": "https://mlbenchmarks.org/00-preface.html",
+      "title": "Preface - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "df83e9d6dd7ee845e05a4086db47f53af0d85f807be0f512f22f2323f7c00391",
+      "body_words": 2689,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "00-prologue.html",
+      "url": "https://mlbenchmarks.org/00-prologue.html",
+      "title": "Prologue - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "1885c0e15e19f55c2f267d96a0ebd06ff694582f0ad8905ccddd6e85b8033553",
+      "body_words": 625,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "01-introduction.html",
+      "url": "https://mlbenchmarks.org/01-introduction.html",
+      "title": "1 – Introduction - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "507797a0b6c72a0036b8367602ee41a0d0c339a7269a3ea7934128bb3a9185a0",
+      "body_words": 3377,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "02-populations-predictions.html",
+      "url": "https://mlbenchmarks.org/02-populations-predictions.html",
+      "title": "2 – Populations and predictions - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "e6ff7c7ddd73154d199f04d3a43f92b3a16195456f4f23cc0296e257bbb225bc",
+      "body_words": 5563,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "03-detecting-differences.html",
+      "url": "https://mlbenchmarks.org/03-detecting-differences.html",
+      "title": "3 – Detecting differences - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "b9b1df7d9339a71a70d825f0d51c27d17293a0d3dd55a6272f84591c78285cde",
+      "body_words": 5542,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "04-holdout-method.html",
+      "url": "https://mlbenchmarks.org/04-holdout-method.html",
+      "title": "4 – Holdout method - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "c3dd581b0fbc8227d989f0c5863b2060d902cf866c1167dc1fb840a224a04907",
+      "body_words": 8441,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "05-test-set-reuse.html",
+      "url": "https://mlbenchmarks.org/05-test-set-reuse.html",
+      "title": "5 – Test set reuse - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "09261cb5ddeea95fcb84b042eaa2b721393e1a52c40377d13247085d394d6138",
+      "body_words": 5585,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "06-scientific-crisis.html",
+      "url": "https://mlbenchmarks.org/06-scientific-crisis.html",
+      "title": "6 – Scientific crisis - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "500d42c5bce9fbd67b4908e5a5a3fd956d954969ab73c0828e22211be952ef15",
+      "body_words": 7256,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "07-replication-machine-learning.html",
+      "url": "https://mlbenchmarks.org/07-replication-machine-learning.html",
+      "title": "7 – Replication in machine learning - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "c5103477aa1a72b2bbd75fe58e8f1ab2254b247e6529f06c0bebb12950335bf4",
+      "body_words": 8899,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "08-forces-against-crisis.html",
+      "url": "https://mlbenchmarks.org/08-forces-against-crisis.html",
+      "title": "8 – Forces against crisis - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "874764d22ba2c712877fc86fa2e465297670071ca8c58fd011769c1dfb1be4f8",
+      "body_words": 8128,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "10-generative-models.html",
+      "url": "https://mlbenchmarks.org/10-generative-models.html",
+      "title": "10 – Generative models - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "2e89354b87cc473e1190f687a4286f80754efc86257ec06b3569ea13d6f23729",
+      "body_words": 11490,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "11-evaluating-language-models.html",
+      "url": "https://mlbenchmarks.org/11-evaluating-language-models.html",
+      "title": "11 – Evaluating language models - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "01a08570e33f9446bc33f0b0ac6fa60c18ec9d356672944da51b4ff802059bad",
+      "body_words": 13399,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "12-problem-aggregation.html",
+      "url": "https://mlbenchmarks.org/12-problem-aggregation.html",
+      "title": "12 – The problem of aggregation - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "f09917ed330f01aa573d9609469e82745ebc50a218484c88685ff21065217104",
+      "body_words": 8857,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "13-model-moves-data.html",
+      "url": "https://mlbenchmarks.org/13-model-moves-data.html",
+      "title": "13 – When the model moves the data - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "673f0e4f300cf4d27b4bdab92593a0e2b72fcd63092a51afbebf614ed4173ae8",
+      "body_words": 8832,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "14-evaluation-frontier.html",
+      "url": "https://mlbenchmarks.org/14-evaluation-frontier.html",
+      "title": "14 – Evaluation at the frontier - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "71a5d336dc99e9135651218344564ffaea2e9140e67295860735c3b76df15154",
+      "body_words": 9464,
+      "review_status": "complete-text"
+    },
+    {
+      "file": "15-epilogue.html",
+      "url": "https://mlbenchmarks.org/15-epilogue.html",
+      "title": "15 – Epilogue - The Emerging Science of Machine Learning Benchmarks",
+      "html_sha256": "a0b57ccdb46107e3a82d2a9f3bd16601e950fd3fb13006030062edc61379c651",
+      "body_words": 1624,
+      "review_status": "complete-text"
+    }
+  ],
+  "review_date_local": "2026-09-12",
+  "review_timezone": "America/Los_Angeles",
+  "repository": {
+    "url": "https://github.com/tangle-network/agent-eval",
+    "revision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
+    "package_version": "0.180.0",
+    "base": "origin/main"
+  },
+  "coverage": {
+    "linked_reading_pages": 16,
+    "reviewed_pages": 16,
+    "body_words": 109771,
+    "word_count_method": "Whitespace split of BeautifulSoup chapter-body get_text with spaces; includes headings, tables, equations, notes, and references.",
+    "extraction_audit": "Paragraph extraction plus every omitted non-whitespace text node were read; figures/tables supporting conclusions were checked in HTML or PDF context.",
+    "missing_chapter": {
+      "number": 9,
+      "status": "unavailable from inspected live index",
+      "checked_404_paths": [
+        "https://mlbenchmarks.org/09-annotation.html",
+        "https://mlbenchmarks.org/09-data-annotation.html",
+        "https://mlbenchmarks.org/09-annotations.html"
+      ]
+    },
+    "independent_reproduction_of_cited_studies": false,
+    "print_edition_reviewed": false
+  },
+  "review_partitions": [
+    {
+      "pages": [
+        "00-preface.html",
+        "00-prologue.html",
+        "01-introduction.html",
+        "02-populations-predictions.html",
+        "03-detecting-differences.html",
+        "04-holdout-method.html",
+        "05-test-set-reuse.html",
+        "06-scientific-crisis.html"
+      ],
+      "body_words": 39078
+    },
+    {
+      "pages": [
+        "07-replication-machine-learning.html",
+        "08-forces-against-crisis.html",
+        "10-generative-models.html",
+        "11-evaluating-language-models.html"
+      ],
+      "body_words": 41916
+    },
+    {
+      "pages": [
+        "12-problem-aggregation.html",
+        "13-model-moves-data.html",
+        "14-evaluation-frontier.html",
+        "15-epilogue.html"
+      ],
+      "body_words": 28777
+    }
+  ],
+  "visual_inspection": {
+    "chapter_7": "Figures 7.2–7.4 checked using linked chapter PDF; HTML used for references.",
+    "chapter_11": "Figures 11.3–11.6 checked using linked chapter PDF; HTML used for references.",
+    "chapters_12_to_14": "All eight SVG figures checked; all three chapter-12 tables checked in HTML.",
+    "chapters_1_to_6": "Captions and surrounding arguments read; chapter-2 confusion matrix and chapter-5 rate table checked in HTML."
+  }
+}

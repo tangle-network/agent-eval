@@ -1,0 +1,698 @@
+{
+  "reviewedBaseRevision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
+  "sourceRevision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
+  "command": "pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts",
+  "paidModelCalls": 0,
+  "execution": {
+    "kind": "offline deterministic diagnostic",
+    "modelCalls": 0,
+    "callbackImplementation": "Local arithmetic and string checks only; no provider clients are supplied.",
+    "temporaryRunStorage": "Allocated under the OS temporary directory and removed in finally.",
+    "outputPolicy": "Preserves current returned measurements; excludes temporary paths, run IDs, and wallclock fields.",
+    "assertionPolicy": "No assertions require the observed defects or policy boundaries to persist."
+  },
+  "probes": {
+    "holdoutReuse": {
+      "inputs": {
+        "calls": 2,
+        "trainCases": 6,
+        "finalCases": 6,
+        "generationsPerCall": 1,
+        "populationPerGeneration": 1,
+        "replicatesPerCase": 1,
+        "sameFinalPayloadsOnBothCalls": true,
+        "firstResultFedToSecondProposer": false,
+        "baselineSurface": "baseline",
+        "proposedSurface": "marker",
+        "scoring": "1 if artifact contains marker, otherwise 0",
+        "expectUsage": "off"
+      },
+      "results": {
+        "rounds": [
+          {
+            "round": 1,
+            "gateDecision": "ship",
+            "finalDispatches": 12,
+            "distinctFinalIds": 6,
+            "finalSplitDigest": "sha256:fe055aa9390b6483701c8686564c1d4d96426d6a545f59e405fa5350efae84fa",
+            "agentCallbacks": 24,
+            "judgeCallbacks": 24,
+            "proposerCallbacks": 1
+          },
+          {
+            "round": 2,
+            "gateDecision": "ship",
+            "finalDispatches": 12,
+            "distinctFinalIds": 6,
+            "finalSplitDigest": "sha256:fe055aa9390b6483701c8686564c1d4d96426d6a545f59e405fa5350efae84fa",
+            "agentCallbacks": 24,
+            "judgeCallbacks": 24,
+            "proposerCallbacks": 1
+          }
+        ],
+        "accessPurposes": [
+          "debugging",
+          "evaluation"
+        ],
+        "temporaryRunDirectoriesRemoved": true
+      },
+      "limitations": [
+        "Measures repeated final-set access and debugging access, not empirical overfitting.",
+        "The calls use deterministic local callbacks and independent temporary run directories.",
+        "Does not estimate false-promotion frequency or test a downstream access-control service."
+      ]
+    },
+    "outcomeKeyOrder": {
+      "inputs": {
+        "n": 10,
+        "rows": [
+          {
+            "score": 0.1,
+            "retention": 0.9,
+            "csat": 0.1
+          },
+          {
+            "score": 0.2,
+            "retention": 0.8,
+            "csat": 0.2
+          },
+          {
+            "score": 0.3,
+            "retention": 0.7,
+            "csat": 0.3
+          },
+          {
+            "score": 0.4,
+            "retention": 0.6,
+            "csat": 0.4
+          },
+          {
+            "score": 0.5,
+            "retention": 0.5,
+            "csat": 0.5
+          },
+          {
+            "score": 0.6,
+            "retention": 0.4,
+            "csat": 0.6
+          },
+          {
+            "score": 0.7,
+            "retention": 0.30000000000000004,
+            "csat": 0.7
+          },
+          {
+            "score": 0.8,
+            "retention": 0.19999999999999996,
+            "csat": 0.8
+          },
+          {
+            "score": 0.9,
+            "retention": 0.09999999999999998,
+            "csat": 0.9
+          },
+          {
+            "score": 1,
+            "retention": 0,
+            "csat": 1
+          }
+        ],
+        "outcomeRowsPerRun": 1,
+        "requestedMetric": "csat",
+        "expectedPearsonForRequestedMetric": 1,
+        "expectedSpearmanForRequestedMetric": 1,
+        "seed": 1,
+        "bootstrapIterations": 500
+      },
+      "results": [
+        {
+          "keyOrder": "retention-first",
+          "latest": {
+            "pairs": [
+              {
+                "evalMetric": "score",
+                "outcomeMetric": "csat",
+                "n": 10,
+                "pearson": -1,
+                "spearman": -1,
+                "pearsonCi95": {
+                  "lower": -1.0000000000000002,
+                  "upper": -0.9999999999999998
+                },
+                "verdict": "strong"
+              }
+            ],
+            "joinedSamples": 10,
+            "skippedRuns": 0
+          },
+          "mean": {
+            "pairs": [
+              {
+                "evalMetric": "score",
+                "outcomeMetric": "csat",
+                "n": 10,
+                "pearson": 1,
+                "spearman": 1,
+                "pearsonCi95": {
+                  "lower": 1,
+                  "upper": 1
+                },
+                "verdict": "strong"
+              }
+            ],
+            "joinedSamples": 10,
+            "skippedRuns": 0
+          }
+        },
+        {
+          "keyOrder": "csat-first",
+          "latest": {
+            "pairs": [
+              {
+                "evalMetric": "score",
+                "outcomeMetric": "csat",
+                "n": 10,
+                "pearson": 1,
+                "spearman": 1,
+                "pearsonCi95": {
+                  "lower": 1,
+                  "upper": 1
+                },
+                "verdict": "strong"
+              }
+            ],
+            "joinedSamples": 10,
+            "skippedRuns": 0
+          },
+          "mean": {
+            "pairs": [
+              {
+                "evalMetric": "score",
+                "outcomeMetric": "csat",
+                "n": 10,
+                "pearson": 1,
+                "spearman": 1,
+                "pearsonCi95": {
+                  "lower": 1,
+                  "upper": 1
+                },
+                "verdict": "strong"
+              }
+            ],
+            "joinedSamples": 10,
+            "skippedRuns": 0
+          }
+        }
+      ],
+      "limitations": [
+        "Tests metric selection and JSON key order with constructed data, not deployment validity.",
+        "Each run has one outcome row, so latest and mean refer to the same requested observation."
+      ]
+    },
+    "adaptationPairing": {
+      "inputs": {
+        "scenariosA": [
+          {
+            "scenarioId": "easy-only",
+            "score": 0.9
+          }
+        ],
+        "scenariosB": [
+          {
+            "scenarioId": "hard-only",
+            "score": 0.1
+          }
+        ],
+        "ks": [
+          0,
+          1
+        ],
+        "reps": 1,
+        "observationsPerArm": 2,
+        "commonScenarios": 0,
+        "sameRunnerForBothArms": true,
+        "bootstrapSeed": 1
+      },
+      "results": {
+        "perK": [
+          {
+            "k": 0,
+            "deltaMean": 0.8,
+            "aLow": 0.9,
+            "aHigh": 0.9,
+            "bLow": 0.1,
+            "bHigh": 0.1
+          },
+          {
+            "k": 1,
+            "deltaMean": 0.8,
+            "aLow": 0.9,
+            "aHigh": 0.9,
+            "bLow": 0.1,
+            "bHigh": 0.1
+          }
+        ],
+        "areaDelta": 0.8,
+        "firstPassKDelta": null,
+        "verdict": "a_better",
+        "rationale": "mean per-k delta=0.800, area delta=0.800"
+      },
+      "limitations": [
+        "The two arms differ in task difficulty; zero task identities overlap.",
+        "This probes the adaptation helper, not the separately implemented campaign paired comparison."
+      ]
+    },
+    "contaminationDisplay": {
+      "inputs": {
+        "n": 12,
+        "originalScorePerCase": 1,
+        "perturbedScorePerCase": 0.4,
+        "observationsPerCasePerCondition": 1,
+        "modelTrainingExposure": "No model is used; scores are constructed fixture values."
+      },
+      "results": {
+        "perScenario": [
+          {
+            "scenarioId": "case-0",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-1",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-2",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-3",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-4",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-5",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-6",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-7",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-8",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-9",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-10",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          },
+          {
+            "scenarioId": "case-11",
+            "originalScore": 1,
+            "perturbedScore": 0.4,
+            "delta": -0.6,
+            "qValue": 0.4
+          }
+        ],
+        "pairedTest": {
+          "w": 0,
+          "p": 0.00048828125,
+          "method": "exact",
+          "pFloor": 0.00048828125,
+          "nNonZero": 12
+        },
+        "medianDelta": -0.6,
+        "meanDelta": -0.5999999999999999,
+        "contaminationSuspected": true,
+        "reason": "paired p=0.0005 < 0.05 and median drop -0.6000 ≥ 0.05",
+        "n": 12
+      },
+      "limitations": [
+        "The global Wilcoxon test measures the constructed paired difference; it does not identify contamination as its cause.",
+        "Per-item qValue uses BH on 1 - abs(delta), without a per-item sampling null; it is a display aid in the inspected source.",
+        "The per-item qValues do not drive the global contaminationSuspected result."
+      ]
+    },
+    "negativeOutcomeDirection": {
+      "inputs": {
+        "n": 8,
+        "rows": [
+          {
+            "quality": 0,
+            "successRate": 1
+          },
+          {
+            "quality": 0.14285714285714285,
+            "successRate": 0.8571428571428572
+          },
+          {
+            "quality": 0.2857142857142857,
+            "successRate": 0.7142857142857143
+          },
+          {
+            "quality": 0.42857142857142855,
+            "successRate": 0.5714285714285714
+          },
+          {
+            "quality": 0.5714285714285714,
+            "successRate": 0.4285714285714286
+          },
+          {
+            "quality": 0.7142857142857143,
+            "successRate": 0.2857142857142857
+          },
+          {
+            "quality": 0.8571428571428571,
+            "successRate": 0.1428571428571429
+          },
+          {
+            "quality": 1,
+            "successRate": 0
+          }
+        ],
+        "rubric": "quality",
+        "outcome": "success_rate",
+        "desiredOutcomeDirection": "increase",
+        "seed": 1,
+        "bootstrapResamples": 100,
+        "researcherBootstrapResamples": 500,
+        "researcherSeed": "Derived deterministically by the validity helper",
+        "researcherFailureThreshold": 0.5
+      },
+      "results": {
+        "report": {
+          "pairs": [
+            {
+              "rubric": "quality",
+              "outcome": "success_rate",
+              "n": 8,
+              "pearson": -1,
+              "spearman": -1,
+              "ci95": {
+                "low": -1.0000000000000002,
+                "high": -0.9999999999999998
+              },
+              "verdict": "load_bearing"
+            }
+          ],
+          "ranked": [
+            {
+              "rubric": "quality",
+              "bestOutcome": "success_rate",
+              "spearman": -1,
+              "pearson": -1,
+              "n": 8,
+              "verdict": "load_bearing"
+            }
+          ],
+          "joinedSamples": 8,
+          "skippedRuns": 0,
+          "rubricsWithoutData": []
+        },
+        "researcher": {
+          "report": {
+            "pairs": [
+              {
+                "rubric": "quality",
+                "outcome": "success_rate",
+                "n": 8,
+                "pearson": -1,
+                "spearman": -1,
+                "ci95": {
+                  "low": -1.0000000000000002,
+                  "high": -0.9999999999999998
+                },
+                "verdict": "load_bearing"
+              }
+            ],
+            "ranked": [
+              {
+                "rubric": "quality",
+                "bestOutcome": "success_rate",
+                "spearman": -1,
+                "pearson": -1,
+                "n": 8,
+                "verdict": "load_bearing"
+              }
+            ],
+            "joinedSamples": 8,
+            "skippedRuns": 0,
+            "rubricsWithoutData": []
+          },
+          "failureGroups": 1,
+          "failures": [
+            {
+              "code": "low-score-same-candidate",
+              "description": "same-candidate scored < 0.5 on 4 run(s) (mean 0.214)",
+              "samples": 4
+            }
+          ],
+          "proposedChanges": [
+            {
+              "kind": "reviewer_prompt",
+              "payload": {
+                "rubric": "quality",
+                "action": "up-weight",
+                "spearman": -1,
+                "bestOutcome": "success_rate"
+              },
+              "rationale": "predictive-validity Spearman=-1.000 vs success_rate (load-bearing); recommend up-weighting",
+              "expectedDelta": 0.05
+            }
+          ]
+        }
+      },
+      "limitations": [
+        "Magnitude-based bucketing is intentional in existing tests, despite contradictory interface prose.",
+        "A negative association can be desirable for an outcome such as failure rate; direction needs explicit interpretation.",
+        "The researcher recommends increasing rubric weight despite its negative association with desired success rate; it does not execute or deploy that recommendation.",
+        "Constructed perfect correlation establishes neither causal validity nor held-out predictive performance."
+      ]
+    },
+    "sequentialDependence": {
+      "inputs": {
+        "alpha": 0.05,
+        "minN": 5,
+        "maxN": 100,
+        "shuffleSeed": 1337,
+        "branchesEnumerated": 2,
+        "cellsPerBranch": 100,
+        "independentRandomSignsPerExperiment": 1,
+        "dataGeneratingProcess": "Draw one fair sign Z; set all 100 paired deltas equal to Z.",
+        "exchangeable": true,
+        "marginalMeanDelta": 0,
+        "conditionalMeanAfterFirstObservation": "Z, not necessarily <= 0"
+      },
+      "results": {
+        "branches": [
+          {
+            "commonDelta": -1,
+            "probability": 0.5,
+            "result": {
+              "decision": "hold",
+              "reasons": [
+                "sequentialPairedGate: undecided at pre-registered maxN=100 (e-value 1.00 < 1/α=20.00). This is NOT evidence of no effect — the effect may be real but smaller than this budget can detect; re-register with a larger N to test that"
+              ],
+              "contributingGates": [
+                {
+                  "name": "sequentialPairedGate",
+                  "status": "fail",
+                  "detail": {
+                    "wealth": 1,
+                    "n": 100,
+                    "decided": false,
+                    "alpha": 0.05,
+                    "maxBet": 0.5,
+                    "nullMean": 0.5,
+                    "threshold": 20,
+                    "sumX": 0,
+                    "varSum": 0.15877048244745845,
+                    "decision": "undecided-at-maxN",
+                    "minN": 5,
+                    "maxN": 100,
+                    "scale": 1,
+                    "shuffleSeed": 1337,
+                    "direction": "increase",
+                    "minEffect": 0,
+                    "pairedN": 100
+                  }
+                }
+              ],
+              "delta": -1
+            }
+          },
+          {
+            "commonDelta": 1,
+            "probability": 0.5,
+            "result": {
+              "decision": "ship",
+              "reasons": [
+                "sequentialPairedGate: e-value 22.74 ≥ 1/α=20.00 at n=15 (minN=5): the paired improvement exceeds 0 at anytime-valid level α=0.05"
+              ],
+              "contributingGates": [
+                {
+                  "name": "sequentialPairedGate",
+                  "status": "pass",
+                  "detail": {
+                    "wealth": 22.737367544323206,
+                    "n": 15,
+                    "decided": true,
+                    "alpha": 0.05,
+                    "maxBet": 0.5,
+                    "nullMean": 0.5,
+                    "threshold": 20,
+                    "decidedAtN": 15,
+                    "sumX": 15,
+                    "varSum": 0.14608663336124675,
+                    "decision": "promote",
+                    "minN": 5,
+                    "maxN": 100,
+                    "scale": 1,
+                    "shuffleSeed": 1337,
+                    "direction": "increase",
+                    "minEffect": 0,
+                    "pairedN": 100
+                  }
+                }
+              ],
+              "delta": 1
+            }
+          }
+        ],
+        "promotionProbabilityUnderMarginalZeroProcess": 0.5
+      },
+      "limitations": [
+        "Enumerates both equiprobable branches exactly; this is not a Monte Carlo estimate.",
+        "The process violates the conditional-mean null required by the e-process core.",
+        "This refutes sufficiency of exchangeability and shuffling, not the valid e-process theorem or any measured production dataset."
+      ]
+    },
+    "powerFloor": {
+      "inputs": {
+        "gate": {
+          "kind": "power-floor",
+          "target": 0.8,
+          "effectGrid": [
+            0.01,
+            1
+          ],
+          "sim": {
+            "trials": 1,
+            "resamples": 1,
+            "seed": 1
+          }
+        },
+        "curve": [
+          {
+            "effect": 0.01,
+            "power": 0.1
+          },
+          {
+            "effect": 1,
+            "power": 1
+          }
+        ],
+        "practicalEffectForInterpretation": 0.01,
+        "curveSource": "Supplied deterministic fixture; no power simulation is run."
+      },
+      "results": {
+        "id": "floor",
+        "passed": true,
+        "evidence": {
+          "target": 0.8,
+          "maxPower": 1,
+          "curve": [
+            {
+              "effect": 0.01,
+              "power": 0.1
+            },
+            {
+              "effect": 1,
+              "power": 1
+            }
+          ]
+        }
+      },
+      "limitations": [
+        "The inspected gate documents a maximum-over-grid structural feasibility check; this output matches that contract.",
+        "Passing this gate does not establish target power at the practical effect of 0.01.",
+        "The fixture powers are inputs, not measured or simulated power estimates."
+      ]
+    }
+  },
+  "separateVerificationAtReviewedBase": {
+    "provenance": "Historical checks at reviewedBaseRevision; this diagnostic does not rerun them.",
+    "sourceRevision": "fe1cc5111aab5d588bf7db3a3785325635937a91",
+    "checks": [
+      {
+        "command": "pnpm typecheck",
+        "result": "passed"
+      },
+      {
+        "command": "pnpm build",
+        "result": "passed"
+      },
+      {
+        "command": "pnpm verify:package",
+        "result": "passed"
+      }
+    ],
+    "tests": {
+      "command": "pnpm test -- tests/experiment/preregistration-acceptance.test.ts tests/experiment/power.test.ts tests/contamination-guard.test.ts tests/rl-predictive-validity-researcher.test.ts tests/rubric-predictive-validity.test.ts tests/meta-eval.test.ts",
+      "observedScope": "The package command expanded to the full Vitest suite.",
+      "files": {
+        "passed": 399,
+        "skipped": 2
+      },
+      "tests": {
+        "passed": 5876,
+        "skipped": 3
+      },
+      "result": "passed"
+    },
+    "limitation": "Passing repository checks do not establish correctness of the counterexample behaviors recorded above."
+  }
+}
