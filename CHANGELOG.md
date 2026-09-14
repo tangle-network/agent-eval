@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.181.0] — 2026-09-14
+
 ### Changed
 
 - README and example guides include verified execution commands, public imports, and explicit limits on fixture results and release evidence.
