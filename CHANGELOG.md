@@ -28,7 +28,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Added
 
 - Optional top-level `claim` metadata declares populations and independent source units without consuming reusable regression evidence.
-  Self-improvement groups automatic partitions by those units and retains the selected candidate when release evidence is inconclusive.
+  New-unit claims keep source families together across automatic partitions.
+  Self-improvement retains the selected candidate when release evidence is negative or inconclusive.
 - Optional `finalEvidence` reserves fresh final units before search and records exposure before final measurement.
   The shared journal detects conflicting use, concurrent ownership, corrupted history, and deleted trusted heads.
 - `/meta-eval` exports evaluator admission from actual controls, simultaneous error bounds, and explicit unknown and excluded evidence.
@@ -44,6 +45,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Calibration preserves clipped observations, measures constant predictors, and honors the requested bin count.
 - Registered-unit gates pair complete cells before aggregation; repetitions and source variants cannot multiply independent evidence.
 - Opened experiments and outcome research retain validated snapshots instead of mutable caller-owned rules.
+- Pareto promotion applies regression floors to the deciding confidence interval.
+  Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
+  Zero-width or non-finite deciding intervals now produce an `indeterminate` axis and `not_evaluated` check.
+  They require more evidence before promotion, including all-zero outcomes and constant continuous differences.
 
 ## [0.180.0] — 2026-09-09
 

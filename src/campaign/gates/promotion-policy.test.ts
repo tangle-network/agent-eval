@@ -46,12 +46,12 @@ function ctxFrom(cells: CellSpec[]): GateContext<unknown, Scenario> {
   }
 }
 
-// Six distinct scenarios, 1 rep each (n=6 paired observations) — comfortably
-// above minProductiveRuns and enough for a tight bootstrap CI.
+// Twenty distinct scenarios with one rep each meet the continuous-mean minimum.
+// Small-sample and binary cases set their own counts.
 function cells(
   cand: (i: number) => { composite: number; dimensions?: Record<string, number> },
   base: (i: number) => { composite: number; dimensions?: Record<string, number> },
-  count = 6,
+  count = 20,
 ): CellSpec[] {
   return Array.from({ length: count }, (_, i) => ({
     scenarioId: `s${i}`,
@@ -68,15 +68,139 @@ const QUALITY: PromotionObjective = {
 }
 
 describe('paretoSignificanceGate — multi-objective promotion over the evidence vector', () => {
+  it('requires more evidence when no observed errors leave the outcome scale unidentified', async () => {
+    const ctx = ctxFrom(
+      cells(
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { errorRate: 0 } }),
+        () => ({ composite: 0.5, dimensions: { errorRate: 0 } }),
+        20,
+      ),
+    )
+    const objectives: PromotionObjective[] = [
+      QUALITY,
+      {
+        name: 'errorRate',
+        source: { kind: 'dimension', dimension: 'errorRate' },
+        direction: 'minimize',
+        floorTolerance: 0.05,
+      },
+    ]
+    const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+    expect(safety.decisionStatistic).toBe('mean_bootstrap')
+    expect(safety.ci).toEqual({ low: 0, high: 0 })
+    expect(safety.indeterminate).toBe(true)
+    expect(safety.verdict).toBe('indeterminate')
+
+    const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+    expect(result.decision).toBe('need_more_work')
+    expect(result.reasons.join(' ')).toMatch(/errorRate.*indeterminate/)
+    expect(
+      result.contributingGates.find((gate) => gate.name === 'objective:errorRate')?.status,
+    ).toBe('not_evaluated')
+  })
+
+  it.each([-0.125, 0, 0.125])(
+    'does not infer a continuous safety floor from constant paired deltas of %f',
+    async (delta) => {
+      const ctx = ctxFrom(
+        cells(
+          (i) => ({
+            composite: 0.78 + (i % 3) * 0.02,
+            dimensions: { safety: 0.25 + (i % 3) * 0.125 + delta },
+          }),
+          (i) => ({ composite: 0.5, dimensions: { safety: 0.25 + (i % 3) * 0.125 } }),
+          20,
+        ),
+      )
+      const objectives: PromotionObjective[] = [
+        QUALITY,
+        {
+          name: 'safety',
+          source: { kind: 'dimension', dimension: 'safety' },
+          direction: 'maximize',
+          floorTolerance: 0.05,
+        },
+      ]
+      for (const statistic of ['mean', 'median'] as const) {
+        const evidence = buildEvidenceVector(ctx, objectives, { statistic })
+        expect(evidence.axes[0]?.verdict).toBe('improved')
+        expect(evidence.axes[1]).toMatchObject({
+          ci: { low: delta, high: delta },
+          indeterminate: true,
+          verdict: 'indeterminate',
+        })
+        const result = await paretoSignificanceGate({ objectives, statistic }).decide(ctx)
+        expect(result.decision).toBe('need_more_work')
+        expect(
+          result.contributingGates.find((gate) => gate.name === 'objective:safety')?.status,
+        ).toBe('not_evaluated')
+      }
+    },
+  )
+
+  it.each([1, 100])(
+    'holds when tied binary safety scores on scale %i cannot exclude the declared regression',
+    async (scale) => {
+      const ctx = ctxFrom(
+        cells(
+          (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: scale } }),
+          () => ({ composite: 0.5, dimensions: { safety: scale } }),
+          20,
+        ),
+      )
+      const objectives: PromotionObjective[] = [
+        QUALITY,
+        {
+          name: 'safety',
+          source: { kind: 'dimension', dimension: 'safety' },
+          direction: 'maximize',
+          floorTolerance: 0.05 * scale,
+        },
+      ]
+      const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+      expect(safety.bootstrap.low).toBe(0)
+      expect(safety.ci.low).toBeLessThan(-safety.floorTolerance)
+
+      const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+      expect(result.decision).toBe('hold')
+      expect(
+        result.contributingGates?.find((gate) => gate.name === 'objective:safety')?.status,
+      ).toBe('fail')
+    },
+  )
+
+  it('ships when tied binary safety scores exclude the declared regression', async () => {
+    const ctx = ctxFrom(
+      cells(
+        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 1 } }),
+        () => ({ composite: 0.5, dimensions: { safety: 1 } }),
+        100,
+      ),
+    )
+    const objectives: PromotionObjective[] = [
+      QUALITY,
+      {
+        name: 'safety',
+        source: { kind: 'dimension', dimension: 'safety' },
+        direction: 'maximize',
+        floorTolerance: 0.05,
+      },
+    ]
+    const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+    expect(safety.ci.low).toBeGreaterThan(-safety.floorTolerance)
+    expect(safety.verdict).toBe('flat')
+    expect((await paretoSignificanceGate({ objectives }).decide(ctx)).decision).toBe('ship')
+  })
+
   it('ships a Pareto improvement: one axis credibly up, the other flat (a flat axis must not veto a real gain)', async () => {
     // quality: baseline 0.50 → candidate 0.80 on every cell (CI.low ≫ 0 → improved).
     // safety:  baseline 0.90 → candidate 0.90 (flat). A flat second axis is NOT a
-    // regression, so it must not block the ship — the bug this guards is treating
-    // "unchanged" as "failed".
+    // regression. One hundred observations exclude a drop beyond the 0.05 floor.
     const ctx = ctxFrom(
       cells(
         (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { safety: 0.9 } }),
         () => ({ composite: 0.5, dimensions: { safety: 0.9 } }),
+        100,
       ),
     )
     const gate = paretoSignificanceGate({
@@ -106,7 +230,10 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // A composite-only gate ships this; the symmetric Pareto floor must hold.
     const ctx = ctxFrom(
       cells(
-        () => ({ composite: 0.8, dimensions: { hallucination_free: 0.5 } }),
+        (i) => ({
+          composite: 0.78 + (i % 3) * 0.02,
+          dimensions: { hallucination_free: 0.48 + (i % 3) * 0.02 },
+        }),
         () => ({ composite: 0.5, dimensions: { hallucination_free: 0.9 } }),
       ),
     )
@@ -133,7 +260,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // WORSE. Orientation must flip so the floor catches a rise, not a fall.
     const ctx = ctxFrom(
       cells(
-        () => ({ composite: 0.8, dimensions: { cost_risk: 0.6 } }),
+        (i) => ({ composite: 0.8, dimensions: { cost_risk: 0.58 + (i % 3) * 0.02 } }),
         () => ({ composite: 0.5, dimensions: { cost_risk: 0.2 } }),
       ),
     )
@@ -159,7 +286,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     // classified as a gain. The floor check precedes the gain check.
     const ctx = ctxFrom(
       cells(
-        () => ({ composite: 0.5 }),
+        (i) => ({ composite: 0.48 + (i % 3) * 0.02 }),
         () => ({ composite: 0.8 }), // candidate 0.5 vs baseline 0.8 ⇒ −0.3 delta
       ),
     )
@@ -199,9 +326,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     expect(res.reasons.join(' ')).toContain('insufficient evidence')
   })
 
-  it('HOLDS a statistical no-op: identical candidate and baseline must not ship as a win', async () => {
-    // The noise-as-lift false positive: candidate == baseline on every cell.
-    // Every axis is flat → no Pareto improvement → hold, never ship.
+  it('requires more evidence for identical continuous observations', async () => {
     const ctx = ctxFrom(
       cells(
         (i) => ({ composite: 0.5 + (i % 2) * 0.1 }),
@@ -210,8 +335,23 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     )
     const gate = paretoSignificanceGate({ objectives: [QUALITY] })
     const res = await gate.decide(ctx)
-    expect(res.decision).toBe('hold')
-    expect(res.reasons.join(' ')).toContain('statistically equivalent')
+    expect(res.decision).toBe('need_more_work')
+    expect(res.reasons.join(' ')).toContain('indeterminate')
+  })
+
+  it('holds when every floor clears but no objective shows a significant gain', async () => {
+    const ctx = ctxFrom(
+      cells(
+        (i) => ({ composite: 0.49 + (i % 3) * 0.01 }),
+        () => ({ composite: 0.5 }),
+        30,
+      ),
+    )
+    const evidence = buildEvidenceVector(ctx, [QUALITY])
+    expect(evidence.axes[0]).toMatchObject({ indeterminate: false, verdict: 'flat' })
+    const result = await paretoSignificanceGate({ objectives: [QUALITY] }).decide(ctx)
+    expect(result.decision).toBe('hold')
+    expect(result.reasons.join(' ')).toContain('no objective shows a significant gain')
   })
 
   it('throws when no objectives are supplied (fail loud, no empty-vector default)', () => {
@@ -231,6 +371,7 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
       // information about its own error and is refused however large the gain.
       (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
       () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
+      100,
     ),
   )
   const objectives: PromotionObjective[] = [
@@ -265,9 +406,9 @@ describe('buildEvidenceVector + PromotionPolicy — one bus, plural competing st
 
   it('exposes per-axis CIs (the non-collapsed vector) with a binding minN', () => {
     const ev = buildEvidenceVector(ctx, objectives)
-    expect(ev.minN).toBe(6)
+    expect(ev.minN).toBe(100)
     for (const axis of ev.axes) {
-      expect(axis.n).toBe(6)
+      expect(axis.n).toBe(100)
       expect(typeof axis.bootstrap.low).toBe('number')
       expect(typeof axis.bootstrap.high).toBe('number')
       expect(axis.bootstrap.low).toBeLessThanOrEqual(axis.bootstrap.high)
@@ -372,7 +513,10 @@ describe('buildEvidenceVector — binary (0/1) axes', () => {
   it('decides continuous axes on the mean, and still offers the median', () => {
     const continuous = ctxFrom(
       cells(
-        (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { speed: 0.5 } }),
+        (i) => ({
+          composite: 0.78 + (i % 3) * 0.02,
+          dimensions: { speed: 0.49 + (i % 3) * 0.01 },
+        }),
         () => ({ composite: 0.5, dimensions: { speed: 0.5 } }),
       ),
     )
