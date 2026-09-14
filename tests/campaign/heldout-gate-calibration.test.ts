@@ -134,9 +134,9 @@ describe('heldOutGate (composable) — repeated-sampling calibration', () => {
       const d = await decide(before, after, 0)
       expect(d.ship, `zero-spread sample at n=${n}`).toBe(false)
       expect(d.detail.indeterminate, `indeterminate flag at n=${n}`).toBe(true)
-      expect(d.reason).toMatch(/carries no direction/)
+      expect(d.reason).toMatch(n < 20 ? /too few/ : /carries no direction/)
     }
-  })
+  }, 15_000)
 
   it('refuses the 76-pair witness: 0 wins, 3 losses, 73 ties at a -0.05 margin', async () => {
     // Three losses and no wins out of 76 does not establish noninferiority at

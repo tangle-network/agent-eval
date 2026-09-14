@@ -1,68 +1,54 @@
 /**
- * Power preflight — "can this budget detect the effect you are hunting?"
- *
- * The failure it prevents (measured, twice): a live prompt-improvement campaign ran
- * 333 sandbox cells over 5.6 hours and produced a +0.08 holdout lift the ship gate
- * (paired bootstrap, CI.low > 0.05) could not distinguish from zero — because at
- * that holdout size and worker variance the MINIMUM DETECTABLE lift was larger than
- * any effect a prompt change plausibly produces. The budget was spent learning what
- * a 30-second calculation on the baseline cells already knew. No eval framework we
- * know of surfaces this; every underpowered improvement run everywhere ends in an
- * uninformative "hold".
+ * Approximate detectable lift from baseline variance and the intended sample size.
  *
  * Model: the ship rule is `CI.low(paired Δ) > deltaThreshold`. Approximating the
  * bootstrap CI as normal, `CI.low ≈ effect − z·sd_Δ/√n`, so the smallest shippable
- * true effect is `MDE = deltaThreshold + z·sd_Δ/√n`. The paired-delta SD is unknown
- * before the candidate exists; we bound it by the zero-correlation case
- * `sd_Δ ≤ √2·sd_baseline` — a CONSERVATIVE (upper) MDE, which is the correct
- * direction for a warning. Pairing is per cell (`scenario:rep`), so reps multiply n.
+ * effect is `MDE = deltaThreshold + z·sd_Δ/√n`. This estimates `sd_Δ` as
+ * `√2·sd_baseline`, assuming equal arm variances and zero paired correlation.
+ * Actual candidate variance and paired correlation can move the threshold in either direction.
+ * This diagnostic does not replace the gate or guarantee a detection probability.
  *
- * Standalone by design: feed it any baseline composites (a `gate:'none'` run, a
- * live-proof table) BEFORE budgeting the real search; `selfImprove` also attaches
- * it to every result and warns when the run was structurally unable to ship.
+ * Supply one baseline mean per independent observation used by the comparison.
+ * With declared source units, repetitions and variants refine those means without increasing n.
+ * `selfImprove` attaches this diagnostic after its final measurement.
  */
 
 export interface PowerPreflightOptions {
-  /** Per-cell baseline composites on the HOLDOUT scenarios (one per scenario:rep cell). */
+  /** Baseline composites at the comparison's independent observation unit. */
   baselineComposites: number[]
-  /** Paired observations the budgeted comparison will produce
-   *  (holdout scenarios × reps). Defaults to `baselineComposites.length`. */
+  /** Independent paired observations planned for the comparison.
+   *  Defaults to `baselineComposites.length`. */
   pairedN?: number
   /** The ship gate's effect-size threshold. Default 0.05 (defaultProductionGate). */
   deltaThreshold?: number
   /** CI confidence the gate uses. Default 0.95. */
   confidence?: number
-  /** True when the holdout is scored by the SAME judge/scorer family as the gate
-   *  (selfImprove's default composition — one judge scores everything). Under a
-   *  shared channel, raising paired n reduces only the IDIOSYNCRATIC noise share;
-   *  systematic judge bias is untouched, so the MDE here is a lower bound and the
-   *  only full debiaser is an independent second scoring channel
-   *  (recursive-self-improvement S1c, closed form in EXP-023 P0). Default false. */
+  /** Whether the holdout uses the gate's judge family.
+   *  More observations cannot establish freedom from systematic scoring bias.
+   *  Default false. */
   sharedScorerChannel?: boolean
 }
 
 export interface PowerPreflight {
   /** Paired observations the comparison will have. */
   n: number
-  /** Baseline per-cell composite standard deviation (the variance the effect must beat). */
+  /** Sample standard deviation of baseline observation means. */
   sd: number
-  /** Minimum detectable lift: the smallest TRUE effect the gate could ship at this budget. */
+  /** Approximate lift needed to put a normal interval above the gate threshold. */
   mde: number
   /** Baseline holdout composite mean. */
   baselineMean: number
   /** Headroom to a perfect 1.0 composite (the largest achievable lift on a [0,1] judge). */
   headroom: number
-  /** True when even the largest achievable effect (headroom) is below the MDE —
-   *  the run is structurally unable to ship regardless of proposal quality.
-   *  Only asserted for [0,1]-scaled judges (see `scaleAssumed`). */
+  /** Whether this approximation exceeds the estimated [0,1] score headroom.
+   *  This is a planning warning, not a proof that promotion is impossible. */
   underpowered: boolean
   /** True when composites look [0,1]-scaled; headroom/underpowered are only
    *  meaningful under that convention (0-100 judges get mde/sd/n but no verdict). */
   scaleAssumed: boolean
   deltaThreshold: number
   confidence: number
-  /** Set when the holdout shares the gate's scoring channel: more cells cannot
-   *  buy back systematic judge bias — treat the MDE as a lower bound. */
+  /** Notes unmeasured systematic bias when the gate shares its scoring channel. */
   sharedChannelCaveat?: string
   /** One actionable sentence for humans and logs. */
   recommendation: string
@@ -76,10 +62,7 @@ function zFor(confidence: number): number {
   return 1.282
 }
 
-/** Estimate the minimum detectable lift a paired-holdout improvement run can
- *  ship at a given budget, from the baseline holdout composites — call it BEFORE
- *  spending a search to learn whether the effect you are hunting is even
- *  observable at this holdout size and worker variance. */
+/** Estimate detectable lift from baseline independent observations before budgeting a comparison. */
 export function powerPreflight(opts: PowerPreflightOptions): PowerPreflight {
   const composites = opts.baselineComposites.filter((v) => Number.isFinite(v))
   if (composites.length < 3) {
@@ -104,12 +87,12 @@ export function powerPreflight(opts: PowerPreflightOptions): PowerPreflight {
   const underpowered = scaleAssumed && mde > headroom
 
   const sharedChannelCaveat = opts.sharedScorerChannel
-    ? 'Holdout and gate share one scoring channel: raising n/reps reduces only idiosyncratic noise — systematic judge bias remains and this MDE is a lower bound. Full debiasing needs an independent second scoring channel (different judge/benchmark family).'
+    ? 'Holdout and gate share one scoring channel: systematic judge bias remains outside this estimate. An independent second scoring channel can help test that bias.'
     : undefined
 
   const recommendation = underpowered
-    ? `UNDERPOWERED: minimum detectable lift ${mde.toFixed(3)} exceeds the ${headroom.toFixed(3)} headroom above the baseline (${mean.toFixed(3)}) — no achievable effect can ship at this budget. Raise paired n (scenarios x reps) to ~${Math.ceil(((z * Math.SQRT2 * sd) / Math.max(headroom - deltaThreshold, 0.01)) ** 2)} or reduce worker variance before searching.`
-    : `Minimum detectable lift at n=${n}: ${mde.toFixed(3)} (baseline sd ${sd.toFixed(3)}). Effects smaller than this cannot clear the gate; budget the search for effects you believe exceed it.`
+    ? `UNDERPOWERED under this approximation: detectable lift ${mde.toFixed(3)} exceeds the ${headroom.toFixed(3)} headroom above the baseline (${mean.toFixed(3)}). Raise paired n using independent observations to ~${Math.ceil(((z * Math.SQRT2 * sd) / Math.max(headroom - deltaThreshold, 0.01)) ** 2)} or reduce observation variance. Recheck with measured paired deltas.`
+    : `Approximate detectable lift at n=${n}: ${mde.toFixed(3)} (baseline sd ${sd.toFixed(3)}). Compare this estimate with the effect you expect, then recheck using measured paired deltas.`
 
   return {
     n,

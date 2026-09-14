@@ -1,3 +1,4 @@
+import { defineEvaluationClaim, type EvaluationClaim } from '../experiment/claim'
 /**
  * Run one complete improvement job.
  *
@@ -8,6 +9,14 @@
  */
 
 import type { ProposalFinding } from '../analyst/types'
+import {
+  assertIndependentEvaluationSplit,
+  captureFinalEvidencePolicy,
+  evaluationUnitMap,
+  type FinalEvidencePolicy,
+  type FinalEvidenceUse,
+  reserveFinalEvidence,
+} from '../campaign/final-evidence'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
 import type {
@@ -68,7 +77,7 @@ import {
   type SelfImproveMethodProvenance,
   type SelfImproveMethodResult,
 } from './self-improve-method'
-import { cellsToRunRecords, meanComposite } from './self-improve-reporting'
+import { cellsToRunRecords, pairedCompositeSummary } from './self-improve-reporting'
 
 export type { SelfImproveMethodProvenance, SelfImproveMethodResult } from './self-improve-method'
 
@@ -105,7 +114,7 @@ export interface SelfImproveBudget {
    *  static holdout scenario and recording a meaningless lift. Unless
    *  `holdoutScenarios` reserves an explicit set, ALL scenarios train. */
   holdout?: 'measured' | 'deferred'
-  /** Per-scenario replicates per cell — raises bootstrap-CI tightness. Default 1. */
+  /** Repeated executions per scenario. A claim's independent-unit count stays unchanged. Default 1. */
   reps?: number
   /** DEPTH dial forwarded to the proposer's `propose()` as
    *  `ctx.maxImprovementShots` — max iterations an agentic candidate generator
@@ -327,10 +336,16 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
   searchLedger?: RunOptimizationOptions<TScenario, TArtifact>['searchLedger']
   /** Complete-method final measurement receipts; authority and environment remain caller-owned. */
   evidence?: CampaignEvidenceContext
+  /** Declare the population and independent units without requiring fresh data. */
+  claim?: EvaluationClaim
+  /** Opt into durable fresh-evidence consumption for this final comparison. */
+  finalEvidence?: FinalEvidencePolicy
 }
 
 export interface SelfImproveProposerResult<TScenario extends Scenario, TArtifact> {
   mode: 'proposer'
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidenceUse
   /** Composite mean across all scenarios, baseline run. When
    *  `budget.holdout === 'deferred'` this is measured on the improvement
    *  (search) split — no holdout campaign ran. */
@@ -396,10 +411,9 @@ export interface SelfImproveProposerResult<TScenario extends Scenario, TArtifact
    * Hosted-tier dashboards render this as the v3-vs-v4 decision view.
    */
   insight: InsightReport
-  /** Minimum-detectable-lift analysis from the baseline holdout cells: could this
-   *  budget have shipped ANY plausible effect? Absent when the baseline produced
-   *  fewer than 3 scored holdout cells. See `powerPreflight` for the standalone
-   *  pre-run version (run `gate: 'none'` first, budget the real search after). */
+  /** Approximate detectable lift from baseline holdout observations.
+   *  Declared independent units determine n and baseline variance.
+   *  Absent with fewer than three observations or a deferred holdout. */
   power?: PowerPreflight
   /**
    * Raw substrate result for advanced inspection — full per-generation
@@ -503,6 +517,7 @@ function splitMethodPartitions<TScenario extends Scenario>(
   searchScenarios: TScenario[],
   explicitSelection: TScenario[] | undefined,
   fraction: number,
+  unitByScenario?: ReadonlyMap<string, string>,
 ): { train: TScenario[]; selection: TScenario[] } {
   if (!Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
     throw new Error('selfImprove: budget.selectionFraction must be in (0, 1)')
@@ -534,6 +549,12 @@ function splitMethodPartitions<TScenario extends Scenario>(
     if (train.length === 0) {
       throw new Error('selfImprove: method train split is empty')
     }
+    if (unitByScenario) {
+      const selectedUnits = new Set([...selectionIds].map((id) => unitByScenario.get(id)))
+      if (train.some((scenario) => selectedUnits.has(unitByScenario.get(scenario.id)))) {
+        throw new Error('selfImprove: training and selection share independent units')
+      }
+    }
     return {
       train,
       selection: explicitSelection.map((scenario) => byId.get(scenario.id)!),
@@ -541,6 +562,10 @@ function splitMethodPartitions<TScenario extends Scenario>(
   }
   if (searchScenarios.length < 2) {
     throw new Error('selfImprove: method requires at least two non-final scenarios')
+  }
+  if (unitByScenario) {
+    const split = splitTrainHoldout(searchScenarios, fraction, unitByScenario)
+    return { train: split.train, selection: split.holdout }
   }
   const sorted = [...searchScenarios].sort(
     (a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id),
@@ -568,14 +593,25 @@ function stableScenarioHash(value: string): number {
   return hash
 }
 
-/**
- * Deterministic train/holdout split by a stable hash of `scenario.id`,
- * so the same scenario set always splits the same way across runs.
- */
+/** Deterministic split by scenario identity, or by source identity for new-unit claims. */
 function splitTrainHoldout<TScenario extends Scenario>(
   scenarios: TScenario[],
   fraction: number,
+  unitByScenario?: ReadonlyMap<string, string>,
 ): { train: TScenario[]; holdout: TScenario[] } {
+  if (unitByScenario) {
+    const units = [...new Set(scenarios.map((scenario) => unitByScenario.get(scenario.id)!))].sort(
+      (a, b) => stableScenarioHash(a) - stableScenarioHash(b) || (a < b ? -1 : a > b ? 1 : 0),
+    )
+    if (units.length < 2)
+      throw new Error('selfImprove: splitting needs at least two independent units')
+    const count = Math.max(1, Math.min(units.length - 1, Math.round(units.length * fraction)))
+    const finalUnits = new Set(units.slice(0, count))
+    return {
+      holdout: scenarios.filter((scenario) => finalUnits.has(unitByScenario.get(scenario.id)!)),
+      train: scenarios.filter((scenario) => !finalUnits.has(unitByScenario.get(scenario.id)!)),
+    }
+  }
   const sorted = [...scenarios].sort((a, b) => stableScenarioHash(a.id) - stableScenarioHash(b.id))
   const nHoldout = Math.max(1, Math.min(sorted.length - 1, Math.round(sorted.length * fraction)))
   return {
@@ -642,6 +678,18 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
     | SelfImproveMethodOptions<TScenario, TArtifact>
     | SelfImproveProposerOptions<TScenario, TArtifact>,
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
+  opts = {
+    ...opts,
+    ...(opts.claim || opts.finalEvidence
+      ? {
+          claim: opts.claim && defineEvaluationClaim(opts.claim),
+          finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
+          scenarios: structuredClone(opts.scenarios),
+          selectionScenarios: opts.selectionScenarios && structuredClone(opts.selectionScenarios),
+          budget: opts.budget && structuredClone(opts.budget),
+        }
+      : {}),
+  }
   const startedAt = Date.now()
   const requestedRunDir =
     opts.runDir ??
@@ -681,6 +729,9 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const holdoutMode = budget.holdout ?? 'measured'
   const holdoutDeferred = holdoutMode === 'deferred'
   const expectUsage = opts.expectUsage ?? 'assert'
+  const unitByScenario = opts.claim ? evaluationUnitMap(opts.claim, opts.scenarios) : undefined
+  const splitUnitByScenario =
+    opts.claim?.generalization === 'new-units' ? unitByScenario : undefined
 
   // Deferred holdout without an explicitly reserved set trains on EVERYTHING:
   // there is no held-out measurement in this run, so carving out a fraction
@@ -694,7 +745,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       }
     : holdoutDeferred
       ? { train: opts.scenarios, holdout: [] as TScenario[] }
-      : splitTrainHoldout(opts.scenarios, holdoutFraction)
+      : splitTrainHoldout(opts.scenarios, holdoutFraction, splitUnitByScenario)
 
   if (train.length === 0) {
     throw new Error(
@@ -705,11 +756,20 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     throw new Error('selfImprove: holdout split is empty. Pass more scenarios.')
   }
 
+  if (opts.claim?.generalization === 'new-units') {
+    assertIndependentEvaluationSplit(opts.claim, holdout, train)
+  }
+  if (opts.finalEvidence) {
+    if (holdoutDeferred) throw new Error('final evidence requires measured holdout')
+    await reserveFinalEvidence(opts.finalEvidence, opts.claim, holdout, train)
+  }
+
   if (opts.method) {
     const partitions = splitMethodPartitions(
       train,
       opts.selectionScenarios,
       budget.selectionFraction ?? 0.25,
+      splitUnitByScenario,
     )
     return runSelfImproveMethod({
       opts: { ...opts, method: opts.method },
@@ -738,7 +798,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     opts.gate ??
     defaultProductionGate<TArtifact, TScenario>({
       holdoutScenarios: holdout,
-      deltaThreshold: 0.05,
+      deltaThreshold: opts.claim?.minimumEffect ?? 0.05,
+      independentUnitByScenarioId: opts.claim ? evaluationUnitMap(opts.claim, holdout) : undefined,
     })
 
   if (opts.onProgress) {
@@ -759,6 +820,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     reps: budget.reps,
     maxImprovementShots: budget.maxImprovementShots,
     holdoutScenarios: holdout,
+    claim: opts.claim,
+    finalEvidence: opts.finalEvidence,
     holdout: holdoutMode,
     gate,
     neutralize: opts.neutralize,
@@ -792,28 +855,21 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   const reportWinnerCampaign = holdoutDeferred
     ? winnerSearchCampaign(result)
     : result.winnerOnHoldout
-  const baseline = meanComposite(reportBaselineCampaign.aggregates.byScenario)
-  const winnerStats = meanComposite(reportWinnerCampaign.aggregates.byScenario)
+  const reportUnitMap = opts.claim
+    ? evaluationUnitMap(opts.claim, holdoutDeferred ? train : holdout)
+    : undefined
+  const report = pairedCompositeSummary(reportBaselineCampaign, reportWinnerCampaign, reportUnitMap)
+  const baseline = report.baseline
+  const winnerStats = report.winner
 
-  // Power analysis from the baseline holdout cells — the number that says whether
-  // this budget could ship ANY effect. Attached to every result; loud when the
-  // search was structurally unable to promote (that spend should not repeat).
+  // Repetitions refine a declared unit's mean without increasing the sample size.
   let power: PowerPreflight | undefined
-  const baselineHoldoutComposites = result.baselineOnHoldout.cells
-    .filter((cell) => !cell.error)
-    .map((cell) => {
-      const scores = Object.values(cell.judgeScores)
-      return scores.length === 0
-        ? Number.NaN
-        : scores.reduce((sum, s) => sum + s.composite, 0) / scores.length
-    })
-    .filter((v) => Number.isFinite(v))
+  const baselineHoldoutComposites = holdoutDeferred ? [] : report.baselineComposites
   if (baselineHoldoutComposites.length >= 3) {
-    // selfImprove's holdout is scored by the SAME judge as the gate — the
-    // shared-channel case by construction (S1c): flag it so the MDE reads as a
-    // lower bound and nobody buys reps expecting them to fix judge bias.
+    // The shared judge's systematic bias remains outside this variance estimate.
     power = powerPreflight({
       baselineComposites: baselineHoldoutComposites,
+      deltaThreshold: opts.claim?.minimumEffect ?? 0.05,
       sharedScorerChannel: true,
     })
     if (opts.onProgress) {
@@ -875,6 +931,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
           )),
     ],
     baselineCandidateId: 'baseline',
+    independentUnitByScenarioId: reportUnitMap,
+    decisionThreshold: opts.claim?.minimumEffect ?? 0.05,
     ...(reportWinnerCampaign === reportBaselineCampaign ? {} : { candidateCandidateId: 'winner' }),
   })
 
@@ -891,6 +949,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
       costReceipts: costLedger.list(),
       totalCostUsd: totalCost,
       totalDurationMs: durationMs,
+      independentUnitByScenarioId: holdoutDeferred ? undefined : reportUnitMap,
     }),
     storage,
     hostedClient: opts.hostedTenant ? createHostedClient(opts.hostedTenant) : undefined,
@@ -898,6 +957,8 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   if (opts.onProvenance) opts.onProvenance(provenance)
 
   const summary: SelfImproveProposerResult<TScenario, TArtifact> = {
+    ...(opts.claim ? { claim: opts.claim } : {}),
+    ...(result.finalEvidence ? { finalEvidence: result.finalEvidence } : {}),
     mode: 'proposer',
     baseline,
     winner: {

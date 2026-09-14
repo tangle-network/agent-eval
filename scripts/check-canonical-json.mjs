@@ -18,11 +18,8 @@
  * A reviewer is the only other check, and a reviewer already missed it eleven
  * times.
  *
- * ALLOWLIST below names the encoders that are deliberately not the home: the
- * private legacy verifiers each durable-record module keeps so a record signed
- * under the retired scheme still verifies. Each is unreachable from any path
- * that writes a digest, and each is retired with its retention window (see
- * docs/experiment.md).
+ * Readers and writers use the same encoder. Retired digest schemes are refused,
+ * so verification introduces no additional encoders or exceptions.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -34,30 +31,6 @@ const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** The one canonical-JSON home. */
 const HOME = 'src/ledger-core/canonical.ts'
-
-/**
- * Read-only legacy encoders, kept private inside the module that verifies with
- * them so a durable record written under the retired scheme still verifies.
- * `file` and `fn` must both match; a new function in the same file is not
- * covered.
- */
-const ALLOWLIST = [
-  {
-    file: 'src/pre-registration.ts',
-    fn: 'legacyContentDigest',
-    reason: 'verifies a manifest signed under sha256-content; never writes a digest',
-  },
-  {
-    file: 'src/agent-profile-cell.ts',
-    fn: 'legacyCellDigest',
-    reason: 'verifies an agent-profile-cell:sha256: id; never mints one',
-  },
-  {
-    file: 'src/experiment/define.ts',
-    fn: 'specDigest',
-    reason: 'selects the encoder by the seal algo; the legacy branch only verifies',
-  },
-]
 
 /** Tests and type declarations ship no encoder. */
 const SKIPPED = [/\.test\.ts$/, /\.test-support\.ts$/, /\.d\.ts$/]
@@ -78,22 +51,18 @@ const SERIALIZERS = new Set(['stringify', 'digest', 'update'])
  * Throws on an unparseable source file — a gate that cannot read its own input
  * must not report a pass.
  */
-export function checkCanonicalJson({ root = REPOSITORY_ROOT, allowlist = ALLOWLIST } = {}) {
+export function checkCanonicalJson({ root = REPOSITORY_ROOT } = {}) {
   const offences = []
-  const usedWaivers = new Set()
   const sourceRoot = resolve(root, 'src')
   if (statSync(sourceRoot, { throwIfNoEntry: false })?.isDirectory()) {
     for (const file of sourceFiles(sourceRoot)) {
       const relativePath = relative(root, file).replaceAll('\\', '/')
       if (relativePath === HOME) continue
       if (SKIPPED.some((pattern) => pattern.test(relativePath))) continue
-      collect({ file, relativePath, allowlist, usedWaivers, offences })
+      collect({ file, relativePath, offences })
     }
   }
-  return {
-    offences,
-    unusedWaivers: allowlist.filter((entry) => !usedWaivers.has(`${entry.file} ${entry.fn}`)),
-  }
+  return { offences }
 }
 
 function* sourceFiles(directory) {
@@ -104,7 +73,7 @@ function* sourceFiles(directory) {
   }
 }
 
-function collect({ file, relativePath, allowlist, usedWaivers, offences }) {
+function collect({ file, relativePath, offences }) {
   const source = readFileSync(file, 'utf8')
   const { program, errors } = parseSync(file, source)
   if (errors.length > 0) throw new Error(`${relativePath}: parse failed — ${errors[0].message}`)
@@ -143,9 +112,7 @@ function collect({ file, relativePath, allowlist, usedWaivers, offences }) {
     const { sortsKeys, serializes } = bodyHas(fn, { sorters })
     if (!(sortsKeys && serializes)) return
     const name = functionName(fn, source)
-    const waiver = allowlist.find((e) => e.file === relativePath && e.fn === name)
-    if (waiver !== undefined) usedWaivers.add(`${waiver.file} ${waiver.fn}`)
-    else offences.push({ file: relativePath, line: lineOf(source, fn.start), fn: name })
+    offences.push({ file: relativePath, line: lineOf(source, fn.start), fn: name })
   })
 }
 
@@ -258,7 +225,7 @@ function lineOf(source, offset) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { offences, unusedWaivers } = checkCanonicalJson()
+    const { offences } = checkCanonicalJson()
     for (const offence of offences) {
       console.error(
         `${offence.file}:${offence.line}: ${offence.fn}() sorts object keys and serializes in one ` +
@@ -266,25 +233,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           `${HOME} instead.`,
       )
     }
-    for (const entry of unusedWaivers) {
-      console.error(
-        `scripts/check-canonical-json.mjs: the allowlist entry for ${entry.fn}() in ${entry.file} ` +
-          'matches nothing — delete it.',
-      )
-    }
     if (offences.length > 0) {
       console.error(
         `\n${offences.length} hand-rolled canonical-JSON encoder(s). Eleven copies of this code ` +
           'disagreed on undefined-valued keys, Date, and integer-like key order, so one value ' +
-          `hashed differently depending on the caller. ${HOME} is the one encoder; a legacy ` +
-          'verifier that must keep the retired bytes is added to ALLOWLIST with its reason.',
+          `hashed differently depending on the caller. ${HOME} is the one encoder.`,
       )
     }
-    if (offences.length > 0 || unusedWaivers.length > 0) process.exit(1)
-    console.log(
-      `canonical json gate valid: ${HOME} is the only encoder under src/ ` +
-        `(${ALLOWLIST.length} legacy verifiers waived, all matched)`,
-    )
+    if (offences.length > 0) process.exit(1)
+    console.log(`canonical json gate valid: ${HOME} is the only encoder under src/`)
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exit(1)

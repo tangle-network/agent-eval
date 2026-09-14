@@ -1,4 +1,10 @@
+import { defineEvaluationClaim, type EvaluationClaim } from '../../experiment/claim'
 import { assertCompleteCampaign } from '../coverage'
+import {
+  captureFinalEvidencePolicy,
+  exposeFinalEvidence,
+  type FinalEvidencePolicy,
+} from '../final-evidence'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { renderSurfaceDiff, surfaceDispatchRef, surfaceHash } from '../surface-identity'
@@ -14,6 +20,8 @@ export interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
     ctx: Parameters<RunCampaignOptions<TScenario, TArtifact>['dispatch']>[1],
   ) => Promise<TArtifact>
   gate: Gate<TArtifact, TScenario>
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidencePolicy
   holdout?: 'measured' | 'deferred'
   label?: string
   neutralize?: (winner: MutableSurface, baseline: MutableSurface) => MutableSurface
@@ -23,6 +31,11 @@ export interface FinalComparisonOptions<TScenario extends Scenario, TArtifact>
 export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
   opts: FinalComparisonOptions<TScenario, TArtifact>,
 ) {
+  opts = {
+    ...opts,
+    claim: opts.claim && defineEvaluationClaim(opts.claim),
+    finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
+  }
   const storage = opts.storage ?? fsCampaignStorage()
   const costLedger =
     opts.costLedger ??
@@ -36,6 +49,22 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
   // An unchanged selection has nothing to promote, regardless of measurement noise.
   const winnerIsBaseline = surfaceHash(winnerSurface) === surfaceHash(baselineSurface)
   const holdoutDeferred = (opts.holdout ?? 'measured') === 'deferred'
+  if (opts.finalEvidence && holdoutDeferred) {
+    throw new Error('final evidence requires a measured comparison')
+  }
+  const controlSurface =
+    opts.neutralize && !winnerIsBaseline && !holdoutDeferred
+      ? structuredClone(
+          opts.neutralize(structuredClone(winnerSurface), structuredClone(baselineSurface)),
+        )
+      : undefined
+  const finalEvidence = opts.finalEvidence
+    ? await exposeFinalEvidence(opts.finalEvidence, opts.claim, finalScenarios, [
+        baselineSurface,
+        winnerSurface,
+        ...(controlSurface === undefined ? [] : [controlSurface]),
+      ])
+    : undefined
 
   // An empty campaign records deferred measurement without dispatching final cases.
   const baselineOnHoldout = holdoutDeferred
@@ -124,11 +153,8 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
   let neutralizedJudgeScores: ScoreMap | undefined
   let neutralizedOnHoldout: CampaignResult<TArtifact, TScenario> | undefined
   let neutralizedSurface: MutableSurface | undefined
-  if (opts.neutralize && !winnerIsBaseline && !holdoutDeferred) {
-    const surface = opts.neutralize(
-      structuredClone(winnerSurface),
-      structuredClone(baselineSurface),
-    )
+  if (controlSurface !== undefined) {
+    const surface = controlSurface
     neutralizedSurface = surface
     neutralizedOnHoldout = await runCampaign<TScenario, TArtifact>({
       ...opts,
@@ -198,6 +224,8 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
       : renderSurfaceDiff(winnerSurface, baselineSurface)
 
   return {
+    ...(opts.claim ? { claim: opts.claim } : {}),
+    ...(finalEvidence ? { finalEvidence } : {}),
     baselineOnHoldout,
     winnerOnHoldout,
     ...(neutralizedOnHoldout && neutralizedSurface

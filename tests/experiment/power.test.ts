@@ -19,6 +19,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     const result = clusteredPower({
       clusterSizes: [6, 3, 3, 2],
       effects: [0, 0.3, 0.9, 1],
+      minimumEffect: 0.3,
       seed: 20260810,
       trials: 300,
       resamples: 500,
@@ -40,6 +41,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     const result = clusteredPower({
       clusterSizes: [5, 5, 5],
       effects: [1],
+      minimumEffect: 1,
       seed: 7,
       trials: 200,
       resamples: 400,
@@ -53,6 +55,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     const result = clusteredPower({
       clusterSizes: [4, 4, 4, 4],
       effects: [1],
+      minimumEffect: 1,
       seed: 7,
       trials: 100,
       resamples: 300,
@@ -64,6 +67,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     const result = clusteredPower({
       clusterSizes: Array.from({ length: 12 }, () => 4),
       effects: [0.5],
+      minimumEffect: 0.5,
       seed: 11,
       trials: 300,
       resamples: 400,
@@ -79,6 +83,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     const result = clusteredPower({
       clusterSizes: Array.from({ length: 8 }, () => 2),
       effects: [0.05],
+      minimumEffect: 0.05,
       seed: 13,
       trials: 300,
       resamples: 400,
@@ -86,7 +91,7 @@ describe('clusteredPower refusals (the recorded burns)', () => {
     expect(result.signFlipFloor.certifiableAtAlpha).toBe(true)
     expect(result.maxPower).toBeLessThan(0.8)
     expect(result.adequate).toBe(false)
-    expect(result.refusal!.reasons.join(' ')).toContain('simulated power tops out')
+    expect(result.refusal!.reasons.join(' ')).toContain('at minimum worthwhile effect 0.05')
   })
 })
 
@@ -96,6 +101,7 @@ describe('clusteredPower simulation sanity', () => {
       clusteredPower({
         clusterSizes: [6, 3, 3, 2],
         effects: [0.5],
+        minimumEffect: 0.5,
         seed: 42,
         trials: 200,
         resamples: 300,
@@ -107,6 +113,7 @@ describe('clusteredPower simulation sanity', () => {
     const result = clusteredPower({
       clusterSizes: Array.from({ length: 10 }, () => 4),
       effects: [0.1, 0.5],
+      minimumEffect: 0.1,
       seed: 21,
       trials: 300,
       resamples: 400,
@@ -120,6 +127,7 @@ describe('clusteredPower simulation sanity', () => {
     const simulated = clusteredPower({
       clusterSizes: Array.from({ length: 40 }, () => 1),
       effects: [0.3],
+      minimumEffect: 0.3,
       seed: 99,
       trials: 400,
       resamples: 500,
@@ -129,22 +137,76 @@ describe('clusteredPower simulation sanity', () => {
   })
 
   it('rejects invalid structures loudly', () => {
-    expect(() => clusteredPower({ clusterSizes: [], effects: [0.5], seed: 1 })).toThrow(
-      /positive integers/,
-    )
-    expect(() => clusteredPower({ clusterSizes: [3, 0], effects: [0.5], seed: 1 })).toThrow(
-      /positive integers/,
-    )
-    expect(() => clusteredPower({ clusterSizes: [3, 3], effects: [], seed: 1 })).toThrow(
-      /grid is empty/,
-    )
+    expect(() =>
+      clusteredPower({ clusterSizes: [], effects: [0.5], minimumEffect: 0.5, seed: 1 }),
+    ).toThrow(/positive integers/)
+    expect(() =>
+      clusteredPower({ clusterSizes: [3, 0], effects: [0.5], minimumEffect: 0.5, seed: 1 }),
+    ).toThrow(/positive integers/)
+    expect(() =>
+      clusteredPower({ clusterSizes: [3, 3], effects: [], minimumEffect: 0.5, seed: 1 }),
+    ).toThrow(/grid is empty/)
     expect(() =>
       clusteredPower({
         clusterSizes: [3, 3],
         effects: [0.5],
+        minimumEffect: 0.5,
         seed: 1,
         noisyClusters: [{ index: 5, flipRate: 0.3 }],
       }),
     ).toThrow(/outside/)
+  })
+
+  it('refuses a design powerful only at effects larger than the worthwhile effect', () => {
+    const result = clusteredPower({
+      clusterSizes: Array.from({ length: 12 }, () => 4),
+      effects: [0.01, 1],
+      minimumEffect: 0.01,
+      seed: 31,
+      trials: 200,
+      resamples: 300,
+    })
+    expect(result.maxPower).toBe(1)
+    expect(result.powerAtMinimumEffect).toBeLessThan(0.8)
+    expect(result.adequate).toBe(false)
+    expect(() => assertDesignAdequate(result)).toThrow(/minimum worthwhile effect 0.01/)
+  })
+
+  it('requires the worthwhile effect and finite probability parameters before simulation', () => {
+    const options = {
+      clusterSizes: [4, 4, 4, 4, 4, 4],
+      effects: [0.5],
+      minimumEffect: 0.5,
+      seed: 1,
+    }
+    expect(() => clusteredPower({ ...options, minimumEffect: 0.1 })).toThrow(
+      /contain minimumEffect/,
+    )
+    expect(() => clusteredPower({ ...options, minimumEffect: NaN })).toThrow(/minimumEffect/)
+    expect(() => clusteredPower({ ...options, effects: [0.5, 0.5] })).toThrow(/unique/)
+    expect(() => clusteredPower({ ...options, alpha: 0 })).toThrow(/alpha/)
+    expect(() => clusteredPower({ ...options, confidence: NaN })).toThrow(/confidence/)
+    expect(() => clusteredPower({ ...options, targetPower: 2 })).toThrow(/targetPower/)
+    expect(() => clusteredPower({ ...options, baseWinRate: 0.9, baseLossRate: 0.9 })).toThrow(
+      /sum to at most/,
+    )
+    expect(() => clusteredPower({ ...options, baseWinRate: 0.2, baseLossRate: 0.1 })).toThrow(
+      /zero-effect model/,
+    )
+    expect(() =>
+      clusteredPower({ ...options, noisyClusters: [{ index: 1, flipRate: -0.1 }] }),
+    ).toThrow(/flipRate/)
+  })
+
+  it('does not replace a large non-deterministic effect with perfect wins by clipping probabilities', () => {
+    const result = clusteredPower({
+      clusterSizes: Array.from({ length: 40 }, () => 1),
+      effects: [0.9],
+      minimumEffect: 0.9,
+      seed: 39,
+      trials: 200,
+      resamples: 300,
+    })
+    expect(result.curve[0]!.medianCiWidth).toBeGreaterThan(0.05)
   })
 })

@@ -27,6 +27,7 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { CostReceipt } from '../cost-ledger'
+import { defineEvaluationClaim, type EvaluationClaim } from '../experiment/claim'
 import type { HostedClient } from '../hosted/client'
 import type {
   EvalRunCellScore,
@@ -43,7 +44,12 @@ import type {
 } from './presets/compare-optimization-methods'
 import type { RunImprovementLoopResult } from './presets/run-improvement-loop'
 import { campaignCellExecutionEvidence, projectCampaignCellQuality } from './run-record'
-import { campaignMeanComposite, campaignMeanCompositeOrNull } from './score-utils'
+import {
+  type CampaignComparisonUnits,
+  campaignMeanComposite,
+  campaignMeanCompositeOrNull,
+  pairedCampaignComposites,
+} from './score-utils'
 import type { CampaignStorage } from './storage'
 import {
   renderSurfaceDiff,
@@ -116,6 +122,7 @@ export interface LoopProvenanceEvidence {
     splitDigest: `sha256:${string}`
     baselineCampaignDigest: `sha256:${string}`
     winnerCampaignDigest: `sha256:${string}`
+    observations?: CampaignComparisonUnits
     neutralized?: {
       contentHash: `sha256:${string}`
       campaignDigest: `sha256:${string}`
@@ -161,6 +168,7 @@ export interface LoopProvenanceRecord {
   evidence: LoopProvenanceEvidence
   /** Baseline composite on the search split that generated the candidates. */
   baselineSearchComposite: number
+  claim?: EvaluationClaim
   /** The gate verdict — decision + reasons + contributing gates + delta. */
   gate: {
     decision: GateDecision
@@ -216,6 +224,9 @@ export interface BuildLoopProvenanceArgs<TArtifact, TScenario extends Scenario> 
   holdout?: 'measured' | 'deferred'
   baselineOnHoldout: CampaignResult<TArtifact, TScenario>
   winnerOnHoldout: CampaignResult<TArtifact, TScenario>
+  claim?: EvaluationClaim
+  /** Required with a measured claim because campaign identities redact source fields. */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
   neutralizedSurface?: MutableSurface
   neutralizedOnHoldout?: CampaignResult<TArtifact, TScenario>
   /** Settled run-wide receipts — agent calls are the source for backend provenance. */
@@ -234,6 +245,7 @@ export interface LoopProvenanceArgsFromResult<TArtifact, TScenario extends Scena
   costReceipts: ReadonlyArray<CostReceipt>
   totalCostUsd: number
   totalDurationMs: number
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
 }
 
 /** One translation from a completed improvement loop into durable evidence. */
@@ -264,6 +276,10 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
     ...(result.holdout === 'deferred' ? { holdout: 'deferred' as const } : {}),
     baselineOnHoldout: result.baselineOnHoldout,
     winnerOnHoldout: result.winnerOnHoldout,
+    ...(result.claim ? { claim: result.claim } : {}),
+    ...(input.independentUnitByScenarioId
+      ? { independentUnitByScenarioId: input.independentUnitByScenarioId }
+      : {}),
     ...(result.neutralizedSurface && result.neutralizedOnHoldout
       ? {
           neutralizedSurface: result.neutralizedSurface,
@@ -274,12 +290,6 @@ export function loopProvenanceArgsFromResult<TArtifact, TScenario extends Scenar
     totalCostUsd: input.totalCostUsd,
     totalDurationMs: input.totalDurationMs,
   }
-}
-
-function meanHoldoutComposite<TArtifact, TScenario extends Scenario>(
-  campaign: CampaignResult<TArtifact, TScenario>,
-): number {
-  return campaignMeanComposite(campaign)
 }
 
 /** Build the durable provenance record from a completed loop result. */
@@ -408,6 +418,10 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
   }
 
   const holdoutDeferred = args.holdout === 'deferred'
+  const claim = args.claim ? defineEvaluationClaim(args.claim) : undefined
+  if (claim && !holdoutDeferred && args.independentUnitByScenarioId === undefined) {
+    throw new Error('buildLoopProvenanceRecord: a measured claim requires its independent-unit map')
+  }
   if (args.baselineOnHoldout.splitDigest !== args.winnerOnHoldout.splitDigest) {
     throw new Error('buildLoopProvenanceRecord: baseline and winner use different holdout splits')
   }
@@ -429,16 +443,30 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       'buildLoopProvenanceRecord: a deferred holdout cannot include a neutralized measurement',
     )
   }
-  const holdoutMeasurement = holdoutDeferred
-    ? { kind: 'deferred' as const }
-    : {
-        kind: 'measured' as const,
-        baseline: meanHoldoutComposite(args.baselineOnHoldout),
-        winner: meanHoldoutComposite(args.winnerOnHoldout),
-        ...(args.neutralizedOnHoldout
-          ? { neutralized: meanHoldoutComposite(args.neutralizedOnHoldout) }
-          : {}),
-      }
+  const holdoutScores = holdoutDeferred
+    ? undefined
+    : pairedCampaignComposites(
+        args.baselineOnHoldout,
+        args.winnerOnHoldout,
+        args.independentUnitByScenarioId,
+      )
+  const holdoutMeasurement =
+    holdoutScores === undefined
+      ? { kind: 'deferred' as const }
+      : {
+          kind: 'measured' as const,
+          baseline: holdoutScores.beforeMean,
+          winner: holdoutScores.afterMean,
+          ...(args.neutralizedOnHoldout
+            ? {
+                neutralized: pairedCampaignComposites(
+                  args.baselineOnHoldout,
+                  args.neutralizedOnHoldout,
+                  args.independentUnitByScenarioId,
+                ).afterMean,
+              }
+            : {}),
+        }
 
   const diff =
     surfaceContentHash(args.baselineSurface) === surfaceContentHash(args.winnerSurface)
@@ -463,6 +491,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         splitDigest: args.baselineOnHoldout.splitDigest,
         baselineCampaignDigest: campaignMeasurementDigest(args.baselineOnHoldout),
         winnerCampaignDigest: campaignMeasurementDigest(args.winnerOnHoldout),
+        ...(holdoutScores ? { observations: holdoutScores.observations } : {}),
         ...(args.neutralizedSurface &&
         args.neutralizedOnHoldout &&
         holdoutMeasurement.kind === 'measured' &&
@@ -482,6 +511,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       ),
     },
     baselineSearchComposite,
+    ...(claim ? { claim } : {}),
     gate: {
       decision: args.gate.decision,
       reasons: args.gate.reasons,

@@ -53,10 +53,14 @@ describe('boundary integrity — agent-eval is the substrate (zero upward deps)'
     expect(files.length).toBeGreaterThan(50)
   })
 
-  for (const pkg of FORBIDDEN) {
-    it(`no src/tests file imports ${pkg}`, () => {
-      const offenders = files.filter((f) => importsForbidden(readFileSync(f, 'utf8'), pkg))
-      expect(offenders.map((f) => f.slice(ROOT.length + 1))).toEqual([])
+  it('has no source or test imports from consumer packages', () => {
+    const offenders = files.flatMap((file) => {
+      const source = readFileSync(file, 'utf8')
+      return FORBIDDEN.filter((pkg) => importsForbidden(source, pkg)).map((pkg) => ({
+        file: file.slice(ROOT.length + 1),
+        package: pkg,
+      }))
     })
-  }
+    expect(offenders).toEqual([])
+  }, 15_000)
 })

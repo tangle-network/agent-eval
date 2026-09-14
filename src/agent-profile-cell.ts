@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from './errors'
 import { hashJson } from './pre-registration'
@@ -67,14 +66,9 @@ export class AgentProfileCellValidationError extends ValidationError {
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/
-/**
- * A cell id names the digest scheme that produced it. `sha256-rfc8785` is what
- * {@link buildAgentProfileCell} mints; the bare `sha256` form is read-only,
- * carried by cells built under an earlier release, and still verifies.
- */
-const CELL_ID = /^agent-profile-cell:sha256(?:-rfc8785)?:[0-9a-f]{64}$/
+/** A cell id carries the canonical digest scheme required for verification. */
+const CELL_ID = /^agent-profile-cell:sha256-rfc8785:[0-9a-f]{64}$/
 const CELL_ID_PREFIX = 'agent-profile-cell:sha256-rfc8785:'
-const LEGACY_CELL_ID_PREFIX = 'agent-profile-cell:sha256:'
 
 export async function buildAgentProfileCell(
   input: AgentProfileCellInput,
@@ -94,36 +88,13 @@ export function agentProfileCellHashMaterial(
 
 /**
  * Verify an `AgentProfileCell`'s `cellId` matches the sha256 of its hash-material
- * fields, confirming the record has not been tampered with. The id names its own
- * digest scheme, so a cell minted by an earlier release verifies under that scheme.
+ * fields, confirming the record has not been tampered with. Unsupported digest
+ * schemes are refused before comparing the material.
  */
 export async function verifyAgentProfileCell(cell: AgentProfileCell): Promise<boolean> {
   validateAgentProfileCell(cell)
   const material = agentProfileCellHashMaterial(cell)
-  if (cell.cellId.startsWith(CELL_ID_PREFIX)) {
-    return cell.cellId === `${CELL_ID_PREFIX}${await hashJson(material)}`
-  }
-  return cell.cellId === `${LEGACY_CELL_ID_PREFIX}${legacyCellDigest(material)}`
-}
-
-/**
- * Key-sorted `JSON.stringify` digest. Private and read-only: it verifies a cell
- * id minted before the RFC 8785 scheme, and no path that MINTS an id calls it.
- */
-function legacyCellDigest(value: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(sortKeysDeep(value)), 'utf8')
-    .digest('hex')
-}
-
-function sortKeysDeep(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(sortKeysDeep)
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
-  }
-  return out
+  return cell.cellId === `${CELL_ID_PREFIX}${await hashJson(material)}`
 }
 
 export function validateAgentProfileCell(input: unknown): AgentProfileCell {
@@ -134,7 +105,7 @@ export function validateAgentProfileCell(input: unknown): AgentProfileCell {
   expectLiteral(obj.schemaVersion, 'agent-profile-cell/v1', 'schemaVersion')
   if (typeof obj.cellId !== 'string' || !CELL_ID.test(obj.cellId)) {
     throw new AgentProfileCellValidationError(
-      'cellId must match agent-profile-cell:sha256:<64 lowercase hex chars>',
+      'cellId must match agent-profile-cell:sha256-rfc8785:<64 lowercase hex chars>',
       'cellId',
     )
   }

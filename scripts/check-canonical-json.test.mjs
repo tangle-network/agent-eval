@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 /** Build a throwaway repo containing only `src` files. */
-function run(files, allowlist = []) {
+function run(files) {
   const root = mkdtempSync(join(tmpdir(), 'canonical-json-gate-'))
   tempRoots.push(root)
   for (const [name, content] of Object.entries(files)) {
@@ -19,7 +19,7 @@ function run(files, allowlist = []) {
     mkdirSync(join(path, '..'), { recursive: true })
     writeFileSync(path, content)
   }
-  return checkCanonicalJson({ root, allowlist })
+  return checkCanonicalJson({ root })
 }
 
 /**
@@ -180,7 +180,7 @@ describe('code that sorts keys without encoding', () => {
   })
 })
 
-describe('the allowlist', () => {
+describe('verification encoders', () => {
   const legacy = {
     'verify.ts': [
       'export function verifyLegacy(value: Record<string, unknown>): string {',
@@ -190,28 +190,16 @@ describe('the allowlist', () => {
     ].join('\n'),
   }
 
-  test('waives exactly the named function in the named file', () => {
-    const { offences, unusedWaivers } = run(legacy, [
-      { file: 'src/verify.ts', fn: 'verifyLegacy', reason: 'verifies retired bytes; never writes' },
-    ])
-
-    expect(offences).toEqual([])
-    expect(unusedWaivers).toEqual([])
-  })
-
-  test('reports a waiver that matches nothing, so a stale entry cannot hide a new copy', () => {
-    const { offences, unusedWaivers } = run(legacy, [
-      { file: 'src/verify.ts', fn: 'renamedAway', reason: 'stale entry' },
-    ])
+  test('rejects a second encoder even when it only verifies retired records', () => {
+    const { offences } = run(legacy)
 
     expect(offences).toHaveLength(1)
-    expect(unusedWaivers).toHaveLength(1)
+    expect(offences[0]).toMatchObject({ file: 'src/verify.ts', fn: 'verifyLegacy' })
   })
 })
 
 describe('the shipped repository', () => {
   test('passes its own gate', () => {
-    const { offences, unusedWaivers } = checkCanonicalJson()
-    expect({ offences, unusedWaivers }).toEqual({ offences: [], unusedWaivers: [] })
+    expect(checkCanonicalJson()).toEqual({ offences: [] })
   })
 })

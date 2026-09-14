@@ -15,9 +15,8 @@
  * registered-vs-ran drift is unrepresentable rather than checked.
  */
 
-import { createHash } from 'node:crypto'
 import { ValidationError } from '../errors'
-import { canonicalString } from '../ledger-core/canonical'
+import { hashCanonical } from '../ledger-core/canonical'
 import {
   type AdmissionRule,
   type BudgetRule,
@@ -42,10 +41,12 @@ import {
   type HaltOutcome,
   type HaltRule,
   type IntervalSpec,
+  intervalSpecProblems,
   type JsonValue,
   type MatchedBudgetRule,
   type NLadderProjection,
   type Obligation,
+  powerFloorProblems,
   projectNLadderBudget,
   type ReissuePolicy,
   runSelectionRule,
@@ -55,6 +56,12 @@ import {
   type ValidityGate,
 } from './ast'
 import { type ArmRealizedBudget, type MatchedBudgetVerdict, verifyMatchedBudgets } from './budget'
+import {
+  defineEvaluationClaim,
+  type EvaluationClaim,
+  type EvaluationUnitSummary,
+  summarizeEvaluationUnits,
+} from './claim'
 import { type AdmissionExecution, executeAdmissionRule } from './funnel'
 
 /** A sealed experiment whose digest no longer matches its spec. */
@@ -101,6 +108,8 @@ export interface SeedDerivation {
 
 export interface ExperimentSpec {
   id: string
+  /** Population and independent observation unit for the intended use of this result. */
+  claim?: EvaluationClaim
   /** Human prose for the audit trail — never executable. */
   hypothesis?: string
   arms: ArmSpec[]
@@ -166,6 +175,7 @@ function conditionRefs(condition: Condition): {
  */
 export function defineExperiment(spec: ExperimentSpec): ExperimentSpec {
   const problems: string[] = []
+  const claim = spec.claim === undefined ? undefined : defineEvaluationClaim(spec.claim)
   if (!spec.id || spec.id.trim().length === 0) problems.push('id is empty')
   if (spec.arms.length === 0) problems.push('at least one arm is required')
   const armIds = new Set<string>()
@@ -183,6 +193,29 @@ export function defineExperiment(spec: ExperimentSpec): ExperimentSpec {
   const gateNames = new Set(Object.keys(spec.gates ?? {}))
   const selectionNames = new Set(Object.keys(spec.selections ?? {}))
   const sealedSubsetNames = new Set(Object.keys(spec.sealedSubsets ?? {}))
+
+  for (const [name, interval] of Object.entries(spec.intervals ?? {})) {
+    problems.push(
+      ...intervalSpecProblems(interval).map((problem) => `interval '${name}': ${problem}`),
+    )
+  }
+
+  for (const [name, gate] of Object.entries(spec.gates ?? {})) {
+    if (gate.kind !== 'power-floor') continue
+    problems.push(...powerFloorProblems(gate).map((problem) => `gate '${name}': ${problem}`))
+    if (claim?.minimumEffect !== undefined && gate.minimumEffect !== claim.minimumEffect) {
+      problems.push(`gate '${name}' minimumEffect differs from the evaluation claim`)
+    }
+  }
+  if (claim?.generalization === 'new-units') {
+    for (const [name, interval] of Object.entries(spec.intervals ?? {})) {
+      if (interval?.kind === 'cluster-bootstrap' && interval.clusterBy !== claim.independentUnit) {
+        problems.push(
+          `interval '${name}' must resample '${claim.independentUnit}' from the evaluation claim`,
+        )
+      }
+    }
+  }
 
   const checkCondition = (condition: Condition, where: string): void => {
     const refs = conditionRefs(condition)
@@ -263,7 +296,7 @@ export function defineExperiment(spec: ExperimentSpec): ExperimentSpec {
   if (problems.length > 0) {
     throw new ValidationError(`defineExperiment('${spec.id}'): ${problems.join('; ')}`)
   }
-  return deepFreeze(structuredClone(spec))
+  return deepFreeze(structuredClone({ ...spec, ...(claim ? { claim } : {}) }))
 }
 
 function deepFreeze<T>(value: T): T {
@@ -288,22 +321,14 @@ export interface SealAmendment {
   digest: string
 }
 
-/**
- * Digest scheme of a sealed experiment. Both are sha256 hex over the
- * serialized spec and differ only in the serialization: `'sha256-rfc8785'` is
- * RFC 8785 canonical JSON, `'sha256-content'` is key-sorted `JSON.stringify`.
- */
-export type SealAlgo = 'sha256-content' | 'sha256-rfc8785'
+/** SHA-256 over the RFC 8785 canonical JSON encoding of the experiment. */
+export type SealAlgo = 'sha256-rfc8785'
 
 export interface SealedExperiment {
   spec: ExperimentSpec
   /** sha256 over the serialized spec, under the scheme `algo` names. */
   digest: string
-  /**
-   * Digest scheme of `digest`. `'sha256-rfc8785'` is what {@link sealExperiment}
-   * emits; `'sha256-content'` is read-only, carried by seals from an earlier
-   * release, and still verifies.
-   */
+  /** Required digest scheme. Unsupported or missing schemes cannot execute. */
   algo: SealAlgo
   sealedAt: string
   /** Digest of the original registration, before any amendment. */
@@ -317,7 +342,7 @@ export async function sealExperiment(
   options: { sealedAt?: string } = {},
 ): Promise<SealedExperiment> {
   const validated = defineExperiment(spec)
-  const digest = specDigest(validated, 'sha256-rfc8785')
+  const digest = specDigest(validated)
   return {
     spec: validated,
     digest,
@@ -337,58 +362,47 @@ export async function amendExperiment(
   sealed: SealedExperiment,
   amendment: { spec: ExperimentSpec; reason: string; blind: string[]; at?: string },
 ): Promise<SealedExperiment> {
-  await assertSealIntact(sealed)
-  const validated = defineExperiment(amendment.spec)
-  const digest = specDigest(validated, 'sha256-rfc8785')
+  const captured = structuredClone(sealed)
+  const requested = structuredClone(amendment)
+  await assertSealIntact(captured)
+  const validated = defineExperiment(requested.spec)
+  const digest = specDigest(validated)
   return {
     spec: validated,
     digest,
     algo: 'sha256-rfc8785',
-    sealedAt: sealed.sealedAt,
-    initialDigest: sealed.initialDigest,
+    sealedAt: captured.sealedAt,
+    initialDigest: captured.initialDigest,
     amendments: [
-      ...sealed.amendments,
+      ...captured.amendments,
       {
-        at: amendment.at ?? new Date().toISOString(),
-        reason: amendment.reason,
-        blind: [...amendment.blind],
+        at: requested.at ?? new Date().toISOString(),
+        reason: requested.reason,
+        blind: [...requested.blind],
         digest,
       },
     ],
   }
 }
 
-/** True when the sealed digest still matches the spec it carries, under the
- *  scheme the seal declares. */
+/** True when the supported seal matches its canonical spec. */
 export async function verifySealedExperiment(sealed: SealedExperiment): Promise<boolean> {
-  return specDigest(sealed.spec, sealed.algo) === sealed.digest
-}
-
-/**
- * Serialize a spec under `algo` and digest it. `'sha256-content'` is read-only
- * — it exists so a seal written by an earlier release still verifies, and no
- * path that WRITES a digest may pass it.
- */
-function specDigest(spec: ExperimentSpec, algo: SealAlgo): string {
-  const serialized =
-    algo === 'sha256-rfc8785' ? canonicalString(spec) : JSON.stringify(sortKeysDeep(spec))
-  return createHash('sha256').update(serialized, 'utf8').digest('hex')
-}
-
-function sortKeysDeep(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(sortKeysDeep)
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
+  if (sealed.algo !== 'sha256-rfc8785') return false
+  try {
+    return specDigest(sealed.spec) === sealed.digest
+  } catch {
+    return false
   }
-  return out
+}
+
+function specDigest(spec: ExperimentSpec): string {
+  return hashCanonical(spec).slice('sha256:'.length)
 }
 
 async function assertSealIntact(sealed: SealedExperiment): Promise<void> {
   if (!(await verifySealedExperiment(sealed))) {
     throw new SealIntegrityError(
-      `sealed experiment '${sealed.spec.id}' digest ${sealed.digest} does not match its spec — the registration was tampered with`,
+      `sealed experiment '${sealed.spec.id}' has an unsupported digest scheme or its digest does not match its canonical spec`,
     )
   }
 }
@@ -413,6 +427,8 @@ export type GateEvidence =
  */
 export interface RegisteredExperiment {
   readonly sealed: SealedExperiment
+  /** Count independent units separately from repeated observations under the sealed claim. */
+  units(records: readonly EvidenceRecord[]): EvaluationUnitSummary
   /** Execute the registered decision rule on derived quantities. */
   decide(evidence: DerivedQuantities): DecisionOutcome
   /** Run the registered admission funnel over evidence rows. */
@@ -435,9 +451,9 @@ export interface RegisteredExperiment {
   interval(
     name: string,
     evidence:
-      | { kind: 'rows'; rows: readonly EvidenceRecord[]; value: string }
-      | { kind: 'binomial'; successes: number; trials: number },
-  ): ComputedInterval
+      | { kind: 'rows'; rows: readonly EvidenceRecord[] }
+      | { kind: 'binomial'; successes: number; trials: number; unitIds?: readonly string[] },
+  ): ComputedInterval & { units?: EvaluationUnitSummary }
 }
 
 /**
@@ -448,8 +464,10 @@ export interface RegisteredExperiment {
 export async function openSealedExperiment(
   sealed: SealedExperiment,
 ): Promise<RegisteredExperiment> {
-  await assertSealIntact(sealed)
-  const spec = sealed.spec
+  const captured = structuredClone(sealed)
+  await assertSealIntact(captured)
+  const spec = defineExperiment(captured.spec)
+  const frozenSeal = deepFreeze({ ...captured, spec })
   const need = <T>(value: T | undefined, what: string): T => {
     if (value === undefined) {
       throw new ValidationError(`experiment '${spec.id}' registered no ${what}`)
@@ -457,7 +475,8 @@ export async function openSealedExperiment(
     return value
   }
   return {
-    sealed,
+    sealed: frozenSeal,
+    units: (records) => summarizeEvaluationUnits(need(spec.claim, 'evaluation claim'), records),
     decide: (evidence) => executeDecisionRule(spec.decision, evidence),
     admit: (records) => executeAdmissionRule(need(spec.admission, 'admission rule'), records),
     select: (name, records, options) => {
@@ -531,7 +550,30 @@ export async function openSealedExperiment(
       verifyMatchedBudgets(need(spec.matchedBudget, 'matched-budget rule'), arms),
     estimate: (name, rows) =>
       computeEstimand(need(spec.estimands?.[name], `estimand '${name}'`), rows),
-    interval: (name, evidence) =>
-      computeInterval(need(spec.intervals?.[name], `interval '${name}'`), evidence),
+    interval: (name, evidence) => {
+      const interval = need(spec.intervals?.[name], `interval '${name}'`)
+      const claim = spec.claim
+      let units: EvaluationUnitSummary | undefined
+      if (claim && evidence.kind === 'rows') {
+        units = summarizeEvaluationUnits(claim, evidence.rows)
+      } else if (claim?.generalization === 'new-units' && evidence.kind === 'binomial') {
+        if (
+          evidence.unitIds === undefined ||
+          evidence.unitIds.length !== evidence.trials ||
+          new Set(evidence.unitIds).size !== evidence.trials ||
+          evidence.unitIds.some((id) => typeof id !== 'string' || !id.trim() || id.trim() !== id)
+        ) {
+          throw new ValidationError(
+            'claimed binomial interval needs one unique unitId per independent trial',
+          )
+        }
+        units = {
+          observations: evidence.trials,
+          independentUnits: evidence.trials,
+          units: evidence.unitIds.map((id) => ({ id, observations: 1 })),
+        }
+      }
+      return { ...computeInterval(interval, evidence), ...(units ? { units } : {}) }
+    },
   }
 }

@@ -259,7 +259,7 @@ describe('buildAgentInterfaceProfileCell', () => {
 })
 
 describe('cell ids minted before the RFC 8785 scheme', () => {
-  it('still verifies, so a stored cell is not invalidated by the release that changed the encoder', async () => {
+  it('refuses a correctly hashed retired id instead of selecting another encoder', async () => {
     const cell = await buildAgentProfileCell(INPUT)
     const { cellId: _cellId, ...material } = cell
     void _cellId
@@ -268,20 +268,14 @@ describe('cell ids minted before the RFC 8785 scheme', () => {
       .digest('hex')
     const legacyCell = { ...material, cellId: `agent-profile-cell:sha256:${legacyDigest}` }
 
-    expect(validateAgentProfileCell(legacyCell).cellId).toBe(legacyCell.cellId)
-    expect(await verifyAgentProfileCell(legacyCell)).toBe(true)
-    // A legacy id over different material is still caught.
-    expect(
-      await verifyAgentProfileCell({
-        ...legacyCell,
-        cellId: `agent-profile-cell:sha256:${'0'.repeat(64)}`,
-      }),
-    ).toBe(false)
+    expect(() => validateAgentProfileCell(legacyCell)).toThrow(/sha256-rfc8785/)
+    await expect(verifyAgentProfileCell(legacyCell)).rejects.toThrow(
+      AgentProfileCellValidationError,
+    )
   })
 })
 
-/** Key-sorted `JSON.stringify`, the scheme cell ids were minted under before
- * RFC 8785. Kept here to MINT a legacy id the verifier must still accept. */
+/** Produce a correctly hashed retired record to exercise scheme rejection. */
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value
   if (Array.isArray(value)) return value.map(sortKeysDeep)

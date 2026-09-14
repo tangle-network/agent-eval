@@ -129,7 +129,7 @@ describe('HeldOutGate — rejection paths', () => {
     expect(d.reason).toMatch(/few_runs/)
   })
 
-  it('rejects on negative paired delta on holdout', () => {
+  it('retains a negative observed delta while refusing an ineligible mean claim', () => {
     const g = new HeldOutGate({ baselineKey: 'baseline', minProductiveRuns: 3, seed: 1 })
     // Candidate worse than baseline on holdout.
     const pairs = joinPairs(
@@ -142,7 +142,7 @@ describe('HeldOutGate — rejection paths', () => {
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
-    expect(d.rejectionCode).toBe('negative_delta')
+    expect(d.rejectionCode).toBe('few_runs')
     expect(d.evidence.medianPairedDelta!).toBeLessThan(0)
     expect(d.evidence.pairedCI!.high).toBeLessThanOrEqual(0)
   })
@@ -189,13 +189,13 @@ describe('HeldOutGate — rejection paths', () => {
       seed: 1,
     })
     // search≈0.95, holdout≈0.55 (gap≈0.40); baseline search=0.55, holdout=0.50
-    // (gap=0.05). The holdout scores carry a little spread on purpose: six
+    // (gap=0.05). The holdout scores carry observed spread across 24 pairs;
     // pairs improving by an identical amount give a zero-width CI, which the
     // gate refuses as `indeterminate_delta` before it ever reaches the overfit
     // check, and this test is about the overfit check.
     const pairs = joinPairs(
-      ...[0.54, 0.55, 0.56, 0.55, 0.54, 0.56].map((holdout, i) =>
-        makePair('cand', i, 0.95, holdout, 0.55, 0.5),
+      ...Array.from({ length: 24 }, (_, i) =>
+        makePair('cand', i, 0.95, 0.54 + (i % 3) * 0.01, 0.55, 0.5),
       ),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
@@ -253,8 +253,8 @@ describe('HeldOutGate — rejection paths', () => {
     // identical paired deltas are refused for zero CI width, which would mask
     // the overfit rejection this test is asserting.
     const pairs = joinPairs(
-      ...[0.59, 0.6, 0.61, 0.6, 0.59, 0.61].map((holdout, i) =>
-        makePair('cand', i, 0.9, holdout, 0.5, 0.5),
+      ...Array.from({ length: 24 }, (_, i) =>
+        makePair('cand', i, 0.9, 0.59 + (i % 3) * 0.01, 0.5, 0.5),
       ),
     )
     const matchedOnly = g.evaluate(pairs.candidate, pairs.baseline)
@@ -269,7 +269,7 @@ describe('HeldOutGate — rejection paths', () => {
     )
 
     // At the default coverage requirement the 10 unmatched rows are themselves
-    // disqualifying — 3 of 13 dealt holdout items scored on both arms.
+    // disqualifying — 24 of 34 dealt holdout items scored on both arms.
     expect(
       g.evaluate([...pairs.candidate, ...unmatchedCandidateRows], pairs.baseline),
     ).toMatchObject({ promote: false, rejectionCode: 'incomplete_coverage' })
@@ -309,6 +309,9 @@ describe('HeldOutGate — promotion path', () => {
       makePair('cand', 5, 0.75, 0.75, 0.5, 0.51),
       makePair('cand', 6, 0.76, 0.76, 0.51, 0.5),
       makePair('cand', 7, 0.74, 0.74, 0.5, 0.51),
+      ...Array.from({ length: 16 }, (_, i) =>
+        makePair('cand', 8 + i, 0.73 + (i % 4) * 0.01, 0.73 + (i % 4) * 0.01, 0.5, 0.5),
+      ),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
@@ -489,12 +492,12 @@ describe('HeldOutGate — cost ceiling', () => {
     })
     // Candidate is strictly better on quality but costs 4x baseline.
     const pairs = joinPairs(
-      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
-      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
-      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
-      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
-      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
-      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.08, baseline: 0.02 }),
+      ...Array.from({ length: 24 }, (_, i) =>
+        makePair('cand', i, 0.7 + (i % 6) * 0.01, 0.7 + (i % 6) * 0.01, 0.5, 0.5, {
+          candidate: 0.08,
+          baseline: 0.02,
+        }),
+      ),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(false)
@@ -512,12 +515,12 @@ describe('HeldOutGate — cost ceiling', () => {
       costPerTaskCeiling: 0.05,
     })
     const pairs = joinPairs(
-      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      ...Array.from({ length: 24 }, (_, i) =>
+        makePair('cand', i, 0.7 + (i % 6) * 0.01, 0.7 + (i % 6) * 0.01, 0.5, 0.5, {
+          candidate: 0.03,
+          baseline: 0.02,
+        }),
+      ),
     )
     const d = g.evaluate(pairs.candidate, pairs.baseline)
     expect(d.promote).toBe(true)
@@ -547,12 +550,12 @@ describe('HeldOutGate — cost ceiling', () => {
       costPerTaskCeiling: 0.05,
     })
     const pairs = joinPairs(
-      makePair('cand', 0, 0.7, 0.7, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 1, 0.72, 0.72, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 2, 0.71, 0.71, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 3, 0.73, 0.73, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 4, 0.74, 0.74, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
-      makePair('cand', 5, 0.75, 0.75, 0.5, 0.5, { candidate: 0.03, baseline: 0.02 }),
+      ...Array.from({ length: 24 }, (_, i) =>
+        makePair('cand', i, 0.7 + (i % 6) * 0.01, 0.7 + (i % 6) * 0.01, 0.5, 0.5, {
+          candidate: 0.03,
+          baseline: 0.02,
+        }),
+      ),
     )
     pairs.candidate[0] = record({
       ...pairs.candidate[0],
@@ -804,15 +807,15 @@ describe('HeldOutGate — held-out coverage', () => {
   })
 
   it('a caller may accept a shrunken denominator only by DECLARING it', () => {
-    const runs = partialCoverage({ n: 26, answered: 6, mode: 'no-row' })
+    const runs = partialCoverage({ n: 26, answered: 20, mode: 'no-row' })
     const d = new HeldOutGate({
       baselineKey: 'baseline',
       seed: 1337,
-      minCoverage: 6 / 26,
+      minCoverage: 20 / 26,
     }).evaluate(runs.candidate, runs.baseline)
     expect(d.promote).toBe(true)
     // …and the declaration does not hide the shrink: it is still in the evidence.
-    expect(d.evidence.holdoutCoverage).toMatchObject({ dealt: 26, answered: 6, baselineOnly: 20 })
+    expect(d.evidence.holdoutCoverage).toMatchObject({ dealt: 26, answered: 20, baselineOnly: 6 })
   })
 
   it('rejects an out-of-range minCoverage instead of silently clamping', () => {
@@ -1021,16 +1024,17 @@ describe('HeldOutGate — coverage cannot be laundered', () => {
   })
 })
 
-describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', () => {
-  it('pins the pre-coverage numbers byte-for-byte on a fully covered comparison', () => {
+describe('HeldOutGate — complete coverage and estimator eligibility', () => {
+  it('retains measured values while refusing an ineligible small-sample mean verdict', () => {
     // Every number asserted here was produced by the gate on `origin/main`
     // (2789970, published 0.133.3) with the identical fixture and seed. The
-    // coverage check must not move any of them.
+    // coverage check must not move the measured values. Eight continuous
+    // observations do not meet the mean estimator's eligibility minimum.
     //
     // ONE number moved since, deliberately: `pairedCI` is now the interval on
     // the MEAN paired delta, not the median, so its upper bound reads 0.195
     // instead of 0.190. The deltas here are continuous (0.17-0.21) and the
-    // verdict, the lower bound and the p-value are all unchanged — the switch
+    // lower bound and the p-value remain unchanged — the switch
     // exists for the shapes where the median is pinned at 0, and this pin is
     // what proves it does not disturb the shapes where it was not.
     const pairs = joinPairs(
@@ -1052,8 +1056,8 @@ describe('HeldOutGate — the coverage check does not move a COMPLETE verdict', 
       seed: 42,
     }).evaluate(pairs.candidate, pairs.baseline)
 
-    expect(d.promote).toBe(true)
-    expect(d.rejectionCode).toBeNull()
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('few_runs')
     expect(d.evidence.productiveRuns).toBe(8)
     expect(d.evidence.medianPairedDelta).toBe(0.19)
     expect(d.evidence.deltaStatistic).toBe('mean_bootstrap')
@@ -1147,7 +1151,7 @@ describe('HeldOutGate — the cost median has a denominator too', () => {
   } {
     const candidate: RunRecord[] = []
     const baseline: RunRecord[] = []
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = 0; i < 24; i += 1) {
       const scenarioId = `s${String(i).padStart(2, '0')}`
       baseline.push(
         record({
@@ -1342,7 +1346,7 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
     expect(d.promote).toBe(true)
   })
 
-  it('decides CONTINUOUS outcomes on the mean by default, same verdict', () => {
+  it('does not use the small-sample sign result to certify the default continuous mean', () => {
     const g = new HeldOutGate({
       baselineKey: 'baseline',
       minProductiveRuns: 3,
@@ -1367,7 +1371,8 @@ describe('HeldOutGate — binary (pass/fail) held-out outcomes', () => {
     expect(d.evidence.medianPairedDelta).toBe(0.22999999999999998)
     expect(d.evidence.decidingDelta).toBeCloseTo(0.22749999999999998, 12)
     expect(d.evidence.pairedCI!.low).toBeGreaterThan(0)
-    expect(d.promote).toBe(true)
+    expect(d.promote).toBe(false)
+    expect(d.rejectionCode).toBe('few_runs')
   })
 })
 

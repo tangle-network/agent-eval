@@ -147,6 +147,31 @@ describe('decidePairedPromotion sufficiency', () => {
     expect(decision.sufficient).toBe(false)
     expect(decision.promote).toBe(false)
   })
+
+  it('uses the actual binary minimum instead of a universal bootstrap floor', () => {
+    const decision = decidePairedPromotion(Array(6).fill(0), Array(6).fill(1))
+    expect(decision.minimumPairs).toBe(6)
+    expect(decision.method).toBe('score-interval')
+    expect(decision.sufficient).toBe(true)
+    expect(decision.promote).toBe(true)
+  })
+
+  it('does not use a sign-probability result to certify a continuous mean', () => {
+    const before = Array(6).fill(0.1)
+    const after = [0.3, 0.35, 0.4, 0.45, 0.5, 0.55]
+    const mean = decidePairedPromotion(before, after, { minPairs: 1 })
+    expect(mean.pValue).toBeLessThan(0.05)
+    expect(mean.minimumPairs).toBe(20)
+    expect(mean.sufficient).toBe(false)
+    expect(mean.promote).toBe(false)
+    expect(mean.methodDetail).toContain('does not establish a mean effect')
+
+    const median = decidePairedPromotion(before, after, { statistic: 'median' })
+    expect(median.minimumPairs).toBe(6)
+    expect(median.method).toBe('exact-sign')
+    expect(median.sufficient).toBe(true)
+    expect(median.promote).toBe(true)
+  })
 })
 
 describe('decidePairedPromotion zero-width refusal', () => {
@@ -175,6 +200,29 @@ describe('decidePairedPromotion zero-width refusal', () => {
     expect(decision.indeterminateCause).toBe('the mean CI collapsed to a point at 2.0000')
     expect(decision.clearsThreshold).toBe(false)
     expect(decision.promote).toBe(false)
+  })
+
+  it('does not count rounding differences as observed variation at any score scale', () => {
+    for (const scale of [1e-12, 1, 1e12]) {
+      const before = Array.from({ length: 24 }, (_, i) => [0.5, 0.6, 0.4][i % 3]! * scale)
+      const after = Array.from({ length: 24 }, (_, i) => [0.8, 0.9, 0.7][i % 3]! * scale)
+      const decision = decidePairedPromotion(before, after, { seed: 1337 })
+      expect(decision.sufficient).toBe(true)
+      expect(decision.indeterminate).toBe(true)
+      expect(decision.promote).toBe(false)
+    }
+  })
+
+  it('retains real variation when scores use tiny units', () => {
+    for (const scale of [1e-12, 1, 1e12]) {
+      const decision = decidePairedPromotion(
+        continuousBaseline.map((value) => value * scale),
+        continuousCandidate.map((value) => value * scale),
+        { seed: 11 },
+      )
+      expect(decision.indeterminate).toBe(false)
+      expect(decision.promote).toBe(true)
+    }
   })
 
   it('refuses a fully concordant binary comparison on the exact test, not on the interval', () => {

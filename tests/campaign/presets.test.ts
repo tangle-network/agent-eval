@@ -230,13 +230,21 @@ describe('heldOutGate', () => {
   ])
 
   it('ships when the candidate-baseline CI lower bound clears deltaThreshold', async () => {
-    const gate = heldOutGate({ scenarios: PROMOTION_HOLDOUT, deltaThreshold: 0.5 })
+    const scenarios = Array.from({ length: 24 }, (_, index) => ({
+      id: `h${index + 1}`,
+      kind: 'chat',
+      intent: `H${index + 1}`,
+    }))
+    const pairedArtifacts = new Map(scenarios.map((scenario) => [`${scenario.id}:0`, null]))
+    const candidateScores = [9, 8, 7, 9.5, 8.5, 7.5]
+    const baselineScores = [5, 4, 3, 5, 4, 3]
+    const gate = heldOutGate({ scenarios, deltaThreshold: 0.5 })
     const result = await gate.decide({
-      candidateArtifacts: artifacts as never,
-      baselineArtifacts: artifacts as never,
-      judgeScores: mk(9, 8, 7, 9.5, 8.5, 7.5),
-      baselineJudgeScores: mk(5, 4, 3, 5, 4, 3),
-      scenarios: PROMOTION_HOLDOUT,
+      candidateArtifacts: pairedArtifacts as never,
+      baselineArtifacts: pairedArtifacts as never,
+      judgeScores: mk(...scenarios.map((_, index) => candidateScores[index % 6]!)),
+      baselineJudgeScores: mk(...scenarios.map((_, index) => baselineScores[index % 6]!)),
+      scenarios,
       cost: { candidate: 0, baseline: 0 },
       signal: new AbortController().signal,
     })
@@ -858,24 +866,22 @@ describe('defaultProductionGate', () => {
         string,
         Record<string, { composite: number; dimensions: Record<string, number>; notes: string }>
       >(entries.map(([c, v]) => [c, { judge: { composite: v, dimensions: {}, notes: '' } }]))
-    // A real lift on six holdout cells clears the exact sign test. The deltas
-    // are deliberately NOT identical: n identical deltas give a zero-width
-    // interval, which is refused however large the gain.
+    // Six pass/fail wins support a positive success-rate delta through the paired-binary test.
     const judgeScores = mk([
-      ['h1:0', 8],
-      ['h2:0', 9.5],
-      ['h3:0', 7],
-      ['h4:0', 8.5],
-      ['h5:0', 9],
-      ['h6:0', 7.5],
+      ['h1:0', 1],
+      ['h2:0', 1],
+      ['h3:0', 1],
+      ['h4:0', 1],
+      ['h5:0', 1],
+      ['h6:0', 1],
     ])
     const baselineJudgeScores = mk([
-      ['h1:0', 5],
-      ['h2:0', 6],
-      ['h3:0', 4],
-      ['h4:0', 5],
-      ['h5:0', 6],
-      ['h6:0', 4],
+      ['h1:0', 0],
+      ['h2:0', 0],
+      ['h3:0', 0],
+      ['h4:0', 0],
+      ['h5:0', 0],
+      ['h6:0', 0],
     ])
     const result = await gate.decide({
       candidateArtifacts: candidate,

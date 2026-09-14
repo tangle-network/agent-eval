@@ -1,106 +1,90 @@
 /**
- * Rubric predictive validity — does our eval rubric predict deployment
- * outcomes?
- *
- * `correlationStudy` (already in this package) joins a `TraceStore` to an
- * `OutcomeStore` and computes Pearson + Spearman + bootstrap CI for each
- * (eval-metric, outcome-metric) pair. That answers "does X correlate with
- * Y at all." `rubricPredictiveValidity` is the campaign-shaped wrapper
- * around it: take a sequence of `RunRecord`s (the canonical campaign
- * artifact) and a `DeploymentOutcomeStore`, join on `runId`, return a
- * ranked verdict on every rubric whose dimension scores were captured in
- * `outcome.raw`.
- *
- * The point — quoting the methodology doc — is that **without this loop
- * every rubric is faith-based**. Once it's wired, you know which rubrics
- * have earned their promotion power and which ones are decoration.
- *
- *   const validity = await rubricPredictiveValidity({
- *     runs: lastQuarter,
- *     outcomes: shipFlagOutcomeStore,
- *     outcomeMetrics: ['revenue_lift', 'retention_30d', 'csat'],
- *     rubrics: ['anti_slop', 'semantic_concept', 'tool_recovery'],
- *   })
- *   for (const r of validity.ranked) {
- *     console.log(`${r.rubric} → ${r.bestOutcome}: ρ=${r.spearman.toFixed(2)}`)
- *   }
- *
- * The function is intentionally read-only. Use the verdict to deprecate
- * decorative rubrics, re-weight composite scores, or trigger a
- * recalibration sweep when predictive validity drops below a threshold.
+ * Join rubric scores to deployment outcomes and measure their association.
+ * Higher rubric scores always mean better evaluated behavior.
+ * Outcome directions are explicit because success rate and failure rate have opposite meanings.
+ * These descriptive associations neither establish causation nor validate a change to rubric weights.
  */
 
 import type { RunRecord } from '../run-record'
-import { pearsonR, spearmanR } from '../statistics'
-import { makeRng } from '../statistics/internal'
+import {
+  assertUniqueObservationIds,
+  type CorrelationInterval,
+  correlationSummary,
+  hasVariation,
+  reduceOutcomeMetric,
+  validateObservationOptions,
+  validateOutcomeMetricSpecifications,
+} from './outcome-observations'
 import type { DeploymentOutcome, OutcomeStore } from './outcome-store'
 
+export interface OutcomeMetricSpec {
+  /** Exact key in DeploymentOutcome.metrics. */
+  id: string
+  direction: 'higher-is-better' | 'lower-is-better'
+}
+
 export interface RubricPredictiveValidityInput {
-  /**
-   * Canonical campaign output. Each record's `outcome.raw[<rubricId>]`
-   * provides the eval score; missing keys are silently skipped per pair.
-   */
+  /** One record per independent run; rubric scores come from outcome.raw. */
   runs: RunRecord[]
   outcomes: OutcomeStore
-  /**
-   * Outcome metric names to evaluate against. Each must appear in at
-   * least one `DeploymentOutcome.metrics` keyspace; pairs with too few
-   * joined samples are excluded from the result.
-   */
-  outcomeMetrics: string[]
-  /**
-   * Rubric ids to evaluate. Must appear as keys in `RunRecord.outcome.raw`.
-   * If omitted, every numeric key in `outcome.raw` across the run set is
-   * treated as a rubric.
-   */
-  rubrics?: string[]
-  /** Minimum joined-sample count before a pair is reported. Default 8. */
+  /** Declare desired directions before inspecting associations. */
+  outcomeMetrics: readonly OutcomeMetricSpec[]
+  /** Higher is better for each rubric. Omit to discover finite numeric outcome.raw keys. */
+  rubrics?: readonly string[]
+  /** Minimum joined runs for an estimate; an integer at least 3. Default 8. */
   minSamples?: number
-  /** Bootstrap resamples for CI. Default 500. */
+  /** Bootstrap resamples for both correlation intervals. Default 500. */
   bootstrapResamples?: number
-  /** Seed for the bootstrap. Absent, the seed is derived from the paired
-   *  observations, so the same input reproduces the same interval. */
+  /** Omit to derive a reproducible seed from the paired observations. */
   seed?: number
-  /**
-   * Reduction when multiple outcomes attach to one runId. Default `'latest'`
-   * (most recently captured).
-   */
+  /** Reduce finite observations of each named outcome within a run. Default latest. */
   reduction?: 'latest' | 'mean' | 'max'
 }
 
 export interface RubricOutcomePair {
   rubric: string
   outcome: string
+  outcomeDirection: OutcomeMetricSpec['direction']
   n: number
+  /** Raw association with the recorded outcome, before direction alignment. */
   pearson: number
   spearman: number
-  ci95: { low: number; high: number }
-  /**
-   * Verdict bucket. `load_bearing` ≥ 0.7, `informative` ≥ 0.4,
-   * `decorative` < 0.4 in absolute correlation. A negative correlation
-   * with a desired outcome is also `decorative` — actively misleading
-   * is worse than uninformative.
-   */
-  verdict: 'load_bearing' | 'informative' | 'decorative'
+  pearsonCi95: CorrelationInterval | null
+  spearmanCi95: CorrelationInterval | null
+  /** Positive values associate higher rubric scores with better outcomes. */
+  alignedPearson: number
+  alignedSpearman: number
+  alignedSpearmanCi95: CorrelationInterval | null
+  /** Descriptive buckets at aligned Spearman +/-0.4; no causal or release authority. */
+  verdict: 'aligned' | 'inverse' | 'weak'
 }
 
-export interface RubricRanking {
-  rubric: string
-  /** Outcome metric this rubric correlated best with. */
+export interface RubricRanking extends Omit<RubricOutcomePair, 'outcome'> {
+  /** Outcome with the greatest direction-aligned Spearman for this rubric. */
   bestOutcome: string
-  spearman: number
-  pearson: number
+}
+
+export interface RubricOutcomeExclusion {
+  rubric: string
+  outcome: string
+  outcomeDirection: OutcomeMetricSpec['direction']
+  /** Finite joined observations, including measured zeros. */
   n: number
-  verdict: RubricOutcomePair['verdict']
+  reason: 'insufficient_samples' | 'constant_rubric' | 'constant_outcome'
 }
 
 export interface RubricPredictiveValidityReport {
+  outcomeMetrics: OutcomeMetricSpec[]
   pairs: RubricOutcomePair[]
-  /** Per-rubric best pair, sorted descending by |spearman|. */
+  /** All declared pairs lacking an estimate, with their usable observation count. */
+  excludedPairs: RubricOutcomeExclusion[]
+  /** Exploratory ordering by aligned Spearman; never use outcome selection as confirmatory evidence. */
   ranked: RubricRanking[]
+  /** Runs contributing at least one finite pair, including pairs below minSamples. */
   joinedSamples: number
+  /** Runs contributing no finite pair; joinedSamples + skippedRuns equals the input run count. */
   skippedRuns: number
-  /** Rubrics that were declared but never produced a usable score. */
+  /** Declared rubrics with no finite score, distinct from too few outcomes or constant observations. */
   rubricsWithoutData: string[]
 }
 
@@ -110,151 +94,118 @@ export async function rubricPredictiveValidity(
   const minSamples = input.minSamples ?? 8
   const reduction = input.reduction ?? 'latest'
   const resamples = input.bootstrapResamples ?? 500
+  const seed = input.seed
+  if (!Number.isSafeInteger(minSamples) || minSamples < 3) {
+    throw new Error('minSamples must be a safe integer at least 3')
+  }
+  validateObservationOptions(reduction, resamples, seed)
+  validateOutcomeMetricSpecifications(input.outcomeMetrics)
+  assertUniqueObservationIds(
+    input.runs.map((run) => run.runId),
+    'runId',
+  )
+
+  const outcomeMetrics = input.outcomeMetrics.map((metric) => ({ ...metric }))
+  const runs = input.runs.map((run) => ({ runId: run.runId, scores: { ...run.outcome.raw } }))
+  const declaredRubrics = input.rubrics === undefined ? undefined : [...input.rubrics]
+  if (declaredRubrics !== undefined) assertUniqueObservationIds(declaredRubrics, 'rubric')
 
   const outcomes = await input.outcomes.list()
   const outcomesByRun = new Map<string, DeploymentOutcome[]>()
-  for (const o of outcomes) {
-    const arr = outcomesByRun.get(o.runId) ?? []
-    arr.push(o)
-    outcomesByRun.set(o.runId, arr)
+  for (const outcome of outcomes) {
+    const rows = outcomesByRun.get(outcome.runId) ?? []
+    rows.push(outcome)
+    outcomesByRun.set(outcome.runId, rows)
   }
 
-  // Discover rubrics: caller-declared OR every numeric key in outcome.raw
-  // observed across runs.
   const observedRubrics = new Set<string>()
-  for (const r of input.runs) {
-    for (const k of Object.keys(r.outcome.raw)) observedRubrics.add(k)
-  }
-  const rubrics = input.rubrics ?? [...observedRubrics]
-
-  // Collect aligned (x, y) pairs per (rubric, outcome).
-  type Bucket = { rubric: string; outcome: string; xs: number[]; ys: number[] }
-  const buckets: Bucket[] = []
-  for (const r of rubrics) {
-    for (const o of input.outcomeMetrics) {
-      buckets.push({ rubric: r, outcome: o, xs: [], ys: [] })
+  for (const run of runs) {
+    for (const [rubric, value] of Object.entries(run.scores)) {
+      if (typeof value === 'number' && Number.isFinite(value)) observedRubrics.add(rubric)
     }
   }
+  const rubrics = declaredRubrics ?? [...observedRubrics]
+  const buckets = rubrics.flatMap((rubric) =>
+    outcomeMetrics.map((outcome) => ({
+      rubric,
+      outcome,
+      xs: [] as number[],
+      ys: [] as number[],
+    })),
+  )
 
   let joined = 0
-  let skipped = 0
-  for (const run of input.runs) {
-    const os = outcomesByRun.get(run.runId)
-    if (!os || os.length === 0) {
-      skipped++
-      continue
-    }
+  for (const run of runs) {
+    const rows = outcomesByRun.get(run.runId) ?? []
     let joinedThisRun = false
-    for (const r of rubrics) {
-      const x = run.outcome.raw[r]
+    for (const bucket of buckets) {
+      const x = run.scores[bucket.rubric]
       if (typeof x !== 'number' || !Number.isFinite(x)) continue
-      for (const o of input.outcomeMetrics) {
-        const values = os
-          .map((row) => row.metrics[o])
-          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
-        if (values.length === 0) continue
-        const y = reduce(values, os, o, reduction)
-        if (y === null) continue
-        const bucket = buckets.find((b) => b.rubric === r && b.outcome === o)!
-        bucket.xs.push(x)
-        bucket.ys.push(y)
-        joinedThisRun = true
-      }
+      const y = reduceOutcomeMetric(rows, bucket.outcome.id, reduction)
+      if (y === null) continue
+      bucket.xs.push(x)
+      bucket.ys.push(y)
+      joinedThisRun = true
     }
     if (joinedThisRun) joined++
   }
 
   const pairs: RubricOutcomePair[] = []
-  for (const b of buckets) {
-    if (b.xs.length < minSamples) continue
-    const pearson = pearsonR(b.xs, b.ys)
-    const spearman = spearmanR(b.xs, b.ys)
-    const ci = bootstrapCi(b.xs, b.ys, resamples, input.seed)
-    const verdict: RubricOutcomePair['verdict'] =
-      Math.abs(spearman) >= 0.7
-        ? 'load_bearing'
-        : Math.abs(spearman) >= 0.4
-          ? 'informative'
-          : 'decorative'
-    pairs.push({
-      rubric: b.rubric,
-      outcome: b.outcome,
-      n: b.xs.length,
-      pearson,
-      spearman,
-      ci95: ci,
-      verdict,
-    })
-  }
-
-  const byRubric = new Map<string, RubricOutcomePair[]>()
-  for (const p of pairs) {
-    const arr = byRubric.get(p.rubric) ?? []
-    arr.push(p)
-    byRubric.set(p.rubric, arr)
-  }
-  const ranked: RubricRanking[] = [...byRubric.entries()]
-    .map(([rubric, ps]) => {
-      const best = ps.reduce((a, b) => (Math.abs(b.spearman) > Math.abs(a.spearman) ? b : a))
-      return {
-        rubric,
-        bestOutcome: best.outcome,
-        spearman: best.spearman,
-        pearson: best.pearson,
-        n: best.n,
-        verdict: best.verdict,
-      }
-    })
-    .sort((a, b) => Math.abs(b.spearman) - Math.abs(a.spearman))
-
-  const rubricsWithoutData = rubrics.filter((r) => !byRubric.has(r))
-
-  return { pairs, ranked, joinedSamples: joined, skippedRuns: skipped, rubricsWithoutData }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function reduce(
-  values: number[],
-  outcomes: DeploymentOutcome[],
-  metric: string,
-  kind: 'latest' | 'mean' | 'max',
-): number | null {
-  if (values.length === 0) return null
-  if (kind === 'mean') return values.reduce((s, v) => s + v, 0) / values.length
-  if (kind === 'max') return Math.max(...values)
-  // 'latest'
-  const sorted = [...outcomes]
-    .filter((o) => typeof o.metrics[metric] === 'number')
-    .sort((a, b) => b.capturedAt - a.capturedAt)
-  return sorted[0]?.metrics[metric] ?? null
-}
-
-function bootstrapCi(
-  xs: number[],
-  ys: number[],
-  iterations: number,
-  seed: number | undefined,
-): { low: number; high: number } {
-  const n = xs.length
-  if (n < 3) return { low: Number.NaN, high: Number.NaN }
-  const rng = makeRng(seed, xs, ys)
-  const samples: number[] = []
-  for (let b = 0; b < iterations; b++) {
-    const rx = new Array<number>(n)
-    const ry = new Array<number>(n)
-    for (let i = 0; i < n; i++) {
-      const idx = Math.floor(rng() * n)
-      rx[i] = xs[idx]!
-      ry[i] = ys[idx]!
+  const excludedPairs: RubricOutcomeExclusion[] = []
+  for (const bucket of buckets) {
+    const identity = {
+      rubric: bucket.rubric,
+      outcome: bucket.outcome.id,
+      outcomeDirection: bucket.outcome.direction,
+      n: bucket.xs.length,
     }
-    const r = pearsonR(rx, ry)
-    if (Number.isFinite(r)) samples.push(r)
+    const reason =
+      bucket.xs.length < minSamples
+        ? 'insufficient_samples'
+        : !hasVariation(bucket.xs)
+          ? 'constant_rubric'
+          : !hasVariation(bucket.ys)
+            ? 'constant_outcome'
+            : null
+    if (reason !== null) {
+      excludedPairs.push({ ...identity, reason })
+      continue
+    }
+    const summary = correlationSummary(bucket.xs, bucket.ys, resamples, seed)
+    const sign = bucket.outcome.direction === 'higher-is-better' ? 1 : -1
+    const alignedSpearman = summary.spearman * sign
+    const alignedSpearmanCi95 =
+      summary.spearmanCi95 === null
+        ? null
+        : sign === 1
+          ? summary.spearmanCi95
+          : { lower: -summary.spearmanCi95.upper, upper: -summary.spearmanCi95.lower }
+    pairs.push({
+      ...identity,
+      ...summary,
+      alignedPearson: summary.pearson * sign,
+      alignedSpearman,
+      alignedSpearmanCi95,
+      verdict: alignedSpearman >= 0.4 ? 'aligned' : alignedSpearman <= -0.4 ? 'inverse' : 'weak',
+    })
   }
-  samples.sort((a, b) => a - b)
-  if (samples.length === 0) return { low: Number.NaN, high: Number.NaN }
+
+  const bestByRubric = new Map<string, RubricOutcomePair>()
+  for (const pair of pairs) {
+    const best = bestByRubric.get(pair.rubric)
+    if (!best || pair.alignedSpearman > best.alignedSpearman) bestByRubric.set(pair.rubric, pair)
+  }
+  const ranked = [...bestByRubric.values()]
+    .map(({ outcome, ...pair }) => ({ ...pair, bestOutcome: outcome }))
+    .sort((a, b) => b.alignedSpearman - a.alignedSpearman)
+
   return {
-    low: samples[Math.floor(0.025 * samples.length)]!,
-    high: samples[Math.min(samples.length - 1, Math.floor(0.975 * samples.length))]!,
+    outcomeMetrics,
+    pairs,
+    excludedPairs,
+    ranked,
+    joinedSamples: joined,
+    skippedRuns: runs.length - joined,
+    rubricsWithoutData: rubrics.filter((rubric) => !observedRubrics.has(rubric)),
   }
 }

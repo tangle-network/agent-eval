@@ -44,22 +44,37 @@ const halt = registered.halt([gate])           // refuse-spend fires before any 
 const outcome = registered.decide(quantities)  // the sealed table; non-total tables throw
 ```
 
-#### Digest schemes and retention
+Cluster intervals register both `clusterBy` and `value` inside the sealed `IntervalSpec`.
+Call `registered.interval('gain95', { kind: 'rows', rows })` to apply those fields.
+The row evidence cannot override the registered value field.
+Changing the measured field requires a new seal.
 
-A seal and a signed `HypothesisManifest` are durable records: each is written
-once and verified later, possibly by a different release. Both carry an `algo`
-field that names the digest scheme, and verification selects the encoder from
-that field.
+For a paired contrast, prepare one difference per pair and register that difference field as `value`.
+A pooled pass rate from both arms measures a different quantity.
+The [runnable sealed experiment](../examples/sealed-experiment/index.ts) demonstrates the paired path.
+Confidence levels, field paths, seeds, and resample counts are validated before sealing and direct computation.
 
-| `algo` | Serialization | Status |
+Older cluster interval registrations omitted `value` and require their original package version for execution.
+Retain their original bytes and evidence; create a new registration for subsequent measurements.
+
+#### Canonical identities and migration
+
+Readers and writers use RFC 8785 canonical JSON from `ledger-core/canonical`.
+Verification refuses missing or unsupported digest schemes.
+
+| Artifact | Required identity | Refusal |
 |---|---|---|
-| `sha256-rfc8785` | RFC 8785 canonical JSON, from `ledger-core/canonical` | What `sealExperiment` and `signManifest` write |
-| `sha256-content` | key-sorted `JSON.stringify` | Read-only. Records written before the RFC 8785 scheme carry it, or carry no `algo` at all, and still verify |
+| Sealed experiment | `algo: 'sha256-rfc8785'` | `verifySealedExperiment()` returns `false`; `openSealedExperiment()` refuses execution |
+| Signed hypothesis | `algo: 'sha256-rfc8785'` | `verifyManifest()` returns `false`; synchronous digest checks and hypothesis evaluation refuse the record |
+| Agent profile cell | `agent-profile-cell:sha256-rfc8785:<digest>` | Cell validation refuses any other scheme |
+| Report attestation | Report hash and required `envelopeHash` over its provenance | `verifyAttestation()` returns an invalid result with a reason |
 
-The `sha256-content` encoder is private to the module that verifies with it and
-is unreachable from any path that writes a digest. Retire it once no record
-carrying that tag needs to verify; until then, deleting it would make those
-records unverifiable rather than invalid.
+The package no longer verifies `sha256-content` records, untagged manifests, bare `agent-profile-cell:sha256:` identifiers, or attestations without provenance envelopes.
+Keep those records unchanged as historical artifacts with their original package version.
+Create new registrations with `sealExperiment()` or `signManifest()` before collecting new decision evidence.
+Use `buildAgentProfileCell()` and `attest()` to produce current identities from independently verified source material.
+Never relabel an existing digest or reconstruct a provenance envelope from unverified metadata.
+A new digest cannot establish that a registration existed before its evidence was observed.
 
 `openSealedExperiment` is the only execution surface.
 A rule that is not in the sealed spec cannot run; a rule that is cannot run differently.
@@ -74,7 +89,28 @@ Two floors, one simulation:
 - **Seeded simulation.** Per-row paired contrasts are drawn under a registered effect model (base win/loss rates, optional noisy clusters), each trial takes a whole-cluster percentile bootstrap, and power is the fraction of trials whose interval excludes zero.
 
 The refusal is a verdict inside the returned artifact (`result.refusal`), with `assertDesignAdequate` as the throwing form.
-The `power-floor` validity gate consumes a power curve as evidence and fails when the curve tops out under the registered target.
+Both `clusteredPower` and the registered `power-floor` gate require `minimumEffect`.
+The effect must appear exactly in the supplied grid; the API does not interpolate.
+Adequacy requires target power at that effect.
+`maxPower` describes the grid and cannot establish adequacy at a smaller effect.
+
+```ts
+const power = clusteredPower({
+  clusterSizes: Array.from({ length: 24 }, () => 3),
+  effects: [0.05, 0.1, 0.2],
+  minimumEffect: 0.1,
+  targetPower: 0.8,
+  seed: 17,
+})
+
+assertDesignAdequate(power)
+```
+
+Simulation effects are expected paired contrasts within signal clusters.
+The zero-effect model requires equal `baseWinRate` and `baseLossRate`.
+Configured noisy clusters retain zero expected contrast, so they dilute the pooled population effect.
+Power remains conditional on this outcome model, the registered sampling structure, and the simulated test.
+The [statistical evidence guide](./statistical-evidence.md) explains unit counts, adaptation comparisons, and sequential assumptions.
 
 ### The funnel
 

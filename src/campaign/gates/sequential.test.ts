@@ -267,7 +267,7 @@ describe('sequentialPairedGate.observe — anytime validity', () => {
 
 describe('sequentialPairedGate.decide — gate contract', () => {
   const better = ctxFrom(
-    Array.from({ length: 10 }, (_, i) => ({
+    Array.from({ length: 30 }, (_, i) => ({
       scenarioId: `s${i}`,
       reps: 3,
       candidate: 0.9,
@@ -304,7 +304,7 @@ describe('sequentialPairedGate.decide — gate contract', () => {
     expect(result.reasons[0]).toContain('NOT evidence of no effect')
   })
 
-  it('maps a stream that ends undecided before maxN to need_more_work (more reps could decide)', async () => {
+  it('maps an unfinished independent-scenario stream to need_more_work', async () => {
     const gate = sequentialPairedGate({ alpha: 0.05, minN: 5, maxN: 100 })
     const result = await gate.decide(flat)
     expect(result.decision).toBe('need_more_work')
@@ -332,6 +332,76 @@ describe('sequentialPairedGate.decide — gate contract', () => {
     await gate.decide(better)
     expect(gate.state().n).toBe(0)
     expect(gate.state().decision).toBe('continue')
+  })
+
+  it('does not count a repeated random scenario effect as independent evidence', async () => {
+    // Choose one fair sign per experiment, then repeat it within one task.
+    // Both equiprobable states have one independent unit, despite 100 cells.
+    for (const sign of [-1, 1]) {
+      const gate = sequentialPairedGate({ alpha: 0.05, minN: 5, maxN: 100 })
+      const result = await gate.decide(
+        ctxFrom([
+          {
+            scenarioId: 'family:one-random-task',
+            reps: 100,
+            candidate: sign > 0 ? 1 : 0,
+            baseline: sign > 0 ? 0 : 1,
+          },
+        ]),
+      )
+      expect(result.decision).toBe('need_more_work')
+      expect(result.contributingGates[0]!.detail).toMatchObject({
+        n: 1,
+        pairedN: 1,
+        pairedCellN: 100,
+        observationUnit: 'scenario',
+      })
+    }
+  })
+
+  it('uses equal scenario weights when repetition counts differ', async () => {
+    const gate = sequentialPairedGate({ maxN: 100 })
+    const result = await gate.decide(
+      ctxFrom([
+        { scenarioId: 'a', reps: 100, candidate: 1, baseline: 0 },
+        { scenarioId: 'b', reps: 1, candidate: 0, baseline: 1 },
+      ]),
+    )
+    expect(result.delta).toBe(0)
+    expect(result.decision).toBe('need_more_work')
+    expect(result.contributingGates[0]!.detail).toMatchObject({ pairedN: 2, pairedCellN: 101 })
+  })
+
+  it('groups distinct variants from one source and snapshots the registered mapping', async () => {
+    const variants = Array.from({ length: 20 }, (_, i) => ({
+      scenarioId: `family:variant-${i}`,
+      reps: 5,
+      candidate: 1,
+      baseline: 0,
+    }))
+    const independentUnitByScenarioId = new Map(
+      variants.map((variant) => [variant.scenarioId, 'shared-source']),
+    )
+    const gate = sequentialPairedGate({ maxN: 20, independentUnitByScenarioId })
+    independentUnitByScenarioId.clear()
+    const result = await gate.decide(ctxFrom(variants))
+    expect(result.decision).toBe('need_more_work')
+    expect(result.contributingGates[0]!.detail).toMatchObject({
+      n: 1,
+      pairedN: 1,
+      pairedCellN: 100,
+      observationUnit: 'registered',
+      unitIds: ['shared-source'],
+    })
+  })
+
+  it('refuses an incomplete registered map and asymmetric cell evidence', async () => {
+    const input = ctxFrom([{ scenarioId: 'family:task', reps: 3, candidate: 1, baseline: 0 }])
+    await expect(
+      sequentialPairedGate({ maxN: 20, independentUnitByScenarioId: new Map() }).decide(input),
+    ).rejects.toThrow(/missing independent unit.*family:task/)
+    input.baselineJudgeScores!.delete('family:task:1')
+    await expect(sequentialPairedGate({ maxN: 20 }).decide(input)).rejects.toThrow(/do not align/)
   })
 })
 

@@ -1,11 +1,10 @@
 /**
  * @packageDocumentation
  *
- * Root barrel, tiered: it re-exports only the symbols external consumers
- * import from the root specifier, the documented front doors, and the types
- * those symbols need. Everything else is reachable via its subpath only
- * (`/contract`, `/campaign`, `/analyst`, `/traces`, `/reporting`, `/rl`,
- * `/prm`, `/meta-eval`, `/wire`, `/testing`, ...).
+ * Common entry points and their public types.
+ * Scenario, JudgeScore, and GateDecision match the /contract campaign types.
+ * Specialist APIs live under /experiment, /meta-eval, /analyst, /traces,
+ * /reporting, /rl, and the other package exports.
  */
 
 // ── contract ──────────────────────────────────────────────────────────
@@ -38,38 +37,52 @@ export {
   toAgentProfileJson,
   verifyAgentProfileCell,
 } from './agent-profile-cell'
-
+export type { GateDecision, JudgeScore, Scenario } from './campaign/types'
 export type { AnalyzeRunsOptions } from './contract/analyze-runs'
 export { analyzeRuns } from './contract/analyze-runs'
-
-export type { DefineAgentEvalOptions, DefinedAgentEval } from './contract/define-agent-eval'
-export { defineAgentEval } from './contract/define-agent-eval'
-
-export type { InsightReport } from './contract/insight-report'
-
 export type {
+  AgentEvalAgent,
+  AgentEvalEvaluateOptions,
+  AgentEvalImproveOptions,
+  DefineAgentEvalOptions,
+  DefinedAgentEval,
+} from './contract/define-agent-eval'
+export { defineAgentEval } from './contract/define-agent-eval'
+export type { InsightReport } from './contract/insight-report'
+export type {
+  SelfImproveBudget,
   SelfImproveMethodOptions,
   SelfImproveMethodProvenance,
   SelfImproveMethodResult,
   SelfImproveOptions,
+  SelfImproveProgressEvent,
   SelfImproveProposerOptions,
   SelfImproveProposerResult,
   SelfImproveResult,
 } from './contract/self-improve'
 export { selfImprove } from './contract/self-improve'
-
 export type { DatasetManifest, DatasetScenario, DatasetSplit } from './dataset'
 export * as profile from './profile/index'
 export type {
+  ArtifactCheck,
+  ArtifactResult,
   CheckResult,
+  CollectedArtifacts,
   CompletionCriterion,
   DriverState,
+  JudgeFn,
+  JudgeInput,
   JudgeRubric,
-  JudgeScore,
+  JudgeScore as DimensionJudgeScore,
   PersonaConfig,
   ProductClientConfig,
   RouteMap,
-  Scenario,
+  RubricDimension,
+  Scenario as ProductScenario,
+  ScenarioFile,
+  ScenarioResult,
+  Turn,
+  TurnResult,
 } from './types'
 // One verdict vocabulary (docs/verdicts.md): every verification path lands
 // in DefaultVerdict; `certification` names who certified — the strategy
@@ -793,7 +806,7 @@ export type {
 export { deployGateLayer, viteDeployRunner, wranglerDeployRunner } from './deploy-gate-layer'
 
 export type {
-  GateDecision,
+  GateDecision as HeldOutGateDecision,
   GateEvidence,
   HeldOutGateConfig,
   HeldOutGateRejectionCode,

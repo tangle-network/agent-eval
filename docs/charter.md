@@ -1,112 +1,108 @@
-# Charter: what agent-eval is for
+# Charter: what agent-eval owns
 
-This document states what this package is, derived from the four end-states the stack must reach.
-It was written on 2026-08-10 from a measured inventory of this repo, agent-runtime, discovery, discovery-lab, braid, traces, and supervisor-lab.
-Every claim about current code cites the module that carries it.
-When behavior moves, move this document in the same change.
+`agent-eval` owns evaluation data, scoring, experiment decisions, and release evidence.
+It lets a host automate candidate generation while preserving the evidence needed to challenge the result.
 
-## One sentence
+## Package boundary
 
-agent-eval is the honesty layer of the agent stack: instruments that make it structurally hard to fool ourselves at machine speed, and that never choose a research method.
+| Concern | Owner |
+|---|---|
+| Portable agent contracts and canonical encodings | `agent-interface` |
+| Cases, judge scores, run records, statistical comparisons, evidence admission, and release rules | `agent-eval` |
+| Agent sessions, workers, tool access, model execution, and research orchestration | The host, including `agent-runtime` |
+| Product activation, business outcomes, storage authorization, and access to final data | The consuming application |
 
-The anchor is discovery's covenant (discovery `docs/01-vision.md`): shared code enforces evidence integrity and immutable observations; it never chooses roles, methods, or winners.
-Everything above this package — runtime, discovery, braid, verticals — gets its freedom because honesty is enforced below.
+`agent-runtime` and `agent-knowledge` can depend on Eval.
+Eval must not depend on either consumer, including through development or type-only imports.
+Execution enters through caller-supplied functions.
 
-## The four end-states, and what each demands from this package
+## Decisions the package supports
 
-1. **Build complex software rapidly, end to end, without issues.**
-   The gate is not generation.
-   The gate is knowing what is true about the work while it runs.
-   Measured on our own corpus: 87% of failed long runs end on a clean exit with the agent claiming success.
-   Demand: executable verification wired into the runtime loop, not beside it.
+**Did the agent perform the required task?**
+A clean process exit or a fluent answer cannot establish that the required artifact works.
+Campaigns retain results, failures, deterministic checks, semantic judgments, traces, and measured usage.
+[Completion verification](../src/completion-verifier.ts), [layered verification](../src/multi-layer-verifier.ts), and [trace replay](./trajectory-replay.md) support checks on produced work.
 
-2. **Do novel research: physics, quantum computing, math, unsolved problems.**
-   An unsolved problem has no held-out test suite by definition.
-   Every grader this package shipped before 2026-08 assumes an answer key.
-   Demand: verification strategies that certify without one — proof kernels, invariant checks, independent derivation agreement, replication — plus the statistics of a careful experimentalist.
-   This demand is measured, not speculative: discovery-lab holds 99 pursuit directories and 71 blind-graded oracle files on frontier problems, all verified today by hand-rolled run tools outside this package.
+**Did a change improve the agent?**
+A comparison needs paired evidence, explicit exclusions, and an appropriate independent observation unit.
+An improvement decision also needs a declared meaningful effect.
+[Campaign gates](./eval-surface-map.md) and [registered experiments](./experiment.md) make those decisions inspectable.
+Train and selection data can guide search; final evidence supports the resulting comparison.
 
-3. **Build self-improving agents easily, and explain them easily.**
-   Improvement requires an ungameable signal; the grader, not the edit, decides improve-versus-game.
-   Explanation requires a portable artifact: the receipt that proves B beat A, verifiable by a third party who does not trust us.
+**Does the evaluator measure the intended outcome?**
+Known good and known bad controls test different errors.
+[Evaluator admission](./evaluation-integrity.md), [judge calibration](./concepts.md#judge-calibration), and [outcome validity](./outcome-validity.md) describe what the measurements establish.
+Outcome association can motivate an experiment; it cannot establish that changing a rubric causes improvement.
 
-4. **Build new interfaces (braid-class): detached sessions, forking, analysts on tap.**
-   An interface can only expose what the layer below makes addressable.
-   Demand: sessions, traces, experiments, and verdicts as durable, forkable, queryable objects.
+**Can another reader verify the evidence?**
+[Evidence receipts](./experiment.md) bind reports to declared identities and provenance.
+[Search-history receipts](./search-history-receipts.md) account for planned and attempted search slots.
+[Verdict certifications](./verdicts.md) name the checker and its unverified assumptions.
+The [evidence registry](../evidence/README.md) retains published measurements and their freshness state.
 
-## What already exists (the 2026-08-10 inventory, corrected)
+## Implemented foundations
 
-The fragmentation story is smaller than it feels.
-The audit refuted "built four times": traces imports this package's whole analyst suite; agent-runtime's live detectors import the detection kernel verbatim; supervisor-lab's judges are AgentProfiles dispatched through this package's judge primitives.
+The current implementation includes:
 
-- **Ask any question over any trace: exists.**
-  `TraceAnalysisEngine` (`src/analyst/engine.ts`) takes a free-text question.
-  A new custom question costs zero library files: `defineTraceAnalyst` + `runTraceAnalyst` on the `./analyst` subpath, with the DSPy RLM engine, seven byte-budgeted trace tools, and a metered model proxy behind it.
-- **Default failure analysts: exist.**
-  `buildDefaultAnalystRegistry` ships failure-mode, intent-divergence, knowledge-gap, knowledge-poisoning, improvement, control-integrity, and skill-usage kinds, engine-agnostic and versionable.
-- **Statistics: most of an A-plus toolkit, publicly exported.**
-  Paired bootstrap, clustered paired binary, exact and score risk differences, McNemar with power and required-n, MDE, multiplicity (Holm, Benjamini-Hochberg), e-process sequential gates, corpus inter-rater agreement, pre-registration manifests with content hashes.
-- **Executable process verification: proven this week.**
-  The trace-repair grader scores a proposed fix by executing it and running the task's own held-out suite from outside the container.
-  Oracle-fix separates from inert-probe (+0.353 vs 0.000 on milestone 1) with the floor pinned at zero.
-- **Integrity instruments hardened by this week's burns:**
-  served-model assertions (a gateway can answer one id with another model), oracle determinism certification (a wall-clock grader flipped 8 of 16 units on identical bytes), control-policy declaration (a zero-step control screened two milestones and could never fire), and equal-terms refusal between comparison arms (`repairArmAsymmetries`).
+- Registered decision rules, sealed experiments, admission funnels, matched-budget checks, and cluster-aware power refusal in [`/experiment`](../src/experiment/index.ts).
+- Paired comparisons, exact binary inference, multiplicity corrections, and sequential gates in [statistics](../src/statistics/index.ts) and [campaign gates](../src/campaign/gates/).
+- Declarative analyst definitions and caller-owned engine binding in [`/analyst`](../src/analyst/index.ts).
+- Executed repair grading and replay in [`/trace-repair`](../src/trace-repair/index.ts) and [`/trajectory-replay`](../src/trajectory-replay/index.ts).
+- Verification strategies and blind equivalence checks through a [caller-supplied checker](./verification-strategies.md).
+- Claim metadata, durable final-evidence reservations, and evaluator admission through the [evaluation integrity API](./evaluation-integrity.md).
 
-## What is missing (the honest, short list)
+The [benchmark-book review](./design/mlbenchmarks-book-review.md) separates observed defects, existing capabilities, and proposed research.
+Its archived measurements describe the reviewed revision.
+Current source and regression tests define present behavior.
 
-1. **Cluster-aware power with design-time refusal.**
-   "Four task clusters cannot certify any effect size, including 1.0" was learned by running the experiment.
-   A `clusteredPower` simulator must refuse the design before a dollar is spent.
-2. **Pre-registration as code, bound everywhere.**
-   The manifest binds exactly one statistic family today.
-   The registered decision rule must be the object the runner executes; drift between registered and ran must be unrepresentable.
-3. **A general prime query surface.**
-   The prime engine is benchmark-bound; there is no `runPrimeAnalyst` symmetric to `runTraceAnalyst`.
-4. **The funnel as a first-class object.**
-   Denominator chains are assembled by hand every run.
-5. **The unified analyst definition.**
-   One declarative unit — AgentProfile + evidence projection + reply contract + budget declaration — compiled to any engine, guarded by a byte-identity kill test against the bespoke arms.
-6. **Verification without an answer key.**
-   A strategy family where the held-out suite is one member: proof kernels, invariant and metamorphic checks, independent derivation agreement, replication.
-   The type layer exists (`docs/verification-strategies.md`) and the certifications are now produced, not just typed: every in-package verifier — the layer pipeline, the completion oracle, trace contracts, declarative oracles, trajectory replay, the repair grader — lands in `DefaultVerdict` with a certification naming its checker, strategy member, and unverified assumptions (`docs/verdicts.md`).
-   What remains is execution without an answer key: a real kernel checker bound through the port.
-7. **Session forking as one primitive.**
-   Both halves exist unjoined: agent-runtime's `SandboxLineage.fork` (live checkpoint) and this package's trajectory replay (recorded prefix).
-   Braid branches are metadata pointers; the provider session is always new.
-8. **The improvement receipt.**
-   Digests, attestations, and sealed manifests exist; the single portable, third-party-verifiable file does not.
-   Five gaming attacks on the receipt are named; each refusal must live inside the receipt.
+## Automating evaluation engineering
 
-## Build order
+The host can generate candidate cases, checks, rubrics, and agent changes.
+Eval checks whether their evidence supports the declared decision.
+The same authoring loop must not silently turn its own generated labels into independent certification.
 
-Wave 1 — in flight now.
-The analyst definition contract with its byte-identity CI kill test; prime as a HarnessType in agent-interface; the three-arm review fixes.
+A host can compose this loop:
 
-Wave 2 — the experiment subpath. **Shipped: [docs/experiment.md](./experiment.md).**
-`./experiment`: compose the exported statistics into `defineExperiment` / `sealExperiment` with cluster-aware power refusal, pre-registration as executable decision rules, the funnel object, and matched-budget verification.
-Kill test first: re-derive this week's three hand-written PREREG.md files as decision-rule objects; any rule that needs an opaque escape hatch kills or extends the design.
-The kill test extended the design — ten node families beyond the seed AST, no opaque node — and the three preregistrations are the subpath's acceptance suite.
+```mermaid
+flowchart LR
+  A[Production failures and task requirements] --> B[Candidate cases and evaluators]
+  B --> C[Independent evaluator audit]
+  C --> D[Search on train and selection cases]
+  D --> E[Reserved final evidence]
+  E --> F[Paired comparison and release decision]
+  F --> G[Observed deployment outcomes]
+  G --> A
+```
 
-Wave 3 — runtime wiring (blocked until agent-runtime's supervision merge resolves).
-The executable checker bound as a validator at the live-sandbox seam; a stop policy that consumes executable verdicts; then the supervisor budget-allocation experiment at equal compute.
-The published negative result to beat: StateSeal, −3.0pp, CI [−8.5, 1.1], n=540.
-Our measured headroom: blind continuation rescues 4.7% of rollouts; the done-signal has 62.5% precision.
+Every revision to an evaluator or candidate changes the object being tested.
+Once final evidence influences that revision, the next confirmation needs fresh evidence.
+Reusable comparisons can declare their population and unit without consuming final evidence.
+Opting into a shared final-evidence ledger records fresh-confirmation exposure across campaigns.
+It cannot enforce secrecy outside the host that uses it.
 
-Wave 4 — the joins.
-`fork(session, step, modification)` joining lineage-fork and trajectory replay, consumed by braid; the improvement receipt v1 serializing evidence vector, pre-registration hash, grader calibration, and refusal outcomes into one attested file.
+## Remaining boundaries
 
-Wave 5 — science.
-The verification-strategy family, proof kernels first.
-Its pilot is live: two independent Lean formalizations of the BCWW (4.6) inequality — one from the paper, one from the campaign's artifacts — with a kernel-checked equivalence verdict and the campaign's counterexample checked against both.
-A statement mismatch is a successful outcome; it is the formalization gap made visible.
-The contract layer is shipped: the family, checker port, and blind two-arm equivalence protocol (`src/verification-strategy.ts`) and verdict certifications (`src/verdict.ts`) — see `docs/verification-strategies.md` for the family, each member's failure mode, and the pilot as the worked example.
+A package cannot establish population coverage from a dataset name.
+Sampling plans still need production context, source lineage, and checks for missing groups.
+More repetitions improve measurements on existing units; they do not add independent tasks.
 
-## Standing principles (each earned by a measured burn)
+Generated evaluators need an independent source of expected behavior.
+The host must enforce author/auditor separation and prevent access to final evidence.
+Declared identities and digests make these assumptions inspectable without proving them.
 
-- **Instruments, never methods.** This package refuses to choose roles, prompts, models, or winners; it makes whatever runs honest.
-- **No upward dependencies.** Consumers import this package; never the reverse.
-- **A check that cannot run must never render as green.** (505 of 5,459 automated reviews published verdicts no evidence supported.)
-- **Certification is task-scoped.** A prompt certified on one task carries nothing onto another; re-authoring voids it.
-- **Access to the world beats loop sophistication.** Measured twice in one week: the analyst that could execute beat the one that could only read; framing carried more than the agent loop.
-- **Controls must be able to fire.** A screening control that cannot in principle produce the outcome it screens for is uncalibrated, not conservative.
-- **The refusal lives inside the artifact.** An adequacy check, an equal-terms check, a determinism check that runs beside the result can be skipped; one that the artifact carries cannot.
+A checker for an open research problem must run through its actual verification backend.
+The checker port supports proof kernels, invariants, replication, and agreement checks.
+A strategy name alone supplies no evidence that any of those checks executed.
+
+Product activation and continuous monitoring stay with the host.
+Eval returns evidence and decisions; it does not grant deployment authority or choose a research agenda.
+
+## Standing rules
+
+- Keep missing evidence distinct from measured zero, failed execution, and a successful empty result.
+- Preserve every attempted slot and its cost, including rejected candidates and service failures.
+- Check practical effect, independence, power, and capture completeness before interpreting a positive score.
+- Keep refusals and exclusions inside the result artifact.
+- Require current canonical envelopes for seals and attestations.
+- Preserve historical evidence as recorded, even when current APIs reject its retired format.
+- Treat a negative result as evidence about the measured conditions and mechanism.

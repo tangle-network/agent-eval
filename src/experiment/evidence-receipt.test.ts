@@ -68,9 +68,10 @@ describe('evidence receipts', () => {
   it('refuses legacy report attestations whose provenance was never envelope-bound', () => {
     const receipt = createEvidenceReceipt(binding, provenance)
     const { envelopeHash: _envelopeHash, ...legacy } = receipt.attestation
-    expect(verifyEvidenceReceipt({ ...receipt, attestation: legacy })).toEqual({
+    const input = JSON.parse(JSON.stringify({ ...receipt, attestation: legacy }))
+    expect(verifyEvidenceReceipt(input)).toEqual({
       valid: false,
-      reason: 'evidence receipt provenance is not bound by an attestation envelope',
+      reason: 'attestation envelope hash is missing or invalid',
     })
   })
 

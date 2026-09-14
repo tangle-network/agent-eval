@@ -115,10 +115,8 @@ export function createEvidenceReceipt(
 }
 
 /**
- * Verify promotion-grade evidence. Generic report attestation keeps a legacy read path,
- * but an EvidenceReceipt never accepts unbound provenance: changing the evaluator code,
- * model versions, input commitment provenance, or creation record must invalidate the
- * evidence rather than merely annotating it as legacy.
+ * Verify evidence identity and its provenance envelope. Changing the evaluator,
+ * model versions, input commitment, or creation record invalidates the evidence.
  */
 export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceiptVerification {
   if (receipt.binding.schemaVersion !== EVIDENCE_RECEIPT_VERSION) {
@@ -146,18 +144,7 @@ export function verifyEvidenceReceipt(receipt: EvidenceReceipt): EvidenceReceipt
     return { valid: false, reason: error instanceof Error ? error.message : String(error) }
   }
 
-  const verification = verifyAttestation(receipt.binding, receipt.attestation)
-  if (!verification.valid) return verification
-  if (
-    verification.legacyUnboundProvenance === true ||
-    receipt.attestation.envelopeHash === undefined
-  ) {
-    return {
-      valid: false,
-      reason: 'evidence receipt provenance is not bound by an attestation envelope',
-    }
-  }
-  return { valid: true }
+  return verifyAttestation(receipt.binding, receipt.attestation)
 }
 
 /**

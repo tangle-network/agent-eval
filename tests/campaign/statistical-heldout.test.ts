@@ -44,15 +44,24 @@ async function decide(opts: {
 const gateDetail = (r: Awaited<ReturnType<typeof decide>>, name: string) =>
   r.contributingGates.find((c) => c.name === name)?.detail as any
 
+function continuousRoster(sample: (i: number) => { baseline: Cell; candidate: Cell }) {
+  const pairs = Array.from({ length: 24 }, (_, i) => ({ id: `h${i}`, ...sample(i) }))
+  return {
+    scenarioIds: pairs.map((pair) => pair.id),
+    baseline: Object.fromEntries(pairs.map((pair) => [`${pair.id}:0`, pair.baseline])),
+    candidate: Object.fromEntries(pairs.map((pair) => [`${pair.id}:0`, pair.candidate])),
+  }
+}
+
 describe('pairHoldout — full-cellId pairing (the trap that fakes a tight CI)', () => {
-  it('pairs by FULL cellId so reps multiply n — never averaged to one-per-scenario', () => {
+  it('pairs full execution cells before any independent-unit aggregation', () => {
     const cand = cellMap({ 'h1:0': { composite: 5 }, 'h1:1': { composite: 7 } })
     const base = cellMap({ 'h1:0': { composite: 4 }, 'h1:1': { composite: 6 } })
     const p = pairHoldout(cand, base, new Set(['h1']), (s) => s.composite)
     expect(p.cellIds).toEqual(['h1:0', 'h1:1'])
     expect(p.before).toEqual([4, 6])
     expect(p.after).toEqual([5, 7])
-    expect(p.before.length).toBe(2) // n=2 from reps, NOT collapsed to n=1 per scenario
+    expect(p.before.length).toBe(2)
   })
 
   it('throws when candidate/baseline holdout cells do not align (load-bearing invariant)', () => {
@@ -73,50 +82,24 @@ describe('defaultProductionGate — bootstrap-CI held-out (kills the point-estim
   it('HOLDS a noisy same-mean holdout — the exact +4 model-noise false positive', async () => {
     // Baseline & candidate are two noisy samples of the SAME surface: deltas
     // straddle zero, so no real lift. The old point-estimate gate shipped this.
-    const r = await decide({
-      baseline: {
-        'h1:0': { composite: 91 },
-        'h2:0': { composite: 88 },
-        'h3:0': { composite: 95 },
-        'h4:0': { composite: 90 },
-        'h5:0': { composite: 89 },
-        'h6:0': { composite: 93 },
-      },
-      candidate: {
-        'h1:0': { composite: 95 },
-        'h2:0': { composite: 84 },
-        'h3:0': { composite: 93 },
-        'h4:0': { composite: 92 },
-        'h5:0': { composite: 87 },
-        'h6:0': { composite: 95 },
-      },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-    })
+    const r = await decide(
+      continuousRoster((i) => ({
+        baseline: { composite: [91, 88, 95, 90, 89, 93][i % 6]! },
+        candidate: { composite: [95, 84, 93, 92, 87, 95][i % 6]! },
+      })),
+    )
     expect(r.decision).toBe('hold')
     expect(gateDetail(r, 'heldout-significance').fewRuns).toBe(false)
     expect(gateDetail(r, 'heldout-significance').ciLow).toBeLessThanOrEqual(0)
   })
 
   it('SHIPS a real lift — CI.low strictly above the threshold', async () => {
-    const r = await decide({
-      baseline: {
-        'h1:0': { composite: 80 },
-        'h2:0': { composite: 82 },
-        'h3:0': { composite: 78 },
-        'h4:0': { composite: 81 },
-        'h5:0': { composite: 79 },
-        'h6:0': { composite: 83 },
-      },
-      candidate: {
-        'h1:0': { composite: 86 },
-        'h2:0': { composite: 89 },
-        'h3:0': { composite: 83 },
-        'h4:0': { composite: 88 },
-        'h5:0': { composite: 84 },
-        'h6:0': { composite: 90 },
-      },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-    })
+    const r = await decide(
+      continuousRoster((i) => ({
+        baseline: { composite: [80, 82, 78, 81, 79, 83][i % 6]! },
+        candidate: { composite: [86, 89, 83, 88, 84, 90][i % 6]! },
+      })),
+    )
     expect(r.decision).toBe('ship')
     expect(gateDetail(r, 'heldout-significance').ciLow).toBeGreaterThan(0)
   })
@@ -164,23 +147,16 @@ describe('defaultProductionGate — per-dimension regression guard (anti-Goodhar
 
   it('SHIPS when the composite rises and the critical dimension holds flat', async () => {
     const r = await decide({
-      baseline: {
-        'h1:0': { composite: 80, dimensions: { hallucination_free: 100 } },
-        'h2:0': { composite: 82, dimensions: { hallucination_free: 100 } },
-        'h3:0': { composite: 78, dimensions: { hallucination_free: 100 } },
-        'h4:0': { composite: 81, dimensions: { hallucination_free: 99 } },
-        'h5:0': { composite: 79, dimensions: { hallucination_free: 100 } },
-        'h6:0': { composite: 83, dimensions: { hallucination_free: 99 } },
-      },
-      candidate: {
-        'h1:0': { composite: 86, dimensions: { hallucination_free: 100 } },
-        'h2:0': { composite: 89, dimensions: { hallucination_free: 100 } },
-        'h3:0': { composite: 83, dimensions: { hallucination_free: 99 } },
-        'h4:0': { composite: 88, dimensions: { hallucination_free: 100 } },
-        'h5:0': { composite: 84, dimensions: { hallucination_free: 100 } },
-        'h6:0': { composite: 90, dimensions: { hallucination_free: 100 } },
-      },
-      scenarioIds: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+      ...continuousRoster((i) => ({
+        baseline: {
+          composite: [80, 82, 78, 81, 79, 83][i % 6]!,
+          dimensions: { hallucination_free: i % 3 === 0 ? 99 : 100 },
+        },
+        candidate: {
+          composite: [86, 89, 83, 88, 84, 90][i % 6]!,
+          dimensions: { hallucination_free: i % 3 === 1 ? 99 : 100 },
+        },
+      })),
       criticalDimensions: ['hallucination_free'],
     })
     expect(r.decision).toBe('ship')

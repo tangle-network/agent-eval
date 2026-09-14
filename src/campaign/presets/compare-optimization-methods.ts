@@ -12,8 +12,17 @@ import {
   type CampaignEvidenceContext,
   createCampaignEvidenceReceipt,
 } from '../../experiment/campaign-evidence'
+import {
+  defineEvaluationClaim,
+  type EvaluationClaim,
+  type EvaluationUnitSummary,
+  summarizeEvaluationUnits,
+} from '../../experiment/claim'
 import type { EvidenceReceipt } from '../../experiment/evidence-receipt'
-import { pairedBootstrap } from '../../statistics'
+import {
+  decidePairedPromotion,
+  type PairedPromotionDecision,
+} from '../../paired-promotion-decision'
 import { contentHash } from '../../verdict-cache'
 import { assertCampaignDesign, assertCompleteCampaign } from '../coverage'
 import type { ExternalOptimizerWireCounts } from '../external-optimizer-contracts'
@@ -36,6 +45,15 @@ export {
 } from '../optimization-cost'
 export { assertOptimizationResult } from '../optimization-method'
 
+import {
+  assertIndependentEvaluationSplit,
+  captureFinalEvidencePolicy,
+  evaluationUnitMap,
+  exposeFinalEvidence,
+  type FinalEvidencePolicy,
+  type FinalEvidenceUse,
+  reserveFinalEvidence,
+} from '../final-evidence'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { campaignBreakdown } from '../score-utils'
@@ -209,11 +227,11 @@ export interface OptimizationMethodScore {
   baselineComposite: number
   /** Mean final-test composite of this method's selected surface. */
   winnerComposite: number
-  /** Mean per-scenario final-test lift (winner minus baseline). */
+  /** Mean final-test lift across independent units (winner minus baseline). */
   lift: number
-  /** Simultaneous paired-bootstrap interval for per-scenario lift.
-   *  `low > 0` excludes zero after adjustment for all reported contrasts. */
+  /** Deciding interval, adjusted for every registered contrast. */
   liftCi: { low: number; high: number }
+  decision: PairedPromotionDecision
   /** Search spend reconciled with recorded method calls. Excludes final test scoring. */
   optimizationCost: ComparisonCost
   /** Optimization duration reported by the method. Excludes final test scoring. */
@@ -223,6 +241,14 @@ export interface OptimizationMethodScore {
   /** Paired final-test values used to compute lift and its interval. */
   scenarioScores: Array<{
     scenarioId: string
+    baselineComposite: number
+    winnerComposite: number
+    lift: number
+  }>
+  /** Scenario means averaged within each registered source unit before inference. */
+  unitScores: Array<{
+    unitId: string
+    scenarios: number
     baselineComposite: number
     winnerComposite: number
     lift: number
@@ -237,21 +263,28 @@ export interface OptimizationMethodPairwise {
   /** Higher-ranked method. */
   a: string
   b: string
-  /** Mean per-scenario untouched-test delta (a − b). */
+  /** Mean final-test delta across independent units (a − b). */
   deltaMean: number
   low: number
   high: number
-  /** `a` if the CI clears 0, `b` if it is entirely negative, else `'tie'`. */
-  favored: string
+  /** Favored only when the full paired decision clears the registered effect; null is inconclusive. */
+  favored: string | null
+  decision: PairedPromotionDecision
 }
 
 export interface OptimizationMethodComparison {
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidenceUse
   /** Sorted by descending lift; `rank` set accordingly. */
   scores: OptimizationMethodScore[]
   best: OptimizationMethodScore
-  /** Best vs each other method, using simultaneous paired-bootstrap intervals. */
+  /** Best observed method versus each alternative, with simultaneous paired decisions. */
   pairwise: OptimizationMethodPairwise[]
   testScenarioIds: string[]
+  units: EvaluationUnitSummary
+  observationUnit: 'scenario' | 'registered'
+  /** Complete scenario-replicate pairs per contrast, before unit aggregation. */
+  pairedCellN: number
   /** Sum of method reports reconciled against each method's recorded calls. */
   optimizationCost: ComparisonCost
   /** Baseline and distinct winner scoring on the final test partition. */
@@ -279,6 +312,8 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
     SearchHistoryAdmissionOptions {
   /** Explicit caller authority and environment for receipts over actual final measurements. */
   evidence?: CampaignEvidenceContext
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidencePolicy
   methods: OptimizationMethod<TScenario, TArtifact>[]
   baselineSurface: MutableSurface
   /** Evidence used by every optimizer to author or fit candidates. */
@@ -314,6 +349,19 @@ export interface CompareOptimizationMethodsOptions<TScenario extends Scenario, T
 export async function compareOptimizationMethods<TScenario extends Scenario, TArtifact>(
   opts: CompareOptimizationMethodsOptions<TScenario, TArtifact>,
 ): Promise<OptimizationMethodComparison> {
+  opts = {
+    ...opts,
+    methods: opts.methods.map((method) => ({ ...method })),
+    trainScenarios: structuredClone(opts.trainScenarios),
+    selectionScenarios: structuredClone(opts.selectionScenarios),
+    testScenarios: structuredClone(opts.testScenarios),
+    judges: opts.judges.map((judge) => ({
+      ...judge,
+      dimensions: structuredClone(judge.dimensions),
+    })),
+    claim: opts.claim && defineEvaluationClaim(opts.claim),
+    finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
+  }
   assertOptimizationMethods(opts.methods)
   assertComparisonPartitions(opts)
   const searchHistoryPolicy = opts.searchHistoryPolicy ?? 'allow-missing'
@@ -379,6 +427,32 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   // Every surface must have a score for every designed test scenario. Filling a
   // missing score with zero would change the comparison instead of reporting a failed run.
   const scenarioIds = opts.testScenarios.map((s) => s.id).sort()
+  const unitByScenario = opts.claim
+    ? evaluationUnitMap(opts.claim, opts.testScenarios)
+    : new Map(scenarioIds.map((id) => [id, id]))
+  const units: EvaluationUnitSummary = opts.claim
+    ? summarizeEvaluationUnits(opts.claim, opts.testScenarios)
+    : {
+        observations: scenarioIds.length,
+        independentUnits: scenarioIds.length,
+        units: scenarioIds.map((id) => ({ id, observations: 1 })),
+      }
+  const aggregateUnits = (arr: number[]): number[] => {
+    const values = new Map<string, number[]>()
+    scenarioIds.forEach((id, index) => {
+      const unitId = unitByScenario.get(id)!
+      const bucket = values.get(unitId) ?? []
+      bucket.push(arr[index]!)
+      values.set(unitId, bucket)
+    })
+    return units.units.map((unit) => mean(values.get(unit.id)!))
+  }
+  const decisionOptions = {
+    seed,
+    resamples,
+    confidence: intervalConfidence,
+    threshold: opts.claim?.minimumEffect ?? 0,
+  }
   const align = (byScenario: Record<string, number>, label: string): number[] => {
     const missing = scenarioIds.filter((id) => !(id in byScenario))
     if (missing.length > 0) {
@@ -393,6 +467,18 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
 
   // Finish every method before the first final-test call. Each method gets
   // independent scenario values so one method cannot mutate another's input.
+  if (opts.claim?.generalization === 'new-units') {
+    assertIndependentEvaluationSplit(opts.claim, opts.testScenarios, [
+      ...opts.trainScenarios,
+      ...opts.selectionScenarios,
+    ])
+  }
+  if (opts.finalEvidence) {
+    await reserveFinalEvidence(opts.finalEvidence, opts.claim, opts.testScenarios, [
+      ...opts.trainScenarios,
+      ...opts.selectionScenarios,
+    ])
+  }
   const optimizationOwner = new AbortController()
   const optimized = await mapConcurrent(opts.methods, optimizationConcurrency, async (method) => {
     try {
@@ -441,6 +527,12 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     'optimization',
   )
   const testCostPhase = finalCostPhase(opts, baselineSurface, optimized, seed)
+  const finalEvidence = opts.finalEvidence
+    ? await exposeFinalEvidence(opts.finalEvidence, opts.claim, opts.testScenarios, [
+        baselineSurface,
+        ...optimized.map((method) => method.winnerSurface),
+      ])
+    : undefined
   // Reuse one final-test measurement for identical surfaces. This avoids duplicate
   // spend and prevents model variance from inventing a difference between equal inputs.
   const baselineArr = align(
@@ -468,24 +560,29 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   }
 
   const scores: OptimizationMethodScore[] = winners.map((w) => {
-    const boot = pairedBootstrap(baselineArr, w.arr, {
-      seed,
-      resamples,
-      confidence: intervalConfidence,
-      statistic: 'mean',
-    })
+    const baselineUnits = aggregateUnits(baselineArr)
+    const winnerUnits = aggregateUnits(w.arr)
+    const decision = decidePairedPromotion(baselineUnits, winnerUnits, decisionOptions)
     const score: OptimizationMethodScore = {
       name: w.name,
-      baselineComposite: mean(baselineArr),
-      winnerComposite: mean(w.arr),
-      lift: boot.mean,
-      liftCi: { low: boot.low, high: boot.high },
+      baselineComposite: mean(baselineUnits),
+      winnerComposite: mean(winnerUnits),
+      lift: decision.delta,
+      liftCi: { low: decision.low, high: decision.high },
+      decision,
       optimizationCost: w.cost,
       scenarioScores: scenarioIds.map((scenarioId, index) => ({
         scenarioId,
         baselineComposite: baselineArr[index]!,
         winnerComposite: w.arr[index]!,
         lift: w.arr[index]! - baselineArr[index]!,
+      })),
+      unitScores: units.units.map((unit, index) => ({
+        unitId: unit.id,
+        scenarios: unit.observations,
+        baselineComposite: baselineUnits[index]!,
+        winnerComposite: winnerUnits[index]!,
+        lift: winnerUnits[index]! - baselineUnits[index]!,
       })),
       winnerSurface: structuredClone(w.winnerSurface),
       rank: 0,
@@ -520,35 +617,21 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
   const best = scores[0]!
 
   const byName = new Map(winners.map((w) => [w.name, w]))
-  const bestArr = byName.get(best.name)!.arr
+  const bestArr = aggregateUnits(byName.get(best.name)!.arr)
   const pairwise: OptimizationMethodPairwise[] = scores.slice(1).map((other) => {
-    const otherArr = byName.get(other.name)!.arr
+    const otherArr = aggregateUnits(byName.get(other.name)!.arr)
     // before = other, after = best ⇒ delta = best − other on the test set.
-    const boot = pairedBootstrap(otherArr, bestArr, {
-      seed,
-      resamples,
-      confidence: intervalConfidence,
-      statistic: 'mean',
-    })
-    // A zero-width interval names no winner. Identical per-scenario deltas make
-    // every resample identical, so `[g, g]` would declare `best` favored at any
-    // n on no spread at all; `[0, 0]` already fell through to 'tie'.
-    const degenerate =
-      !Number.isFinite(boot.low) || !Number.isFinite(boot.high) || boot.low === boot.high
-    const favored = degenerate
-      ? 'tie'
-      : boot.low > 0
-        ? best.name
-        : boot.high < 0
-          ? other.name
-          : 'tie'
+    const decision = decidePairedPromotion(otherArr, bestArr, decisionOptions)
+    const reverse = decidePairedPromotion(bestArr, otherArr, decisionOptions)
+    const favored = decision.promote ? best.name : reverse.promote ? other.name : null
     return {
       a: best.name,
       b: other.name,
-      deltaMean: boot.mean,
-      low: boot.low,
-      high: boot.high,
+      deltaMean: decision.delta,
+      low: decision.low,
+      high: decision.high,
       favored,
+      decision,
     }
   })
 
@@ -566,6 +649,11 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     best,
     pairwise,
     testScenarioIds: scenarioIds,
+    units,
+    observationUnit: opts.claim ? 'registered' : 'scenario',
+    pairedCellN: scenarioIds.length * (opts.reps ?? 1),
+    ...(opts.claim ? { claim: opts.claim } : {}),
+    ...(finalEvidence ? { finalEvidence } : {}),
     optimizationCost,
     testCost,
     totalCost,

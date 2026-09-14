@@ -1,5 +1,6 @@
 import { openAutoPr } from '../campaign/auto-pr'
 import { campaignSplitDigest } from '../campaign/coverage'
+import { evaluationUnitMap } from '../campaign/final-evidence'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { executeOptimizationMethod } from '../campaign/optimization-method'
 import {
@@ -15,12 +16,14 @@ import {
   campaignCellJudgeDimensions,
   campaignCellTaskScore,
 } from '../campaign/run-record'
+import type { CampaignComparisonUnits } from '../campaign/score-utils'
 import type { SearchHistoryCoverageRow } from '../campaign/search-history-receipt'
 import type { CampaignStorage } from '../campaign/storage'
 import { surfaceContentHash, surfaceHash } from '../campaign/surface-identity'
 import type { Scenario } from '../campaign/types'
 import type { CostLedgerHandle, CostLedgerSummary } from '../cost-ledger'
 import { createCampaignEvidenceReceipt } from '../experiment/campaign-evidence'
+import type { EvaluationClaim } from '../experiment/claim'
 import type { EvidenceReceipt } from '../experiment/evidence-receipt'
 import { createHostedClient } from '../hosted/client'
 import type { EvalRunGenerationSnapshot } from '../hosted/types'
@@ -30,7 +33,7 @@ import type {
   SelfImproveOptions,
   SelfImproveProposerResult,
 } from './self-improve'
-import { cellsToRunRecords, meanComposite } from './self-improve-reporting'
+import { cellsToRunRecords, pairedCompositeSummary } from './self-improve-reporting'
 
 export interface SelfImproveMethodProvenance {
   schema: 'tangle.method-improvement'
@@ -42,6 +45,7 @@ export interface SelfImproveMethodProvenance {
   winnerContentHash: string
   diff: string
   optimizationMethod: NonNullable<SelfImproveProposerResult<Scenario, unknown>['optimization']>
+  claim?: EvaluationClaim
   evidence: {
     trainSplitDigest: `sha256:${string}`
     selectionSplitDigest: `sha256:${string}`
@@ -50,6 +54,7 @@ export interface SelfImproveMethodProvenance {
     winnerCampaignDigest: `sha256:${string}`
     costReceiptsDigest: `sha256:${string}`
     neutralizedCampaignDigest?: `sha256:${string}`
+    holdoutObservations?: CampaignComparisonUnits
   }
   gate: Awaited<ReturnType<typeof runFinalComparison>>['gateResult']
   holdout?: 'deferred'
@@ -176,9 +181,12 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
     opts.gate ??
     defaultProductionGate<TArtifact, TScenario>({
       holdoutScenarios: holdout,
-      deltaThreshold: 0.05,
+      deltaThreshold: opts.claim?.minimumEffect ?? 0.05,
+      independentUnitByScenarioId: opts.claim ? evaluationUnitMap(opts.claim, holdout) : undefined,
     })
   const comparison = await runFinalComparison({
+    claim: opts.claim,
+    finalEvidence: opts.finalEvidence,
     baselineSurface,
     winnerSurface: selected.winnerSurface,
     scenarios: holdout,
@@ -237,10 +245,15 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
       }
     : undefined
   const deferred = comparison.holdout === 'deferred'
-  const baseline = deferred
+  const report = deferred
     ? null
-    : meanComposite(comparison.baselineOnHoldout.aggregates.byScenario)
-  const winner = deferred ? null : meanComposite(comparison.winnerOnHoldout.aggregates.byScenario)
+    : pairedCompositeSummary(
+        comparison.baselineOnHoldout,
+        comparison.winnerOnHoldout,
+        opts.claim ? evaluationUnitMap(opts.claim, holdout) : undefined,
+      )
+  const baseline = report?.baseline ?? null
+  const winner = report?.winner ?? null
   const lift = baseline && winner ? winner.compositeMean - baseline.compositeMean : undefined
   const insight = deferred
     ? undefined
@@ -266,6 +279,10 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
               )),
         ],
         baselineCandidateId: 'baseline',
+        independentUnitByScenarioId: opts.claim
+          ? evaluationUnitMap(opts.claim, holdout)
+          : undefined,
+        decisionThreshold: opts.claim?.minimumEffect ?? 0.05,
         ...(comparison.winnerOnHoldout === comparison.baselineOnHoldout
           ? {}
           : { candidateCandidateId: 'winner' }),
@@ -288,6 +305,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
     winnerContentHash: surfaceContentHash(selected.winnerSurface),
     diff: comparison.promotedDiff,
     optimizationMethod: optimization,
+    ...(opts.claim ? { claim: opts.claim } : {}),
     evidence: {
       trainSplitDigest: campaignSplitDigest(train, budget.reps ?? 1),
       selectionSplitDigest: campaignSplitDigest(selection, budget.reps ?? 1),
@@ -295,6 +313,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
       baselineCampaignDigest: campaignMeasurementDigest(comparison.baselineOnHoldout),
       winnerCampaignDigest: campaignMeasurementDigest(comparison.winnerOnHoldout),
       costReceiptsDigest: canonicalDigest(receipts),
+      ...(report ? { holdoutObservations: report.observations } : {}),
       ...(comparison.neutralizedOnHoldout
         ? { neutralizedCampaignDigest: campaignMeasurementDigest(comparison.neutralizedOnHoldout) }
         : {}),
@@ -341,6 +360,8 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
   const result: SelfImproveMethodResult<TScenario, TArtifact> = {
     ...(evidence ? { evidence } : {}),
     mode: 'method',
+    ...(opts.claim ? { claim: opts.claim } : {}),
+    ...(comparison.finalEvidence ? { finalEvidence: comparison.finalEvidence } : {}),
     searchHistoryCoverage: history,
     baseline,
     winner: {
@@ -377,6 +398,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
       index: number,
       surface: typeof baselineSurface,
       campaign: typeof comparison.baselineOnHoldout,
+      compositeMean: number | null,
     ): EvalRunGenerationSnapshot => ({
       index,
       surfaceHash: surfaceHash(surface),
@@ -393,7 +415,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
           ...(cell.error ? { errorMessage: cell.error } : {}),
         }
       }),
-      compositeMean: deferred ? null : meanComposite(campaign.aggregates.byScenario).compositeMean,
+      compositeMean,
       costUsd: campaign.aggregates.cost.totalCostUsd,
       durationMs: campaign.durationMs,
     })
@@ -404,8 +426,20 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
         timestamp: provenance.timestamp,
         status: 'finished',
         labels: { ...opts.hostedLabels, mode: 'method' },
-        baseline: snapshot(0, baselineSurface, comparison.baselineOnHoldout),
-        generations: [snapshot(1, selected.winnerSurface, comparison.winnerOnHoldout)],
+        baseline: snapshot(
+          0,
+          baselineSurface,
+          comparison.baselineOnHoldout,
+          baseline?.compositeMean ?? null,
+        ),
+        generations: [
+          snapshot(
+            1,
+            selected.winnerSurface,
+            comparison.winnerOnHoldout,
+            winner?.compositeMean ?? null,
+          ),
+        ],
         gateDecision: result.gateDecision,
         ...(lift === undefined ? {} : { holdoutLift: lift }),
         totalCostUsd: result.totalCostUsd,
