@@ -19,6 +19,7 @@ import {
 } from '../campaign/final-evidence'
 import { defaultProductionGate } from '../campaign/gates/default-production-gate'
 import { type PowerPreflight, powerPreflight } from '../campaign/gates/power-preflight'
+import { captureJudge } from '../campaign/judge-snapshot'
 import type {
   OptimizationMethod,
   OptimizationMethodProvenance,
@@ -680,6 +681,7 @@ export async function selfImprove<TScenario extends Scenario, TArtifact>(
 ): Promise<SelfImproveResult<TScenario, TArtifact>> {
   opts = {
     ...opts,
+    judge: captureJudge(opts.judge),
     ...(opts.claim || opts.finalEvidence
       ? {
           claim: opts.claim && defineEvaluationClaim(opts.claim),

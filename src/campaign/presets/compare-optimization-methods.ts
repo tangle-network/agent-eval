@@ -31,6 +31,7 @@ import type {
   ExternalOptimizerObservationSummary,
 } from '../external-optimizer-observations'
 import type { GepaCandidatePopulationSummary } from '../gepa-candidate-population'
+import { captureJudge } from '../judge-snapshot'
 import {
   type ComparisonCost,
   combineComparisonCosts,
@@ -355,10 +356,7 @@ export async function compareOptimizationMethods<TScenario extends Scenario, TAr
     trainScenarios: structuredClone(opts.trainScenarios),
     selectionScenarios: structuredClone(opts.selectionScenarios),
     testScenarios: structuredClone(opts.testScenarios),
-    judges: opts.judges.map((judge) => ({
-      ...judge,
-      dimensions: structuredClone(judge.dimensions),
-    })),
+    judges: opts.judges.map(captureJudge),
     claim: opts.claim && defineEvaluationClaim(opts.claim),
     finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
   }

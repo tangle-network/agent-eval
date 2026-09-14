@@ -5,6 +5,7 @@ import {
   exposeFinalEvidence,
   type FinalEvidencePolicy,
 } from '../final-evidence'
+import { captureJudge } from '../judge-snapshot'
 import { type RunCampaignOptions, runCampaign } from '../run-campaign'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { renderSurfaceDiff, surfaceDispatchRef, surfaceHash } from '../surface-identity'
@@ -33,6 +34,7 @@ export async function runFinalComparison<TScenario extends Scenario, TArtifact>(
 ) {
   opts = {
     ...opts,
+    judges: opts.judges?.map(captureJudge),
     claim: opts.claim && defineEvaluationClaim(opts.claim),
     finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
   }

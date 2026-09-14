@@ -10,7 +10,7 @@ This reference covers direct execution controls and specialist modules.
 |---|---|---|---|
 | `runCampaign()` | `/campaign` | Execute and judge a scenarios × repetitions grid through caller-owned dispatch. | `CampaignResult` |
 | `runEval()` | `/contract` or `/campaign` | Score one surface with campaign defaults. | `CampaignResult` |
-| `runProfileMatrix()` | `/campaign` | Run the same cases across named agent profiles with provenance and backend checks. | `RunRecord[]` |
+| `runProfileMatrix()` | `/campaign` | Run the same cases across named agent profiles with provenance and backend checks. | `RunProfileMatrixResult`, including `.records`. |
 | `runOptimization()` | `/campaign` | Generate, measure, and select candidates on development cases. | Generations and a winner surface. |
 | `runImprovementLoop()` | `/contract` or `/campaign` | Search, compare on final cases, and apply a release gate. | Final comparison, winner, and gate decision. |
 | `compareOptimizationMethods()` | `/campaign` | Compare selected surfaces from several methods under declared budgets. | Final paired contrasts, uncertainty, and costs. |

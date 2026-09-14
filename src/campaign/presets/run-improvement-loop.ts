@@ -13,6 +13,7 @@ import {
   type FinalEvidenceUse,
   reserveFinalEvidence,
 } from '../final-evidence'
+import { captureJudge } from '../judge-snapshot'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
@@ -95,6 +96,7 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
 ): Promise<RunImprovementLoopResult<TArtifact, TScenario>> {
   opts = {
     ...opts,
+    judges: opts.judges?.map(captureJudge),
     ...(opts.claim || opts.finalEvidence
       ? {
           claim: opts.claim && defineEvaluationClaim(opts.claim),

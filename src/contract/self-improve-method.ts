@@ -126,10 +126,7 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
   if (evidenceContext && budget.holdout === 'deferred')
     throw new Error('selfImprove: evidence receipts require measured holdout')
   const baselineSurface = structuredClone(opts.baselineSurface)
-  const judge = {
-    ...opts.judge,
-    dimensions: opts.judge.dimensions.map((dimension) => ({ ...dimension })),
-  }
+  const judge = opts.judge
   const {
     selected,
     cost: methodCost,

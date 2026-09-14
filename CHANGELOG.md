@@ -45,6 +45,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Calibration preserves clipped observations, measures constant predictors, and honors the requested bin count.
 - Registered-unit gates pair complete cells before aggregation; repetitions and source variants cannot multiply independent evidence.
 - Opened experiments and outcome research retain validated snapshots instead of mutable caller-owned rules.
+- Comparisons capture judge configuration and callbacks before asynchronous work.
+  Replacing a caller's judge between arms cannot create artificial lift under the original evaluator identity.
 - Pareto promotion applies regression floors to the deciding confidence interval.
   Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
   Zero-width or non-finite deciding intervals now produce an `indeterminate` axis and `not_evaluated` check.

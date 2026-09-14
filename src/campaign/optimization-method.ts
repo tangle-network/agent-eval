@@ -1,4 +1,5 @@
 import { assertGepaCandidatePopulationSummary } from './gepa-candidate-population'
+import { captureJudge } from './judge-snapshot'
 import {
   assertComparisonCost,
   combineComparisonCosts,
@@ -40,13 +41,7 @@ export async function executeOptimizationMethod<S extends Scenario, A>(
     baselineSurface: structuredClone(input.baselineSurface),
     trainScenarios: cloneScenarios(input.trainScenarios),
     selectionScenarios: cloneScenarios(input.selectionScenarios),
-    judges: Object.freeze(
-      input.judges.map((judge) => {
-        const dimensions = judge.dimensions.map((dimension) => Object.freeze({ ...dimension }))
-        Object.freeze(dimensions)
-        return Object.freeze({ ...judge, dimensions })
-      }),
-    ),
+    judges: Object.freeze(input.judges.map(captureJudge)),
     runOptions: Object.freeze({ ...input.runOptions }),
     costLedger: costScope.ledger,
   })

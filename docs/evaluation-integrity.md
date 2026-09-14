@@ -93,6 +93,9 @@ Ordinary regression and development evaluations remain reusable.
 Supply this policy when freshness is part of the evidence supporting a particular final comparison.
 It requires a comparison or certification claim and measured final execution.
 
+Comparison entrypoints capture judge configuration and callbacks before search or final exposure.
+The host must keep callback receiver and closed-over state stable throughout the comparison.
+
 The campaign reserves source units before candidate search.
 It records exposure before dispatching the baseline, selected candidates, or an optional neutralized control.
 Failed or interrupted final execution still consumes that evidence.
