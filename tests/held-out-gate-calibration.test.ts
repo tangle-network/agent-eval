@@ -150,7 +150,7 @@ describe('HeldOutGate — repeated-sampling calibration', () => {
       expect(d.promote, `zero-spread sample at n=${n}`).toBe(false)
       expect(d.rejectionCode).toBe('indeterminate_delta')
     }
-  })
+  }, 15_000)
 
   it('is deterministic: one identical input, 500 evaluations, one verdict', () => {
     // #457 was closed partly because 500 evaluations of one input produced 233

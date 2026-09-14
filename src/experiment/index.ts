@@ -168,6 +168,12 @@ export {
   verifyMatchedBudgets,
 } from './budget'
 export { type CampaignEvidenceContext, createCampaignEvidenceReceipt } from './campaign-evidence'
+export {
+  defineEvaluationClaim,
+  type EvaluationClaim,
+  type EvaluationUnitSummary,
+  summarizeEvaluationUnits,
+} from './claim'
 // ── Define, seal, amend, execute ─────────────────────────────────────
 export {
   type ArmSpec,
@@ -211,6 +217,16 @@ export {
   renderEvidenceIndex,
   validateEvidenceRegistry,
 } from './evidence-record'
+export {
+  FinalEvidenceConflictError,
+  FinalEvidenceError,
+  type FinalEvidenceLedger,
+  type FinalEvidenceMeasurement,
+  type FinalEvidenceOutcome,
+  type FinalEvidenceRecord,
+  type FinalEvidenceReservation,
+  openFinalEvidenceLedger,
+} from './final-evidence'
 // ── Denominator chain ────────────────────────────────────────────────
 export {
   type AdmissionExecution,

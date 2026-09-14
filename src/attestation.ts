@@ -45,20 +45,14 @@ export interface AttestedReport {
   reportHash: string
   provenance: AttestationProvenance
   algorithm: typeof ATTESTATION_ALGORITHM
-  /**
-   * Hex sha-256 over `{ reportHash, provenance, algorithm }`. New attestations
-   * always carry it. Optional only so persisted pre-envelope attestations can
-   * still be read and explicitly recognized as legacy by callers.
-   */
-  envelopeHash?: string
+  /** Hex sha-256 over `{ reportHash, provenance, algorithm }`. */
+  envelopeHash: string
 }
 
 export interface AttestationVerification {
   valid: boolean
   /** Populated iff `valid` is false — names the exact mismatch. */
   reason?: string
-  /** True only for a valid pre-envelope attestation whose provenance is not cryptographically bound. */
-  legacyUnboundProvenance?: true
 }
 
 function envelopeMaterial(
@@ -92,9 +86,8 @@ export function attest(report: unknown, provenance: AttestationProvenance): Atte
  * canonicalizes) is a verification failure with the cause in `reason`, not a
  * crash — verifiers run in pipelines that must record WHY, not die.
  *
- * Legacy attestations without `envelopeHash` remain readable, but verification
- * explicitly marks their provenance as unbound so a promotion path can refuse
- * them instead of accidentally treating old metadata as cryptographic proof.
+ * Both the report hash and the provenance envelope must verify.
+ * Missing envelope hashes cannot establish provenance and fail verification.
  */
 export function verifyAttestation(
   report: unknown,
@@ -105,6 +98,9 @@ export function verifyAttestation(
       valid: false,
       reason: `unknown algorithm '${attested.algorithm}' — this verifier only checks '${ATTESTATION_ALGORITHM}'`,
     }
+  }
+  if (typeof attested.envelopeHash !== 'string' || !/^[0-9a-f]{64}$/.test(attested.envelopeHash)) {
+    return { valid: false, reason: 'attestation envelope hash is missing or invalid' }
   }
   let recomputed: string
   try {
@@ -120,10 +116,6 @@ export function verifyAttestation(
       valid: false,
       reason: `report hash mismatch: attested ${attested.reportHash}, recomputed ${recomputed}`,
     }
-  }
-
-  if (attested.envelopeHash === undefined) {
-    return { valid: true, legacyUnboundProvenance: true }
   }
 
   let envelopeHash: string

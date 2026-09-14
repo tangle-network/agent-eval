@@ -43,10 +43,15 @@ export interface DefaultProductionGateOptions {
   /** Required: scenarios held out from training; substrate compares
    *  candidate-on-holdout vs baseline-on-holdout. */
   holdoutScenarios: Scenario[]
-  /** Minimum held-out lift the **paired-bootstrap CI lower bound** must clear
-   *  to ship — NOT a point estimate. Default 0 ⇒ "confidently positive at the
-   *  confidence level". Interpreted in the judge's native composite scale (set
-   *  e.g. 2 for a 0-100 rubric to require a ≥2-point significant gain). */
+  /**
+   * Independent sampling unit for every held-out scenario. Pair cells first,
+   * then average scores within each unit and give units equal weight.
+   * Omit only when execution cells on a fixed roster are the observation units.
+   */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
+  /** Minimum held-out improvement under the shared paired decision rule.
+   *  Default 0. The outcome shape and sample count determine the statistical
+   *  test. Use native composite units, such as 2 for a 0-100 rubric. */
   deltaThreshold?: number
   /** Confidence level for the held-out + dimension bootstraps. Default 0.95. */
   confidence?: number
@@ -54,7 +59,7 @@ export interface DefaultProductionGateOptions {
   bootstrapResamples?: number
   /** Fixed bootstrap seed for a deterministic verdict. Default 1337. */
   bootstrapSeed?: number
-  /** Minimum paired holdout observations (scenarios × reps) before a
+  /** Minimum paired independent units (or cells when unconfigured) before a
    *  significance claim is allowed. The exact small-sample test may require
    *  more observations at the selected confidence. Default 3. */
   minProductiveRuns?: number
@@ -62,10 +67,9 @@ export interface DefaultProductionGateOptions {
    *  (tie-robust — see `heldoutSignificance`). Pass `'median'` for
    *  outlier-robustness at the cost of tie-blindness. */
   heldoutStatistic?: 'mean' | 'median'
-  /** Critical judge dimensions that must NOT significantly regress even when
-   *  the net composite rises (anti-Goodhart). The gate HOLDS if any listed
-   *  dimension's paired-delta CI lower bound < −`regressionTolerance`. E.g.
-   *  `['hallucination_free']` for a legal agent. */
+  /** Required judge dimensions checked for regression and complete evidence.
+   *  A bootstrap lower bound below negative tolerance or a paired test proving
+   *  a drop holds the gate. Thin or incomplete coverage is not_evaluated. */
   criticalDimensions?: string[]
   /** Tolerance for the per-dimension regression guard, in the dimension's
    *  native scale. When omitted it auto-scales off observed magnitudes:
@@ -105,6 +109,21 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
   const minProductiveRuns = options.minProductiveRuns ?? 3
   const heldoutStatistic = options.heldoutStatistic ?? 'mean'
   const explicitlyRequired = new Set(options.requiredChecks ?? [])
+  const scenarioIds = new Set(options.holdoutScenarios.map((scenario) => scenario.id))
+  const independentUnitByScenarioId =
+    options.independentUnitByScenarioId === undefined
+      ? undefined
+      : new Map(options.independentUnitByScenarioId)
+  if (independentUnitByScenarioId !== undefined) {
+    for (const id of scenarioIds) {
+      const unit = independentUnitByScenarioId.get(id)
+      if (typeof unit !== 'string' || unit.length === 0 || unit.trim() !== unit) {
+        throw new Error(
+          `defaultProductionGate: missing independent unit for holdout scenario '${id}'`,
+        )
+      }
+    }
+  }
 
   return {
     name: 'defaultProductionGate',
@@ -129,14 +148,8 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         }
       }
 
-      // ── (1) heldout composite lift — paired-bootstrap CI, NOT a point estimate
-      // The shipped false positive: the baseline re-scored against itself read
-      // run-to-run model noise (91 vs 95) as a "+4 lift" and shipped, because a
-      // point estimate carries no confidence interval. Pair candidate vs
-      // baseline holdout cells by FULL cellId (never averaging reps away) and
-      // ship only when the bootstrap CI lower bound clears the threshold —
-      // i.e. the gain is real at the confidence level, not noise.
-      const scenarioIds = new Set(options.holdoutScenarios.map((s) => s.id))
+      // Full cell pairing precedes aggregation, so a missing replica cannot
+      // disappear into two independently computed unit means.
       let delta: number | undefined
       if (!ctx.baselineJudgeScores) {
         unavailable(
@@ -154,6 +167,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
             resamples,
             seed,
             statistic: heldoutStatistic,
+            independentUnitByScenarioId,
           },
         )
         // The DECIDING interval, not the diagnostic bootstrap: on a pass/fail
@@ -167,6 +181,9 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           status: sig.fewRuns ? 'not_evaluated' : heldoutPass ? 'pass' : 'fail',
           detail: {
             n: sig.n,
+            pairedCellN: sig.pairedCellN,
+            observationUnit: sig.observationUnit,
+            unitIds: sig.unitIds,
             delta,
             decisionStatistic: sig.decisionStatistic,
             decisionMethod: sig.decisionMethod,
@@ -192,17 +209,19 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
         if (!heldoutPass) {
           const tieNote =
             sig.tieFraction >= TIE_WARN_FRACTION
-              ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied scenarios`
+              ? `; ${(sig.tieFraction * 100).toFixed(0)}% tied observation units`
               : ''
           const ci = `${(dec.confidence * 100).toFixed(0)}% CI [${dec.low.toFixed(3)}, ${dec.high.toFixed(3)}]`
           reasons.push(
             sig.fewRuns
-              ? `held-out: only ${sig.n} paired runs (< ${sig.minimumRequired}) — too few to claim significance`
+              ? `held-out: only ${sig.n} paired observation units (< ${sig.minimumRequired}) — too few to claim significance`
               : dec.indeterminate
                 ? `held-out: ${dec.indeterminateCause}, so the paired CI is ${ci} and carries no direction — it cannot clear threshold ${deltaThreshold} on evidence${tieNote}`
                 : dec.exactTestVetoes
                   ? `held-out: McNemar exact p=${dec.mcnemar?.pValue.toExponential(2)} does not reject at α=${(1 - dec.confidence).toFixed(4)} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`
-                  : `held-out CI.low ${dec.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`,
+                  : dec.method === 'exact-sign'
+                    ? `held-out: exact one-sided sign test p=${dec.pValue} does not reject at α=${((1 - dec.confidence) / 2).toFixed(4)} (${dec.label} Δ ${delta.toFixed(3)}, diagnostic ${ci}${tieNote})`
+                    : `held-out CI.low ${dec.low.toFixed(3)} ≤ threshold ${deltaThreshold} (${dec.label} Δ ${delta.toFixed(3)}, ${ci}${tieNote})`,
           )
         }
       }
@@ -242,15 +261,28 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           ctx.baselineJudgeScores,
           scenarioIds,
           criticalDimensions,
-          { tolerance: options.regressionTolerance, confidence, resamples, seed },
+          {
+            tolerance: options.regressionTolerance,
+            confidence,
+            resamples,
+            seed,
+            independentUnitByScenarioId,
+            minProductiveRuns,
+          },
         )
         const measured = new Set(dimRegs.map((result) => result.dimension))
         const missingDimensions = criticalDimensions.filter((dimension) => !measured.has(dimension))
         const regressed = dimRegs.filter((result) => result.regressed)
+        const incompleteDimensions = dimRegs.filter(
+          (result) =>
+            result.fewRuns ||
+            result.missingCellIds.length > 0 ||
+            result.missingScenarioIds.length > 0,
+        )
         const dimensionStatus =
           regressed.length > 0
             ? ('fail' as const)
-            : missingDimensions.length > 0
+            : missingDimensions.length > 0 || incompleteDimensions.length > 0
               ? ('not_evaluated' as const)
               : ('pass' as const)
         contributing.push({
@@ -259,6 +291,7 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           detail: {
             guarded: criticalDimensions,
             missingDimensions,
+            incompleteDimensions: incompleteDimensions.map((result) => result.dimension),
             regressions: dimRegs.map((result) => ({
               dimension: result.dimension,
               ciLow: result.ci.low,
@@ -269,6 +302,12 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
               median: result.bootstrap.median,
               tolerance: result.tolerance,
               n: result.n,
+              pairedCellN: result.pairedCellN,
+              observationUnit: result.observationUnit,
+              minimumRequired: result.minimumRequired,
+              fewRuns: result.fewRuns,
+              missingCellIds: result.missingCellIds,
+              missingScenarioIds: result.missingScenarioIds,
               regressed: result.regressed,
             })),
           },
@@ -277,9 +316,27 @@ export function defaultProductionGate<TArtifact, TScenario extends Scenario>(
           requiredUnavailable.add('dimension-regression')
           reasons.push(`critical dimension(s) were not scored: ${missingDimensions.join(', ')}`)
         }
+        if (incompleteDimensions.length > 0) {
+          requiredUnavailable.add('dimension-regression')
+          reasons.push(
+            `critical dimension evidence is incomplete: ${incompleteDimensions
+              .map(
+                (result) =>
+                  `${result.dimension} has ${result.n} paired observation units (minimum ${result.minimumRequired}), ` +
+                  `${result.missingCellIds.length} unscored cells, ${result.missingScenarioIds.length} unscored scenarios`,
+              )
+              .join('; ')}`,
+          )
+        }
         if (regressed.length > 0) {
           reasons.push(
-            `critical dimension(s) regressed: ${regressed.map((result) => `${result.dimension} CI.low ${result.ci.low.toFixed(3)} < -${result.tolerance}`).join('; ')}`,
+            `critical dimension(s) regressed: ${regressed
+              .map((result) =>
+                result.bootstrap.low < -result.tolerance
+                  ? `${result.dimension} bootstrap CI.low ${result.bootstrap.low.toFixed(3)} < -${result.tolerance}`
+                  : `${result.dimension} paired test supports a drop greater than ${result.tolerance}`,
+              )
+              .join('; ')}`,
           )
         }
       }

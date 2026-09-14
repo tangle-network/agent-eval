@@ -1,22 +1,33 @@
 import { campaignCellToRunRecord } from '../campaign/run-record'
+import { pairedCampaignComposites } from '../campaign/score-utils'
 import { surfaceContentHash } from '../campaign/surface-identity'
-import type { CampaignCellResult, MutableSurface } from '../campaign/types'
+import type {
+  CampaignCellResult,
+  CampaignResult,
+  MutableSurface,
+  Scenario,
+} from '../campaign/types'
 import { ValidationError } from '../errors'
 import { modelHasSnapshot, type RunRecord, type RunSplitTag } from '../run-record'
 
-export function meanComposite(byScenario: Record<string, { meanComposite: number }>): {
-  compositeMean: number
-  perScenario: Record<string, number>
-} {
-  const perScenario: Record<string, number> = {}
-  const values: number[] = []
-  for (const [id, agg] of Object.entries(byScenario)) {
-    perScenario[id] = agg.meanComposite
-    values.push(agg.meanComposite)
-  }
+export function pairedCompositeSummary<TArtifact, TScenario extends Scenario>(
+  baseline: CampaignResult<TArtifact, TScenario>,
+  winner: CampaignResult<TArtifact, TScenario>,
+  independentUnitByScenarioId?: ReadonlyMap<string, string>,
+) {
+  const scores = pairedCampaignComposites(baseline, winner, independentUnitByScenarioId)
+  const perScenario = (campaign: CampaignResult<TArtifact, TScenario>) =>
+    Object.fromEntries(
+      Object.entries(campaign.aggregates.byScenario).map(([id, aggregate]) => [
+        id,
+        aggregate.meanComposite,
+      ]),
+    )
   return {
-    compositeMean: values.length === 0 ? 0 : values.reduce((s, v) => s + v, 0) / values.length,
-    perScenario,
+    baseline: { compositeMean: scores.beforeMean, perScenario: perScenario(baseline) },
+    winner: { compositeMean: scores.afterMean, perScenario: perScenario(winner) },
+    baselineComposites: scores.before,
+    observations: scores.observations,
   }
 }
 

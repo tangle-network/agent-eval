@@ -20,21 +20,23 @@
  * shifts the null boundary by `manifest.minEffect` — re-deciding the same
  * stream under different parameters after seeing data would reopen optional
  * stopping under a fancier name. The manifest's content hash is verified at
- * construction (sync, same `sha256-content` scheme as `signManifest`).
+ * construction with the canonical RFC 8785 digest used by signManifest.
  *
- * Non-iid caveat (stated honestly): the supermartingale guarantee needs each
- * delta's conditional mean under H0 to stay ≤ the null boundary given the
- * past — exchangeable scenario deltas suffice. Scenario streams ordered by
- * difficulty or by scenario family violate this; `decide(ctx)` therefore
- * shuffles the paired deltas with a SEEDED permutation by default (the
- * permutation is data-independent, so bet predictability is preserved).
- * Stratified betting (per-stratum λ) is future work, not implemented here.
+ * The supermartingale guarantee requires E[delta_t | past] ≤ the null
+ * boundary under H0. Independent sampling with that mean bound suffices.
+ * Exchangeability or shuffling alone does not: one fair sign repeated many
+ * times is exchangeable and has marginal mean zero, but its conditional mean
+ * becomes the revealed sign. A seeded shuffle cannot remove that dependence.
+ * `decide(ctx)` pairs cells, then averages repetitions within each scenario
+ * before testing. Pass independentUnitByScenarioId for scenarios sharing a
+ * latent source or incident. Units must still satisfy the conditional-mean null.
+ * Direct `observe()` callers own this sampling and aggregation contract.
  */
 
 import { manifestContentDigest, type SignedManifest } from '../../pre-registration'
 import { type EProcessState, eProcess, mulberry32 } from '../../statistics'
 import type { Gate, GateContext, GateResult, GenerationRecord, Scenario } from '../types'
-import { pairHoldout } from './statistical-heldout'
+import { aggregatePairedHoldout, pairHoldout } from './statistical-heldout'
 
 export type SequentialDecision = 'promote' | 'continue' | 'undecided-at-maxN'
 
@@ -53,11 +55,11 @@ export interface SequentialPairedGateOptions {
   /** Type-I budget. With `preRegistration` bound this MUST match
    *  `manifest.alpha` (conflict throws). Default 0.05. */
   alpha?: number
-  /** Minimum paired deltas before a promote may fire. The stopping rule is
+  /** Minimum independent paired units before a promote may fire. The stopping rule is
    *  "first n ≥ minN with e-value ≥ 1/alpha" — still a valid stopping time.
    *  Default 5. */
   minN?: number
-  /** Pre-registered observation budget. Required unless `preRegistration`
+  /** Pre-registered independent-unit budget (scenarios by default in decide()). Required unless `preRegistration`
    *  supplies it via `preRegisteredN` (conflict throws). */
   maxN?: number
   /** Bet truncation forwarded to `eProcess`. Default 0.5. */
@@ -66,9 +68,13 @@ export interface SequentialPairedGateOptions {
    *  x = (d/scale + 1)/2 ∈ [0,1]. A delta outside ±scale throws (use
    *  `detectScale` to pick 1 vs 100 BEFORE streaming). Default 1. */
   scale?: number
-  /** Seed for the data-independent shuffle of paired deltas in `decide(ctx)`
-   *  (exchangeability guard). Default 1337. */
+  /** Seed for reproducible ordering of scenario deltas in decide().
+   *  Shuffling does not establish the conditional-mean null. Default 1337. */
   shuffleSeed?: number
+  /** Independent unit for every scenario passed to decide(). Full cell pairs
+   *  are averaged within each unit before testing. Defaults to scenario IDs.
+   *  The mapping is copied at construction. Direct observe() is unchanged. */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
   /** Bind the pre-registered hypothesis. Verified (content hash) at
    *  construction; alpha/maxN/direction/minEffect come FROM the manifest. */
   preRegistration?: SignedManifest
@@ -91,8 +97,10 @@ export type SequentialStreamState = EProcessState & { decision: SequentialDecisi
 
 export interface SequentialPairedGate<TArtifact = unknown, TScenario extends Scenario = Scenario>
   extends Gate<TArtifact, TScenario> {
-  /** Streaming entry point: feed one paired per-scenario delta
-   *  (candidate − baseline, native scale). Each gate instance carries ONE
+  /** Streaming entry point: feed one paired independent-unit delta
+   *  (candidate − baseline, native scale). Aggregate correlated repetitions
+   *  before calling; the caller must justify E[delta_t | past] under H0.
+   *  Each gate instance carries ONE
    *  observe-stream; `decide(ctx)` runs on its own fresh stream and never
    *  consumes or advances this one. 'promote' is sticky; observing past the
    *  pre-registered maxN throws (extending a finished stream after seeing
@@ -335,15 +343,16 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
 
 /**
  * Anytime-valid sequential paired gate. Conforms to the existing `Gate`
- * contract (`decide(ctx)` consumes candidate vs baseline judge scores via
- * `pairHoldout` — same pairing granularity as the fixed-n gates: full cellId,
- * never scenarioId) and adds a streaming `observe(delta)` entry for campaigns
- * that score cells incrementally and want to stop mid-stream.
+ * contract: decide(ctx) pairs candidate and baseline by full cellId, then
+ * averages deltas within each configured unit (scenario by default). The
+ * e-process consumes one observation per unit, with equal unit weights.
+ * The streaming observe(delta) entry consumes caller-aggregated independent
+ * units. Repetitions improve a unit's precision and do not increase n.
  *
  * Decision mapping onto the substrate's five-valued `GateDecision`:
  *   - 'promote'            → 'ship'
  *   - 'continue'           → 'need_more_work' (stream ended before maxN with
- *                            the e-value undecided — more reps could decide)
+ *                            the e-value undecided — more independent units needed)
  *   - 'undecided-at-maxN'  → 'hold', with the reason stating it is NOT
  *                            evidence of no effect (never a silent default)
  */
@@ -354,6 +363,10 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
   const name = options.name ?? 'sequentialPairedGate'
   const manifest = options.preRegistration
   const observeStream = makeStream(cfg, options.resume)
+  const independentUnitByScenarioId =
+    options.independentUnitByScenarioId === undefined
+      ? undefined
+      : new Map(options.independentUnitByScenarioId)
 
   return {
     name,
@@ -371,13 +384,29 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
         )
       }
       const scenarioIds = new Set(ctx.scenarios.map((s) => s.id))
+      const unitMap = independentUnitByScenarioId ?? new Map([...scenarioIds].map((id) => [id, id]))
+      for (const id of scenarioIds) {
+        const unit = unitMap.get(id)
+        if (typeof unit !== 'string' || unit.length === 0 || unit.trim() !== unit) {
+          throw new Error(`${name}: missing independent unit for scenario '${id}'`)
+        }
+      }
       const paired = pairHoldout(
         ctx.judgeScores,
         ctx.baselineJudgeScores,
         scenarioIds,
         (s) => s.composite,
       )
-      const deltas = paired.after.map((a, i) => a - paired.before[i]!)
+      for (let i = 0; i < paired.cellIds.length; i++) {
+        const delta = paired.after[i]! - paired.before[i]!
+        if (Math.abs(delta) > cfg.scale) {
+          throw new Error(
+            `${name}: cell '${paired.cellIds[i]}' delta ${delta} outside ±scale=${cfg.scale}`,
+          )
+        }
+      }
+      const observations = aggregatePairedHoldout(paired, unitMap)
+      const deltas = observations.after.map((after, i) => after - observations.before[i]!)
       seededShuffle(deltas, cfg.shuffleSeed)
 
       const stream = makeStream(cfg)
@@ -396,6 +425,9 @@ export function sequentialPairedGate<TArtifact = unknown, TScenario extends Scen
         direction: cfg.direction,
         minEffect: cfg.minEffect,
         pairedN: deltas.length,
+        pairedCellN: paired.cellIds.length,
+        observationUnit: independentUnitByScenarioId === undefined ? 'scenario' : 'registered',
+        unitIds: observations.unitIds,
         ...(manifest ? { preRegisteredId: manifest.id, metric: manifest.metric } : {}),
       }
       const meanDelta =
@@ -453,9 +485,8 @@ export interface SequentialDecideFn {
 }
 
 /**
- * `SurfaceProposer.decide` adapter — stops the optimization loop the moment
- * the e-process decides the loop has produced a real improvement, instead of
- * always running `maxGenerations`.
+ * SurfaceProposer.decide adapter that stops exploration at an e-value threshold.
+ * The selected candidate still requires an independent held-out decision.
  *
  * Stream: for each generation g ≥ 1, the per-scenario composite deltas of
  * generation g's top candidate vs the generation-0 top candidate (the
@@ -466,10 +497,11 @@ export interface SequentialDecideFn {
  * gate (which re-scores on HELD-OUT data — this adapter only spends the
  * exploration budget, it never promotes).
  *
- * Honesty caveats: (1) the incumbent's scores are measured once and shared
- * across all generations' deltas, so type-I control is exact only insofar as
- * those scores approximate the incumbent's true per-scenario means (more reps
- * → tighter); (2) an UNDECIDED process never stops the loop — absence of a
+ * This is an exploration stopping heuristic. Selection of the best measured
+ * candidate and reuse of measured incumbent scores generally violate the
+ * conditional-mean null, even when the candidates have no true improvement.
+ * More repetitions reduce noise but do not establish exact type-I control.
+ * An UNDECIDED process never stops the loop — absence of a
  * crossing is NOT evidence of no effect, so the loop simply runs its normal
  * course. Calling the adapter repeatedly with a growing history consumes each
  * generation exactly once (re-feeding an already-seen record would double-count
@@ -537,8 +569,8 @@ export function sequentialDecide(options: SequentialDecideOptions = {}): Sequent
             reason:
               `sequential e-process decided at generation ${history[g]!.generationIndex}: ` +
               `e-value ${step.wealth.toFixed(2)} ≥ 1/α=${threshold.toFixed(2)} after n=${step.n} ` +
-              'paired deltas vs the generation-0 incumbent — the improvement is real at ' +
-              `α=${alpha}; stop exploring and promote via the gate`,
+              'paired deltas vs the generation-0 incumbent; stop exploring and require ' +
+              'an independent held-out promotion decision',
           }
           processedGenerations = history.length
           return stopped

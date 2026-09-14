@@ -396,6 +396,8 @@ export type IntervalSpec =
   | {
       kind: 'cluster-bootstrap'
       clusterBy: string
+      /** Registered numeric or boolean outcome field, including a prepared paired difference. */
+      value: string
       resamples: number
       seed: number
       level: number
@@ -409,10 +411,45 @@ export interface ComputedInterval {
   level: number
 }
 
+/** Shared by registration and direct execution so malformed intervals cannot produce evidence. */
+export function intervalSpecProblems(spec: IntervalSpec): string[] {
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
+    return ['interval must be an object']
+  }
+  if (spec.kind !== 'cluster-bootstrap' && spec.kind !== 'clopper-pearson') {
+    return ['interval kind must be cluster-bootstrap or clopper-pearson']
+  }
+  const problems: string[] = []
+  if (!Number.isFinite(spec.level) || spec.level <= 0 || spec.level >= 1) {
+    problems.push('level must be a finite number between zero and one')
+  }
+  if (spec.kind === 'cluster-bootstrap') {
+    for (const field of ['clusterBy', 'value'] as const) {
+      const path = spec[field]
+      if (
+        typeof path !== 'string' ||
+        path.split('.').some((segment) => segment.length === 0 || segment.trim() !== segment)
+      ) {
+        problems.push(`${field} must be a nonempty dot-separated field path`)
+      }
+    }
+    if (
+      !Number.isSafeInteger(spec.resamples) ||
+      spec.resamples < 1 ||
+      spec.resamples > 0xffff_ffff
+    ) {
+      problems.push('resamples must be a positive integer within the supported array length')
+    }
+    if (!Number.isSafeInteger(spec.seed)) problems.push('seed must be a safe integer')
+    if (spec.method !== 'percentile') problems.push('method must be percentile')
+  }
+  return problems
+}
+
 /**
  * Execute an interval spec.
  *
- * Cluster-bootstrap resamples whole clusters of the per-row `value` field and
+ * Cluster-bootstrap resamples whole clusters of its registered `value` field and
  * takes percentile bounds of the pooled mean. Clopper-Pearson computes the
  * exact binomial interval and requires `successes`/`trials` evidence instead
  * of rows.
@@ -420,25 +457,49 @@ export interface ComputedInterval {
 export function computeInterval(
   spec: IntervalSpec,
   evidence:
-    | { kind: 'rows'; rows: readonly EvidenceRecord[]; value: string }
+    | { kind: 'rows'; rows: readonly EvidenceRecord[] }
     | { kind: 'binomial'; successes: number; trials: number },
 ): ComputedInterval {
+  const problems = intervalSpecProblems(spec)
+  if (problems.length > 0) throw new ValidationError(`computeInterval: ${problems.join('; ')}`)
+  if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) {
+    throw new ValidationError('computeInterval: evidence must be an object')
+  }
   if (spec.kind === 'cluster-bootstrap') {
     if (evidence.kind !== 'rows') {
       throw new ValidationError('computeInterval: cluster-bootstrap requires row evidence')
     }
+    if ('value' in evidence) {
+      throw new ValidationError(
+        'computeInterval: register value in the interval spec, not row evidence',
+      )
+    }
+    if (!Array.isArray(evidence.rows))
+      throw new ValidationError('computeInterval: rows must be an array')
     const clusters = new Map<string, number[]>()
-    for (const row of evidence.rows) {
-      const cluster = String(readField(row, spec.clusterBy))
+    for (const [index, row] of evidence.rows.entries()) {
+      if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+        throw new ValidationError(`computeInterval: row ${index} must be an object`)
+      }
+      const cluster = readField(row, spec.clusterBy)
+      if (
+        !(typeof cluster === 'string' && cluster.length > 0 && cluster.trim() === cluster) &&
+        !(typeof cluster === 'number' && Number.isFinite(cluster))
+      ) {
+        throw new ValidationError(
+          `computeInterval: cluster field '${spec.clusterBy}' must be a nonempty string or finite number on row ${index}`,
+        )
+      }
+      const clusterKey = `${typeof cluster}:${cluster}`
       const value = readNumericOutcome(
-        readField(row, evidence.value),
+        readField(row, spec.value),
         'computeInterval cluster-bootstrap',
-        evidence.value,
+        spec.value,
         `cluster '${cluster}'`,
       )
-      const bucket = clusters.get(cluster)
+      const bucket = clusters.get(clusterKey)
       if (bucket) bucket.push(value)
-      else clusters.set(cluster, [value])
+      else clusters.set(clusterKey, [value])
     }
     const clusterValues = [...clusters.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -459,6 +520,11 @@ export function computeInterval(
         count += cluster.length
       }
       means[draw] = sum / count
+      if (!Number.isFinite(means[draw])) {
+        throw new ValidationError(
+          'computeInterval: cluster mean overflowed the finite numeric range',
+        )
+      }
     }
     means.sort((a, b) => a - b)
     const alpha = 1 - spec.level
@@ -475,7 +541,12 @@ export function computeInterval(
     throw new ValidationError('computeInterval: clopper-pearson requires binomial evidence')
   }
   const { successes, trials } = evidence
-  if (!Number.isInteger(successes) || !Number.isInteger(trials) || trials <= 0 || successes < 0) {
+  if (
+    !Number.isSafeInteger(successes) ||
+    !Number.isSafeInteger(trials) ||
+    trials <= 0 ||
+    successes < 0
+  ) {
     throw new ValidationError(
       `computeInterval: clopper-pearson needs 0 <= successes <= trials, got ${successes}/${trials}`,
     )
@@ -677,6 +748,8 @@ export type ValidityGate =
   | {
       kind: 'power-floor'
       target: number
+      /** Minimum worthwhile effect; must be represented exactly in effectGrid. */
+      minimumEffect: number
       effectGrid: number[]
       sim: { trials: number; resamples: number; seed: number }
     }
@@ -760,8 +833,8 @@ export function evaluateIdentityGate(
 }
 
 /**
- * The design's power curve must reach the registered target at some grid
- * effect. The curve must cover the registered effect grid exactly — a curve
+ * The design's power at minimumEffect must reach the registered target.
+ * The curve must cover the registered effect grid exactly — a curve
  * computed on a different grid is different evidence and is refused.
  */
 export function evaluatePowerFloorGate(
@@ -769,24 +842,70 @@ export function evaluatePowerFloorGate(
   gate: Extract<ValidityGate, { kind: 'power-floor' }>,
   curve: readonly { effect: number; power: number }[],
 ): GateResult {
+  const problems = powerFloorProblems(gate)
+  if (problems.length > 0) {
+    throw new ValidationError(`evaluatePowerFloorGate: ${problems.join('; ')}`)
+  }
+  if (curve.some((point) => !Number.isFinite(point.power) || point.power < 0 || point.power > 1)) {
+    throw new ValidationError('evaluatePowerFloorGate: powers must be finite and in [0,1]')
+  }
   const byEffect = new Map(curve.map((point) => [point.effect, point.power]))
+  if (byEffect.size !== curve.length) {
+    throw new ValidationError('evaluatePowerFloorGate: curve contains duplicate effects')
+  }
   const missing = gate.effectGrid.filter((effect) => !byEffect.has(effect))
   if (missing.length > 0) {
     throw new ValidationError(
       `evaluatePowerFloorGate: curve does not cover registered effects [${missing.join(', ')}]`,
     )
   }
+  const extra = curve.filter((point) => !gate.effectGrid.includes(point.effect))
+  if (extra.length > 0) {
+    throw new ValidationError(
+      `evaluatePowerFloorGate: curve contains unregistered effects [${extra.map((point) => point.effect).join(', ')}]`,
+    )
+  }
   const powers = gate.effectGrid.map((effect) => byEffect.get(effect)!)
   const maxPower = Math.max(...powers)
+  const powerAtMinimumEffect = byEffect.get(gate.minimumEffect)!
   return {
     id,
-    passed: maxPower >= gate.target,
+    passed: powerAtMinimumEffect >= gate.target,
     evidence: {
       target: gate.target,
+      minimumEffect: gate.minimumEffect,
+      powerAtMinimumEffect,
       maxPower,
       curve: gate.effectGrid.map((effect) => ({ effect, power: byEffect.get(effect)! })),
     },
   }
+}
+
+/** Shared by seal validation and direct execution; malformed designs never pass. */
+export function powerFloorProblems(gate: Extract<ValidityGate, { kind: 'power-floor' }>): string[] {
+  const problems: string[] = []
+  if (!Number.isFinite(gate.target) || gate.target <= 0 || gate.target > 1) {
+    problems.push('power target must be in (0,1]')
+  }
+  if (!Number.isFinite(gate.minimumEffect) || gate.minimumEffect <= 0) {
+    problems.push('minimumEffect must be positive and finite')
+  }
+  if (gate.effectGrid.length === 0 || gate.effectGrid.some((effect) => !Number.isFinite(effect))) {
+    problems.push('effectGrid must contain finite effects')
+  }
+  if (new Set(gate.effectGrid).size !== gate.effectGrid.length) {
+    problems.push('effectGrid contains duplicate effects')
+  }
+  if (!gate.effectGrid.includes(gate.minimumEffect)) {
+    problems.push('effectGrid must contain minimumEffect exactly; no interpolation is assumed')
+  }
+  for (const field of ['trials', 'resamples'] as const) {
+    if (!Number.isInteger(gate.sim[field]) || gate.sim[field] <= 0) {
+      problems.push(`power simulation ${field} must be a positive integer`)
+    }
+  }
+  if (!Number.isInteger(gate.sim.seed)) problems.push('power simulation seed must be an integer')
+  return problems
 }
 
 /** Checks as prerequisites: any named gate failing refuses the spend. */

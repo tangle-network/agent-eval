@@ -8,14 +8,11 @@
  * evaluate the manifest against observed results — the library refuses
  * to let you re-interpret a different metric as the declared one.
  *
- * A signed manifest is a portable record: it is written once and verified
- * later, possibly by a different release. `algo` names the digest scheme it
- * was signed under, and verification selects the encoder by that field, so a
- * manifest signed by an earlier release still verifies.
+ * A signed manifest carries its required digest scheme. Verification accepts
+ * only RFC 8785 canonical JSON, using the same encoder as every new identity.
  */
 
-import { createHash } from 'node:crypto'
-import { canonicalString, hashCanonical } from './ledger-core/canonical'
+import { hashCanonical } from './ledger-core/canonical'
 
 export interface HypothesisManifest {
   id: string
@@ -40,32 +37,14 @@ export interface HypothesisManifest {
   candidateLabel?: string
 }
 
-/**
- * Identifier for the hashing scheme used to produce `contentHash`.
- *
- * Both schemes are sha256 hex over the manifest with `contentHash` and `algo`
- * stripped, and differ only in how that manifest is serialized:
- *
- * - `'sha256-rfc8785'` — RFC 8785 canonical JSON. What {@link signManifest}
- *   emits.
- * - `'sha256-content'` — key-sorted `JSON.stringify`. Read-only: manifests
- *   signed by an earlier release carry it, or carry no `algo` at all, and
- *   {@link verifyManifest} still verifies them.
- */
-export type SignedManifestAlgo = 'sha256-content' | 'sha256-rfc8785'
+/** SHA-256 over RFC 8785 canonical JSON, excluding `contentHash` and `algo`. */
+export type SignedManifestAlgo = 'sha256-rfc8785'
 
 export interface SignedManifest extends HypothesisManifest {
   /** sha256 hex of canonicalized manifest (everything except contentHash and algo). */
   contentHash: string
-  /**
-   * Algorithm string describing how `contentHash` was produced.
-   *
-   * Optional on the type so serialized manifests without it still parse,
-   * but ALWAYS populated by {@link signManifest}. Consumers that want to
-   * enforce a known algorithm should reject manifests where this field
-   * is missing or unrecognized.
-   */
-  algo?: SignedManifestAlgo
+  /** Required digest scheme. Missing or unsupported schemes fail verification. */
+  algo: SignedManifestAlgo
 }
 
 export interface HypothesisResult {
@@ -103,40 +82,16 @@ export async function hashJson<T>(obj: T): Promise<string> {
 }
 
 /**
- * Key-sorted `JSON.stringify` digest. Private and read-only: it exists so a
- * manifest signed under `'sha256-content'` still verifies, and nothing that
- * WRITES a digest may call it.
- */
-function legacyContentDigest(value: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(sortKeysDeep(value)), 'utf8')
-    .digest('hex')
-}
-
-function sortKeysDeep(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  if (Array.isArray(value)) return value.map(sortKeysDeep)
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = sortKeysDeep((value as Record<string, unknown>)[key])
-  }
-  return out
-}
-
-/**
- * Digest of a manifest under its own declared scheme, with `contentHash` and
- * `algo` stripped. Synchronous, so a caller that must fail before consuming an
- * observation does not have to await. Throws on an `algo` this release does
- * not know — an unverifiable manifest must not read as a valid one.
+ * Digest a manifest after validating its scheme, excluding `contentHash` and
+ * `algo`. This synchronous check can refuse a manifest before consuming data.
  */
 export function manifestContentDigest(manifest: SignedManifest): string {
   const { contentHash: _contentHash, algo, ...rest } = manifest
   void _contentHash
-  if (algo === undefined || algo === 'sha256-content') return legacyContentDigest(rest)
-  if (algo === 'sha256-rfc8785') {
-    return createHash('sha256').update(canonicalString(rest), 'utf8').digest('hex')
+  if (algo !== 'sha256-rfc8785') {
+    throw new Error(`pre-registration: unsupported manifest hash algo '${String(algo)}'`)
   }
-  throw new Error(`pre-registration: unrecognized manifest hash algo '${String(algo)}'`)
+  return hashCanonical(rest).slice('sha256:'.length)
 }
 
 /**
@@ -154,7 +109,11 @@ export async function signManifest(m: HypothesisManifest): Promise<SignedManifes
  * the manifest itself declares.
  */
 export async function verifyManifest(m: SignedManifest): Promise<boolean> {
-  return manifestContentDigest(m) === m.contentHash
+  try {
+    return manifestContentDigest(m) === m.contentHash
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -166,7 +125,7 @@ export async function evaluateHypothesis(
   observed: { n: number; effect: number; pValue: number },
 ): Promise<HypothesisResult> {
   if (!(await verifyManifest(manifest))) {
-    throw new Error('evaluateHypothesis: manifest content hash mismatch (tampered)')
+    throw new Error('evaluateHypothesis: unsupported manifest hash scheme or content hash mismatch')
   }
   const reasons: HypothesisResult['rejectionReasons'] = []
   const directionOk = manifest.direction === 'increase' ? observed.effect > 0 : observed.effect < 0

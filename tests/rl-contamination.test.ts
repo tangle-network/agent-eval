@@ -26,7 +26,13 @@ describe('runContaminationProbe', () => {
     })
     expect(out.contaminationSuspected).toBe(true)
     expect(out.medianDelta).toBeLessThan(-0.05)
-    expect(out.pairedTest.p).toBeLessThan(0.05)
+    expect(out.pairedTest!.p).toBeLessThan(0.05)
+    expect(out.perScenario[0]).toEqual({
+      scenarioId: 's-0',
+      originalScore: 1,
+      perturbedScore: 0.4,
+      delta: -0.6,
+    })
   })
 
   it('does not flag contamination when scores are similar', async () => {
@@ -56,6 +62,9 @@ describe('runContaminationProbe', () => {
     })
     expect(out.contaminationSuspected).toBe(false)
     expect(out.reason).toMatch(/insufficient/)
+    expect(out.pairedTest).toBeNull()
+    expect(out.meanDelta).toBe(0)
+    expect(out.medianDelta).toBe(0)
   })
 
   it('synthesizes perturbations via the strategy callback', async () => {
@@ -70,6 +79,53 @@ describe('runContaminationProbe', () => {
       scoreFn: async (s) => (s.prompt.includes('X_') ? 0.4 : 0.9),
     })
     expect(out.n).toBeGreaterThanOrEqual(4)
+  })
+
+  it('keeps exclusion and missing evidence distinct from measured zero', async () => {
+    const originals = [{ id: 'excluded', prompt: 'one' }]
+    const report = await runContaminationProbe(
+      {
+        scenarioId: id,
+        originals,
+        perturbed: originals,
+        scoreFn: async () => 0.1,
+      },
+      { scoreFloor: 0.5 },
+    )
+    expect(report).toMatchObject({
+      n: 0,
+      excludedScenarioIds: ['excluded'],
+      pairedTest: null,
+      meanDelta: null,
+      medianDelta: null,
+    })
+    expect(report.perScenario).toHaveLength(1)
+  })
+
+  it('computes the median across the two central differences for even cohorts', async () => {
+    const originals = [0.1, 0.2, 0.6, 0.7].map((drop, i) => ({ id: `s${i}`, prompt: '', drop }))
+    const report = await runContaminationProbe({
+      scenarioId: id,
+      originals,
+      perturbed: originals.map((scenario) => ({ ...scenario, prompt: 'perturbed' })),
+      scoreFn: async (scenario) => (scenario.prompt ? 1 - scenario.drop : 1),
+    })
+    expect(report.medianDelta).toBeCloseTo(-0.4, 10)
+  })
+
+  it('rejects malformed options, duplicate identities, and nonfinite scores', async () => {
+    const originals = [{ id: 'one', prompt: '' }]
+    const input = { scenarioId: id, originals, perturbed: originals, scoreFn: async () => 0.5 }
+    await expect(runContaminationProbe(input, { alpha: 0 })).rejects.toThrow(/alpha/)
+    await expect(runContaminationProbe(input, { minMedianDrop: NaN })).rejects.toThrow(
+      /minMedianDrop/,
+    )
+    await expect(
+      runContaminationProbe({ ...input, originals: [...originals, ...originals] }),
+    ).rejects.toThrow(/unique/)
+    await expect(runContaminationProbe({ ...input, scoreFn: async () => NaN })).rejects.toThrow(
+      /finite/,
+    )
   })
 })
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { createChatClient } from '../src/analyst/chat-client'
 import type { CampaignRunner } from '../src/eval-campaign'
-import { runRLCampaign } from '../src/rl/rl-campaign'
+import { InMemoryOutcomeStore } from '../src/meta-eval/outcome-store'
+import type { OutcomeMetricSpec } from '../src/meta-eval/rubric-predictive-validity'
+import { type RunRLCampaignOptions, runRLCampaign } from '../src/rl/rl-campaign'
 import { InMemoryRawProviderSink } from '../src/trace/raw-provider-sink'
 import { InMemoryTraceStore } from '../src/trace/store'
 
@@ -59,6 +61,80 @@ const defaultRunner: CampaignRunner<VariantPayload> = async (ctx) => {
 }
 
 describe('runRLCampaign', () => {
+  const invalidOutcomeOptions: Array<
+    Pick<RunRLCampaignOptions<VariantPayload>, 'outcomeStore' | 'outcomeMetrics'>
+  > = [
+    { outcomeStore: new InMemoryOutcomeStore() },
+    { outcomeMetrics: [{ id: 'success', direction: 'higher-is-better' }] },
+    { outcomeStore: new InMemoryOutcomeStore(), outcomeMetrics: [] },
+  ]
+
+  it.each(invalidOutcomeOptions)(
+    'refuses incomplete outcome declarations before executing a campaign: %j',
+    async (outcomeOptions) => {
+      let executions = 0
+      await expect(
+        runRLCampaign<VariantPayload>({
+          campaignId: 'rl-outcome-options',
+          commitSha: 'cafebabe',
+          variants: [{ id: 'baseline', payload: { prompt: 'baseline' } }],
+          scenarios: [{ scenarioId: 'task' }],
+          seeds: [0],
+          chatFactory,
+          executionRef: EXECUTION_REF,
+          storeFactory: () => new InMemoryTraceStore(),
+          rawSinkFactory: () => new InMemoryRawProviderSink(),
+          runner: async (context) => {
+            executions++
+            return defaultRunner(context)
+          },
+          ...outcomeOptions,
+        }),
+      ).rejects.toThrow(/requires outcomeStore and outcomeMetrics|must declare/)
+      expect(executions).toBe(0)
+    },
+  )
+
+  it('reports the outcome direction declared before execution and retains signed association', async () => {
+    const outcomes = new InMemoryOutcomeStore()
+    const outcomeMetrics: OutcomeMetricSpec[] = [
+      { id: 'failure_rate', direction: 'lower-is-better' },
+    ]
+    const result = await runRLCampaign<VariantPayload>({
+      campaignId: 'rl-outcomes',
+      commitSha: 'cafebabe',
+      variants: [{ id: 'baseline', payload: { prompt: 'baseline' } }],
+      scenarios: Array.from({ length: 10 }, (_, i) => ({ scenarioId: `task-${i}` })),
+      seeds: [0],
+      chatFactory,
+      executionRef: EXECUTION_REF,
+      storeFactory: () => new InMemoryTraceStore(),
+      rawSinkFactory: () => new InMemoryRawProviderSink(),
+      outcomeStore: outcomes,
+      outcomeMetrics,
+      runner: async (context) => {
+        outcomeMetrics[0]!.direction = 'higher-is-better'
+        const quality = Number(context.scenarioId.split('-')[1]) / 10
+        await outcomes.append({
+          runId: context.runId,
+          capturedAt: 1,
+          metrics: { failure_rate: 1 - quality },
+        })
+        return { ...(await defaultRunner(context)), raw: { quality } }
+      },
+    })
+    expect(result.predictiveValidity?.pairs[0]).toMatchObject({
+      rubric: 'quality',
+      outcome: 'failure_rate',
+      outcomeDirection: 'lower-is-better',
+      spearman: -1,
+      alignedSpearman: 1,
+      verdict: 'aligned',
+      n: 10,
+    })
+    expect(result.summary).toContain('aligned ρ=1.00 vs failure_rate (lower-is-better; aligned)')
+  })
+
   it('runs the matrix, extracts preferences, computes interim confidence, and reports rewardHacking verdict', async () => {
     const result = await runRLCampaign<VariantPayload>({
       campaignId: 'rl-test',

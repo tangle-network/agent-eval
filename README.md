@@ -1,18 +1,15 @@
 # `@tangle-network/agent-eval`
 
-Measure agent behavior, compare changes on the same cases, and improve prompts or skills without showing the final test cases to the optimizer.
+Run agent evaluations, compare changes on the same cases, and decide whether a candidate has enough evidence to release.
 
 [![npm](https://img.shields.io/npm/v/@tangle-network/agent-eval.svg)](https://www.npmjs.com/package/@tangle-network/agent-eval)
 [![pypi](https://img.shields.io/pypi/v/agent-eval-rpc.svg)](https://pypi.org/project/agent-eval-rpc/)
 [![tests](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/tangle-network/agent-eval/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-The evaluation path runs in your TypeScript process.
-Model calls happen only through the clients and agents you configure.
-
-New to the package? Read [concepts](./docs/concepts.md) first — it takes five minutes and defines every word used here.
-
-Looking for a measured result (a lift, a null, a parity verdict)? The canonical registry is [`evidence/`](./evidence/README.md) — machine-readable records, a generated index, and a freshness gate.
+Eval runs in your TypeScript process.
+You supply agent execution, judges, and model transports.
+It records outputs, failures, costs, and evidence for each comparison.
 
 ## Install
 
@@ -22,8 +19,8 @@ pnpm add @tangle-network/agent-eval
 
 ## Quickstart
 
-This example is offline and complete.
-Copy it, run it, then replace the agent and the judge with your product code.
+This complete example runs offline.
+Replace the agent and judge with your product functions when it works.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
@@ -60,138 +57,108 @@ console.log(
 )
 ```
 
-Each call runs every case, records what the agent produced, applies the same judge, and returns score distributions.
+The baseline scores `0`; the candidate scores `1` on all three cases.
+These scores describe the three examples.
+They do not establish a release decision or performance on new tasks.
 
-Three words carry this example.
-A **case** is one task the agent must do.
-A **surface** is the value being changed: a prompt, a skill, or a serialized configuration.
-A **judge** is a function that scores one produced result.
+A **case** is one task.
+A **surface** is the prompt, skill, or configuration being changed.
+A **judge** scores the agent's result.
 
-`expectUsage: 'off'` is set because this agent makes no paid calls.
-The default, `'assert'`, fails a run whose cells report no cost receipt.
-Keep the default whenever real model calls happen.
+`expectUsage: 'off'` applies because this example makes no paid calls.
+Keep the default, `'assert'`, for model calls so missing cost receipts fail visibly.
+The [runnable example](./examples/evaluate-a-change/) uses the same evaluation.
 
-Runnable copy: [`examples/evaluate-a-change`](./examples/evaluate-a-change/).
+## Choose a workflow
 
-## Auditable optimization history
-
-Optimization methods may return a bounded `SearchHistoryReceipt` over Eval's canonical hash-chained `SearchLedger`. Existing callers keep working and see missing-history coverage. Autonomous and publication-grade runs set `searchHistoryPolicy: 'require-complete'` to refuse an incomplete planned denominator before the untouched final cases are opened.
-
-The receipt is a small proof envelope, not another event log. Exact candidates, attempts, failures, decisions, and missing ids remain in the ledger. See [complete optimization search history](./docs/search-history-receipts.md).
-
-## Which Front Door
-
-Every row is a function you call. Each links to a runnable example.
-
-| When to call it | What you give it | What you get back |
+| Intent | Start with | Result |
 |---|---|---|
-| [`defineAgentEval()`](./examples/evaluate-a-change/) — you changed a surface and must know whether it helped | cases, an agent, a judge, a starting surface | `evaluate()` for scores, `improve()` for a search plus a release decision |
-| [`selfImprove()`](./examples/selfimprove-quickstart/) — you want candidate generation, scoring, and a release decision in one call | cases, an agent, a judge, a starting surface | a report, a winner surface, and a `gateDecision` |
-| [`analyzeRuns()`](./examples/analyze-existing-runs/) — the runs already happened and no agent needs to run again | `RunRecord[]` | an `InsightReport`: distributions, paired lift, judge agreement, cost, failure clusters |
-| `fromFeedbackTable()` ([example](./examples/customer-feedback-loop/)) / `fromOtelSpans()` ([example](./examples/customer-otel-traces/)) — your data is in a table or an OTel collector, not in `RunRecord` shape | source rows or spans | `RunRecord[]` ready for `analyzeRuns()` |
-| [`planCampaignRun()` / `runCampaign()`](./examples/plan-before-you-spend/) — you need direct control of the case grid, or you must see it before paying for it | cases, a dispatch function, judges, a run directory | a per-cell schedule, then a campaign result with cached cells |
-| [`loadEvalFixtureScenarios()`](./examples/eval-fixtures-quickstart/) — agents should add cases as folders on disk | `evals/<name>/PROMPT.md` plus checks | `Scenario[]` for `runCampaign()` |
-| [`compareOptimizationMethods()`](./examples/compare-optimization-methods/) — two search methods must be compared at equal budget | methods, a starting surface, train, selection, and final cases | per-method final lift, intervals, pairwise contrasts, and cost |
-| [`gepaOptimizationMethod()` / `skillOptOptimizationMethod()`](./examples/compare-optimization-methods/) — official GEPA or Microsoft SkillOpt should own the search | an objective, a recipe or trainer, an optimizer budget | an optimization method for the comparison above |
-| [`externalTextOptimizationMethod()`](./examples/adapt-a-text-optimizer/) — another package owns text search and you keep the scoring | the package identity, limits, and a `run` callback | the same, with the final cases never exposed |
-| [`SurfaceProposer`](./examples/selfimprove-quickstart/) — candidate generation belongs to your product | a `propose()` function | candidates the campaign executes, scores, and gates |
-| [`runProfileMatrix()`](./examples/profile-matrix/) — the same cases must run across models or profiles | axes of models and profiles, cases | one row per cell, with an explicit `unknown` model rather than an invented one |
-| [`ExperimentTracker`](./examples/experiment-evidence/) — a candidate must beat its parent across N repetitions | reps with scores, run ids, and evidence references | a KEEP / ITERATE / NOISE / REGRESSION verdict with git provenance |
-| [`sealExperiment()` / `openSealedExperiment()`](./examples/sealed-experiment/) — the result must convince someone who does not trust you | arms, an admission funnel, an estimand, an interval, a decision table | a hashed rule tree, and executors that can run no other rule |
-| [`runEquivalenceCheck()` / `VERIFICATION_STRATEGIES`](./examples/verify-without-an-answer-key/) — the work has no held-out test suite | a claim, two blind arms, an injected checker | a certification that names who vouched and how it can fail |
-| [`AnalystRegistry.runExact()`](./examples/custom-trace-analyst/) — a batch of runs failed and you need cited findings | recorded evidence, a declared analyst list | findings with evidence references, an execution plan, and a receipt |
-| [`analyzeTraces()`](./docs/trace-analysis.md#answer-one-question) — you have one question about a recorded run ("what first caused this failure?") | stored traces, the question, a DSPy RLM engine with a cost cap | an answer, findings with evidence references, and the investigation trajectory |
-| [`runAnalystBenchmark()`](./docs/trace-analysis.md) — an analyst's accuracy must be measured, not assumed | labeled issues and exact span locations | scored findings, trace reads, model calls, tokens, cost, and runtime |
-| [`deltaRepair()`](./docs/trace-repair-grader.md) — a finding must be graded by executing the repair it proposes | a trajectory, an analyst finding, a sandbox | the repair's measured effect against a no-fix control |
-| [`replayVerify()`](./docs/trajectory-replay.md) — you must know whether a recorded failure still reproduces | a recorded shell trajectory and its pinned image | a re-execution verdict and the divergences found |
-| [`analyzeSupervisorRun()`](./docs/adapters-observability.md) — a recursive or supervised run directory must be read | a run directory | counts that stay missing when a measurement is missing, never zero |
-| [`plantByPerturbation()` / `seedPlants()` / `catchRate()`](./docs/plants.md) — you must know whether the grader catches a wrong answer, not only how the work scored | a grading set, and claims the grader verified | items authored wrong by one value, a sealed manifest, then a catch rate that refuses rather than guessing |
-| [`buildRlDataset()`](./examples/publish-rl-dataset/) — scored runs should become training data | run records and preferences | reward, preference, and supervised rows |
+| Score one change | [`defineAgentEval()`](./examples/evaluate-a-change/) from `/contract` | Cell results, failures, score distributions, and measured cost. |
+| Search for a better surface | [`selfImprove()`](./examples/selfimprove-quickstart/) from `/contract` | A selected surface, final comparison, and `gateDecision`. |
+| Compare search methods | [`compareOptimizationMethods()`](./examples/compare-optimization-methods/) from `/campaign` | Paired final comparisons, uncertainty, coverage, and costs under declared budgets. |
+| Register evidence and decision rules | [`defineEvaluationClaim()` and `sealExperiment()`](./docs/evaluation-integrity.md) from `/experiment` | A declared population, independent unit, optional practical effect, and sealed rules. |
+| Check the evaluator | [`auditEvaluator()`](./docs/evaluation-integrity.md) and [calibration tools](./docs/outcome-validity.md) from `/meta-eval` | Error rates, admission evidence, bias diagnostics, and outcome associations. |
+| Analyze completed work | [`analyzeRuns()`](./examples/analyze-existing-runs/) from `/contract`; [trace analysts](./docs/trace-analysis.md) from `/analyst` | Comparisons and findings with links to recorded evidence. |
 
-## Configure Model Calls
+`defineAgentEval()` also exposes `improve()` when the same agent, cases, judge, and baseline should share configuration.
+Use direct [campaign controls](./docs/eval-surface-map.md) for scheduling, durable caches, model matrices, or custom release rules.
+The [example index](./examples/README.md) covers fixtures, trace intake, code verification, replay, and training-data exports.
 
-Benchmarks, user drivers, executors, built-in judges, completion checkers, and judge adapters all take the same `ChatClient`.
-You own model execution, and Agent Eval never goes looking for a credential: it reads no environment variable to find one, and every transport is bound at the call site.
+## Make automated improvement accountable
 
-Bind a transport one of two ways. Pass a `chat` function you wrote:
+Use reusable evaluations for development feedback.
+For a direct edit, compare the baseline and candidate on the same cases.
+Claims, evaluator audits, and final-evidence tracking are optional.
+Add stronger controls when a result must support performance on new tasks or an adaptive release decision.
+
+1. Pass a `claim` describing the population, sampling frame, and independent unit to the comparison.
+   Declare `minimumEffect` when the decision concerns a useful improvement.
+2. When introducing an evaluator, check known good and known bad controls with `auditEvaluator()`.
+3. Give search separate training and selection cases.
+4. For fresh confirmation, supply `finalEvidence` with a shared ledger, request ID, and evaluator digest.
+   This reserves final units before search and records exposure before measurement.
+5. Inspect the final comparison, gate contributions, exclusions, uncertainty, cost, and search history before releasing.
+
+Repeated attempts on one task do not create new independent tasks.
+The top-level `claim` controls unit aggregation for reusable comparisons.
+Power checks assess the declared minimum effect.
+Optional `finalEvidence` binds fresh confirmation to that claim and refuses reused final units across campaigns sharing the ledger.
+
+The host must enforce access isolation and author/auditor separation.
+A digest records identity; it cannot prove secrecy or that a benchmark represents future users.
+Custom gates remain responsible for their decision rules.
+See [evaluation integrity](./docs/evaluation-integrity.md) for the complete API and its boundaries.
+
+These controls check the evidence behind a result.
+They do not establish that an optimizer beats a direct edit or simple search.
+The [historical evidence audit](./docs/design/self-improvement-evidence-audit.md) records prior gains, failed transfer, and missing comparisons.
+
+Set `searchHistoryPolicy: 'require-complete'` when every attempted search slot must be accounted for before final evidence is exposed.
+The [search-history receipt](./docs/search-history-receipts.md) binds the planned denominator to Eval's existing search ledger.
+
+A `gateDecision` is `ship`, `hold`, `need_more_work`, `model_ceiling`, or `arch_ceiling`.
+Gate contributions distinguish missing evidence from measured failures and successful checks.
+[Concepts](./docs/concepts.md) explains these decisions and how gates compose.
+
+## Configure model calls
+
+Pass a `ChatClient` to model judges, analysts, and adapters.
+Eval obtains credentials from the values you supply; it does not search your environment.
 
 ```ts
-import { createChatClient } from '@tangle-network/agent-eval'
+import { createChatClient } from '@tangle-network/agent-eval/contract'
 
-const chat = createChatClient({
-  transport: 'custom',
-  defaultModel: 'openai/gpt-4.1',
-  maximumAttempts: 3,
-  chat: async (request, opts) => myProviderClient(request, opts),
-})
-```
-
-Or name an OpenAI-compatible endpoint and hand over a credential as values, and Agent Eval drives `POST {baseUrl}/chat/completions` for you:
-
-```ts
 const chat = createChatClient({
   transport: 'openai-compatible',
-  baseUrl: 'https://router.example/v1',   // ends at /v1; the path is ours to append
-  apiKey: process.env.MY_ROUTER_KEY,      // or `bearer`, or `authHeader`
-  defaultModel: 'claude-sonnet-4-6',
+  baseUrl: 'https://router.example/v1',
+  apiKey: process.env.MY_ROUTER_KEY,
+  defaultModel: process.env.EVAL_MODEL_ID,
 })
 ```
 
-Prefer the second over hand-rolling a fetch loop. It carries the retry, degrade, and — load-bearing — the `servedModel` echo that `assertServedModel` and `assertCrossFamilyServed` read; a transport that omits that field makes both checks report `unreported`, so the cross-vendor rules they enforce measure nothing. `baseUrl` and one credential form are required arguments with no default and no fallback: a half-configured client is refused at construction rather than reaching an endpoint you did not name.
+Use your deployed model identifier and preserve the returned `servedModel` identity and cost receipt.
+For an existing SDK, use `transport: 'custom'` with your `chat` callback and an explicit `maximumAttempts`.
+Agent Runtime callers can bind `profileChatClient()` from `@tangle-network/agent-runtime/kernel`.
+Eval has no dependency on Runtime.
 
-On Agent Runtime, `profileChatClient({ profile, executor, context })` from `@tangle-network/agent-runtime/kernel` is that transport: every call runs one exact `AgentProfile` and reports its measured usage, retries, and served model identity.
-Use `sandbox-sdk` for Sandbox and `mock` in tests.
-A custom adapter must return a `ChatResponse` and declare `maximumAttempts` before a capped cost account can dispatch it.
+Official GEPA, SkillOpt, and DSPy integrations use a Python bridge.
+Their maintained installation instructions and execution contracts are in [campaign proposers](./docs/campaign-proposers.md).
+The [Python client](./clients/python/README.md) and [wire protocol](./docs/wire-protocol.md) support other-language consumers.
 
-`ChatResponse` carries the whole execution record across that boundary: the served model id, measured input/output/reasoning/cached tokens, billed USD or an explicit unknown, the finish reason, and the per-token log probabilities the expectation judge scores on.
+## Public imports and evidence
 
-The official GEPA and SkillOpt optimizers run through a Python bridge.
-Install commands, version pins, and the reason for each pin:
-[GEPA](./docs/campaign-proposers.md#install-official-gepa),
-[SkillOpt](./docs/campaign-proposers.md#install-official-skillopt),
-and [DSPy](./docs/campaign-proposers.md#use-official-dspy-optimizers).
+Use `/contract` for a product integration, `/campaign` for execution controls, `/experiment` for registered decisions, and `/meta-eval` for evaluator checks.
+Root `Scenario`, `JudgeScore`, and `GateDecision` are the same types as `/contract`.
+Product judging retains the explicit root names `ProductScenario` and `DimensionJudgeScore` beside its functions.
+`HeldOutGate.evaluate()` returns `HeldOutGateDecision`.
 
-## Entry Points
+Specialist subpaths and their examples are listed in the [surface map](./docs/eval-surface-map.md).
+Current canonical envelopes are required for seals, attestations, and profile identities.
+Retired or incomplete formats fail verification; historical reports retain their recorded identities.
 
-| Import | Use |
-|---|---|
-| `@tangle-network/agent-eval/contract` | Define an evaluation, run it, improve it, and analyze existing runs. |
-| `@tangle-network/agent-eval/campaign` | Campaigns, optimization methods, comparisons, storage, and release rules. |
-| `@tangle-network/agent-eval/experiment` | Experiments as sealed objects: registered rules, funnels, estimands, refusals. |
-| `@tangle-network/agent-eval/analyst` | Built-in and custom trace analysts, labeled comparison, costs, and reports. |
-| `@tangle-network/agent-eval/trace-repair` | Grade one analyst finding by executing the repair it proposes. |
-| `@tangle-network/agent-eval/trajectory-replay` | Re-execute a recorded shell trajectory and check whether its failure reproduces. |
-| `@tangle-network/agent-eval/traces` | Store, replay, and inspect structured traces. |
-| `@tangle-network/agent-eval/reporting` | Statistical comparisons and report rendering. |
-| `@tangle-network/agent-eval/supervisor-run` | Read recursive run directories without collapsing missing measurements to zero; `agent-eval supervisor-run report <runDir>` prints one. |
-| `@tangle-network/agent-eval/meta-eval` | Measure the grader itself: judge calibration, sentinels, and seeded known-wrong plants. |
-| `@tangle-network/agent-eval/profile-cell` | Create and validate portable agent-profile identities. |
-| `@tangle-network/agent-eval/ledger-core` | Append-only hash-chained journal with idempotent append and chain verification. |
-| `@tangle-network/agent-eval/benchmarks` | Benchmark adapters and retrieval metrics. |
-| `@tangle-network/agent-eval/rl` | Export rewards, preferences, and training rows. |
-| `@tangle-network/agent-eval/wire` | HTTP and RPC schemas for other languages. |
-| `@tangle-network/agent-eval/adapters/http` | Run campaign cells on remote workers over HTTP. |
-
-Use the root import for common primitives.
-Use a subpath when you want an explicit capability boundary.
-
-## Documentation
-
-| Question | Read |
-|---|---|
-| What do these words mean? | [`docs/concepts.md`](./docs/concepts.md) |
-| Why does this package exist, and where is it going? | [`docs/charter.md`](./docs/charter.md) |
-| Which `run*` function do I want? | [`docs/eval-surface-map.md`](./docs/eval-surface-map.md) |
-| How do I choose a candidate-generation method? | [`docs/campaign-proposers.md`](./docs/campaign-proposers.md) |
-| What is in an `InsightReport`? | [`docs/insight-report.md`](./docs/insight-report.md) |
-| How do I register an experiment as a sealed object? | [`docs/experiment.md`](./docs/experiment.md) |
-| How is something certified without an answer key? | [`docs/verification-strategies.md`](./docs/verification-strategies.md) |
-| Where does every verifier land its result? | [`docs/verdicts.md`](./docs/verdicts.md) |
-| Does the grader catch a claim that is known to be wrong? | [`docs/plants.md`](./docs/plants.md) |
-| How do I turn a coding-agent session log into runs? | [`docs/code-agent-intake.md`](./docs/code-agent-intake.md) |
-| How do I score a string from another language? | [`docs/wire-protocol.md`](./docs/wire-protocol.md) |
-
-The [example index](./examples/README.md) lists every runnable example.
+Published measurements live in the [evidence registry](./evidence/README.md).
+The [benchmark-book review](./docs/design/mlbenchmarks-book-review.md) records the source analysis and reproduced defects behind these integrity changes.
+[The charter](./docs/charter.md) defines package ownership and the remaining research boundaries.
 
 ## Development
 
@@ -199,8 +166,10 @@ The [example index](./examples/README.md) lists every runnable example.
 pnpm install
 pnpm typecheck
 pnpm typecheck:examples
+pnpm typecheck:scripts
 pnpm test
 pnpm build
+pnpm verify:package
 ```
 
 Python compatibility tests use the locked dependencies:
@@ -222,17 +191,3 @@ uv run --frozen pytest tests/test_dspy_metric.py
 ## License
 
 MIT.
-
-
-## Supervisor-run resource receipts
-
-The `/supervisor-run` reader preserves named-resource measurements in `economics.resourceRecords`.
-Each record identifies its node and source within the normalized journal or terminal result.
-Journal row indices refer to parsed rows after reader normalization, not original file line numbers.
-The Markdown report renders each resource name, unit, amount, and completeness flag.
-Comparison cells retain those same records without combining them.
-
-A false `known` flag means the amount is a recorded subtotal, not complete usage.
-Missing maps, explicit empty maps, and invalid fields remain distinct from measured zero.
-Parent settlements and terminal results can include child usage, so these records are not additive totals.
-The reporter reads evidence; it does not enforce budgets or infer missing measurements.

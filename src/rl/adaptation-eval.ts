@@ -1,32 +1,15 @@
 /**
  * Sample-efficient adaptation evaluation.
  *
- * For foundation-model-based agents, the load-bearing capability isn't
- * raw end-state performance — it's *how fast the agent reaches that
- * performance from cold start*. The same model with a worse prompt that
- * adapts in 5 demonstrations beats the same model with a better prompt
- * that needs 50. Standard meta-learning eval (Finn et al., MAML, RL² lit)
- * reports an *adaptation curve*: score after k=0, 1, 2, 4, 8, 16, …
- * in-context examples or fine-tune steps.
- *
- * This module ships:
- *
- *   1. `runAdaptationCurve` — given a runner that takes k demonstrations
- *      and returns a score, produce the (k, score) curve.
- *   2. `compareAdaptationCurves` — paired comparison across two policies.
- *      Returns per-k delta with bootstrap CIs and an "area-under-curve"
- *      summary statistic.
- *   3. `firstPassK` — for pass/fail evaluation, the minimum k at which
- *      the policy reliably passes (≥ pass-rate threshold over reps).
- *
- * Use cases:
- *   - Compare two prompt designs that have similar end-state performance
- *     but different in-context efficiency.
- *   - Decide between fine-tuning and prompting based on adaptation cost.
- *   - Detect when a policy "memorizes" k=0 inputs vs. genuinely adapts.
+ * An adaptation curve records scores after k demonstrations or training steps.
+ * Comparison pairs the same scenarios and resamples their whole curves.
+ * The normalized area summarizes performance over the observed k range.
+ * A first-pass k is descriptive and carries no separate reliability claim.
  */
 
-import { makeRng } from '../statistics/internal'
+import { ValidationError } from '../errors'
+import { decidePairedPromotion, type PairedPromotionDecision } from '../paired-promotion-decision'
+import { type PairedBootstrapResult, pairedBootstrap } from '../statistics'
 
 export interface AdaptationRunner<S> {
   /**
@@ -44,7 +27,7 @@ export interface RunAdaptationCurveOptions<S> {
   /** Reps per (scenario, k) cell. Default 3. */
   reps?: number
   runner: AdaptationRunner<S>
-  /** Pass-rate threshold for `firstPassK` reporting. Default 0.5. */
+  /** Score threshold for a pass and pass-rate threshold for firstPassK. Default 0.5. */
   passThreshold?: number
 }
 
@@ -66,19 +49,26 @@ export interface AdaptationCurve {
    */
   firstPassK: number | null
   /**
-   * Area under the (k, meanScore) curve, normalized by max-k. A
-   * single-number summary of "how well does this policy adapt from
-   * cold-start to fully-conditioned." Higher = better adapter.
+   * Trapezoidal area over the observed k intervals, divided by max-k.
+   * No performance is inferred below the first observed k.
    */
   adaptationArea: number
 }
 
-export async function runAdaptationCurve<S extends { scenarioId?: string }>(
+export async function runAdaptationCurve<S extends { scenarioId: string }>(
   opts: RunAdaptationCurveOptions<S>,
 ): Promise<AdaptationCurve> {
   const ks = opts.ks ?? [0, 1, 2, 4, 8, 16]
   const reps = opts.reps ?? 3
   const passThreshold = opts.passThreshold ?? 0.5
+  assertKs(ks, 'runAdaptationCurve')
+  assertScenarioIds(opts.scenarios, 'runAdaptationCurve')
+  if (!Number.isInteger(reps) || reps < 1) {
+    throw new ValidationError('runAdaptationCurve: reps must be a positive integer')
+  }
+  if (!Number.isFinite(passThreshold) || passThreshold < 0 || passThreshold > 1) {
+    throw new ValidationError('runAdaptationCurve: passThreshold must be in [0,1]')
+  }
   const sortedKs = [...ks].sort((a, b) => a - b)
 
   const points: AdaptationPoint[] = []
@@ -88,11 +78,12 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
     let totalPasses = 0
     let totalAttempts = 0
     for (const scenario of opts.scenarios) {
-      const sid = scenario.scenarioId ?? `scenario-${opts.scenarios.indexOf(scenario)}`
+      const sid = scenario.scenarioId
       const scores: number[] = []
       let passes = 0
       for (let r = 0; r < reps; r++) {
         const score = await opts.runner.run({ scenario, k, rep: r })
+        assertScore(score, `runAdaptationCurve: scenario '${sid}', k=${k}, rep=${r}`)
         scores.push(score)
         if (score >= passThreshold) passes++
         allScores.push(score)
@@ -119,7 +110,7 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
 
   const firstPassK = points.find((p) => p.passRate >= passThreshold)?.k ?? null
   const maxK = sortedKs[sortedKs.length - 1] ?? 1
-  // Trapezoidal area under the (k, meanScore) curve, normalized by k-range.
+  // Only observed intervals contribute; an unmeasured prefix is not extrapolated.
   let area = 0
   for (let i = 1; i < points.length; i++) {
     const x1 = points[i - 1]!.k
@@ -136,102 +127,175 @@ export async function runAdaptationCurve<S extends { scenarioId?: string }>(
 export interface CompareCurvesResult {
   perK: Array<{
     k: number
-    deltaMean: number
-    aLow: number
-    aHigh: number
-    bLow: number
-    bHigh: number
+    /** Paired A − B score differences; intervals are descriptive across k. */
+    delta: PairedBootstrapResult
   }>
-  areaDelta: number
-  firstPassKDelta: number | null
-  /** Verdict: 'a_better' | 'b_better' | 'similar'. */
-  verdict: 'a_better' | 'b_better' | 'similar'
+  /** Descriptive paired A − B areas, computed within each scenario before resampling. */
+  areaDelta: PairedBootstrapResult
+  /** Decisions from the shared paired inference rules; intervals may differ from the bootstrap. */
+  aImprovement: PairedPromotionDecision
+  bImprovement: PairedPromotionDecision
+  /** Independent sampling units; repetitions never increase this count. */
+  scenarioIds: string[]
+  /** Only the area decisions determine direction. Inconclusive does not mean equivalent. */
+  verdict: 'a_better' | 'b_better' | 'inconclusive' | 'insufficient_evidence'
   /** Rationale, ready to render. */
   rationale: string
 }
 
 /**
- * Paired comparison of two adaptation curves. Per-k deltas with 95%
- * bootstrap CIs (constructed from each curve's `perScenario` per-k means
- * — the bootstrap unit is the scenario, not the rep).
+ * Compare identical scenario cohorts on identical k grids, paired by scenarioId.
+ * Missing pairs, duplicate identities, and cohort changes across k are refused.
+ * The bootstrap resamples whole scenarios, preserving dependence across k.
+ * Per-k intervals describe the curve; shared paired area decisions determine the verdict.
+ * Bootstrap eligibility is necessary but does not establish scenario independence.
  */
 export function compareAdaptationCurves(
   a: AdaptationCurve,
   b: AdaptationCurve,
-  opts: { confidence?: number; bootstrapResamples?: number; seed?: number } = {},
+  opts: {
+    confidence?: number
+    bootstrapResamples?: number
+    seed?: number
+    /** Minimum worthwhile difference in normalized area. Default 0. */
+    minimumEffect?: number
+  } = {},
 ): CompareCurvesResult {
-  const conf = opts.confidence ?? 0.95
-  const resamples = opts.bootstrapResamples ?? 500
-  const rng = makeRng(
-    opts.seed,
-    a.points.flatMap((point) => point.perScenario.map((cell) => cell.meanScore)),
-    b.points.flatMap((point) => point.perScenario.map((cell) => cell.meanScore)),
-  )
-
-  const perK: CompareCurvesResult['perK'] = []
-  for (const ap of a.points) {
-    const bp = b.points.find((p) => p.k === ap.k)
-    if (!bp) continue
-    const aMeans = ap.perScenario.map((s) => s.meanScore)
-    const bMeans = bp.perScenario.map((s) => s.meanScore)
-    const aCi = bootstrapMeanCi(aMeans, resamples, conf, rng)
-    const bCi = bootstrapMeanCi(bMeans, resamples, conf, rng)
-    perK.push({
-      k: ap.k,
-      deltaMean: ap.meanScore - bp.meanScore,
-      aLow: aCi.low,
-      aHigh: aCi.high,
-      bLow: bCi.low,
-      bHigh: bCi.high,
-    })
+  const confidence = opts.confidence ?? 0.95
+  const resamples = opts.bootstrapResamples ?? 2000
+  const minimumEffect = opts.minimumEffect ?? 0
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
+    throw new ValidationError('compareAdaptationCurves: confidence must be in (0,1)')
   }
-
-  const areaDelta = a.adaptationArea - b.adaptationArea
-  const firstPassKDelta =
-    a.firstPassK !== null && b.firstPassK !== null
-      ? b.firstPassK - a.firstPassK // smaller k for a means a adapts faster (positive delta)
-      : null
-
-  // Composite verdict: positive area delta + most per-k deltas in same
-  // direction → that side wins. Within ε of zero on both → similar.
-  const meanDelta = perK.reduce((s, p) => s + p.deltaMean, 0) / Math.max(1, perK.length)
+  if (!Number.isInteger(resamples) || resamples < 1) {
+    throw new ValidationError(
+      'compareAdaptationCurves: bootstrapResamples must be a positive integer',
+    )
+  }
+  if (!Number.isFinite(minimumEffect) || minimumEffect < 0 || minimumEffect > 1) {
+    throw new ValidationError('compareAdaptationCurves: minimumEffect must be in [0,1]')
+  }
+  const aPoints = indexCurve(a, 'A')
+  const bPoints = indexCurve(b, 'B')
+  const ks = [...aPoints.keys()].sort((x, y) => x - y)
+  const missingInA = [...bPoints.keys()].filter((k) => !aPoints.has(k))
+  const missingInB = ks.filter((k) => !bPoints.has(k))
+  if (missingInA.length > 0 || missingInB.length > 0) {
+    throw new ValidationError(
+      `compareAdaptationCurves: k grids differ; missing in A=[${missingInA}], missing in B=[${missingInB}]`,
+    )
+  }
+  const scenarioIds = [...aPoints.get(ks[0]!)!.keys()].sort()
+  const expectedIds = new Set(scenarioIds)
+  for (const [arm, points] of [
+    ['A', aPoints],
+    ['B', bPoints],
+  ] as const) {
+    for (const [k, cells] of points) {
+      const missing = scenarioIds.filter((id) => !cells.has(id))
+      const extra = [...cells.keys()].filter((id) => !expectedIds.has(id))
+      if (missing.length > 0 || extra.length > 0) {
+        throw new ValidationError(
+          `compareAdaptationCurves: scenario pairs differ in ${arm} at k=${k}; missing=[${missing}], unexpected=[${extra}]`,
+        )
+      }
+    }
+  }
+  const bootstrapOptions = { confidence, resamples, statistic: 'mean' as const, seed: opts.seed }
+  const perK = ks.map((k) => ({
+    k,
+    delta: pairedBootstrap(
+      scenarioIds.map((id) => bPoints.get(k)!.get(id)!),
+      scenarioIds.map((id) => aPoints.get(k)!.get(id)!),
+      bootstrapOptions,
+    ),
+  }))
+  const aAreas = scenarioIds.map((id) => scenarioArea(ks, aPoints, id))
+  const bAreas = scenarioIds.map((id) => scenarioArea(ks, bPoints, id))
+  const decisionOptions = {
+    ...bootstrapOptions,
+    threshold: minimumEffect,
+  }
+  const aImprovement = decidePairedPromotion(bAreas, aAreas, decisionOptions)
+  const bImprovement = decidePairedPromotion(aAreas, bAreas, decisionOptions)
+  const areaDelta = aImprovement.bootstrap ?? pairedBootstrap(bAreas, aAreas, bootstrapOptions)
   let verdict: CompareCurvesResult['verdict']
-  if (Math.abs(meanDelta) < 0.02 && Math.abs(areaDelta) < 0.02) verdict = 'similar'
-  else if (meanDelta > 0 && areaDelta > 0) verdict = 'a_better'
-  else if (meanDelta < 0 && areaDelta < 0) verdict = 'b_better'
-  else verdict = 'similar'
+  if (!aImprovement.sufficient || ks.length < 2) verdict = 'insufficient_evidence'
+  else if (aImprovement.promote) verdict = 'a_better'
+  else if (bImprovement.promote) verdict = 'b_better'
+  else verdict = 'inconclusive'
 
   const rationale =
-    `mean per-k delta=${meanDelta.toFixed(3)}, area delta=${areaDelta.toFixed(3)}` +
-    (firstPassKDelta !== null ? `, first-pass-k delta=${firstPassKDelta}` : '')
+    `paired scenarios=${scenarioIds.length}, area delta=${areaDelta.mean.toFixed(3)}, ` +
+    `${confidence * 100}% ${aImprovement.statistic} interval=[${aImprovement.low.toFixed(3)}, ${aImprovement.high.toFixed(3)}], ` +
+    `minimum effect=${minimumEffect}; ${verdict}`
 
-  return { perK, areaDelta, firstPassKDelta, verdict, rationale }
+  return { perK, areaDelta, aImprovement, bImprovement, scenarioIds, verdict, rationale }
 }
 
-/** First k at which the curve's per-scenario pass rate reliably hits the threshold. */
+/** First observed k whose pass rate reaches the threshold; this is a descriptive summary. */
 export function firstPassK(curve: AdaptationCurve, threshold = 0.5): number | null {
   return curve.points.find((p) => p.passRate >= threshold)?.k ?? null
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function bootstrapMeanCi(
-  xs: number[],
-  resamples: number,
-  confidence: number,
-  rng: () => number,
-): { low: number; high: number } {
-  if (xs.length < 2) return { low: xs[0] ?? 0, high: xs[0] ?? 0 }
-  const samples = new Array<number>(resamples)
-  for (let b = 0; b < resamples; b++) {
-    let sum = 0
-    for (let i = 0; i < xs.length; i++) sum += xs[Math.floor(rng() * xs.length)]!
-    samples[b] = sum / xs.length
+function assertKs(ks: number[], where: string): void {
+  if (ks.length === 0 || ks.some((k) => !Number.isInteger(k) || k < 0)) {
+    throw new ValidationError(`${where}: ks must contain nonnegative integers`)
   }
-  samples.sort((a, b) => a - b)
-  const alpha = 1 - confidence
-  return {
-    low: samples[Math.floor((alpha / 2) * resamples)]!,
-    high: samples[Math.min(resamples - 1, Math.ceil((1 - alpha / 2) * resamples) - 1)]!,
+  if (new Set(ks).size !== ks.length) {
+    throw new ValidationError(`${where}: duplicate k values`)
   }
+}
+
+function assertScenarioIds(cells: Array<{ scenarioId: string }>, where: string): void {
+  if (cells.length === 0 || cells.some((cell) => !cell.scenarioId?.trim())) {
+    throw new ValidationError(`${where}: scenarios must have explicit nonempty scenarioId values`)
+  }
+  const seen = new Set<string>()
+  for (const { scenarioId } of cells) {
+    if (seen.has(scenarioId))
+      throw new ValidationError(`${where}: duplicate scenarioId '${scenarioId}'`)
+    seen.add(scenarioId)
+  }
+}
+
+function assertScore(score: number, where: string): void {
+  if (!Number.isFinite(score) || score < 0 || score > 1) {
+    throw new ValidationError(`${where}: score must be finite and in [0,1], got ${score}`)
+  }
+}
+
+function indexCurve(curve: AdaptationCurve, arm: string): Map<number, Map<string, number>> {
+  const where = `compareAdaptationCurves: ${arm}`
+  assertKs(
+    curve.points.map((point) => point.k),
+    where,
+  )
+  return new Map(
+    curve.points.map((point) => {
+      assertScenarioIds(point.perScenario, `${where} at k=${point.k}`)
+      return [
+        point.k,
+        new Map(
+          point.perScenario.map((cell) => {
+            assertScore(cell.meanScore, `${where}: '${cell.scenarioId}' at k=${point.k}`)
+            return [cell.scenarioId, cell.meanScore]
+          }),
+        ),
+      ]
+    }),
+  )
+}
+
+function scenarioArea(ks: number[], points: Map<number, Map<string, number>>, id: string): number {
+  let area = 0
+  for (let i = 1; i < ks.length; i++) {
+    const left = ks[i - 1]!
+    const right = ks[i]!
+    area += ((points.get(left)!.get(id)! + points.get(right)!.get(id)!) * (right - left)) / 2
+  }
+  const maxK = ks[ks.length - 1]!
+  return maxK === 0 ? 0 : area / maxK
 }

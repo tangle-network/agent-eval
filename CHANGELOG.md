@@ -4,6 +4,58 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **Breaking:** Root `Scenario`, `JudgeScore`, and `GateDecision` now match `/contract`.
+  Product workflows use `ProductScenario`, `DimensionJudgeScore`, and `HeldOutGateDecision`.
+- **Breaking:** Current canonical envelopes and algorithm identifiers are required for seals, attestations, and profile identities.
+  Retired digest readers and canonical-JSON waiver paths are removed.
+  Historical evidence retains its original identity.
+- **Breaking:** Cluster interval registrations bind their measured `value` field.
+  Row execution evidence supplies rows; it cannot select another metric under the same seal.
+- **Breaking:** Power calculations and power-floor gates require `minimumEffect` and assess adequacy at that effect.
+- **Breaking:** Predictive validity requires a declared outcome direction and uses descriptive `aligned`, `inverse`, and `weak` associations.
+  Research proposals retain hypotheses instead of invented expected gains.
+- **Breaking:** Adaptation comparisons require matched identified scenario cohorts and report paired uncertainty and inconclusive results.
+  Contamination diagnostics use `alpha`; heuristic per-item `qValue` values are removed.
+- Method comparisons expose unit-level scores, raw paired-cell counts, and the deciding statistical evidence.
+  `favored: null` replaces the ambiguous `tie` sentinel for inconclusive comparisons.
+  Continuous mean decisions cannot use a small-sample sign test as evidence about the mean.
+  Binary and explicit median decisions retain their appropriate confidence-dependent observation requirements.
+
+### Added
+
+- Optional top-level `claim` metadata declares populations and independent source units without consuming reusable regression evidence.
+  New-unit claims keep source families together across automatic partitions.
+  Self-improvement retains the selected candidate when release evidence is negative or inconclusive.
+- Optional `finalEvidence` reserves fresh final units before search and records exposure before final measurement.
+  The shared journal detects conflicting use, concurrent ownership, corrupted history, and deleted trusted heads.
+- `/meta-eval` exports evaluator admission from actual controls, simultaneous error bounds, and explicit unknown and excluded evidence.
+  Existing position and self-preference audits are public alongside calibration and verbosity diagnostics.
+- `calibrationFromPairs()` accepts direct measured rows without requiring trace and outcome stores.
+- Pareto objectives and paired promotion accept `binaryScale` for declared binary outcomes, including zero-only error observations.
+  Default Pareto regression tolerances use the declared scale.
+- The [evaluation-integrity guide](docs/evaluation-integrity.md) explains methodology and limits.
+  Its offline example composes public imports and exports actual fixture results.
+
+### Fixed
+
+- Outcome queries select the latest finite requested metric instead of an unrelated latest observation.
+  Outcome-store corruption and unavailable evidence remain visible failures.
+- Calibration preserves clipped observations, measures constant predictors, and honors the requested bin count.
+- Registered-unit gates pair complete cells before aggregation; repetitions and source variants cannot multiply independent evidence.
+  Cell reduction preserves identical judge scores exactly, including decimal binary scales.
+- Opened experiments and outcome research retain validated snapshots instead of mutable caller-owned rules.
+- Comparisons capture judge configuration and callbacks before asynchronous work.
+  Replacing a caller's judge between arms cannot create artificial lift under the original evaluator identity.
+- Pareto promotion applies regression floors to the deciding confidence interval.
+  Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
+  Gate explanations describe failed floors without treating uncertainty as an observed regression.
+  Zero-width or non-finite deciding intervals now produce an `indeterminate` axis and `not_evaluated` check.
+  They require more evidence before promotion, including undeclared all-zero outcomes and constant continuous differences.
+
 ## [0.180.0] — 2026-09-09
 
 - Preserve named-resource receipts in supervisor-run facts, JSON reports, and comparison cells.

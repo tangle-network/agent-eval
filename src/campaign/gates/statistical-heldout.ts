@@ -1,27 +1,12 @@
 /**
- * Statistical held-out promotion machinery — the trustworthy core the
- * point-estimate `heldout-delta` gate lacked.
+ * Held-out inference pairs execution cells and judge identities before taking
+ * means within registered independent units. Repetitions can improve a unit's
+ * precision without increasing n. Ungrouped inference concerns independently
+ * sampled execution cells conditional on a fixed scenario roster.
  *
- * The shipped false positive it prevents: a winner re-scored against the
- * baseline on the holdout read run-to-run model NOISE (e.g. 91 vs 95) as a
- * "+4 lift" and shipped, because the gate compared point estimates with no
- * confidence interval. Here we pair candidate vs baseline holdout observations
- * and bootstrap a CI on the paired delta — a candidate ships only when the CI
- * lower bound clears the effect-size threshold (the gain is real at the
- * confidence level, not noise), and is blocked when a critical dimension
- * (e.g. `hallucination_free` for a legal agent) significantly regresses even if
- * the net composite rose (anti-Goodhart).
- *
- * Two traps this module is built around (both produce a NEW false positive if
- * gotten wrong):
- *   1. PAIRING GRANULARITY — pairs by FULL `cellId` (`scenario:rep`), never by
- *      `scenarioId` (which averages reps away and destroys the within-pair
- *      variance reduction that makes a paired bootstrap tighter than unpaired).
- *      One paired observation per cell ⇒ reps multiply n.
- *   2. SCALE — a judge may emit composites/dimensions on [0,1] or 0-100. The
- *      threshold + tolerance are interpreted in the judge's NATIVE scale; the
- *      per-dimension tolerance auto-scales off the observed baseline magnitudes
- *      so `-0.10` on [0,1] doesn't silently become a no-op on a 0-100 dimension.
+ * The shared paired decision rule selects the estimator and statistical test.
+ * Dimension reports retain missing coverage so required safety checks cannot
+ * pass through absent evidence. Thresholds use the judge's native score scale.
  */
 
 import {
@@ -53,13 +38,75 @@ export interface PairedHoldout {
   cellIds: string[]
 }
 
+/** Campaign cell IDs append a numeric repetition after the scenario's full ID. */
+export function scenarioIdFromCellId(cellId: string): string {
+  const separator = cellId.lastIndexOf(':')
+  const repetition = cellId.slice(separator + 1)
+  if (
+    separator < 1 ||
+    cellId.trim() !== cellId ||
+    !/^(0|[1-9]\d*)$/.test(repetition) ||
+    !Number.isSafeInteger(Number(repetition))
+  ) {
+    throw new Error(`pairHoldout: malformed cellId '${cellId}'; expected scenarioId:rep`)
+  }
+  return cellId.slice(0, separator)
+}
+
+/** Preserve cell pairing before taking equal-weight independent-unit means. */
+export function aggregatePairedHoldout(
+  paired: PairedHoldout,
+  independentUnitByScenarioId?: ReadonlyMap<string, string>,
+): { before: number[]; after: number[]; unitIds: string[] } {
+  if (
+    paired.before.length !== paired.after.length ||
+    paired.before.length !== paired.cellIds.length
+  ) {
+    throw new Error('aggregatePairedHoldout: scores and cellIds must have the same length')
+  }
+  if (new Set(paired.cellIds).size !== paired.cellIds.length) {
+    throw new Error('aggregatePairedHoldout: duplicate cellIds cannot count as new observations')
+  }
+  if (
+    paired.before.some((value) => !Number.isFinite(value)) ||
+    paired.after.some((value) => !Number.isFinite(value))
+  ) {
+    throw new Error('aggregatePairedHoldout: paired scores must be finite')
+  }
+  if (independentUnitByScenarioId === undefined) {
+    return { before: [...paired.before], after: [...paired.after], unitIds: [...paired.cellIds] }
+  }
+  const scenarioIds = paired.cellIds.map(scenarioIdFromCellId)
+  const groups = new Map<string, { before: number; after: number; n: number }>()
+  for (let i = 0; i < paired.cellIds.length; i++) {
+    const scenarioId = scenarioIds[i]!
+    const unitId = independentUnitByScenarioId.get(scenarioId)
+    if (typeof unitId !== 'string' || unitId.length === 0 || unitId.trim() !== unitId) {
+      throw new Error(
+        `aggregatePairedHoldout: missing independent unit for scenario '${scenarioId}'`,
+      )
+    }
+    const group = groups.get(unitId) ?? { before: 0, after: 0, n: 0 }
+    group.before += paired.before[i]!
+    group.after += paired.after[i]!
+    group.n += 1
+    groups.set(unitId, group)
+  }
+  const unitIds = [...groups.keys()].sort()
+  return {
+    before: unitIds.map((id) => groups.get(id)!.before / groups.get(id)!.n),
+    after: unitIds.map((id) => groups.get(id)!.after / groups.get(id)!.n),
+    unitIds,
+  }
+}
+
 /**
  * Pair candidate vs baseline holdout observations by FULL cellId. `select`
  * pulls the scalar from a cell's judge reports (composite, or a named
  * dimension); a cell contributes the mean of `select` across its judges. Cells
  * whose scenario is not in `scenarioIds`, or where `select` is undefined for
- * every judge on either side, are skipped on BOTH sides so the arrays stay
- * paired. Throws when the two maps disagree on which holdout cells exist — a
+ * every judge on both sides, are skipped. The selected judge IDs must agree
+ * within each pair. Throws when the two maps disagree on holdout cell IDs — a
  * load-bearing invariant: the baseline + winner holdout campaigns run the same
  * scenarios with the same seed base, so their cellIds MUST align; a mismatch
  * means a silent pairing bug, not a soft fallback.
@@ -70,14 +117,14 @@ export function pairHoldout(
   scenarioIds: Set<string>,
   select: (s: JudgeScore) => number | undefined,
 ): PairedHoldout {
-  const cellValue = (
+  const cellValues = (
     byCell: Map<string, Record<string, JudgeScore>>,
     cellId: string,
-  ): number | undefined => {
+  ): Map<string, number> => {
     const scores = byCell.get(cellId)
-    if (!scores) return undefined
-    const vals: number[] = []
-    for (const s of Object.values(scores)) {
+    const values = new Map<string, number>()
+    if (!scores) return values
+    for (const [judgeId, s] of Object.entries(scores)) {
       if (s.failed === true) {
         throw new Error(`pairHoldout: cell '${cellId}' contains a failed judge score`)
       }
@@ -85,13 +132,12 @@ export function pairHoldout(
       if (typeof v === 'number' && !Number.isFinite(v)) {
         throw new Error(`pairHoldout: cell '${cellId}' contains a non-finite selected score`)
       }
-      if (typeof v === 'number') vals.push(v)
+      if (typeof v === 'number') values.set(judgeId, v)
     }
-    if (vals.length === 0) return undefined
-    return vals.reduce((a, b) => a + b, 0) / vals.length
+    return values
   }
 
-  const inScope = (cellId: string) => scenarioIds.has(cellId.split(':')[0] ?? '')
+  const inScope = (cellId: string) => scenarioIds.has(scenarioIdFromCellId(cellId))
   const candCells = [...candidate.keys()].filter(inScope).sort()
   const baseCells = [...baseline.keys()].filter(inScope).sort()
   // Alignment invariant — the holdout campaigns share scenarios + seed, so the
@@ -108,19 +154,32 @@ export function pairHoldout(
   const after: number[] = []
   const cellIds: string[] = []
   for (const cellId of candCells) {
-    const b = cellValue(baseline, cellId)
-    const a = cellValue(candidate, cellId)
+    const b = cellValues(baseline, cellId)
+    const a = cellValues(candidate, cellId)
     // A scalar absent on both sides means that dimension was not scored. A
     // one-sided absence is asymmetric evidence loss, never a row to discard.
-    if (b === undefined && a === undefined) continue
-    if (b === undefined || a === undefined) {
+    if (b.size === 0 && a.size === 0) continue
+    if (b.size === 0 || a.size === 0) {
       throw new Error(`pairHoldout: cell '${cellId}' has a selected score on only one arm`)
     }
-    before.push(b)
-    after.push(a)
+    if (b.size !== a.size || [...b.keys()].some((id) => !a.has(id))) {
+      throw new Error(`pairHoldout: cell '${cellId}' selected judge IDs do not align`)
+    }
+    const judgeIds = [...b.keys()].sort()
+    before.push(meanSelectedScores(judgeIds.map((id) => b.get(id)!)))
+    after.push(meanSelectedScores(judgeIds.map((id) => a.get(id)!)))
     cellIds.push(cellId)
   }
   return { before, after, cellIds }
+}
+
+function meanSelectedScores(values: number[]): number {
+  const first = values[0]!
+  // Summing identical fractional scores can round their mean outside the
+  // declared binary support. An agreeing judge set preserves its exact value.
+  return values.every((value) => value === first)
+    ? first
+    : values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 export interface HeldoutSignificance {
@@ -156,9 +215,14 @@ export interface HeldoutSignificance {
    *  high tie fraction is WHY a median-based gate would have missed a real lift;
    *  it is the observability the tie fix adds. */
   tieFraction: number
-  /** n paired observations. */
+  /** Number of paired observation units, after configured aggregation. */
   n: number
-  /** Effective minimum after applying the bootstrap's hard statistical floor. */
+  /** Original matched execution cells, before aggregation. */
+  pairedCellN: number
+  observationUnit: 'registered' | 'cell'
+  /** Registered unit IDs, or cell IDs on the ungrouped path. */
+  unitIds: string[]
+  /** Effective minimum for the requested target and chosen estimator. */
   minimumRequired: number
   /** Statistical method that carried the decision. */
   decisionMethod: PairedDecisionMethod
@@ -180,6 +244,8 @@ export interface HeldoutSignificanceOptions {
   /** Fixed by default for a deterministic, reproducible gate verdict. */
   seed?: number
   statistic?: 'mean' | 'median'
+  /** Group full cell pairs into equal-weight independent units before inference. */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
 }
 
 /**
@@ -205,8 +271,8 @@ export interface HeldoutSignificanceOptions {
  * and 88.50 % at n = 6 under a bounded asymmetric null whose true mean paired
  * delta is exactly 0.
  *
- * At small n, where the percentile bootstrap is descriptive only, a
- * pre-registered exact sign test still carries the bootstrap path.
+ * Continuous mean targets require bootstrap eligibility. Explicit median
+ * targets can use the exact sign test at its confidence-dependent minimum.
  */
 export function heldoutSignificance(
   paired: PairedHoldout,
@@ -229,7 +295,8 @@ export function heldoutSignificance(
   // median is kept as a reported diagnostic. Callers wanting outlier-robustness at
   // the cost of tie-blindness can still pass `statistic: 'median'`.
   const statistic = opts.statistic ?? 'mean'
-  const decision = decidePairedPromotion(paired.before, paired.after, {
+  const observations = aggregatePairedHoldout(paired, opts.independentUnitByScenarioId)
+  const decision = decidePairedPromotion(observations.before, observations.after, {
     confidence,
     resamples,
     statistic,
@@ -242,21 +309,26 @@ export function heldoutSignificance(
   // field. Same two bootstraps as before on every path.
   const bootstrap =
     decision.bootstrap ??
-    pairedBootstrap(paired.before, paired.after, { confidence, resamples, statistic, seed })
+    pairedBootstrap(observations.before, observations.after, {
+      confidence,
+      resamples,
+      statistic,
+      seed,
+    })
   const medianBootstrap =
     statistic === 'median'
       ? bootstrap
-      : pairedBootstrap(paired.before, paired.after, {
+      : pairedBootstrap(observations.before, observations.after, {
           confidence,
           resamples,
           statistic: 'median',
           seed,
         })
-  const n = paired.before.length
+  const n = observations.before.length
   let ties = 0
   for (let i = 0; i < n; i += 1) {
-    const after = paired.after[i] ?? 0
-    const before = paired.before[i] ?? 0
+    const after = observations.after[i]!
+    const before = observations.before[i]!
     if (Math.abs(after - before) < 1e-9) ties += 1
   }
   const tieFraction = n === 0 ? 0 : ties / n
@@ -269,6 +341,9 @@ export function heldoutSignificance(
     mcnemar: decision.mcnemar,
     tieFraction,
     n,
+    pairedCellN: paired.cellIds.length,
+    observationUnit: opts.independentUnitByScenarioId === undefined ? 'cell' : 'registered',
+    unitIds: observations.unitIds,
     minimumRequired: decision.minimumPairs,
     decisionMethod: decision.method,
     pValue: decision.pValue,
@@ -294,13 +369,21 @@ export interface DimensionRegression {
   mcnemar: PairedMcNemarEvidence | null
   /** `ci` has zero width — no evidence in either direction. */
   indeterminate: boolean
-  /** True iff the candidate may have regressed this dimension by more than
-   *  tolerance: the lower bound of the DECIDING interval on (candidate −
-   *  baseline) is below −tolerance, OR the exact small-sample test proves a drop
-   *  past tolerance. */
+  /** The bootstrap lower bound is below negative tolerance, or the shared
+   *  paired test supports a drop exceeding tolerance. Missing coverage and
+   *  insufficient observations are reported separately. */
   regressed: boolean
   tolerance: number
   n: number
+  pairedCellN: number
+  observationUnit: 'registered' | 'cell'
+  /** Statistical minimum for the configured independent observation unit. */
+  minimumRequired: number
+  fewRuns: boolean
+  /** Both arms lack this dimension on these otherwise matched execution cells. */
+  missingCellIds: string[]
+  /** Configured scenarios with no paired dimension measurement at all. */
+  missingScenarioIds: string[]
 }
 
 /** Detect the native scale of a set of scores: 0-100 when any magnitude clears
@@ -310,24 +393,14 @@ export function detectScale(values: number[]): 1 | 100 {
   return values.some((v) => Math.abs(v) > 1.5) ? 100 : 1
 }
 
-/** Per-critical-dimension regression guard. For each dimension, pair the
- *  candidate vs baseline values by full cellId and bootstrap the paired delta;
- *  a dimension is "regressed" when the CI lower bound < −tolerance (conservative
- *  — blocks if the credible worst case exceeds tolerance, which is the right
- *  posture for safety dimensions like `hallucination_free`). When `tolerance`
- *  is omitted it auto-scales: 0.05 on [0,1], 5 on 0-100.
- *
- *  The interval comes from {@link decidePairedPromotion}, so a pass/fail
- *  dimension is judged on Tango's score interval rather than a percentile
- *  bootstrap of the mean — `tolerance` is a NONZERO margin, and the bootstrap
- *  is not a valid interval at one. That matters most here because this guard
- *  fails OPEN by construction: `tolerance` is positive, so an interval pinned at
- *  [0,0] never satisfies `low < −tolerance` and a real regression on a safety
- *  dimension would be reported as `regressed: false`. On the median it fails the
- *  same way for the same reason — when most pairs tie, which is automatic for a
- *  pass/fail dimension on {0,1} and on the 0-100 encoding `detectScale` exists
- *  to support, the median CI collapses to [0,0]. Pass `statistic: 'median'` to
- *  restore the pre-0.134 behaviour. */
+/**
+ * Report required-dimension evidence after full pairing and optional unit means.
+ * A bootstrap floor breach or a shared paired test supporting a drop marks
+ * regression. These two criteria are distinct; `ci` records the shared
+ * estimator and `bootstrap` records the floor interval. Missing observations
+ * and insufficient n remain explicit for the caller's evidence policy.
+ * The default tolerance is 0.05 on [0,1] and 5 on a detected 0-100 scale.
+ */
 export function dimensionRegressions(
   candidate: Map<string, Record<string, JudgeScore>>,
   baseline: Map<string, Record<string, JudgeScore>>,
@@ -341,12 +414,20 @@ export function dimensionRegressions(
     /** Paired statistic the CI is computed on. Default `'mean'` — see
      *  {@link DECISION_PAIRED_DELTA_STATISTIC} for why the median is not. */
     statistic?: 'mean' | 'median'
+    independentUnitByScenarioId?: ReadonlyMap<string, string>
+    minProductiveRuns?: number
   } = {},
 ): DimensionRegression[] {
   const out: DimensionRegression[] = []
+  const expectedCellIds = [...baseline.keys()]
+    .filter((cellId) => scenarioIds.has(scenarioIdFromCellId(cellId)))
+    .sort()
   for (const dim of criticalDimensions) {
     const paired = pairHoldout(candidate, baseline, scenarioIds, (s) => s.dimensions[dim])
     if (paired.before.length === 0) continue // dimension not scored on this judge
+    const observations = aggregatePairedHoldout(paired, opts.independentUnitByScenarioId)
+    const measuredCells = new Set(paired.cellIds)
+    const measuredScenarios = new Set(paired.cellIds.map(scenarioIdFromCellId))
     const tolerance = opts.tolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
     const bootstrapStatistic = opts.statistic ?? DECISION_PAIRED_DELTA_STATISTIC
     const shared = {
@@ -354,13 +435,15 @@ export function dimensionRegressions(
       resamples: opts.resamples ?? 2000,
       statistic: bootstrapStatistic,
       seed: opts.seed ?? 1337,
+      minPairs: opts.minProductiveRuns,
     }
-    const guard = decidePairedPromotion(paired.before, paired.after, shared)
-    const regression = decidePairedPromotion(paired.after, paired.before, {
+    const guard = decidePairedPromotion(observations.before, observations.after, shared)
+    const regression = decidePairedPromotion(observations.after, observations.before, {
       ...shared,
       threshold: tolerance,
     })
-    const bootstrap = guard.bootstrap ?? pairedBootstrap(paired.before, paired.after, shared)
+    const bootstrap =
+      guard.bootstrap ?? pairedBootstrap(observations.before, observations.after, shared)
     out.push({
       dimension: dim,
       bootstrap,
@@ -386,7 +469,13 @@ export function dimensionRegressions(
       // ties dominate.
       regressed: bootstrap.low < -tolerance || regression.promote,
       tolerance,
-      n: paired.before.length,
+      n: observations.before.length,
+      pairedCellN: paired.cellIds.length,
+      observationUnit: opts.independentUnitByScenarioId === undefined ? 'cell' : 'registered',
+      minimumRequired: guard.minimumPairs,
+      fewRuns: !guard.sufficient,
+      missingCellIds: expectedCellIds.filter((cellId) => !measuredCells.has(cellId)),
+      missingScenarioIds: [...scenarioIds].filter((id) => !measuredScenarios.has(id)).sort(),
     })
   }
   return out

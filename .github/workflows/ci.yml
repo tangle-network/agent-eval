@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
   ci:
@@ -43,9 +42,6 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Typecheck examples
-        run: pnpm typecheck:examples
-
       - name: Typecheck scripts
         run: pnpm typecheck:scripts
 
@@ -56,6 +52,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm build
+
+      - name: Typecheck examples
+        run: pnpm typecheck:examples
 
       - name: Verify packed package exports
         run: pnpm run verify:package

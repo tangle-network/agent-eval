@@ -31,8 +31,10 @@ export class DesignRefusalError extends ValidationError {}
 export interface ClusteredPowerOptions {
   /** Rows per independent cluster, e.g. [6, 3, 3, 2]. */
   clusterSizes: number[]
-  /** Per-row effect grid: each effect is P(win) - P(loss) added to the base rates. */
+  /** P(win) − P(loss) in signal clusters; noisy clusters retain zero expected contrast. */
   effects: number[]
+  /** Minimum worthwhile effect under the declared outcome model; must occur in effects. */
+  minimumEffect: number
   /** Deterministic seed for outcome draws and bootstrap resampling. */
   seed: number
   /** Simulated experiments per effect. Default 2000. */
@@ -43,11 +45,11 @@ export interface ClusteredPowerOptions {
   confidence?: number
   /** Sign-flip alpha the closed-form floor is checked against. Default 0.05. */
   alpha?: number
-  /** Power the design must reach at some grid effect. Default 0.8. */
+  /** Power required at minimumEffect. Default 0.8. */
   targetPower?: number
-  /** Base P(row favors treatment) with no effect. Default 0.10 (tie-heavy rows). */
+  /** P(row favors treatment) under the zero-effect model. Must equal baseLossRate. Default 0.10. */
   baseWinRate?: number
-  /** Base P(row favors control). Default 0.10. */
+  /** P(row favors control) under the zero-effect model. Must equal baseWinRate. Default 0.10. */
   baseLossRate?: number
   /**
    * Clusters whose rows carry outcome noise instead of signal: each row wins
@@ -89,11 +91,13 @@ export interface ClusteredPowerResult {
   seed: number
   confidence: number
   targetPower: number
+  minimumEffect: number
+  powerAtMinimumEffect: number
   curve: ClusteredPowerPoint[]
   /** Maximum simulated power across the effect grid. */
   maxPower: number
   signFlipFloor: SignFlipFloor
-  /** True only when the sign-flip floor certifies AND simulation reaches target. */
+  /** True when the sign-flip floor certifies and power at minimumEffect reaches target. */
   adequate: boolean
   /** Populated exactly when `adequate` is false. The refusal lives in the artifact. */
   refusal: ClusteredPowerRefusal | null
@@ -101,7 +105,7 @@ export interface ClusteredPowerResult {
 
 /**
  * Simulate the power of a whole-cluster percentile-bootstrap design and refuse
- * a structure that cannot reach the target at any registered effect.
+ * a structure that cannot reach target power at the declared minimum effect.
  */
 export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerResult {
   const clusterSizes = options.clusterSizes
@@ -112,6 +116,24 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
   }
   if (options.effects.length === 0) {
     throw new ValidationError('clusteredPower: effects grid is empty')
+  }
+  if (
+    options.effects.some((effect) => !Number.isFinite(effect) || effect < 0 || effect > 1) ||
+    new Set(options.effects).size !== options.effects.length
+  ) {
+    throw new ValidationError('clusteredPower: effects must be unique finite values in [0,1]')
+  }
+  if (
+    !Number.isFinite(options.minimumEffect) ||
+    options.minimumEffect <= 0 ||
+    options.minimumEffect > 1
+  ) {
+    throw new ValidationError('clusteredPower: minimumEffect must be in (0,1]')
+  }
+  if (!options.effects.includes(options.minimumEffect)) {
+    throw new ValidationError(
+      'clusteredPower: effects must contain minimumEffect exactly; no interpolation is assumed',
+    )
   }
   if (!Number.isInteger(options.seed)) {
     throw new ValidationError(`clusteredPower: seed must be an integer, got ${options.seed}`)
@@ -124,18 +146,54 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
     )
   }
   const confidence = options.confidence ?? 0.95
-  if (confidence <= 0 || confidence >= 1) {
+  if (!Number.isFinite(confidence) || confidence <= 0 || confidence >= 1) {
     throw new ValidationError(`clusteredPower: confidence must be in (0,1), got ${confidence}`)
   }
   const alpha = options.alpha ?? 0.05
   const targetPower = options.targetPower ?? 0.8
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new ValidationError('clusteredPower: alpha must be in (0,1)')
+  }
+  if (!Number.isFinite(targetPower) || targetPower <= 0 || targetPower > 1) {
+    throw new ValidationError('clusteredPower: targetPower must be in (0,1]')
+  }
   const baseWinRate = options.baseWinRate ?? 0.1
   const baseLossRate = options.baseLossRate ?? 0.1
+  if (
+    !Number.isFinite(baseWinRate) ||
+    !Number.isFinite(baseLossRate) ||
+    baseWinRate < 0 ||
+    baseLossRate < 0 ||
+    baseWinRate + baseLossRate > 1
+  ) {
+    throw new ValidationError(
+      'clusteredPower: base win/loss rates must be nonnegative and sum to at most 1',
+    )
+  }
+  if (baseWinRate !== baseLossRate) {
+    throw new ValidationError(
+      'clusteredPower: the zero-effect model requires equal baseWinRate and baseLossRate',
+    )
+  }
   const noisy = new Map<number, number>()
   for (const cluster of options.noisyClusters ?? []) {
-    if (cluster.index < 0 || cluster.index >= clusterSizes.length) {
+    if (
+      !Number.isInteger(cluster.index) ||
+      cluster.index < 0 ||
+      cluster.index >= clusterSizes.length
+    ) {
       throw new ValidationError(
         `clusteredPower: noisy cluster index ${cluster.index} outside [0,${clusterSizes.length - 1}]`,
+      )
+    }
+    if (
+      noisy.has(cluster.index) ||
+      !Number.isFinite(cluster.flipRate) ||
+      cluster.flipRate < 0 ||
+      cluster.flipRate > 1
+    ) {
+      throw new ValidationError(
+        'clusteredPower: noisy clusters need unique indices and flipRate in [0,1]',
       )
     }
     noisy.set(cluster.index, cluster.flipRate)
@@ -161,6 +219,7 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
     )
   }
   const maxPower = Math.max(...curve.map((point) => point.power))
+  const powerAtMinimumEffect = curve.find((point) => point.effect === options.minimumEffect)!.power
 
   const reasons: string[] = []
   if (!signFlipFloor.certifiableAtAlpha) {
@@ -171,11 +230,11 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
         `${signFlipFloor.minClustersForAlpha} clusters are needed`,
     )
   }
-  if (maxPower < targetPower) {
-    const best = curve.reduce((a, b) => (b.power > a.power ? b : a))
+  if (powerAtMinimumEffect < targetPower) {
     reasons.push(
-      `simulated power tops out at ${maxPower.toFixed(3)} (effect ${best.effect}) across the ` +
-        `registered grid — below the ${targetPower} target at every effect`,
+      `simulated power ${powerAtMinimumEffect.toFixed(3)} at minimum worthwhile effect ` +
+        `${options.minimumEffect} is below target ${targetPower}; maximum grid power ` +
+        `${maxPower.toFixed(3)} does not establish adequacy at that effect`,
     )
   }
   const adequate = reasons.length === 0
@@ -187,6 +246,8 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
     seed: options.seed,
     confidence,
     targetPower,
+    minimumEffect: options.minimumEffect,
+    powerAtMinimumEffect,
     curve,
     maxPower,
     signFlipFloor,
@@ -199,7 +260,8 @@ export function clusteredPower(options: ClusteredPowerOptions): ClusteredPowerRe
           recommendation:
             `Do not spend on this structure. Add independent clusters (>= ` +
             `${Math.max(signFlipFloor.minClustersForAlpha, clusterCount)}) or register a design ` +
-            `whose simulated power reaches ${targetPower}, then re-run clusteredPower.`,
+            `whose simulated power reaches ${targetPower} at effect ${options.minimumEffect}, ` +
+            `then re-run clusteredPower.`,
         },
   }
 }
@@ -239,9 +301,10 @@ interface SimulationConfig {
 }
 
 /**
- * One effect point. Per row the paired contrast is +1 with probability
- * min(baseWin + effect, 1), -1 with the base loss rate (capped by what
- * remains), else 0. Noisy clusters draw win and loss independently at their
+ * One effect point. Loss probability is min(baseLoss, (1-effect)/2) and
+ * win probability is loss probability plus effect. Their difference equals
+ * effect, including near the probability boundary. Noisy clusters draw win
+ * and loss independently at their
  * flip rate. Each trial computes a whole-cluster percentile bootstrap of the
  * pooled row mean; the trial counts toward power when the interval excludes
  * zero.
@@ -264,8 +327,8 @@ function simulateEffect(effect: number, config: SimulationConfig): ClusteredPowe
           const loss = rng() < flipRate ? 1 : 0
           sum += win - loss
         } else {
-          const winRate = Math.min(1, config.baseWinRate + effect)
-          const lossRate = Math.min(1 - winRate, config.baseLossRate)
+          const lossRate = Math.min(config.baseLossRate, (1 - effect) / 2)
+          const winRate = lossRate + effect
           const u = rng()
           sum += u < winRate ? 1 : u < winRate + lossRate ? -1 : 0
         }

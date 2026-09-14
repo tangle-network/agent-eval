@@ -57,6 +57,7 @@ const spec: ExperimentSpec = {
     pairedContrast95: {
       kind: 'cluster-bootstrap',
       clusterBy: 'queue',
+      value: 'diff',
       resamples: 2_000,
       seed: 20260815,
       level: 0.95,
@@ -129,7 +130,6 @@ const differenceRows: EvidenceRecord[] = admission.survivors.map((row) => ({
 const interval = registered.interval('pairedContrast95', {
   kind: 'rows',
   rows: differenceRows,
-  value: 'diff',
 })
 console.log('95% interval:  ', [interval.lower, interval.upper])
 

@@ -1,20 +1,21 @@
 # Eval surface map: which primitive, when
 
-The eval surface is a small set of orthogonal primitives. They compose; they do
-not overlap. If two seem interchangeable, read the "use when": the distinction
-is real and load-bearing. **Do not add a new wrapper to bridge two of these; the
-composition point already exists (see Produced-state grading below).**
+Choose the public entry point by the decision you need to make.
+The [README](../README.md#choose-a-workflow) starts with the common product workflows.
+This reference covers direct execution controls and specialist modules.
 
-## The run\* primitives
+## The run primitives
 
-| Primitive | Use when | Returns |
-|---|---|---|
-| `runCampaign` | The measurement primitive. Run a dispatch over scenarios × seeds × reps, score each with judges, aggregate. Caller owns the dispatch. | `CampaignResult` |
-| `runEval` | The simplest preset over `runCampaign`: just score, no loop, no gate. The 80% "I want a scorecard" case. | `CampaignResult` |
-| `runProfileMatrix` | Factor the SAME scenarios across N agent **profiles** (models / prompt variants), with RunRecord stamping + a real-backend integrity guard. | `RunRecord[]` |
-| `runOptimization` | GENERATE: measured or validated premeasured baseline → N generations of propose → measure → rank → promote. No release gate. | generations + winner |
-| `runImprovementLoop` | The release-gate shell around `runOptimization`: adds a held-out re-score + a promotion gate (+ optional auto-PR). | gate decision + winner |
-| `runEvalCampaign` | Inversion-of-control variant of `runCampaign`: the runner is handed a pre-wired trace/sink/emitter and integrity gating as a precondition. Use when you need full capture by construction. | `CampaignResult` + records |
+| Primitive | Import | Use | Returns |
+|---|---|---|---|
+| `runCampaign()` | `/campaign` | Execute and judge a scenarios × repetitions grid through caller-owned dispatch. | `CampaignResult` |
+| `runEval()` | `/contract` or `/campaign` | Score one surface with campaign defaults. | `CampaignResult` |
+| `runProfileMatrix()` | `/campaign` | Run the same cases across named agent profiles with provenance and backend checks. | `RunProfileMatrixResult`, including `.records`. |
+| `runOptimization()` | `/campaign` | Generate, measure, and select candidates on development cases. | Generations and a winner surface. |
+| `runImprovementLoop()` | `/contract` or `/campaign` | Search, compare on final cases, and apply a release gate. | Final comparison, winner, and gate decision. |
+| `compareOptimizationMethods()` | `/campaign` | Compare selected surfaces from several methods under declared budgets. | Final paired contrasts, uncertainty, and costs. |
+| `runEvalCampaign()` | Root | Run with a caller-supplied trace sink and emitter. | Campaign result and records. |
+| `runAgentMatrix()` | `/matrix` | Schedule a general Cartesian grid without campaign scoring semantics. | Cell results. |
 
 When variants of the same task run inside one `runCampaign`, give those scenarios the same `seedGroup` so each repetition uses common randomness.
 Use `runProfileMatrix` instead when profiles are separate campaign axes.
@@ -34,14 +35,61 @@ to retry failed cells from Eval's durable campaign cache.
 Finalization refuses missing, overlapping, stale, corrupt, or duplicate rows,
 then returns the ordinary `runProfileMatrix` result and its distributions.
 Coverage reports missing, failed, and zero-score rows separately.
-| `runAgentMatrix` | The bare N-axis cartesian scheduler with concurrency control. The layer beneath the eval surface: reach for it only when you need raw scheduling, not eval semantics. | cell results |
 
-Mental model: **measure** (`runCampaign`/`runEval`) → **factor** (`runProfileMatrix`) →
-**generate** (`runOptimization`) → **gate** (`runImprovementLoop`). `runEvalCampaign`
-is `runCampaign` with capture inverted; `runAgentMatrix` is the scheduler underneath.
+## Claims, evaluator checks, and final evidence
 
-Merging any two of these conflates distinct mental models (measure ≠ search ≠
-release-gate). Keep them separate; pick by the table.
+| Concern | Import | Public API |
+|---|---|---|
+| Declare population and independent units | `/experiment` | `defineEvaluationClaim()`, `summarizeEvaluationUnits()` |
+| Register an executable decision | `/experiment` | `defineExperiment()`, `sealExperiment()`, `openSealedExperiment()` |
+| Check design adequacy at a practical effect | `/experiment` | `clusteredPower()`, `assertDesignAdequate()` |
+| Track final-data reservation and exposure | `/experiment` | `openFinalEvidenceLedger()` |
+| Group reusable comparisons by source unit | `/contract` or `/campaign` | The top-level `claim` option. |
+| Reserve fresh evidence for confirmation | `/contract` or `/campaign` | Optional `finalEvidence: { ledger, requestId, evaluatorDigest }`. |
+| Admit an evaluator against both error limits | `/meta-eval` | `auditEvaluator()` |
+| Measure agreement and known bias patterns | `/meta-eval` | `calibrateJudgeContinuous()`, `continuousAgreement()`, `positionalBias()`, `verbosityBias()`, `selfPreference()` |
+| Relate scores to declared deployment outcomes | `/meta-eval` | `rubricPredictiveValidity()`, `correlationStudy()`, `calibrationFromPairs()`, `calibrationCurve()` |
+
+The top-level `claim` declares the independent unit for ordinary reusable comparisons.
+Include `minimumEffect` when the decision concerns a practical improvement.
+Optional `finalEvidence` requires a comparison or certification claim.
+It reserves units before search and records exposure before final dispatch.
+Its ledger must be shared across related campaigns.
+Keep source unit identifiers stable when scenarios or populations are renamed.
+The host controls access to private evidence and must preserve author/auditor separation.
+[Evaluation integrity](./evaluation-integrity.md) describes these boundaries and the public result shapes.
+
+Outcome associations require an explicit desired direction for predictive validity.
+They produce descriptive evidence and experiment hypotheses.
+They do not establish a causal benefit from changing a rubric.
+See [outcome validity](./outcome-validity.md).
+
+Method comparisons retain `scenarioScores`, `unitScores`, the `units` summary, and `pairedCellN` separately.
+`favored: null` means the paired decision did not establish a preferred method.
+It does not establish equivalence.
+Use the decision diagnostics and intervals to distinguish insufficient evidence from a supported improvement.
+
+## Specialist imports
+
+| Subpath | Use |
+|---|---|
+| `/traces`, `/trace-attributes` | Store and inspect trace evidence; use canonical measurement attribute names. |
+| `/analyst` | Execute declared analysts against recorded evidence. |
+| `/reporting`, `/pipelines` | Compare runs, render reports, and extract recorded failure patterns. |
+| `/supervisor-run` | Read recursive run directories and their evidence coverage. |
+| `/trace-repair`, `/trajectory-replay` | Execute proposed repairs or replay recorded shell trajectories. |
+| `/benchmarks`, `/fuzz` | Adapt benchmark data and explore a declared behavior space. |
+| `/builder-eval`, `/multishot`, `/multishot/golden` | Evaluate generated applications and multi-turn conversations. |
+| `/matrix` | Schedule Cartesian experiment grids. |
+| `/rl` | Build reward, preference, and supervised datasets from eligible evidence. |
+| `/profile-cell` | Create and validate portable agent-profile identities. |
+| `/authenticity`, `/ledger-core` | Check evidence authenticity and maintain canonical hash-chained journals. |
+| `/rollout`, `/storyboard` | Represent rollout trees and render recorded work. |
+| `/hosted`, `/wire`, `/adapters/http` | Connect hosted storage or expose evaluation through HTTP and RPC. |
+
+Root `Scenario`, `JudgeScore`, and `GateDecision` match `/contract`.
+Use root `ProductScenario` and `DimensionJudgeScore` for the product-judging functions.
+`HeldOutGate.evaluate()` returns the separate root type `HeldOutGateDecision`.
 
 ## What a campaign result reports: the mean and the spread
 
@@ -50,6 +98,8 @@ release-gate). Keep them separate; pick by the table.
 `byScenario` holds one `ScenarioAggregate` per scenario that produced at least one composite.
 
 Each aggregate reports a mean, a seeded bootstrap `ci95` band, `n`, and a `distribution`.
+Here, `n` counts observed scores.
+Use registered gates for inference across independent source units; their `pairedCellN` retains the raw paired denominator.
 `distribution` is the `SeriesDistribution` value `summarizeNumberSeries` returns: `n`, `min`, `p50`, `p90`, `max`, and `sum` over the exact scores the mean was taken over.
 Quantiles use the nearest-rank definition, so every reported quantile is a score the campaign measured.
 
@@ -66,17 +116,22 @@ It is not the `ScalarDistribution` the insight report uses; see `insight-report.
 ## Planning the cell grid without a run directory
 
 `buildCellSchedule(scenarios, seed, reps)` returns the `(scenario × rep)` fan-out: one `CellScheduleSlot` per cell, with its `cellId` and its per-cell seed.
-It touches no filesystem, so a caller can size a design, or assert a design's cell count and seeds in a test, before a run directory exists.
+This function does not access the filesystem.
+It can size a design and check cell counts and seeds before a run directory exists.
 Scenarios that share a `seedGroup` receive the same per-replicate seeds, which is what makes a paired comparison see common randomness.
 
-Use `planCampaignRun` instead when you also need the cached, to-run, and blocked classification; that call needs a real run directory because it reads the durable cache.
+Use `planCampaignRun()` to classify cached, pending, and blocked cells.
+That call reads the durable cache in a real run directory.
 `cellDirectory` and `cellCachePath` name a cell's location once a run directory is chosen.
 
 ## Evidence receipts: `attest`
 
-`attest(report, provenance)` content-addresses any serializable report and binds that address to the provenance needed to reproduce it: model versions, seeds, price-table hash, code SHA, and inputs hash.
+`attest(report, provenance)` binds a serializable report to its provenance through content hashes.
+Provenance records model versions, seeds, the price-table hash, code revision, and input digest.
 `verifyAttestation(report, attested)` returns a typed outcome rather than throwing, so a pipeline records why a report failed to verify instead of dying.
 `ATTESTATION_ALGORITHM` is the hash-scheme tag every attestation carries, and a verifier rejects an unknown algorithm instead of guessing.
+Verification requires an `envelopeHash` that binds the report hash to its provenance.
+An absent, malformed, or mismatched envelope makes the attestation invalid.
 Signing stays with the consumer: an `AttestedReport` is a stable byte-identical payload to sign, and this package never holds keys.
 
 ## Failed cells: receipts and bounded retry
@@ -93,24 +148,18 @@ A retried attempt keeps its receipt at `<cell>/failure-receipt.attempt-<n>.json`
 With `abortOnCellError`, the abort fires only when a cell's final attempt fails.
 Without `cellRetry`, a failed cell is final: one transient 503 leaves campaign coverage incomplete, and `runImprovementLoop` then refuses the holdout comparison.
 
-## Produced-state grading: there is NO persona-dispatch wrapper
+## Grade produced state through a judge
 
-To grade what an agent actually **produced** (filed the proposal, wrote the
-artifact) rather than what it said, the composition point is a **judge that wraps
-`verifyCompletion`**: not a dedicated runner. The pipeline:
+Use `extractProducedState()` and `verifyCompletion()` inside a `JudgeConfig` to grade the work an agent produced.
+The same judge can run through `runCampaign()` or `runProfileMatrix()`.
 
-```
-runtime/app-tool events ──► extractProducedState(events) ──► ProducedState
-                                                                  │
-                            verifyCompletion(taskGold, state, correctnessChecker)
-                                                                  │
-                            inject as a JudgeConfig into runProfileMatrix / runCampaign
+```text
+runtime events -> extractProducedState(events) -> ProducedState
+             -> verifyCompletion(taskGold, state, checker) -> JudgeConfig score
 ```
 
-`extractProducedState` is a pure function over the produced-event stream; the
-judge calls it inline. This is why **`runProducedStatePersonaDispatch` does not
-exist and should not be built**: it would be a fourth layer over a composition
-that is already one judge. (Archetype: `playback.ts` `scoreUserStory`.)
+The host supplies the correctness checker and the events.
+This composition shares campaign execution, capture, and reporting without another runner.
 
 ### The in-band body contract
 
@@ -123,6 +172,5 @@ product database to recover it:
   proposal is graded presence-only (and, by the completion oracle's rule, does
   not count as a completed deliverable).
 
-A consumer that finds itself re-fetching a deliverable's body from its own DB to
-grade it is working around a thin event: fix the event (carry `content`), don't
-add an enrichment band-aid.
+Carry deliverable content in the event when the host persists it.
+This lets the grader inspect the recorded artifact without querying mutable product storage.

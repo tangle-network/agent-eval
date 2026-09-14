@@ -1,3 +1,4 @@
+import { defineEvaluationClaim, type EvaluationClaim } from '../../experiment/claim'
 /**
  * Run a caller-owned candidate generator, compare its winner with the starting
  * surface on separate cases, apply a release rule, and optionally open a pull
@@ -5,6 +6,14 @@
  */
 
 import { openAutoPr } from '../auto-pr'
+import {
+  assertIndependentEvaluationSplit,
+  captureFinalEvidencePolicy,
+  type FinalEvidencePolicy,
+  type FinalEvidenceUse,
+  reserveFinalEvidence,
+} from '../final-evidence'
+import { captureJudge } from '../judge-snapshot'
 import { resolveRunDir } from '../run-dir'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import type { CampaignResult, Gate, MutableSurface, Scenario } from '../types'
@@ -25,6 +34,8 @@ export type RunImprovementLoopOptions<
   /** Holdout scenarios kept OUT of the training optimization pool — used
    *  ONLY to score baseline vs winner for the gate. */
   holdoutScenarios: TScenario[]
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidencePolicy
   /** Holdout policy. Default `'measured'`: baseline + winner are re-scored on
    *  `holdoutScenarios` and the gate decides on that held-out comparison.
    *  `'deferred'`: the improvement-set (search) campaigns run exactly as usual,
@@ -63,6 +74,8 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
   neutralizedOnHoldout?: CampaignResult<TArtifact, TScenario>
   neutralizedSurface?: MutableSurface
   gateResult: Awaited<ReturnType<Gate<TArtifact, TScenario>['decide']>>
+  claim?: EvaluationClaim
+  finalEvidence?: FinalEvidenceUse
   /** Present iff the loop ran with `holdout: 'deferred'`. When set,
    *  `baselineOnHoldout`/`winnerOnHoldout` are the shared EMPTY campaign (zero
    *  cells dispatched) and the gate verdict is the forced `'hold'`. */
@@ -81,6 +94,18 @@ export interface RunImprovementLoopResult<TArtifact, TScenario extends Scenario>
 export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   opts: RunImprovementLoopOptions<TScenario, TArtifact>,
 ): Promise<RunImprovementLoopResult<TArtifact, TScenario>> {
+  opts = {
+    ...opts,
+    judges: opts.judges?.map(captureJudge),
+    ...(opts.claim || opts.finalEvidence
+      ? {
+          claim: opts.claim && defineEvaluationClaim(opts.claim),
+          finalEvidence: opts.finalEvidence && captureFinalEvidencePolicy(opts.finalEvidence),
+          scenarios: structuredClone(opts.scenarios),
+          holdoutScenarios: structuredClone(opts.holdoutScenarios),
+        }
+      : {}),
+  }
   // ── Safety pre-flight ─────────────────────────────────────────────
   if ((opts as { autoOnPromote?: string }).autoOnPromote === 'config') {
     throw new Error(
@@ -134,6 +159,19 @@ export async function runImprovementLoop<TScenario extends Scenario, TArtifact>(
   const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS
 
   // ── (1) optimization loop produces a winner ────────────────────────
+  if (opts.claim?.generalization === 'new-units') {
+    assertIndependentEvaluationSplit(opts.claim, opts.holdoutScenarios, opts.scenarios)
+  }
+  if (opts.finalEvidence) {
+    if (opts.holdout === 'deferred')
+      throw new Error('final evidence requires a measured comparison')
+    await reserveFinalEvidence(
+      opts.finalEvidence,
+      opts.claim,
+      opts.holdoutScenarios,
+      opts.scenarios,
+    )
+  }
   const optimization = await runOptimization({ ...opts, dispatchTimeoutMs, costLedger })
   const comparison = await runFinalComparison({
     ...opts,

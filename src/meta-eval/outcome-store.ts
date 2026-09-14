@@ -1,24 +1,14 @@
-/**
- * OutcomeStore — deployment outcomes attached to Run IDs.
- *
- * Outcomes arrive asynchronously from production telemetry after the
- * eval run completed: user ratings, retention flags, conversion events,
- * revenue, support-ticket rate, anything a product team can measure.
- * The store is a peer to TraceStore — separate lifecycle, same runId
- * foreign key.
- *
- * The whole point of this module is to make the meta-eval correlation
- * question computable: `correlate(evalMetric, outcomeMetric) → r, ρ, n, CI`.
- */
+/** Deployment observations join to evaluation records through their runId. */
+
+import { z } from 'zod'
 
 export interface DeploymentOutcome {
   runId: string
   capturedAt: number
-  /** Numeric outcomes keyed by name — retention_7d, csat, revenue_usd, etc. */
+  /** Finite numeric outcomes; absence of a key means unmeasured. */
   metrics: Record<string, number>
-  /** Dimensions for stratified analysis — cohort, region, user_segment. */
   labels?: Record<string, string>
-  /** Free-form provenance (source system, pipeline version). */
+  /** Source system or pipeline version. */
   source?: string
 }
 
@@ -32,103 +22,165 @@ export interface OutcomeFilter {
 
 export interface OutcomeStore {
   append(outcome: DeploymentOutcome): Promise<void>
-  /** All outcomes attached to this run (a single run can have many — multiple
-   *  capture windows over deployment time). */
   forRun(runId: string): Promise<DeploymentOutcome[]>
   list(filter?: OutcomeFilter): Promise<DeploymentOutcome[]>
 }
+
+const outcomeSchema = z
+  .object({
+    runId: z.string().min(1),
+    capturedAt: z.number().finite(),
+    metrics: z.record(z.string(), z.number().finite()),
+    labels: z.record(z.string(), z.string()).optional(),
+    source: z.string().optional(),
+  })
+  .passthrough()
 
 export class InMemoryOutcomeStore implements OutcomeStore {
   private items: DeploymentOutcome[] = []
 
   async append(outcome: DeploymentOutcome): Promise<void> {
-    this.items.push({ ...outcome })
+    this.items.push(structuredClone(outcomeSchema.parse(outcome)))
   }
 
   async forRun(runId: string): Promise<DeploymentOutcome[]> {
-    return this.items.filter((o) => o.runId === runId).map((o) => ({ ...o }))
+    return this.list({ runIds: [runId] })
   }
 
   async list(filter: OutcomeFilter = {}): Promise<DeploymentOutcome[]> {
-    return this.items.filter((o) => matches(o, filter)).map((o) => ({ ...o }))
+    return this.items
+      .filter((outcome) => matches(outcome, filter))
+      .map((outcome) => structuredClone(outcome))
   }
 }
 
 export interface FileSystemOutcomeStoreOptions {
   dir: string
+  /** Rotate before a write once the active file reaches this size. Default 32 MiB. */
   maxBytes?: number
 }
 
-export class FileSystemOutcomeStore implements OutcomeStore {
-  private dir: string
-  private maxBytes: number
-  private memo?: InMemoryOutcomeStore
-  private loaded = false
-
-  constructor(options: FileSystemOutcomeStoreOptions) {
-    this.dir = options.dir
-    this.maxBytes = options.maxBytes ?? 32 * 1024 * 1024
-  }
-
-  private async ensureDir(): Promise<void> {
-    const fs = await import('node:fs/promises')
-    await fs.mkdir(this.dir, { recursive: true })
-  }
-
-  async append(outcome: DeploymentOutcome): Promise<void> {
-    await this.ensureDir()
-    const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    const active = path.join(this.dir, 'outcomes.ndjson')
-    try {
-      const stat = await fs.stat(active)
-      if (stat.size >= this.maxBytes) {
-        await fs.rename(active, path.join(this.dir, `outcomes.${Date.now()}.ndjson`))
-      }
-    } catch {
-      /* first write */
-    }
-    await fs.appendFile(active, `${JSON.stringify(outcome)}\n`, 'utf8')
-    if (this.memo) await this.memo.append(outcome)
-  }
-
-  private async load(): Promise<InMemoryOutcomeStore> {
-    if (this.loaded && this.memo) return this.memo
-    const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    const memo = new InMemoryOutcomeStore()
-    try {
-      const entries = await fs.readdir(this.dir)
-      for (const file of entries) {
-        if (!file.endsWith('.ndjson')) continue
-        const content = await fs.readFile(path.join(this.dir, file), 'utf8')
-        for (const line of content.split('\n')) {
-          if (!line.trim()) continue
-          await memo.append(JSON.parse(line))
-        }
-      }
-    } catch {
-      /* empty */
-    }
-    this.memo = memo
-    this.loaded = true
-    return memo
-  }
-
-  async forRun(runId: string): Promise<DeploymentOutcome[]> {
-    return (await this.load()).forRun(runId)
-  }
-
-  async list(filter?: OutcomeFilter): Promise<DeploymentOutcome[]> {
-    return (await this.load()).list(filter)
+/** Storage failures retain operation, path, source line, and the original cause. */
+export class OutcomeStoreError extends Error {
+  constructor(
+    public readonly operation: 'read' | 'decode' | 'write',
+    public readonly path: string,
+    cause: unknown,
+    public readonly line?: number,
+  ) {
+    super(`outcome store ${operation} failed at ${path}${line === undefined ? '' : `:${line}`}`, {
+      cause,
+    })
+    this.name = 'OutcomeStoreError'
   }
 }
 
-function matches(o: DeploymentOutcome, f: OutcomeFilter): boolean {
-  if (f.runIds && !f.runIds.includes(o.runId)) return false
-  if (f.since !== undefined && o.capturedAt < f.since) return false
-  if (f.until !== undefined && o.capturedAt > f.until) return false
-  if (f.source && o.source !== f.source) return false
-  if (f.label && o.labels?.[f.label.key] !== f.label.value) return false
+/** Local storage with serialized operations per instance; use one writer per directory. */
+export class FileSystemOutcomeStore implements OutcomeStore {
+  private readonly dir: string
+  private readonly maxBytes: number
+  private pending: Promise<void> = Promise.resolve()
+
+  constructor(options: FileSystemOutcomeStoreOptions) {
+    if (!options.dir.trim()) throw new Error('outcome store dir must be nonempty')
+    this.dir = options.dir
+    this.maxBytes = options.maxBytes ?? 32 * 1024 * 1024
+    if (!Number.isSafeInteger(this.maxBytes) || this.maxBytes < 1) {
+      throw new Error('outcome store maxBytes must be a positive safe integer')
+    }
+  }
+
+  async append(outcome: DeploymentOutcome): Promise<void> {
+    const snapshot = structuredClone(outcomeSchema.parse(outcome))
+    return this.serialize(async () => {
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      const active = path.join(this.dir, 'outcomes.ndjson')
+      try {
+        await fs.mkdir(this.dir, { recursive: true })
+        let size = 0
+        try {
+          const stat = await fs.stat(active)
+          if (!stat.isFile()) throw new Error('active outcome path is not a regular file')
+          size = stat.size
+        } catch (error) {
+          if (!isMissing(error)) throw error
+        }
+        if (size >= this.maxBytes) {
+          const { randomUUID } = await import('node:crypto')
+          await fs.rename(
+            active,
+            path.join(this.dir, `outcomes.${Date.now()}.${randomUUID()}.ndjson`),
+          )
+        }
+        await fs.appendFile(active, `${JSON.stringify(snapshot)}\n`, 'utf8')
+      } catch (error) {
+        throw new OutcomeStoreError('write', active, error)
+      }
+    })
+  }
+
+  async forRun(runId: string): Promise<DeploymentOutcome[]> {
+    return this.list({ runIds: [runId] })
+  }
+
+  async list(filter: OutcomeFilter = {}): Promise<DeploymentOutcome[]> {
+    return this.serialize(async () => {
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      let entries: string[]
+      try {
+        entries = await fs.readdir(this.dir)
+      } catch (error) {
+        if (isMissing(error)) return []
+        throw new OutcomeStoreError('read', this.dir, error)
+      }
+      const outcomes: DeploymentOutcome[] = []
+      // Read each snapshot from disk so later observations from another instance remain visible.
+      for (const file of entries.sort()) {
+        if (file !== 'outcomes.ndjson' && !/^outcomes\..+\.ndjson$/.test(file)) continue
+        const filePath = path.join(this.dir, file)
+        let content: string
+        try {
+          content = await fs.readFile(filePath, 'utf8')
+        } catch (error) {
+          throw new OutcomeStoreError('read', filePath, error)
+        }
+        for (const [index, line] of content.split('\n').entries()) {
+          if (!line.trim()) continue
+          let outcome: DeploymentOutcome
+          try {
+            outcome = outcomeSchema.parse(JSON.parse(line))
+          } catch (error) {
+            throw new OutcomeStoreError('decode', filePath, error, index + 1)
+          }
+          if (matches(outcome, filter)) outcomes.push(outcome)
+        }
+      }
+      return outcomes
+    })
+  }
+
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pending.then(operation)
+    // A failed operation remains rejected to its caller, but does not disable later repaired reads or writes.
+    this.pending = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+function matches(outcome: DeploymentOutcome, filter: OutcomeFilter): boolean {
+  if (filter.runIds && !filter.runIds.includes(outcome.runId)) return false
+  if (filter.since !== undefined && outcome.capturedAt < filter.since) return false
+  if (filter.until !== undefined && outcome.capturedAt > filter.until) return false
+  if (filter.source && outcome.source !== filter.source) return false
+  if (filter.label && outcome.labels?.[filter.label.key] !== filter.label.value) return false
   return true
 }

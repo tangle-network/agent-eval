@@ -26,6 +26,7 @@ import {
   type InsightReport,
   summarizeExecution,
 } from '../src/contract'
+import { InsightReportSchema } from '../src/hosted/schemas'
 import type { TraceSpanEvent } from '../src/hosted/types'
 import type { RunRecord, RunTerminalOutcome } from '../src/run-record'
 
@@ -85,6 +86,84 @@ function makeRun(opts: {
 // ── analyzeRuns: lift detection ─────────────────────────────────────
 
 describe('analyzeRuns — lift detection with paired bootstrap', () => {
+  it('retains raw runs while one source supplies only one independent lift observation', async () => {
+    const baseline = [
+      makeRun({ id: 'b-a', candidate: 'baseline', composite: 0.1 }),
+      makeRun({ id: 'b-b', candidate: 'baseline', composite: 0.3 }),
+    ]
+    const candidate = [
+      makeRun({ id: 'c-a', candidate: 'candidate', composite: 0.7 }),
+      makeRun({ id: 'c-b', candidate: 'candidate', composite: 0.9 }),
+    ]
+    const report = await analyzeRuns({
+      runs: [...baseline, ...candidate],
+      baselineCandidateId: 'baseline',
+      candidateCandidateId: 'candidate',
+      independentUnitByScenarioId: new Map([
+        ['a', 'source'],
+        ['b', 'source'],
+      ]),
+    })
+    expect(report.n).toBe(4)
+    expect(report.composite.n).toBe(4)
+    expect(report.lift).toMatchObject({
+      baselineMean: 0.2,
+      candidateMean: 0.8,
+      n: 1,
+      pairedRunN: 2,
+      independentUnitIds: ['source'],
+      decisionEligible: false,
+      pValue: null,
+      requiredN: null,
+    })
+    expect(report.lift?.delta).toBeCloseTo(0.6)
+    expect(report.recommendations.some((recommendation) => recommendation.kind === 'ship')).toBe(
+      false,
+    )
+    expect(InsightReportSchema.parse(report).lift).toEqual(report.lift)
+  })
+
+  it('infers the lower baseline from independent-unit means when family sizes differ', async () => {
+    const scenarioIds = ['a1', 'a2', 'a3', 'a4', 'b', 'c']
+    const runs = scenarioIds.flatMap((scenarioId) => [
+      makeRun({
+        id: `b-${scenarioId}`,
+        candidate: 'baseline',
+        composite: scenarioId.startsWith('a') ? 1 : 0,
+      }),
+      makeRun({
+        id: `c-${scenarioId}`,
+        candidate: 'candidate',
+        composite: scenarioId.startsWith('a') ? 0 : 1,
+      }),
+    ])
+    const options = {
+      runs,
+      independentUnitByScenarioId: new Map(scenarioIds.map((id) => [id, id[0]!])),
+    }
+    const inferred = await analyzeRuns(options)
+    const explicit = await analyzeRuns({
+      ...options,
+      baselineCandidateId: 'baseline',
+      candidateCandidateId: 'candidate',
+    })
+    expect(inferred.lift?.baselineMean).toBeCloseTo(1 / 3)
+    expect(inferred.lift?.candidateMean).toBeCloseTo(2 / 3)
+    expect(inferred.lift).toEqual(explicit.lift)
+  })
+
+  it('rejects a missing declared source instead of counting its scenario as independent', async () => {
+    await expect(
+      analyzeRuns({
+        runs: [
+          makeRun({ id: 'b-a', candidate: 'baseline', composite: 0 }),
+          makeRun({ id: 'c-a', candidate: 'candidate', composite: 1 }),
+        ],
+        independentUnitByScenarioId: new Map(),
+      }),
+    ).rejects.toThrow(/missing independent unit/)
+  })
+
   it('emits a positive lift CI when candidate beats baseline on holdout', async () => {
     const baseline = Array.from({ length: 20 }, (_, i) =>
       makeRun({ id: `b-${i}`, candidate: 'baseline', composite: 0.5 + i * 0.005 }),

@@ -6,8 +6,80 @@
  */
 
 import { EMITTED_EVIDENCE_MAX_CHARS } from '../reflective-mutation'
+import { aggregatePairedHoldout, pairHoldout } from './gates/statistical-heldout'
 import { projectCampaignCellQuality } from './run-record'
-import type { CampaignResult, Scenario } from './types'
+import type { CampaignResult, JudgeScore, Scenario } from './types'
+
+export interface CampaignComparisonUnits {
+  pairedCellN: number
+  unitIds: string[]
+  /** Cells with no complete quality score on either arm. */
+  unscoredCellIds: string[]
+  /** Present when repetitions and source variants share an independent unit. */
+  independentUnitByScenarioId?: Record<string, string>
+}
+
+/** Reduce complete paired cells using the same observation units as held-out inference. */
+export function pairedCampaignComposites<TArtifact, TScenario extends Scenario>(
+  baseline: CampaignResult<TArtifact, TScenario>,
+  candidate: CampaignResult<TArtifact, TScenario>,
+  independentUnitByScenarioId?: ReadonlyMap<string, string>,
+): {
+  before: number[]
+  after: number[]
+  beforeMean: number
+  afterMean: number
+  observations: CampaignComparisonUnits
+} {
+  const scoresByCell = (campaign: CampaignResult<TArtifact, TScenario>) => {
+    const scores = new Map<string, Record<string, JudgeScore>>()
+    for (const cell of campaign.cells) {
+      if (scores.has(cell.cellId)) {
+        throw new Error(`pairedCampaignComposites: duplicate cell '${cell.cellId}'`)
+      }
+      const quality = projectCampaignCellQuality(cell)
+      scores.set(cell.cellId, quality.score === undefined ? {} : quality.successfulJudgeScores)
+    }
+    return scores
+  }
+  const scenarioIds = new Set(
+    [...baseline.cells, ...candidate.cells].map((cell) => cell.scenarioId),
+  )
+  const paired = pairHoldout(
+    scoresByCell(candidate),
+    scoresByCell(baseline),
+    scenarioIds,
+    (score) => score.composite,
+  )
+  const observations = aggregatePairedHoldout(paired, independentUnitByScenarioId)
+  const scoredCellIds = new Set(paired.cellIds)
+  if (observations.before.length === 0) {
+    throw new Error('pairedCampaignComposites: campaigns have no paired quality scores')
+  }
+  return {
+    before: observations.before,
+    after: observations.after,
+    beforeMean:
+      observations.before.reduce((sum, score) => sum + score, 0) / observations.before.length,
+    afterMean:
+      observations.after.reduce((sum, score) => sum + score, 0) / observations.after.length,
+    observations: {
+      pairedCellN: paired.cellIds.length,
+      unitIds: observations.unitIds,
+      unscoredCellIds: baseline.cells
+        .filter((cell) => !scoredCellIds.has(cell.cellId))
+        .map((cell) => cell.cellId)
+        .sort(),
+      ...(independentUnitByScenarioId
+        ? {
+            independentUnitByScenarioId: Object.fromEntries(
+              [...scenarioIds].sort().map((id) => [id, independentUnitByScenarioId.get(id)!]),
+            ),
+          }
+        : {}),
+    },
+  }
+}
 
 /** Mean composite across cells with complete task-quality evidence.
  *  Partial judge results remain on their cells but never enter this value.

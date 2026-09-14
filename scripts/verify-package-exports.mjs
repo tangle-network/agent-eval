@@ -687,6 +687,111 @@ try {
     `,
   )
   writeFileSync(
+    join(appDir, 'integrity-imports.ts'),
+    `
+      import type {
+        Scenario as RootScenario,
+        JudgeScore as RootJudgeScore,
+        GateDecision as RootGateDecision,
+        ProductScenario,
+        DimensionJudgeScore,
+        HeldOutGate,
+        HeldOutGateDecision,
+        JudgeFn,
+        JudgeInput,
+      } from '@tangle-network/agent-eval'
+      import type {
+        Scenario,
+        JudgeScore,
+        GateDecision,
+        FinalEvidencePolicy,
+      } from '@tangle-network/agent-eval/contract'
+      import {
+        defineEvaluationClaim,
+        summarizeEvaluationUnits,
+        openFinalEvidenceLedger,
+        FinalEvidenceError,
+        FinalEvidenceConflictError,
+      } from '@tangle-network/agent-eval/experiment'
+      import {
+        auditEvaluator,
+        calibrationFromPairs,
+        calibrateJudgeContinuous,
+        positionalBias,
+        selfPreference,
+        OutcomeStoreError,
+        type EvaluatorAuditInput,
+        type OutcomeMetricSpec,
+        type RubricOutcomeExclusion,
+      } from '@tangle-network/agent-eval/meta-eval'
+
+      type Equal<A, B> =
+        (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
+      const scenarioMatches: Equal<RootScenario, Scenario> = true
+      const scoreMatches: Equal<RootJudgeScore, JudgeScore> = true
+      const decisionMatches: Equal<RootGateDecision, GateDecision> = true
+      const productMatches: Equal<JudgeInput['scenario'], ProductScenario> = true
+      const dimensionMatches: Equal<Awaited<ReturnType<JudgeFn>>, DimensionJudgeScore[]> = true
+      const heldoutMatches: Equal<ReturnType<HeldOutGate['evaluate']>, HeldOutGateDecision> = true
+
+      const claim = defineEvaluationClaim({
+        use: 'comparison',
+        population: { id: 'support', description: 'Support incidents.' },
+        samplingFrame: 'A queue sample before optimization.',
+        independentUnit: 'incidentId',
+        generalization: 'new-units',
+        minimumEffect: 0.05,
+      })
+      const units = summarizeEvaluationUnits(claim, [
+        { incidentId: 'same-incident' }, { incidentId: 'same-incident' },
+      ])
+      const finalEvidence: FinalEvidencePolicy = {
+        ledger: openFinalEvidenceLedger({ path: 'final-evidence.jsonl' }),
+        requestId: 'comparison-1',
+        evaluatorDigest: 'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+      }
+      const outcome: OutcomeMetricSpec = { id: 'failure-rate', direction: 'lower-is-better' }
+      const exclusion: RubricOutcomeExclusion = {
+        rubric: 'correctness', outcome: outcome.id, outcomeDirection: outcome.direction,
+        n: 0, reason: 'insufficient_samples',
+      }
+      const audit: EvaluatorAuditInput = {
+        evaluatorDigest: finalEvidence.evaluatorDigest,
+        population: 'Support outputs.',
+        samplingFrame: 'Independent held-back incidents.',
+        authority: {
+          evaluatorAuthorId: 'author', auditorId: 'auditor',
+          independenceEvidenceRef: 'artifact://audit-policy',
+        },
+        policy: {
+          confidence: 0.95, maxFalseAcceptanceRate: 0.1, maxFalseRejectionRate: 0.1,
+        },
+        observations: [{
+          id: 'unknown', independentUnitId: 'incident-1', evidenceRef: 'artifact://unknown',
+          expected: 'reject', observed: 'unknown', exposure: 'fresh',
+        }],
+      }
+      const calibration = calibrationFromPairs([
+        { evalScore: 1, outcome: 0 }, { evalScore: 1, outcome: 0 },
+      ], 'confidence', 'success')
+      if (calibration?.n !== 2 || calibration.ece !== 1) {
+        throw new Error('packed calibration lost direct observations')
+      }
+      const report = auditEvaluator(audit)
+      if (units.independentUnits !== 1 || units.observations !== 2) {
+        throw new Error('packed claim conflated observations and independent units')
+      }
+      if (report.verdict !== 'inconclusive' || report.coverage.unknownCases !== 1) {
+        throw new Error('packed evaluator audit lost unknown evidence')
+      }
+      void [
+        scenarioMatches, scoreMatches, decisionMatches, productMatches, dimensionMatches,
+        heldoutMatches, exclusion, calibrateJudgeContinuous, positionalBias, selfPreference,
+        OutcomeStoreError, FinalEvidenceError, FinalEvidenceConflictError,
+      ]
+    `,
+  )
+  writeFileSync(
     join(appDir, 'tsconfig.json'),
     JSON.stringify({
       compilerOptions: {
@@ -697,10 +802,11 @@ try {
         skipLibCheck: true,
         outDir: 'dist',
       },
-      include: ['index.ts', 'quickstart.ts'],
+      include: ['index.ts', 'quickstart.ts', 'integrity-imports.ts'],
     }),
   )
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
+  run(process.execPath, [join(appDir, 'dist', 'integrity-imports.js')], appDir)
   const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
   // Whitespace-tolerant: Node's inspector wraps the aggregate across lines once
@@ -847,7 +953,13 @@ try {
           throw new Error('obsolete rl export isTrainingRunEligible')
         }
         const metaEval = await import('@tangle-network/agent-eval/meta-eval')
-        if (!('InMemoryOutcomeStore' in metaEval)) throw new Error('missing meta-eval export InMemoryOutcomeStore')
+        for (const name of [
+          'InMemoryOutcomeStore', 'OutcomeStoreError', 'auditEvaluator', 'calibrateJudge',
+          'calibrationFromPairs', 'calibrateJudgeContinuous', 'continuousAgreement', 'positionalBias',
+          'selfPreference', 'verbosityBias', 'rubricPredictiveValidity',
+        ]) {
+          if (!(name in metaEval)) throw new Error('missing meta-eval export ' + name)
+        }
         const wire = await import('@tangle-network/agent-eval/wire')
         if (!('dispatchRpc' in wire)) throw new Error('missing wire export dispatchRpc')
         const hosted = await import('@tangle-network/agent-eval/hosted')

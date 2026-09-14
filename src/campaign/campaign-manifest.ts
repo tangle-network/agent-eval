@@ -26,7 +26,7 @@ export function computeManifestHash<TScenario extends Scenario, TArtifact>(input
   })
 }
 
-function judgeVersionFor<TScenario extends Scenario, TArtifact>(
+export function judgeVersionFor<TScenario extends Scenario, TArtifact>(
   judge: JudgeConfig<TArtifact, TScenario>,
 ): string {
   if (judge.judgeVersion !== undefined) {

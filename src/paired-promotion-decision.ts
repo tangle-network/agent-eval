@@ -40,15 +40,15 @@
  *    bounded asymmetric null whose true mean paired delta is exactly 0: 88.50 %
  *    false promotion at n = 6 and 65.65 % at n = 20 against a nominal 5 %.
  *
- * Orthogonal to the small-sample switch inside {@link pairedDeltaTest}: that
- * picks the TEST from the sample size (bootstrap CI at n >= 20, pre-registered
- * exact sign test below it), this picks the ESTIMATOR from the outcome's shape.
- * Both are needed — an exact sign test applied to a tie-pinned median is still
- * blind, and a mean bootstrap CI at n = 6 is still not a valid test.
+ * Eligibility follows the requested target. A continuous mean needs the
+ * bootstrap minimum; binary outcomes and explicit median targets use the
+ * exact-test minimum. A small-sample sign diagnostic cannot certify a mean
+ * effect. These floors establish estimator eligibility, not adequate power.
  */
 
 import { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'
 import {
+  BOOTSTRAP_GATE_MIN_N,
   type PairedBootstrapResult,
   pairedBinaryScale,
   pairedDeltaTieFraction,
@@ -87,8 +87,9 @@ export interface PairedPromotionDecisionOptions {
   resamples?: number
   /** Deterministic bootstrap seed. Omitted ⇒ derived from the deltas. */
   seed?: number
-  /** Caller-required paired observations. The exact test may impose a higher
-   *  minimum; the effective one is reported as `minimumPairs`. */
+  /** Caller-required paired observations. The test also imposes its own
+   *  minimum: bootstrap eligibility for a continuous mean, or the exact-test
+   *  minimum for binary and explicit median targets. This is not a power guarantee. */
   minPairs?: number
   /**
    * `'mean'` (default) routes by SHAPE: a two-point (pass/fail) outcome on any
@@ -98,6 +99,11 @@ export interface PairedPromotionDecisionOptions {
    * robustness on genuinely continuous outcomes and accept that cost.
    */
   statistic?: 'mean' | 'median'
+  /** Declared binary support {0, binaryScale}, including when all observations
+   *  are zero. Must be finite and positive; every observation must use that
+   *  support. Uses the risk-difference mean, so cannot accompany 'median'.
+   *  Omitted: infer binary support from observed positive values. */
+  binaryScale?: number
 }
 
 export interface PairedPromotionDecision {
@@ -108,7 +114,7 @@ export interface PairedPromotionDecision {
   confidence: number
   statistic: PairedDecisionStatistic
   method: PairedDecisionMethod
-  /** Common positive level of a two-point outcome ({0,1} ⇒ 1, {0,100} ⇒ 100),
+  /** Declared or inferred positive level ({0,1} ⇒ 1, {0,100} ⇒ 100),
    *  or null when the outcome is not two-point. Non-null is exactly the
    *  condition for the `paired_risk_difference` path, and it is the factor
    *  `delta` / `low` / `high` were rescaled by. */
@@ -130,11 +136,11 @@ export interface PairedPromotionDecision {
   /** Exact one-sided sign-test p-value on the small-sample bootstrap path;
    *  null otherwise. */
   pValue: number | null
-  /** Effective observation minimum after accounting for confidence. */
+  /** Effective observation minimum for the target, confidence, and caller floor. */
   minimumPairs: number
   /** n >= minimumPairs. */
   sufficient: boolean
-  /** The deciding interval is zero-width or non-finite — no evidence in either
+  /** The deciding interval is zero-width at numeric precision or non-finite — no evidence in either
    *  direction, so it cannot clear any threshold on evidence. */
   indeterminate: boolean
   /** McNemar's exact test refuses at a non-negative threshold. */
@@ -155,7 +161,7 @@ export interface PairedPromotionDecision {
 /** The shape facts that pick the estimator, without computing an interval. */
 export interface PairedDecisionShape {
   statistic: PairedDecisionStatistic
-  /** Common positive level of a two-point outcome; null when not two-point. */
+  /** Declared or inferred positive binary level; null off the binary path. */
   binaryScale: number | null
   /** Exact-tie fraction over the paired deltas; null when there are no pairs. */
   tieFraction: number | null
@@ -171,12 +177,34 @@ export function pairedDecisionShape(
   before: number[],
   after: number[],
   statistic: 'mean' | 'median' = 'mean',
+  declaredBinaryScale?: number,
 ): PairedDecisionShape {
+  if (declaredBinaryScale !== undefined) {
+    if (!Number.isFinite(declaredBinaryScale) || declaredBinaryScale <= 0) {
+      throw new Error('pairedDecisionShape: binaryScale must be finite and positive')
+    }
+    if (statistic === 'median') {
+      throw new Error('pairedDecisionShape: binaryScale requires the mean statistic, not median')
+    }
+    for (const [name, arm] of [
+      ['before', before],
+      ['after', after],
+    ] as const) {
+      for (let i = 0; i < arm.length; i++) {
+        const value = arm[i]!
+        if (value !== 0 && value !== declaredBinaryScale) {
+          throw new Error(
+            `pairedDecisionShape: ${name}[${i}] must be 0 or binaryScale (${declaredBinaryScale}); got ${value}`,
+          )
+        }
+      }
+    }
+  }
   const tieFraction = before.length === 0 ? null : pairedDeltaTieFraction(before, after)
   if (statistic === 'median') {
     return { statistic: 'median_bootstrap', binaryScale: null, tieFraction }
   }
-  const binaryScale = pairedBinaryScale(before, after)
+  const binaryScale = declaredBinaryScale ?? pairedBinaryScale(before, after)
   if (binaryScale !== null) {
     return { statistic: 'paired_risk_difference', binaryScale, tieFraction }
   }
@@ -210,10 +238,17 @@ export function decidePairedPromotion(
       `decidePairedPromotion: minPairs must be a positive integer, got ${requestedMinimum}`,
     )
   }
-  const minimumPairs = Math.max(requestedMinimum, exactMinimum)
+  const { binaryScale, tieFraction } = pairedDecisionShape(
+    before,
+    after,
+    options.statistic,
+    options.binaryScale,
+  )
+  const estimatorMinimum =
+    binaryScale === null && options.statistic !== 'median' ? BOOTSTRAP_GATE_MIN_N : exactMinimum
+  const minimumPairs = Math.max(requestedMinimum, exactMinimum, estimatorMinimum)
   const n = before.length
   const sufficient = n >= minimumPairs
-  const { binaryScale, tieFraction } = pairedDecisionShape(before, after, options.statistic)
 
   let core: {
     statistic: PairedDecisionStatistic
@@ -270,7 +305,7 @@ export function decidePairedPromotion(
       statistic: bootstrapStatistic,
       seed: options.seed,
       threshold,
-      minPairs: options.minPairs,
+      minPairs: minimumPairs,
     })
     const ci = test.bootstrap
     core = {
@@ -286,14 +321,24 @@ export function decidePairedPromotion(
       label: bootstrapStatistic,
       methodDetail:
         test.method === 'exact-sign'
-          ? ` Below ${test.minimumPairs} pairs the interval is descriptive only;` +
-            ` the decision is the exact one-sided sign test, p=${fmt(test.pValue ?? 1)}.`
+          ? bootstrapStatistic === 'mean'
+            ? ` The mean requires ${minimumPairs} pairs for bootstrap eligibility;` +
+              ` the exact sign-test p=${fmt(test.pValue ?? 1)} does not establish a mean effect.`
+            : ` Below ${BOOTSTRAP_GATE_MIN_N} pairs the interval is descriptive only;` +
+              ` the median decision uses the exact one-sided sign test, p=${fmt(test.pValue ?? 1)}.`
           : '',
     }
   }
 
+  // Equivalent deltas can differ by rounding after subtraction and averaging.
+  // Use the interval's own scale so tiny score units retain the same decision
+  // as a rescaled copy of the evidence.
+  const intervalScale = Math.max(Math.abs(core.low), Math.abs(core.high))
+  const intervalTolerance = intervalScale * Number.EPSILON * 8
   const indeterminate =
-    !Number.isFinite(core.low) || !Number.isFinite(core.high) || core.low === core.high
+    !Number.isFinite(core.low) ||
+    !Number.isFinite(core.high) ||
+    core.high - core.low <= intervalTolerance
   const indeterminateCause = !indeterminate
     ? ''
     : tieFraction === 1

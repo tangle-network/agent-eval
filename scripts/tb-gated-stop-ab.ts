@@ -300,6 +300,7 @@ function powerAt(sizes: readonly number[], effect: number, trials: number): numb
   return clusteredPower({
     clusterSizes: [...sizes],
     effects: [effect],
+    minimumEffect: effect,
     seed: POWER_SIM.seed,
     trials,
     resamples: POWER_SIM.resamples,
@@ -519,6 +520,7 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
       pairedContrast95: {
         kind: 'cluster-bootstrap',
         clusterBy: 'taskName',
+        value: 'diff',
         resamples: 10_000,
         seed: 20260814,
         level: 0.95,
@@ -529,6 +531,7 @@ function buildSpec(certifiedTasks: string[], sealedRowIds: string[], take: numbe
       powerFloor: {
         kind: 'power-floor',
         target: POWER_TARGET,
+        minimumEffect: SETTLING_EFFECT,
         effectGrid: [...REGISTERED_EFFECT_GRID],
         sim: { ...POWER_SIM },
       },
@@ -1057,6 +1060,7 @@ async function main(): Promise<void> {
   const power = clusteredPower({
     clusterSizes: clusters.map((cluster) => cluster.rowIds.length),
     effects: [...REGISTERED_EFFECT_GRID],
+    minimumEffect: SETTLING_EFFECT,
     seed: POWER_SIM.seed,
     trials: POWER_SIM.trials,
     resamples: POWER_SIM.resamples,
@@ -1382,9 +1386,21 @@ async function main(): Promise<void> {
       ['C-vs-B-final', finalPassed],
     ] as const) {
       const evidence = [...armRows('blind-continue', controlPassed), ...treatment]
+      const byPair = new Map<string, EvidenceRecord[]>()
+      for (const row of evidence) {
+        const rowId = String(row.rowId)
+        const pair = byPair.get(rowId) ?? []
+        pair.push(row)
+        byPair.set(rowId, pair)
+      }
+      const differences = [...byPair].map(([rowId, pair]) => ({
+        rowId,
+        taskName: pair[0]!.taskName,
+        diff: registered.estimate('pairedContrast', pair).value,
+      }))
       contrasts[label] = {
         estimand: registered.estimate('pairedContrast', evidence),
-        interval: registered.interval('pairedContrast95', { kind: 'rows', rows: evidence, value: 'passed' }),
+        interval: registered.interval('pairedContrast95', { kind: 'rows', rows: differences }),
       }
     }
 

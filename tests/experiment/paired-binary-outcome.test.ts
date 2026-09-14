@@ -48,6 +48,16 @@ const gatedStopSpec: ExperimentSpec = {
     pairedContrast95: {
       kind: 'cluster-bootstrap',
       clusterBy: 'taskName',
+      value: 'diff',
+      resamples: 2_000,
+      seed: 20260814,
+      level: 0.95,
+      method: 'percentile',
+    },
+    treatmentRate95: {
+      kind: 'cluster-bootstrap',
+      clusterBy: 'taskName',
+      value: 'passed',
       resamples: 2_000,
       seed: 20260814,
       level: 0.95,
@@ -193,6 +203,35 @@ describe('paired-mean-diff over a binary outcome', () => {
 })
 
 describe('the sealed gated-stop path, from boolean rows to a verdict', () => {
+  it('does not turn equally successful arms into a positive contrast interval', async () => {
+    const registered = await openSealedExperiment(await sealExperiment(gatedStopSpec))
+    const equalArms = booleanRows().map((row) => ({ ...row, passed: true }))
+    const byPair = new Map<string, EvidenceRecord[]>()
+    for (const row of equalArms) {
+      const id = String(row.rowId)
+      const pair = byPair.get(id) ?? []
+      pair.push(row)
+      byPair.set(id, pair)
+    }
+    const differences = [...byPair.values()].map((pair) => ({
+      taskName: pair[0]!.taskName,
+      diff: registered.estimate('pairedContrast', pair).value,
+    }))
+    expect(registered.estimate('pairedContrast', equalArms).value).toBe(0)
+    const interval = registered.interval('pairedContrast95', { kind: 'rows', rows: differences })
+    expect(interval).toEqual({ lower: 0, upper: 0, level: 0.95 })
+    expect(
+      registered.decide({
+        intervals: { pairedContrast95: interval },
+        quantities: {},
+        obligationsMet: { 'matched-realized-tokens': true },
+      }).verdict,
+    ).toBe('no-effect-resolved-at-this-n')
+    expect(() =>
+      registered.interval('pairedContrast95', { kind: 'rows', rows: equalArms }),
+    ).toThrow(/value field 'diff'/)
+  })
+
   it('estimates, brackets, and decides without the caller re-encoding anything', async () => {
     const sealed = await sealExperiment(gatedStopSpec, { sealedAt: '2026-08-14T00:00:00Z' })
     const registered = await openSealedExperiment(sealed)
@@ -203,7 +242,6 @@ describe('the sealed gated-stop path, from boolean rows to a verdict', () => {
     const interval = registered.interval('pairedContrast95', {
       kind: 'rows',
       rows: pairDifferenceRows(),
-      value: 'diff',
     })
     // Every task cluster carries at least one improved pair and no regression,
     // so no resample of whole clusters can reach zero.
@@ -224,10 +262,9 @@ describe('the sealed gated-stop path, from boolean rows to a verdict', () => {
     const sealed = await sealExperiment(gatedStopSpec, { sealedAt: '2026-08-14T00:00:00Z' })
     const registered = await openSealedExperiment(sealed)
     const treatmentRows = booleanRows().filter((row) => row.arm === 'gated-continue')
-    const interval = registered.interval('pairedContrast95', {
+    const interval = registered.interval('treatmentRate95', {
       kind: 'rows',
       rows: treatmentRows,
-      value: 'passed',
     })
     // 11 of 16 treatment rows pass, so the bootstrap sits inside (0, 1).
     expect(interval.lower).toBeGreaterThan(0)

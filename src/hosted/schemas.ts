@@ -283,6 +283,8 @@ const LiftInsightSchema = z
     ci95: z.tuple([finiteNumber, finiteNumber]),
     pValue: finiteNumber.min(0).max(1).nullable(),
     n: nonNegativeInteger,
+    pairedRunN: nonNegativeInteger.optional(),
+    independentUnitIds: z.array(nonEmptyString).optional(),
     minimumRequired: z.number().int().positive(),
     decisionEligible: z.boolean(),
     unpairedBaseline: nonNegativeInteger,

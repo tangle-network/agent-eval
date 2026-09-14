@@ -136,8 +136,11 @@ Treat those as foundations to connect, not unbuilt modules.
 The observations below are intentionally narrower than production reliability claims.
 They use the actual library functions at the inspected revision.
 The [probe source](./mlbenchmarks-review/probes.mts) contains the complete inputs and invocation paths.
-Run `pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts` after installing the locked dependencies.
+The archived probes target review snapshot `dda9941437190c9c541b3f54946bfeeb153366fe`, whose implementation matches the inspected source.
+Run `pnpm exec tsx docs/design/mlbenchmarks-review/probes.mts` there after installing the locked dependencies.
 Use an isolated checkout without concurrent source edits.
+Current APIs have breaking changes, so these historical probes cannot run unchanged against current implementation code.
+Current regressions and the [integrity example](../../examples/evaluation-integrity/) verify the replacement behavior.
 It prints current observations without asserting that the recorded defects must persist.
 The source identity hashes actual files under `src`, plus `package.json`, `pnpm-lock.yaml`, and `tsconfig.json`.
 A separate hash identifies the diagnostic itself.

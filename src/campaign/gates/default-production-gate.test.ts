@@ -38,8 +38,8 @@ function context(): GateContext<{ text: string }, Scenario> {
       scenarios.map((scenario) => [`${scenario.id}:0`, { text: 'ordinary output' }]),
     ),
     baselineArtifacts: new Map(),
-    judgeScores: scores([0.8, 0.9, 0.7, 0.8, 0.9, 0.7]),
-    baselineJudgeScores: scores([0.5, 0.6, 0.4, 0.5, 0.6, 0.4]),
+    judgeScores: scores([1, 1, 1, 1, 1, 1]),
+    baselineJudgeScores: scores([0, 0, 0, 0, 0, 0]),
     scenarios,
     cost: { candidate: 1, baseline: 1 },
     signal: new AbortController().signal,
@@ -108,6 +108,138 @@ function statuses(result: GateResult): Record<string, GateCheckStatus> {
 }
 
 describe('defaultProductionGate input status', () => {
+  it('routes both composite and dimension evidence through the registered independent units', async () => {
+    const input = context()
+    for (const scenario of scenarios) {
+      const candidate = input.judgeScores.get(`${scenario.id}:0`)!
+      const baseline = input.baselineJudgeScores!.get(`${scenario.id}:0`)!
+      candidate.judge!.dimensions.safety = 0.9
+      baseline.judge!.dimensions.safety = 0.9
+      for (let rep = 1; rep < 20; rep++) {
+        input.judgeScores.set(`${scenario.id}:${rep}`, candidate)
+        input.baselineJudgeScores!.set(`${scenario.id}:${rep}`, baseline)
+      }
+    }
+    const result = await defaultProductionGate({
+      holdoutScenarios: scenarios,
+      independentUnitByScenarioId: new Map(
+        scenarios.map((scenario, i) => [scenario.id, `family-${i % 2}`]),
+      ),
+      criticalDimensions: ['safety'],
+    }).decide(input)
+    expect(result.decision).toBe('hold')
+    expect(
+      result.contributingGates.find((gate) => gate.name === 'heldout-significance')?.detail,
+    ).toMatchObject({
+      n: 2,
+      pairedCellN: 120,
+      observationUnit: 'registered',
+      fewRuns: true,
+    })
+    expect(
+      result.contributingGates.find((gate) => gate.name === 'dimension-regression')?.detail,
+    ).toMatchObject({
+      regressions: [{ dimension: 'safety', n: 2, pairedCellN: 120, observationUnit: 'registered' }],
+    })
+    expect(statuses(result)['dimension-regression']).toBe('not_evaluated')
+  })
+
+  it('holds when composite lift is supported but a required dimension has only one measured unit', async () => {
+    const input = context()
+    input.judgeScores.get('one:0')!.judge!.dimensions.safety = 0.9
+    input.baselineJudgeScores!.get('one:0')!.judge!.dimensions.safety = 0.9
+    const result = await defaultProductionGate({
+      holdoutScenarios: scenarios,
+      independentUnitByScenarioId: new Map(scenarios.map((scenario) => [scenario.id, scenario.id])),
+      criticalDimensions: ['safety'],
+    }).decide(input)
+    expect(statuses(result)['heldout-significance']).toBe('pass')
+    expect(statuses(result)['dimension-regression']).toBe('not_evaluated')
+    expect(result.decision).toBe('hold')
+    expect(result.reasons.join(' ')).toContain('safety has 1 paired observation units')
+  })
+
+  it('refuses partial dimension coverage even when enough independent units remain', async () => {
+    const input = context()
+    for (const scenario of scenarios) {
+      input.judgeScores.get(`${scenario.id}:0`)!.judge!.dimensions.safety = 0.9
+      input.baselineJudgeScores!.get(`${scenario.id}:0`)!.judge!.dimensions.safety = 0.9
+    }
+    input.judgeScores.set('one:1', {
+      judge: { ...input.judgeScores.get('one:0')!.judge!, dimensions: {} },
+    })
+    input.baselineJudgeScores!.set('one:1', {
+      judge: { ...input.baselineJudgeScores!.get('one:0')!.judge!, dimensions: {} },
+    })
+    const result = await defaultProductionGate({
+      holdoutScenarios: scenarios,
+      independentUnitByScenarioId: new Map(scenarios.map((scenario) => [scenario.id, scenario.id])),
+      criticalDimensions: ['safety'],
+    }).decide(input)
+    expect(statuses(result)['heldout-significance']).toBe('pass')
+    expect(statuses(result)['dimension-regression']).toBe('not_evaluated')
+    expect(result.decision).toBe('hold')
+    expect(
+      result.contributingGates.find((gate) => gate.name === 'dimension-regression')?.detail,
+    ).toMatchObject({
+      incompleteDimensions: ['safety'],
+      regressions: [{ n: 6, fewRuns: false, missingCellIds: ['one:1'], missingScenarioIds: [] }],
+    })
+  })
+
+  it('requires a unit for every configured holdout scenario and snapshots the mapping', async () => {
+    expect(() =>
+      defaultProductionGate({
+        holdoutScenarios: scenarios,
+        independentUnitByScenarioId: new Map([['one', 'family']]),
+      }),
+    ).toThrow(/missing independent unit.*two/)
+    const mapping = new Map(scenarios.map((scenario) => [scenario.id, scenario.id]))
+    const gate = defaultProductionGate({
+      holdoutScenarios: scenarios,
+      independentUnitByScenarioId: mapping,
+    })
+    mapping.clear()
+    const result = await gate.decide(context())
+    expect(
+      result.contributingGates.find((check) => check.name === 'heldout-significance')?.detail,
+    ).toMatchObject({
+      n: 6,
+      pairedCellN: 6,
+      observationUnit: 'registered',
+    })
+  })
+
+  it('refuses an absent replica before averaging the remaining cells', async () => {
+    const input = context()
+    input.judgeScores.set('one:1', input.judgeScores.get('one:0')!)
+    const gate = defaultProductionGate({
+      holdoutScenarios: scenarios,
+      independentUnitByScenarioId: new Map(scenarios.map((scenario) => [scenario.id, 'family'])),
+    })
+    await expect(gate.decide(input)).rejects.toThrow(/do not align/)
+  })
+
+  it('names the exact test when an explicit median target remains undecided', async () => {
+    const input = context()
+    input.baselineJudgeScores = scores([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+    input.judgeScores = scores([0.9, 0.85, 0.8, 0.75, 0.7, 0.1])
+    const result = await defaultProductionGate({
+      holdoutScenarios: scenarios,
+      heldoutStatistic: 'median',
+    }).decide(input)
+    expect(result.decision).toBe('hold')
+    expect(
+      result.contributingGates.find((check) => check.name === 'heldout-significance')?.detail,
+    ).toMatchObject({
+      decisionMethod: 'exact-sign',
+      fewRuns: false,
+    })
+    expect(result.reasons.join(' ')).toContain('exact one-sided sign test')
+    expect(result.reasons.join(' ')).toContain('p=0.03125 does not reject at α=0.0250')
+    expect(result.reasons.join(' ')).not.toContain('≤ threshold')
+  })
+
   it('reports absent optional inputs as not evaluated without a passed alias', async () => {
     const result = await defaultProductionGate({
       holdoutScenarios: scenarios,

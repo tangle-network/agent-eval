@@ -92,13 +92,18 @@ describe('verifyAttestation', () => {
     expect(result.reason).toMatch(/envelope hash mismatch/)
   })
 
-  it('marks legacy attestations as valid report hashes with unbound provenance', () => {
-    const { envelopeHash: _envelopeHash, ...legacy } = attest(report, provenance)
-    expect(verifyAttestation(report, legacy)).toEqual({
-      valid: true,
-      legacyUnboundProvenance: true,
-    })
-  })
+  it.each([undefined, null, '', 'not-a-hash', 123])(
+    'refuses an absent or invalid provenance envelope (%s)',
+    (envelopeHash) => {
+      const input: AttestedReport = JSON.parse(
+        JSON.stringify({ ...attest(report, provenance), envelopeHash }),
+      )
+      expect(verifyAttestation(report, input)).toEqual({
+        valid: false,
+        reason: 'attestation envelope hash is missing or invalid',
+      })
+    },
+  )
 
   it('rejects an unknown algorithm instead of guessing', () => {
     const attested = attest(report, provenance)

@@ -2,52 +2,51 @@
 
 `agent-eval` records agent runs, scores their outputs, compares variants, and applies caller-defined release rules.
 
-A model can say a task is complete while the build fails, a browser flow is broken, an integration is disconnected, or required sources are missing.
+An agent can claim success while a build, browser flow, or integration fails.
+Required source evidence can also be missing.
 This package lets code, model judges, and human feedback check those outcomes through the same run format.
 
 ## The top-level functions
 
-Start with `/contract` and `defineAgentEval()` for a new integration.
-Use the lower-level functions when you need direct control over execution, storage, or statistics.
+Start with `defineAgentEval()` from `/contract` for one agent, judge, case set, and baseline surface.
+Its `evaluate()` method returns campaign measurements.
+Its `improve()` method searches and returns a final comparison with a release decision.
+Use `selfImprove()` directly when you do not need shared configuration.
 
-| Function | When to call it | What you give it | What you get back |
-|---|---|---|---|
-| **`defineAgentEval()`** | You have scenarios, an agent, a judge, and a baseline surface, and you want one object you can score or improve. | scenarios, agent, judge, baseline surface | `{ evaluate(), improve() }` where `evaluate()` returns a campaign result and `improve()` returns a report |
-| **`selfImprove()`** | You want candidate generation, scoring, and a release decision in one call. | scenarios, agent, judge, baseline surface | report, winner surface, and a `gateDecision` (see below) |
-| **`loadEvalFixtureScenarios()`** | You want agents to add evals as folders with `PROMPT.md`, checks, and starter files. | `evals/<name>/PROMPT.md + EVAL.ts + package.json` | `Scenario[]` that runs through `runCampaign`; pair with `planEvalFixtureRun()` before spending tokens |
-| **`analyzeRuns()`** | You have existing runs and do not need to invoke an agent. | `RunRecord[]` and options | `InsightReport` |
-| **Intake adapters** (`fromFeedbackTable`, `fromOtelSpans`) | Your data isn't already in `RunRecord` shape: it's in Obsidian, Sheets, an OTel collector, etc. | source-specific input | `RunRecord[]` ready to pipe into `analyzeRuns()` |
-| **`sealExperiment()` / `openSealedExperiment()`** | The result must convince a reader who does not trust you, so the rules must be fixed before the data arrives. | arms, admission funnel, estimand, interval, decision table | a hashed rule tree plus executors that can run no other rule ([`experiment.md`](./experiment.md)) |
-| **`runEquivalenceCheck()`** | The work has no held-out test suite, so no answer key exists to grade against. | a claim, two blind arms, an injected checker | a certification naming who vouched and how it can fail ([`verification-strategies.md`](./verification-strategies.md)) |
-| **`AnalystRegistry.runExact()`** | A batch of runs failed and you need cited findings, with the caller owning every execution choice. | recorded evidence, a declared analyst list | findings with evidence references, an execution plan, and a receipt ([`trace-analysis.md`](./trace-analysis.md)) |
+Use `analyzeRuns()` from `/contract` for existing `RunRecord[]` evidence.
+[The README workflows](../README.md#choose-a-workflow) link to runnable examples.
+[The surface map](./eval-surface-map.md) lists lower-level execution and analysis APIs.
 
-See [`customer-journeys.md`](./customer-journeys.md) for runnable paths from existing logs, human ratings, and a callable agent.
-The [README front-door table](../README.md#which-front-door) lists every callable entry point with a runnable example.
+Root `Scenario`, `JudgeScore`, and `GateDecision` use the same definitions as `/contract` and `/campaign`.
+The product-judging shapes have explicit root names: `ProductScenario` and `DimensionJudgeScore`.
+The separate `HeldOutGate` class returns `HeldOutGateDecision` over `RunRecord` comparisons.
 
 ### The five release decisions
 
-`selfImprove()` and every gate return a `GateDecision`, not a two-way ship/hold flag.
-Folding the last three into `hold` throws away the action each one names.
+`selfImprove()` returns a `gateDecision` from the campaign `GateDecision` union.
+Keep its five values distinct because they require different actions.
 
 | Decision | What it means | What to do next |
 |---|---|---|
-| `ship` | Every gate passed on sufficient evidence. | Release the candidate. |
-| `hold` | A gate failed on sufficient evidence. | Reject this candidate. |
-| `need_more_work` | A gate could not decide: the evidence was missing, or the paired sample was too small to claim significance. | Gather more runs, then gate again. |
+| `ship` | All required configured checks support release. | Review the evidence and release the candidate. |
+| `hold` | The gate does not justify release. A required check can fail or lack sufficient evidence. | Inspect the contributions to distinguish regression from an unresolved comparison. |
+| `need_more_work` | The gate reports that more work or evidence is required. | Address the reported gap before another decision. |
 | `model_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the model. | Handle it; no gate in this package emits it. |
 | `arch_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the architecture. | Handle it; no gate in this package emits it. |
 
 The last two are part of the taxonomy and of the composition order, but no built-in gate returns them today.
 Handle all five anyway: a caller's own gate may return either, and the type will not let you ignore them.
 
-`need_more_work` is not a quiet `hold`.
-"Gather more evidence" and "reject this candidate" are different actions, and folding the first into the second abandons a real gain that was only underpowered.
+Read the contributing checks before interpreting a refused release.
+An unresolved comparison does not establish that the candidate is worse.
+Absent optional checks remain `not_evaluated`, including when the required checks support `ship`.
 
 When gates are composed, `ship` requires every gate to ship.
 Otherwise the strongest hold wins, in this order: `arch_ceiling`, `model_ceiling`, `hold`, `need_more_work`.
 
-`analyzeRuns()` and the high-level contract return the same `InsightReport` shape.
-It contains score distributions, paired lift intervals, judge agreement, cost, failure clusters, contamination checks, outcome correlation, and recommendations.
+`analyzeRuns()` returns an `InsightReport`; `selfImprove()` includes one in its result.
+The report includes score distributions, cost, and recommendations.
+Paired lift, failure clusters, contamination checks, and outcome associations require their corresponding inputs.
 [`insight-report.md`](./insight-report.md) defines every field.
 
 ## Package Boundary
@@ -68,7 +67,8 @@ Use the profile improvement functions from `/contract` when a host owns immutabl
 
 This API never activates a candidate or runs an agent itself.
 The host owns authorization, billing, task isolation, profile materialization, execution, and durable evidence.
-The first portable profile contract accepts prompt and skill changes only; a host must add its own exact-state adapter before measuring tools, MCP servers, hooks, subagents, or external knowledge.
+The portable profile contract accepts prompt and skill changes.
+A host needs an adapter for exact state before measuring tools, MCP servers, hooks, subagents, or external knowledge.
 
 ## Main Objects
 
@@ -93,6 +93,26 @@ An absent optional check records `not_evaluated` and never appears as a successf
 Run history is shared input only.
 Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
 
+`paretoSignificanceGate()` applies each objective's regression floor to its deciding confidence interval.
+For detected binary outcomes, that interval accounts for uncertainty even when every observed pair agrees.
+At 95% confidence, 20 matching all-positive binary pairs leave approximately 16 percentage points of uncertainty in either direction.
+A declared five-point regression tolerance therefore holds that candidate; 100 matching pairs narrow the interval enough to clear that floor.
+Another objective must still show a significant gain before promotion.
+An axis labeled `regressed` has not cleared its configured floor.
+Its interval can permit a regression without demonstrating one.
+An interval with zero width or non-finite bounds produces an `indeterminate` axis verdict and a `not_evaluated` check.
+If no other axis breaches its regression floor, the gate returns `need_more_work`.
+This includes undeclared all-zero outcomes, whose binary scale cannot be inferred, and continuous observations with constant paired differences.
+Additional identical observations do not resolve an unknown outcome scale or a collapsed bootstrap interval.
+Consumers with custom policies must handle `indeterminate` as unresolved evidence.
+
+Set an objective's `binaryScale: 1` for known `{0, 1}` observations, including all-zero error indicators.
+Use `binaryScale: 100` for `{0, 100}` observations; its default regression tolerance is 5.
+The shared `decidePairedPromotion()` function accepts the same declaration.
+The scale must be positive and finite, and every paired cell score must be zero or that scale.
+Declared binary outcomes use the risk-difference mean and reject `statistic: 'median'`.
+The declaration identifies the outcome support; it does not reduce sample requirements or supply missing observations.
+
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a
 runtime loop: observe typed state, validate it, decide the next action, act,
@@ -115,14 +135,14 @@ that can seed memory, replay scenarios, and optimization.
 | **Layer** | One stage of a verifier pipeline (install, typecheck, build, semantic, …). |
 | **Finding** | A specific issue a judge found: file, line, severity, message. |
 | **Trace store** | The append-only log of every span/event during a run. Replay = read this back. |
-| **Composite score** | A 0..1 number combining all dimensions. The single number you gate on. |
+| **Composite score** | An aggregate on the judge's declared scale. Gates must use thresholds on that scale. |
 | **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
 
 ### Running an evaluation
 
 | Term | Plain English |
 |---|---|
-| **Case** (`Scenario`) | One task the agent must do. The unit every score is per. |
+| **Case** (`Scenario`) | One task the agent must do. Variants can share an independent source unit. |
 | **Surface** | The value being changed: a prompt, a skill, or a serialized configuration. |
 | **Dispatch** | The function that runs your agent on one case and returns the artifact. |
 | **Campaign** | One complete pass of every case, executed, scored, and cached under a run directory. |
@@ -145,20 +165,52 @@ that can seed memory, replay scenarios, and optimization.
 | **Selection cases** | Evidence the optimizer reads to choose among its candidates. |
 | **Final cases** | Held back from the optimizer entirely. They produce the reported lift. |
 
-The three-way split is the reason a reported lift means anything.
-An optimizer that saw the final cases can score well on them without the agent getting better.
+Keep scenario identifiers disjoint across the three partitions.
+For new-unit claims or fresh final evidence, also keep source units separate between development and final cases.
+Fixed-roster development can share sources while retaining independent-unit counts in its reports.
+Renamed variants from one incident can leak information across splits.
+A final comparison supports only the declared population and measured conditions.
 
 ### Proving a result
 
-| Term | Plain English |
+| Term | Meaning |
 |---|---|
-| **Experiment** | The rules — arms, funnel, estimand, interval, decision — written as data before the data arrives. |
-| **Seal** | A hash of that whole rule tree. The execution surface accepts no rule outside it. |
-| **Estimand** | The exact quantity being measured, for example the paired difference in pass rate. |
-| **Funnel** | The denominator chain: how many rows entered, what each stage removed, and how many remain. |
-| **Verification strategy** | One of ten ways to certify a result, each with a documented way it can certify a wrong one. |
-| **Certification** | Who vouched for a verdict, with what checker version, and what the checker did not check. |
-| **Analyst** | A function that reads recorded evidence and returns findings that cite it. |
+| **Claim** | The intended use, population, sampling frame, independent unit, generalization target, and optional minimum useful effect. |
+| **Independent unit** | The source task, incident, or family that contributes one independent observation to an inference. |
+| **Experiment** | Arms, admission, estimand, interval, and decision rules declared before results are inspected. |
+| **Seal** | A digest binding the experiment's rules and claim to the executed specification. |
+| **Estimand** | The quantity being estimated, such as the mean difference across independent task families. |
+| **Funnel** | Counts of input rows, exclusions at each stage, and retained evidence. |
+| **Final-evidence reservation** | A durable claim on source units before search; exposure records the evaluated candidates before dispatch. |
+| **Verification strategy** | A method of checking a result, with documented assumptions and failure modes. |
+| **Certification** | The checker identity, strategy, unverified assumptions, and evidence associated with a verdict. |
+| **Analyst** | A function that reads recorded evidence and returns cited findings. |
+
+Use `defineEvaluationClaim()` from `/experiment` to declare what a result can describe.
+Pass it as the top-level `claim` when improving a surface or comparing optimization methods.
+`fixed-roster` concerns the listed units; `new-units` attempts to generalize to further units from the declared population.
+A declared sampling frame does not itself establish representative sampling.
+
+Count repetitions separately from independent units.
+For example, 100 retries of one incident produce 100 observations and one independent incident.
+Campaign aggregate `n` describes its observed scores.
+Registered gates report their independent-unit count and paired-cell count separately.
+
+Set `minimumEffect` when the decision concerns a practically useful change.
+Development and absolute-rate claims can omit it.
+Sealed power checks assess the declared effect.
+A design that detects only much larger effects cannot pass that adequacy check.
+Inference also needs the interval and clustering rule to match the claim.
+
+Unit-aware comparison does not require a final-evidence ledger.
+For fresh confirmation, add `finalEvidence: { ledger, requestId, evaluatorDigest }` alongside the top-level `claim`.
+This reserves final units before search.
+Use one durable ledger across related campaigns and stable source identities across renamed variants.
+Exposure remains recorded if measurement fails or the process stops.
+The host enforces access isolation; the ledger cannot inspect reads outside this workflow.
+
+See [evaluation integrity](./evaluation-integrity.md) for claims, final evidence, and evaluator admission.
+[Registered experiments](./experiment.md) describes seals, decision rules, and refusal artifacts.
 
 ## The feedback trajectory loop
 
@@ -178,7 +230,8 @@ rows, optimizer rows, and held-out examples for overfit checks.
 
 ## Code Generator Eval
 
-When the artifact is generated code, agent-eval scores it at three independent layers. Each layer fails differently, and you want to know which one broke:
+Generated-code evaluations can score the agent session, the build, and the running application.
+Each layer detects different failures:
 
 ```
 L0  builder        Did the agent's session itself work?
@@ -193,18 +246,23 @@ L2  app-runtime    Does the artifact actually run end-to-end?
                    (Dynamic signal: only worth checking if L1 passed.)
 ```
 
-`BuilderSession` orchestrates this. It opens at `startChat`, runs the build at `ship`, runs the runtime check at `runAppScenario`. Each layer emits a trace span. Composite score aggregates them with `scoreProject`.
+`BuilderSession` coordinates these checks.
+It opens at `startChat`, runs the build at `ship`, and runs the application check at `runAppScenario`.
+Each layer emits a trace span.
+`scoreProject` combines their measured scores.
 
-Why three? Because each catches a different failure mode:
-- L0 misses: agent crashed mid-generation, you have a half-written file.
-- L1 misses: files exist but typecheck fails. LLM judges can't reliably catch this.
-- L2 misses: code compiles but does the wrong thing at runtime.
+These layers detect different failures:
+
+- L0: The agent crashed during generation and left an incomplete artifact.
+- L1: Files exist but do not typecheck or build.
+- L2: Code compiles but behaves incorrectly when executed.
 
 If you only check one layer, you ship the bugs that the other two layers would have caught.
 
 ## How rubrics work
 
 A rubric describes:
+
 1. **Dimensions**: the axes you score on (e.g. `buyer_quality`, `voice`, `signal`).
 2. **Weights**: how to combine dimensions into a composite (`0.5 * buyer_quality + 0.3 * voice + 0.2 * signal`).
 3. **Failure modes**: named patterns the judge looks for ("ai-cadence", "vague-claim").
@@ -214,7 +272,10 @@ A rubric describes:
 Built-in rubrics ship in `src/wire/rubrics.ts`, including `anti-slop` for technical-buyer voice.
 You can also pass the same rubric shape inline at the call site.
 
-A rubric is plain data. The digest of that data, tagged with the scheme that produced it, is the `rubricVersion`. Two scores are only comparable if they used the same `rubricVersion`: change the rubric and you start a new comparison series.
+A rubric is plain data.
+Its digest and encoding scheme identify the `rubricVersion`.
+Changing the rubric starts a new comparison series.
+Evaluate rubric revisions against independent labels before combining their scores.
 
 ## How verifiers work
 
@@ -243,16 +304,18 @@ Use `blendedScore` only to inspect the measurements that did complete.
 
 Two rules that will save you bugs:
 
-1. **Run both gates.** Build gates catch code that doesn't compile; structural assertions catch missing files. Run both unconditionally: they catch orthogonal failures.
-
-2. **Pair LLM judges with build outcomes.** An LLM judge will rate non-compiling code as "looks right" (0.8). Always short-circuit on `buildOutcome.passed === false` before any LLM judging.
+1. Run build checks and structural assertions.
+   They detect different failures.
+2. Preserve a failed build as a deterministic release failure.
+   A semantic score cannot override it.
 
 ## Judge calibration
 
 Two questions to answer before trusting any LLM judge:
 
 1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and worst-N miscalibrations vs a human golden set.
-2. **Does it agree with itself / other judges?** `continuousAgreement(scores)` and `calibrateJudgeContinuous(golden, candidate)` report κ_w + ICC(2,1) + Pearson + Spearman with bootstrap 95% CIs on the raw [0,1] scores.
+2. **Does it agree with other judges?**
+   `continuousAgreement()` and `calibrateJudgeContinuous()` report agreement and bootstrap intervals on continuous scores.
 
 Each statistic answers a different question:
 
@@ -273,15 +336,36 @@ ICC(2,1) catches a bias Pearson cannot see.
 If judge B always scores twice judge A, the two move together perfectly and Pearson stays near 1, while ICC drops.
 That drop is the signal.
 
-Every reported interval is a bootstrap 95 % interval: the statistic is recomputed on many resamples of the data, and the middle 95 % of those values is the interval.
+These agreement intervals use bootstrap resampling.
+The middle 95% of the recomputed statistics forms each reported interval.
 
-`verbosityBias` is the one exported bias probe: it finds a judge that rewards length regardless of quality.
-The `JudgeInsight` report shape also carries optional `positionalBias` and `selfPreference` fields for caller-computed probes.
-No built-in computes those two fields.
+Import calibration and bias functions from `/meta-eval`.
+
+| Probe | Input | Observation |
+|---|---|---|
+| `positionalBias()` | The same items judged with their presentation order swapped. | Mean paired score difference by position. |
+| `verbosityBias()` | Output lengths and judge scores. | Correlation between length and score. |
+| `selfPreference()` | Scores grouped by whether judge and output share a model family. | Difference between the group means. |
+
+These probes are descriptive diagnostics.
+Length and family groups can also differ in task quality; an observed association alone does not isolate bias.
+Inspect sample counts before interpreting a diagnostic, especially `n: 0`.
+
+Use `auditEvaluator()` for admission against predeclared false-acceptance and false-rejection limits.
+Its observation records distinguish fresh controls, development exposure, and unknown judgments.
+It counts source families rather than repeated variants and reports simultaneous exact bounds for both error rates.
+The host must enforce independent authorship and control access.
+
+Use `rubricPredictiveValidity()` to compare rubric scores with declared deployment outcomes.
+Specify whether each outcome should increase or decrease.
+The report preserves signed associations, direction-aligned associations, and exclusions.
+An `inverse` association is a reason to investigate; it does not prove that reversing a rubric will improve behavior.
+See [outcome validity](./outcome-validity.md).
 
 ## Trace Model
 
-Every operation emits structured spans into a `TraceStore`. A run is a tree:
+Instrumented execution writes structured spans into a `TraceStore`.
+A builder run can have this tree:
 
 ```
 builder-session                 [span]
@@ -294,7 +378,9 @@ builder-session                 [span]
     └── scenario.run            [span]
 ```
 
-Spans are append-only and have stable ids: replay is reading the same store back. OTLP export ships them out for distributed tracing.
+Recorded spans preserve their identifiers and relationships.
+Trace inspection reads this evidence; executable replay separately reruns recorded operations.
+OTLP export sends spans to distributed tracing systems.
 
 You usually should not build this tree by hand. Product runtimes,
 `runAgentControlLoop`, harnesses, and verifiers should emit it while they run.
@@ -317,4 +403,4 @@ release decision.
 - **Certifying a result with no answer key?** Read [verification-strategies.md](./verification-strategies.md) for the ten-member family and the blind two-arm protocol.
 - **Reading a verdict someone else produced?** Read [verdicts.md](./verdicts.md) for what `certification` carries and what an absent one means.
 - **Grading a finding by executing its repair?** Read [trace-repair-grader.md](./trace-repair-grader.md), and [trajectory-replay.md](./trajectory-replay.md) for re-executing a recorded failure.
-- **Wondering why this package exists at all?** Read [charter.md](./charter.md) for the four end-states it is built against.
+- **Checking package ownership?** Read [charter.md](./charter.md) for the implemented foundations and host responsibilities.

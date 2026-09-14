@@ -601,6 +601,17 @@ export class HeldOutGate {
       }
     }
 
+    if (!decision.sufficient) {
+      return {
+        promote: false,
+        candidateId,
+        baselineId,
+        evidence,
+        reason: `few_runs: ${productiveRuns} paired holdout observations < ${decision.minimumPairs} required for ${deltaLabel} estimation`,
+        rejectionCode: 'few_runs',
+      }
+    }
+
     // The exact test is a VETO on the two-point path. Redundant by construction
     // — `pairedRiskDifferenceExact`'s interval is dual to this p-value, so
     // `low > 0` already implies `pValue < 1 − confidence` (verified over 8108

@@ -14,8 +14,13 @@
  */
 
 import type { GateDecision, SplitCoverage } from '../held-out-gate'
+import {
+  assertUniqueObservationIds,
+  validateOutcomeMetricSpecifications,
+} from '../meta-eval/outcome-observations'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
+  type OutcomeMetricSpec,
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
@@ -30,13 +35,10 @@ import { type RunRecord, runTaskScore } from '../run-record'
 
 export interface PredictiveValidityResearcherOptions {
   outcomes: OutcomeStore
-  outcomeMetrics: string[]
+  /** Fix one desired outcome before observing the report; recommendations never choose an outcome post hoc. */
+  targetOutcome: OutcomeMetricSpec
   /** Score threshold below which a run counts as a "failure." Default 0.5. */
   failureThreshold?: number
-  /** Spearman bucket below which a rubric is "decorative." Default 0.4. */
-  decorativeThreshold?: number
-  /** Optional steering-namespace prefix for proposed changes. Default `'rubric_weight'`. */
-  steeringNamespace?: string
   /** Override the rubric set the researcher inspects. Default: every numeric `outcome.raw` key seen. */
   rubrics?: string[]
   /**
@@ -48,15 +50,24 @@ export interface PredictiveValidityResearcherOptions {
 }
 
 /**
- * Concrete `Researcher` driven by `rubricPredictiveValidity`. The brain:
- * rubrics that don't predict deployment outcomes don't earn weight.
+ * Proposes rubric experiments against one declared outcome.
+ * A correlation supports a hypothesis; the caller must measure any resulting change.
  */
 export class PredictiveValidityResearcher implements Researcher {
-  private opts: PredictiveValidityResearcherOptions
+  private readonly opts: PredictiveValidityResearcherOptions
   private lastReport: RubricPredictiveValidityReport | null = null
 
   constructor(opts: PredictiveValidityResearcherOptions) {
-    this.opts = opts
+    validateOutcomeMetricSpecifications([opts.targetOutcome])
+    if (opts.rubrics !== undefined) assertUniqueObservationIds(opts.rubrics, 'rubric')
+    if (opts.failureThreshold !== undefined && !Number.isFinite(opts.failureThreshold)) {
+      throw new Error('failureThreshold must be finite')
+    }
+    this.opts = {
+      ...opts,
+      targetOutcome: { ...opts.targetOutcome },
+      rubrics: opts.rubrics === undefined ? undefined : [...opts.rubrics],
+    }
   }
 
   async inspectFailures(runs: RunRecord[]): Promise<FailureMode[]> {
@@ -117,36 +128,48 @@ export class PredictiveValidityResearcher implements Researcher {
       ]
     }
 
-    const decorativeThreshold = this.opts.decorativeThreshold ?? 0.4
     const changes: SteeringChange[] = []
-
-    for (const ranking of this.lastReport.ranked) {
-      if (ranking.verdict === 'load_bearing') continue
-      if (Math.abs(ranking.spearman) >= decorativeThreshold) continue
-      changes.push({
-        kind: 'reviewer_prompt',
-        payload: {
-          rubric: ranking.rubric,
-          action: 'down-weight',
-          spearman: ranking.spearman,
-          bestOutcome: ranking.bestOutcome,
+    const target = { ...this.opts.targetOutcome }
+    const pairs = this.lastReport.pairs.filter(
+      (pair) =>
+        pair.outcome === target.id &&
+        pair.outcomeDirection === target.direction &&
+        (this.opts.rubrics === undefined || this.opts.rubrics.includes(pair.rubric)),
+    )
+    if (pairs.length === 0) {
+      return [
+        {
+          kind: 'threshold',
+          payload: { directive: 'researcher.collect-more-outcomes', targetOutcome: target },
+          rationale: `no estimable rubric association with ${target.id}; collect independent outcome observations before proposing weight changes`,
         },
-        rationale: `predictive-validity Spearman=${ranking.spearman.toFixed(3)} vs ${ranking.bestOutcome} (decorative); recommend down-weighting`,
-        expectedDelta: -Math.max(0, 0.05 - Math.abs(ranking.spearman)),
-      })
+      ]
     }
-    for (const ranking of this.lastReport.ranked.slice(0, 1)) {
-      if (ranking.verdict !== 'load_bearing') continue
+    for (const pair of pairs) {
+      const interval = pair.alignedSpearmanCi95
+      const aligned = pair.alignedSpearman >= 0.4 && interval !== null && interval.lower > 0
+      const inverse = pair.alignedSpearman <= -0.4 && interval !== null && interval.upper < 0
+      const action = aligned
+        ? 'test-up-weight'
+        : inverse
+          ? 'test-reverse-or-replace'
+          : 'collect-calibration-evidence'
       changes.push({
         kind: 'reviewer_prompt',
         payload: {
-          rubric: ranking.rubric,
-          action: 'up-weight',
-          spearman: ranking.spearman,
-          bestOutcome: ranking.bestOutcome,
+          rubric: pair.rubric,
+          action,
+          targetOutcome: target,
+          spearman: pair.spearman,
+          alignedSpearman: pair.alignedSpearman,
+          alignedSpearmanCi95: interval === null ? null : { ...interval },
+          samples: pair.n,
         },
-        rationale: `predictive-validity Spearman=${ranking.spearman.toFixed(3)} vs ${ranking.bestOutcome} (load-bearing); recommend up-weighting`,
-        expectedDelta: Math.max(0, Math.abs(ranking.spearman) - 0.5) * 0.1,
+        rationale: aligned
+          ? `higher ${pair.rubric} scores associate with better ${target.id}; test increased weight on fresh evidence before adopting it`
+          : inverse
+            ? `higher ${pair.rubric} scores associate with worse ${target.id}; test reversal or replacement on fresh evidence`
+            : `the association of ${pair.rubric} with desired ${target.id} does not support a direction of change; collect calibration evidence`,
       })
     }
     return changes
@@ -214,11 +237,11 @@ export class PredictiveValidityResearcher implements Researcher {
     const report = await rubricPredictiveValidity({
       runs,
       outcomes: this.opts.outcomes,
-      outcomeMetrics: this.opts.outcomeMetrics,
+      outcomeMetrics: [this.opts.targetOutcome],
       rubrics: this.opts.rubrics,
     })
-    if (this.opts.onReport) await this.opts.onReport(report)
-    this.lastReport = report
+    if (this.opts.onReport) await this.opts.onReport(structuredClone(report))
+    this.setReport(report)
     return report
   }
 
@@ -228,11 +251,17 @@ export class PredictiveValidityResearcher implements Researcher {
    * researcher's later proposals informed by it.
    */
   setReport(report: RubricPredictiveValidityReport): void {
-    this.lastReport = report
+    const target = report.outcomeMetrics.find((metric) => metric.id === this.opts.targetOutcome.id)
+    if (target?.direction !== this.opts.targetOutcome.direction) {
+      throw new Error(
+        'predictive validity report does not match the declared target outcome and direction',
+      )
+    }
+    this.lastReport = structuredClone(report)
   }
 
   getLastReport(): RubricPredictiveValidityReport | null {
-    return this.lastReport
+    return this.lastReport === null ? null : structuredClone(this.lastReport)
   }
 }
 
