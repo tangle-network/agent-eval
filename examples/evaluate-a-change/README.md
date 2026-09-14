@@ -44,7 +44,6 @@ Comparisons of real agents also need to account for execution variability and mi
 
 `expectUsage: 'off'` is set because this agent makes no paid model calls.
 Set `expectUsage: 'assert'` when connecting a paid agent so missing dispatch receipts become execution failures.
-Keep the default whenever real model calls happen: it is the check that stops an unmeasured run from reading as a free one.
 
 ## Next
 

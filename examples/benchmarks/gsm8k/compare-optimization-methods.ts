@@ -187,7 +187,7 @@ interface Artifact {
   text: string
 }
 
-// The worker transport is caller code: Agent Eval holds no provider key.
+// The execution owner binds the caller's endpoint and credential.
 const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
   apiKey: API_KEY,
