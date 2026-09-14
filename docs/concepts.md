@@ -34,8 +34,7 @@ Keep its five values distinct because they require different actions.
 | `model_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the model. | Handle it; no gate in this package emits it. |
 | `arch_ceiling` | Reserved for a caller-supplied gate that attributes the limit to the architecture. | Handle it; no gate in this package emits it. |
 
-The last two are part of the taxonomy and of the composition order, but no built-in gate returns them today.
-Handle all five anyway: a caller's own gate may return either, and the type will not let you ignore them.
+Handle all five values when accepting caller-supplied gates.
 
 Read the contributing checks before interpreting a refused release.
 An unresolved comparison does not establish that the candidate is worse.
@@ -85,7 +84,7 @@ Traces, datasets, optimization, statistics, and reports build on these objects.
 
 Every entry in `GateResult.contributingGates` has a `status` of `pass`, `fail`, or `not_evaluated`.
 `pass` and `fail` mean the check ran with sufficient input.
-`not_evaluated` means the check lacked enough evidence to run.
+`not_evaluated` means the check was unconfigured or lacked required input or evidence.
 `defaultProductionGate` always requires held-out significance.
 Its other checks are optional until their input is configured or their name is included in `requiredChecks`.
 A required check with missing or insufficient evidence remains `not_evaluated` and holds the release decision.
@@ -93,7 +92,10 @@ An absent optional check records `not_evaluated` and never appears as a successf
 Run history is shared input only.
 Enable reward-hacking and canary monitoring independently with `rewardHacking` and `canary`.
 
-`paretoSignificanceGate()` applies each objective's regression floor to its deciding confidence interval.
+`selfImprove()` uses `defaultProductionGate()` unless you pass a custom `gate`.
+The optional `paretoSignificanceGate()` applies each objective's regression floor to its deciding confidence interval.
+Its confidence level applies per objective; the gate does not adjust for multiple objectives or repeated comparisons.
+It pairs execution cells directly; custom gates must apply any grouping required by a claim.
 For detected binary outcomes, that interval accounts for uncertainty even when every observed pair agrees.
 At 95% confidence, 20 matching all-positive binary pairs leave approximately 16 percentage points of uncertainty in either direction.
 A declared five-point regression tolerance therefore holds that candidate; 100 matching pairs narrow the interval enough to clear that floor.
@@ -136,7 +138,7 @@ that can seed memory, replay scenarios, and optimization.
 | **Finding** | A specific issue a judge found: file, line, severity, message. |
 | **Trace store** | The append-only log of every span/event during a run. Replay = read this back. |
 | **Composite score** | An aggregate on the judge's declared scale. Gates must use thresholds on that scale. |
-| **Rubric version** | A stable hash of the rubric. Scores from different rubric versions are not comparable. |
+| **Rubric version** | A stable hash of the rubric. Comparing revisions requires calibration against shared independent labels. |
 
 ### Running an evaluation
 
@@ -146,8 +148,8 @@ that can seed memory, replay scenarios, and optimization.
 | **Surface** | The value being changed: a prompt, a skill, or a serialized configuration. |
 | **Dispatch** | The function that runs your agent on one case and returns the artifact. |
 | **Campaign** | One complete pass of every case, executed, scored, and cached under a run directory. |
-| **Cell** | One (case × replicate) of a campaign. Cells are cached, so a rerun skips the ones that finished. |
-| **Receipt** | The record of what one paid call actually cost, in dollars and tokens. Absent when nothing measured it. |
+| **Cell** | One (case × replicate) of a campaign. With caching enabled, matching completed cells can be reused. |
+| **Receipt** | A settled call record with cost, token usage, and flags for unknown measurements. |
 | **Cost ledger** | The spend account receipts are written to. A capped ledger refuses a call that would exceed the cap. |
 | **Provenance** | Where a number came from: the package version, the source revision, the run identity, the exact attempt. |
 | **`RunRecord`** | The analysis-time projection of one run: who ran, on what, with which seed, at what cost, and what it scored. |
@@ -194,7 +196,7 @@ A declared sampling frame does not itself establish representative sampling.
 Count repetitions separately from independent units.
 For example, 100 retries of one incident produce 100 observations and one independent incident.
 Campaign aggregate `n` describes its observed scores.
-Registered gates report their independent-unit count and paired-cell count separately.
+The default improvement gate and method comparisons retain their independent-unit and paired-cell counts.
 
 Set `minimumEffect` when the decision concerns a practically useful change.
 Development and absolute-rate claims can omit it.
@@ -243,21 +245,17 @@ L1  app-build      Does the artifact build / typecheck / test?
                               │
                               ▼
 L2  app-runtime    Does the artifact actually run end-to-end?
-                   (Dynamic signal: only worth checking if L1 passed.)
+                   (Dynamic signal: requires a runnable application.)
 ```
 
 `BuilderSession` coordinates these checks.
 It opens at `startChat`, runs the build at `ship`, and runs the application check at `runAppScenario`.
 Each layer emits a trace span.
-`scoreProject` combines their measured scores.
-
-These layers detect different failures:
+`scoreProject` reports each layer's score and whether the required measurements are complete.
 
 - L0: The agent crashed during generation and left an incomplete artifact.
 - L1: Files exist but do not typecheck or build.
 - L2: Code compiles but behaves incorrectly when executed.
-
-If you only check one layer, you ship the bugs that the other two layers would have caught.
 
 ## How rubrics work
 
@@ -290,7 +288,7 @@ const verifier = new MultiLayerVerifier([
 ])
 
 const report = await verifier.run({ env })
-report.allPass // boolean: every layer passed
+report.allPass // every layer passed and the task measurement is complete
 report.taskScore // complete task score, or undefined
 report.blendedScore // diagnostic weighted aggregate, possibly partial
 report.layers // per-layer status, findings, duration
@@ -299,7 +297,11 @@ report.layers // per-layer status, findings, duration
 `env` carries the sandbox driver, the working directory, and the harness commands each layer runs.
 
 Use `taskScore` when creating task labels or training data.
-An errored, timed-out, skipped, or incomplete scoring panel leaves `taskScore` undefined.
+A complete scoring panel needs at least one valid score from a positive-weight layer.
+Positive-weight layers that error, time out, or skip leave `taskScore` undefined.
+Passing layers can omit a numeric score.
+A failed layer contributes only when `failContributesToScore` is enabled and it supplies a valid score.
+Zero-weight layers can still fail `allPass` without removing `taskScore`.
 Use `blendedScore` only to inspect the measurements that did complete.
 
 Two rules that will save you bugs:
@@ -311,9 +313,9 @@ Two rules that will save you bugs:
 
 ## Judge calibration
 
-Two questions to answer before trusting any LLM judge:
+Compare a judge with independent labels and other judges before using its scores for decisions:
 
-1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and worst-N miscalibrations vs a human golden set.
+1. **Does it agree with humans?** `calibrateJudge(golden, candidate)` reports Pearson, MAE, integer-rounded κ, and the five largest errors on matched item IDs.
 2. **Does it agree with other judges?**
    `continuousAgreement()` and `calibrateJudgeContinuous()` report agreement and bootstrap intervals on continuous scores.
 
@@ -325,7 +327,7 @@ Each statistic answers a different question:
 | Spearman | Do they rank the same way? | The size of any gap |
 | MAE (mean absolute error) | How far apart are they, on average? | Whether the gap is systematic |
 | κ (Cohen's kappa) | Do they agree more than chance? | Everything below the rounding step |
-| ICC(2,1) | Do they agree in absolute value, not just in shape? | — |
+| ICC(2,1) | Do raters agree in absolute score under its variance model? | Shared errors against the intended outcome |
 
 Use two flavours of κ for one reason.
 `calibrateJudge` rounds each score to an integer first.
@@ -336,8 +338,8 @@ ICC(2,1) catches a bias Pearson cannot see.
 If judge B always scores twice judge A, the two move together perfectly and Pearson stays near 1, while ICC drops.
 That drop is the signal.
 
-These agreement intervals use bootstrap resampling.
-The middle 95% of the recomputed statistics forms each reported interval.
+ICC and continuous weighted κ have percentile bootstrap intervals, with `ciLevel: 0.95` by default.
+Pearson, Spearman, and MAE are point estimates in these reports.
 
 Import calibration and bias functions from `/meta-eval`.
 

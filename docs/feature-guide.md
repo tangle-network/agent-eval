@@ -55,10 +55,10 @@ user intent
   -> datasets and optimizers replay the same adapter
 ```
 
-The important part is that production and eval do not use different loops. The
-adapter can swap dependencies (real user session, replay fixture, sandbox), but
-the state shape, validators, actions, budgets, and stop policies should stay
-the same. That is what makes benchmark gains transfer to real usage.
+Keep the production state, validators, actions, budgets, and stop policies in the evaluation path.
+The adapter can supply a real user session, replay fixture, or sandbox.
+This tests the behavior that production executes.
+Transfer to future tasks still requires representative evaluation data and a measured comparison.
 
 ### Agent Runtime Integration
 
@@ -82,8 +82,7 @@ Implementation ownership:
   assignment, and optimizer row conversion in `agent-eval`.
 - Put product state readers, action executors, approval policy, credentials,
   workspace paths, and UI-specific storage in the downstream repo.
-- Promote a product adapter into `agent-eval` only after at least two products
-  need the same adapter shape.
+- Keep product execution adapters in the consuming repository.
 
 ### Code Generator
 

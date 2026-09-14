@@ -60,14 +60,14 @@ In order: first match wins:
 
 | Quantity | Function | Source file |
 |---|---|---|
-| Marginal CI on score mean | `confidenceInterval` | `statistics.ts` |
-| Paired Cohen's dz vs comparator | `pairedCohensDz` | `statistics.ts` |
-| Wilcoxon signed-rank (paired), exact at n ≤ 20 | `wilcoxonSignedRank` | `statistics.ts` |
-| BH-FDR q-values | `benjaminiHochberg` | `statistics.ts` |
-| Paired bootstrap CI on median delta | `pairedBootstrap` | `statistics.ts` |
-| Smallest p a rank-test design can produce | `pFloor` on the result | `statistics.ts` |
+| Marginal CI on score mean | `confidenceInterval` | [`descriptive.ts`](../src/statistics/descriptive.ts) |
+| Paired Cohen's dz vs comparator | `pairedCohensDz` | [`effect-sizes.ts`](../src/statistics/effect-sizes.ts) |
+| Wilcoxon signed-rank (paired), exact at n ≤ 20 | `wilcoxonSignedRank` | [`rank-tests.ts`](../src/statistics/rank-tests.ts) |
+| BH-FDR q-values | `benjaminiHochberg` | [`multiplicity.ts`](../src/statistics/multiplicity.ts) |
+| Paired bootstrap CI on median delta | `pairedBootstrap` | [`paired-tests.ts`](../src/statistics/paired-tests.ts) |
+| Smallest p a rank-test design can produce | `pFloor` on the result | [`rank-tests.ts`](../src/statistics/rank-tests.ts) |
 | Bayesian-bootstrap Pr(Δ>0), Pr(Δ∈ROPE) | `bayesianBootstrapMeanSamples` | `summary-report.ts` (private) |
-| Minimum detectable paired effect | `pairedMde` | `statistics.ts` |
+| Minimum detectable paired effect | `pairedMde` | [`power-and-mde.ts`](../src/statistics/power-and-mde.ts) |
 | Run fingerprint | `hashJson(...)` | `pre-registration.ts` |
 
 The Pr(Δ>0) and Pr(Δ∈ROPE) summaries use Rubin's Bayesian bootstrap.

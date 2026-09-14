@@ -9,9 +9,12 @@ Start here before any optimizer.
 ## How to run it
 
 ```sh
-pnpm tsx examples/evaluate-a-change/index.ts
+pnpm install
+pnpm build
+pnpm exec tsx examples/evaluate-a-change/index.ts
 ```
 
+Run these commands from the repository root.
 No API key is required.
 The agent and the judge are local functions.
 
@@ -25,18 +28,22 @@ The agent and the judge are local functions.
 The output is:
 
 ```text
-baseline:  { 'ticket-id': { mean: 0, stdev: 0, ci95: [ 0, 0 ], n: 3 } }
-candidate: { 'ticket-id': { mean: 1, stdev: 0, ci95: [ 1, 1 ], n: 3 } }
+baseline: 0
+candidate: 1
 ```
+
+The example prints each mean.
+The returned aggregates also contain counts, intervals, and score distributions.
 
 ## Why it is built this way
 
 The surface is the only value that changes between the two calls.
-The cases, the agent, and the judge stay identical, so the score difference measures the change and nothing else.
+The cases, agent, and judge stay fixed in this deterministic fixture.
+The changed surface accounts for its score difference.
+Comparisons of real agents also need to account for execution variability and missing evidence.
 
 `expectUsage: 'off'` is set because this agent makes no paid model calls.
-The default is `'assert'`, which fails a run whose cells report no cost receipt.
-Keep the default whenever real model calls happen: it is the check that stops an unmeasured run from reading as a free one.
+Set `expectUsage: 'assert'` when connecting a paid agent so missing dispatch receipts become execution failures.
 
 ## Next
 

@@ -135,8 +135,7 @@ async function main() {
     storage: inMemoryCampaignStorage(),
     runDir: `mem://distributed-coordinator-${Date.now()}`,
     maxConcurrency: 4,
-    // The demo worker is a stub that reports no usage. Keep the default
-    // 'assert' once workers meter real calls through ctx.cost.runPaidCall.
+    // The demo worker reports no paid usage. Set 'assert' for metered workers.
     expectUsage: 'off',
     cellPlacement: IS_MULTIREGION
       ? ({ scenario }) => {

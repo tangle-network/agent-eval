@@ -1,3 +1,5 @@
+import type { CustomTokenPricing } from '../../src/cost-ledger'
+
 export function positiveIntegerEnv(name: string, fallback: number): number {
   const value = Number(process.env[name] || fallback)
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -48,4 +50,26 @@ export function optionalNonNegativeNumberEnv(name: string): number | undefined {
     throw new Error(`${name} must be greater than or equal to 0`)
   }
   return value
+}
+
+export function tokenPricingFromEnv(): CustomTokenPricing | undefined {
+  const inputUsdPerMillion = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
+  const outputUsdPerMillion = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
+  const cachedInputUsdPerMillion = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_M')
+  const cacheWriteUsdPerMillion = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
+  if ((inputUsdPerMillion === undefined) !== (outputUsdPerMillion === undefined)) {
+    throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
+  }
+  if (inputUsdPerMillion === undefined || outputUsdPerMillion === undefined) {
+    if (cachedInputUsdPerMillion !== undefined || cacheWriteUsdPerMillion !== undefined) {
+      throw new Error('Cache token rates require PRICE_IN_PER_M and PRICE_OUT_PER_M')
+    }
+    return undefined
+  }
+  return {
+    inputUsdPerMillion,
+    outputUsdPerMillion,
+    ...(cachedInputUsdPerMillion === undefined ? {} : { cachedInputUsdPerMillion }),
+    ...(cacheWriteUsdPerMillion === undefined ? {} : { cacheWriteUsdPerMillion }),
+  }
 }

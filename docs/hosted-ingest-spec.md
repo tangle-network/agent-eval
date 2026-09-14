@@ -178,17 +178,10 @@ It is not production storage because process restart clears its in-memory data.
 TENANT_KEY=dev-token TENANT_ID=acme pnpm tsx examples/hosted-ingest-server/server.ts
 ```
 
-In another terminal:
-
-```sh
-HOSTED_ENDPOINT=http://localhost:8080 \
-HOSTED_TENANT_KEY=dev-token \
-HOSTED_TENANT_ID=acme \
-pnpm tsx examples/foreign-agent-quickstart/index.ts
-```
-
-The quickstart's eval-run gets POSTed to the reference receiver; the
-receiver's `GET /v1/runs` lists it back.
+Send events with [`createHostedClient`](../src/hosted/client.ts) from `@tangle-network/agent-eval/hosted`.
+Call `client.ingestEvalRun(event)` with a valid `EvalRunEvent` after configuring the client's endpoint, tenant ID, and API key.
+For `selfImprove`, configure `hostedTenant` as shown in the [receiver example](../examples/hosted-ingest-server/).
+The receiver's authenticated `GET /v1/runs` endpoint lists ingested runs.
 
 ---
 

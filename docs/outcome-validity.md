@@ -2,7 +2,7 @@
 
 `rubricPredictiveValidity()` measures associations between rubric scores and observations from deployment.
 Declare the desired direction for each outcome before reading the results.
-Higher rubric scores always mean better evaluated behavior.
+Define rubric scores so higher values mean better evaluated behavior.
 
 ```ts
 import {
@@ -34,6 +34,21 @@ Populate `RunRecord.outcome.raw.task_quality` with the captured rubric score.
 Append deployment observations with the same `runId` and exact outcome metric keys.
 The store accepts finite numbers, including zero.
 Omit an unmeasured metric instead of replacing it with zero.
+
+An observation records when and where its outcomes were captured:
+
+```ts
+const observation: DeploymentOutcome = {
+  runId: 'support-run-42',
+  capturedAt: Date.now(),
+  metrics: { success_rate: 1, failure_rate: 0 },
+  labels: { cohort: 'support' },
+  source: 'resolution-events-v1',
+}
+```
+
+`capturedAt` uses epoch milliseconds.
+The matching run supplies the rubric score; this observation supplies the measured deployment outcome.
 
 The default reduction selects the latest finite observation of each requested metric.
 A newer row containing another metric cannot supply its value or erase an older observation.
@@ -127,7 +142,8 @@ Repair the source and retry the read.
 
 For trace data, `correlationStudy()` accepts outcome names and reports descriptive associations without a desired direction.
 It shares the metric reduction, bootstrap, and exclusion behavior.
-Its optional capture window includes only observations captured after the run started.
+It excludes observations captured before the run started.
+`maxCaptureLagMs` optionally bounds the elapsed time from run start through outcome capture, including both endpoints.
 
 ## Inspect calibration by score range
 
@@ -153,6 +169,7 @@ It reports each bin's count, mean score, mean outcome, and absolute gap.
 Both quantities must use comparable numerical scales for this difference to measure calibration.
 
 The `range` option clips scores before binning and retains every joined observation.
+The reported calibration error then describes the clipped scores; retain that transformation with the result.
 Constant scores form one bin, so a consistently wrong predictor still receives a measured calibration error.
 Equal-frequency binning produces the requested number of bins, capped by the observation count.
 Bin counts differ by at most one, except when all scores share one value.

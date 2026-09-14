@@ -8,14 +8,14 @@ This reference covers direct execution controls and specialist modules.
 
 | Primitive | Import | Use | Returns |
 |---|---|---|---|
-| `runCampaign()` | `/campaign` | Execute and judge a scenarios × repetitions grid through caller-owned dispatch. | `CampaignResult` |
-| `runEval()` | `/contract` or `/campaign` | Score one surface with campaign defaults. | `CampaignResult` |
-| `runProfileMatrix()` | `/campaign` | Run the same cases across named agent profiles with provenance and backend checks. | `RunProfileMatrixResult`, including `.records`. |
-| `runOptimization()` | `/campaign` | Generate, measure, and select candidates on development cases. | Generations and a winner surface. |
-| `runImprovementLoop()` | `/contract` or `/campaign` | Search, compare on final cases, and apply a release gate. | Final comparison, winner, and gate decision. |
-| `compareOptimizationMethods()` | `/campaign` | Compare selected surfaces from several methods under declared budgets. | Final paired contrasts, uncertainty, and costs. |
-| `runEvalCampaign()` | Root | Run with a caller-supplied trace sink and emitter. | Campaign result and records. |
-| `runAgentMatrix()` | `/matrix` | Schedule a general Cartesian grid without campaign scoring semantics. | Cell results. |
+| [`runCampaign()`](../examples/plan-before-you-spend/) | `/campaign` | Execute and judge a scenarios × repetitions grid through caller-owned dispatch. | `CampaignResult` |
+| [`runEval()`](../src/campaign/presets/run-eval.ts) | `/contract` or `/campaign` | Score one surface with campaign defaults. | `CampaignResult` |
+| [`runProfileMatrix()`](../examples/profile-matrix/) | `/campaign` | Run the same cases across named agent profiles with provenance and backend checks. | `RunProfileMatrixResult`, including `.records`. |
+| [`runOptimization()`](./campaign-proposers.md#write-a-custom-candidate-generator) | `/campaign` | Generate, measure, and select candidates on development cases. | Generations and a winner surface. |
+| [`runImprovementLoop()`](./multi-shot-optimization.md) | `/contract` or `/campaign` | Search, compare on final cases, and apply a release gate. | Final comparison, winner, and gate decision. |
+| [`compareOptimizationMethods()`](../examples/compare-optimization-methods/) | `/campaign` | Compare selected surfaces from several methods under declared budgets. | Final paired contrasts, uncertainty, and costs. |
+| [`runEvalCampaign()`](../src/eval-campaign.ts) | Root | Run with a caller-supplied trace sink and emitter. | Campaign result and records. |
+| [`runAgentMatrix()`](../src/matrix/runner.ts) | `/matrix` | Schedule a general Cartesian grid without campaign scoring semantics. | Cell results. |
 
 When variants of the same task run inside one `runCampaign`, give those scenarios the same `seedGroup` so each repetition uses common randomness.
 Use `runProfileMatrix` instead when profiles are separate campaign axes.
@@ -47,6 +47,7 @@ Coverage reports missing, failed, and zero-score rows separately.
 | Group reusable comparisons by source unit | `/contract` or `/campaign` | The top-level `claim` option. |
 | Reserve fresh evidence for confirmation | `/contract` or `/campaign` | Optional `finalEvidence: { ledger, requestId, evaluatorDigest }`. |
 | Admit an evaluator against both error limits | `/meta-eval` | `auditEvaluator()` |
+| Test a grader with known incorrect items | `/meta-eval` | [`definePlant()`, `seedPlants()`, `catchRate()`](./plants.md) |
 | Measure agreement and known bias patterns | `/meta-eval` | `calibrateJudgeContinuous()`, `continuousAgreement()`, `positionalBias()`, `verbosityBias()`, `selfPreference()` |
 | Relate scores to declared deployment outcomes | `/meta-eval` | `rubricPredictiveValidity()`, `correlationStudy()`, `calibrationFromPairs()`, `calibrationCurve()` |
 
@@ -73,19 +74,21 @@ Use the decision diagnostics and intervals to distinguish insufficient evidence 
 
 | Subpath | Use |
 |---|---|
-| `/traces`, `/trace-attributes` | Store and inspect trace evidence; use canonical measurement attribute names. |
+| `/traces`, `/trace-attributes` | Store trace evidence, [connect observability exporters](./adapters-observability.md), and use canonical measurement attribute names. |
 | `/analyst` | Execute declared analysts against recorded evidence. |
-| `/reporting`, `/pipelines` | Compare runs, render reports, and extract recorded failure patterns. |
+| `/reporting`, `/pipelines` | Compare runs, render [research reports](./research-report-methodology.md), and extract recorded failure patterns. |
 | `/supervisor-run` | Read recursive run directories and their evidence coverage. |
 | `/trace-repair`, `/trajectory-replay` | Execute proposed repairs or replay recorded shell trajectories. |
 | `/benchmarks`, `/fuzz` | Adapt benchmark data and explore a declared behavior space. |
-| `/builder-eval`, `/multishot`, `/multishot/golden` | Evaluate generated applications and multi-turn conversations. |
+| `/builder-eval`, `/multishot`, [`/multishot/golden`](./multishot-golden-records.md) | Evaluate generated applications and multi-turn conversations. |
 | `/matrix` | Schedule Cartesian experiment grids. |
 | `/rl` | Build reward, preference, and supervised datasets from eligible evidence. |
 | `/profile-cell` | Create and validate portable agent-profile identities. |
 | `/authenticity`, `/ledger-core` | Check evidence authenticity and maintain canonical hash-chained journals. |
-| `/rollout`, `/storyboard` | Represent rollout trees and render recorded work. |
+| [`/rollout`](./rollout.md), `/storyboard` | Serialize training rows and render recorded work. |
 | `/hosted`, `/wire`, `/adapters/http` | Connect hosted storage or expose evaluation through HTTP and RPC. |
+
+For existing coding-agent transcripts, start with [session intake](./code-agent-intake.md).
 
 Root `Scenario`, `JudgeScore`, and `GateDecision` match `/contract`.
 Use root `ProductScenario` and `DimensionJudgeScore` for the product-judging functions.
@@ -111,7 +114,7 @@ A judge that produced no score has no entry at all.
 An absent aggregate is the honest record of an unmeasured judge, and a zero-filled distribution would read as a measured all-zero series.
 
 `SeriesDistribution` is the one distribution summary in this package.
-It is not the `ScalarDistribution` the insight report uses; see `insight-report.md` for why those two shapes stay separate.
+The [insight report](./insight-report.md) explains why its `ScalarDistribution` has a separate shape.
 
 ## Planning the cell grid without a run directory
 
@@ -123,6 +126,7 @@ Scenarios that share a `seedGroup` receive the same per-replicate seeds, which i
 Use `planCampaignRun()` to classify cached, pending, and blocked cells.
 That call reads the durable cache in a real run directory.
 `cellDirectory` and `cellCachePath` name a cell's location once a run directory is chosen.
+Use [eval fixtures](./eval-fixtures.md) to load and fingerprint cases from folders before planning their campaign.
 
 ## Evidence receipts: `attest`
 
@@ -160,6 +164,7 @@ runtime events -> extractProducedState(events) -> ProducedState
 
 The host supplies the correctness checker and the events.
 This composition shares campaign execution, capture, and reporting without another runner.
+See [product patterns](./product-eval-adoption.md#product-patterns) for host adapters and [knowledge readiness](./knowledge-readiness.md) for required context checks.
 
 ### The in-band body contract
 

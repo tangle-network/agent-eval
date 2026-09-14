@@ -24,7 +24,7 @@ import { gepaOptimizationMethod } from '../../src/campaign'
 import { selfImprove } from '../../src/contract'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
 import type { RunRecord } from '../../src/run-record'
-import { positiveIntegerEnv, positiveNumberEnv } from '../_shared/env'
+import { positiveIntegerEnv, positiveNumberEnv, tokenPricingFromEnv } from '../_shared/env'
 import {
   type Artifact,
   type ExtractScenario,
@@ -59,6 +59,7 @@ const LLM_MAX_TOKENS = positiveIntegerEnv('LLM_MAX_TOKENS', 400)
 const GEPA_MAX_EVALUATIONS = positiveIntegerEnv('GEPA_MAX_EVALUATIONS', 12)
 const GEPA_MAX_PROPOSER_COST_USD = positiveNumberEnv('GEPA_MAX_PROPOSER_COST_USD', 2)
 const MAX_TOTAL_COST_USD = positiveNumberEnv('MAX_TOTAL_COST_USD', 10)
+const customTokenPricing = tokenPricingFromEnv()
 // Throws unless GEPA_PRICE_IN_PER_M and GEPA_PRICE_OUT_PER_M carry the exact
 // endpoint rates, so reflection spend is never a guessed zero.
 const gepaModelBudget = optimizerModelBudgetFromEnv('GEPA', GEPA_MAX_PROPOSER_COST_USD)
@@ -139,11 +140,12 @@ const BASELINE_SURFACE = 'Extract the transaction info from the message as JSON.
 
 // ── Agent, judge, and the GEPA method ────────────────────────────────────
 const records: RunRecord[] = []
-// The worker transport is caller code: Agent Eval holds no provider key.
+// The execution owner binds the caller's endpoint and credential.
 const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
   apiKey: API_KEY,
   model: MODEL,
+  pricing: customTokenPricing,
   maximumAttempts: 2,
   timeoutMs: CALL_TIMEOUT_MS,
 })
@@ -154,12 +156,13 @@ const worker = makeExtractionWorker({
   timeoutMs: CALL_TIMEOUT_MS,
   maxTokens: LLM_MAX_TOKENS,
   experimentId: 'self-improve-optimizer',
+  customTokenPricing,
 })
 
 // The execution owner is caller code: it wraps one OpenAI-compatible endpoint
 // as the metered model call every official optimizer requires. Agent Eval's
 // loopback proxy meters each reflection call against `budget`, and the
-// provider key never reaches Agent Eval or the Python child.
+// provider key never reaches the Python child.
 const optimizerCall = openAiCompatibleExecutionOwner({
   baseUrl: BASE_URL,
   apiKey: API_KEY,

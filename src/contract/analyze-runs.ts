@@ -987,29 +987,36 @@ async function computeFailureClusters(
   const failed = runs.filter((run) => isTaskFailure(run, split))
   if (failed.length === 0) return { clusters: [], totalFailures: 0 }
 
-  const clusters = new Map<string, { exemplars: string[]; share: number }>()
+  const clusters = new Map<string, { exemplars: string[]; runs: number }>()
+  const recordCluster = (key: string, runId: string) => {
+    const cluster = clusters.get(key) ?? { exemplars: [], runs: 0 }
+    cluster.runs += 1
+    if (cluster.exemplars.length < 5 && !cluster.exemplars.includes(runId)) {
+      cluster.exemplars.push(runId)
+    }
+    clusters.set(key, cluster)
+  }
   for (const run of failed) {
     try {
       // AnalystRunInputs routes by field name: run-record analysts read
       // `runRecord`. Any other shape makes every analyst skip with
       // "missing input" and the clusters come back silently empty.
       const result = await analyst.run(run.runId, { runRecord: run })
-      for (const finding of result.findings as AnalystFinding[]) {
-        const key = finding.area || finding.analyst_id || 'unclassified'
-        const c = clusters.get(key) ?? { exemplars: [], share: 0 }
-        if (c.exemplars.length < 5) c.exemplars.push(run.runId)
-        clusters.set(key, c)
-      }
+      // One run can produce several findings in one cluster; count it once.
+      const keys = new Set(
+        result.findings.map(
+          (finding: AnalystFinding) => finding.area || finding.analyst_id || 'unclassified',
+        ),
+      )
+      for (const key of keys) recordCluster(key, run.runId)
     } catch {
-      const c = clusters.get('analyst-error') ?? { exemplars: [], share: 0 }
-      if (c.exemplars.length < 5) c.exemplars.push(run.runId)
-      clusters.set('analyst-error', c)
+      recordCluster('analyst-error', run.runId)
     }
   }
   const clusterList = [...clusters.entries()].map(([id, c]) => ({
     id,
     name: id,
-    share: c.exemplars.length / failed.length,
+    share: c.runs / failed.length,
     exemplars: c.exemplars,
   }))
   clusterList.sort((a, b) => b.share - a.share)

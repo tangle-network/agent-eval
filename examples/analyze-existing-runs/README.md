@@ -1,26 +1,17 @@
-# Get A Report From Runs You Already Have
+# Analyze captured runs
 
-## When to use this
+This example constructs twelve synthetic `RunRecord` rows for two candidates answering six shared cases.
+`analyzeRuns()` returns score distributions, cost, paired lift, and recommendations without rerunning the agent.
+No API key or model call is required.
 
-Use this example when the runs already happened.
-You have logs, a feedback table, or exported rows, and you must know what they say.
-No agent is invoked and no model is called.
+## Run
 
-Use a different front door when you want to run the agent again: [`evaluate-a-change`](../evaluate-a-change/).
-
-## How to run it
+From the repository root:
 
 ```sh
-pnpm tsx examples/analyze-existing-runs/index.ts
+pnpm install --frozen-lockfile
+pnpm exec tsx examples/analyze-existing-runs/index.ts
 ```
-
-No API key is required.
-
-## What it does
-
-1. Twelve `RunRecord` rows describe two candidates answering the same six cases.
-2. `analyzeRuns()` reads them and returns one `InsightReport`.
-3. The report carries score distributions, paired lift with an interval, judge agreement, cost, failure clusters, contamination checks, and recommendations.
 
 The output is:
 
@@ -33,23 +24,31 @@ paired n:        6
 recommendations: 2
 ```
 
-## Why it is built this way
+The positive interval is descriptive at six pairs.
+The report requests more evidence because this bootstrap comparison requires at least 20 paired observations for decision eligibility.
+The example supplies no judge details, rater scores, analyst, canaries, or downstream outcomes.
+Their optional insights are therefore unavailable.
 
-`baselineCandidateId` and `candidateCandidateId` make the lift paired.
-Rows match on `(experimentId, scenarioId, seed)`, so each case is compared with itself, not with the mean of the other arm.
-A row that finds no partner stays visible in the result instead of being dropped.
+## Use your own evidence
 
-Every field of the report is defined in [`docs/insight-report.md`](../../docs/insight-report.md).
+Replace the synthetic rows in [index.ts](./index.ts) with captured records.
+For an installed package, import `analyzeRuns` from `@tangle-network/agent-eval/contract`.
+Import `RunRecord` from the package root.
 
-## Where the rows come from
+Pass both `baselineCandidateId` and `candidateCandidateId` to declare the direction of the comparison.
+Rows pair on `(experimentId, scenarioId, seed)`.
+Unmatched scored rows remain visible in `lift.unpairedBaseline` and `lift.unpairedCandidate` and are excluded from the paired statistics.
+Missing or duplicate pairing identities fail validation.
 
-If your data is not already in `RunRecord` shape, convert it first:
+Declare `independentUnitByScenarioId` when repeated cases share a task, document, user, or other sampling unit.
+Repetitions do not create more independent tasks.
+Inspect the [InsightReport guide](../../docs/insight-report.md) for denominators, missing data, and diagnostic limits.
 
-| Source | Adapter |
+| Existing data | Starting point |
 |---|---|
-| Approvals and rejections in a table | `fromFeedbackTable` — see [`customer-feedback-loop`](../customer-feedback-loop/) |
-| OpenTelemetry spans | `fromOtelSpans` — see [`customer-otel-traces`](../customer-otel-traces/) |
+| Approvals and rejections | [`fromFeedbackTable`](../customer-feedback-loop/) |
+| OpenTelemetry spans | [`fromOtelSpans`](../customer-otel-traces/) |
+| Captured execution without quality labels | `summarizeExecution({ runs })` from `/contract` |
+| Failures requiring an analyst | [Custom trace analyst](../custom-trace-analyst/) |
 
-## Next
-
-- Cluster the failures with a trace analyst: [`custom-trace-analyst`](../custom-trace-analyst/).
+Use [evaluate a change](../evaluate-a-change/) when you need new agent executions.

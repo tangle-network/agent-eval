@@ -1,476 +1,208 @@
-# `InsightReport`: the report
+# Read an InsightReport
 
-The single shape every analysis call returns. `selfImprove()` embeds it in `SelfImproveResult.insight`; `analyzeRuns()` returns it directly. The hosted-tier wire format carries it on `EvalRunEvent.insightReport?`.
-
-Use `summarizeExecution({ runs })` when observed traces have no task-quality labels.
-It returns only `execution` and `costProvenance`, so callers do not need to fabricate a quality score to report runtime facts.
-
-Every section is **opt-in based on what your data supports**: the function never invents signal. If your runs don't carry judge scores, `judges` is empty. If there's no baseline/candidate split, `lift` is undefined. The shape is consistent; population is honest.
-
-This page walks every section with a real (synthetic) example and explains how to act on it.
-
----
-
-## At a glance
+`analyzeRuns()` summarizes captured `RunRecord` evidence and returns an `InsightReport`.
+`selfImprove()` includes the same report in `result.insight`.
+Analysis makes no model calls unless you supply an analyst that uses one.
 
 ```ts
-interface InsightReport {
-  n: number                              // runs analyzed
-  execution: ExecutionInsight            // duration, tokens, errors, terminal outcomes
-  composite: ScalarDistribution          // always
-  perDimension: Record<string, ScalarDistribution>   // when judgeScores carry dimensions
-  costQuality: { cost: ScalarDistribution; pareto: ParetoFigureSpec }   // always
-  judges: Record<string, JudgeInsight>   // when runs carry judge scores
-  interRater?: InterRaterInsight         // when raterScores supplied
-  lift?: LiftInsight                     // when baseline + candidate present
-  failureClasses?: FailureClassTally[]   // canonical task-failure counts
-  failureClusters?: FailureClusterInsight    // when AnalystRegistry wired
-  contamination?: ContaminationInsight   // when canaryScenarios supplied
-  outcomeCorrelation?: OutcomeCorrelationInsight   // when outcomeSignal supplied
-  release: ReleaseSummary                // always
-  recommendations: Recommendation[]      // always: read this FIRST
+import { analyzeRuns } from '@tangle-network/agent-eval/contract'
+import type { RunRecord } from '@tangle-network/agent-eval'
+
+export async function compareCapturedRuns(runs: RunRecord[]) {
+  return analyzeRuns({
+    runs,
+    split: 'holdout',
+    baselineCandidateId: 'baseline',
+    candidateCandidateId: 'candidate',
+    decisionThreshold: 0.02,
+  })
 }
 ```
 
----
+Pass both candidate IDs to preserve the intended comparison direction, including regressions.
+Without both IDs, the analyzer infers a comparison only when exactly two candidates exist.
+It then treats the lower-scoring candidate as the baseline.
+That inference cannot establish whether a specific change regressed.
 
-## `execution`: runtime facts, separate from quality
+Use `summarizeExecution({ runs })` when traces contain runtime facts without task-quality labels.
+It returns `execution` and `costProvenance` without interpreting release readiness.
 
-Always present.
-It reports duration, optional queue time, direct input, output, reasoning, cache-read, and cache-write tokens, model-call coverage, model cohorts, execution errors, terminal outcomes, and separately reported orchestration aggregates.
-These fields describe what ran; they do not claim whether the task succeeded.
-`executionErrors` counts child or internal errors reported by the producer.
-`terminalOutcomes` reads only `RunRecord.terminalOutcome`, which must come from root-run or process evidence.
-A child tool error can therefore appear in a run whose terminal outcome is `succeeded`.
-Current OTel and code-agent adapters also preserve process, guardrail, judge, propagated-parent, and unknown error counts in `RunRecord.outcome.raw`.
-These counters are diagnostic and never become task-quality scores.
+The [offline example](../examples/analyze-existing-runs/) shows a complete call.
+The [report types](../src/contract/insight-report.ts) and [analysis options](../src/contract/analyze-runs.ts) define the current API.
 
-```jsonc
-{
-  "execution": {
-    "durationMs": { "n": 30, "p50": 5400, "p95": 82000, "min": 900, "max": 190000 },
-    "queueMs": {
-      "n": 0,
-      "mean": null,
-      "p50": null,
-      "p95": null,
-      "stddev": null,
-      "min": null,
-      "max": null,
-      "histogram": []
-    },
-    "tokenUsage": {
-      "totals": { "input": 50132, "output": 471783, "reasoning": 12000, "cached": 60489565, "cacheWrite": 3032227 },
-      "input": { "n": 30, "p50": 25, "p95": 56 },
-      "output": { "n": 30, "p50": 230, "p95": 2651 },
-      "reasoning": { "n": 12, "p50": 800, "p95": 2400 },
-      "cached": { "n": 20, "p50": 94193, "p95": 310178 },
-      "cacheWrite": { "n": 20, "p50": 3070, "p95": 11148 }
-    },
-    "aggregateUsage": {
-      "runs": 2,
-      "tokenUsage": {
-        "totals": { "input": 5000, "output": 176829, "reasoning": 0, "cached": 0, "cacheWrite": 0 }
-      },
-      "costUsd": { "n": 0 },
-      "totalCostUsd": 0
-    },
-    "modelCalls": { "runs": 20, "events": 42, "reportingRuns": 30 },
-    "models": [{ "model": "claude-opus@2026-07-01", "runs": 20 }],
-    "executionErrors": {
-      "runs": 2,
-      "fraction": 0.067,
-      "events": 3,
-      "reportingRuns": 30,
-      "errorSpanEvents": 3,
-      "errorSpanReportingRuns": 30,
-      "byTerminalOutcome": {
-        "succeeded": { "withErrors": 1, "withoutErrors": 26, "unreported": 0 },
-        "failed": { "withErrors": 0, "withoutErrors": 1, "unreported": 0 },
-        "cancelled": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
-        "incomplete": { "withErrors": 0, "withoutErrors": 0, "unreported": 0 },
-        "unknown": { "withErrors": 1, "withoutErrors": 1, "unreported": 0 }
-      }
-    },
-    "terminalOutcomes": {
-      "succeeded": 27,
-      "failed": 1,
-      "cancelled": 0,
-      "incomplete": 0,
-      "unknown": 2
-    }
-  }
-}
-```
+## Match sections to evidence
 
-Use `distribution.n` for optional fields to distinguish an uncaptured category from a recorded zero.
-When `distribution.n` is zero, `mean`, percentiles, standard deviation, minimum, and maximum are `null`.
-Use `executionErrors.reportingRuns` to assess error-telemetry coverage.
-`errorSpanEvents` preserves the exact child-span error count separately from other reported execution errors.
-The error fraction uses `reportingRuns` as its denominator and is `null` when no run reported error telemetry, so missing telemetry is not treated as a clean run.
-`byTerminalOutcome` is a cross-tab, not a causal recovery claim.
-It keeps reported errors, reported zeroes, and missing error telemetry separate for every terminal result.
-Missing terminal evidence counts as `unknown`, not `failed`.
-Never add `aggregateUsage` to direct `tokenUsage`: orchestration spans may repeat model-call usage from other traces.
-Cost remains in `costQuality`, where observed, estimated, and uncaptured USD stay separate.
+| Section | Input and scope |
+|---|---|
+| `n` | Number of validated input runs. |
+| `execution` | Recorded durations, tokens, models, execution errors, and terminal outcomes. |
+| `composite` | Finite scores from the selected split. |
+| `perDimension`, `judges` | Recorded `outcome.judgeScores`; empty maps when absent. |
+| `costQuality` | Known observed or estimated costs, their provenance, and candidate cost/quality points. |
+| `lift` | Scored baseline/candidate rows sharing pairing identities. |
+| `interRater` | Supplied `raterScores`, with at least two raters and jointly rated runs. |
+| `failureClasses` | Explicit non-success classes or measured scores below the analyzer's failure threshold. |
+| `failureClusters` | Findings from the supplied `AnalystRegistry` on failed runs. |
+| `contamination` | Supplied `canaryScenarios`, searched within captured text outputs. |
+| `outcomeCorrelation` | Supplied `outcomeSignal`, joined to at least three finite run scores. |
+| `priorPeriodComparison` | Supplied `baselineRuns`, compared as an unpaired prior window. |
+| `release`, `recommendations` | Diagnostic rules applied to the populated sections. |
 
----
+Optional sections are absent when their required inputs are unavailable.
+Some supplied inputs can produce empty sections, such as no failure clusters among successful tasks.
+An absent section does not establish that its check passed.
 
-## `n` + `composite` + `perDimension`: distributional summary
+`split: 'auto'` selects holdout if any run has a holdout score; otherwise it selects search.
+Set `split` explicitly when you know which scores the report should use.
+Inspect `composite.n`: it can be smaller than `n` when some runs have no score for that split.
 
-Always present. The basic "where are my numbers" view.
+## Read execution and missing values
 
-```jsonc
-{
-  "n": 30,
-  "composite": {
-    "n": 30,
-    "mean": 0.683, "p50": 0.667, "p95": 1.000, "stddev": 0.231,
-    "min": 0.0, "max": 1.0,
-    "histogram": [
-      { "lo": 0.0,  "hi": 0.083, "count": 5 },
-      { "lo": 0.083, "hi": 0.167, "count": 0 },
-      // ...12 bins by default
-    ]
+`execution` describes what ran.
+A successful process can still produce an incorrect task result.
+A child tool error can also occur in a run whose root outcome is `succeeded`.
+
+`terminalOutcomes` reads `RunRecord.terminalOutcome`.
+Missing terminal evidence counts as `unknown`.
+`executionErrors` reads producer-reported error counts independently.
+Its `fraction` uses `reportingRuns` as the denominator and becomes `null` when no run reports error telemetry.
+The `byTerminalOutcome` table separates reported errors, reported zeroes, and unreported error telemetry for each terminal outcome.
+It describes their co-occurrence; it does not establish recovery or causation.
+
+Optional token categories and queue time carry their own distribution counts.
+For any `ScalarDistribution`, `n: 0` means no finite measurement was available.
+Its mean, percentiles, standard deviation, minimum, and maximum are then `null`, with an empty histogram.
+A measured zero has a positive count and a value of zero.
+
+Keep orchestration `aggregateUsage` separate from direct token usage.
+An aggregate span can repeat usage already captured in model-call traces.
+Adding both totals can count the same work twice.
+
+## Inspect quality and cost distributions
+
+`composite` describes the scored input corpus, including both candidates when both are supplied.
+It is not the candidate's mean alone.
+Use `lift.baselineMean` and `lift.candidateMean` for the paired comparison.
+`composite.tailRuns` identifies the lowest-scoring runs for inspection.
+Histogram peaks can suggest subgroups; inspect cases before attributing them to distinct agent behaviors.
+
+Judge details use this recorded shape:
+
+```ts
+const judgeScores = {
+  perJudge: {
+    'field-check': { accuracy: 0.75 },
   },
-  "perDimension": {
-    "clarity":   { "mean": 0.72, "p50": 0.75, "p95": 0.95, "stddev": 0.18, /* ... */ },
-    "concision": { "mean": 0.65, "p50": 0.68, "p95": 0.88, "stddev": 0.21, /* ... */ }
-  }
+  perDimMean: { accuracy: 0.75 },
+  composite: 0.75,
 }
 ```
 
-Read `composite.mean` only when `composite.n > 0`.
-A `null` mean means task quality was not measured, not that quality was zero.
-When a measured mean is below 0.5, inspect the lowest-scoring runs before tuning.
-
-**Read next:** `perDimension`. If `clarity` is high but `concision` is low, your prompts get the right ideas in too many words: different fix than "wrong ideas."
-
-**Use the histogram for:** finding bimodal failure modes. A bin with `count > 0` near zero and another > 0 near 1 means your agent has two distinct behaviors, not one noisy one.
-
-### Why this is not the same shape as a campaign aggregate
-
-This report uses `ScalarDistribution`.
-A campaign aggregate (`CampaignResult.aggregates`) uses `SeriesDistribution`, the value `summarizeNumberSeries` returns.
-The two shapes stay separate for three reasons, and none of them is an accident of history.
-
-1. `ScalarDistribution` is a wire contract.
-   `ScalarDistributionSchema` in `src/hosted/schemas.ts:45` is a strict Zod object.
-   It is embedded in `InsightReportSchema`, which is embedded in `EvalRunEventSchema`, which the hosted client validates every event against before it ships (`src/hosted/client.ts:182`).
-   A strict object rejects an unknown key, so adding or renaming a field breaks every event a consumer already sends.
-2. `ScalarDistribution` reports what a report needs and a series summary does not have: a histogram, the worst-N `tailRuns` by score, `p95` for a latency question, and `mean` plus `stddev` beside the order statistics.
-   `SeriesDistribution` is the in-memory summary of a plain number series with no run identity attached.
-3. The two answer at different `n = 0` boundaries.
-   `ScalarDistribution` represents an empty series as `n: 0` with every field `null`, because a report always has a slot for a metric it did not measure.
-   `summarizeNumberSeries` returns `null` for an empty series, because there is no distribution to report and a zero-filled summary would read as a measured all-zero series.
-
-Both refuse to encode a missing measurement as a zero.
-That is the shared rule; the shapes differ because the surfaces differ.
-
----
-
-## `costQuality`: cost-vs-quality Pareto
-
-Always present. `cost.histogram` is the per-run cost distribution; `pareto` is the substrate's `ParetoFigureSpec`.
-
-```jsonc
-{
-  "costQuality": {
-    "cost": {
-      "mean": 0.024, "p95": 0.041,
-      "histogram": [/* */]
-    },
-    "pareto": {
-      "kind": "pareto-cost-quality",
-      "split": "holdout",
-      "axes": { "x": "costUsd", "y": "score" },
-      "points": [
-        { "candidateId": "baseline", "cost": 0.018, "quality": 0.58, "n": 20, "onFrontier": true },
-        { "candidateId": "winner",   "cost": 0.027, "quality": 0.65, "n": 20, "onFrontier": true }
-      ]
-    }
-  }
-}
-```
-
-**Use this when:** comparing prompts, models, or candidate surfaces. The Pareto frontier is your menu of "best you can do at each cost level."
-
-**Render with:** any chart library: `points` is plain JSON. Hosted-tier dashboards render this as a scatter with the frontier highlighted.
-
----
-
-## `judges`: per-judge mean
-
-Populated when run records carry `outcome.judgeScores`.
-
-```jsonc
-{
-  "judges": {
-    "domain-expert":   { "n": 30, "meanScore": 0.71 },
-    "helpfulness-llm": { "n": 30, "meanScore": 0.62 }
-  }
-}
-```
-
-The substrate's full judge-calibration suite (positional bias, self-preference, verbosity bias) lives in `/reporting` and operates on **paired-by-condition** inputs that `analyzeRuns` doesn't synthesize from raw `RunRecord[]`. Wire them yourself when you have the paired data; the report's `judges` map is the corpus-level slice.
-
-**Use this when:** comparing multiple judges over the same corpus. A big gap between two judges' means is the first signal that one of them is mis-calibrated.
-
----
-
-## `interRater`: multi-rater agreement and disagreement review
-
-Populated when `analyzeRuns({ raterScores })` is supplied: typically via `fromFeedbackTable()`.
-
-```jsonc
-{
-  "interRater": {
-    "raters": 3,
-    "jointlyRated": 30,
-    "kappa": 0.40,
-    "icc": 0.42,
-    "pearson": 0.43,
-    "spearman": 0.41,
-    "perPair": {
-      "alice::bob":   0.53,
-      "alice::carol": 0.47,
-      "bob::carol":   0.19
-    },
-    "disagreementCases": [
-      { "runId": "claim-7", "range": 1.00,
-        "ratings": [{"rater":"alice","score":1},{"rater":"bob","score":1},{"rater":"carol","score":0}] },
-      { "runId": "claim-13", "range": 1.00,
-        "ratings": [{"rater":"alice","score":0},{"rater":"bob","score":0},{"rater":"carol","score":1}] }
-      // ...top 20 by range
-    ]
-  }
-}
-```
-
-**Read first:** `kappa` and `icc`, which measure absolute agreement.
-Pearson and Spearman measure correlation and can remain high when raters use different score levels.
-When absolute agreement is low, review the largest disagreement cases before automating the rubric.
-
-**Use this when:** building per-rater LLM judges. Each rater's individual scores are the gold signal you calibrate against. Once a calibrated LLM matches the human ≥85%, you can auto-grade and escalate only the disagreement cases.
-
----
-
-## `lift`: paired-bootstrap statistical lift
-
-Populated when baseline + candidate candidates are present (auto-detected from two distinct `candidateId`s, or explicit via `baselineCandidateId` + `candidateCandidateId`).
-
-```jsonc
-{
-  "lift": {
-    "baselineMean": 0.58,
-    "candidateMean": 0.65,
-    "delta": 0.07,
-    "ci95": [0.04, 0.10],          // bootstrap CI on the delta
-    "pValue": 0.0008,              // paired t-test; null when the delta is a non-zero constant
-    "n": 40,                       // paired observations
-    "unpairedBaselineRuns": 2,
-    "unpairedCandidateRuns": 1,
-    "cohensD": 0.41,              // paired Cohen's dz; null when delta variance is zero
-    "mde": 0.06,                   // min detectable effect at current n, 80% power
-    "requiredN": 38                // paired n needed at 80% power; null when dz is undefined
-  }
-}
-```
-
-Rows pair only when `(experimentId, scenarioId, seed)` matches.
-Missing `scenarioId` and duplicate identities fail loudly.
-Unmatched rows are reported and excluded from paired statistics.
-
-**Decision rule:**
-- `ci95[0] > threshold` → **SHIP.** Lower bound above your delta threshold means the lift is real at 95% confidence.
-- `ci95[0] ≤ threshold < ci95[1]` → **INCONCLUSIVE.** Expand the corpus or wait for more data.
-- `ci95[1] ≤ threshold` → **HOLD.** No evidence the candidate is better.
-
-The `recommendations` array surfaces exactly this decision (`kind: 'ship' | 'hold' | 'expand-corpus'`): that's what consumers should read.
-
-**Why bootstrap, not t-test alone:** paired bootstrap is distribution-free. Your judge scores are bounded in [0,1] and almost never normal; the bootstrap CI is the honest one.
-
----
-
-## `failureClasses`: canonical task-failure counts
-
-Populated when a run has a non-success `failureClass` or a measured task score below the failure threshold.
-Runs without an explicit class are counted as `unknown`.
-The optional `failureMode` remains domain-specific detail on the original run and is never used as a second grouping key.
-
-```jsonc
-{
-  "failureClasses": [
-    { "failureClass": "bad_retrieval", "count": 9, "share": 0.28 },
-    { "failureClass": "instruction_following", "count": 4, "share": 0.13 }
-  ]
-}
-```
-
-Use this section to compare failure causes across products without a model call.
-Use `failureClusters` when you need a semantic diagnosis within those classes.
-
----
-
-## `failureClusters`: grouped failure modes
-
-Populated when an `AnalystRegistry` is passed via `analyzeRuns({ analyst })`. The substrate runs each failed run through the registered analysts and groups findings by `analyst_id` / `area`.
-
-```jsonc
-{
-  "failureClusters": {
-    "totalFailures": 11,
-    "clusters": [
-      { "id": "off-topic-drift", "name": "off-topic-drift",
-        "share": 0.45, "exemplars": ["run-12", "run-19", "run-33"] },
-      { "id": "over-confidence", "name": "over-confidence",
-        "share": 0.27, "exemplars": ["run-3", "run-21"] },
-      { "id": "format-mismatch", "name": "format-mismatch",
-        "share": 0.18, "exemplars": ["run-41", "run-44"] }
-    ]
-  }
-}
-```
-
-**Read first:** the top cluster's `share`. If one cluster is > 40% of failures, fix that pattern before doing anything else.
-
-**Use this when:** triaging a regression. Failure clusters tell you "fix this kind of thing first."
-
-**To wire it:** register analysts in `AnalystRegistry`. See `src/analyst/registry.ts` and `src/analyst/kinds/index.ts` for the four built-in kinds (`failure-mode`, `improvement`, `knowledge-gap`, `knowledge-poisoning`).
-
----
-
-## `contamination`: canary check
-
-Populated when canary scenarios are passed via `analyzeRuns({ canaryScenarios })`. Each canary carries a sentinel string the agent should never emit; the report counts leaks.
-
-```jsonc
-{
-  "contamination": {
-    "leaks": 0,
-    "holdoutAuditPassed": true,
-    "details": []
-  }
-}
-```
-
-When `leaks > 0`:
-
-```jsonc
-{
-  "contamination": {
-    "leaks": 2,
-    "holdoutAuditPassed": false,
-    "details": [
-      { "runId": "run-12", "canary": "xyz-secret-canary-123", "matched": "...the secret xyz-secret-canary-123 says..." }
-    ]
-  }
-}
-```
-
-**When this fails:** your holdout corpus has leaked into training context. The `lift` number is **unreliable**. Investigate before shipping anything.
-
----
-
-## `outcomeCorrelation`: closing the loop on real outcomes
-
-Populated when `outcomeSignal: { metric, valueByRunId }` is supplied.
-
-```jsonc
-{
-  "outcomeCorrelation": {
-    "metric": "engagement_rate",
-    "n": 80,
-    "pearson": 0.72,           // linear correlation
-    "spearman": 0.69,          // rank correlation (robust to monotonic nonlinearity)
-    "rewardModel": {
-      "intercept": 0.04,
-      "slope": 1.93,
-      "r2": 0.52               // share of outcome variance the judge explains
-    }
-  }
-}
-```
-
-This is the layer that says **"does my judge's taste actually predict the metric the business cares about?"**
-
-**Read first:** `spearman`. If it's < 0.3 in absolute value, your judges are scoring something different from what wins downstream. Refit the judges (use the customer's downstream signal as gold) or change the rubric.
-
-**The reward model** is the simple linear `y = intercept + slope * composite`. Use it to:
-- Predict the engagement of a new run from its composite score alone.
-- Set a `composite` threshold for "must beat X to ship" based on the engagement equivalent.
-
----
-
-## `release`: pass/warn/fail axes
-
-Always present. Roll-up across three axes: quality lift, contamination, composite distribution.
-
-```jsonc
-{
-  "release": {
-    "status": "pass",
-    "axes": [
-      { "name": "quality-lift", "status": "pass",
-        "detail": "delta=0.070, CI95=[0.040, 0.100], n=40" },
-      { "name": "contamination", "status": "pass",
-        "detail": "0 canary leak(s)" },
-      { "name": "composite-distribution", "status": "pass",
-        "detail": "mean=0.683, p50=0.667, p95=1.000 over n=30" }
-    ],
-    "issues": []
-  }
-}
-```
-
-Overall `status` is `fail` if any axis fails; `warn` if any warn; `pass` otherwise.
-
-**Use this when:** wiring agent-eval into CI. A `status === 'pass'` from `analyzeRuns` on the candidate vs baseline is your green-light gate.
-
----
-
-## `recommendations`: the actionable layer
-
-Always present. Read this first.
-
-```jsonc
-{
-  "recommendations": [
-    { "priority": "critical", "kind": "ship",
-      "title": "Ship: lift 0.070 (95% CI 0.040..0.100)",
-      "detail": "Holdout lift exceeds threshold 0.02 with 95% bootstrap confidence (n=40, p=0.0008, d=0.41).",
-      "evidencePath": "lift" },
-    { "priority": "high", "kind": "investigate",
-      "title": "Top failure cluster: off-topic-drift (45% of failures)",
-      "detail": "11 runs failed. The largest cluster groups 3 exemplars under 'off-topic-drift'.",
-      "evidencePath": "failureClusters.clusters[0]" }
-  ]
-}
-```
-
-| `kind` | When emitted |
+Store it as `RunRecord.outcome.judgeScores` alongside the relevant search or holdout score.
+`perDimension` summarizes dimensions; `judges` reports per-judge counts and means.
+Different judge means can reflect different coverage, scales, or criteria.
+Compare shared cases before attributing a difference to miscalibration.
+
+`costQuality.provenance` separates observed USD, estimated USD, and uncaptured costs.
+Uncaptured rows are excluded from the cost distribution and Pareto calculation.
+Read `knownFraction` and `costQuality.degraded` before comparing costs.
+A frontier only compares the observed candidate points; it does not identify the best possible system.
+
+Campaign aggregates use `SeriesDistribution`; insight reports use `ScalarDistribution`.
+The latter adds report fields such as histograms and optional run examples.
+An empty campaign number series returns `null`; an empty report distribution retains its slot with `n: 0` and null statistics.
+Both preserve the distinction between missing measurements and measured zeroes.
+
+## Interpret paired lift
+
+Rows pair on `(experimentId, scenarioId, seed)`.
+Missing scenario IDs and duplicate identities within an arm fail validation.
+Scored rows without a partner remain in `unpairedBaseline` and `unpairedCandidate` counts and are excluded from the paired statistics.
+Unscored rows are also excluded; check the input and score counts separately.
+
+For repeated tasks from one source, supply `independentUnitByScenarioId` as a map from every scored scenario ID to its independent unit.
+The analyzer pairs runs first, averages matched scores within each declared unit, and weights units equally.
+Raw score distributions and unmatched-run counts remain unchanged.
+Repeated runs measure variation on those tasks; they do not create new independent tasks.
+
+| Lift field | Meaning |
 |---|---|
-| `ship` | lift CI lower bound > threshold |
-| `hold` | lift CI upper bound ≤ threshold |
-| `expand-corpus` | lift CI straddles threshold: more data needed |
-| `fix` | canary contamination detected |
-| `recalibrate` | inter-rater κ < 0.5, OR outcome correlation < 0.3 |
-| `investigate` | top failure cluster > some-share |
+| `baselineMean`, `candidateMean`, `delta` | Paired means and candidate-minus-baseline difference after any unit aggregation. |
+| `ci95` | Paired bootstrap interval for the mean difference. |
+| `n` | Paired observations used for inference; independent units when declared. |
+| `pairedRunN`, `independentUnitIds` | Raw matched count and unit IDs, present when units are declared. |
+| `minimumRequired`, `decisionEligible` | Bootstrap sample floor and whether the count reaches it. |
+| `pValue` | Paired t-test diagnostic; `null` for a nonzero constant difference. |
+| `cohensD` | Paired Cohen's dz; `null` when difference variance is zero. |
+| `mde` | Approximate detectable effect in standardized units at 80% power. |
+| `requiredN` | Approximate sample size using the observed standardized effect; `null` when it cannot be estimated. |
 
-`evidencePath` points back into the report (`"lift"`, `"contamination"`, `"failureClusters.clusters[0]"`) so a UI can deep-link from each recommendation to its evidence.
+The analyzer's bootstrap decision floor is 20 paired observations.
+Below it, a positive interval remains descriptive and the lift recommendation requests more evidence.
+Reaching the floor only establishes sample-count eligibility.
+A zero-width interval still cannot produce a lift-based ship recommendation.
+An eligible, nonzero-width interval must exceed `decisionThreshold`, which defaults to `0.02` in score units.
 
----
+Bootstrap inference depends on representative, independent observations and adequate sample size.
+It cannot repair selection bias, leaked final cases, or a miscalibrated judge.
+Do not compare standardized `mde` directly with raw score lift.
+Treat `requiredN` as an exploratory approximation, not a prospective power calculation for a target chosen before the study.
 
-## How `analyzeRuns` populates each section
+## Use recommendations as diagnostics
 
-| Section | Required input |
-|---|---|
-| `composite`, `perDimension`, `costQuality`, `release`, `recommendations` | `runs` |
-| `judges` | `runs` with `outcome.judgeScores` |
-| `interRater` | `raterScores` (≥ 2 raters jointly rated some runs) |
-| `lift` | two distinct `candidateId`s in `runs` (or explicit baseline/candidate ids) |
-| `failureClusters` | `analyst` registry passed in |
-| `contamination` | `canaryScenarios` passed in |
-| `outcomeCorrelation` | `outcomeSignal` passed in |
+`recommendations` links findings to report sections through `evidencePath`.
+Its `ship` kind can refer to lift or an improved prior-period metric.
+Other findings can coexist with it, including a failed canary check.
+Read the complete report before acting.
 
-All sections beyond the always-present ones are `T | undefined`, never empty objects. If a section is missing, your inputs didn't support it: the report is honest about that.
+`release` rolls up quality lift, canary matches, and composite score thresholds.
+An unavailable axis is `not_evaluated` and makes the overall status at least `warn`.
+The quality-lift axis uses positive lift; recommendation thresholds can differ.
+These built-in thresholds are report heuristics, not your product's complete release policy.
+
+For automated promotion, use the campaign gate and inspect its contributing checks.
+`selfImprove().gateDecision` comes from that gate.
+See [concepts](./concepts.md#the-five-release-decisions) and the [held-out gate example](../examples/held-out-gate/).
+A reusable claim can declare independent units and a practical effect.
+Optional final-evidence tracking records fresh confirmation; see [evaluation integrity](./evaluation-integrity.md).
+
+## Investigate failures and disagreement
+
+`failureClasses` counts explicit non-success classes and scores below `0.5`.
+A low-scoring run without a non-success class is counted as `unknown`.
+Its `share` uses all input runs as the denominator.
+Domain-specific `failureMode` stays on the original record.
+
+`failureClusters` runs registered analysts on those failed runs.
+It groups findings by area, with analyst ID as fallback.
+Each cluster's `share` counts affected failed runs, including those beyond the five displayed exemplars.
+Multiple findings in one cluster count once per run.
+A run can belong to several clusters, so cluster shares can sum above one.
+Cluster shares use `totalFailures`, unlike the corpus denominator in `failureClasses`.
+Empty findings can mean analysts skipped or failed; inspect registry logs and hooks when coverage is uncertain.
+See the [custom analyst example](../examples/custom-trace-analyst/) for registration.
+
+`interRater` uses runs scored by every supplied rater.
+Check `jointlyRated` before interpreting agreement over the broader corpus.
+Kappa and ICC assess agreement; Pearson and Spearman assess correlation.
+Review the largest disagreement cases and validate any judge changes on independent examples.
+Choose acceptance thresholds for the decision's actual error costs.
+
+## Check canaries and downstream outcomes
+
+The canary check searches strings in `metadata.output`, falling back to `metadata.text`.
+Other output layouts need conversion before analysis.
+A match establishes that captured output contains a sentinel; investigate how it arrived there.
+A zero-leak result does not prove isolation, especially when outputs were not captured.
+The section does not report output-coverage counts.
+
+`outcomeCorrelation` joins finite `outcomeSignal.valueByRunId` values to run scores.
+Its Pearson and Spearman values describe association in that supplied sample.
+The linear `rewardModel` is fitted and evaluated on those same observations.
+Validate it on separate data before using it to predict outcomes or set a release threshold.
+Weak correlation can reflect noise, limited range, confounding, or the wrong rubric.
+It does not identify the cause by itself.
+
+Use [outcome validity](./outcome-validity.md) for declared outcome directions, explicit exclusions, and association intervals.
+Use `baselineRuns` for an unpaired prior-period comparison of available metrics.
+Period differences can reflect traffic, task mix, or capture changes; they do not isolate the effect of a deployment.

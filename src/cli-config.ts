@@ -1,12 +1,9 @@
 /**
  * Provider configuration for the `agent-eval` binary.
  *
- * This is the ONE place in the package that turns an environment credential
- * into a model transport, and it exists only inside the binary. The `agent-eval`
- * server is a deployed process whose caller is a JSON-RPC or HTTP client in
- * another language, so it cannot be handed a `ChatClient`; it reads its own
- * credential the way every server does. The library never does: a TypeScript
- * consumer binds its own transport and agent-eval holds no provider key.
+ * The binary reads endpoint and credential values from its environment.
+ * TypeScript library callers bind a transport explicitly. The maintained
+ * HTTP transport accepts their credential and sends provider requests.
  */
 
 import { type ChatClient, createChatClient } from './analyst/chat-client'

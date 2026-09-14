@@ -14,8 +14,8 @@ interface CopyScenario extends Scenario {
   brief: string
 }
 
-// Twelve cases so the 50% holdout split keeps six: the gate cannot claim
-// 95% significance on fewer paired holdout observations at this effect size.
+// Six final cases keep the demo small. Continuous mean inference needs more
+// independent pairs, so the selected improvement retains an inconclusive gate.
 const scenarios: CopyScenario[] = [
   { id: 'launch', kind: 'copy', brief: 'announce a new pricing tier' },
   { id: 'feature', kind: 'copy', brief: 'highlight a new collaboration feature' },

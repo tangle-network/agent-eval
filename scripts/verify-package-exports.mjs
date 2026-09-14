@@ -149,7 +149,18 @@ try {
   const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8')
   const quickstart = readme.match(/## Quickstart[\s\S]*?```ts\n([\s\S]*?)\n```/)?.[1]
   if (!quickstart) throw new Error('README quickstart TypeScript block was not found')
-  writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}\n`)
+  writeFileSync(join(appDir, 'quickstart.ts'), `${quickstart}
+    for (const [result, expected] of [[baseline, 0], [candidate, 1]] as const) {
+      const distribution = result.aggregates.byJudge['ticket-id']?.distribution
+      if (
+        !distribution || distribution.n !== 3 || distribution.sum !== expected * 3 ||
+        distribution.min !== expected || distribution.p50 !== expected ||
+        distribution.p90 !== expected || distribution.max !== expected
+      ) {
+        throw new Error('README quickstart lost its complete score distribution')
+      }
+    }
+  `)
   writeFileSync(join(appDir, 'package.json'), JSON.stringify({ type: 'module' }))
   writeFileSync(
     join(appDir, 'index.ts'),
@@ -809,20 +820,9 @@ try {
   run(process.execPath, [join(appDir, 'dist', 'integrity-imports.js')], appDir)
   const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
-  // Whitespace-tolerant: Node's inspector wraps the aggregate across lines once
-  // it carries its distribution, so the shape of the break is not the contract.
-  if (!/'ticket-id':\s*\{\s*mean: 0,/.test(plainQuickstartOutput)) {
-    throw new Error(`README quickstart baseline output changed:\n${quickstartOutput}`)
-  }
-  if (!/'ticket-id':\s*\{\s*mean: 1,/.test(plainQuickstartOutput)) {
-    throw new Error(`README quickstart candidate output changed:\n${quickstartOutput}`)
-  }
-  // The published aggregate carries the spread, not only the mean.
-  if (!/distribution: \{ n: 3, min: 0, p50: 0, p90: 0, max: 0, sum: 0 \}/.test(plainQuickstartOutput)) {
-    throw new Error(`README quickstart baseline distribution is missing:\n${quickstartOutput}`)
-  }
-  if (!/distribution: \{ n: 3, min: 1, p50: 1, p90: 1, max: 1, sum: 3 \}/.test(plainQuickstartOutput)) {
-    throw new Error(`README quickstart candidate distribution is missing:\n${quickstartOutput}`)
+  const expectedQuickstartOutput = readme.match(/## Quickstart[\s\S]*?```text\n([\s\S]*?)\n```/)?.[1]
+  if (!expectedQuickstartOutput || plainQuickstartOutput.trim() !== expectedQuickstartOutput.trim()) {
+    throw new Error(`README quickstart output differs from its documented output:\n${quickstartOutput}`)
   }
   run(
     process.execPath,

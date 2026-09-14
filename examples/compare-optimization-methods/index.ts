@@ -26,7 +26,7 @@ import {
 } from '../../src/campaign'
 import { assertRealBackend, summarizeBackendIntegrity } from '../../src/integrity/backend-integrity'
 import type { RunRecord } from '../../src/run-record'
-import { optionalNonNegativeNumberEnv, positiveIntegerEnv, positiveNumberEnv } from '../_shared/env'
+import { positiveIntegerEnv, positiveNumberEnv, tokenPricingFromEnv } from '../_shared/env'
 import {
   type Artifact,
   BASELINE_SURFACE,
@@ -52,10 +52,7 @@ const MODEL = process.env.LLM_MODEL || 'deepseek-v4-flash'
 const OPTIMIZER_PYTHON = process.env.OPTIMIZER_PYTHON?.trim() || 'python'
 const GEPA_MODEL = process.env.GEPA_MODEL || MODEL
 const SKILLOPT_MODEL = process.env.SKILLOPT_MODEL || MODEL
-const PRICE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_IN_PER_M')
-const PRICE_CACHED_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHED_IN_PER_M')
-const PRICE_CACHE_WRITE_IN_PER_M = optionalNonNegativeNumberEnv('PRICE_CACHE_WRITE_IN_PER_M')
-const PRICE_OUT_PER_M = optionalNonNegativeNumberEnv('PRICE_OUT_PER_M')
+const customTokenPricing = tokenPricingFromEnv()
 const CALL_TIMEOUT_MS = positiveIntegerEnv('CALL_TIMEOUT_MS', 30_000)
 // Reasoning models spend thinking tokens against this cap; raise it for
 // families that reason, or the worker returns truncated JSON.
@@ -153,15 +150,6 @@ if (!API_KEY) {
 if (!BASE_URL) {
   throw new Error('Set LLM_BASE_URL (or TANGLE_ROUTER_URL) to an OpenAI-compatible endpoint.')
 }
-if ((PRICE_IN_PER_M === undefined) !== (PRICE_OUT_PER_M === undefined)) {
-  throw new Error('PRICE_IN_PER_M and PRICE_OUT_PER_M must be set together')
-}
-if (
-  PRICE_IN_PER_M === undefined &&
-  (PRICE_CACHED_IN_PER_M !== undefined || PRICE_CACHE_WRITE_IN_PER_M !== undefined)
-) {
-  throw new Error('Cache token rates require PRICE_IN_PER_M and PRICE_OUT_PER_M')
-}
 if (SKILLOPT_MAX_EVALUATIONS < SKILLOPT_CORE_EVALUATIONS) {
   throw new Error(
     `SKILLOPT_MAX_EVALUATIONS must be at least ${SKILLOPT_CORE_EVALUATIONS} for this split and trainer plan`,
@@ -184,19 +172,6 @@ assertMatchedMethodLimits(
   'Candidate-case evaluation limits',
 )
 
-const customTokenPricing =
-  PRICE_IN_PER_M === undefined || PRICE_OUT_PER_M === undefined
-    ? undefined
-    : {
-        inputUsdPerMillion: PRICE_IN_PER_M,
-        ...(PRICE_CACHED_IN_PER_M === undefined
-          ? {}
-          : { cachedInputUsdPerMillion: PRICE_CACHED_IN_PER_M }),
-        ...(PRICE_CACHE_WRITE_IN_PER_M === undefined
-          ? {}
-          : { cacheWriteUsdPerMillion: PRICE_CACHE_WRITE_IN_PER_M }),
-        outputUsdPerMillion: PRICE_OUT_PER_M,
-      }
 const BILLING_NOTE =
   process.env.BILLING_NOTE?.trim() ||
   (customTokenPricing
@@ -214,7 +189,7 @@ const skillOptModelBudget = selectedNames.includes('skillopt')
   ? optimizerModelBudgetFromEnv('SKILLOPT', MAX_OPTIMIZER_MODEL_COST_USD, customTokenPricing)
   : undefined
 
-// The worker transport is caller code: Agent Eval holds no provider key.
+// The execution owner binds the caller's endpoint and credential.
 const chat = openAiCompatibleChatClient({
   baseUrl: BASE_URL,
   apiKey: API_KEY,
