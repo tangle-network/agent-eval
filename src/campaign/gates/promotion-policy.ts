@@ -1,26 +1,12 @@
 /**
- * Promotion policy over the evidence VECTOR — the substrate's answer to "never
- * collapse the multi-objective promotion decision into one scalar." A
- * `defaultProductionGate` is one opinionated composition; this module factors
- * the decision into two reusable pieces so MANY policies can compete over the
- * SAME evidence (the quant-desk pattern: one evidence bus, plural strategies):
+ * Build paired evidence for each objective and apply a promotion policy.
+ * The default policy requires at least one gain and every regression floor to
+ * clear. A floor can fail because a larger loss remains plausible; that does
+ * not demonstrate an observed regression. Missing evidence stays unresolved.
+ * Confidence intervals apply to each axis, without a multiplicity adjustment.
  *
- *   buildEvidenceVector(ctx, objectives, opts) -> EvidenceVector   // the bus
- *   PromotionPolicy = (ev: EvidenceVector) => GateResult           // a strategy
- *   paretoPolicy(ev)                                               // the default strategy
- *   paretoSignificanceGate(options): Gate                          // bus + policy as a Gate
- *
- * The Pareto policy is SYMMETRIC multi-objective: every objective is BOTH a
- * potential gain source AND a safety floor (unlike `defaultProductionGate`,
- * where only `composite` can win and `criticalDimensions` are pure floors). A
- * candidate ships iff it weakly DOMINATES the baseline at the confidence level —
- * no objective credibly worse (CI floor breach) AND at least one objective
- * credibly better (CI gain). Insufficient evidence on ANY axis -> need_more_work
- * (NOT folded into hold: "gather more reps" and "reject" are different actions).
- *
- * Cost/latency are NOT CI axes here — `GateContext` carries only an aggregate
- * per-side cost, no per-cell observation vector to bootstrap. Treat them as hard
- * constraints (compose with a budget gate via `composeGate`), not faked CIs.
+ * Cost and latency remain aggregate constraints because GateContext does not
+ * supply paired observations for them. Compose a budget gate when needed.
  */
 
 import {
@@ -49,18 +35,23 @@ export interface PromotionObjective {
   /** 'maximize' (quality dims) or 'minimize' (error/risk/length dims). Orients
    *  the paired delta so a positive bootstrap always means "candidate better". */
   direction: Direction
+  /** Declared binary support {0, binaryScale}, including zero-only observations.
+   *  Must be finite and positive; paired cell scores must be 0 or this scale.
+   *  Uses the risk-difference mean and rejects the 'median' statistic. */
+  binaryScale?: number
   /** The good-direction paired-delta CI lower bound must EXCEED this to count
    *  as a significant gain on this axis. Interpreted in the judge's native
    *  scale. Default 0 (⇒ "confidently better"). */
   gainThreshold?: number
   /** A floor breach (regression) is declared when the good-direction CI lower
    *  bound is below −floorTolerance, or when the exact small-sample test proves
-   *  a drop past it. When omitted it auto-scales off observed magnitudes
-   *  (0.05 on [0,1], 5 on 0-100), matching `dimensionRegressions`. */
+   *  a drop past it. Defaults to 0.05 times the declared binary scale, or
+   *  auto-scales off observed magnitudes (0.05 on [0,1], 5 on 0-100). */
   floorTolerance?: number
 }
 
-/** Per-axis verdict from the shared paired decision rule. */
+/** Per-axis verdict from the shared paired decision rule.
+ *  'regressed' includes uncertainty that prevents clearing the regression floor. */
 export type AxisVerdict = 'improved' | 'regressed' | 'flat' | 'few_runs' | 'indeterminate'
 
 export interface AxisEvidence {
@@ -167,8 +158,9 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
     const before = obj.direction === 'maximize' ? paired.before : paired.after
     const after = obj.direction === 'maximize' ? paired.after : paired.before
     const n = paired.before.length
+    const binaryScale = obj.binaryScale
     const floorTolerance =
-      obj.floorTolerance ?? 0.05 * detectScale([...paired.before, ...paired.after])
+      obj.floorTolerance ?? 0.05 * (binaryScale ?? detectScale([...paired.before, ...paired.after]))
     const gainThreshold = obj.gainThreshold ?? 0
     // Axes are decided on the MEAN paired delta — which for a pass/fail axis is
     // exactly the change in success rate. The median is structurally blind on
@@ -193,6 +185,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
       seed,
       threshold: gainThreshold,
       minPairs: opts.minProductiveRuns,
+      binaryScale,
     })
     const regression = decidePairedPromotion(after, before, {
       confidence,
@@ -201,6 +194,7 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
       seed,
       threshold: floorTolerance,
       minPairs: opts.minProductiveRuns,
+      binaryScale,
     })
     const bootstrap =
       improvement.bootstrap ??
@@ -264,11 +258,9 @@ export function buildEvidenceVector<TArtifact, TScenario extends Scenario>(
 }
 
 /**
- * The default strategy: symmetric multi-objective Pareto significance. Ship iff
- * the candidate weakly dominates the baseline at the confidence level — no axis
- * credibly worse AND ≥1 axis credibly better. Floor breach on any axis → hold
- * (anti-Goodhart, dominates everything). Insufficient evidence on any axis →
- * need_more_work. No significant gain → hold (never ship noise).
+ * Require a supported gain and every configured regression floor to clear.
+ * A failed floor holds the candidate, including when uncertainty permits a loss.
+ * Missing or indeterminate evidence requires more work; no gain holds release.
  */
 export const paretoPolicy: PromotionPolicy = (ev) => {
   const contributingGates = ev.axes.map((ax) => ({
@@ -308,13 +300,11 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
   let decision: GateDecision
   const reasons: string[] = []
   if (regressed.length > 0) {
-    // Floor breach dominates: a credible regression on ANY axis blocks ship even
-    // if another axis improved. This makes the +gain/−safety false positive
-    // structurally impossible whenever the safety dim is an objective.
+    // A gain on another axis cannot excuse an unresolved regression floor.
     decision = 'hold'
     for (const a of regressed) {
       reasons.push(
-        `objective '${a.name}' regressed: good-direction CI.low ${a.ci.low.toFixed(3)} < -${a.floorTolerance} (n=${a.n})`,
+        `objective '${a.name}' did not clear its regression floor -${a.floorTolerance}: good-direction CI [${a.ci.low.toFixed(3)}, ${a.ci.high.toFixed(3)}] (n=${a.n})`,
       )
     }
   } else if (insufficient.length > 0) {
@@ -328,16 +318,14 @@ export const paretoPolicy: PromotionPolicy = (ev) => {
       )
     }
   } else if (improved.length > 0) {
-    // Weakly dominates (no axis worse) AND strictly better on ≥1 axis ⇒ a Pareto
-    // improvement at the confidence level.
     decision = 'ship'
     reasons.push(
-      `Pareto improvement at the confidence level: ${improved
+      `Supported objective gain: ${improved
         .map(
           (a) =>
             `'${a.name}' +${a.ci.low > 0 ? a.ci.low.toFixed(3) : a.bootstrap.mean.toFixed(3)} (CI.low ${a.ci.low.toFixed(3)})`,
         )
-        .join(', ')}; no objective regressed`,
+        .join(', ')}; every regression floor cleared`,
     )
   } else {
     // Every floor cleared, but no objective demonstrated a significant gain.

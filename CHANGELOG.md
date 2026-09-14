@@ -35,6 +35,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `/meta-eval` exports evaluator admission from actual controls, simultaneous error bounds, and explicit unknown and excluded evidence.
   Existing position and self-preference audits are public alongside calibration and verbosity diagnostics.
 - `calibrationFromPairs()` accepts direct measured rows without requiring trace and outcome stores.
+- Pareto objectives and paired promotion accept `binaryScale` for declared binary outcomes, including zero-only error observations.
+  Default Pareto regression tolerances use the declared scale.
 - The [evaluation-integrity guide](docs/evaluation-integrity.md) explains methodology and limits.
   Its offline example composes public imports and exports actual fixture results.
 
@@ -44,13 +46,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Outcome-store corruption and unavailable evidence remain visible failures.
 - Calibration preserves clipped observations, measures constant predictors, and honors the requested bin count.
 - Registered-unit gates pair complete cells before aggregation; repetitions and source variants cannot multiply independent evidence.
+  Cell reduction preserves identical judge scores exactly, including decimal binary scales.
 - Opened experiments and outcome research retain validated snapshots instead of mutable caller-owned rules.
 - Comparisons capture judge configuration and callbacks before asynchronous work.
   Replacing a caller's judge between arms cannot create artificial lift under the original evaluator identity.
 - Pareto promotion applies regression floors to the deciding confidence interval.
   Tied binary outcomes cannot bypass a safety floor through a zero-width diagnostic bootstrap.
+  Gate explanations describe failed floors without treating uncertainty as an observed regression.
   Zero-width or non-finite deciding intervals now produce an `indeterminate` axis and `not_evaluated` check.
-  They require more evidence before promotion, including all-zero outcomes and constant continuous differences.
+  They require more evidence before promotion, including undeclared all-zero outcomes and constant continuous differences.
 
 ## [0.180.0] — 2026-09-09
 

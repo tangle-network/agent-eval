@@ -86,8 +86,9 @@ The [example index](./examples/README.md) covers fixtures, trace intake, code ve
 
 ## Make automated improvement accountable
 
-An optimizer can write candidates and evaluations faster than a person can review them.
 Use reusable evaluations for development feedback.
+For a direct edit, compare the baseline and candidate on the same cases.
+Claims, evaluator audits, and final-evidence tracking are optional.
 Add stronger controls when a result must support performance on new tasks or an adaptive release decision.
 
 1. Pass a `claim` describing the population, sampling frame, and independent unit to the comparison.
@@ -107,6 +108,10 @@ The host must enforce access isolation and author/auditor separation.
 A digest records identity; it cannot prove secrecy or that a benchmark represents future users.
 Custom gates remain responsible for their decision rules.
 See [evaluation integrity](./docs/evaluation-integrity.md) for the complete API and its boundaries.
+
+These controls check the evidence behind a result.
+They do not establish that an optimizer beats a direct edit or simple search.
+The [historical evidence audit](./docs/design/self-improvement-evidence-audit.md) records prior gains, failed transfer, and missing comparisons.
 
 Set `searchHistoryPolicy: 'require-complete'` when every attempted search slot must be accounted for before final evidence is exposed.
 The [search-history receipt](./docs/search-history-receipts.md) binds the planned denominator to Eval's existing search ledger.

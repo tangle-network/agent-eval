@@ -763,7 +763,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
   }
   if (opts.finalEvidence) {
     if (holdoutDeferred) throw new Error('final evidence requires measured holdout')
-    await reserveFinalEvidence(opts.finalEvidence, opts.claim, holdout, train)
+    if (opts.method) await reserveFinalEvidence(opts.finalEvidence, opts.claim, holdout, train)
   }
 
   if (opts.method) {

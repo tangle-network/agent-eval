@@ -61,6 +61,28 @@ function cells(
   }))
 }
 
+function ctxWithJudgeScores(
+  candidate: number[],
+  baseline: number[],
+): GateContext<unknown, Scenario> {
+  const ctx = ctxFrom(
+    cells(
+      () => ({ composite: 0 }),
+      () => ({ composite: 0 }),
+      100,
+    ),
+  )
+  for (const [byCell, values] of [
+    [ctx.judgeScores, candidate],
+    [ctx.baselineJudgeScores!, baseline],
+  ] as const) {
+    for (const cellId of byCell.keys()) {
+      byCell.set(cellId, Object.fromEntries(values.map((value, i) => [`judge${i}`, score(value)])))
+    }
+  }
+  return ctx
+}
+
 const QUALITY: PromotionObjective = {
   name: 'quality',
   source: { kind: 'composite' },
@@ -68,12 +90,120 @@ const QUALITY: PromotionObjective = {
 }
 
 describe('paretoSignificanceGate — multi-objective promotion over the evidence vector', () => {
-  it('requires more evidence when no observed errors leave the outcome scale unidentified', async () => {
+  it.each([20, 100])(
+    'keeps an undeclared outcome scale unidentified after %i zero-error pairs',
+    async (n) => {
+      const ctx = ctxFrom(
+        cells(
+          (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { errorRate: 0 } }),
+          () => ({ composite: 0.5, dimensions: { errorRate: 0 } }),
+          n,
+        ),
+      )
+      const objectives: PromotionObjective[] = [
+        QUALITY,
+        {
+          name: 'errorRate',
+          source: { kind: 'dimension', dimension: 'errorRate' },
+          direction: 'minimize',
+          floorTolerance: 0.05,
+        },
+      ]
+      const safety = buildEvidenceVector(ctx, objectives).axes[1]!
+      expect(safety.decisionStatistic).toBe('mean_bootstrap')
+      expect(safety.ci).toEqual({ low: 0, high: 0 })
+      expect(safety.indeterminate).toBe(true)
+      expect(safety.verdict).toBe('indeterminate')
+
+      const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+      expect(result.decision).toBe('need_more_work')
+      expect(result.reasons.join(' ')).toMatch(/errorRate.*indeterminate/)
+      expect(
+        result.contributingGates.find((gate) => gate.name === 'objective:errorRate')?.status,
+      ).toBe('not_evaluated')
+    },
+  )
+
+  it.each([1, 100])(
+    'uses declared binary scale %i to decide a zero-error floor',
+    async (binaryScale) => {
+      for (const n of [20, 100]) {
+        const ctx = ctxFrom(
+          cells(
+            (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { errorRate: 0 } }),
+            () => ({ composite: 0.5, dimensions: { errorRate: 0 } }),
+            n,
+          ),
+        )
+        const objectives: PromotionObjective[] = [
+          QUALITY,
+          {
+            name: 'errorRate',
+            source: { kind: 'dimension', dimension: 'errorRate' },
+            direction: 'minimize',
+            binaryScale,
+          },
+        ]
+        const evidence = buildEvidenceVector(ctx, objectives)
+        const safety = evidence.axes[1]!
+        expect(evidence.axes[0]?.verdict).toBe('improved')
+        expect(safety.decisionStatistic).toBe('paired_risk_difference')
+        expect(safety.floorTolerance).toBe(0.05 * binaryScale)
+        expect(safety.indeterminate).toBe(false)
+        expect(safety.ci.low / binaryScale).toBeCloseTo(
+          n === 20 ? -0.16112515827076002 : -0.03699349826442805,
+          10,
+        )
+        expect(safety.verdict).toBe(n === 20 ? 'regressed' : 'flat')
+        const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+        expect(result.decision).toBe(n === 20 ? 'hold' : 'ship')
+        expect(result.contributingGates[1]?.status).toBe(n === 20 ? 'fail' : 'pass')
+        if (n === 20) {
+          expect(result.reasons.join(' ')).toContain('did not clear its regression floor')
+          expect(result.reasons.join(' ')).not.toMatch(/\bregressed\b/)
+        } else {
+          expect(result.reasons.join(' ')).toContain('every regression floor cleared')
+        }
+      }
+    },
+  )
+
+  it('preserves fractional binary support when three judges agree', async () => {
+    const unitObjectives = [{ ...QUALITY, binaryScale: 1 }]
+    const unitContext = ctxWithJudgeScores([1, 1, 1], [0, 0, 0])
+    const unitEvidence = buildEvidenceVector(unitContext, unitObjectives).axes[0]!
+    const unitResult = await paretoSignificanceGate({ objectives: unitObjectives }).decide(
+      unitContext,
+    )
+    expect(unitResult.decision).toBe('ship')
+
+    const objectives = [{ ...QUALITY, binaryScale: 0.1 }]
+    const ctx = ctxWithJudgeScores([0.1, 0.1, 0.1], [0, 0, 0])
+    const evidence = buildEvidenceVector(ctx, objectives).axes[0]!
+    const result = await paretoSignificanceGate({ objectives }).decide(ctx)
+    expect(result.decision).toBe(unitResult.decision)
+    expect(evidence.n).toBe(100)
+    expect(evidence.decisionStatistic).toBe('paired_risk_difference')
+    expect(evidence.ci.low / 0.1).toBeCloseTo(unitEvidence.ci.low, 12)
+    expect(evidence.ci.high / 0.1).toBeCloseTo(unitEvidence.ci.high, 12)
+  })
+
+  it('rejects heterogeneous judge means outside the declared binary support', async () => {
+    const gate = paretoSignificanceGate({ objectives: [{ ...QUALITY, binaryScale: 0.1 }] })
+    for (const ctx of [
+      ctxWithJudgeScores([0, 0.1, 0.1], [0, 0, 0]),
+      ctxWithJudgeScores([0.1, 0.1, 0.1], [0, 0.1, 0.1]),
+    ]) {
+      await expect(gate.decide(ctx)).rejects.toThrow(/must be 0 or binaryScale \(0\.1\)/)
+    }
+  })
+
+  it('keeps an explicit declared binary floor in native score units', async () => {
     const ctx = ctxFrom(
       cells(
         (i) => ({ composite: 0.78 + (i % 3) * 0.02, dimensions: { errorRate: 0 } }),
         () => ({ composite: 0.5, dimensions: { errorRate: 0 } }),
-        20,
+        100,
       ),
     )
     const objectives: PromotionObjective[] = [
@@ -82,21 +212,76 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
         name: 'errorRate',
         source: { kind: 'dimension', dimension: 'errorRate' },
         direction: 'minimize',
-        floorTolerance: 0.05,
+        binaryScale: 100,
+        floorTolerance: 1,
       },
     ]
     const safety = buildEvidenceVector(ctx, objectives).axes[1]!
-    expect(safety.decisionStatistic).toBe('mean_bootstrap')
-    expect(safety.ci).toEqual({ low: 0, high: 0 })
-    expect(safety.indeterminate).toBe(true)
-    expect(safety.verdict).toBe('indeterminate')
+    expect(safety.floorTolerance).toBe(1)
+    expect(safety.ci.low).toBeCloseTo(-3.699349826442805, 10)
+    expect((await paretoSignificanceGate({ objectives }).decide(ctx)).decision).toBe('hold')
+  })
 
+  it('keeps missing declared binary observations unresolved', async () => {
+    const objectives: PromotionObjective[] = [{ ...QUALITY, binaryScale: 1 }]
+    const ctx = ctxFrom([])
+    expect(buildEvidenceVector(ctx, objectives).axes[0]).toMatchObject({
+      n: 0,
+      ci: { low: -1, high: 1 },
+      verdict: 'few_runs',
+    })
     const result = await paretoSignificanceGate({ objectives }).decide(ctx)
     expect(result.decision).toBe('need_more_work')
-    expect(result.reasons.join(' ')).toMatch(/errorRate.*indeterminate/)
-    expect(
-      result.contributingGates.find((gate) => gate.name === 'objective:errorRate')?.status,
-    ).toBe('not_evaluated')
+    expect(result.contributingGates[0]?.status).toBe('not_evaluated')
+  })
+
+  it('rejects invalid declared binary objectives and conflicting estimators', async () => {
+    const ctx = ctxFrom(
+      cells(
+        () => ({ composite: 0.5 }),
+        () => ({ composite: 0 }),
+      ),
+    )
+    await expect(
+      paretoSignificanceGate({ objectives: [{ ...QUALITY, binaryScale: 0 }] }).decide(ctx),
+    ).rejects.toThrow(/binaryScale must be finite and positive/)
+    await expect(
+      paretoSignificanceGate({ objectives: [{ ...QUALITY, binaryScale: 1 }] }).decide(ctx),
+    ).rejects.toThrow(/must be 0 or binaryScale/)
+    await expect(
+      paretoSignificanceGate({
+        objectives: [{ ...QUALITY, binaryScale: 1 }],
+        statistic: 'median',
+      }).decide(ctxFrom([])),
+    ).rejects.toThrow(/binaryScale.*mean.*median/)
+  })
+
+  it('still ships a quality gain with a supported continuous safety floor', async () => {
+    const ctx = ctxFrom(
+      cells(
+        (i) => ({
+          composite: 0.78 + (i % 3) * 0.02,
+          dimensions: { safety: 0.5 + [0.02, -0.02, 0.01, -0.01][i % 4]! },
+        }),
+        () => ({ composite: 0.5, dimensions: { safety: 0.5 } }),
+        24,
+      ),
+    )
+    const objectives: PromotionObjective[] = [
+      QUALITY,
+      {
+        name: 'safety',
+        source: { kind: 'dimension', dimension: 'safety' },
+        direction: 'maximize',
+        floorTolerance: 0.05,
+      },
+    ]
+    expect(buildEvidenceVector(ctx, objectives).axes[1]).toMatchObject({
+      decisionStatistic: 'mean_bootstrap',
+      indeterminate: false,
+      verdict: 'flat',
+    })
+    expect((await paretoSignificanceGate({ objectives }).decide(ctx)).decision).toBe('ship')
   })
 
   it.each([-0.125, 0, 0.125])(
@@ -250,7 +435,7 @@ describe('paretoSignificanceGate — multi-objective promotion over the evidence
     const res = await gate.decide(ctx)
     expect(res.decision).toBe('hold')
     expect(res.reasons.join(' ')).toContain('hallucination_free')
-    expect(res.reasons.join(' ')).toContain('regressed')
+    expect(res.reasons.join(' ')).toContain('did not clear its regression floor')
     const safety = res.contributingGates.find((g) => g.name === 'objective:hallucination_free')!
     expect((safety.detail as { verdict: string }).verdict).toBe('regressed')
   })

@@ -98,11 +98,20 @@ For detected binary outcomes, that interval accounts for uncertainty even when e
 At 95% confidence, 20 matching all-positive binary pairs leave approximately 16 percentage points of uncertainty in either direction.
 A declared five-point regression tolerance therefore holds that candidate; 100 matching pairs narrow the interval enough to clear that floor.
 Another objective must still show a significant gain before promotion.
+An axis labeled `regressed` has not cleared its configured floor.
+Its interval can permit a regression without demonstrating one.
 An interval with zero width or non-finite bounds produces an `indeterminate` axis verdict and a `not_evaluated` check.
 If no other axis breaches its regression floor, the gate returns `need_more_work`.
-This includes all-zero outcomes, whose binary scale cannot be inferred, and continuous observations with constant paired differences.
+This includes undeclared all-zero outcomes, whose binary scale cannot be inferred, and continuous observations with constant paired differences.
 Additional identical observations do not resolve an unknown outcome scale or a collapsed bootstrap interval.
 Consumers with custom policies must handle `indeterminate` as unresolved evidence.
+
+Set an objective's `binaryScale: 1` for known `{0, 1}` observations, including all-zero error indicators.
+Use `binaryScale: 100` for `{0, 100}` observations; its default regression tolerance is 5.
+The shared `decidePairedPromotion()` function accepts the same declaration.
+The scale must be positive and finite, and every paired cell score must be zero or that scale.
+Declared binary outcomes use the risk-difference mean and reject `statistic: 'median'`.
+The declaration identifies the outcome support; it does not reduce sample requirements or supply missing observations.
 
 When the thing being evaluated is an agent that should keep working, use
 [`runAgentControlLoop`](./control-runtime.md). It turns validators into a

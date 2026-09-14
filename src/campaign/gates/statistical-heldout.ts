@@ -166,11 +166,20 @@ export function pairHoldout(
       throw new Error(`pairHoldout: cell '${cellId}' selected judge IDs do not align`)
     }
     const judgeIds = [...b.keys()].sort()
-    before.push(judgeIds.reduce((sum, id) => sum + b.get(id)!, 0) / judgeIds.length)
-    after.push(judgeIds.reduce((sum, id) => sum + a.get(id)!, 0) / judgeIds.length)
+    before.push(meanSelectedScores(judgeIds.map((id) => b.get(id)!)))
+    after.push(meanSelectedScores(judgeIds.map((id) => a.get(id)!)))
     cellIds.push(cellId)
   }
   return { before, after, cellIds }
+}
+
+function meanSelectedScores(values: number[]): number {
+  const first = values[0]!
+  // Summing identical fractional scores can round their mean outside the
+  // declared binary support. An agreeing judge set preserves its exact value.
+  return values.every((value) => value === first)
+    ? first
+    : values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
 export interface HeldoutSignificance {
