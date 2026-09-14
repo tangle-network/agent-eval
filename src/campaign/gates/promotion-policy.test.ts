@@ -46,12 +46,12 @@ function ctxFrom(cells: CellSpec[]): GateContext<unknown, Scenario> {
   }
 }
 
-// Six distinct scenarios, 1 rep each (n=6 paired observations) — comfortably
-// above minProductiveRuns and enough for a tight bootstrap CI.
+// Twenty distinct scenarios with one rep each meet the continuous-mean minimum.
+// Small-sample and binary cases set their own counts.
 function cells(
   cand: (i: number) => { composite: number; dimensions?: Record<string, number> },
   base: (i: number) => { composite: number; dimensions?: Record<string, number> },
-  count = 6,
+  count = 20,
 ): CellSpec[] {
   return Array.from({ length: count }, (_, i) => ({
     scenarioId: `s${i}`,
