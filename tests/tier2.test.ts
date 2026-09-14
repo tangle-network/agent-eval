@@ -17,8 +17,7 @@ import {
 import type { ToolSpan } from '../src/trace'
 import { InMemoryTraceStore, TraceEmitter } from '../src/trace'
 
-/** Key-sorted `JSON.stringify`, the scheme manifests were signed under before
- * RFC 8785. Kept here to MINT a legacy manifest the verifier must still accept. */
+/** Produce a correctly hashed retired record to exercise scheme rejection. */
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value
   if (Array.isArray(value)) return value.map(sortKeysDeep)
@@ -160,32 +159,37 @@ describe('pre-registration', () => {
     expect(await verifyManifest(a)).toBe(true)
   })
 
-  it('signs under RFC 8785 and still verifies a manifest signed by the previous scheme — regression: a durable manifest outlives the release that signed it', async () => {
+  it('accepts RFC 8785 and refuses correctly hashed records under the retired scheme', async () => {
     const signed = await signManifest(base)
     expect(signed.algo).toBe('sha256-rfc8785')
     expect(await verifyManifest(signed)).toBe(true)
 
-    // A manifest signed by the previous release: key-sorted JSON.stringify,
-    // tagged 'sha256-content' — and the same manifest with no `algo` at all,
-    // which is how the oldest serialized manifests look.
     const legacyDigest = createHash('sha256')
       .update(JSON.stringify(sortKeysDeep(base)), 'utf8')
       .digest('hex')
-    const tagged: SignedManifest = { ...base, contentHash: legacyDigest, algo: 'sha256-content' }
-    const untagged = { ...base, contentHash: legacyDigest } as SignedManifest
-    expect(await verifyManifest(tagged)).toBe(true)
-    expect(await verifyManifest(untagged)).toBe(true)
+    const tagged: SignedManifest = JSON.parse(
+      JSON.stringify({ ...base, contentHash: legacyDigest, algo: 'sha256-content' }),
+    )
+    const untagged: SignedManifest = JSON.parse(
+      JSON.stringify({ ...base, contentHash: legacyDigest }),
+    )
+    expect(await verifyManifest(tagged)).toBe(false)
+    expect(await verifyManifest(untagged)).toBe(false)
+    await expect(evaluateHypothesis(tagged, { n: 30, effect: 0.08, pValue: 0.01 })).rejects.toThrow(
+      /unsupported manifest hash scheme/,
+    )
 
-    // Tampering is still caught under either scheme.
-    expect(await verifyManifest({ ...tagged, minEffect: base.minEffect + 1 })).toBe(false)
     expect(await verifyManifest({ ...signed, minEffect: base.minEffect + 1 })).toBe(false)
   })
 
-  it('refuses a manifest whose algo this release cannot verify instead of reading it as valid', () => {
-    const alien = { ...base, contentHash: 'x'.repeat(64), algo: 'sha512-future' } as unknown
-    expect(() => manifestContentDigest(alien as SignedManifest)).toThrow(
-      /unrecognized manifest hash algo 'sha512-future'/,
+  it('refuses an unknown scheme in both synchronous and asynchronous verification', async () => {
+    const alien: SignedManifest = JSON.parse(
+      JSON.stringify({ ...base, contentHash: 'x'.repeat(64), algo: 'sha512-future' }),
     )
+    expect(() => manifestContentDigest(alien)).toThrow(
+      /unsupported manifest hash algo 'sha512-future'/,
+    )
+    expect(await verifyManifest(alien)).toBe(false)
   })
 
   it('evaluateHypothesis confirms when all conditions met', async () => {

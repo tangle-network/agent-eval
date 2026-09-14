@@ -22,7 +22,7 @@ describe('powerPreflight (minimum-detectable-lift calculator)', () => {
     const p = powerPreflight({ baselineComposites: composites })
     expect(p.underpowered).toBe(false)
     expect(p.mde).toBeGreaterThan(0.25)
-    expect(p.recommendation).toMatch(/cannot clear the gate/)
+    expect(p.recommendation).toMatch(/recheck using measured paired deltas/)
   })
 
   it('flags a structurally underpowered run: high baseline leaves less headroom than the MDE', () => {
@@ -43,7 +43,7 @@ describe('powerPreflight (minimum-detectable-lift calculator)', () => {
     expect(p.mde).toBeLessThan(0.07)
   })
 
-  it('more reps (pairedN) shrink the MDE toward the gate threshold', () => {
+  it('more independent observations (pairedN) shrink the MDE toward the gate threshold', () => {
     const composites = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
     const at10 = powerPreflight({ baselineComposites: composites, pairedN: 10 })
     const at40 = powerPreflight({ baselineComposites: composites, pairedN: 40 })
@@ -59,7 +59,7 @@ describe('powerPreflight (minimum-detectable-lift calculator)', () => {
     expect(p.mde).toBeGreaterThan(0)
   })
 
-  it('flags the shared scoring channel: MDE reads as a lower bound, reps cannot debias', () => {
+  it('flags systematic bias outside the shared-channel estimate', () => {
     const composites = [1, 0, 1, 0, 1, 0, 1, 0]
     const shared = powerPreflight({ baselineComposites: composites, sharedScorerChannel: true })
     expect(shared.sharedChannelCaveat).toMatch(/independent second scoring channel/)

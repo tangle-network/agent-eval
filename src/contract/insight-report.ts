@@ -287,8 +287,12 @@ export interface LiftInsight {
   /** Paired-t-test p-value; null when the delta is a non-zero constant, where
    *  the t statistic is undefined. */
   pValue: number | null
-  /** Number of paired observations. */
+  /** Number of paired observations after any declared unit aggregation. */
   n: number
+  /** Raw matched run count before declared unit aggregation. */
+  pairedRunN?: number
+  /** Independent units used for the lift estimate; absent for ungrouped runs. */
+  independentUnitIds?: string[]
   /** Minimum paired observations required before the interval can drive a decision. */
   minimumRequired: number
   /**

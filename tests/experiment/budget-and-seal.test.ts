@@ -12,6 +12,7 @@ import {
   MatchedBudgetError,
   type MatchedBudgetRule,
   openSealedExperiment,
+  type SealedExperiment,
   SealIntegrityError,
   sealExperiment,
   verifyMatchedBudgets,
@@ -85,6 +86,7 @@ const minimalSpec: ExperimentSpec = {
     'primary-95': {
       kind: 'cluster-bootstrap',
       clusterBy: 'taskName',
+      value: 'diff',
       resamples: 1000,
       seed: 7,
       level: 0.95,
@@ -167,21 +169,33 @@ describe('defineExperiment validation', () => {
 })
 
 describe('seal integrity', () => {
-  it('verifies a seal written under the previous digest scheme — regression: a sealed registration outlives the release that sealed it', async () => {
+  it('accepts RFC 8785 and refuses correctly hashed seals under the retired scheme', async () => {
     const sealed = await sealExperiment(minimalSpec)
     expect(sealed.algo).toBe('sha256-rfc8785')
     expect(await verifySealedExperiment(sealed)).toBe(true)
 
-    const legacy = {
-      ...sealed,
-      algo: 'sha256-content' as const,
-      digest: createHash('sha256')
-        .update(JSON.stringify(sortKeysDeep(sealed.spec)), 'utf8')
-        .digest('hex'),
-    }
-    expect(await verifySealedExperiment(legacy)).toBe(true)
-    expect(await verifySealedExperiment({ ...legacy, digest: 'f'.repeat(64) })).toBe(false)
+    const legacy: SealedExperiment = JSON.parse(
+      JSON.stringify({
+        ...sealed,
+        algo: 'sha256-content',
+        digest: createHash('sha256')
+          .update(JSON.stringify(sortKeysDeep(sealed.spec)), 'utf8')
+          .digest('hex'),
+      }),
+    )
+    expect(await verifySealedExperiment(legacy)).toBe(false)
+    await expect(openSealedExperiment(legacy)).rejects.toThrow(SealIntegrityError)
   })
+
+  it.each([undefined, 'sha512-future'])(
+    'refuses a missing or unknown seal scheme before executing (%s)',
+    async (algo) => {
+      const sealed = await sealExperiment(minimalSpec)
+      const input: SealedExperiment = JSON.parse(JSON.stringify({ ...sealed, algo }))
+      expect(await verifySealedExperiment(input)).toBe(false)
+      await expect(openSealedExperiment(input)).rejects.toThrow(/unsupported digest scheme/)
+    },
+  )
 
   it('a tampered seal is rejected before any executor is handed out', async () => {
     const sealed = await sealExperiment(minimalSpec)
@@ -269,8 +283,7 @@ describe('seal integrity', () => {
   })
 })
 
-/** Key-sorted `JSON.stringify` — the scheme seals were digested under before
- * RFC 8785. Kept here to MINT a legacy seal the verifier must still accept. */
+/** Produce a correctly hashed retired record to exercise scheme rejection. */
 function sortKeysDeep(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value
   if (Array.isArray(value)) return value.map(sortKeysDeep)

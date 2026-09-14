@@ -134,3 +134,17 @@ No new dependencies. No new peer deps. No `@traceai/*`, no
 `@langfuse/*`, no `@opentelemetry/*` in our manifest. You bring the
 observability stack you want; agent-eval's exporter emits the same
 OTLP wire format independently, keyed on the endpoint you point it at.
+
+
+## Supervisor-run resource receipts
+
+The `/supervisor-run` reader preserves named-resource measurements in `economics.resourceRecords`.
+Each record identifies its node and source within the normalized journal or terminal result.
+Journal row indices refer to parsed rows after reader normalization, not original file line numbers.
+The Markdown report renders each resource name, unit, amount, and completeness flag.
+Comparison cells retain those same records without combining them.
+
+A false `known` flag means the amount is a recorded subtotal, not complete usage.
+Missing maps, explicit empty maps, and invalid fields remain distinct from measured zero.
+Parent settlements and terminal results can include child usage, so these records are not additive totals.
+The reporter reads evidence; it does not enforce budgets or infer missing measurements.

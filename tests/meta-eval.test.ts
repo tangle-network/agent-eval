@@ -55,7 +55,39 @@ describe('InMemoryOutcomeStore', () => {
 })
 
 describe('correlationStudy', () => {
-  it('returns strong positive correlation when eval score predicts outcome — regression: framework without this is ornamental', async () => {
+  it.each([
+    {
+      evalMetrics: [{ id: 'score' }, { id: 'score' }],
+      outcomeMetrics: ['y'],
+      duplicate: 'eval metric',
+    },
+    { evalMetrics: [{ id: 'score' }], outcomeMetrics: ['y', 'y'], duplicate: 'outcome metric' },
+  ])(
+    'refuses duplicate $duplicate declarations before they can multiply observations',
+    async ({ evalMetrics, outcomeMetrics, duplicate }) => {
+      await expect(
+        correlationStudy(
+          new InMemoryTraceStore(),
+          new InMemoryOutcomeStore(),
+          evalMetrics,
+          outcomeMetrics,
+        ),
+      ).rejects.toThrow(`duplicate ${duplicate}`)
+    },
+  )
+
+  it('refuses repeated run identities from a custom trace store', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    await seedRun(trace, 1, out, 1)
+    const runs = await trace.listRuns()
+    trace.listRuns = async () => [...runs, ...runs]
+    await expect(correlationStudy(trace, out, [{ id: 'score' }], ['retention_7d'])).rejects.toThrow(
+      /duplicate runId/,
+    )
+  })
+
+  it('returns strong positive association between score and outcome', async () => {
     const trace = new InMemoryTraceStore()
     const out = new InMemoryOutcomeStore()
     // Strongly correlated: high score → high retention
@@ -69,7 +101,7 @@ describe('correlationStudy', () => {
     expect(report.pairs).toHaveLength(1)
     expect(report.pairs[0].pearson).toBeGreaterThan(0.85)
     expect(report.pairs[0].verdict).toBe('strong')
-    expect(report.pairs[0].pearsonCi95.lower).toBeGreaterThan(0)
+    expect(report.pairs[0].pearsonCi95?.lower).toBeGreaterThan(0)
   })
 
   it('returns weak verdict when uncorrelated', async () => {
@@ -96,9 +128,100 @@ describe('correlationStudy', () => {
     expect(report.skippedRuns).toBe(1)
     expect(report.joinedSamples).toBe(5)
   })
+
+  it.each(['latest', 'mean', 'max'] as const)(
+    'reduces only the requested outcome metric with %s',
+    async (reduction) => {
+      const trace = new InMemoryTraceStore()
+      const out = new InMemoryOutcomeStore()
+      for (let i = 0; i < 10; i++) {
+        const runId = await seedRun(trace, i, out, 10 - i)
+        await out.append({
+          runId,
+          capturedAt: Date.now() + 2_000,
+          metrics: { retention_7d: 10 - i, csat: i },
+        })
+        await out.append({ runId, capturedAt: Date.now() + 3_000, metrics: { retention_7d: i } })
+      }
+      const rows = await out.list()
+      out.list = async () => [
+        ...rows,
+        ...rows.map((row) => ({
+          ...row,
+          capturedAt: Date.now() + 4_000,
+          metrics: { csat: Number.NaN },
+        })),
+      ]
+      const report = await correlationStudy(trace, out, [{ id: 'score' }], ['csat'], { reduction })
+      expect(report.pairs).toHaveLength(1)
+      expect(report.pairs[0]).toMatchObject({ n: 10, pearson: 1, spearman: 1 })
+      expect(report.joinedSamples).toBe(10)
+    },
+  )
+
+  it('selects the last finite observation of each metric independently of insertion order', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 10; i++) {
+      const runId = await seedRun(trace, i, out, i)
+      await out.append({ runId, capturedAt: Date.now() + 3_000, metrics: { other: -i, csat: i } })
+      await out.append({ runId, capturedAt: Date.now() + 2_000, metrics: { csat: -i } })
+    }
+    const report = await correlationStudy(trace, out, [{ id: 'score' }], ['csat'])
+    expect(report.pairs[0]?.pearson).toBe(1)
+  })
+
+  it('accounts for unusable joins and excludes outcomes captured before the run', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    await seedRun(trace, 0, out, 0)
+    const missing = await seedRun(trace, 1, new InMemoryOutcomeStore(), 1)
+    await out.append({ runId: missing, capturedAt: Date.now() + 1_000, metrics: { unrelated: 5 } })
+    const before = await seedRun(trace, 2, new InMemoryOutcomeStore(), 2)
+    await out.append({ runId: before, capturedAt: 1, metrics: { retention_7d: 2 } })
+    const report = await correlationStudy(trace, out, [{ id: 'score' }], ['retention_7d'])
+    expect(report.joinedSamples).toBe(1)
+    expect(report.skippedRuns).toBe(2)
+    expect(report.excludedPairs).toEqual([
+      { evalMetric: 'score', outcomeMetric: 'retention_7d', n: 1, reason: 'insufficient_samples' },
+    ])
+  })
+
+  it('reports constant observations as unestimable rather than perfect correlation', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 8; i++) await seedRun(trace, 0, out, 0)
+    const report = await correlationStudy(trace, out, [{ id: 'score' }], ['retention_7d'])
+    expect(report.joinedSamples).toBe(8)
+    expect(report.pairs).toEqual([])
+    expect(report.excludedPairs[0]).toMatchObject({ n: 8, reason: 'constant_eval_metric' })
+  })
 })
 
 describe('calibrationCurve', () => {
+  it('uses the latest finite requested metric despite later unrelated or invalid observations', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 10; i++) {
+      const runId = await seedRun(trace, i / 10, out, i / 10)
+      await out.append({ runId, capturedAt: Date.now() + 2_000, metrics: { other: 1 } })
+    }
+    const rows = await out.list()
+    out.list = async () => [
+      ...rows,
+      ...rows.map((row) => ({
+        ...row,
+        capturedAt: Date.now() + 3_000,
+        metrics: { retention_7d: Number.NaN },
+      })),
+    ]
+
+    const report = await calibrationCurve(trace, out, { id: 'score' }, 'retention_7d', { bins: 5 })
+    expect(report).toMatchObject({ n: 10, ece: 0 })
+    expect(report!.bins.reduce((sum, bin) => sum + bin.n, 0)).toBe(10)
+    expect(report!.bins[0]?.outcomeMean).toBe(0.05)
+  })
+
   it('produces bins with ECE near 0 when eval = outcome identically', async () => {
     const trace = new InMemoryTraceStore()
     const out = new InMemoryOutcomeStore()
@@ -128,6 +251,78 @@ describe('calibrationCurve', () => {
     const out = new InMemoryOutcomeStore()
     const report = await calibrationCurve(trace, out, { id: 'score' }, 'retention_7d')
     expect(report).toBeNull()
+  })
+
+  it('clips out-of-range scores while retaining every joined observation in the calibration error', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    await seedRun(trace, -1, out, 1)
+    await seedRun(trace, 2, out, 0)
+    const report = await calibrationCurve(trace, out, { id: 'score' }, 'retention_7d', {
+      bins: 5,
+      range: { lo: 0, hi: 1 },
+    })
+    expect(report).toMatchObject({ n: 2, ece: 1, maxGap: 1 })
+    expect(report!.bins.reduce((sum, bin) => sum + bin.n, 0)).toBe(report!.n)
+    expect(report!.bins.map((bin) => bin.evalMean)).toEqual([0, 1])
+  })
+
+  it.each([{}, { binning: 'equal-frequency', range: { lo: 0, hi: 1 } }] as const)(
+    'measures a constant confident predictor with options %j',
+    async (options) => {
+      const trace = new InMemoryTraceStore()
+      const out = new InMemoryOutcomeStore()
+      await seedRun(trace, 1, out, 0)
+      await seedRun(trace, 1, out, 0)
+      const report = await calibrationCurve(trace, out, { id: 'score' }, 'retention_7d', options)
+      expect(report).toMatchObject({ n: 2, ece: 1, maxGap: 1 })
+      expect(report!.bins).toEqual([
+        { lower: 1, upper: 1, n: 2, evalMean: 1, outcomeMean: 0, gap: 1 },
+      ])
+    },
+  )
+
+  it('makes the requested equal-frequency bins with balanced counts', async () => {
+    const trace = new InMemoryTraceStore()
+    const out = new InMemoryOutcomeStore()
+    for (let i = 0; i < 23; i++) await seedRun(trace, i / 23, out, i / 23)
+    const report = await calibrationCurve(trace, out, { id: 'score' }, 'retention_7d', {
+      bins: 10,
+      binning: 'equal-frequency',
+    })
+    expect(report).toMatchObject({ n: 23, ece: 0 })
+    expect(report!.bins).toHaveLength(10)
+    expect(report!.bins.reduce((sum, bin) => sum + bin.n, 0)).toBe(23)
+    expect(report!.bins.every((bin) => bin.n === 2 || bin.n === 3)).toBe(true)
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'refuses invalid bin count %s before treating evidence as empty',
+    async (bins) => {
+      await expect(
+        calibrationCurve(
+          new InMemoryTraceStore(),
+          new InMemoryOutcomeStore(),
+          { id: 'score' },
+          'y',
+          {
+            bins,
+          },
+        ),
+      ).rejects.toThrow(/bins must be a positive safe integer/)
+    },
+  )
+
+  it.each([
+    { lo: 1, hi: 0 },
+    { lo: Number.NaN, hi: 1 },
+    { lo: 0, hi: Number.POSITIVE_INFINITY },
+  ])('refuses invalid range %j before treating evidence as empty', async (range) => {
+    await expect(
+      calibrationCurve(new InMemoryTraceStore(), new InMemoryOutcomeStore(), { id: 'score' }, 'y', {
+        range,
+      }),
+    ).rejects.toThrow(/range must have finite ordered bounds/)
   })
 })
 

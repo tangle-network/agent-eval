@@ -1,35 +1,16 @@
 /**
  * Contamination probe — held-out perturbation tests.
  *
- * The bug class: once a benchmark scenario set is published, models train
- * on it, and your scores become invalid. SWE-Bench-Verified, GPQA, and
- * MMLU-Pro all exist because their predecessors got contaminated within
- * months. The right defense is to keep a held-out *perturbed* version of
- * every scenario — same task, slightly different surface — and check
- * whether scores diverge significantly. Genuine capability transfers; rote
- * memorization doesn't.
- *
- * This module ships the probe contract:
- *
- *   1. A `ScenarioPerturbation` strategy type — function that produces a
- *      perturbed scenario from an original.
- *   2. `runContaminationProbe({ originals, perturbed, scoreFn })` — runs
- *      both halves and reports per-scenario score divergence + a global
- *      contamination verdict via paired Wilcoxon.
- *   3. Several stock perturbations: `renameVariables`, `shuffleOrder`,
- *      `paraphrasePrompt`, `injectIrrelevantClause`. Each preserves the
- *      task's structural difficulty while breaking surface memorization.
- *
- * The verdict is conservative: if the perturbed-vs-original score
- * difference is statistically significant (BH-adjusted p < 0.05) AND
- * the median drop is > 5 percentage points, we flag *contamination
- * suspected*. False positives are possible (the perturbation might
- * actually be harder); the default is to flag for review, not to
- * autoreject.
+ * Score each scenario and its perturbation, then test the paired differences.
+ * A significant global Wilcoxon result plus a worthwhile median drop flags
+ * contamination for review. Perturbations may change difficulty, so the result
+ * does not identify contamination as the cause. Per-item differences have no
+ * calibrated sampling null and carry no p-values or q-values.
  */
 
 import { ValidationError } from '../errors'
-import { benjaminiHochberg, wilcoxonSignedRank } from '../statistics'
+import { wilcoxonSignedRank } from '../statistics'
+import { medianInPlace } from '../statistics/internal'
 import { mulberry32 } from '../statistics/random'
 
 export type ScenarioPerturbationKind =
@@ -48,7 +29,7 @@ export interface ScenarioPerturbation<S> {
 }
 
 export interface ContaminationProbeInput<S> {
-  /** Identity of every scenario. The probe's `runFingerprint` keys on these. */
+  /** Stable, unique identity of every original scenario. */
   scenarioId: (s: S) => string
   /** Original scenarios. */
   originals: S[]
@@ -69,11 +50,8 @@ export interface ContaminationProbeInput<S> {
 export interface ContaminationProbeOptions {
   /** Drop scores below this from the probe; treats partial failures separately. Default 0. */
   scoreFloor?: number
-  /**
-   * BH-FDR threshold for declaring contamination on each per-scenario
-   * delta. Default 0.05.
-   */
-  fdr?: number
+  /** Significance threshold for the single global paired test. Default 0.05. */
+  alpha?: number
   /**
    * Minimum median per-scenario drop to flag global contamination. Default
    * 0.05 (5 percentage points). Smaller drops may be noise.
@@ -87,26 +65,44 @@ export interface ContaminationProbeReport {
     originalScore: number
     perturbedScore: number
     delta: number // perturbed - original (negative = drop)
-    /** Per-scenario q-value (single-test BH for a single scenario). Mainly for display. */
-    qValue: number
   }>
-  /** Wilcoxon paired-test on the deltas. */
-  pairedTest: { w: number; p: number }
-  medianDelta: number
-  meanDelta: number
+  /** Global Wilcoxon paired test; null when fewer than four pairs are included. */
+  pairedTest: { w: number; p: number } | null
+  /** Observed summaries of included pairs; null when no pairs are included. */
+  medianDelta: number | null
+  meanDelta: number | null
   contaminationSuspected: boolean
   reason: string
-  /** Number of scenarios processed. */
+  /** Number of pairs included after the configured score floor. */
   n: number
+  /** Scenarios excluded by the score floor; their observed scores remain above. */
+  excludedScenarioIds: string[]
 }
 
 export async function runContaminationProbe<S>(
   input: ContaminationProbeInput<S>,
   opts: ContaminationProbeOptions = {},
 ): Promise<ContaminationProbeReport> {
-  const fdr = opts.fdr ?? 0.05
+  const alpha = opts.alpha ?? 0.05
   const minMedianDrop = opts.minMedianDrop ?? 0.05
   const floor = opts.scoreFloor ?? 0
+  if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) {
+    throw new ValidationError('runContaminationProbe: alpha must be in (0,1)')
+  }
+  for (const [name, value] of [
+    ['scoreFloor', floor],
+    ['minMedianDrop', minMedianDrop],
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      throw new ValidationError(`runContaminationProbe: ${name} must be in [0,1]`)
+    }
+  }
+  const ids = input.originals.map(input.scenarioId)
+  if (ids.some((id) => !id?.trim()) || new Set(ids).size !== ids.length) {
+    throw new ValidationError(
+      'runContaminationProbe: original scenario IDs must be nonempty and unique',
+    )
+  }
 
   if (!input.perturbed && !input.perturbation) {
     throw new ValidationError(
@@ -125,63 +121,61 @@ export async function runContaminationProbe<S>(
   const origScores = await Promise.all(input.originals.map((s) => input.scoreFn(s)))
   const pertScores = await Promise.all(perturbed.map((s) => input.scoreFn(s)))
 
-  const perScenario = input.originals.map((s, i) => ({
-    scenarioId: input.scenarioId(s),
+  for (const score of [...origScores, ...pertScores]) {
+    if (!Number.isFinite(score) || score < 0 || score > 1) {
+      throw new ValidationError(
+        `runContaminationProbe: scores must be finite and in [0,1], got ${score}`,
+      )
+    }
+  }
+  const perScenario = ids.map((scenarioId, i) => ({
+    scenarioId,
     originalScore: origScores[i]!,
     perturbedScore: pertScores[i]!,
     delta: pertScores[i]! - origScores[i]!,
-    qValue: NaN,
   }))
 
   // Drop scenarios below the floor (partial failures we don't trust).
   const valid = perScenario.filter((p) => p.originalScore >= floor && p.perturbedScore >= floor)
+  const excludedScenarioIds = perScenario
+    .filter((p) => p.originalScore < floor || p.perturbedScore < floor)
+    .map((p) => p.scenarioId)
+  const deltas = valid.map((p) => p.delta)
+  const medianDelta = deltas.length === 0 ? null : medianInPlace(deltas)
+  const meanDelta =
+    deltas.length === 0 ? null : deltas.reduce((sum, d) => sum + d, 0) / deltas.length
   if (valid.length < 4) {
     return {
       perScenario,
-      pairedTest: { w: 0, p: 1 },
-      medianDelta: 0,
-      meanDelta: 0,
+      pairedTest: null,
+      medianDelta,
+      meanDelta,
       contaminationSuspected: false,
       reason: `insufficient valid scenarios (n=${valid.length}, need ≥ 4)`,
       n: valid.length,
+      excludedScenarioIds,
     }
   }
 
   const origValid = valid.map((p) => p.originalScore)
   const pertValid = valid.map((p) => p.perturbedScore)
   const pairedTest = wilcoxonSignedRank(origValid, pertValid)
-  const deltas = valid.map((p) => p.delta)
-  const sortedDeltas = [...deltas].sort((a, b) => a - b)
-  const median = sortedDeltas[Math.floor(sortedDeltas.length / 2)]!
-  const mean = deltas.reduce((s, d) => s + d, 0) / deltas.length
-
-  // Per-scenario q-values via BH on a synthetic per-scenario p-value
-  // (one-sample bootstrap; we use the absolute delta normalized by median
-  // as a coarse signal — this is a display aid, the load-bearing test
-  // is the global Wilcoxon).
-  const pseudoP = valid.map((p) => Math.min(1, Math.max(1e-6, 1 - Math.abs(p.delta) / 1)))
-  const { qValues } = benjaminiHochberg(pseudoP, fdr)
-  for (let i = 0; i < valid.length; i++) {
-    const v = valid[i]!
-    const idx = perScenario.findIndex((p) => p.scenarioId === v.scenarioId)
-    if (idx >= 0) perScenario[idx]!.qValue = qValues[i]!
-  }
-
-  const contaminationSuspected = pairedTest.p < fdr && median <= -minMedianDrop
+  const contaminationSuspected = pairedTest.p < alpha && medianDelta! <= -minMedianDrop
   const reason = contaminationSuspected
-    ? `paired p=${pairedTest.p.toFixed(4)} < ${fdr} and median drop ${median.toFixed(4)} ≥ ${minMedianDrop}`
-    : pairedTest.p >= fdr
+    ? `paired p=${pairedTest.p.toFixed(4)} < ${alpha} and median drop ${(-medianDelta!).toFixed(4)} ≥ ${minMedianDrop}`
+    : pairedTest.p >= alpha
       ? `no significant difference (paired p=${pairedTest.p.toFixed(4)})`
-      : `significant but small effect (median delta ${median.toFixed(4)})`
+      : `significant but no qualifying drop (median delta ${medianDelta!.toFixed(4)})`
 
   return {
     perScenario,
     pairedTest,
-    medianDelta: median,
-    meanDelta: mean,
+    medianDelta,
+    meanDelta,
     contaminationSuspected,
     reason,
     n: valid.length,
+    excludedScenarioIds,
   }
 }
 

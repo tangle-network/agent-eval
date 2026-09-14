@@ -1,19 +1,21 @@
 /**
  * Correlation study — "does our eval score predict real-world outcomes?"
  *
- * This is the load-bearing signal. Takes a TraceStore + OutcomeStore,
- * joins on runId, computes Pearson + Spearman + bootstrap CI for every
- * (evalMetric, outcomeMetric) pair the caller declares.
- *
- * Without this number the framework is ornamental. With it and r > 0.6
- * the framework is a moat — no other agent-eval tool publishes one.
+ * Joins traces and outcomes by runId and reports descriptive correlations.
+ * Independent runs are the bootstrap observation unit.
+ * Association alone does not establish causation or held-out predictive performance.
  */
 
-import { pearsonR, spearmanR } from '../statistics'
-import { makeRng } from '../statistics/internal'
 import { runMetricExtractor } from '../trace/query'
 import type { Run } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
+import {
+  assertUniqueObservationIds,
+  correlationSummary,
+  hasVariation,
+  reduceOutcomeMetric,
+  validateObservationOptions,
+} from './outcome-observations'
 import type { DeploymentOutcome, OutcomeFilter, OutcomeStore } from './outcome-store'
 
 export interface EvalMetricSpec {
@@ -35,13 +37,22 @@ export interface CorrelationResult {
   pearson: number
   spearman: number
   /** 95% bootstrap CI for Pearson. */
-  pearsonCi95: { lower: number; upper: number }
+  pearsonCi95: { lower: number; upper: number } | null
+  /** 95% bootstrap CI for Spearman; null when no resample is estimable. */
+  spearmanCi95: { lower: number; upper: number } | null
   /** Rough verdict: 'strong' ≥ 0.7, 'moderate' ≥ 0.4, else 'weak'. */
   verdict: 'strong' | 'moderate' | 'weak'
 }
 
 export interface CorrelationStudyResult {
   pairs: CorrelationResult[]
+  /** Declared pairs without an estimable correlation, including their usable sample count. */
+  excludedPairs: Array<
+    OutcomePair & {
+      n: number
+      reason: 'insufficient_samples' | 'constant_eval_metric' | 'constant_outcome'
+    }
+  >
   joinedSamples: number
   skippedRuns: number
 }
@@ -67,7 +78,29 @@ export async function correlationStudy(
   outcomeMetricNames: string[],
   options: CorrelationStudyOptions = {},
 ): Promise<CorrelationStudyResult> {
+  const reduction = options.reduction ?? 'latest'
+  const iterations = options.bootstrapIterations ?? 500
+  const seed = options.seed
+  validateObservationOptions(reduction, iterations, seed)
+  assertUniqueObservationIds(
+    evalMetrics.map((metric) => metric.id),
+    'eval metric',
+  )
+  assertUniqueObservationIds(outcomeMetricNames, 'outcome metric')
+  const maxLag = options.maxCaptureLagMs ?? Infinity
+  if (maxLag < 0 || Number.isNaN(maxLag)) {
+    throw new Error('maxCaptureLagMs must be nonnegative')
+  }
+  const extractors = evalMetrics.map((metric) => ({
+    ...metric,
+    extract: metric.extract ?? runMetricExtractor(metric.id),
+  }))
+  const metricNames = [...outcomeMetricNames]
   const runs = await traceStore.listRuns()
+  assertUniqueObservationIds(
+    runs.map((run) => run.runId),
+    'runId',
+  )
   const outcomes = await outcomeStore.list(options.outcomeFilter)
   const outcomesByRun = new Map<string, DeploymentOutcome[]>()
   for (const o of outcomes) {
@@ -76,12 +109,9 @@ export async function correlationStudy(
     outcomesByRun.set(o.runId, arr)
   }
 
-  const reduction = options.reduction ?? 'latest'
-  const maxLag = options.maxCaptureLagMs ?? Infinity
-
   const pairs: Array<{ evalMetric: string; outcomeMetric: string; xs: number[]; ys: number[] }> = []
-  for (const em of evalMetrics) {
-    for (const om of outcomeMetricNames) {
+  for (const em of extractors) {
+    for (const om of metricNames) {
       pairs.push({ evalMetric: em.id, outcomeMetric: om, xs: [], ys: [] })
     }
   }
@@ -94,113 +124,67 @@ export async function correlationStudy(
       skipped++
       continue
     }
-    const eligible = os.filter((o) => o.capturedAt - run.startedAt <= maxLag)
+    const eligible = os.filter((o) => {
+      const lag = o.capturedAt - run.startedAt
+      return lag >= 0 && lag <= maxLag
+    })
     if (eligible.length === 0) {
       skipped++
       continue
     }
 
-    for (const em of evalMetrics) {
-      const extract = em.extract ?? runMetricExtractor(em.id)
-      const x = await extract(run, traceStore)
+    let joinedThisRun = false
+    for (const em of extractors) {
+      const x = await em.extract(run, traceStore)
       if (x === null || !Number.isFinite(x)) continue
 
-      for (const om of outcomeMetricNames) {
-        const values = eligible
-          .map((o) => o.metrics[om])
-          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
-        if (values.length === 0) continue
-        const y = reduce(values, reduction, eligible)
+      for (const om of metricNames) {
+        const y = reduceOutcomeMetric(eligible, om, reduction)
         if (y === null) continue
         const pair = pairs.find((p) => p.evalMetric === em.id && p.outcomeMetric === om)!
         pair.xs.push(x)
         pair.ys.push(y)
+        joinedThisRun = true
       }
     }
-    joined++
+    if (joinedThisRun) joined++
+    else skipped++
   }
 
-  const results: CorrelationResult[] = pairs
-    .filter((p) => p.xs.length >= 3)
-    .map((p) => {
-      const pearson = pearsonR(p.xs, p.ys)
-      const spearman = spearmanR(p.xs, p.ys)
-      const pearsonCi95 = bootstrapPearsonCi(
-        p.xs,
-        p.ys,
-        options.bootstrapIterations ?? 500,
-        options.seed,
-      )
-      const verdict: CorrelationResult['verdict'] =
-        Math.abs(pearson) >= 0.7 ? 'strong' : Math.abs(pearson) >= 0.4 ? 'moderate' : 'weak'
-      return {
+  const excludedPairs: CorrelationStudyResult['excludedPairs'] = []
+  const results: CorrelationResult[] = []
+  for (const p of pairs) {
+    const reason =
+      p.xs.length < 3
+        ? 'insufficient_samples'
+        : !hasVariation(p.xs)
+          ? 'constant_eval_metric'
+          : !hasVariation(p.ys)
+            ? 'constant_outcome'
+            : null
+    if (reason !== null) {
+      excludedPairs.push({
         evalMetric: p.evalMetric,
         outcomeMetric: p.outcomeMetric,
         n: p.xs.length,
-        pearson,
-        spearman,
-        pearsonCi95,
-        verdict,
-      }
-    })
-
-  return { pairs: results, joinedSamples: joined, skippedRuns: skipped }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function reduce(
-  values: number[],
-  kind: 'latest' | 'mean' | 'max',
-  outcomes: DeploymentOutcome[],
-): number | null {
-  if (values.length === 0) return null
-  if (kind === 'mean') return values.reduce((a, b) => a + b, 0) / values.length
-  if (kind === 'max') return Math.max(...values)
-  // 'latest': pick the outcome captured last, then lookup its metric
-  const latest = [...outcomes].sort((a, b) => b.capturedAt - a.capturedAt)[0]
-  if (!latest) return null
-  const latestKey = Object.keys(latest.metrics)[0]
-  const v = latestKey !== undefined ? latest.metrics[latestKey] : undefined
-  // For 'latest' we already have `values` aligned; use the last-captured one
-  const paired = outcomes
-    .map((o) => {
-      const k = Object.keys(o.metrics)[0]
-      return {
-        at: o.capturedAt,
-        v: k !== undefined ? values.find((x) => o.metrics[k] === x) : undefined,
-      }
-    })
-    .filter((p) => p.v !== undefined)
-  if (paired.length === 0) return v ?? null
-  return paired.sort((a, b) => b.at - a.at)[0]?.v ?? null
-}
-
-function bootstrapPearsonCi(
-  xs: number[],
-  ys: number[],
-  iterations: number,
-  seed: number | undefined,
-): { lower: number; upper: number } {
-  const n = xs.length
-  if (n < 3) return { lower: NaN, upper: NaN }
-  const rng = makeRng(seed, xs, ys)
-  const rs: number[] = []
-  for (let b = 0; b < iterations; b++) {
-    const rx: number[] = new Array(n)
-    const ry: number[] = new Array(n)
-    for (let i = 0; i < n; i++) {
-      const idx = Math.floor(rng() * n)
-      rx[i] = xs[idx]!
-      ry[i] = ys[idx]!
+        reason,
+      })
+      continue
     }
-    const r = pearsonR(rx, ry)
-    if (Number.isFinite(r)) rs.push(r)
+    const summary = correlationSummary(p.xs, p.ys, iterations, seed)
+    const verdict: CorrelationResult['verdict'] =
+      Math.abs(summary.pearson) >= 0.7
+        ? 'strong'
+        : Math.abs(summary.pearson) >= 0.4
+          ? 'moderate'
+          : 'weak'
+    results.push({
+      evalMetric: p.evalMetric,
+      outcomeMetric: p.outcomeMetric,
+      n: p.xs.length,
+      ...summary,
+      verdict,
+    })
   }
-  rs.sort((a, b) => a - b)
-  if (rs.length === 0) return { lower: NaN, upper: NaN }
-  return {
-    lower: rs[Math.floor(0.025 * rs.length)]!,
-    upper: rs[Math.min(rs.length - 1, Math.floor(0.975 * rs.length))]!,
-  }
+  return { pairs: results, excludedPairs, joinedSamples: joined, skippedRuns: skipped }
 }

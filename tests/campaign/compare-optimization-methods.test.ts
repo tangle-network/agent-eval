@@ -103,14 +103,14 @@ describe('compareOptimizationMethods', () => {
     expect(result.resamples).toBe(2000)
     expect(result.reps).toBe(1)
 
-    // Pairwise: strong (best) vs weak — delta 0.75, favored strong.
+    // Four independent scenarios rank the observed scores but cannot establish a mean win.
     expect(result.pairwise).toHaveLength(1)
     const pw = result.pairwise[0]!
     expect(pw.a).toBe('strong')
     expect(pw.b).toBe('weak')
     expect(pw.deltaMean).toBeCloseTo(0.75, 5)
-    expect(pw.favored).toBe('strong')
-    expect(pw.low).toBeGreaterThan(0) // CI clears zero → a real difference
+    expect(pw.favored).toBeNull()
+    expect(pw.decision).toMatchObject({ n: 4, sufficient: false, promote: false })
     expect(result.testScenarioIds).toEqual(['h1', 'h2', 'h3', 'h4'])
     expect(strong.scenarioScores).toEqual(
       TEST.map((scenario) => ({
@@ -165,7 +165,7 @@ describe('compareOptimizationMethods', () => {
       expectUsage: 'off',
     })
     expect(result.pairwise[0]!.deltaMean).toBeCloseTo(0, 5)
-    expect(result.pairwise[0]!.favored).toBe('tie')
+    expect(result.pairwise[0]!.favored).toBeNull()
   })
 
   it('names no winner on a ZERO-WIDTH pairwise interval', async () => {
@@ -184,7 +184,7 @@ describe('compareOptimizationMethods', () => {
       expectUsage: 'off',
     })
     const pair = result.pairwise[0]!
-    if (pair.low === pair.high) expect(pair.favored).toBe('tie')
+    if (pair.low === pair.high) expect(pair.favored).toBeNull()
   })
 
   it('a cheaper method wins a lift tie when both costs are complete', async () => {

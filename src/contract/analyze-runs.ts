@@ -23,6 +23,7 @@
 import type { AnalystRegistry } from '../analyst/registry'
 import type { AnalystFinding } from '../analyst/types'
 import { welchsTTest } from '../baseline'
+import { aggregatePairedHoldout } from '../campaign/gates/statistical-heldout'
 import { checkCanaries } from '../contamination-guard'
 import type { DatasetScenario } from '../dataset'
 import { continuousAgreement } from '../judge-calibration'
@@ -78,6 +79,9 @@ export interface AnalyzeRunsOptions {
    *  Unmatched rows remain visible in the lift result. */
   baselineCandidateId?: string
   candidateCandidateId?: string
+  /** Average matched run scores within these units before estimating lift.
+   *  Raw run distributions and unmatched-run counts remain unchanged. */
+  independentUnitByScenarioId?: ReadonlyMap<string, string>
   /** Canary scenarios — checked against every run's raw output for
    *  holdout contamination. */
   canaryScenarios?: DatasetScenario[]
@@ -192,7 +196,13 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
 
   const interRater = opts.raterScores ? computeInterRater(opts.raterScores) : undefined
 
-  const lift = computeLift(runs, opts.baselineCandidateId, opts.candidateCandidateId, split)
+  const lift = computeLift(
+    runs,
+    opts.baselineCandidateId,
+    opts.candidateCandidateId,
+    split,
+    opts.independentUnitByScenarioId,
+  )
 
   const failureClusters = opts.analyst
     ? await computeFailureClusters(runs, opts.analyst, split)
@@ -860,6 +870,7 @@ function computeLift(
   baselineId: string | undefined,
   candidateId: string | undefined,
   split: 'search' | 'holdout',
+  independentUnitByScenarioId?: ReadonlyMap<string, string>,
 ): LiftInsight | undefined {
   let bId = baselineId
   let cId = candidateId
@@ -891,9 +902,35 @@ function computeLift(
   const scoredBaseline = baseline.filter((run) => Number.isFinite(compositeOf(run, split)))
   const scoredCandidate = candidate.filter((run) => Number.isFinite(compositeOf(run, split)))
   const pairing = pairRunRecords(scoredBaseline, scoredCandidate)
-  const pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
-  const pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
+  let pairedBaseline = pairing.pairs.map((pair) => compositeOf(pair.baseline, split))
+  let pairedCandidate = pairing.pairs.map((pair) => compositeOf(pair.treatment, split))
   if (pairedBaseline.length === 0) return undefined
+  const grouped = independentUnitByScenarioId
+    ? aggregatePairedHoldout(
+        {
+          before: pairedBaseline,
+          after: pairedCandidate,
+          // Pairing is already fixed by experiment, scenario, and seed.
+          // The ordinal labels each matched observation for the shared reducer.
+          cellIds: pairing.pairs.map((pair, index) => `${pair.pairKey}:${index}`),
+        },
+        new Map(
+          pairing.pairs.map((pair) => [
+            pair.pairKey,
+            independentUnitByScenarioId.get(pair.baseline.scenarioId)!,
+          ]),
+        ),
+      )
+    : undefined
+  if (grouped) {
+    pairedBaseline = grouped.before
+    pairedCandidate = grouped.after
+  }
+  const reverseInferredArms =
+    grouped !== undefined &&
+    (!baselineId || !candidateId) &&
+    mean(pairedBaseline) > mean(pairedCandidate)
+  if (reverseInferredArms) [pairedBaseline, pairedCandidate] = [pairedCandidate, pairedBaseline]
 
   const baselineMean = mean(pairedBaseline)
   const candidateMean = mean(pairedCandidate)
@@ -923,10 +960,13 @@ function computeLift(
     ci95: [bootstrap.low, bootstrap.high],
     pValue: tTest.p,
     n: pairedBaseline.length,
+    ...(grouped ? { pairedRunN: pairing.pairs.length, independentUnitIds: grouped.unitIds } : {}),
     minimumRequired: BOOTSTRAP_GATE_MIN_N,
     decisionEligible: bootstrap.gateEligible,
-    unpairedBaseline: pairing.unpairedBaseline.length,
-    unpairedCandidate: pairing.unpairedTreatment.length,
+    unpairedBaseline: (reverseInferredArms ? pairing.unpairedTreatment : pairing.unpairedBaseline)
+      .length,
+    unpairedCandidate: (reverseInferredArms ? pairing.unpairedBaseline : pairing.unpairedTreatment)
+      .length,
     cohensD: d,
     mde,
     requiredN,

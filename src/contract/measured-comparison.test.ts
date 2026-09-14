@@ -379,6 +379,9 @@ function executionEvidence(input: {
     },
     `outcomes/${executionId}.json`,
   )
+  const startedAtMs = 1_000 + input.benchmarkCell.repetition * 100
+  const durationMs = input.arm === 'baseline' ? 100 : 90
+  const gradingStartedAtMs = startedAtMs + durationMs
   const benchmarkResult = materialEvidence(
     'agent-candidate-benchmark-result',
     {
@@ -398,8 +401,8 @@ function executionEvidence(input: {
           costProvenance: 'observed' as const,
         },
         timing: {
-          startedAtMs: 2_000,
-          endedAtMs: 2_000 + (input.graderDurationMs ?? 0),
+          startedAtMs: gradingStartedAtMs,
+          endedAtMs: gradingStartedAtMs + (input.graderDurationMs ?? 0),
           durationMs: input.graderDurationMs ?? 0,
         },
       },
@@ -409,8 +412,6 @@ function executionEvidence(input: {
     },
     `results/${executionId}.json`,
   )
-  const startedAtMs = 1_000 + input.benchmarkCell.repetition * 100
-  const durationMs = input.arm === 'baseline' ? 100 : 90
   const receipt = addressed({
     kind: 'agent-candidate-run' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
@@ -461,7 +462,7 @@ function profileMeasurements(): Array<{
   baseline: PlatformProfileRun
   candidate: PlatformProfileRun
 }> {
-  return [0, 1, 2, 3, 4, 5].map((index) => {
+  return Array.from({ length: 24 }, (_, index) => {
     const baseline = 0.2 + (index % 3) * 0.05
     // The per-cell gain VARIES (0.52 / 0.50 / 0.48, mean exactly 0.50). A
     // constant gain makes every bootstrap resample identical, and a zero-width
@@ -535,13 +536,13 @@ describe('candidate experiment comparison', () => {
       preparationCost: { usd: 0.25, provenance: 'observed' },
     })
 
-    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
+    expect(result.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 24 })
     expect(result.decision.outcome).toBe('ship')
     expect(result.measurementCost).toMatchObject({ provenance: 'observed' })
-    expect(result.measurementCost.usd).toBeCloseTo(0.12, 12)
+    expect(result.measurementCost.usd).toBeCloseTo(0.48, 12)
     expect(result.totalCost).toMatchObject({ provenance: 'observed' })
-    expect(result.totalCost.usd).toBeCloseTo(0.37, 12)
-    expect(result.measurementWorkDurationMs).toBe(1_200)
+    expect(result.totalCost.usd).toBeCloseTo(0.73, 12)
+    expect(result.measurementWorkDurationMs).toBe(4_800)
     expect(() =>
       evaluatePairedMeasurements({
         measurements: [measurements[0]!, measurements[0]!],
@@ -571,7 +572,7 @@ describe('candidate experiment comparison', () => {
 
   it('uses observed paired precision instead of baseline-only variance', () => {
     const template = profileMeasurements()[0]!.baseline
-    const baselines = [0.1, 0.9, 0.1, 0.9, 0.1, 0.9]
+    const baselines = Array.from({ length: 24 }, (_, index) => (index % 2 === 0 ? 0.1 : 0.8))
     const measurements = baselines.map((baseline, index) => {
       const run = (score: number): PlatformProfileRun => ({
         ...template,
@@ -581,7 +582,7 @@ describe('candidate experiment comparison', () => {
       return {
         cellId: `paired-precision:${index}`,
         baseline: run(baseline),
-        candidate: run(baseline + 0.1),
+        candidate: run(baseline + 0.1 + ((index % 3) - 1) * 0.002),
       }
     })
 
@@ -598,6 +599,9 @@ describe('candidate experiment comparison', () => {
 
     expect(result.overall.confidenceInterval.lower).toBeCloseTo(0.1)
     expect(result.overall.confidenceInterval.upper).toBeCloseTo(0.1)
+    expect(result.overall.confidenceInterval.upper).toBeGreaterThan(
+      result.overall.confidenceInterval.lower,
+    )
     expect(result.power.minimumDetectableDelta).toBeCloseTo(0.05)
     expect(result.power.sufficient).toBe(true)
     expect(result.decision.outcome).toBe('ship')
@@ -718,7 +722,7 @@ describe('candidate experiment comparison', () => {
   })
 
   it('runs the exact signed matrix and derives every statistic from Runtime receipts', async () => {
-    const frozen = experiment(6)
+    const frozen = experiment(24)
     const observedSeeds: number[] = []
     const run = await runCandidateExperiment({
       experiment: frozen,
@@ -761,26 +765,30 @@ describe('candidate experiment comparison', () => {
       },
     })
 
-    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 6 })
+    expect(comparison.overall).toMatchObject({ baseline: 0.25, candidate: 0.75, delta: 0.5, n: 24 })
     expect(comparison.decision.outcome).toBe('ship')
     expect(comparison.diff).toContain('--- baseline/profile')
     expect(comparison.diff).toContain('verify every claim')
-    expect(comparison.measurements).toHaveLength(6)
+    expect(comparison.measurements).toHaveLength(24)
     expect(comparison.evaluation).toMatchObject({
       preparation: { wallDurationMs: 50, cost: { usd: 0.25, provenance: 'observed' } },
-      measurement: { workDurationMs: 1_200, cost: { usd: 0.12, provenance: 'observed' } },
+      measurement: { workDurationMs: 4_800, cost: { usd: 0.48, provenance: 'observed' } },
     })
-    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.37, provenance: 'observed' })
+    expect(comparison.evaluation.total.cost).toEqual({ usd: 0.73, provenance: 'observed' })
     expect(verifyCandidateExperimentComparison(comparison)).toEqual(comparison)
     expect(comparison.objectives).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'cost', baseline: 0.01, candidate: 0.01 }),
+        expect.objectContaining({
+          kind: 'cost',
+          baseline: expect.closeTo(0.01, 12),
+          candidate: expect.closeTo(0.01, 12),
+        }),
         expect.objectContaining({ kind: 'latency', baseline: 105, candidate: 95 }),
       ]),
     )
-    expect(observedSeeds.sort((left, right) => left - right)).toEqual([
-      101, 101, 102, 102, 103, 103, 104, 104, 105, 105, 106, 106,
-    ])
+    expect(observedSeeds.sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 24 }, (_, index) => [101 + index, 101 + index]).flat(),
+    )
   })
 
   it('refuses a budgeted suite before dispatch when its signed maximum cannot fit', async () => {
@@ -1164,25 +1172,8 @@ describe('candidate experiment comparison', () => {
 })
 
 /**
- * The promotion gate's task check used to require PERFECTION: a candidate
- * shipped only if `candidate.passed` held on every benchmark cell. On any
- * benchmark hard enough to be worth running nothing passes everything, so the
- * bar was unreachable — under the old check the CONSTRUCTED case
- * `repairedNotRegressed(8)` below (baseline mean 0.3339, candidate mean 0.8685,
- * paired delta +0.5346) would be held with "candidate failed 2 benchmark
- * tasks", and the 2 are tasks the baseline failed too.
- *
- * That case is constructed, not observed: no live run of this gate is on disk.
- * An earlier draft of this docblock reported it as a measurement and quoted a
- * bootstrap interval that nothing produced; commit d095318 retracted the same
- * claim from the source comment, and it is retracted here for the same reason.
- * The argument for the change is the unreachable bar itself, visible in the
- * predicate, which needs no measured candidate.
- *
- * The bar is now improvement WITHOUT regression. Every test below pins BOTH
- * directions: the case the gate must now let through, and the neighbouring case
- * it must still refuse. Each "must still refuse" case is the calibration for the
- * check above it — the guard is only proven by being made to FAIL.
+ * Shared task failures do not block a supported improvement.
+ * The binary fixtures isolate pass/fail repair from regressions and other release checks.
  */
 describe('promotion gate — improvement without regression, not perfection', () => {
   interface GateRun {
@@ -1247,11 +1238,8 @@ describe('promotion gate — improvement without regression, not perfection', ()
   const repairedNotRegressed = (repaired: number) =>
     Array.from({ length: 10 }, (_, index) => ({
       cellId: `task:${index}`,
-      baseline: gateRun(0.333 + (index % 3) * 0.001, false),
-      candidate:
-        index < repaired
-          ? gateRun(0.98 + (index % 3) * 0.005, true)
-          : gateRun(0.4 + (index % 2) * 0.01, false),
+      baseline: gateRun(0, false),
+      candidate: gateRun(index < repaired ? 1 : 0, index < repaired),
     }))
 
   it('SHIPS a candidate that repairs 8 tasks and still fails 2 the baseline also failed', () => {
@@ -1272,8 +1260,8 @@ describe('promotion gate — improvement without regression, not perfection', ()
       index === 9
         ? {
             ...measurement,
-            baseline: gateRun(0.9, true),
-            candidate: gateRun(0.2, false),
+            baseline: gateRun(1, true),
+            candidate: gateRun(0, false),
           }
         : measurement,
     )
@@ -1295,7 +1283,7 @@ describe('promotion gate — improvement without regression, not perfection', ()
   it('reports repaired / regressed / still-failing on a hold, so a null is separable from a gate artifact', () => {
     const measurements = repairedNotRegressed(8).map((measurement, index) =>
       index === 9
-        ? { ...measurement, baseline: gateRun(0.9, true), candidate: gateRun(0.2, false) }
+        ? { ...measurement, baseline: gateRun(1, true), candidate: gateRun(0, false) }
         : measurement,
     )
 
@@ -1319,7 +1307,7 @@ describe('promotion gate — improvement without regression, not perfection', ()
     // Every task passes on both arms, so `no-task-regression` passes. The gate
     // must still refuse: dropping the perfection bar must not turn the gate into
     // a rubber stamp for a candidate that did not actually improve anything.
-    const measurements = Array.from({ length: 10 }, (_, index) => ({
+    const measurements = Array.from({ length: 25 }, (_, index) => ({
       cellId: `flat:${index}`,
       baseline: gateRun(0.5 + (index % 5) * 0.02, true),
       candidate: gateRun(0.5 + ((index + 2) % 5) * 0.02, true),
@@ -1329,13 +1317,13 @@ describe('promotion gate — improvement without regression, not perfection', ()
 
     expect(check(result, 'no-task-regression')).toBe(true)
     expect(check(result, 'paired-significance')).toBe(false)
-    expect(result.decision.outcome).not.toBe('ship')
+    expect(result.decision.outcome).toBe('hold')
   })
 
   it('CALIBRATION — still HOLDS when a benchmark execution did not complete', () => {
     const measurements = repairedNotRegressed(8).map((measurement, index) =>
       index === 0
-        ? { ...measurement, candidate: gateRun(0.98, true, { completed: false }) }
+        ? { ...measurement, candidate: gateRun(1, true, { completed: false }) }
         : measurement,
     )
 
@@ -1373,7 +1361,7 @@ describe('promotion gate — improvement without regression, not perfection', ()
   })
 
   it('CALIBRATION — still HOLDS a candidate that lifted the score while regressing a critical dimension', () => {
-    const measurements = Array.from({ length: 10 }, (_, index) => ({
+    const measurements = Array.from({ length: 24 }, (_, index) => ({
       cellId: `goodhart:${index}`,
       baseline: {
         ...gateRun(0.3 + (index % 3) * 0.01, true),
@@ -1462,7 +1450,7 @@ describe('promotion gate — the significance reason names the interval that dec
       sharedScorerChannel: true,
     })
 
-  it('explains a zero-variance sample instead of claiming its own bound failed to clear', () => {
+  it('names the insufficient sample while retaining the historical zero-variance observation', () => {
     // Six cells that all move +2/3. The old reason read "lower bound
     // 0.6666666666666669 did not clear 0".
     const result = evaluate(
@@ -1470,10 +1458,25 @@ describe('promotion gate — the significance reason names the interval that dec
     )
     const reason = result.decision.reasons[0]!
 
-    expect(reason).toMatch(/interval is degenerate at \[0\.6666666666666669, 0\.6666666666666669\]/)
-    expect(reason).toMatch(/the mean CI collapsed to a point/)
+    expect(reason).toBe('only 6 paired runs; 20 required')
+    expect(result.overall.n).toBe(6)
+    expect(result.overall.delta).toBeCloseTo(2 / 3, 12)
+    expect(result.overall.confidenceInterval.lower).toBeCloseTo(0.6666666666666669, 12)
+    expect(result.overall.confidenceInterval.upper).toBeCloseTo(0.6666666666666669, 12)
     expect(reason).not.toMatch(/did not clear/)
     // The remedy is the held-out set, not a better candidate.
+    expect(result.decision.outcome).toBe('need_more_work')
+  })
+
+  it('explains a degenerate interval when the mean target has enough paired observations', () => {
+    const result = evaluate(
+      Array.from({ length: 24 }, () => ({ baseline: 0.333, candidate: 0.333 + 2 / 3 })),
+    )
+    const reason = result.decision.reasons[0]!
+
+    expect(reason).toMatch(/interval is degenerate at/)
+    expect(reason).toMatch(/the mean CI collapsed to a point/)
+    expect(reason).not.toMatch(/did not clear/)
     expect(result.decision.outcome).toBe('need_more_work')
   })
 
@@ -1497,16 +1500,13 @@ describe('promotion gate — the significance reason names the interval that dec
   it('CALIBRATION — a non-degenerate miss still reports a lower bound, and it is the DECIDING one', () => {
     // Varied deltas straddling zero: the interval is real, has width, and fails
     // honestly. This is the branch that must keep saying "did not clear".
-    const result = evaluate([
-      { baseline: 0.5, candidate: 0.56 },
-      { baseline: 0.5, candidate: 0.42 },
-      { baseline: 0.5, candidate: 0.58 },
-      { baseline: 0.5, candidate: 0.41 },
-      { baseline: 0.5, candidate: 0.57 },
-      { baseline: 0.5, candidate: 0.44 },
-      { baseline: 0.5, candidate: 0.55 },
-      { baseline: 0.5, candidate: 0.43 },
-    ])
+    const candidateScores = [0.56, 0.42, 0.58, 0.41, 0.57, 0.44, 0.55, 0.43]
+    const result = evaluate(
+      Array.from({ length: 24 }, (_, index) => ({
+        baseline: 0.5,
+        candidate: candidateScores[index % candidateScores.length]!,
+      })),
+    )
     const reason = result.decision.reasons[0]!
 
     expect(reason).toMatch(/^paired mean_bootstrap interval lower bound -?\d/)

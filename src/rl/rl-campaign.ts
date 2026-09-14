@@ -25,8 +25,10 @@ import {
   type FailedRun,
   runEvalCampaign,
 } from '../eval-campaign'
+import { validateOutcomeMetricSpecifications } from '../meta-eval/outcome-observations'
 import type { OutcomeStore } from '../meta-eval/outcome-store'
 import {
+  type OutcomeMetricSpec,
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
@@ -62,9 +64,9 @@ export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
   preferences?: ExtractPreferencesOptions
   /** Verifiable-reward extraction options. */
   verifiableReward?: VerifiableRewardExtractionOptions
-  /** Outcome store + metric names — when supplied, runs `rubricPredictiveValidity` post-campaign. */
+  /** Outcome store and desired metric directions for post-campaign association measurement. */
   outcomeStore?: OutcomeStore
-  outcomeMetrics?: string[]
+  outcomeMetrics?: readonly OutcomeMetricSpec[]
   /** Anytime-valid sequential evaluation options. */
   sequential?: {
     alpha?: number
@@ -151,6 +153,14 @@ export interface RLCampaignResult {
 }
 
 export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<RLCampaignResult> {
+  const outcomeStore = opts.outcomeStore
+  const outcomeMetrics = opts.outcomeMetrics?.map((metric) => ({ ...metric }))
+  if (outcomeStore !== undefined || outcomeMetrics !== undefined) {
+    if (outcomeStore === undefined || outcomeMetrics === undefined) {
+      throw new Error('runRLCampaign requires outcomeStore and outcomeMetrics together')
+    }
+    validateOutcomeMetricSpecifications(outcomeMetrics)
+  }
   const splitTag = opts.splitTag ?? 'search'
 
   // ── 1. Run the matrix ──────────────────────────────────────────────
@@ -207,11 +217,11 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
 
   // ── 6. Predictive validity (when outcomes are supplied) ────────────
   let predictiveValidity: RubricPredictiveValidityReport | null = null
-  if (opts.outcomeStore && opts.outcomeMetrics && opts.outcomeMetrics.length > 0) {
+  if (outcomeStore && outcomeMetrics) {
     predictiveValidity = await rubricPredictiveValidity({
       runs: campaign.runs,
-      outcomes: opts.outcomeStore,
-      outcomeMetrics: opts.outcomeMetrics,
+      outcomes: outcomeStore,
+      outcomeMetrics,
     })
   }
 
@@ -405,7 +415,9 @@ function buildSummary(args: {
   if (args.predictiveValidity) {
     const top = args.predictiveValidity.ranked[0]
     lines.push(
-      `top-rubric: ${top?.rubric ?? 'none'} ρ=${(top?.spearman ?? 0).toFixed(2)} (${top?.verdict ?? 'no data'})`,
+      top
+        ? `top-rubric: ${top.rubric} aligned ρ=${top.alignedSpearman.toFixed(2)} vs ${top.bestOutcome} (${top.outcomeDirection}; ${top.verdict})`
+        : 'top-rubric: none (no estimable outcome associations)',
     )
   }
   return lines.join(' | ')

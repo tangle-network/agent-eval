@@ -132,6 +132,7 @@ export const killtestSpec: ExperimentSpec = {
     'task-clustered-95': {
       kind: 'cluster-bootstrap',
       clusterBy: 'taskName',
+      value: 'diff',
       resamples: 4000,
       seed: 20260810,
       level: 0.95,
@@ -169,6 +170,8 @@ export const killtestSpec: ExperimentSpec = {
     'power-floor': {
       kind: 'power-floor',
       target: 0.8,
+      // This fixture preserves the original structural ceiling check at effect 1.
+      minimumEffect: 1,
       effectGrid: [0, 0.1, 0.3, 0.5, 0.9, 1],
       sim: { trials: 2000, resamples: 4000, seed: 20260810 },
     },
@@ -264,6 +267,7 @@ export function freelunchSpec(ledger: { id: string; usd: number }[]): Experiment
       'task-clustered-95': {
         kind: 'cluster-bootstrap',
         clusterBy: 'taskName',
+        value: 'passed',
         resamples: 10000,
         seed: 7,
         level: 0.95,
@@ -272,6 +276,7 @@ export function freelunchSpec(ledger: { id: string; usd: number }[]): Experiment
       'row-clustered-95': {
         kind: 'cluster-bootstrap',
         clusterBy: 'rowId',
+        value: 'passed',
         resamples: 10000,
         seed: 7,
         level: 0.95,
@@ -380,6 +385,7 @@ export const milestone2Spec: ExperimentSpec = {
     'task-clustered-95': {
       kind: 'cluster-bootstrap',
       clusterBy: 'taskName',
+      value: 'diff',
       resamples: 10000,
       seed: 7,
       level: 0.95,

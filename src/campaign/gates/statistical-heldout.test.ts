@@ -24,22 +24,147 @@ const scenarioIds = (n: number): Set<string> =>
 const composite = (s: JudgeScore) => s.composite
 
 describe('pairHoldout + heldoutSignificance — promotion gate decision core', () => {
+  it('pairs namespaced scenario IDs using the final repetition suffix', () => {
+    const paired = pairHoldout(
+      new Map([
+        ['family:task:0', { quality: score(0.8) }],
+        ['family:other:0', { quality: score(0.9) }],
+      ]),
+      new Map([
+        ['family:task:0', { quality: score(0.5) }],
+        ['family:other:0', { quality: score(0.4) }],
+      ]),
+      new Set(['family:task']),
+      composite,
+    )
+    expect(paired).toEqual({ before: [0.5], after: [0.8], cellIds: ['family:task:0'] })
+  })
+
+  it('counts registered independent units and preserves original paired-cell counts', () => {
+    const paired = {
+      before: Array.from({ length: 100 }, () => 0.5),
+      after: Array.from({ length: 100 }, (_, i) => (i < 50 ? 0.9 : 0.8)),
+      cellIds: Array.from({ length: 100 }, (_, i) => `task:${i}`),
+    }
+    const ungrouped = heldoutSignificance(paired)
+    expect(ungrouped.significant).toBe(true)
+    expect(ungrouped.n).toBe(100)
+    const grouped = heldoutSignificance(paired, {
+      independentUnitByScenarioId: new Map([['task', 'task-population-unit']]),
+    })
+    expect(grouped.significant).toBe(false)
+    expect(grouped.fewRuns).toBe(true)
+    expect(grouped.n).toBe(1)
+    expect(grouped.pairedCellN).toBe(100)
+    expect(grouped.unitIds).toEqual(['task-population-unit'])
+    expect(grouped.bootstrap.mean).toBeCloseTo(0.35, 10)
+  })
+
+  it('rejects missing unit assignments and keeps scenario families equally weighted', () => {
+    const paired = {
+      before: [0.5, 0.5, 0.5, 0.5],
+      after: [0.9, 0.9, 0.9, 0.1],
+      cellIds: ['large:first:0', 'large:first:1', 'large:second:0', 'small:task:0'],
+    }
+    expect(() => heldoutSignificance(paired, { independentUnitByScenarioId: new Map() })).toThrow(
+      /missing independent unit.*large:first/,
+    )
+    const result = heldoutSignificance(paired, {
+      independentUnitByScenarioId: new Map([
+        ['large:first', 'large-family'],
+        ['large:second', 'large-family'],
+        ['small:task', 'small-family'],
+      ]),
+    })
+    expect(result.n).toBe(2)
+    expect(result.bootstrap.mean).toBeCloseTo(0, 10)
+  })
+
+  it('retains the same inference when every unit has more identical execution repeats', () => {
+    const pairedAt = (reps: number) => ({
+      before: Array.from({ length: 30 * reps }, () => 0.5),
+      after: Array.from({ length: 30 * reps }, (_, i) => 0.625 + (Math.floor(i / reps) % 4) / 32),
+      cellIds: Array.from(
+        { length: 30 * reps },
+        (_, i) => `family:task-${Math.floor(i / reps)}:${i % reps}`,
+      ),
+    })
+    const independentUnitByScenarioId = new Map(
+      Array.from({ length: 30 }, (_, i) => [`family:task-${i}`, `unit-${i}`]),
+    )
+    const single = heldoutSignificance(pairedAt(1), { independentUnitByScenarioId })
+    const repeated = heldoutSignificance(pairedAt(20), { independentUnitByScenarioId })
+    expect(repeated.pairedCellN).toBe(600)
+    expect(repeated.n).toBe(single.n)
+    expect(repeated.decision).toEqual(single.decision)
+    expect(repeated.bootstrap).toEqual(single.bootstrap)
+  })
+
+  it('refuses duplicated cells and non-finite scores before inference', () => {
+    expect(() =>
+      heldoutSignificance({
+        before: [0, 0],
+        after: [1, 1],
+        cellIds: ['same:0', 'same:0'],
+      }),
+    ).toThrow(/duplicate cellIds/)
+    expect(() =>
+      heldoutSignificance({
+        before: [0],
+        after: [NaN],
+        cellIds: ['same:0'],
+      }),
+    ).toThrow(/scores must be finite/)
+    expect(() =>
+      heldoutSignificance({
+        before: [0],
+        after: [1],
+        cellIds: [],
+      }),
+    ).toThrow(/same length/)
+  })
+
+  it('refuses asymmetric judge selection before computing a paired mean', () => {
+    const baseline = new Map([
+      [
+        'sc0:0',
+        {
+          strict: score(0.1, { safety: 0.1 }),
+          lenient: score(0.9, { safety: 0.9 }),
+        },
+      ],
+    ])
+    const candidate = new Map([['sc0:0', { lenient: score(0.9, { safety: 0.9 }) }]])
+    expect(() => pairHoldout(candidate, baseline, scenarioIds(1), composite)).toThrow(
+      /selected judge IDs do not align/,
+    )
+    expect(() => dimensionRegressions(candidate, baseline, scenarioIds(1), ['safety'])).toThrow(
+      /selected judge IDs do not align/,
+    )
+    const noSafety = new Map([
+      ['sc0:0', { strict: score(0.9), lenient: score(0.9, { safety: 0.9 }) }],
+    ])
+    expect(() => dimensionRegressions(noSafety, baseline, scenarioIds(1), ['safety'])).toThrow(
+      /selected judge IDs do not align/,
+    )
+  })
+
   it('a clear held-out gain is SIGNIFICANT (gate ships)', () => {
     // Deltas must not be IDENTICAL: n identical deltas give a zero-width
     // interval, which carries no information about how far the estimate could
     // be wrong and is refused whatever the sign test says (pinned below).
     const paired = pairHoldout(
-      cells([0.82, 0.78, 0.85, 0.79, 0.83, 0.8]),
-      cells([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]),
-      scenarioIds(6),
+      cells(Array.from({ length: 24 }, (_, i) => [0.82, 0.78, 0.85, 0.79, 0.83, 0.8][i % 6]!)),
+      cells(Array(24).fill(0.5)),
+      scenarioIds(24),
       composite,
     )
-    expect(paired.before).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+    expect(paired.before).toEqual(Array(24).fill(0.5))
     const sig = heldoutSignificance(paired)
-    expect(sig.n).toBe(6)
+    expect(sig.n).toBe(24)
     expect(sig.fewRuns).toBe(false)
-    expect(sig.decisionMethod).toBe('exact-sign')
-    expect(sig.pValue).toBeCloseTo(1 / 64, 12)
+    expect(sig.decisionMethod).toBe('bootstrap-ci')
+    expect(sig.pValue).toBeNull()
     expect(sig.bootstrap.low).toBeGreaterThan(0)
     expect(sig.significant).toBe(true)
   })
