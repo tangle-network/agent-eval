@@ -1,67 +1,94 @@
-# One verdict vocabulary
+# Verdicts and certifications
 
-Every verification path in this package lands in one type: `DefaultVerdict` (`src/verdict.ts`).
-`valid` answers "did it pass", `score` answers "how well" in [0, 1], `scores` carries the per-dimension breakdown, and `certification` says WHO certified.
+`DefaultVerdict` is the shared base type for validator results.
+Campaign judges return `JudgeScore`, and release gates return `GateResult`; their fields and score scales differ.
+See [release check results](./concepts.md#release-check-results) when interpreting a campaign decision.
 
-A certification is the epistemics a bare `valid` + `score` pair cannot carry.
-A kernel-checked proof and an LLM judge can produce the same `{ valid: true, score: 1 }`; the certification is what tells them apart:
+In `DefaultVerdict`, `valid` reports whether the validator's pass criteria were met, and `score` is its aggregate in [0, 1].
+Optional `scores` and `notes` carry dimensions and explanation.
+Optional `certification` records the verification strategy, checker identity, assumptions, and evidence digest.
+A certification can accompany a failed or incomplete check.
+It does not establish that the result passed or that every required measurement exists.
 
-- `strategy` — which verification-strategy member vouches (the 10-member family with per-member failure modes: [docs/verification-strategies.md](./verification-strategies.md));
-- `checker` — the exact identity that ran, with version and content pins, so the check is re-runnable;
-- `assumptions` — every step the certificate rests on that the checker did NOT verify, named one by one;
-- `evidenceDigest` — sha-256 of the evidence artifact (`certificationEvidenceDigest`).
+The certification fields are:
 
-An absent certification is itself a statement: scored, but nothing vouches.
-No producer fakes one — a closed gate, an unexecuted proof, or an unattested checker yields an uncertified verdict, never an invented certificate.
+- `strategy`: the [verification strategy](./verification-strategies.md), with its documented failure mode.
+- `checker`: a name, version, and optional dependency pins.
+- `assumptions`: the producer's list of steps the checker did not verify.
+- `evidenceDigest`: the evidence identity; `certificationEvidenceDigest()` hashes its JSON-serialized form with canonical JSON and SHA-256.
+
+These fields record the producer's claims.
+Reproduction also requires access to the evidence, checker, dependencies, and execution environment.
+An absent certification means no verification strategy is recorded for that verdict.
 
 ## Producers
 
-Every verifier below returns a `DefaultVerdict` (usually a richer extension of it) with a produced certification.
+These result types extend `DefaultVerdict`.
+Their additional fields distinguish failed checks from incomplete or unmeasured work.
 
-| Verifier | Verdict type | Strategy | Certifies | Assumptions it names |
+| Producer | Result type | Strategy | Scope | Fields to inspect |
 | --- | --- | --- | --- | --- |
-| `MultiLayerVerifier.run` (`src/multi-layer-verifier.ts`) | `VerificationReport` | `composite` | ordered layer pipeline blend | each skipped / errored / timed-out layer |
-| `verifyCompletion` (`src/completion-verifier.ts`) | `CompletionVerdict` | the checker's own (`judge` for the LLM checker, `schema` for token recall) | task completion over produced state | lexical structural stage + the checker's attestation |
-| `evaluateTraceContract` (`src/trace-contracts.ts`) | `ContractVerdict` | `invariant` | LTLf rules over a span sequence | array ordering without timestamps; custom predicate functions |
-| `evaluateOracles` (`src/oracle.ts`) | `OracleReport` | `test` | declarative expected-outcome assertions | — (the oracle set is its own answer key) |
-| `replayVerify` (`src/trajectory-replay/verify.ts`) | `ReplayVerdict` | `replication` | recorded failure reproduced (and fix vanished) under re-execution | unadjudicated prefix steps; truncated prefix; returncode-only signature |
-| `verifyFindings` (`src/trajectory-replay/findings.ts`) | `VerifyFindingsRun` | `replication` | a batch of analyst findings under executed replay | not-replayable findings leave the denominator |
-| `gradeRepairRow` (`src/trace-repair/grade.ts`) | `RepairRowResult` | `test` | a proposed repair against the row's held-out suite (pins: suite + policy digests) | vacuous reproduction gate; prefix divergence |
-| `runEquivalenceCheck` + `equivalenceVerdict` (`src/verification-strategy.ts`, `src/verdict.ts`) | `DefaultVerdict` | the spec's member (`proof-kernel` in the pilot) | two blind formal statements are equivalent | arms self-declare blindness |
+| `MultiLayerVerifier.run()` | `VerificationReport` | `composite` | Ordered verification layers | `layers`, `allPass`, and optional `taskScore` |
+| `verifyCompletion()` | `CompletionVerdict` | The supplied checker's strategy | Completion requirements matched against produced state | Requirement evidence, `correct`, and `unmeasured` |
+| `evaluateTraceContract()` | `ContractVerdict` | `invariant` | Temporal rules over recorded spans | Rule results and assumptions about ordering and predicates |
+| `evaluateOracles()` | `OracleReport` | `test` | Declared expected-outcome assertions | `results`, `passCount`, and `failCount` |
+| `replayVerify()` | `ReplayVerdict` | `replication` | Failure reproduction and an optional fix under re-execution | Prefix fidelity, signature matches, and both execution arms |
+| `verifyFindings()` | `VerifyFindingsRun` | `replication` | Analyst findings checked through replay | `executions`, `counts`, and individual verifications |
+| `gradeRepairRow()` | `RepairRowResult` | `test` | A repair against the admitted row's held-out suite | The grade's outcome and funnel evidence |
+| `equivalenceVerdict(record)` | `DefaultVerdict` | The record's strategy | Formal-statement equivalence checked by `runEquivalenceCheck()` | Whether the obligation was proved, refuted, or unresolved |
 
-Two producers certify conditionally, on purpose:
+Certification is conditional for several producers:
 
-- `gradeRepairRow` certifies only a `measured` outcome — a funnel gate that closed before the suite ran has nothing to vouch for.
-- `verifyFindings` certifies only when at least one proof executed — a batch where nothing was replayable measured nothing.
+- `verifyCompletion()` includes it when the supplied checker provides an attestation.
+  Inspect requirement evidence to see which checks were assessed.
+- `equivalenceVerdict()` includes it for a proved or refuted obligation with an evidence digest.
+  A certified refutation has `valid: false`.
+- `gradeRepairRow()` includes it only for a `measured` grade.
+- `verifyFindings()` includes it only when at least one replay execution ran.
+  Non-replayable findings remain in `counts` and are excluded from the score's denominator.
+  A score of 1 can therefore coexist with `valid: false` when some findings were not replayable.
 
-## Reading a score out of a judge
+Some result shapes use `score: 0` when no task measurement is available.
+For `VerificationReport`, use the presence of `taskScore` to identify a complete task measurement; `blendedScore` can describe a partial panel.
+An empty oracle set has certification metadata but returns `valid: false` and no executed oracle results.
+Read these completeness fields before using scores as task labels or release evidence.
 
-A model judge emits one grade per dimension. Discrete grades tie: two candidates that both score `8` carry no ranking signal between them, and a best-of-N selection then picks arbitrarily.
+## Reading a score from a model judge
 
-`llmJudge({ scoring })` chooses how the number is read:
+A tied dimension score supplies no ordering between candidates.
+`llmJudge({ scoring })` controls how the dimension score is read:
 
-| `scoring` | What it reads | Requires |
+| `scoring` | Measurement | Requirement |
 |---|---|---|
-| `{ method: 'sampled' }` (default) | the grade the model emitted | nothing |
-| `{ method: 'expectation', whenUnavailable }` | the expected grade over the integer grades the model considered at the score token | `scale: 'ten'` and a provider that returns log probabilities |
+| `{ method: 'sampled' }` (default) | The emitted grade | A valid grade response |
+| `{ method: 'expectation', whenUnavailable }` | A probability-weighted grade from returned token alternatives | `scale: 'ten'` and provider log probabilities |
 
-Expectation scoring asks the provider for `logprobs` with `top_logprobs`, finds the token that carried each dimension's grade, and averages the integer grades in that token's probability window, weighted by probability. Two answers that both sample `8` separate by how much mass sat on `7` versus `9`.
+With `scale: 'ten'`, the model emits grades from 0 to 10; `llmJudge()` divides them by 10 before returning dimensions and composite.
+Expectation scoring finds each grade's token, keeps valid integer alternatives, and renormalizes their returned probabilities before averaging.
+Its distribution is limited to those returned alternatives.
+Additional precision alone does not establish better calibration or ranking accuracy.
 
-It needs one integer in one token, which is why `scale: 'ten'` is required: a `[0,1]` float is several tokens, and no single position carries its distribution. A grade that did not land in exactly one token — a two-token `10` — is refused rather than approximated.
+Each emitted grade must occupy one integer token for expectation scoring.
+A split `10`, missing grade token, or unavailable log probabilities invokes `whenUnavailable`:
 
-`whenUnavailable` decides what happens when the provider returns no log probabilities, or the grade spans tokens:
+- `'fail'` throws; the campaign records a judge failure.
+- `'sampled'` uses the emitted grades for that judge result.
 
-- `'fail'` throws, and the campaign records a failed cell.
-- `'sampled'` reads the emitted grade instead.
+`JudgeScore.scoringMethod` is present when `scoring` was explicitly configured and records the method used.
+An expectation request that falls back reports `'sampled'`.
+When `scoring` is omitted, sampled scoring is the default and this metadata field is absent.
+`JudgeScore.distribution` is present only for expectation scoring and contains the normalized probabilities over returned integer alternatives.
+`ensembleJudge()` consumes the resulting composite through its usual interface.
 
-`JudgeScore.scoringMethod` reports what actually produced the number, so a declared expectation run that fell back reads `'sampled'` and stays auditable. `JudgeScore.distribution` carries the probability mass per grade, and is present only for an expectation score. Panels are unchanged: `ensembleJudge` consumes the composite either way.
+Provider and model support determines whether log probabilities are available.
+`LlmCallResult.logprobs` is `null` when none were returned.
+The [recorded wire check](../evidence/records/judge-logprob-wire-support.json) documents the endpoints and conditions that were inspected.
 
-Whether a given endpoint returns `logprobs.content` is a property of that provider and model, not of this package. `LlmCallResult.logprobs` is `null` when the provider returned none — never an inferred distribution. See `evidence/records/judge-logprob-wire-support.json` for the current verification state of that wire behavior.
+## Interpreting certification limits
 
-## Consuming a certification
+Read `VERIFICATION_STRATEGIES[strategy].failureMode` alongside the evidence and assumptions.
+A judge can reward misleading output; tests cover their suite; a proof can establish the wrong formal statement for the intended task.
+A composite certification requires inspection of its component results.
+An empty assumptions list is the producer's declaration, not independent verification that no assumptions remain.
 
-Read `certification.strategy`, then weigh the member's documented failure mode — `VERIFICATION_STRATEGIES[strategy].failureMode` carries it at runtime.
-"Certified" is never one bit: a `judge` certificate is Goodhart-gameable, a `test` certificate covers only its suite, a `composite` certificate can hide which member carried the score.
-The assumptions list is the honest remainder; an empty list is the producer's explicit claim that nothing was left unverified, not a default.
-
-Related docs: [verification-strategies.md](./verification-strategies.md) (the family and the equivalence protocol), [trace-repair-grader.md](./trace-repair-grader.md), [trajectory-replay.md](./trajectory-replay.md).
+See [verification strategies](./verification-strategies.md), [repair grading](./trace-repair-grader.md), and [trajectory replay](./trajectory-replay.md) for the corresponding execution contracts.

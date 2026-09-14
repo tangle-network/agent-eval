@@ -8,6 +8,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- README and example guides include verified execution commands, public imports, and explicit limits on fixture results and release evidence.
+  The existing-agent quickstart is offline; its guide shows how to meter paid calls with the maintained transport and receipt helpers.
+- The single-optimizer example accepts the same worker `PRICE_*` settings as the method-comparison example.
+  Both use one parser to validate endpoint rates before execution.
 - **Breaking:** Root `Scenario`, `JudgeScore`, and `GateDecision` now match `/contract`.
   Product workflows use `ProductScenario`, `DimensionJudgeScore`, and `HeldOutGateDecision`.
 - **Breaking:** Current canonical envelopes and algorithm identifiers are required for seals, attestations, and profile identities.
@@ -42,6 +46,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
+- Failure-cluster shares count all affected failed runs independently of the five displayed examples.
+  Multiple findings in the same cluster count once per run.
 - Outcome queries select the latest finite requested metric instead of an unrelated latest observation.
   Outcome-store corruption and unavailable evidence remain visible failures.
 - Calibration preserves clipped observations, measures constant predictors, and honors the requested bin count.

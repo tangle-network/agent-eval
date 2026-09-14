@@ -1,48 +1,55 @@
-# Improve A Prompt Automatically
+# Improve a prompt with a local proposer
 
-This example defines an agent, scenarios, a judge, a starting prompt, and a candidate generator once.
-It then calls `defineAgentEval().improve()` to search for a better prompt and evaluate the winner on scenarios that were not used to generate candidates.
+This example defines an agent, twelve synthetic cases, a judge, a starting prompt, and a candidate generator.
+It calls `defineAgentEval().improve()` to search and evaluate the selected prompt on six held-out cases.
+All three functions are deterministic and local.
+No API key or model call is required.
 
-Run it from the repository root:
+## Run
+
+From the repository root:
 
 ```sh
-pnpm tsx examples/selfimprove-quickstart/index.ts
+pnpm install --frozen-lockfile
+pnpm exec tsx examples/selfimprove-quickstart/index.ts
 ```
 
-No API key is required.
-The agent, judge, and candidate generator are deterministic local functions.
-
-## What It Demonstrates
-
-1. Define twelve representative tasks.
-2. Run the starting prompt on a training split.
-3. Generate two candidate prompts.
-4. Score every candidate with the same judge.
-5. Evaluate the selected candidate on six held-back tasks.
-6. Return the selected prompt, measured score change, cost, and release decision.
-
-The stable part of the output is:
+The output includes:
 
 ```text
-Release decision:     ship
+Release decision:     hold
 Raw lift:             +0.351
 Generations explored: 1
 Total cost:           $0.000
 ```
 
-This is a wiring example, not statistical evidence.
-Only six tasks are held back, so do not use its release decision as a production threshold.
+The candidate improves the fixture's score, but six continuous-score pairs do not meet the gate's inference floor.
+The selected prompt remains available for inspection even when the gate holds it.
+The result demonstrates search, scoring, result capture, and a refused promotion under insufficient evidence.
+It does not establish performance on real tasks.
 
-The release decision comes from the held-out promotion gate, not from the search score.
-The gate holds a candidate that is byte-identical to the baseline, requires the bootstrap confidence interval on the paired holdout delta to clear the threshold, and refuses a candidate whose search-to-holdout gap says it won the optimizer but lost the exam.
-[`held-out-gate`](../held-out-gate/) walks each check with a promoting and a refused candidate.
+## Read the result
 
-## Adapt It
+The release decision comes from the held-out gate.
+Its paired decision depends on the outcome type, sample size, practical effect, and configured checks.
+An unchanged candidate also remains on hold.
+Optional red-team, canary, and reward-hacking checks need their own configured inputs.
+The [held-out gate example](../held-out-gate/) demonstrates these checks.
+
+The result uses `mode: 'proposer'` and records the native generation count.
+See [campaign proposers](../../docs/campaign-proposers.md#read-an-improvement-result) for the method/proposer result distinction.
+
+## Adapt it
 
 - Replace `agent` with the product call you want to improve.
-- Replace `judge.score` with a deterministic check or a calibrated model-based judge.
-- Replace the synthetic candidate generator with your own `SurfaceProposer` or delegate candidate creation to agent-runtime.
-- Pass an official GEPA or SkillOpt method to `selfImprove()` instead of wrapping either complete optimizer as a proposer; [`self-improve-optimizer`](../self-improve-optimizer/) is the runnable version. Use `compareOptimizationMethods()` only to benchmark methods against each other.
-- Increase the task corpus and repetitions until the score can distinguish known-good from known-bad behavior.
+- Replace `judge.score` with objective checks or a model judge calibrated on independent examples.
+- Replace the synthetic generator with your own `SurfaceProposer`.
+- Add representative independent tasks; use repetitions to measure variation within tasks.
+- Keep final decision cases outside candidate generation and selection.
+- Use [`selfImprove({ method })`](../self-improve-optimizer/) for a complete optimizer such as GEPA.
 
-The complete implementation is [`index.ts`](./index.ts).
+Check that known good and known bad outputs receive the intended scores before starting a larger search.
+Keep `expectUsage: 'off'` only for calls that have no paid usage.
+
+The complete implementation is [index.ts](./index.ts).
+For an installed package, import `defineAgentEval` from `@tangle-network/agent-eval/contract`.

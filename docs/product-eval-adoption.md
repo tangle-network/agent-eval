@@ -152,8 +152,7 @@ set with a signed note.
 
 ## Optimization
 
-Use `runImprovementLoop()` when the system is a multi-step agent, not a
-single prompt.
+Use `runImprovementLoop()` when a `SurfaceProposer` supplies candidates for Agent Eval's search loop.
 
 Good optimization targets:
 

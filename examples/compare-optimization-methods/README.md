@@ -1,159 +1,130 @@
-# Compare Official GEPA And SkillOpt
+# Compare GEPA and SkillOpt
 
-This example runs official GEPA, official SkillOpt, or both against the same transaction-extraction task.
-Each method receives five train cases and three selection cases.
-Agent Eval evaluates selected prompts on six separate final cases after optimization finishes.
+This example runs GEPA, SkillOpt, or both on transaction extraction.
+Each method receives the same five train cases, three selection cases, starting prompt, worker, and deterministic field-matching judge.
+Agent Eval evaluates selected prompts on six separate final cases after every method finishes search.
 
-The worker calls an OpenAI-compatible endpoint.
-The field-level judge is deterministic.
+Worker and optimizer calls use a paid Chat Completions endpoint.
+Six final cases demonstrate the integration; they do not establish population-level optimizer superiority.
+The example includes the unchanged starting prompt as a baseline, but no direct-edit or simple-search method control.
 
 ## Install
 
-Install the Node dependencies from the repository root:
+Run these commands from the repository root with Node, pnpm, Python, and uv installed:
 
 ```sh
-pnpm install
-```
-
-Install the Python bridge and the official optimizer packages:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install \
-  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
-python -m pip install \
-  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f" \
-  "litellm>=1.83.0,<1.92" \
-  "tqdm>=4.66.1" \
-  "cloudpickle>=3.0.0" \
-  "datasets>=2.14.6" \
-  "wandb"
-```
-
-Do not install `gepa[full]`; its MLflow server dependency is unpatched.
-
-From this repository, the locked equivalent is:
-
-```sh
+pnpm install --frozen-lockfile
 cd clients/python
 uv sync --frozen --group skillopt-source --group gepa-source
 cd ../..
 export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ```
 
-## Run GEPA
+The lock selects the source versions tested by this bridge.
+See the [Python guide](../../clients/python/README.md) for supported environments and dependency maintenance.
 
-```sh
-export LLM_BASE_URL=https://router.tangle.tools/v1
-export LLM_API_KEY="$TANGLE_API_KEY"
-export LLM_MODEL=deepseek-v4-flash
-export GEPA_PRICE_IN_PER_M=0.4
-export GEPA_PRICE_OUT_PER_M=1.6
+## Configure the endpoint
 
-OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
-```
+Export the following variables before running the script.
+Use an endpoint that accepts this example's request fields and returns model identity and complete token usage.
 
-Any OpenAI-compatible endpoint works; point `LLM_BASE_URL` at it and name a model it serves.
-
-Replace the example rates with the current exact endpoint rates.
-GEPA uses `LLM_MODEL` by default.
-Set `GEPA_MODEL` when reflection should use another model.
-Optimizer reflection calls run through a default execution owner built from `LLM_BASE_URL` and `LLM_API_KEY`.
-Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to replace it with your own execution package.
-
-### Choose a GEPA recipe
-
-`GEPA_RECIPE` selects how GEPA composes engine runs.
-The default, `engine`, is one budgeted run of the standard `gepa` engine.
-
-```sh
-GEPA_RECIPE=omni OPTIMIZERS=gepa pnpm tsx examples/compare-optimization-methods/index.ts
-```
-
-| Kind | What runs |
+| Variable | Purpose |
 |---|---|
-| `engine` | One budgeted engine run. |
-| `sequential` | Engines in order; the best result across stages is kept. |
-| `adaptive-sequential` | Switch engines after a plateau, under one shared evaluation budget. |
-| `best-of` | Independent engines; the highest selection score wins. |
-| `vote` | Independent engines; GEPA's vote composition selects. |
-| `omni` | Best-of exploration, then one continuation from its winner. |
+| `LLM_BASE_URL` | Chat Completions API prefix, such as `https://your-endpoint.example/v1`. |
+| `LLM_API_KEY` | Key for the endpoint. |
+| `LLM_MODEL` | Worker model served by the endpoint; defaults to `deepseek-v4-flash`. |
+| `PRICE_IN_PER_M`, `PRICE_OUT_PER_M` | Worker USD rates per million tokens; supply both together. |
+| `GEPA_PRICE_IN_PER_M`, `GEPA_PRICE_OUT_PER_M` | Reflection rates when GEPA uses different prices; otherwise inherit `PRICE_*`. |
+| `SKILLOPT_PRICE_IN_PER_M`, `SKILLOPT_PRICE_OUT_PER_M` | Reflection/editing rates when SkillOpt uses different prices; otherwise inherit `PRICE_*`. |
 
-The example splits `GEPA_MAX_EVALUATIONS` and `GEPA_MAX_PROPOSER_COST_USD` evenly across stages, so every recipe runs at the same total budget.
-Every stage uses the standard `gepa` engine, which keeps the provider key outside Python.
-The composed kinds require the tested GEPA source revision from the install step above; the published wheel supports `engine` only.
-[`docs/campaign-proposers.md`](../../docs/campaign-proposers.md) documents recipes, other engines, budgets, and resuming.
+Use current rates for the actual endpoint and models.
+Worker `PRICE_*` overrides are optional when the package already has suitable model pricing.
+Each selected optimizer needs input and output rates, either its own or inherited worker rates.
+Optional `PRICE_CACHED_IN_PER_M` and `PRICE_CACHE_WRITE_IN_PER_M` require the worker input/output pair.
+The same cache suffixes are available under `GEPA_` and `SKILLOPT_`.
 
-## Run SkillOpt
-
-```sh
-export LLM_BASE_URL=https://router.tangle.tools/v1
-export LLM_API_KEY="$TANGLE_API_KEY"
-export LLM_MODEL=deepseek-v4-flash
-export SKILLOPT_PRICE_IN_PER_M=0.4
-export SKILLOPT_PRICE_OUT_PER_M=1.6
-
-OPTIMIZERS=skillopt pnpm tsx examples/compare-optimization-methods/index.ts
-```
-
-Set `SKILLOPT_PRICE_IN_PER_M` and `SKILLOPT_PRICE_OUT_PER_M` to the current exact rates for your endpoint before running SkillOpt.
-The example passes SkillOpt's `openai_compatible` traffic through Agent Eval's local proxy and then through the execution owner.
-By default that owner is this repository's example owner, `examples/_shared/openai-compatible-owner.ts`, built from `LLM_BASE_URL` and `LLM_API_KEY`. Agent Eval owns no model transport; on agent-runtime the production owner is `profileOptimizerModelCall`.
-An `OPTIMIZER_EXECUTION_OWNER_MODULE` override must export `createOptimizerExecutionOwner(model)` and return `{ call, callRef }`.
-Discovery uses this module boundary to execute the model through Runtime with one exact AgentProfile.
-Set `SKILLOPT_MODEL` to use a different optimizer model.
-
-## Compare Both
+## Run
 
 ```sh
-OPTIMIZERS=gepa,skillopt \
-LLM_BASE_URL=https://router.tangle.tools/v1 \
-LLM_API_KEY="$TANGLE_API_KEY" \
-LLM_MODEL=deepseek-v4-flash \
-GEPA_PRICE_IN_PER_M=0.4 \
-GEPA_PRICE_OUT_PER_M=1.6 \
-SKILLOPT_PRICE_IN_PER_M=0.4 \
-SKILLOPT_PRICE_OUT_PER_M=1.6 \
-pnpm tsx examples/compare-optimization-methods/index.ts
+OPTIMIZERS=gepa pnpm exec tsx examples/compare-optimization-methods/index.ts
 ```
 
-The execution owner controls the optimizer endpoint and credentials; Agent Eval's proxy never receives them.
-Replace all four example rates with the exact rates charged by that endpoint.
+```sh
+OPTIMIZERS=skillopt pnpm exec tsx examples/compare-optimization-methods/index.ts
+```
 
-## Controls
+```sh
+OPTIMIZERS=gepa,skillopt pnpm exec tsx examples/compare-optimization-methods/index.ts
+```
 
-| Variable | Default | Meaning |
-|---|---:|---|
-| `OPTIMIZERS` | `gepa,skillopt` | Comma-separated methods to run. |
-| `LLM_MODEL` | `deepseek-v4-flash` | Worker model; must be served by `LLM_BASE_URL`. |
-| `LLM_MAX_TOKENS` | `400` | Output cap per worker call; raise it for reasoning models. |
+Both methods are selected by default.
+The default execution owner reads `LLM_BASE_URL` and `LLM_API_KEY` and keeps provider credentials out of the Python optimizer process.
+Set `GEPA_MODEL` or `SKILLOPT_MODEL` when optimizer calls should use a different model from `LLM_MODEL`.
+
+To supply your own execution owner, set `OPTIMIZER_EXECUTION_OWNER_MODULE` to an absolute path, file URL, or installed package specifier.
+The module must export `createOptimizerExecutionOwner(model)` returning `{ call, callRef }`.
+Avoid relative paths: dynamic imports resolve relative to the shared loader, not the repository root.
+See [campaign proposers](../../docs/campaign-proposers.md#configure-gepa) for the execution callback contract.
+
+## Choose a GEPA recipe
+
+`GEPA_RECIPE` defaults to `engine`.
+The other recipes compose standard GEPA engines and require the source dependencies installed above.
+
+| Value | Behavior |
+|---|---|
+| `engine` | One bounded engine run. |
+| `sequential` | Run stages in order and keep the best selection result. |
+| `adaptive-sequential` | Switch after a plateau under one shared evaluation limit. |
+| `best-of` | Run independent stages and keep the highest selection score. |
+| `vote` | Use GEPA's vote composition across stages. |
+| `omni` | Explore with best-of, then continue from its winner. |
+
+```sh
+GEPA_RECIPE=omni OPTIMIZERS=gepa pnpm exec tsx examples/compare-optimization-methods/index.ts
+```
+
+Composed recipes allocate evaluation and proposer limits across their stages.
+Integer rounding can leave evaluation capacity unused: a two-stage recipe receives 16 evaluations per stage at the default ceiling of 33.
+Equal configured ceilings do not imply equal realized evaluations, model calls, tokens, or spend.
+The [implementation](./index.ts) records the selected recipe and limits with the result.
+
+## Control work and spend
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size, initially `33` | Maximum GEPA candidate-case evaluations. |
+| `SKILLOPT_MAX_EVALUATIONS` | Core plan size, initially `33` | Maximum SkillOpt candidate-case evaluations. |
+| `SKILLOPT_EPOCHS`, `SKILLOPT_BATCH_SIZE` | `2`, `2` | Trainer settings that determine the default evaluation plan. |
+| `MAX_OPTIMIZER_MODEL_COST_USD` | `5` | Default optimizer model spend limit per method. |
+| `GEPA_MAX_PROPOSER_COST_USD` | `5` | GEPA proposer ceiling, allocated across recipe stages. |
+| `GEPA_MAX_MODEL_COST_USD`, `SKILLOPT_MAX_MODEL_COST_USD` | `MAX_OPTIMIZER_MODEL_COST_USD` | Model spend limits for each optimizer. |
+| `GEPA_MAX_MODEL_REQUESTS`, `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | Maximum model requests per optimizer. |
+| `MAX_TOTAL_COST_USD` | `20` | Shared ledger ceiling for search and final evaluation across all methods. |
+| `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to search concurrently. |
+| `LLM_MAX_TOKENS` | `400` | Worker output cap; allow extra headroom for reasoning models. |
+| `CALL_TIMEOUT_MS` | `30000` | Worker timeout per call. |
 | `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and selected optimizers. |
-| `OPTIMIZER_EXECUTION_OWNER_MODULE` | built-in OpenAI-compatible owner | Module exporting `createOptimizerExecutionOwner(model)`; use Runtime for Discovery. |
-| `GEPA_MODEL` | `LLM_MODEL` | Endpoint model used by GEPA reflection. |
-| `GEPA_MAX_EVALUATIONS` | SkillOpt core plan size | Maximum GEPA candidate-case calls. Must match SkillOpt when both run. |
-| `GEPA_MAX_PROPOSER_COST_USD` | `5` | Maximum GEPA model spend inside one engine stage. |
-| `GEPA_PRICE_IN_PER_M` | required | Exact GEPA input rate per million tokens. |
-| `GEPA_PRICE_OUT_PER_M` | required | Exact GEPA output rate per million tokens. |
-| `GEPA_MAX_MODEL_COST_USD` | `MAX_OPTIMIZER_MODEL_COST_USD` | GEPA model spend limit. |
-| `GEPA_MAX_MODEL_REQUESTS` | `100` | Shared GEPA model request limit. |
-| `SKILLOPT_MODEL` | `LLM_MODEL` | Model used by SkillOpt reflection and editing. |
-| `SKILLOPT_EPOCHS` | `2` | SkillOpt training epochs. |
-| `SKILLOPT_BATCH_SIZE` | `2` | SkillOpt train cases per step. |
-| `SKILLOPT_MAX_EVALUATIONS` | core plan size | Maximum SkillOpt candidate-case calls. |
-| `SKILLOPT_PRICE_IN_PER_M` | required | Exact optimizer-model input rate per million tokens. |
-| `SKILLOPT_PRICE_OUT_PER_M` | required | Exact optimizer-model output rate per million tokens. |
-| `SKILLOPT_MAX_MODEL_COST_USD` | `MAX_OPTIMIZER_MODEL_COST_USD` | SkillOpt optimizer-model spend limit. |
-| `SKILLOPT_MAX_MODEL_REQUESTS` | `100` | SkillOpt optimizer-model request limit. |
-| `MAX_OPTIMIZER_MODEL_COST_USD` | `5` | Equal optimizer-model spend limit per method. |
-| `MAX_TOTAL_COST_USD` | `20` | Shared limit for all optimization and final-case spend. |
-| `OPTIMIZATION_CONCURRENCY` | `1` | Methods allowed to optimize concurrently. |
-| `BILLING_NOTE` | inferred | Billing context saved with the result. |
-| `PRICE_SOURCE` | inferred | Source of the token prices saved with the result. |
 
-The result is written to `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrored to `.evolve/compare-optimization-methods/latest.json`.
-It includes every method's selected surface, final-case scores, paired lift interval, duration, cost status, run limits, token prices, upstream package revision, run identity, token usage, and source model configuration.
-Optimizer model spend uses provider-reported billed cost when present.
-Otherwise it is estimated from complete token usage and the configured token rates.
-`accountingComplete` means every call was priced; it does not mean the total was reconciled to an invoice.
-The run fails when the endpoint omits usage instead of publishing an incomplete comparison.
-Set `BILLING_NOTE` and `PRICE_SOURCE` when declared token prices estimate subscription usage rather than actual billed dollars.
+When both methods run, the script requires matching candidate-case evaluation limits.
+Model request and spend limits share defaults but can be overridden separately; record any differences.
+The shared whole-run ceiling can still exhaust before a later method or final evaluation finishes.
+Inspect actual usage and completion before describing a comparison as matched on resources.
+The [budget helper](../_shared/optimizer-model-budget.ts) exposes additional request-byte, response-byte, token, and timeout controls.
+
+## Inspect the artifacts
+
+The script writes `.evolve/compare-optimization-methods/<timestamp>/comparison.json` and mirrors it to `.evolve/compare-optimization-methods/latest.json`.
+Raw campaign artifacts remain under the timestamped directory.
+The summary contains selected surfaces, final scores, lift intervals, cost status, configured limits, optimizer provenance, and available token usage.
+Read `comparison.pairwise` and each method's decision before interpreting its rank as evidence of a difference.
+A positive descriptive interval can still be ineligible for promotion.
+
+Provider-reported billed cost takes precedence when present.
+Otherwise complete usage and declared token rates produce an estimate.
+`accountingComplete` means each call was priced; it does not establish reconciliation with an invoice.
+Missing required usage fails the comparison.
+Set `BILLING_NOTE` and `PRICE_SOURCE` to retain the origin and interpretation of supplied rates.
+
+Keep final cases outside optimizer closures, shared files, and prior search memory when adapting the example.
+For repeated or grouped tasks, declare the independent unit and use optional fresh-evidence controls described in [evaluation integrity](../../docs/evaluation-integrity.md).

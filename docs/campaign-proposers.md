@@ -15,9 +15,9 @@ That would split its search state from its own selection behavior and make budge
 
 An `OptimizationMethod` plugs into exactly two entry points.
 `selfImprove()` from `/contract` is the improvement entry: one call gives the method disjoint train and selection partitions, re-scores the selected surface on a held-out split, and returns a `gateDecision`.
-Use it when one surface must get better.
+Use it to search for a better surface and inspect the final decision.
 `compareOptimizationMethods()` from `/campaign` is the measurement entry: it gives every method equal inputs and scores the selected surfaces on final cases no method received.
-Use it when two or more methods must be compared at equal budget.
+Use it to compare selected surfaces under declared resource limits.
 Runnable versions: [`examples/self-improve-optimizer`](../examples/self-improve-optimizer/) and [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
 ## Compose searches over a candidate
@@ -75,6 +75,8 @@ Any parent receipt supplied by a custom method is also verified; it cannot repla
 
 `selfImprove({ method })` executes the complete method once and measures its selected surface on final cases.
 The method may select the unchanged baseline; that result returns `gateDecision: 'hold'` and an empty diff.
+`winner` means the optimizer's selection, which can score worse on final cases.
+Inspect `gateDecision` and its contributions before treating the selected surface as an improvement.
 Agent Eval does not score train and selection cases again or choose a different surface after the method finishes.
 
 The result type has two modes:
@@ -216,8 +218,10 @@ Agent Eval adds the run ID, evaluation count, artifact directory, source identit
 - seed,
 - campaign defaults.
 
-An optimization method never receives the final test cases.
+The method input contains train and selection cases, without final test cases.
 After every method finishes, Agent Eval scores the selected surfaces on the same final cases and reports paired lift estimates.
+The host must also exclude final cases from callback closures, shared files, and prior optimizer state.
+The API partition does not provide process or filesystem isolation.
 
 ```ts
 import {
@@ -227,7 +231,7 @@ import {
 } from '@tangle-network/agent-eval/campaign'
 
 const optimizer = {
-  model: 'gpt-4.1-mini',
+  model: optimizerModelId,
   // Supplied by the package that owns execution. Discovery derives these
   // from Runtime and one exact AgentProfile.
   call: optimizerExecution.call,
@@ -238,10 +242,7 @@ const optimizer = {
     maxRequestBytes: 2_000_000,
     maxResponseBytes: 2_000_000,
     maxOutputTokensPerRequest: 32_768,
-    pricing: {
-      inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
-      outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
-    },
+    pricing: optimizerTokenPricing,
   },
 }
 
@@ -253,7 +254,7 @@ const gepa = gepaOptimizationMethod<MyCase, MyArtifact>({
     kind: 'engine',
     run: {
       engine: 'gepa',
-      maxEvaluations: 40,
+      maxEvaluations: 80,
       maxProposerCostUsd: 5,
     },
   },
@@ -293,54 +294,48 @@ const comparison = await compareOptimizationMethods({
 })
 ```
 
+These snippets assume caller-defined cases, dispatch, judges, `optimizerExecution`, model ID, and current token pricing.
+They illustrate configuration; the linked examples provide complete scripts.
+Both methods above declare the same evaluation ceiling.
+Their actual evaluations, model calls, and spend can differ.
+
 `costCeiling` is one limit shared by optimizer-model calls, train and selection evaluations, and final test scoring.
+It applies to calls admitted through the cost ledger.
+Leave enough capacity for every method and the final measurements.
 `comparison.scores` contains the final-case baseline score, selected score, lift, simultaneous interval, cost status, duration, and selected surface for each method.
 Official method scores contain optimizer and bridge package versions, source revisions and source-tree hashes, Python runtime, custom engine module hashes, compatible run ID, exact attempt ID, resume status, evaluation count, artifact directory, and available optimizer token usage.
 `comparison.pairwise` compares the highest-ranked method with every other method.
-Ranking follows estimated lift, so inspect intervals before claiming a difference.
+Ranking follows estimated lift.
+`best` can therefore name a method whose improvement is unresolved.
+Read each score's `decision` and the pairwise `favored` value before claiming a difference.
+Intervals account for the method-versus-baseline contrasts and every possible method pair using a Bonferroni confidence adjustment.
+The reported pairwise list contains only the observed best versus the alternatives.
+
+By default, final replicates are averaged within scenarios before inference.
+A `claim` can group scenarios into declared independent units and set `minimumEffect`.
+Read `unitScores`, `scenarioScores`, `units`, and `pairedCellN` together to retain both units and raw observation counts.
+Optional `finalEvidence` records fresh final-case exposure across calls sharing its ledger.
+See [evaluation integrity](./evaluation-integrity.md) for reusable claims and their boundaries.
 
 The runnable version is in [`examples/compare-optimization-methods`](../examples/compare-optimization-methods/).
 
 ## Install Official GEPA
 
-Install the bridge and the published GEPA package for the standard engine:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install \
-  "gepa==0.1.4" \
-  "litellm>=1.83.0,<1.92" \
-  "tqdm>=4.66.1" \
-  "cloudpickle>=3.0.0" \
-  "datasets>=2.14.6" \
-  "wandb"
-```
-
-Do not install `gepa[full]`; its MLflow server dependency is unpatched.
-
-Use the tested official source revision for composed recipes and the source-only engines:
-
-```sh
-python -m pip install \
-  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f" \
-  "litellm>=1.83.0,<1.92" \
-  "tqdm>=4.66.1" \
-  "cloudpickle>=3.0.0" \
-  "datasets>=2.14.6" \
-  "wandb"
-```
-
-From this repository:
+From the repository root, install the bridge and locked standard-engine dependencies:
 
 ```sh
 cd clients/python
 uv sync --frozen --group gepa-release
-uv sync --frozen --group gepa-source
+cd ../..
+export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ```
 
-The published package supports the standard `gepa` engine.
-The composed recipes below — `sequential`, `adaptive-sequential`, `best-of`, `vote`, and `omni` — need the tested official source revision.
-Move that revision only after both the release and the source compatibility tests pass.
+Use `--group gepa-source` instead of `--group gepa-release` for composed recipes and source-only engines.
+Those groups select different GEPA implementations and cannot coexist in one environment.
+Pass the Python executable as `runner.command` when configuring a method directly.
+The runnable examples read `OPTIMIZER_PYTHON` for that setting.
+See the [Python GEPA guide](../clients/python/README.md#gepa) for other installation paths and compatibility checks.
+Keep dependency revisions in the Python manifest and lock rather than copying them into integration code.
 
 ## Configure GEPA
 
@@ -393,7 +388,7 @@ const method = gepaOptimizationMethod({
     },
   },
   optimizer: {
-    model: 'gpt-4.1-mini',
+    model: optimizerModelId,
     call: optimizerExecution.call,
     callRef: optimizerExecution.callRef,
     budget: {
@@ -402,10 +397,7 @@ const method = gepaOptimizationMethod({
       maxRequestBytes: 2_000_000,
       maxResponseBytes: 2_000_000,
       maxOutputTokensPerRequest: 32_768,
-      pricing: {
-        inputUsdPerMillion: 0.4,
-        outputUsdPerMillion: 1.6,
-      },
+      pricing: optimizerTokenPricing,
     },
   },
   describeScenario: (scenario) => ({ input: scenario.input }),
@@ -413,43 +405,28 @@ const method = gepaOptimizationMethod({
 })
 ```
 
-Replace the rates with the exact rates charged by your endpoint.
+`optimizerTokenPricing` must contain the current input and output USD rates per million tokens for the selected endpoint.
 If billed USD is unknown, omit `maxCostUsd`, `pricing`, and `maxProposerCostUsd`; the recorded cost remains unknown rather than becoming a guessed zero.
 With `optimizer`, every recipe stage must use the standard `gepa` engine or a metered agent CLI engine (below).
-Agent Eval receives no provider key, enforces the declared request and token budget, and records the execution owner's exact usage and opaque finite JSON evidence.
+The optimizer proxy receives no provider key.
+It enforces the declared request and token limits and records the owner's usage and opaque finite JSON evidence.
 `maxProposerCostUsd` also limits each individual GEPA engine stage.
 
-`optimizer.call` is always caller code.
-Agent Eval owns no model transport and never receives a provider credential.
+`optimizer.call` supplies the model transport for this bridge.
+Its execution owner holds the provider credentials.
 
-On agent-runtime, use `profileOptimizerModelCall`, which executes one exact `AgentProfile` and reports profile-digest evidence:
-
-```ts
-import { profileOptimizerModelCall } from '@tangle-network/agent-runtime/kernel'
-
-const call = profileOptimizerModelCall({
-  profile: optimizerProfile,
-  context: 'prompt optimizer',
-  executor: {
-    backend: 'router',
-    routerBaseUrl: process.env.LLM_BASE_URL!,
-    routerKey: process.env.LLM_API_KEY!,
-  },
-  pricing: { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 },
-})
-```
-
-Without agent-runtime, implement `ExternalOptimizerModelCall` over the OpenAI-compatible client you already have.
-`examples/_shared/openai-compatible-owner.ts` is a complete minimal implementation to copy.
-The callback resolves with one success or failure result and never rejects, because a rejection loses the execution record and fails the optimizer attempt.
-The credential stays in your process; the proxy still enforces every budget and identity check.
+For agent-runtime, use its maintained `profileOptimizerModelCall` adapter for the selected `AgentProfile`.
+Keep runtime configuration in the execution-owning package.
+For a direct endpoint, adapt [the example execution owner](../examples/_shared/openai-compatible-owner.ts) to your transport.
+It implements `ExternalOptimizerModelCall` and returns a typed success or failure with a receipt and execution evidence.
+The callback must resolve with that outcome; rejection loses the execution record and fails the optimizer attempt.
+The optimizer proxy enforces its declared model limits around the supplied callback.
 
 ### Metered agent CLI engines
 
 The `autoresearch` and `meta_harness` engines drive a `claude` CLI subprocess.
 They ship only in the tested official source revision, not in the published `gepa` package (see [Install Official GEPA](#install-official-gepa)).
 Set `optimizer.anthropicEndpoint: true` to admit them in proxied mode.
-This path is measured live: a real `claude` CLI session completes with every tool call translated and every call metered.
 The loopback proxy then also serves `POST /v1/messages` (Anthropic Messages API) and the bridge child receives `ANTHROPIC_BASE_URL`, an ephemeral `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` in its environment.
 Every CLI call becomes one canonical execution-owner call with the same reservation, receipt, and budget pipeline as reflection traffic; the run fails if the receipt count differs from the admitted call count.
 Each agent engine run must set `engineConfig.model` to `optimizer.model`, because the engines pass `--model` and that flag beats the injected environment.
@@ -486,14 +463,14 @@ recipe: {
 
 Its external model spend remains incomplete unless that engine reports it.
 Supply provider API keys only through `runner.env`.
-An exported shell variable never reaches the bridge child.
+The child does not inherit exported provider credentials automatically.
 The spawn builds the child environment from a fixed allowlist of benign variables (PATH, HOME, locale, `PYTHONPATH`) plus `runner.env`, so the parent environment is stripped by construction.
 When `optimizer` is set, `removeCredentialEnvironment` also deletes credential-shaped keys from `runner.env`; the child then receives only the loopback proxy URL and an ephemeral key inside the input JSON.
 Do not place credentials in `engineConfig` because run settings are persisted.
 
 `describeScenario()` controls the train and selection data sent to GEPA.
 `describeArtifact()` controls the execution evidence returned after a candidate is scored.
-Neither callback can receive a final test case.
+Agent Eval calls these callbacks only for train and selection cases; caller-owned context must respect the same boundary.
 
 A direct standard GEPA run records `provenance.gepaCandidatePopulation`.
 Pass that summary to `readGepaCandidatePopulationArtifact()` to verify and read every accepted candidate, its parent indices, and its selection scores.
@@ -501,42 +478,42 @@ Use `readExternalOptimizerObservationArtifact()` for every distinct callback sub
 `provenance.evaluationCount` is the callback-metered evaluation total.
 `provenance.upstreamReportedEvaluations` is GEPA's self-reported total; a difference means upstream skipped, cached, or double-counted work.
 
-## Runtime Knobs
+## Runtime controls
 
-Each knob below has a default that works for small text campaigns and fails for agentic or slow-settling runs.
-The table names the failure so you can set the knob before the run dies mid-spend.
+Set limits for the execution path you actually use.
+Long-running dispatches and agent CLI engines can need different limits from short text evaluations.
 
-| Knob | Default | What breaks when wrong | Where to set it |
-|---|---|---|---|
-| `timeoutMs` | 30 minutes | The whole bridge process tree is killed with `GEPA bridge exceeded 1800000ms`. An agentic run (40 evaluations over 45 s each) exceeds the default mid-spend. The same value bounds each callback POST and the runtime inspect pass. | `gepaOptimizationMethod({ timeoutMs })`, `skillOptOptimizationMethod({ timeoutMs })` |
-| `dispatchShutdownTimeoutMs` | 5 seconds | A dispatch that cancels or settles paid calls slowly fails the cell with `CostAccountingIncompleteError` after the evaluations completed. | `runCampaign({ dispatchShutdownTimeoutMs })`; for comparisons, `compareOptimizationMethods` `optimizationRunOptions` |
-| `servedModelPolicy` | `'exact'` | A router that substitutes a same-family model fails every proxied reflection call with a 502 `model substitution` error. `'allow-within-family'` accepts the substitute, keeps family-level claims, and forfeits per-model claims. | `optimizer.servedModelPolicy` |
-| `reflection_lm_kwargs.num_retries` | litellm default (3) | Each failed reflection request retries 3 times inside litellm, so the proxy meters 4 request attempts per logical call and `budget.maxRequests` exhausts 4x early. Set `num_retries: 0`; the proxy already accounts each attempt. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
-| `reflection_lm_kwargs.max_tokens` | `budget.maxOutputTokensPerRequest` | Every reflection request ships the full budget cap as `max_tokens`. A provider family with a lower completion cap rejects every call. A reasoning model also needs headroom for hidden reasoning tokens. Set a value at or below the smallest family cap; it must not exceed `budget.maxOutputTokensPerRequest`. | `recipe.run.engineConfig.reflection.reflection_lm_kwargs` |
-| `maxProposerCostUsd` | unset | Without it, one engine stage can spend up to `optimizer.budget.maxCostUsd` or the campaign `costCeiling` before any limit fires. Supply it only when the execution owner can enforce billed USD. | `recipe.run.maxProposerCostUsd` |
-| `maxEvaluations` (agent engines) | required, no default | An agent engine registers one aggregate evaluation that costs the full train set of callback evaluations. A value below the train-set size rejects mid-aggregate and GEPA records the candidate as `-inf`. | `recipe.run.maxEvaluations` |
-| `budget.maxRequests` (agent engines) | required, no default | An agent CLI session makes tens of calls per engine run. A text-campaign-sized limit exhausts mid-run, and the CLI sees a terminal 402. | `optimizer.budget.maxRequests` |
-| `expectUsage` | `'assert'` | A deterministic evaluator that makes no LLM calls records zero usage, so `'assert'` fails the run as a stub. Set `'off'` only for an evaluator with no paid calls. | `selfImprove({ expectUsage })` |
+| Setting | Default | When to change it |
+|---|---|---|
+| Method `timeoutMs` | 30 minutes | Bound the entire bridge run, including slow evaluations and checkpointing. |
+| Campaign `dispatchShutdownTimeoutMs` | 5 seconds | Allow pending paid calls to settle after dispatch cancellation. |
+| `optimizer.servedModelPolicy` | `exact` | Use `allow-within-family` only when substitutions within a model family are acceptable for the claim. |
+| `reflection_lm_kwargs.num_retries` | Upstream setting | Set explicitly when bounding retry attempts in the GEPA reflection configuration. |
+| `reflection_lm_kwargs.max_tokens` | Optimizer output cap | Use a limit supported by the endpoint and sufficient for the model's reasoning and output. |
+| `recipe.run.maxProposerCostUsd` | Unset | Bound a GEPA stage separately when dollar accounting is available. |
+| `recipe.run.maxEvaluations` | Required | Allow enough candidate-case calls for each intended aggregate evaluation. |
+| `optimizer.budget.maxRequests` | Required | Bound optimizer calls; agent CLI sessions can use many calls per stage. |
+| `selfImprove({ expectUsage })` | `assert` | Set `off` only for deterministic evaluation with no paid calls. |
+
+Put reflection settings under `recipe.run.engineConfig.reflection.reflection_lm_kwargs` for a direct engine recipe.
+Model substitutions remain recorded; accepting one does not establish performance of the originally requested model.
+Request limits count calls admitted to the execution owner.
+The owner must report its internal retries and enforce their declared bounds.
 
 ## Install Official SkillOpt
 
-Install the SkillOpt source revision tested by this release:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install \
-  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
-```
-
-From this repository:
+From the repository root:
 
 ```sh
 cd clients/python
 uv sync --frozen --group skillopt-source
+cd ../..
+export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ```
 
-The published `skillopt==0.2.0` wheel omits the prompt files required by `ReflACTTrainer`.
-The tested source revision contains all 21 files.
+Add `--group gepa-source` to the same sync command when comparing both methods.
+Use the source group selected by the lock; the bridge's compatibility checks cover that implementation.
+See the [Python SkillOpt guide](../clients/python/README.md#skillopt) for package requirements and validation.
 
 `skillOptOptimizationMethod()` runs SkillOpt's official `ReflACTTrainer`.
 Agent Eval supplies an environment adapter that sends each candidate and case back to the TypeScript execution and judging path.
@@ -554,28 +531,10 @@ Missing token usage, an oversized request or response, a wrong model, streaming,
 
 ## Use Official DSPy Optimizers
 
-Do not convert a DSPy program into an `OptimizationMethod`.
-Install `agent-eval-rpc[dspy]`, create `DspyJudgeMetric`, and pass it to official DSPy:
-
-```python
-import dspy
-
-from agent_eval_rpc import DspyJudgeMetric
-
-dspy.configure_cache(restrict_pickle=True)
-metric = DspyJudgeMetric(rubric_name="answer-quality")
-gepa = dspy.GEPA(
-    metric=metric.feedback,
-    reflection_lm=dspy.LM("openai/gpt-4.1-mini"),
-    max_metric_calls=100,
-)
-mipro = dspy.MIPROv2(metric=metric, auto="light")
-```
-
-This keeps program compilation, traces, demos, and optimizer state inside DSPy.
-Agent Eval supplies the shared rubric and returns rich feedback for `dspy.GEPA`.
-DSPy 3.2.1 requires GEPA 0.0.27.
-Run it in a separate Python environment from the general GEPA bridge, which uses GEPA 0.1.4.
+Keep DSPy programs and their optimizer state inside DSPy.
+`DspyJudgeMetric` supplies Agent Eval rubric scores and feedback to official DSPy optimizers.
+Configure the judging client and use the [Python DSPy guide](../clients/python/README.md#dspy) for installation and examples.
+Use a separate environment when its GEPA dependency conflicts with the general optimizer bridge.
 
 ## Resume A Compatible Run
 
@@ -637,9 +596,10 @@ const proposer: SurfaceProposer = {
 Return a label and rationale when they will help later analysis.
 Candidate creation must not read final test results.
 
-A proposer may also attach `attribution`: one opaque, JSON-safe record the loop carries byte-for-byte onto `GenerationCandidate.attribution` and the loop provenance record.
+A proposer may attach `attribution`: an opaque JSON-safe record retained on `GenerationCandidate.attribution` and in loop provenance.
 The loop never interprets it.
-Tag it with your own schema field and validate it on readback — `PolicyEdit` candidate records (`makePolicyEditCandidateRecord` from the analyst surface) are the first producer, which is what lets a forecast in an edit be scored against the measured delta later.
+Tag it with a schema field and validate it on readback.
+`makePolicyEditCandidateRecord` from `/analyst` records an edit forecast that can later be compared with the measured change.
 
 `runOptimization()` rejects a candidate whose `surfaceHash` was already admitted.
 This includes the baseline, an earlier generation, and another candidate in the same proposal.
@@ -675,9 +635,7 @@ const result = await runOptimization({
 - Final test cases may only compare surfaces after every method finishes.
 - The same dispatch and judges score every method.
 - Missing cost remains unknown.
-- A method must declare bounded work before it starts.
-- Credentials reach a bridge child only through `runner.env`; the child never inherits the parent process environment.
+- Bound method work before it starts, including any caller-owned operations outside the ledger.
+- Bridge children inherit a small environment allowlist; pass unproxied provider credentials only through `runner.env`.
 - The metered proxy path replaces provider credentials with a loopback URL and an ephemeral key.
 - Resumed state must match every input that can change the result.
-
-These rules make method comparisons inspectable without pretending different optimizers have identical internals.

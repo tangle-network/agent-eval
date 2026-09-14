@@ -1,31 +1,31 @@
 # The experiment subpath
 
-`@tangle-network/agent-eval/experiment` turns an experiment's registration into the object that runs it.
+`@tangle-network/agent-eval/experiment` registers decision rules as data and provides interpreters bound to a verified seal.
 
-The registry of measured claims those experiments produce lives in [`evidence/`](../evidence/README.md); a sealed experiment's digest is the `experimentDigest` its registry record carries.
+The [`evidence/` registry](../evidence/README.md) stores published measurements and their experiment identities.
+Sealing does not execute an agent or publish an evidence record.
 
-## The covenant
+## What a seal enforces
 
-1. **The registered rule is the executed rule.**
-   Every rule — row admission, subset selection, estimand, interval, decision table, validity gate, halt, budget, matched budget, reissue — is a typed data node, never a closure or prose.
-   `sealExperiment` canonicalizes and hashes the whole tree into one digest.
-   Every interpreter takes only a sealed node plus evidence records.
-   No execution surface has a parameter for alpha, threshold, metric, or stopping rule, so registered-vs-ran drift is unrepresentable rather than checked.
-2. **Refusals live inside artifacts.**
-   An inadequate cluster count, a mismatched arm budget, a non-monotone funnel stage, a non-total decision table — each produces a typed verdict object (or a typed error), never a warning sentence beside a number.
-3. **A change is a re-seal.**
-   `amendExperiment` verifies the current seal, validates the new spec, and appends a `{at, reason, blind[], digest}` entry.
-   The digest history is the audit trail; changing what is decided without a new digest is impossible.
+1. `sealExperiment()` validates and hashes the specification, including its registered rules and optional claim.
+2. `openSealedExperiment()` verifies that digest and captures the rules before returning the execution handle.
+   Its decision, interval, gate, and budget methods read their rules from that captured specification.
+3. `amendExperiment()` verifies the current seal, validates the replacement specification, and records its digest, reason, time, and declared blindness.
+
+A seal verifies the current specification's identity.
+It does not authenticate registration time, amendment history, or the origin of supplied measurements.
+The host must retain evidence, invoke the required checks, and honor their refusal results.
+Calling `registered.decide()` does not automatically run admission, power, budget, or halt checks.
 
 ## The objects
 
-| object | entry point | what it closes |
+| Object | Entry point | Purpose |
 | --- | --- | --- |
-| Registered-rule AST | `src/experiment/ast.ts` (14 node families) | prose rules; every registered condition compiles to data the seal covers |
-| Define / seal / execute | `defineExperiment`, `sealExperiment`, `amendExperiment`, `openSealedExperiment` | hand-written PREREG.md files; the runner executes the sealed rule itself |
-| Cluster-aware power | `clusteredPower`, `assertDesignAdequate` | "4 clusters cannot certify any effect size, including 1.0" — learned by running the experiment, now refused before a dollar is spent |
-| Denominator chain | `buildFunnel`, `executeAdmissionRule`, `composeFunnels`, `renderFunnelTable` | hand-assembled `20 → 15 → 14 → admitted` chains, formatted differently each run |
-| Matched budgets | `verifyMatchedBudgets`, `assertMatchedBudgets` | "realized tokens must agree within 5%" verified by hand |
+| Registered rules | [Rule types](../src/experiment/ast.ts) and [`ExperimentSpec`](../src/experiment/define.ts) | Describe admission, estimation, intervals, and decisions as data. |
+| Define / seal / execute | `defineExperiment`, `sealExperiment`, `amendExperiment`, `openSealedExperiment` | Validate, identify, and execute the registered rules. |
+| Cluster-aware power | `clusteredPower`, `assertDesignAdequate` | Assess a declared effect under a simulated outcome model and cluster-count policy. |
+| Denominator chain | `buildFunnel`, `executeAdmissionRule`, `composeFunnels`, `renderFunnelTable` | Reconcile retained and excluded evidence. |
+| Matched budgets | `verifyMatchedBudgets`, `assertMatchedBudgets` | Check realized tokens against a declared tolerance. |
 
 ### Sealing and execution
 
@@ -35,14 +35,18 @@ import {
   sealExperiment,
 } from '@tangle-network/agent-eval/experiment'
 
-const sealed = await sealExperiment(spec)      // RFC 8785 + sha256 over the whole tree
-const registered = await openSealedExperiment(sealed) // verifies the digest first
+const sealed = await sealExperiment(spec)
+const registered = await openSealedExperiment(sealed)
 
-const admission = registered.admit(rows)       // funnel + survivors, from the sealed rule
+const admission = registered.admit(rows)
 const gate = registered.gate('power-floor', { kind: 'power-floor', curve })
-const halt = registered.halt([gate])           // refuse-spend fires before any contrast
-const outcome = registered.decide(quantities)  // the sealed table; non-total tables throw
+const halt = registered.halt([gate])
+if (halt.fired) throw new Error(`Experiment halted: ${halt.failedGates.join(', ')}`)
+// Compute quantities from the admitted evidence, then call registered.decide(quantities).
 ```
+
+This fragment assumes `spec` registers admission, the named gate, and a halt rule.
+Malformed specifications and unusable evidence throw typed errors; decision and validity refusals remain in returned artifacts.
 
 Cluster intervals register both `clusterBy` and `value` inside the sealed `IntervalSpec`.
 Call `registered.interval('gain95', { kind: 'rows', rows })` to apply those fields.
@@ -76,25 +80,32 @@ Use `buildAgentProfileCell()` and `attest()` to produce current identities from 
 Never relabel an existing digest or reconstruct a provenance envelope from unverified metadata.
 A new digest cannot establish that a registration existed before its evidence was observed.
 
-`openSealedExperiment` is the only execution surface.
-A rule that is not in the sealed spec cannot run; a rule that is cannot run differently.
+Use the opened handle when the result must follow a particular registration.
+Direct helpers such as `computeInterval()` and `executeDecisionRule()` also accept unsealed rules for development.
+They do not establish a link to a registered experiment.
 
 ### Cluster-aware power refusal
 
-Two floors, one simulation:
+`clusteredPower()` combines a cluster-count policy with a simulated power curve:
 
-- **Closed form, zero spend.** With `C` independent clusters, the exact whole-cluster sign-flip test can never produce a two-sided p below `2^(1-C)`.
-  Four clusters give 0.125 and three give 0.25 — both above alpha 0.05, so those designs are refused at any effect size.
-  Six clusters is the smallest certifiable count at 0.05.
-- **Seeded simulation.** Per-row paired contrasts are drawn under a registered effect model (base win/loss rates, optional noisy clusters), each trial takes a whole-cluster percentile bootstrap, and power is the fraction of trials whose interval excludes zero.
+- The exact whole-cluster sign-flip test has a minimum two-sided p-value of `2^(1-C)` for `C` independent clusters.
+  At alpha 0.05, this policy requires at least six clusters; four give 0.125 and three give 0.25.
+- Seeded simulations draw paired contrasts under the configured win/loss model and apply a whole-cluster percentile bootstrap.
+  Power is the fraction of simulated intervals that exclude zero.
+
+The six-cluster floor is a policy for this helper, not a universal requirement for every estimator or fixed-roster evaluation.
+The helper computes both results; it does not skip simulation when the cluster-count policy fails.
 
 The refusal is a verdict inside the returned artifact (`result.refusal`), with `assertDesignAdequate` as the throwing form.
 Both `clusteredPower` and the registered `power-floor` gate require `minimumEffect`.
+The gate evaluates a supplied curve; it does not run the simulation itself.
 The effect must appear exactly in the supplied grid; the API does not interpolate.
 Adequacy requires target power at that effect.
 `maxPower` describes the grid and cannot establish adequacy at a smaller effect.
 
 ```ts
+import { assertDesignAdequate, clusteredPower } from '@tangle-network/agent-eval/experiment'
+
 const power = clusteredPower({
   clusterSizes: Array.from({ length: 24 }, () => 3),
   effects: [0.05, 0.1, 0.2],
@@ -115,23 +126,32 @@ The [statistical evidence guide](./statistical-evidence.md) explains unit counts
 ### The funnel
 
 `buildFunnel` refuses a stage that gains rows, named exclusions that do not sum, and partitions that overdraw their source stage.
-`executeAdmissionRule` runs a sealed admission rule over rows and returns the funnel, the survivors, and the partition rows in one object — the chain and the rows can never disagree.
-Partitions carry `pooling: 'never'`: a secondary set is reported beside the primary chain and cannot be pooled into it.
+`registered.admit(rows)` applies the sealed admission rule and returns the funnel, survivors, and partition rows together.
+The standalone `executeAdmissionRule(rule, rows)` also accepts an unsealed rule.
+Partitions carry `pooling: 'never'`: report each secondary set separately from the primary chain.
 The object is its own JSON render; `renderFunnelTable` prints the text table with the reconciliation line (`input = surviving + excluded`).
 
 ### Matched budgets
 
 `verifyMatchedBudgets` compares realized per-arm tokens under the registered tolerance and returns a verdict whose `refusal` field carries `onFail: 'refuse-contrast'` when arms diverge.
-A contrast between arms that spent differently is not a contrast; the refusal is the artifact that says so.
+Use this check when the claim requires matched token use.
+An unequal-budget comparison answers a different question and must retain the resource difference in its interpretation.
 
 ## Acceptance: the three preregistrations
 
-The module's acceptance suite (`tests/experiment/preregistration-acceptance.test.ts`) re-derives the week's three hand-written preregistrations as sealed specs and reproduces each recorded decision by executing the sealed rules against the recorded evidence:
+The [acceptance suite](../tests/experiment/preregistration-acceptance.test.ts) encodes three historical preregistrations as sealed specifications.
+It checks their recorded decisions against fixed evidence:
 
-- **killtest-20260810** — all four validity gates fail on the recorded evidence (the rep-4 oracle flip, the 2-row population drift, the zero-call control, the 0.692 power ceiling) and the halt rule refuses the spend, matching the recorded `$0.00, contrast never run`.
+- **killtest-20260810**: all four validity gates fail on the recorded evidence.
+  The failures are the rep-4 oracle flip, 2-row population drift, zero-call control, and 0.692 power ceiling.
+  The halt rule refuses spend, matching the recorded `$0.00, contrast never run`.
   The obligation node routes a positive interval without the registered control to `blocked-pending-registered-control`, never to `thesis-survives`.
-- **freelunch-20260810** — the admission funnel reproduces the recorded `48 > 43 > 35 > 35 > 32` chain with the 3-row secondary partition; the uniform-pass budget reproduces the recorded uniform n=2; the amendment-6 ledger under the same sealed rule refuses pass 2 — the registered-vs-ran divergence the seal makes unrepresentable; the report-only decision reproduces `3/64` and `2/32`.
-- **tbench-20260808 milestone 2** — the round-robin selection reproduces the recorded 20-row subset in pick order; the m3 subset filters the SEALED m2 draw (16 rows); the decision table on the recorded interval reproduces `not-certified-at-this-n`.
+- **freelunch-20260810**: the admission funnel reproduces `48 > 43 > 35 > 35 > 32` with the 3-row secondary partition.
+  The uniform-pass budget reproduces uniform n=2; the amendment-6 ledger under the same sealed rule refuses pass 2.
+  The report-only decision reproduces `3/64` and `2/32`.
+- **tbench-20260808 milestone 2**: round-robin selection reproduces the recorded 20-row subset in pick order.
+  The m3 subset filters the sealed m2 draw to 16 rows.
+  The decision table on the recorded interval reproduces `not-certified-at-this-n`.
 
 ## What is composed, not duplicated
 
@@ -139,7 +159,7 @@ The statistical machinery underneath is re-exported from its existing homes; thi
 
 | family | home |
 | --- | --- |
-| `pairedBootstrap`, `mcnemar`/`mcnemarPower`/`mcnemarRequiredN`, `pairedRiskDifference*`, `holm`, `benjaminiHochberg`, `eProcess`, `wilson`, `mulberry32`, sample-size helpers | `src/statistics.ts` |
+| `pairedBootstrap`, `mcnemar`/`mcnemarPower`/`mcnemarRequiredN`, `pairedRiskDifference*`, `holm`, `benjaminiHochberg`, `eProcess`, `wilson`, `mulberry32`, sample-size helpers | [`src/statistics/index.ts`](../src/statistics/index.ts) |
 | `pairedEvalueSequence` (anytime-valid) | `src/sequential.ts` |
 | `powerPreflight` (variance-based MDE refusal) | `src/campaign/gates/power-preflight.ts` |
 | `sequentialPairedGate`, `sequentialDecide` (manifest-bound) | `src/campaign/gates/sequential.ts` |
@@ -154,5 +174,5 @@ The trace-repair admission machinery (`buildDenominatorChain`, oracle determinis
 
 ## Where this sits
 
-This is Wave 2 of the [charter](./charter.md): the experiment subpath, built after the kill test that re-derived the three preregistrations as decision-rule objects (verdict: extended — ten node families beyond the seed AST, no opaque node, no rule dropped).
-Wave 3 wires these objects to the live-sandbox seam; the improvement receipt (Wave 4) serializes a sealed experiment's digest, gates, and refusal outcomes into one attested file.
+The [charter](./charter.md) describes current package ownership and host responsibilities.
+Use [evaluation claims and final evidence](./evaluation-integrity.md) when connecting a registration to an automated improvement workflow.

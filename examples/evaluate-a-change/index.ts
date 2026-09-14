@@ -1,13 +1,13 @@
 /**
  * The smallest complete evaluation: one surface, one judge, two scores.
  *
- * Run with: pnpm tsx examples/evaluate-a-change/index.ts
+ * Run after building: pnpm exec tsx examples/evaluate-a-change/index.ts
  *
  * Everything here is offline. Replace `agent` with your product call and
  * `judge` with your real scoring function to point this at production.
  */
 
-import { defineAgentEval } from '../../src/contract'
+import { defineAgentEval } from '@tangle-network/agent-eval/contract'
 
 interface SupportCase {
   id: string
@@ -40,5 +40,5 @@ const candidate = await evalKit.evaluate({
   surface: 'Answer politely and cite the ticket id.',
 })
 
-console.log('baseline: ', baseline.aggregates.byJudge)
-console.log('candidate:', candidate.aggregates.byJudge)
+console.log('baseline:', baseline.aggregates.byJudge['ticket-id']?.mean)
+console.log('candidate:', candidate.aggregates.byJudge['ticket-id']?.mean)

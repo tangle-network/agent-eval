@@ -31,7 +31,7 @@ The stack context matters only if you adopt more of it later.
 ## The dependency rule
 
 This section is the public rationale.
-The enforceable maintainer rule lives in [`CLAUDE.md`](../CLAUDE.md#repo-layering--this-package-is-the-substrate).
+The enforceable maintainer rule lives in [`CLAUDE.md`](../CLAUDE.md#dependency-and-evidence-boundaries).
 
 **`agent-eval` has zero upward dependencies on a consumer.**
 This is what keeps the package reusable outside our own stack: nothing in here imports from `agent-runtime`, `agent-knowledge`, or `sandbox`, whether at runtime, in development dependencies, or as type-only imports.

@@ -13,6 +13,8 @@ It records outputs, failures, costs, and evidence for each comparison.
 
 ## Install
 
+Use Node.js 20.19 or newer.
+
 ```sh
 pnpm add @tangle-network/agent-eval
 ```
@@ -20,7 +22,7 @@ pnpm add @tangle-network/agent-eval
 ## Quickstart
 
 This complete example runs offline.
-Replace the agent and judge with your product functions when it works.
+Save it as `eval.mts`.
 
 ```ts
 import { defineAgentEval } from '@tangle-network/agent-eval/contract'
@@ -50,11 +52,25 @@ const evalKit = defineAgentEval<SupportCase, string>({
   expectUsage: 'off',
 })
 
-console.log((await evalKit.evaluate()).aggregates.byJudge)
-console.log(
-  (await evalKit.evaluate({ surface: 'Answer politely and cite the ticket id.' })).aggregates
-    .byJudge,
-)
+const baseline = await evalKit.evaluate()
+const candidate = await evalKit.evaluate({
+  surface: 'Answer politely and cite the ticket id.',
+})
+
+console.log('baseline:', baseline.aggregates.byJudge['ticket-id']?.mean)
+console.log('candidate:', candidate.aggregates.byJudge['ticket-id']?.mean)
+```
+
+Run it with a TypeScript runner:
+
+```sh
+pnpm add --save-dev tsx
+pnpm exec tsx eval.mts
+```
+
+```text
+baseline: 0
+candidate: 1
 ```
 
 The baseline scores `0`; the candidate scores `1` on all three cases.
@@ -66,8 +82,9 @@ A **surface** is the prompt, skill, or configuration being changed.
 A **judge** scores the agent's result.
 
 `expectUsage: 'off'` applies because this example makes no paid calls.
-Keep the default, `'assert'`, for model calls so missing cost receipts fail visibly.
+Set `expectUsage: 'assert'` for paid agents so missing dispatch receipts become execution failures.
 The [runnable example](./examples/evaluate-a-change/) uses the same evaluation.
+The [existing-agent example](./examples/foreign-agent-quickstart/) shows how to connect your agent and record model usage.
 
 ## Choose a workflow
 
@@ -164,29 +181,17 @@ The [benchmark-book review](./docs/design/mlbenchmarks-book-review.md) records t
 
 ```sh
 pnpm install
+pnpm build
 pnpm typecheck
 pnpm typecheck:examples
 pnpm typecheck:scripts
+pnpm lint
 pnpm test
-pnpm build
 pnpm verify:package
 ```
 
-Python compatibility tests use the locked dependencies:
-
-```sh
-cd clients/python
-uv sync --frozen --extra dev --group gepa-release
-AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
-  uv run --frozen --extra dev --group gepa-release \
-  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
-
-uv sync --frozen --extra dev --group skillopt-source --group gepa-source
-uv run --frozen pytest
-
-uv sync --frozen --extra dev --extra dspy
-uv run --frozen pytest tests/test_dspy_metric.py
-```
+Build before checking examples because they resolve the package's generated declarations.
+The [Python development guide](./clients/python/README.md#development) gives the locked commands for each optimizer environment.
 
 ## License
 

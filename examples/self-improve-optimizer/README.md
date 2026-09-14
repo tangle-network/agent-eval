@@ -1,98 +1,95 @@
-# Improve One Prompt With Official GEPA
+# Improve one prompt with GEPA
 
-This example calls `selfImprove()` with a `gepaOptimizationMethod()` method.
-One call runs the complete path: GEPA searches on train and selection partitions, Agent Eval re-scores the selected prompt on a held-out split GEPA never received, and the promotion gate returns a release decision.
+This example calls `selfImprove()` with `gepaOptimizationMethod()` to search a transaction-extraction prompt.
+GEPA receives separate train and selection partitions.
+Agent Eval evaluates its selected prompt on four final cases and returns a gate decision.
+The field-matching judge is deterministic; worker and reflection calls use a paid model endpoint.
 
-## When To Use It
-
-Use this path when one surface must get better and you want the search, the held-out re-score, and the release decision in one call.
-Use [`compare-optimization-methods`](../compare-optimization-methods/) instead when two or more optimizers must be benchmarked against each other at equal budget.
-Use [`selfimprove-quickstart`](../selfimprove-quickstart/) when your own code generates the candidates.
+Use [the local quickstart](../selfimprove-quickstart/) to try the flow without credentials or paid calls.
+Use [the method comparison](../compare-optimization-methods/) to compare multiple search procedures.
 
 ## Install
 
-Install the Node dependencies from the repository root:
+Run these commands from the repository root with Node, pnpm, Python, and uv installed:
 
 ```sh
-pnpm install
-```
-
-Install the Python bridge and the published GEPA package:
-
-```sh
-python -m pip install agent-eval-rpc
-python -m pip install \
-  "gepa==0.1.4" \
-  "litellm>=1.83.0,<1.92" \
-  "tqdm>=4.66.1" \
-  "cloudpickle>=3.0.0" \
-  "datasets>=2.14.6" \
-  "wandb"
-```
-
-Do not install `gepa[full]`; its MLflow server dependency is unpatched.
-
-From this repository, the locked equivalent is:
-
-```sh
+pnpm install --frozen-lockfile
 cd clients/python
 uv sync --frozen --group gepa-release
 cd ../..
 export OPTIMIZER_PYTHON="$PWD/clients/python/.venv/bin/python"
 ```
 
-## Run
+This installs the bridge from the checkout and the locked GEPA dependencies.
+The standard engine used here works with the published GEPA package.
+See the [Python guide](../../clients/python/README.md) for other environments and supported versions.
+
+## Configure and run
+
+Export the endpoint, key, worker model, and reflection token rates before running the script.
+Use a Chat Completions endpoint that accepts this example's request fields and returns model identity and complete token usage.
+Its base URL should end at the API prefix, such as `/v1`.
+Select a model your endpoint serves; the script's default is listed below.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_BASE_URL` | required | Endpoint used by worker and reflection calls. |
+| `LLM_API_KEY` | required | Key for that endpoint. |
+| `LLM_MODEL` | `deepseek-v4-flash` | Worker model. |
+| `GEPA_MODEL` | `LLM_MODEL` | Reflection model. |
+| `PRICE_IN_PER_M`, `PRICE_OUT_PER_M` | package pricing | Worker input/output USD rates per million tokens; set both for an unlisted model or endpoint-specific prices. |
+| `PRICE_CACHED_IN_PER_M`, `PRICE_CACHE_WRITE_IN_PER_M` | worker input rate | Optional worker cache-read and cache-write rates; require both worker input/output rates. |
+| `GEPA_PRICE_IN_PER_M`, `GEPA_PRICE_OUT_PER_M` | required | Current reflection input/output USD rates per million tokens. |
+| `LLM_MAX_TOKENS` | `400` | Output limit per worker call. |
+| `CALL_TIMEOUT_MS` | `30000` | Worker and reflection owner timeout per call. |
+| `GEPA_MAX_EVALUATIONS` | `12` | Maximum candidate-case evaluations during search. |
+| `GEPA_MAX_PROPOSER_COST_USD` | `2` | Reflection spend limit for the GEPA stage. |
+| `MAX_TOTAL_COST_USD` | `10` | Shared limit for search and final evaluation calls admitted through the ledger. |
+| `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and GEPA. |
 
 ```sh
-LLM_BASE_URL=https://router.tangle.tools/v1 \
-LLM_API_KEY="$TANGLE_API_KEY" \
-GEPA_PRICE_IN_PER_M=0.4 \
-GEPA_PRICE_OUT_PER_M=1.6 \
-pnpm tsx examples/self-improve-optimizer/index.ts
+pnpm exec tsx examples/self-improve-optimizer/index.ts
 ```
 
-Any OpenAI-compatible endpoint works; set `LLM_MODEL` to a model that endpoint serves.
-Replace the two rates with the exact rates charged by your endpoint.
-The script validates every required variable before it makes a paid call.
+The script validates required environment values before search.
+Provider compatibility, installed Python capabilities, and returned usage are checked on their execution paths.
+For reasoning models, increase `LLM_MAX_TOKENS` enough to include reasoning and final JSON output.
 
-## Why It Is Built This Way
+The [shared budget helper](../_shared/optimizer-model-budget.ts) also accepts `GEPA_MAX_MODEL_REQUESTS` and `GEPA_MAX_MODEL_COST_USD`.
+It exposes byte limits, token limits, timeouts, and separate cache rates.
+The reflection model budget defaults to the stage spend limit.
 
-- The ten cases live inline in `index.ts`; `selfImprove()` derives every partition from that one list, so GEPA can never see the held-out cases.
-- The example execution owner (`_shared/openai-compatible-owner.ts`) supplies the metered model call GEPA reflection runs through; the provider key never reaches Agent Eval or the Python child, and each reflection call is metered against the declared budget.
-- The judge is deterministic field matching, so a score change traces to prompt content, not judge noise.
-- `budget.generations` stays unset because the external method owns its rounds.
-- `assertRealBackend` fails the run when any cell lacks a real backend receipt.
+## Understand the data and cost
 
-## Cost
+Ten inline cases feed every partition: four final cases and six cases divided between train and selection.
+`selfImprove()` does not pass final cases to the optimizer's callbacks.
+Keep them out of callback closures, shared files, and external optimizer memory when adapting this code.
+These APIs do not provide process or filesystem isolation.
 
-A default run makes roughly 20 to 40 worker calls and up to 12 GEPA candidate evaluations plus reflection calls.
-With a flash-tier model at the example rates, expect $0.10 to $0.50.
-Hard limits: `MAX_TOTAL_COST_USD` (default 10) caps the whole run and `GEPA_MAX_PROPOSER_COST_USD` (default 2) caps reflection spend.
+The worker dispatch and reflection owner record model usage and cost receipts.
+Provider-reported billed cost takes precedence when present; otherwise configured or package token prices produce estimates.
+Worker pricing also reserves the maximum charge before a capped call starts.
+An unlisted worker model therefore needs `PRICE_IN_PER_M` and `PRICE_OUT_PER_M`, even when its provider later reports billed cost.
+Actual call counts and spend depend on optimizer behavior, retries, and token usage.
+The limits above are ceilings, not expected costs.
+The selected prompt is evaluated only after search finishes.
 
-## Read The Result
+The script checks captured worker receipts with `assertRealBackend(records, { allowMixed: false })`.
+That check establishes the identity of recorded worker execution; it does not validate a model's task quality.
+The provider key stays in the example's execution owner rather than being passed to the metered Python optimizer.
 
-The script prints the gate decision, the held-out baseline and winner composites, the lift, the total spend, and the baseline-to-winner diff.
-Method results use `mode: 'method'`; search evidence is in `raw.method` and optional `searchHistory`.
-They do not contain native `raw.generations` or `generationsExplored`.
-With deferred holdout, baseline and winner scores are `null` and no lift exists.
-Four held-out cases are wiring-scale, not statistical evidence: a `need_more_work` decision at this size is the gate refusing to claim significance, not a failure.
-Grow the case list and set `budget.reps` above 1 before treating the decision as a production threshold.
+## Read the result
 
-## Controls
+The script prints the gate decision, final baseline and selected scores, lift, cost, and prompt diff.
+Method results use `mode: 'method'`.
+Search evidence lives in `raw.method` and optional `searchHistory`; method results have no native generation count.
+A selected surface remains in `winner.surface` even when it is unchanged, worse on final cases, or held by the gate.
 
-| Variable | Default | Meaning |
-|---|---:|---|
-| `LLM_API_KEY` | required | Key for the worker and optimizer endpoint. |
-| `LLM_BASE_URL` | required | OpenAI-compatible endpoint. |
-| `LLM_MODEL` | `deepseek-v4-flash` | Worker model. |
-| `LLM_MAX_TOKENS` | `400` | Output cap per worker call; raise it for reasoning models. |
-| `GEPA_MODEL` | `LLM_MODEL` | Reflection model. |
-| `GEPA_PRICE_IN_PER_M` | required | Exact input rate per million tokens. |
-| `GEPA_PRICE_OUT_PER_M` | required | Exact output rate per million tokens. |
-| `GEPA_MAX_EVALUATIONS` | `12` | Maximum GEPA candidate-case calls. Keep it at or above the train partition size. |
-| `GEPA_MAX_PROPOSER_COST_USD` | `2` | Maximum reflection spend. |
-| `MAX_TOTAL_COST_USD` | `10` | Hard cap across the whole run. |
-| `OPTIMIZER_PYTHON` | `python` | Python executable containing the bridge and GEPA. |
-| `CALL_TIMEOUT_MS` | `30000` | Per-call timeout. |
+Four final cases demonstrate integration and cannot support a broad claim that GEPA improves future tasks.
+A `hold` decision can reflect insufficient evidence; inspect gate contributions before diagnosing a failure.
+Add representative independent cases and calibrate the judge before using this example for release decisions.
+Use repetitions to estimate variation on those cases, without counting them as new tasks.
 
-The complete implementation is [`index.ts`](./index.ts).
+See [campaign proposers](../../docs/campaign-proposers.md) for method contracts, costs, and optional final-evidence controls.
+The complete implementation is [index.ts](./index.ts).
+For an installed package, import `selfImprove` from `/contract` and `gepaOptimizationMethod` from `/campaign` under `@tangle-network/agent-eval`.

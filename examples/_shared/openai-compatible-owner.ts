@@ -1,7 +1,7 @@
 /**
  * Caller-owned execution for the metered optimizer-model path.
  *
- * Agent Eval never executes a paid model. Its loopback proxy owns admission,
+ * The optimizer bridge delegates model execution. Its loopback proxy owns admission,
  * budgets, identity checks, response bounds, and cost-ledger recording, then
  * hands the exact admitted request to the package that owns execution. A
  * product built on agent-runtime supplies `profileOptimizerModelCall`, which
@@ -9,7 +9,7 @@
  *
  * This file is the minimal transport for a caller who has only an
  * OpenAI-compatible `/chat/completions` endpoint. It is example code on
- * purpose: the credential lives with the caller, not inside the package.
+ * purpose: the caller supplies the credential to this execution owner.
  * Copy it into your own project and replace the transport with whatever
  * client you already use. It exposes the same endpoint two ways — as the
  * `ChatClient` every Agent Eval judge and worker takes, and as the

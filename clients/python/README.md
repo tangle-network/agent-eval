@@ -6,7 +6,7 @@ The Node package owns rubric execution, model calls, and scoring.
 
 ## Install
 
-Python 3.10 or newer and Node.js 20 or newer are required.
+Python 3.10 or newer and Node.js 20.19 or newer are required.
 Install matching package versions:
 
 ```sh
@@ -19,15 +19,17 @@ Configure an OpenAI-compatible model endpoint for judge calls:
 ```sh
 export AGENT_EVAL_LLM_BASE_URL=https://api.openai.com/v1
 export AGENT_EVAL_LLM_API_KEY="$YOUR_API_KEY"
-export AGENT_EVAL_LLM_MODEL=gpt-4.1-mini
+export AGENT_EVAL_LLM_MODEL="$YOUR_MODEL_ID"
 ```
 
 `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` are also accepted.
 The endpoint receives the content, rubric, and context passed to `client.judge()`.
 
-The `agent-eval` binary is the only part of the package that reads a provider credential.
-It is a server process, so it configures its own endpoint the way every server does; the TypeScript library holds no key and executes no paid model.
-Without both a base URL and a key, `judge()` fails with `llm_not_configured` instead of calling an unintended endpoint.
+The CLI resolves provider settings from environment variables.
+An `OPENAI_API_KEY` or `TANGLE_API_KEY` can select that provider's default endpoint.
+Set `AGENT_EVAL_LLM_BASE_URL` and `AGENT_EVAL_LLM_API_KEY` to make the route explicit.
+TypeScript callers supply their transport, endpoint, and credentials directly.
+Without a resolved endpoint and credential, `judge()` fails with `llm_not_configured`.
 
 ## Judge Content
 
@@ -102,11 +104,11 @@ for rubric in Client().list_rubrics().rubrics:
 ## Client Options
 
 ```python
-Client(
-    base_url: str | None = None,
-    cli_path: str | None = None,
-    transport: "auto" | "http" | "subprocess" = "auto",
-    timeout_s: float = 200.0,
+client = Client(
+    base_url="http://127.0.0.1:5005",
+    cli_path="agent-eval",
+    transport="auto",
+    timeout_s=200.0,
 )
 ```
 
@@ -178,10 +180,11 @@ python -m pip install \
   "wandb"
 ```
 
-From an Agent Eval source checkout:
+From `clients/python` in an Agent Eval source checkout, choose the required environment:
 
 ```sh
 uv sync --frozen --group gepa-release
+# For source-only engines or compositions, use this instead:
 uv sync --frozen --group gepa-source
 ```
 
@@ -214,7 +217,7 @@ python -m pip install \
   "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
-From an Agent Eval source checkout, install the locked package with:
+From `clients/python` in an Agent Eval source checkout, install the locked package with:
 
 ```sh
 uv sync --frozen --group skillopt-source
@@ -248,6 +251,8 @@ python -m pip install "agent-eval-rpc[dspy]"
 ```
 
 ```python
+import os
+
 import dspy
 
 from agent_eval_rpc import DspyJudgeMetric
@@ -257,7 +262,7 @@ metric = DspyJudgeMetric(rubric_name="answer-quality")
 
 gepa = dspy.GEPA(
     metric=metric.feedback,
-    reflection_lm=dspy.LM("openai/gpt-4.1-mini"),
+    reflection_lm=dspy.LM(os.environ["DSPY_REFLECTION_MODEL"]),
     max_metric_calls=100,
 )
 optimized = gepa.compile(program, trainset=train, valset=selection)
@@ -265,6 +270,7 @@ optimized = gepa.compile(program, trainset=train, valset=selection)
 mipro = dspy.MIPROv2(metric=metric, auto="light")
 ```
 
+Set `DSPY_REFLECTION_MODEL` to your configured DSPy model identifier, including its provider prefix.
 Use `metric.feedback` for `dspy.GEPA`.
 It returns `dspy.Prediction(score=..., feedback=...)` with dimension scores, failure modes, wins, and rationale.
 Use the metric object directly for MIPROv2, SIMBA, bootstrap, and evaluation APIs that expect a number.
@@ -301,17 +307,12 @@ import { analyzeTraces } from '@tangle-network/agent-eval/traces'
 
 type ModelOwner = Pick<
   DspyRlmTraceEngineOptions,
-  'call' | 'callRef' | 'recordExecution'
+  'call' | 'callRef' | 'recordExecution' | 'model' | 'pricing'
 >
 
 export async function analyzeRun(modelOwner: ModelOwner) {
   const engine = createDspyRlmTraceEngine({
     ...modelOwner,
-    model: 'deepseek-v4-flash',
-    pricing: {
-      inputUsdPerMillion: 3,
-      outputUsdPerMillion: 15,
-    },
     runner: { command: '.venv/bin/python' },
   })
 
@@ -324,21 +325,9 @@ export async function analyzeRun(modelOwner: ModelOwner) {
 
 See [Trace Analysis](../../docs/trace-analysis.md) for custom definitions, limits, result fields, and the public quality benchmark.
 
-DSPy 3.2.1 pins GEPA 0.0.27.
-The general Optimize Anything bridge uses GEPA 0.1.4, so repository checks install them in separate environments:
-
-```sh
-uv sync --frozen --extra dev --group gepa-release
-AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
-  uv run --frozen --extra dev --group gepa-release \
-  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
-
-uv sync --frozen --extra dev --group skillopt-source --group gepa-source
-uv run --frozen pytest
-
-uv sync --frozen --extra dev --extra dspy
-uv run --frozen pytest tests/test_dspy_metric.py
-```
+The caller supplies the model identifier and endpoint rates with its execution callbacks.
+DSPy and the Optimize Anything bridge require different GEPA versions.
+The [development commands](#development) select each locked environment separately.
 
 The bridge records the installed upstream package version and source revision with each run.
 SkillOpt and a direct GEPA engine can restore official state only when the package revision, settings, starting candidate, described data, evaluation ID, and seed match.
@@ -372,19 +361,29 @@ print(version.version, version.wire_version)
 
 ## Development
 
-```sh
-cd clients/python
-pip install -e ".[dev]"
-pytest
-```
-
-Run the cross-language tests after building the Node package:
+From the repository root, build Node before running cross-language tests:
 
 ```sh
-cd ../..
+pnpm install --frozen-lockfile
 pnpm build
 cd clients/python
-pytest
 ```
 
+Run each compatibility suite with its locked dependencies:
+
+```sh
+uv sync --frozen --extra dev --group gepa-release
+AGENT_EVAL_EXPECT_GEPA_RELEASE=1 \
+  uv run --frozen --extra dev --group gepa-release \
+  pytest tests/test_gepa_release_compatibility.py tests/test_gepa_bridge.py
+
+uv sync --frozen --extra dev --group skillopt-source --group gepa-source
+uv run --frozen --extra dev --group skillopt-source --group gepa-source pytest
+
+uv sync --frozen --extra dev --extra dspy
+uv run --frozen --extra dev --extra dspy pytest tests/test_dspy_metric.py
+```
+
+Keep the same extras and groups on `uv sync` and `uv run`.
+Each `uv sync` switches the local environment to that optimizer's required dependency set.
 The runnable Python example is [`examples/judge_anti_slop.py`](./examples/judge_anti_slop.py).

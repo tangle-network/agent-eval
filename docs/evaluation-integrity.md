@@ -9,7 +9,7 @@ The package separates three questions:
 | Question | Evidence | Public entry |
 | --- | --- | --- |
 | Did this change help on these cases? | Paired scores, failures, cost, and case coverage. | `defineAgentEval()` or `selfImprove()` from `/contract`. |
-| Does the improvement extend to new tasks? | Representative independent tasks, a declared effect, and an appropriate comparison. | Optional `claim` on campaign comparisons; registered rules from `/experiment`. |
+| Does the improvement extend to new tasks? | Representative independent tasks and an appropriate comparison; a useful effect when making an improvement decision. | Optional `claim` on campaign comparisons; registered rules from `/experiment`. |
 | Can fresh final evidence support this adaptive decision? | A frozen comparison, retained access boundaries, and a durable exposure record. | Optional `finalEvidence` on the same comparison. |
 
 These controls reuse the existing execution path, paired estimators, sealed experiments, and locked journal.
@@ -36,7 +36,8 @@ const claim = defineEvaluationClaim({
 Pass `claim` to `selfImprove()`, `runImprovementLoop()`, or `compareOptimizationMethods()`.
 It remains independent of final-evidence storage.
 `minimumEffect` is optional because development reports and absolute-rate measurements need not test an improvement threshold.
-When omitted, each existing comparison keeps its documented decision threshold.
+When omitted, the default `selfImprove()` gate uses a 0.05 gain threshold; method comparison uses 0.
+Custom gates choose their own thresholds.
 
 `independentUnit` names a field path in each scenario or evidence row.
 Variants from one incident must carry the same source identity.
@@ -48,7 +49,8 @@ The default self-improvement gate averages paired cells within registered units.
 Method comparison first averages repetitions within each scenario, then averages scenarios within each source unit.
 It weights source units equally.
 Results retain `scenarioScores`, `unitScores`, `units`, and `pairedCellN` so callers can inspect each denominator.
-Custom gates receive the same measured evidence and remain responsible for their own decision rules.
+Custom improvement gates receive raw cell scores and scenarios.
+Pass the claim into your gate's configuration and apply its grouping and decision rules there.
 
 `fixed-roster` describes the specified cases.
 Repeated executions can measure execution variability on that roster.
@@ -60,7 +62,9 @@ Claim metadata records the intended scope; it does not authenticate sampling or 
 There is no universal task count that proves an improvement.
 The effect, outcome type, dependence, confidence level, and decision procedure determine what the evidence supports.
 
-Paired binary decisions use the shared score interval and exact discordance check.
+Paired binary decisions use the shared score interval.
+At nonnegative gain thresholds, the exact discordance check can also veto promotion.
+Negative thresholds ask whether a regression stays within a tolerance and do not use that veto.
 A sufficiently large binary gain can pass with fewer than 20 independent pairs.
 Continuous mean decisions require the existing bootstrap path's 20-pair eligibility threshold.
 That implementation threshold does not establish adequate power or guarantee interval coverage for every distribution.
@@ -71,8 +75,9 @@ Method rankings describe observed lift.
 Each score and pairwise contrast retains its full `decision`, including the estimator, threshold, minimum, and sufficiency.
 An inconclusive gate leaves the selected candidate available for further development or a narrower evaluation.
 
-Use `clusteredPower()` or a registered `power-floor` gate before an expensive population-level comparison.
-Both assess power at the declared `minimumEffect`.
+For a design that matches its outcome model, `clusteredPower()` simulates power at the declared `minimumEffect`.
+A registered `power-floor` gate checks a supplied power curve against its minimum effect and target power.
+These optional design checks do not run automatically when you pass a `claim`.
 High power at a much larger effect cannot substitute for power at the improvement that matters.
 
 ## Opt into fresh final evidence
@@ -143,7 +148,7 @@ const interval = {
 // Then execute registered.interval('lift', { kind: 'rows', rows }).
 ```
 
-New-unit claims reject intervals that resample a different field.
+For new-unit claims, each cluster interval's `clusterBy` must equal `claim.independentUnit`.
 Registered binomial intervals require one unique `unitId` per trial for new-unit claims.
 Opened seals capture validated rules before asynchronous execution.
 Caller mutation cannot change the opened experiment's rules.
@@ -157,6 +162,7 @@ See [registered experiments](./experiment.md) for the complete rule language.
 Use `auditEvaluator()` from `/meta-eval` when admitting a new checker or model judge.
 Provide actual judgments of independently verified good and bad controls.
 Each observation names its source unit, evidence reference, expected decision, observed decision, and development exposure.
+This audit is separate from `selfImprove()`; the caller decides whether to require admission before search or release.
 
 The audit measures false acceptance and false rejection separately.
 A source unit fails a class when any variant in that class is misjudged.

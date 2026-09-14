@@ -1433,27 +1433,29 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
     )
   })
 
-  function failureRegistry(): AnalystRegistry {
+  function failureRegistry(
+    areas: (run: RunRecord) => readonly string[] = () => ['timeout'],
+  ): AnalystRegistry {
     const registry = new AnalystRegistry()
     registry.register({
       id: 'failure-classifier',
-      description: 'tags every failed run with a timeout finding',
+      description: 'classifies failed runs for report aggregation',
       inputKind: 'run-record',
       cost: { kind: 'deterministic' },
       version: '1',
       analyze: async (input) => {
         const run = input as RunRecord
-        return [
+        return areas(run).map((area, index) =>
           makeFinding({
             analyst_id: 'failure-classifier',
             severity: 'major',
-            area: 'timeout',
-            claim: `run ${run.runId} timed out`,
+            area,
+            claim: `run ${run.runId}: ${area} finding ${index}`,
             evidence_refs: [],
             confidence: 1,
             subject: run.runId,
           }),
-        ]
+        )
       },
     })
     return registry
@@ -1473,6 +1475,72 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
     expect(cluster.id).toBe('timeout')
     expect(cluster.exemplars.sort()).toEqual(['f-1', 'f-2'])
     expect(cluster.share).toBeCloseTo(1, 5)
+  })
+
+  it('counts every affected failure while displaying at most five exemplars', async () => {
+    const runs = Array.from({ length: 7 }, (_, index) =>
+      makeRun({ id: `f-${index}`, candidate: 'c', composite: 0.2 }),
+    )
+
+    const report = await analyzeRuns({ runs, analyst: failureRegistry() })
+
+    expect(report.failureClusters).toEqual({
+      totalFailures: 7,
+      clusters: [
+        {
+          id: 'timeout',
+          name: 'timeout',
+          share: 1,
+          exemplars: ['f-0', 'f-1', 'f-2', 'f-3', 'f-4'],
+        },
+      ],
+    })
+    expect(InsightReportSchema.parse(report).failureClusters).toEqual(report.failureClusters)
+  })
+
+  it('counts multiple same-cluster findings once per run', async () => {
+    const report = await analyzeRuns({
+      runs: [makeRun({ id: 'f-1', candidate: 'c', composite: 0.2 })],
+      analyst: failureRegistry(() => ['timeout', 'timeout', 'timeout']),
+    })
+
+    expect(report.failureClusters?.clusters).toEqual([
+      { id: 'timeout', name: 'timeout', share: 1, exemplars: ['f-1'] },
+    ])
+  })
+
+  it('ranks overlapping clusters using failed runs as the denominator', async () => {
+    const analyzed: string[] = []
+    const runs = [
+      ...Array.from({ length: 7 }, (_, index) =>
+        makeRun({ id: `f-${index}`, candidate: 'c', composite: 0.2 }),
+      ),
+      makeRun({ id: 'f-7', candidate: 'c', composite: 0.9, failureMode: 'parse' }),
+      makeRun({ id: 'ok-1', candidate: 'c', composite: 0.9 }),
+      makeRun({ id: 'ok-2', candidate: 'c', composite: 0.8 }),
+    ]
+    const report = await analyzeRuns({
+      runs,
+      analyst: failureRegistry((run) => {
+        analyzed.push(run.runId)
+        const index = Number(run.runId.slice(2))
+        return [...(index < 6 ? ['timeout'] : []), ...(index >= 5 ? ['parse'] : [])]
+      }),
+    })
+
+    expect(analyzed).toEqual(Array.from({ length: 8 }, (_, index) => `f-${index}`))
+    expect(report.failureClusters).toEqual({
+      totalFailures: 8,
+      clusters: [
+        {
+          id: 'timeout',
+          name: 'timeout',
+          share: 6 / 8,
+          exemplars: ['f-0', 'f-1', 'f-2', 'f-3', 'f-4'],
+        },
+        { id: 'parse', name: 'parse', share: 3 / 8, exemplars: ['f-5', 'f-6', 'f-7'] },
+      ],
+    })
   })
 
   it('does not turn terminal execution failure or recovered child errors into task failures', async () => {

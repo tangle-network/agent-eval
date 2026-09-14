@@ -1,15 +1,14 @@
 # Examples
 
-Every directory holds one runnable file and a README that answers three questions: when to use it, how to run it, and why it is built that way.
-Every expected output printed in a README is the output that file produces.
-
 Start with [`evaluate-a-change`](./evaluate-a-change/).
 It is the smallest complete path: cases in, scores out.
 
-Run any offline example from the repository root:
+Install and build from the repository root, then run the first offline example:
 
 ```sh
-pnpm tsx examples/evaluate-a-change/index.ts
+pnpm install
+pnpm build
+pnpm exec tsx examples/evaluate-a-change/index.ts
 ```
 
 ## Measure A Change
@@ -18,7 +17,7 @@ pnpm tsx examples/evaluate-a-change/index.ts
 |---|---|---|
 | Score one change on the same cases | [`evaluate-a-change`](./evaluate-a-change/) | Offline |
 | See the case grid before you pay for it | [`plan-before-you-spend`](./plan-before-you-spend/) | Offline |
-| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline, or an OpenAI-compatible endpoint |
+| Wrap an existing agent | [`foreign-agent-quickstart`](./foreign-agent-quickstart/) | Offline |
 | Evaluate several attempts per case | [`multi-shot-optimization`](./multi-shot-optimization/) | Offline |
 | Apply a release rule without any search | [`held-out-gate`](./held-out-gate/) | Offline |
 | Load cases from folders on disk | [`eval-fixtures-quickstart`](./eval-fixtures-quickstart/) | Offline |
@@ -36,25 +35,8 @@ pnpm tsx examples/evaluate-a-change/index.ts
 | Let another package own the text search | [`adapt-a-text-optimizer`](./adapt-a-text-optimizer/) | Offline |
 | Compare official GEPA and SkillOpt | [`compare-optimization-methods`](./compare-optimization-methods/) | Python optimizer packages and an LLM endpoint |
 
-Run one official optimizer:
-
-```sh
-OPTIMIZERS=gepa \
-LLM_BASE_URL=https://router.tangle.tools/v1 \
-LLM_API_KEY="$TANGLE_API_KEY" \
-GEPA_PRICE_IN_PER_M=0.4 \
-GEPA_PRICE_OUT_PER_M=1.6 \
-pnpm tsx examples/compare-optimization-methods/index.ts
-```
-
-Any OpenAI-compatible endpoint works; point `LLM_BASE_URL` at it and set `LLM_MODEL` to a model it serves.
-
-The optimizer's reflection calls run through a caller-owned execution owner. These examples supply their own, `_shared/openai-compatible-owner.ts`, built from `LLM_BASE_URL` and `LLM_API_KEY`.
-Set `OPTIMIZER_EXECUTION_OWNER_MODULE` to route them through your own execution package instead.
-Replace the example rates with the exact rates for your endpoint.
-Use `OPTIMIZERS=skillopt` for SkillOpt, or `OPTIMIZERS=gepa,skillopt` for a shared comparison.
-Set `GEPA_RECIPE` to run a composed GEPA recipe — `sequential`, `adaptive-sequential`, `best-of`, `vote`, or `omni` — instead of one engine run.
-Read the [optimizer install instructions](./compare-optimization-methods/README.md) first.
+Use the comparison guide for [installation](./compare-optimization-methods/README.md#install) and [running selected methods](./compare-optimization-methods/README.md#run).
+It also documents endpoint settings, rates, execution owners, and GEPA recipes.
 
 ## Prove A Result
 
@@ -70,16 +52,19 @@ Read the [optimizer install instructions](./compare-optimization-methods/README.
 |---|---|---|
 | Get a report from runs you already have | [`analyze-existing-runs`](./analyze-existing-runs/) | Offline |
 | Get cited findings out of a failed batch | [`custom-trace-analyst`](./custom-trace-analyst/) | Offline |
-| Analyze human approvals and rejections | [`customer-feedback-loop`](./customer-feedback-loop/) | Offline |
-| Analyze OpenTelemetry spans | [`customer-otel-traces`](./customer-otel-traces/) | Offline |
+| [Analyze human approvals and rejections](../docs/customer-journeys.md#2-analyze-human-ratings) | [`customer-feedback-loop`](./customer-feedback-loop/) | Offline |
+| [Analyze OpenTelemetry spans](../docs/customer-journeys.md#1-analyze-existing-traces) | [`customer-otel-traces`](./customer-otel-traces/) | Offline |
 
 ## Benchmarks And Training
 
 | Goal | Example |
 |---|---|
 | Run public benchmark adapters | [`benchmarks`](./benchmarks/) |
+| Compare optimizers on AppWorld tasks | [`AppWorld`](./benchmarks/appworld/) |
 | Export supervised and preference rows | [`publish-rl-dataset`](./publish-rl-dataset/) |
 | Fine-tune through Prime Intellect | [`fine-tune-with-prime-rl`](./fine-tune-with-prime-rl/) |
+
+The AppWorld comparison requires separate AppWorld and optimizer Python environments, plus an LLM endpoint.
 
 The GSM8K comparison reads a local dataset file from `AGENT_EVAL_GSM8K_PATH`.
 Produce it from the GSM8K test split with Python and `datasets`:
@@ -95,6 +80,7 @@ python -c "from datasets import load_dataset; import json; \
 or, without Python, from the upstream source of the Hugging Face dataset:
 
 ```sh
+mkdir -p ~/.cache/agent-eval
 curl -L https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl \
   | jq -c '{id: ("gsm8k-test-" + (input_line_number | tostring)), question, answer}' \
   > ~/.cache/agent-eval/gsm8k.jsonl
