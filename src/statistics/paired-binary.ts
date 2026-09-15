@@ -439,7 +439,11 @@ export function pairedRiskDifferenceScore(
   // the right endpoint is always inside and the bisection is well posed.
   let lo = -1
   let hi = riskDifference
-  for (let i = 0; i < 200; i++) {
+  // 64 halvings resolve the [-1, 1] search interval below 6e-20, past the
+  // precision available to the score calculation. More iterations only
+  // repeat identical floating-point values while multiplying every gate
+  // decision's cost.
+  for (let i = 0; i < 64; i++) {
     const mid = (lo + hi) / 2
     if (tangoScore(b, c, n, mid) > z) lo = mid
     else hi = mid
@@ -449,7 +453,7 @@ export function pairedRiskDifferenceScore(
   // Upper bound: root of score(delta) = -z on [riskDifference, 1].
   let ulo = riskDifference
   let uhi = 1
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 64; i++) {
     const mid = (ulo + uhi) / 2
     if (tangoScore(b, c, n, mid) > -z) ulo = mid
     else uhi = mid

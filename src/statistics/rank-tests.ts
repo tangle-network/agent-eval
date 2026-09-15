@@ -1,7 +1,12 @@
 import { ValidationError } from '../errors'
 import { normalCdf } from '../math/normal'
 import { lnGamma } from '../math/special-functions'
-import { assertFiniteSample, makeRng, symmetricTwoSampleSeed } from './internal'
+import {
+  assertFiniteSample,
+  binomialSignTwoSided,
+  makeRng,
+  symmetricTwoSampleSeed,
+} from './internal'
 
 // ── Rank tests: exact by default ─────────────────────────────────────
 //
@@ -212,6 +217,26 @@ export function wilcoxonSignedRank(
   const diffs = before.map((b, i) => after[i]! - b).filter((d) => d !== 0)
   const n = diffs.length
   if (n === 0) return { w: 0, p: 1, method: 'exact', pFloor: 1, nNonZero: 0 }
+
+  // When every non-zero difference has the same magnitude, the signed-rank
+  // null reduces exactly to a binomial sign distribution. This is the common
+  // pass/fail shape ({-1, 0, +1}); recognizing it avoids a 100k-draw
+  // permutation for every repeated gate evaluation while preserving the exact
+  // p-value and attainable floor. Explicit method requests still retain their
+  // documented behavior.
+  const abs = Math.abs(diffs[0]!)
+  const allEqualAbs = diffs.every((d) => Math.abs(d) === abs)
+  if ((opts.method === undefined || opts.method === 'auto') && allEqualAbs) {
+    const positive = diffs.filter((d) => d > 0).length
+    const negative = n - positive
+    return {
+      w: (positive * (n + 1)) / 2,
+      p: binomialSignTwoSided(positive, negative),
+      method: 'exact',
+      pFloor: Math.min(1, 2 ** (1 - n)),
+      nNonZero: n,
+    }
+  }
 
   const order = diffs.map((d, i) => ({ abs: Math.abs(d), i })).sort((x, y) => x.abs - y.abs)
   const { midranks, tieTerm } = midranksWithTieTerm(order.map((entry) => entry.abs))
