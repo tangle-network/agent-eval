@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { analyzeSupervisorRunSources } from './analyze'
-import { analyzeSupervisorRun, findSupervisorRunDirs } from './loops-reader'
+import { analyzeSupervisorRun, findSupervisorRunDirs } from './reader'
 import { renderSupervisorRunHeadline } from './render'
 import { supervisorRunRolloutLines } from './rollout-nodes'
 import { isRuntimeSupervisorRunDir, readRuntimeSupervisorRun } from './runtime-reader'
@@ -55,7 +55,7 @@ describe('r1 settled no-winner: status comes from Runtime result.json kind', () 
     expect(report.outcome.supReason).toBe('all-children-down')
     expect(report.gaps.some((gap) => gap.startsWith('supStatus:'))).toBe(false)
     // The reader passes Runtime's records through as bytes and fabricates no
-    // legacy status on the begin stamp.
+    // synthetic status on the begin stamp.
     expect(JSON.parse(source.state as string)).toEqual({
       id: ROOT,
       startedAt: '2026-09-06T06:14:44.243Z',

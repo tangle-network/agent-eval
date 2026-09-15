@@ -96,7 +96,7 @@ export interface WorkerLogSource {
  * The difference between "the artifact is missing" and "this store never
  * records that fact" is the difference between a run that spent $0 and a
  * harness that does not price inference — and the second harness is where a
- * loops-shaped assumption becomes a fabricated zero. A reader declares its
+ * store-specific assumption becomes a fabricated zero. A reader declares its
  * limits once; the analyzer reports `unavailable` for everything downstream.
  *
  * `null` on a field means the source DOES carry that fact.
@@ -129,8 +129,8 @@ export const NO_SOURCE_LIMITS: SourceLimits = {
  * dependent metrics into `unavailable` rather than 0.
  *
  * This is the whole input contract. Any store that can produce these strings
- * (an on-disk loops run, an object-store archive, a database, a test fixture)
- * is a valid source; `loopsSupervisorRunReader` is ONE implementation.
+ * (a Runtime run, an object-store archive, a database, or a test fixture) is a
+ * valid source; the Runtime reader is one implementation.
  */
 export interface SupervisorRunSources {
   /** Stable identity of the run being analyzed (a directory, a run id, a URL). */
@@ -143,13 +143,13 @@ export interface SupervisorRunSources {
   /**
    * Supervision journal — spawned / settled / cancelled / metered events (JSONL).
    * Recursive readers put `role: 'supervisor' | 'worker'` on spawned rows;
-   * settled `verdict` may be a legacy string or `{ valid, score, ... }`.
+   * settled `verdict` may be a string or `{ valid, score, ... }`.
    */
   readonly journal: string | null
   /**
    * Source-specific reason `journal` is null. The analyzer uses it verbatim as
-   * the `unavailable` reason on every journal-dependent metric, so a non-loops
-   * layout names its own journal file instead of inheriting the loops paths.
+   * the `unavailable` reason on every journal-dependent metric, so another
+   * layout names its own journal file instead of inheriting a path assumption.
    */
   readonly journalMissingReason?: string
   /** Per-brain-call tap (JSONL): finish_reason, completion tokens, requested max tokens. */
@@ -165,16 +165,13 @@ export interface SupervisorRunSources {
   /** Why `workers` is null (only set when it is). */
   readonly workersMissingReason: string | null
   /**
-   * Run result document (JSON). For a Runtime run dir this is `result.json`,
-   * the `SupervisedResult` that `supervise()` returned, verbatim; its `kind`
-   * is the run's status. For a loops run dir it is the legacy result document.
+   * Runtime `result.json`, the `SupervisedResult` returned by `supervise()`.
    */
   readonly result: string | null
   /**
    * Runtime's terminal failure record (`failure.json`), written when
    * `supervise()` threw before a result landed. `null` = the store was read and
-   * holds no such record; `undefined` = the store has no failure document at
-   * all (the loops layout), which the analyzer reports as its own absence.
+   * holds no such record; `undefined` = the store has no failure document.
    */
   readonly failure?: string | null
   /**
@@ -207,9 +204,8 @@ export interface SupervisorRunSources {
   /** What this store structurally cannot record. See `SourceLimits`. */
   readonly limits: SourceLimits
   /**
-   * Where the ROOT invocation's transcript lives. Undefined lets the rollout
-   * minter fall back to the loops layout (`<supRunDir>/journal.jsonl`); any
-   * other store must say, or the row points at a path that never existed.
+   * Where the ROOT invocation's transcript lives. Any store that does not
+   * retain one must set this to `null`, or omit the path entirely.
    */
   readonly rootTranscriptRef?: string | null
   /**
@@ -381,8 +377,7 @@ export interface SpendMeasurement {
  * The run's total inference spend, measured two ways.
  *
  * `closeRecord` is the spend the store recorded as settled when the run
- * closed (loops `state.json` `result.spentUsd`; Runtime `result.json`
- * `spentTotal.usd`) — the billing-shaped answer. `journalDerived` is the
+ * closed (`result.json` `spentTotal.usd`) — the billing-shaped answer. `journalDerived` is the
  * spend execution observably consumed (journal `metered` + `settled` rows) —
  * the execution-accounting answer. Neither is canonical for the other's
  * question. The two cover different records at different moments, so
@@ -459,10 +454,6 @@ export type SupervisorStatusSource =
   | 'runtime-result'
   /** Runtime's `failure.json`: `supervise()` threw before a result landed. */
   | 'runtime-failure'
-  /** Control-plane-era loops `state.json` `status`. */
-  | 'legacy-state'
-  /** Control-plane-era loops `result.json` `sup_status`. */
-  | 'legacy-result'
 
 /** The error a run directory recorded. */
 export interface TerminalFailure {
@@ -489,16 +480,16 @@ export interface TerminalFailure {
 
 export interface OutcomeMetrics {
   /**
-   * The run's terminal status, exactly as its record spells it: Runtime's
-   * `winner` / `no-winner`, `failed` for a Runtime failure record, or the
-   * legacy loops status. `supStatusSource` names the record it came from.
+   * The run's terminal status, exactly as its Runtime record spells it:
+   * `winner` / `no-winner`, or `failed` for a Runtime failure record.
+   * `supStatusSource` names the record it came from.
    */
   readonly supStatus: Measured<string>
   readonly supStatusSource: Measured<SupervisorStatusSource>
   /**
    * Runtime's `reason` on a `no-winner` result (`all-children-down`,
    * `budget-exhausted`, `aborted`, `driver-failed`). `null` = the terminal
-   * record carries no reason (a winner, a failure record, a legacy document).
+   * record carries no reason (a winner or a failure record).
    */
   readonly supReason: Measured<string | null>
   /**

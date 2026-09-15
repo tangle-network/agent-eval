@@ -18,9 +18,8 @@
  * record Runtime writes when `supervise()` threw before a result landed. Both
  * pass through as bytes; `terminal-record.ts` reads them. The reader does not
  * decide which kinds count: a kind it refuses is a run that recorded its
- * outcome and got reported as having none. Nothing here manufactures a loops
- * `state.json` status from Runtime's documents: the analyzer names the record
- * a status came from, and a synthetic legacy document would mislabel it.
+ * outcome and got reported as having none. The reader does not synthesize status fields. The analyzer names the Runtime
+ * record that supplied a status, so status provenance cannot be mislabelled.
  *
  * `usdKnown: false` / `tokensKnown: false` on ONE record is not a limit of this
  * store. The store recorded every other record completely, so the flags travel
@@ -53,7 +52,7 @@ const FAILURE_FILE = 'failure.json'
  * attempt threw on a caller input error 16 minutes before the corrected attempt
  * opened the spawn journal. At that instant the directory held `observer.jsonl`
  * (2 records) and the failure record and no journal, so a journal-only test
- * routed it to the loops reader, which reads neither file, and the recorded
+ * routed it to an unrelated reader, which reads neither file, and the recorded
  * throw was reported as no run at all.
  */
 const RUNTIME_RUN_DIR_MARKERS: readonly string[] = [JOURNAL_FILE, OBSERVER_FILE, FAILURE_FILE]
@@ -481,7 +480,7 @@ function assertFailureRecord(failure: Record<string, unknown> | null, failurePat
  * The journal's begin stamp in the analyzer's state-document shape. It carries
  * the run identity and start instant only; the terminal status lives in
  * Runtime's own `result.json` / `failure.json`, which the analyzer reads by
- * name, so no legacy `status` field is fabricated here.
+ * name, so no synthetic status field is fabricated here.
  */
 function runtimeBeginState(root: string, startedAt: string): string {
   return JSON.stringify({ id: root, startedAt })
@@ -498,7 +497,7 @@ export interface RuntimeReaderOptions {
 
 /**
  * Sources for a run dir whose spawn journal does not exist. Mirrors the
- * absent shape `readLoopsSupervisorRun` returns for a missing store: every
+ * absent shape the reader returns for a missing store: every
  * journal-dependent metric downstream reads `unavailable`, never 0.
  */
 /**
@@ -553,7 +552,7 @@ function absentRuntimeSupervisorRun(
  * Read one agent-runtime `createFileRunContext(dir)` directory.
  *
  * A run dir without `spawn-journal.jsonl` returns the same absent-shaped
- * sources `readLoopsSupervisorRun` returns for a missing store: `journal` and
+ * sources the reader returns for a missing store: `journal` and
  * `workers` null, each with its reason, so every dependent metric reads
  * `unavailable` — never 0 and never a throw. Its `result.json` and
  * `failure.json` are still read, so a run that died before its first spawn

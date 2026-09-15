@@ -397,7 +397,7 @@ describe('claudeCodeSupervisorRunReader', () => {
     // A worker with no retained transcript reports null tokens, not 0.
     const pruned = workers.find((w) => w.artifacts.transcript_ref === null)
     expect(pruned?.cost.tokens_in).toBeNull()
-    // The root row points at the real session transcript, not a loops path.
+    // The root row points at the real session transcript, not a Runtime path.
     expect(root?.artifacts.transcript_ref).toBe(s.transcriptPath)
   })
 
@@ -411,7 +411,7 @@ describe('claudeCodeSupervisorRunReader', () => {
     expect(isUnavailable(report.orchestration.steers)).toBe(true)
   })
 
-  it('exposes the SupervisorRunReader contract loops implements', async () => {
+  it('exposes the SupervisorRunReader contract Runtime implements', async () => {
     const s = await writeSession()
     const reader = claudeCodeSupervisorRunReader({
       transcriptPath: s.transcriptPath,
