@@ -6,6 +6,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.182.0] — 2026-09-15
+
+### Breaking
+
+- Retire the legacy loops supervisor-run reader and its compatibility exports.
+  Runtime supervisor runs now use the `.agent/supervisor` layout and the runtime journal dialect only.
+- Remove legacy `.loops`, `state.status`, and `result.sup_status` fallback behavior.
+  Missing runtime evidence remains explicitly unavailable.
+
+### Changed
+
+- Reduce paired-score gate work and use the exact shortcut for equal-magnitude Wilcoxon differences.
+- Refresh the analyst benchmark implementation identity after the evaluation changes.
+
 ## [0.181.0] — 2026-09-14
 
 ### Changed
