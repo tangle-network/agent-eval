@@ -517,9 +517,7 @@
       ]
     },
     "appendRolloutLines": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -575,13 +573,10 @@
     },
     "assertCampaignSplitIdentity": {
       "production": [
-        "agent-knowledge:src/memory/experiment/learning-pairs.ts",
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.mts"
+        "agent-knowledge:src/memory/experiment/learning-pairs.ts"
       ],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-knowledge",
         "agent-runtime"
@@ -672,9 +667,7 @@
     "assertMintedLines": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-runtime"
       ]
@@ -770,9 +763,7 @@
     "assertRolloutLine": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-runtime"
       ]
@@ -1367,7 +1358,6 @@
     },
     "campaignScenarioIdentity": {
       "production": [
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.mts",
         "agent-runtime:src/improvement/method-identity.ts",
         "discovery-lab:tools/strict-screen.mjs"
       ],
@@ -1384,12 +1374,10 @@
     },
     "campaignSplitDigest": {
       "production": [
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.mts",
         "discovery-lab:tools/profile-population.mjs"
       ],
       "typeOnly": [],
       "tests": [
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.test.mts",
         "discovery-lab:tools/run-sequential-profile-improvement.test.mjs"
       ],
       "mentions": [
@@ -1700,9 +1688,7 @@
     "claudeProjectSlug": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-runtime"
       ]
@@ -2505,8 +2491,6 @@
         "agent-knowledge:src/memory/experiment/learning.ts",
         "agent-knowledge:src/memory/experiment/run.ts",
         "agent-runtime:bench/src/quant-arena/quant-loop.mts",
-        "agent-runtime:bench/src/swe-arena/gepa-seat.mts",
-        "agent-runtime:bench/src/swe-arena/ledger-orphans.mts",
         "supervisor-lab:bench/drain/seat.ts"
       ],
       "typeOnly": [],
@@ -2516,8 +2500,7 @@
         "agent-knowledge:tests/benchmarks/recovery.test.ts",
         "agent-knowledge:tests/memory/experiment-cost.test.ts",
         "agent-knowledge:tests/memory/experiment-learning.test.ts",
-        "agent-knowledge:tests/memory/experiment-recovery.test.ts",
-        "agent-runtime:bench/src/swe-arena/ledger-orphans.test.mts"
+        "agent-knowledge:tests/memory/experiment-recovery.test.ts"
       ],
       "mentions": [
         "agent-dev-container",
@@ -2592,9 +2575,7 @@
       ]
     },
     "DEFAULT_CLAUDE_PROJECTS_DIR": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -2620,10 +2601,7 @@
       ]
     },
     "DEFAULT_OPENCODE_DB": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts",
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -3748,9 +3726,7 @@
       ]
     },
     "findClaudeTranscripts": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -3810,10 +3786,7 @@
       ]
     },
     "findOpencodeSessionsByDirectory": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts",
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -3910,16 +3883,13 @@
         "agent-knowledge:src/memory/experiment/run.ts",
         "agent-knowledge:src/memory/improvement/run.ts",
         "agent-runtime:bench/src/quant-arena/quant-loop.mts",
-        "agent-runtime:bench/src/swe-arena/gepa-seat.mts",
-        "agent-runtime:bench/src/swe-arena/ledger-orphans.mts",
         "ai-trading-blueprint:evals/src/sim/multishot-user-sim.ts",
         "discovery-lab:tools/strict-screen.mjs",
         "supervisor-lab:bench/drain/seat.ts"
       ],
       "typeOnly": [],
       "tests": [
-        "agent-dev-container:products/intelligence/api/tests/evals.test.ts",
-        "agent-runtime:bench/src/swe-arena/ledger-orphans.test.mts"
+        "agent-dev-container:products/intelligence/api/tests/evals.test.ts"
       ],
       "mentions": [
         "agent-dev-container",
@@ -3931,9 +3901,7 @@
       ]
     },
     "FsLabeledScenarioStore": {
-      "production": [
-        "agent-runtime:bench/src/swe-arena/outer-loop.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -4011,7 +3979,6 @@
         "agent-app:src/eval-campaign/index.ts",
         "agent-builder:src/lib/.server/eval/loops/evolution-runner.ts",
         "agent-dev-container:products/intelligence/api/src/lib/optimization-primitives.ts",
-        "agent-runtime:bench/src/swe-arena/gepa-seat.mts",
         "agent-runtime:src/improvement/official-optimizers.ts",
         "creative-agent:eval/scripts/self-improve.ts",
         "physim:apps/server/src/scripts/agent-eval/self-improve.ts"
@@ -5230,7 +5197,6 @@
       "production": [
         "agent-dev-container:products/intelligence/api/src/lib/consultant/candidates.ts",
         "agent-dev-container:products/intelligence/api/src/lib/miner/worker.ts",
-        "agent-runtime:bench/src/swe-arena/diagnosis-ensemble.ts",
         "agent-runtime:src/runtime/index.ts",
         "agent-runtime:src/runtime/supervise/authoring.ts",
         "creative-agent:eval/autoresearch-canonical.ts",
@@ -5256,7 +5222,6 @@
     },
     "makeProposalFinding": {
       "production": [
-        "agent-runtime:bench/src/swe-arena/outer-loop.mts",
         "agent-runtime:examples/improve/improve.ts",
         "agent-runtime:examples/intelligence-recommend/intelligence-recommend.ts",
         "agent-runtime:src/improvement/code-execution.ts",
@@ -5268,8 +5233,6 @@
       ],
       "typeOnly": [],
       "tests": [
-        "agent-runtime:bench/src/swe-arena/outer-loop.test.mts",
-        "agent-runtime:bench/src/swe-arena/proposer-fanout.test.mts",
         "agent-runtime:src/improvement/improve.test.ts",
         "agent-runtime:src/improvement/method-identity.test.ts",
         "agent-runtime:src/improvement/official-optimizers.test.ts",
@@ -5332,7 +5295,6 @@
     },
     "mcnemar": {
       "production": [
-        "agent-runtime:bench/src/swe-arena/analyze.ts",
         "blueprint-agent:scripts/experiments/analyze-convergence.ts",
         "blueprint-agent:scripts/experiments/lib/validity-gates.ts",
         "starter-foundry:src/lib/held-out-gate.ts",
@@ -5746,8 +5708,6 @@
     },
     "openOpencodeDb": {
       "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts",
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts",
         "discovery-lab:dashboard/lib/transcript.mjs"
       ],
       "typeOnly": [],
@@ -6483,9 +6443,7 @@
       ]
     },
     "readClaudeTranscript": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -6554,10 +6512,7 @@
       ]
     },
     "readOpencodeSessionMessages": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts",
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -6578,9 +6533,7 @@
     "readRolloutLedger": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-runtime"
       ]
@@ -6926,7 +6879,6 @@
     },
     "renderSupervisorRunMarkdown": {
       "production": [
-        "agent-runtime:bench/src/swe-arena/run-report.mts",
         "discovery-lab:experiments/0005-run-visibility/render-run.mjs",
         "traces:src/cli.ts"
       ],
@@ -6986,11 +6938,7 @@
       ]
     },
     "reportSupervisorRound": {
-      "production": [
-        "agent-runtime:bench/src/swe-arena/outer-loop.mts",
-        "agent-runtime:bench/src/swe-arena/run-experiment.mts",
-        "agent-runtime:bench/src/swe-arena/run-report.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -7147,10 +7095,7 @@
       ]
     },
     "ROLLOUT_SCHEMA": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts",
-        "agent-runtime:bench/src/rollout-ledger/settle-capture.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -8388,8 +8333,6 @@
         "agent-knowledge:src/memory/improvement/run.ts",
         "agent-knowledge:src/optimization.ts",
         "agent-knowledge:src/retrieval-optimization.ts",
-        "agent-runtime:bench/src/swe-arena/outer-loop.mts",
-        "agent-runtime:bench/src/swe-arena/premeasured-from-cells.mts",
         "blueprint-agent:scripts/experiments/lib/gepa-reflective-proposer.ts",
         "discovery-lab:tools/run-sequential-profile-improvement.mjs",
         "discovery-lab:tools/run-strict-100-funnel.mjs",
@@ -8537,9 +8480,7 @@
     "toSftRows": {
       "production": [],
       "typeOnly": [],
-      "tests": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.test.mts"
-      ],
+      "tests": [],
       "mentions": [
         "agent-runtime"
       ]
@@ -9258,9 +9199,7 @@
       ]
     },
     "writeRolloutLedger": {
-      "production": [
-        "agent-runtime:bench/src/rollout-ledger/backfill-swe-arena.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -9268,9 +9207,7 @@
       ]
     },
     "writeSupervisorRunReport": {
-      "production": [
-        "agent-runtime:bench/src/swe-arena/run-report.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
@@ -9278,10 +9215,7 @@
       ]
     },
     "writeSupervisorRunReportSafe": {
-      "production": [
-        "agent-runtime:bench/src/swe-arena/outer-loop.mts",
-        "agent-runtime:bench/src/swe-arena/run-experiment.mts"
-      ],
+      "production": [],
       "typeOnly": [],
       "tests": [],
       "mentions": [
