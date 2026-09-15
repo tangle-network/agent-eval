@@ -2,7 +2,7 @@
  * The pure analyzer. Takes already-read bytes (`SupervisorRunSources`) and
  * returns the report — every metric derivable from a synthetic journal string
  * with no filesystem, no process, and no network. All I/O lives in a reader
- * (`loops-reader.ts` is one).
+ * (`reader.ts` is one).
  */
 
 import { summarizeNumberSeries } from '../statistics'
@@ -75,16 +75,13 @@ export function analyzeSupervisorRunSources(
 
   const journalMissing =
     src.journalMissingReason ??
-    (src.supRunDir === null
-      ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
-      : 'journal.jsonl absent')
+    (src.supRunDir === null ? 'no Runtime supervisor run directory' : 'journal.jsonl absent')
   const haveJournal = src.journal !== null
   const tree = parseSupervisorTree(src)
   const state = tree.state
   const result = parseJson(src.result)
   const judge = parseJson(src.judge)
-  // Runtime's settle record outranks the legacy loops documents; the record
-  // that answered is named on the report so a status never arrives unlabeled.
+  // Runtime's terminal record is named on the report so a status never arrives unlabeled.
   const terminal = readTerminalRecord({
     state,
     result,
@@ -767,8 +764,8 @@ export function analyzeSupervisorRunSources(
             'brain.brainTruncations',
             src.brainLogMissingReason ??
               (src.supRunDir === null
-                ? 'no supervisor run dir under <ws>/.agent/supervisor (or legacy <ws>/.loops/supervisor)'
-                : 'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out'),
+                ? 'no Runtime supervisor run directory'
+                : 'brain.jsonl absent — this source has no brain-call tap, so truncation cannot be ruled out'),
           )
         : brainCalls.filter((c) => c.finish_reason === 'length').length,
     workers: {

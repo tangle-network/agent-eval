@@ -334,7 +334,7 @@ describe('analyzeSupervisorRun — decision quality and economics', () => {
     // UNAVAILABLE != ZERO: an older supervisor wrote no tap, so truncation cannot be ruled out.
     expect(r.economics.brainTruncations).toEqual({
       unavailable:
-        'brain.jsonl absent — loops predates the brain-call tap, so truncation cannot be ruled out',
+        'brain.jsonl absent — this source has no brain-call tap, so truncation cannot be ruled out',
     })
   })
 

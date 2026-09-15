@@ -192,7 +192,7 @@ export function fixtureSources(over: Partial<SupervisorRunSources> = {}): Superv
     runRef: '/tmp/cell/runs/inst-1/ARM',
     instanceId: 'inst-1',
     arm: 'ARM',
-    supRunDir: '/tmp/cell/ws/.loops/supervisor/sup-1-test',
+    supRunDir: '/tmp/cell/runtime-run',
     journal: null,
     brainLog: null,
     state: null,

@@ -79,6 +79,7 @@ function completedControlSource(inbox: string | null, events: string | null): Su
   return fixtureSources({
     journal: fixtureJournal({ workers: [['worker', 1, 4]] }),
     state: fixtureState({ startSec: 0, endSec: 5 }),
+    result: JSON.stringify({ kind: 'winner', tree: { root: 'sup-1-test', nodes: [] } }),
     workers: [
       {
         workerId: 'sup-1-test:s0',

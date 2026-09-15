@@ -40,7 +40,7 @@ describe('real agent-runtime run — a clean run reports no gaps it does not hav
     expect(report.outcome.failure).toBeNull()
     expect(report.gaps.some((gap) => gap.startsWith('supStatus:'))).toBe(false)
     // The begin stamp carries identity and start only; the status is read from
-    // result.json by name, never copied onto a synthetic legacy state document.
+    // result.json by name, never copied onto a synthetic state document.
     expect(JSON.parse(source.state as string)).toEqual({
       id: ROOT,
       startedAt: '2026-09-01T15:12:25.228Z',

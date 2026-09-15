@@ -190,7 +190,7 @@ export interface CloseRow {
   id: string
   kind: 'settled' | 'cancelled'
   status: string | null
-  /** String verdict from legacy journals, or valid/invalid for a structured verdict. */
+  /** String verdict from flat journals, or valid/invalid for a structured verdict. */
   verdict: string | null
   /** Structured verdict validity, when recorded. */
   valid: boolean | null
@@ -369,8 +369,8 @@ export function workerSourceKey(
 /**
  * How a journal's rows were shaped on disk.
  *
- * `flat` — one event object per line (`{kind:'spawned', id, ...}`). The loops
- * supervisor writes this, and `readClaudeCodeSupervisorRun` synthesizes it.
+ * `flat` — one event object per line (`{kind:'spawned', id, ...}`). Claude Code
+ * and other adapters may synthesize this shape for the pure analyzer.
  *
  * `runtime-envelope` — the records `agent-runtime`'s `FileSpawnJournal` writes:
  * a `{kind:'begin', root, at}` header followed by `{kind:'event', root, event}`

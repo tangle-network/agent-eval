@@ -373,7 +373,7 @@ export function supervisorRunRolloutLinesFromFacts(
         usd: src.limits.spendUsd !== null || !close?.hasSpend ? null : close.spend.usd,
         tokens_in: workerSource?.tokensIn ?? (close?.hasSpend ? close.spend.tokens.input : null),
         tokens_out: workerSource?.tokensOut ?? (close?.hasSpend ? close.spend.tokens.output : null),
-        // Mirror the tokens_in/out journal fallback so a loops-shaped store whose
+        // Mirror the tokens_in/out journal fallback so a source whose
         // `settled` spend carries cache counters is not reported as null cache
         // beside real tokens. Gate on `hasCache` — a spend object without cache
         // counters must stay null, not a fabricated 0.
@@ -386,7 +386,7 @@ export function supervisorRunRolloutLinesFromFacts(
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
       // A reader that knows where its worker artifacts live says so; only the
-      // loops layout is derivable from `supRunDir`, so guessing it for another
+      // A local layout is derivable from `supRunDir`, so guessing it for another
       // store would mint rows pointing at paths that never existed.
       artifacts: {
         patch_path:

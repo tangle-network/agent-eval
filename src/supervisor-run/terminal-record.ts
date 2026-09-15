@@ -3,9 +3,8 @@
  * run ended. Runtime's own record outranks every other source: `result.json` is
  * the `SupervisedResult` that `supervise()` returned, verbatim, and its `kind`
  * is the run's status. `failure.json` is the record Runtime writes when
- * `supervise()` threw before a result landed. The control-plane-era loops
- * documents (`state.json` `status`, `result.json` `sup_status`) stay readable
- * as named legacy sources, so a report always says which record it read.
+ * `supervise()` threw before a result landed. Runtime's result and failure
+ * records are the only terminal status contract; state is timing metadata.
  *
  * Pure: takes already-parsed documents and returns `Measured` values. The
  * analyzer and the rollout minter share it so a run never has two statuses.
@@ -21,15 +20,15 @@ import {
 
 /** The reason every terminal field reads `unavailable` when no store wrote one. */
 export const NO_TERMINAL_RECORD =
-  'no terminal record: Runtime result.json kind, Runtime failure.json, or legacy state.json / result.json status'
+  'no terminal record: Runtime result.json kind or Runtime failure.json'
 
 /** The status reported for a run whose directory holds Runtime's failure record and no result. */
 export const RUNTIME_FAILED_STATUS = 'failed'
 
 export interface TerminalRecordInput {
-  /** Legacy loops `state.json`, parsed; null when absent. */
+  /** Runtime state document, parsed; null when absent. */
   readonly state: Record<string, unknown> | null
-  /** `result.json`, parsed; Runtime's `SupervisedResult` or the legacy loops result. */
+  /** Runtime `result.json`, parsed; null when absent. */
   readonly result: Record<string, unknown> | null
   /**
    * Runtime's `failure.json`, parsed. `null` when the store was read and holds
@@ -43,15 +42,14 @@ export interface TerminalRecord {
   readonly supStatusSource: Measured<SupervisorStatusSource>
   /**
    * Runtime's `reason` on a `no-winner` result. `null` when the record carries
-   * none (a winner, a failure record, or a legacy document).
+   * none (a winner or a failure record).
    */
   readonly supReason: Measured<string | null>
   /** The recorded error. `null` when the run recorded a result and no error. */
   readonly failure: Measured<TerminalFailure | null>
   /**
-   * True when the run recorded a delivered result (Runtime `winner`, legacy
-   * `completed`); false on every other recorded terminal state; null when no
-   * terminal record exists.
+   * True when the run recorded a delivered Runtime `winner`; false on every
+   * other recorded terminal state; null when no terminal record exists.
    */
   readonly completed: boolean | null
 }
@@ -77,7 +75,7 @@ function errorRecord(
 }
 
 export function readTerminalRecord(input: TerminalRecordInput): TerminalRecord {
-  const { state, result } = input
+  const { result } = input
   const resultKind = str(result?.kind)
   const settled = resultKind !== null && result !== null
   const failureRecord =
@@ -117,27 +115,6 @@ export function readTerminalRecord(input: TerminalRecordInput): TerminalRecord {
       supReason: null,
       failure: unavailable('Runtime failure.json carries no error record'),
       completed: false,
-    }
-  }
-
-  const legacyStateStatus = str(state?.status)
-  if (legacyStateStatus !== null) {
-    return {
-      supStatus: legacyStateStatus,
-      supStatusSource: 'legacy-state',
-      supReason: null,
-      failure: unavailable('legacy state.json records no failure document'),
-      completed: legacyStateStatus === 'completed',
-    }
-  }
-  const legacyResultStatus = str(result?.sup_status)
-  if (legacyResultStatus !== null) {
-    return {
-      supStatus: legacyResultStatus,
-      supStatusSource: 'legacy-result',
-      supReason: null,
-      failure: unavailable('legacy result.json records no failure document'),
-      completed: legacyResultStatus === 'completed',
     }
   }
 

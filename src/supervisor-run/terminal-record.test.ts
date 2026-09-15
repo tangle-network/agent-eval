@@ -1,7 +1,7 @@
 /**
  * Precedence of the terminal record: Runtime's settle record, then Runtime's
- * failure record, then the legacy loops documents by name, then a named
- * absence. Every branch states which record answered.
+ * failure record, then a named absence. Every branch states which record
+ * answered.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -45,7 +45,7 @@ describe('readTerminalRecord', () => {
     expect(record.completed).toBe(true)
   })
 
-  it('outranks legacy fields present on the same documents', () => {
+  it('ignores unrelated status fields on the same documents', () => {
     const record = readTerminalRecord({
       state: { status: 'completed' },
       result: { ...RUNTIME_RESULT, sup_status: 'completed' },
@@ -114,29 +114,19 @@ describe('readTerminalRecord', () => {
     expect(record.failure).toEqual({ unavailable: 'Runtime failure.json carries no error record' })
   })
 
-  it('falls back to legacy state.json status by name', () => {
+  it('does not treat legacy status fields as a terminal record', () => {
     const record = readTerminalRecord({
       state: { status: 'completed' },
       result: { sup_status: 'interrupted' },
       failure: undefined,
     })
-    expect(record.supStatus).toBe('completed')
-    expect(record.supStatusSource).toBe('legacy-state')
-    expect(record.completed).toBe(true)
-    expect(record.failure).toEqual({
-      unavailable: 'legacy state.json records no failure document',
+    expect(record).toEqual({
+      supStatus: { unavailable: NO_TERMINAL_RECORD },
+      supStatusSource: { unavailable: NO_TERMINAL_RECORD },
+      supReason: { unavailable: NO_TERMINAL_RECORD },
+      failure: { unavailable: NO_TERMINAL_RECORD },
+      completed: null,
     })
-  })
-
-  it('falls back to legacy result.json sup_status by name', () => {
-    const record = readTerminalRecord({
-      state: { id: 'x' },
-      result: { sup_status: 'interrupted' },
-      failure: undefined,
-    })
-    expect(record.supStatus).toBe('interrupted')
-    expect(record.supStatusSource).toBe('legacy-result')
-    expect(record.completed).toBe(false)
   })
 
   it('names the absence when no document carries a status', () => {

@@ -1,7 +1,7 @@
 /**
  * Supervision-tree reader over a THIRD-PARTY harness: Claude Code.
  *
- * `loops-reader.ts` reads a supervisor we wrote, whose journal was designed
+ * The Runtime reader reads a supervisor journal designed for this analysis.
  * for this analysis. This reader reads a harness we do not control, whose
  * transcript was designed for replaying a chat — and recovers the same tree
  * from it. If both produce a `SupervisorRunSources`, the tree model is a
@@ -31,12 +31,12 @@
  * reports `unavailable — <reason>` instead of the $0 / 0-accepted that summing
  * an empty field would produce. See `SourceLimits`.
  *
- * ## Metric coverage vs the loops journal
+ * ## Metric coverage vs the Runtime journal
  *
  * Measured on a real 52-agent session (fixture:
  * `tests/fixtures/supervisor-run/claude-code-session-*`).
  *
- * | Metric | loops | Claude Code | Why |
+ * | Metric | Runtime | Claude Code | Why |
  * |---|---|---|---|
  * | workersSpawned / Settled / Cancelled | full | full | spawn tool_use + task-notification + TaskStop |
  * | steers / steersDelivered / steersByWorker | full | full | `SendMessage`; delivery from its tool_result |
@@ -642,7 +642,7 @@ export async function readClaudeCodeSupervisorRun(
   }
 }
 
-/** A `SupervisorRunReader` over a Claude Code session — the same contract loops implements. */
+/** A `SupervisorRunReader` over a Claude Code session — the same contract Runtime implements. */
 export function claudeCodeSupervisorRunReader(opts: ClaudeCodeReaderOptions): SupervisorRunReader {
   return {
     runRef: opts.runRef ?? opts.transcriptPath,

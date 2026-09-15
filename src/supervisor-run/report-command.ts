@@ -1,7 +1,7 @@
 /**
  * `agent-eval supervisor-run report <runDir>` takes one run directory and
  * prints the report the module already renders. The command reads through
- * `analyzeSupervisorRun`, so a Runtime run dir and a loops run dir take the
+ * `analyzeSupervisorRun`, so a Runtime run directory takes the
  * same path and the status comes from the record `terminal-record.ts` names.
  *
  * Exit codes follow the other self-parsing subcommands: 2 for a usage error,
@@ -11,7 +11,7 @@
 
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { analyzeSupervisorRun } from './loops-reader'
+import { analyzeSupervisorRun } from './reader'
 import { renderSupervisorRunHeadline, renderSupervisorRunMarkdown } from './render'
 
 export type SupervisorRunReportFormat = 'headline' | 'markdown' | 'json'

@@ -45,16 +45,12 @@ export {
 } from './integrity'
 export {
   analyzeSupervisorRun,
-  findSupervisorRunDirIn,
   findSupervisorRunDirs,
-  type LoopsReaderOptions,
-  loopsSupervisorRunReader,
-  readLoopsSupervisorRun,
   reportSupervisorRound,
   type WriteSupervisorRunOptions,
   writeSupervisorRunReport,
   writeSupervisorRunReportSafe,
-} from './loops-reader'
+} from './reader'
 export {
   renderSupervisorRollupMarkdown,
   renderSupervisorRunHeadline,

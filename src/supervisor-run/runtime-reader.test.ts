@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { analyzeSupervisorRunSources } from './analyze'
 import { analyzeSupervisorRunIntegrity } from './integrity'
-import { analyzeSupervisorRun, findSupervisorRunDirs } from './loops-reader'
+import { analyzeSupervisorRun, findSupervisorRunDirs } from './reader'
 import { supervisorRunRolloutLines } from './rollout-nodes'
 import { readRuntimeSupervisorRun } from './runtime-reader'
 import { parseSupervisorTree } from './source-facts'
@@ -570,7 +570,7 @@ describe('Runtime FileRunContext supervisor reader', () => {
     ])
   })
 
-  it('refuses a legacy child-id tree when the spawn names a different owned tree', async () => {
+  it('refuses an ambiguous child-id tree when the spawn names a different owned tree', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'ambiguous-owned-tree-root')
     const childId = 'root:s0'
@@ -1202,7 +1202,7 @@ describe('Runtime FileRunContext supervisor reader', () => {
 })
 
 describe('journal-less Runtime run dirs — absence is a modeled result', () => {
-  it('returns the loops-shaped absent sources instead of throwing', async () => {
+  it('returns the absent source shape instead of throwing', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'journal-less')
     await mkdir(runDir, { recursive: true })
