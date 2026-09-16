@@ -69,18 +69,21 @@ function artifactKind(mimeType: string | undefined): string {
 }
 
 /**
- * Normalize a run's runtime event stream into `ProducedState`.
+ * Normalize an emission-ordered stream into its latest observed produced state.
+ * Artifacts are keyed by their exact output path (name, then URI, then id);
+ * proposals by id. Later observations replace earlier ones, including missing
+ * content or a rejected status. An obsolete version cannot prove completion.
+ * Distinct paths remain distinct; no path normalization or aliasing is inferred.
+ * Results retain first-seen identity order. Tool names describe invocation,
+ * not success, and are deduplicated in first-seen order.
  *
- * Pure and total — unrecognized event types are skipped. `toolCalls` is
- * deduplicated by name in first-seen order (completion cares about a tool's
- * presence, not its call count). An artifact with neither a name nor a uri
- * still yields an entry keyed by its `artifactId` so it is never silently
- * dropped; an artifact with no `content` yields empty content, which the
- * completion oracle's structural check then rejects on its own.
+ * An artifact without observed content yields empty content, which the
+ * completion oracle rejects. This projection does not verify external effects,
+ * recover dropped events, or establish freshness beyond the supplied stream.
  */
 export function extractProducedState(events: readonly RuntimeEventLike[]): ProducedState {
-  const artifacts: Artifact[] = []
-  const proposals: ProducedProposal[] = []
+  const artifacts = new Map<string, Artifact>()
+  const proposals = new Map<string, ProducedProposal>()
   const toolCalls: string[] = []
   const seenTools = new Set<string>()
 
@@ -93,14 +96,15 @@ export function extractProducedState(events: readonly RuntimeEventLike[]): Produ
       }
     } else if (ev.type === 'artifact') {
       const a = ev as ArtifactEventLike
-      artifacts.push({
+      const path = a.name ?? a.uri ?? a.artifactId
+      artifacts.set(path, {
         kind: artifactKind(a.mimeType),
-        path: a.name ?? a.uri ?? a.artifactId,
+        path,
         content: a.content ?? '',
       })
     } else if (ev.type === 'proposal_created') {
       const p = ev as ProposalEventLike
-      proposals.push({
+      proposals.set(p.proposalId, {
         id: p.proposalId,
         title: p.title,
         status: p.status ?? 'pending',
@@ -109,5 +113,5 @@ export function extractProducedState(events: readonly RuntimeEventLike[]): Produ
     }
   }
 
-  return { artifacts, proposals, toolCalls }
+  return { artifacts: [...artifacts.values()], proposals: [...proposals.values()], toolCalls }
 }
