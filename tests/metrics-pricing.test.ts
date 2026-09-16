@@ -26,6 +26,13 @@ describe('estimateCost — real harness/router model ids price non-zero', () => 
     })
   }
 
+  it('prices OpenRouter stealth previews as a real $0, not unpriced', () => {
+    expect(isModelPriced('stealth/union-alpha')).toBe(true)
+    expect(resolveModelPricing('stealth/union-alpha')).toEqual({ input: 0, output: 0 })
+    expect(estimateCost(1000, 1000, 'stealth/union-alpha')).toBe(0)
+    expect(isModelPriced('union-alpha')).toBe(false)
+  })
+
   it('still prices the exact legacy table entries', () => {
     expect(estimateCost(1000, 1000, 'gpt-4o')).toBeCloseTo(0.0125, 6)
   })

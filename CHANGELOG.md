@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Fixed
+
+- Price OpenRouter stealth previews (`stealth/*`) as a real $0 so the DSPy RLM budget ledger admits them instead of refusing an unpriced model.
+
 ## [0.182.0] — 2026-09-15
 
 ### Breaking

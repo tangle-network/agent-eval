@@ -25,6 +25,10 @@ export const MODEL_PRICING: Record<string, TokenPrice> = {
  *  none of which appear in the exact table above — without this they priced
  *  to a silent $0, blanking every cost/Pareto axis downstream. */
 const FAMILY_PRICING: Array<[RegExp, TokenPrice]> = [
+  // OpenRouter stealth previews (`stealth/union-alpha`, …) bill $0 during
+  // their preview window. A real zero row lets the budget ledger admit them;
+  // an unpriced id is refused before the first call.
+  [/^stealth\//, { input: 0, output: 0 }],
   [/claude.*opus/, { input: 0.015, output: 0.075 }],
   [/claude.*haiku/, { input: 0.0008, output: 0.004 }],
   [/claude.*sonnet|claude-code|claude-sonnet/, { input: 0.003, output: 0.015 }],
