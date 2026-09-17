@@ -77,6 +77,12 @@ export interface TrainingExportOptions {
   allowHeldOutTrainingData?: boolean
   /** Require reward to be strictly greater than this value. Default 0. */
   minimumQualityExclusive?: number
+  /**
+   * Explicit split selection, replacing the default trainable-split rule.
+   * Use this only when producing a deliberately named non-training slice
+   * (e.g. `['holdout']` for a holdout-only evaluation bundle).
+   */
+  splitFilter?: RolloutSplit[]
 }
 
 /**
@@ -121,7 +127,8 @@ export interface SftRow {
 
 /**
  * Supervised fine-tune rows: the completed conversation of each qualifying
- * line. Fail-closed filters: trainable split only (never holdout/canary),
+ * line. Fail-closed filters: trainable split only (never holdout/canary unless
+ * an explicit `splitFilter` names a non-training slice),
  * reward strictly above `minimumQualityExclusive` (default 0), realness-gated
  * lines never qualify, gap lines carry no trainable content, and
  * copied-context turns are dropped from the transcript (Harbor ATIF RFC 0001
@@ -373,7 +380,8 @@ export function toJsonl(rows: ReadonlyArray<unknown>): string {
  * The split half of the training policy alone: `search` is trainable, held-out
  * needs the named opt-in, `dev` and `canary` never ship. This is the ONE check
  * `'zero-and-flag'` does not relax — a gated line is shipped as a labeled
- * negative, not as a licence to train on evaluation data.
+ * negative, not as a licence to train on evaluation data. An explicit
+ * `splitFilter` names a non-training slice instead of the default rule.
  *
  * Exported as the single implementation of that rule: `rl/exporters` applies
  * it on its line paths too, so the two waists cannot drift on which splits are
@@ -381,13 +389,19 @@ export function toJsonl(rows: ReadonlyArray<unknown>): string {
  */
 export function isSplitEligible(
   line: RolloutLine,
-  options: Pick<TrainingExportOptions, 'allowHeldOutTrainingData'>,
+  options: Pick<TrainingExportOptions, 'allowHeldOutTrainingData' | 'splitFilter'>,
 ): boolean {
+  if (options.splitFilter !== undefined) return options.splitFilter.includes(line.task.split)
   if (line.task.split === 'search') return true
   return line.task.split === 'holdout' && options.allowHeldOutTrainingData === true
 }
 
-function isTrainingLineEligible(
+/**
+ * The whole fail-closed training policy for one line: scored, positive above
+ * the floor, completed, not gated, on an eligible split. Shared with
+ * `rl/exporters` so its text-lookup adapter cannot drift from this rule.
+ */
+export function isTrainingLineEligible(
   line: RolloutLine,
   options: TrainingExportOptions,
 ): line is RolloutLine & { outcome: RolloutLine['outcome'] & { reward: number } } {

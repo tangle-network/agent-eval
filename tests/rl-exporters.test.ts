@@ -43,12 +43,20 @@ function line(args: {
   promptHash?: string
   split?: RolloutSplit
   completed?: boolean
+  /** Mint without a transcript: the case the text lookups exist for. */
+  gap?: boolean
 }): MintedRolloutLine {
   const score = args.score ?? null
   return fixtureRolloutLine({
     rollout_id: args.runId,
     run_id: args.runId,
     candidate_id: args.candidateId ?? 'A',
+    ...(args.gap
+      ? {
+          messages: [],
+          provenance: { ...BASE.provenance, gap: 'text-only record' },
+        }
+      : {}),
     task: {
       ...BASE.task,
       instance_id: args.scenarioId,
@@ -229,8 +237,8 @@ describe('toGrpoRows', () => {
 })
 
 describe('toSftRows', () => {
-  it('produces conversational messages format with system + user + assistant', async () => {
-    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.9 })]
+  it('recovers a gap line as system + user + assistant from the text lookups', async () => {
+    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.9, gap: true })]
     const rows = await toSftRows(lines, {
       promptOf: (id) => `user-prompt-${id}`,
       completionOf: (id) => `assistant-${id}`,
@@ -258,7 +266,7 @@ describe('toSftRows', () => {
   })
 
   it('omits system message when systemOf returns null', async () => {
-    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.5 })]
+    const lines = [line({ runId: 'a', scenarioId: 's', score: 0.5, gap: true })]
     const rows = await toSftRows(lines, {
       promptOf: () => 'p',
       completionOf: () => 'c',

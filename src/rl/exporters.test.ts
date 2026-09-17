@@ -104,12 +104,19 @@ describe('toSftRows', () => {
     ]
     const rows = await toSftRows(await mint(records), lookups)
     expect(rows).toHaveLength(2)
+    // Minted with an empty trace store, so these are gap lines: the transcript
+    // comes from the lookups and the row says so.
     expect(rows[0]?.meta).toEqual({
       runId: 'a',
+      rolloutId: 'a',
       candidateId: 'A',
       scenarioId: 's',
       score: 0.9,
       model: 'm@1',
+      transcriptSource: 'lookups',
+      captureGap: 'no trace spans recorded for this runId',
+      realness_gated: false,
+      realness_screened: null,
     })
   })
 
