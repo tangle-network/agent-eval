@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.183.0] — 2026-09-17
+
 ### Changed
 
 - **Breaking:** `/rl` `SftExportRow.messages` is the canonical `ChatMessage[]`.
