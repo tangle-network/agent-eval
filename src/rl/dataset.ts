@@ -190,9 +190,10 @@ function computeStatsFromLines(lines: MintedRolloutLine[]): RlDatasetStats {
 /**
  * Package graded rollout lines into a publishable RL dataset bundle: the
  * trainer-format JSONL files + a manifest + a datasheet. DPO requires
- * pre-extracted preference triples (pass `preferences`); GRPO/SFT derive from
- * the lines directly via the supplied lookups. Throws on an empty corpus —
- * an empty dataset must never be published.
+ * pre-extracted preference triples (pass `preferences`); GRPO derives from the
+ * lines via the supplied text lookups; SFT ships each line's captured
+ * transcript and uses the lookups only to recover gap lines. Throws on an
+ * empty corpus — an empty dataset must never be published.
  */
 export async function buildRlDataset(
   lines: MintedRolloutLine[],

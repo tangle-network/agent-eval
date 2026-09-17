@@ -6,8 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** `/rl` `SftExportRow.messages` is the canonical `ChatMessage[]`.
+  Tool turns, `reasoning_content`, and nullable `content` ship as captured; string-only consumers must handle the canonical shape.
+- `/rl` `toSftRows`, `toGrpoRows`, and `buildRlDataset` share the canonical `rollout/exporters` training policy.
+  `isTrainingLineEligible` is exported, `isSplitEligible` honors an explicit `splitFilter`, and the RL-local split selector is removed.
+
 ### Fixed
 
+- SFT export no longer replaces a captured conversation with prompt/completion lookups.
+  A line with a transcript is exported verbatim; the lookups recover only gap lines, and each row records `meta.transcriptSource`, `meta.captureGap`, and the realness labels.
+  A transcript made only of copied context yields no row rather than a lookup-built substitute, and blank or non-string lookup text is refused.
 - Price OpenRouter stealth previews (`stealth/*`) as a real $0 so the DSPy RLM budget ledger admits them instead of refusing an unpriced model.
 
 ## [0.182.0] — 2026-09-15

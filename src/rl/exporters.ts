@@ -25,23 +25,29 @@
  * agent-eval's contract; without first-party exporters consumers reverse-
  * engineer the mapping every release. The exporters codify it.
  *
- * The exporters take callbacks for any field that isn't on the canonical
- * artifact (specifically: prompt + completion text, since the package
- * stores only their hashes by design — full text is the consumer's
- * trace store / raw event log).
+ * The text-only formats (DPO, GRPO, PRM) take callbacks for prompt and
+ * completion text, which the canonical artifact does not carry as flat fields —
+ * the consumer resolves them from its trace store / raw event log. SFT is the
+ * one format whose row IS the captured conversation, so it projects the line's
+ * inline `messages` through `rollout/exporters.toSftRows` and uses the text
+ * lookups only to recover a gap line (a line minted without a transcript).
  *
  * Every exporter that produces a training row accepts canonical minted rollout
  * lines. Convert run records once with `mintRolloutRows`; downstream transforms
  * then share one reward, split, and authenticity contract.
  */
 
-import { isSplitEligible } from '../rollout/exporters'
-import { assertRewardGate, type MintedRolloutLine, type RolloutSplit } from '../rollout/schema'
+import {
+  isSplitEligible,
+  isTrainingLineEligible,
+  type TrainingExportOptions,
+  toSftRows as toCanonicalSftRows,
+} from '../rollout/exporters'
+import { assertRewardGate, type ChatMessage, type MintedRolloutLine } from '../rollout/schema'
 import type { PreferenceTriple } from './preferences'
 import type { PrmTrainingTriple, StepReward } from './process-reward'
 import {
   admitUngatedByInvocation,
-  isLineRealnessGated,
   type LineContextRequirement,
   type RolloutLineContext,
   trainableLineReward,
@@ -143,17 +149,8 @@ export function toDpoJsonl(rows: DpoExportRow[]): string {
 
 // ── GRPO offline ─────────────────────────────────────────────────────────
 
-export interface TrainingLineSelectionOptions {
-  /** Include held-out evaluation data in training output. Default false. */
-  allowHeldOutTrainingData?: boolean
-  /** Require quality to be strictly greater than this value. Default 0. */
-  minimumQualityExclusive?: number
-  /**
-   * Explicit split selection, replacing the default trainable-split rule.
-   * Use this only when producing a deliberately named non-training slice.
-   */
-  splitFilter?: RolloutSplit[]
-}
+/** The one training policy, owned by `rollout/exporters`; the `/rl` name for it. */
+export type TrainingLineSelectionOptions = TrainingExportOptions
 
 export interface GrpoLookups
   extends Pick<TrainingLineSelectionOptions, 'allowHeldOutTrainingData' | 'splitFilter'> {
@@ -202,7 +199,7 @@ async function grpoRowsFromLines(
 ): Promise<GrpoExportRow[]> {
   const grouped = new Map<string, MintedRolloutLine[]>()
   for (const line of lines) {
-    if (!isSelectedSplit(line, lookups)) continue
+    if (!isSplitEligible(line, lookups)) continue
     const arr = grouped.get(line.task.instance_id) ?? []
     arr.push(line)
     grouped.set(line.task.instance_id, arr)
@@ -256,20 +253,22 @@ export function toGrpoJsonl(rows: GrpoExportRow[]): string {
 // ── SFT ──────────────────────────────────────────────────────────────────
 
 export interface SftLookups extends TrainingLineSelectionOptions {
-  /** Resolve the prompt text for a rollout, keyed by `line.run_id`. */
+  /**
+   * Resolve the prompt text for a GAP line (one minted without a transcript),
+   * keyed by `line.run_id`. A line with a captured transcript never consults it.
+   */
   promptOf: (runId: string) => string | Promise<string>
-  /** Resolve the assistant completion text for a rollout. */
+  /** Resolve the assistant completion text for a gap line. */
   completionOf: (runId: string) => string | Promise<string>
-  /** Optional system message. Default omits. */
+  /** Optional system message for a gap line. Default omits. */
   systemOf?: (line: MintedRolloutLine) => string | null | undefined
   /** Extra filter on top of the realness gate (e.g., low score, failed cases). */
   include?: (line: MintedRolloutLine) => boolean
-  /** Include held-out lines under the default split rule. Default false. */
-  allowHeldOutTrainingData?: boolean
 }
 
 export interface SftExportRow {
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  /** The canonical chat transcript, tool turns and nullable content included. */
+  messages: ChatMessage[]
   meta?: Record<string, unknown>
 }
 
@@ -279,69 +278,74 @@ export interface SftExportRow {
  * pass `include` to filter further (e.g., keep only `reward >= 0.8` for
  * rejection-sampling SFT).
  *
- * Realness-gated lines are dropped outright, not zeroed. SFT is imitation
- * learning: unlike GRPO, where a 0 reward teaches "this trajectory was bad",
- * every row here is a target to copy, so a gamed trajectory must not be in the
- * file at all. Mirrors the waist filter in `rollout/exporters.toSftRows`.
- *
- * The exporter is fail-closed on the split, same rule as
- * `rollout/exporters.toSftRows` (`isSplitEligible`): `search` ships by
- * default, held-out lines need `allowHeldOutTrainingData: true`, `dev` and
- * `canary` never pass the default rule. A non-training bundle that wants an
- * explicit slice (e.g. a holdout-only eval bundle) names it with
- * `splitFilter: ['holdout']` — explicit selection replaces the default rule.
+ * Eligibility and the transcript projection belong to
+ * `rollout/exporters.toSftRows`: same fail-closed policy (realness-gated lines
+ * are dropped, not zeroed; `search` ships by default, held-out needs
+ * `allowHeldOutTrainingData`, `splitFilter` names an explicit slice) and the
+ * same copied-context drop. This adapter adds only the legacy text lookups: a
+ * line whose transcript was captured is exported as captured, tool turns
+ * included, and a gap line (empty `messages`, `provenance.gap` set) is
+ * recovered from `promptOf` / `completionOf` / `systemOf`. `meta.transcriptSource`
+ * says which path a row took. A captured transcript whose every turn is copied
+ * context yields no row rather than a lookup-built substitute.
  */
 export async function toSftRows(
   lines: MintedRolloutLine[],
   lookups: SftLookups,
 ): Promise<SftExportRow[]> {
-  return sftRowsFromLines(lines, lookups)
-}
-
-async function sftRowsFromLines(
-  lines: MintedRolloutLine[],
-  lookups: SftLookups,
-): Promise<SftExportRow[]> {
+  // Checked BEFORE any drop or lookup, so an impossible line fails loud exactly
+  // like `rollout/exporters.toSftRows` rather than being filtered quietly.
+  for (const line of lines) assertRewardGate(line, 'SFT export')
   const include = lookups.include ?? (() => true)
-  const minimumQualityExclusive = lookups.minimumQualityExclusive ?? 0
-  if (!Number.isFinite(minimumQualityExclusive)) {
-    throw new Error('minimumQualityExclusive must be finite')
-  }
   const rows: SftExportRow[] = []
   for (const line of lines) {
-    // Checked BEFORE the drop, so this path fails loud on an impossible line
-    // exactly like `rollout/exporters.toSftRows` does rather than quietly
-    // filtering it as if it were an ordinary gated row.
-    assertRewardGate(line, 'SFT export')
-    if (isLineRealnessGated(line)) continue
-    if (!isSelectedSplit(line, lookups)) continue
-    const score = trainableLineReward(line)
-    if (score === null || score <= minimumQualityExclusive) continue
-    if (!line.outcome.is_completed || line.outcome.is_truncated || line.outcome.error !== null) {
-      continue
-    }
-    if (!include(line)) continue
-    const system = lookups.systemOf?.(line)
-    const [prompt, completion] = await Promise.all([
-      Promise.resolve(lookups.promptOf(line.run_id)),
-      Promise.resolve(lookups.completionOf(line.run_id)),
-    ])
-    const messages: SftExportRow['messages'] = []
-    if (system) messages.push({ role: 'system', content: system })
-    messages.push({ role: 'user', content: prompt })
-    messages.push({ role: 'assistant', content: completion })
+    if (!isTrainingLineEligible(line, lookups) || !include(line)) continue
+    const captured = line.messages.length > 0
+    const messages = captured ? line.messages : await recoveredTranscript(line, lookups)
+    const [row] = toCanonicalSftRows([{ ...line, messages }], lookups)
+    if (row === undefined) continue
     rows.push({
-      messages,
+      messages: row.messages,
       meta: {
         runId: line.run_id,
+        rolloutId: line.rollout_id,
         candidateId: line.candidate_id ?? null,
         scenarioId: line.task.instance_id,
-        score,
+        score: row.metadata.reward,
         model: line.policy.model,
+        transcriptSource: captured ? 'captured' : 'lookups',
+        captureGap: line.provenance.gap ?? null,
+        realness_gated: row.metadata.realness_gated,
+        realness_screened: row.metadata.realness_screened,
       },
     })
   }
   return rows
+}
+
+/** A gap line's transcript from the text lookups. Blank or non-string text is refused. */
+async function recoveredTranscript(
+  line: MintedRolloutLine,
+  lookups: SftLookups,
+): Promise<ChatMessage[]> {
+  const system = lookups.systemOf?.(line)
+  const [prompt, completion] = await Promise.all([
+    Promise.resolve(lookups.promptOf(line.run_id)),
+    Promise.resolve(lookups.completionOf(line.run_id)),
+  ])
+  if (
+    typeof prompt !== 'string' ||
+    prompt.trim() === '' ||
+    typeof completion !== 'string' ||
+    completion.trim() === '' ||
+    (system != null && typeof system !== 'string')
+  ) {
+    throw new Error(`SFT export: rollout ${line.rollout_id} has invalid text lookups`)
+  }
+  const messages: ChatMessage[] = []
+  if (system) messages.push({ role: 'system', content: system })
+  messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: completion })
+  return messages
 }
 
 export function toSftJsonl(rows: SftExportRow[]): string {
@@ -550,12 +554,4 @@ export function stepRewardsToJsonl(stepRewards: StepReward[], context: RolloutLi
     weight: s.weight ?? 1,
   }))
   return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length > 0 ? '\n' : '')
-}
-
-function isSelectedSplit(
-  line: MintedRolloutLine,
-  options: Pick<TrainingLineSelectionOptions, 'allowHeldOutTrainingData' | 'splitFilter'>,
-): boolean {
-  if (options.splitFilter !== undefined) return options.splitFilter.includes(line.task.split)
-  return isSplitEligible(line, options)
 }
