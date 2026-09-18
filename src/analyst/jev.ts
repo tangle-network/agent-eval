@@ -98,14 +98,14 @@ export function jevJudge<TArtifact = unknown, TScenario extends Scenario = Scena
           distribution[key] = [{ score: 0, probability: 1 - answer.noul }, { score: 1, probability: answer.noul }]
         } else if (answer.type === 'score') {
           const question = questions[key]
-          if (question.type !== 'score') throw new Error('Jev rubric type changed')
+          if (!question || question.type !== 'score') throw new Error('Jev rubric type changed')
           const maximum = question.criteria.length - 1
           dimensions[key] = answer.score / maximum
           distribution[key] = Object.entries(answer.probabilities).map(([level, probability]) => ({ score: Number(level) / maximum, probability }))
         } else throw new TypeError('A choice has no implicit numeric grade')
       }
       return {
-        dimensions, composite: weightedComposite(dimensions, weights),
+        dimensions, composite: weightedComposite({ dims: dimensions, weights: weights ?? Object.fromEntries(Object.keys(dimensions).map(key => [key, 1])) }).composite,
         notes: `Native Jev rubric evaluation (${response.model}); no generated rationale.`,
         scoringMethod: 'expectation', distribution,
       }

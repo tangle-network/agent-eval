@@ -74,8 +74,7 @@ export function parseJevResponse(value: unknown, request: JevRequest): JevRespon
   const keys = Object.keys(request.questions)
   if (Object.keys(value.answers).length !== keys.length) return fail('Answer keys differ from question keys')
   const answers: Record<string, JevAnswer> = Object.create(null)
-  for (const key of keys) {
-    const q = request.questions[key]
+  for (const [key, q] of Object.entries(request.questions)) {
     const a = Object.hasOwn(value.answers, key) ? value.answers[key] : undefined
     if (!record(a) || a.type !== q.type) return fail(`Missing or mismatched answer: ${key}`)
     if (q.type === 'noul') {
@@ -96,12 +95,12 @@ export function parseJevResponse(value: unknown, request: JevRequest): JevRespon
     if (Math.abs(Object.values(probabilities).reduce((sum, p) => sum + p, 0) - 1) > 1e-4) return fail(`Probability mass does not sum to one: ${key}`)
     if (q.type === 'choice') {
       if (typeof a.choice !== 'string' || !Object.hasOwn(probabilities, a.choice)) return fail(`Unknown choice: ${key}`)
-      if (probabilities[a.choice] + 1e-4 < Math.max(...Object.values(probabilities))) return fail(`Choice is not highest probability: ${key}`)
+      if (probabilities[a.choice]! + 1e-4 < Math.max(...Object.values(probabilities))) return fail(`Choice is not highest probability: ${key}`)
       answers[key] = { type: 'choice', choice: a.choice, probabilities, confidence: a.confidence }
     } else {
       if (typeof a.score !== 'number' || !Number.isFinite(a.score) || a.score < 0 || a.score > q.criteria.length - 1 || !record(a.legend)) return fail(`Invalid score: ${key}`)
       if (Object.keys(a.legend).length !== options.length || options.some((k, i) => !Object.hasOwn(a.legend as object, k) || (a.legend as Record<string, unknown>)[k] !== q.criteria[i])) return fail(`Score legend differs from rubric: ${key}`)
-      const expected = options.reduce((sum, k) => sum + Number(k) * probabilities[k], 0)
+      const expected = options.reduce((sum, k) => sum + Number(k) * probabilities[k]!, 0)
       if (Math.abs(expected - a.score) > 1e-3 * Math.max(1, q.criteria.length - 1)) return fail(`Score differs from distribution: ${key}`)
       answers[key] = { type: 'score', score: a.score, probabilities, legend: Object.fromEntries(q.criteria.map((v, i) => [String(i), v])), confidence: a.confidence }
     }
