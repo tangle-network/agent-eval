@@ -254,9 +254,7 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
   if (!name.trim()) throw new TypeError('Jev judge requires a name')
   const config = snapshot(options)
   const keys = Object.keys(config.questions)
-  const weights = options.weights
-    ? { ...options.weights }
-    : Object.fromEntries(keys.map((key) => [key, 1]))
+  const weights = options.weights ? { ...options.weights } : Object.fromEntries(keys.map((key) => [key, 1]))
   if (Object.values(config.questions).some((question) => question.type === 'choice')) {
     throw new TypeError(
       'Jev judges accept score or noul questions; choices have no numeric ordering',
