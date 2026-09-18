@@ -25,6 +25,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Capture pinned development tools
+        run: |
+          mkdir -p /tmp/jev-tools
+          npm pack pnpm@10.34.5 @typesafe-ai/sdk@0.6.0 --pack-destination /tmp/jev-tools
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jev-development-tools
+          path: /tmp/jev-tools/
+          retention-days: 1
       - name: Capture formatter and independent check results
         shell: bash
         run: |
