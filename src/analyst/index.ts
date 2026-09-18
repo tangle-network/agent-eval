@@ -6,6 +6,7 @@
 // tolerant JSON coercion, tool groups, prose-recovery, the judge/verifier
 // adapters — lives here so it has a home without crowding the root surface.
 
+export * from './jev'
 export type { SemanticConceptJudgeAdapterOpts } from './adapters'
 export { createSemanticConceptJudgeAdapter } from './adapters'
 export type { BehavioralAnalystOptions } from './behavioral-analyst'
@@ -130,7 +131,6 @@ export {
 export {
   type PublicRlmDefinitionArgs,
   publicRlmAnalystDefinition,
-  rlmEngineLimits,
 } from './benchmark-public-rlm'
 export type {
   AnalystInstructionsOverride,
@@ -334,9 +334,9 @@ export {
   type PrimeRawUsage,
   type PrimeRejectedRow,
   type PrimeRepairPromptSpec,
-  type PrimeRepairState,
   type PrimeReplyContract,
   type PrimeRowDecoded,
+  type PrimeRowRejection,
   type PrimeTurnRecord,
   primeProtocolSha256,
   primeReplyDefect,
