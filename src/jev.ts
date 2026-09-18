@@ -239,7 +239,8 @@ async function paidEvaluation(
   }
 }
 
-export interface JevJudgeOptions<TArtifact, TScenario extends Scenario = Scenario> extends JevOptions {
+export interface JevJudgeOptions<TArtifact, TScenario extends Scenario = Scenario>
+  extends JevOptions {
   renderState: (input: { artifact: TArtifact; scenario: TScenario }) => JevState
   weights?: Record<string, number>
   appliesTo?: (scenario: TScenario) => boolean
@@ -285,7 +286,14 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
       weights,
     }),
     appliesTo: options.appliesTo,
-    async score({ artifact, scenario, signal, costLedger, costPhase, costTags }): Promise<JudgeScore> {
+    async score({
+      artifact,
+      scenario,
+      signal,
+      costLedger,
+      costPhase,
+      costTags,
+    }): Promise<JudgeScore> {
       const { result, receipt, durationMs } = await paidEvaluation(
         config,
         render({ artifact, scenario }),
@@ -324,7 +332,9 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
         composite: weightedComposite({ dims: dimensions, weights }).composite,
         notes: `Jev ${result.model}; rubric expectation, not an independent explanation or calibrated correctness probability.`,
         scoringMethod: 'expectation',
-        distribution: Object.fromEntries(entries.map(({ key, distribution }) => [key, distribution])),
+        distribution: Object.fromEntries(
+          entries.map(({ key, distribution }) => [key, distribution]),
+        ),
         llmCall: {
           model: result.model,
           durationMs,
