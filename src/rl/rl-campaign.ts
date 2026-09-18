@@ -32,10 +32,11 @@ import {
   type RubricPredictiveValidityReport,
   rubricPredictiveValidity,
 } from '../meta-eval/rubric-predictive-validity'
-import { mintRolloutRows } from '../rollout/mint'
+import { type MintRolloutOptions, mintRolloutRows } from '../rollout/mint'
+import type { MintedRolloutLine } from '../rollout/schema'
 import { type RunRecord, runTaskScore } from '../run-record'
 import { evaluateInterimReleaseConfidence, type InterimReleaseConfidence } from '../sequential'
-import { InMemoryTraceStore } from '../trace/store'
+import type { TraceStore } from '../trace/store'
 import {
   type DpoExportRow,
   type DpoLookups,
@@ -60,6 +61,8 @@ import {
 } from './verifiable-reward'
 
 export interface RunRLCampaignOptions<V> extends EvalCampaignOptions<V> {
+  /** Full-capture resolver and redaction, applied when minting the evaluation's own traces. */
+  rollout?: MintRolloutOptions
   /** Preference-extraction options. Default uses paired-by-scenario-and-seed with min-margin 0.05. */
   preferences?: ExtractPreferencesOptions
   /** Verifiable-reward extraction options. */
@@ -119,6 +122,8 @@ export interface PairedDeltaCoverage {
 
 export interface RLCampaignResult {
   campaign: EvalCampaignResult
+  /** The same minted lines used by every preference and trainer export below. */
+  rolloutLines: MintedRolloutLine[]
   /** Per-run verifiable reward (deterministic when available, probabilistic fallback otherwise). */
   rewardSignals: Array<{ runId: string; reward: VerifiableReward | null }>
   /** Preference extraction report. */
@@ -164,7 +169,16 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
   const splitTag = opts.splitTag ?? 'search'
 
   // ── 1. Run the matrix ──────────────────────────────────────────────
-  const campaign = await runEvalCampaign({ ...opts, splitTag })
+  const stores = new Map<string, TraceStore>()
+  const campaign = await runEvalCampaign({
+    ...opts,
+    splitTag,
+    storeFactory: (params) => {
+      const store = opts.storeFactory(params)
+      stores.set(params.runId, store)
+      return store
+    },
+  })
 
   // ── 2. Extract reward signals (deterministic-first) ────────────────
   const rewardSignals = extractVerifiableRewardsFromRecords(
@@ -174,7 +188,13 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
 
   // ── 3. Mint the scored runs once, then derive all training artifacts ──
   const scoredRuns = campaign.runs.filter((run) => runTaskScore(run) !== undefined)
-  const { rows: rolloutLines } = await mintRolloutRows(scoredRuns, new InMemoryTraceStore())
+  const rolloutLines: MintedRolloutLine[] = []
+  for (const run of scoredRuns) {
+    const store = stores.get(run.runId)
+    if (!store) throw new Error(`runRLCampaign: evaluation trace store missing for ${run.runId}`)
+    const { rows } = await mintRolloutRows([run], store, opts.rollout)
+    rolloutLines.push(...rows)
+  }
   const preferences = extractPreferences(rolloutLines, {
     ...opts.preferences,
     strategy: opts.preferences?.strategy ?? 'paired-by-scenario-and-seed',
@@ -250,6 +270,7 @@ export async function runRLCampaign<V>(opts: RunRLCampaignOptions<V>): Promise<R
 
   return {
     campaign,
+    rolloutLines,
     rewardSignals,
     preferences,
     interimConfidence,

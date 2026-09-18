@@ -25,14 +25,14 @@
  * carry `reward: null` (interchange imports, existing ledgers) remain valid on
  * the wire; only the RunRecord→line door refuses.
  *
- * Records without spans become labeled GAP LINES (messages: [],
+ * Records without spans or an explicit full capture become labeled GAP LINES (messages: [],
  * provenance.gap) — present in the output AND surfaced in
  * `missingTraces`; a capture gap is a finding, never a silent omission.
  */
 
 import { ValidationError } from '../errors'
 import { type RunRecord, runTaskScore } from '../run-record'
-import type { LlmSpan, Message, Span, ToolSpan } from '../trace/schema'
+import type { LlmSpan, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
 import { rolloutRewardFields, scoreOrigin } from './reward'
@@ -46,11 +46,20 @@ import {
   type RolloutStep,
 } from './schema'
 
-/** Redactor applied to every exported string (secrets, PII). Identity by default. */
+/** Redactor for transcript/step payload text (secrets, PII), not opaque identity. */
 export type RolloutScrubber = (text: string) => string
 
 export interface MintRolloutOptions {
   scrub?: RolloutScrubber
+  /**
+   * Full canonical capture, including turns no longer in the model's context.
+   * When supplied, missing/empty capture is refused, never replaced with a
+   * span summary. Use the execution owner's capture or the existing harness
+   * readers; reviewer traces and compacted histories are not full capture.
+   */
+  messagesOf?: (
+    runId: string,
+  ) => readonly ChatMessage[] | undefined | Promise<readonly ChatMessage[] | undefined>
   /** Cap steps per line (longest runs first drop middle steps). Default: no cap. */
   maxSteps?: number
   /** Role recorded on every minted line. Default 'agent' (a solo eval run). */
@@ -82,7 +91,7 @@ function projectStep(span: Span, scrub: RolloutScrubber): RolloutStep {
   if (span.kind === 'llm') {
     const llm = span as LlmSpan
     const last = llm.messages[llm.messages.length - 1]
-    if (last) base.input = scrub(last.content)
+    if (last && last.content !== null) base.input = scrub(last.content)
     if (llm.output !== undefined) base.output = scrub(llm.output)
   } else if (span.kind === 'tool') {
     const tool = span as ToolSpan
@@ -92,17 +101,91 @@ function projectStep(span: Span, scrub: RolloutScrubber): RolloutStep {
   return base
 }
 
-/** The final llm span's history + output is the completed conversation. */
-function finalConversation(spans: Span[], scrub: RolloutScrubber): ChatMessage[] {
+/** Preserve captured fields; invocation ids are opaque linkage, not generated text. */
+function projectMessage(message: ChatMessage, scrub: RolloutScrubber): ChatMessage {
+  return {
+    role: message.role,
+    content: message.content === null ? null : scrub(message.content),
+    ...(message.reasoning_content !== undefined
+      ? { reasoning_content: scrub(message.reasoning_content) }
+      : {}),
+    ...(message.tool_calls !== undefined
+      ? {
+          tool_calls: message.tool_calls.map((call) => ({
+            id: call.id,
+            type: call.type,
+            function: {
+              name: call.function.name,
+              arguments: scrub(call.function.arguments),
+            },
+          })),
+        }
+      : {}),
+    ...(message.tool_call_id !== undefined ? { tool_call_id: message.tool_call_id } : {}),
+    ...(message.name !== undefined ? { name: message.name } : {}),
+    ...(message.is_copied_context !== undefined
+      ? { is_copied_context: message.is_copied_context }
+      : {}),
+  }
+}
+
+/** Never recover missing calls from tool names, span order or argument summaries. */
+function requireToolLinkage(messages: readonly ChatMessage[], runId: string): void {
+  const seen = new Set<string>()
+  const pending = new Map<string, string>()
+  const refuse: (detail: string) => never = (detail) => {
+    throw new ValidationError(`Cannot mint rollout for run ${runId}: ${detail}`)
+  }
+  for (const message of messages) {
+    if (message.tool_calls !== undefined) {
+      if (message.role !== 'assistant' || !Array.isArray(message.tool_calls)) {
+        refuse('tool calls must be captured on an assistant message')
+      }
+      if (pending.size > 0) refuse('new tool calls precede the prior invocation results')
+      for (const call of message.tool_calls) {
+        if (
+          !call ||
+          typeof call.id !== 'string' ||
+          call.id.length === 0 ||
+          seen.has(call.id) ||
+          call.type !== 'function' ||
+          !call.function ||
+          typeof call.function.name !== 'string' ||
+          call.function.name.length === 0 ||
+          typeof call.function.arguments !== 'string'
+        ) {
+          refuse('missing, duplicate or malformed tool invocation')
+        }
+        seen.add(call.id)
+        pending.set(call.id, call.function.name)
+      }
+    }
+    if (message.role === 'tool') {
+      const id = message.tool_call_id
+      if (typeof id !== 'string' || !pending.has(id)) {
+        refuse('tool result has no captured invocation (or answers it more than once)')
+      }
+      if (message.name !== undefined && message.name !== pending.get(id)) {
+        refuse('tool result name does not match its invocation')
+      }
+      pending.delete(id)
+    } else if (message.tool_call_id !== undefined) {
+      refuse('tool_call_id is only valid on a tool result')
+    } else if (pending.size > 0 && message.tool_calls === undefined) {
+      refuse('conversation advances before all tool results were captured')
+    }
+  }
+  if (pending.size > 0) refuse('tool invocation has no captured result')
+}
+
+/** Legacy span history; callers with compacted contexts supply messagesOf instead. */
+function finalConversation(spans: Span[]): ChatMessage[] {
   const llms = spans.filter((s): s is LlmSpan => s.kind === 'llm')
   const last = llms[llms.length - 1]
   if (!last) return []
-  const messages: ChatMessage[] = last.messages.map((m: Message) => ({
-    role: m.role,
-    content: scrub(m.content),
-  }))
+  const messages: ChatMessage[] = [...last.messages]
   if (last.output !== undefined && last.output !== '') {
-    messages.push({ role: 'assistant', content: scrub(last.output) })
+    messages.push({ role: 'assistant', content: last.output })
   }
   return messages
 }
@@ -397,7 +480,7 @@ function mintLine(
 
 /**
  * Join RunRecords with their traces into canonical rollout lines. Records
- * without spans are emitted as labeled gap lines and reported in
+ * without spans or an explicit capture are emitted as labeled gap lines and reported in
  * `missingTraces`. Execution-only records without a task score are rejected
  * because a missing training label is not a zero reward.
  */
@@ -412,7 +495,13 @@ export async function mintRolloutRows(
   const missingTraces: string[] = []
   for (const record of records) {
     const trajectory = await buildTrajectory(store, record.runId)
-    if (trajectory.steps.length === 0) {
+    const captured = options.messagesOf ? await options.messagesOf(record.runId) : undefined
+    if (options.messagesOf && (!Array.isArray(captured) || captured.length === 0)) {
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: full capture is missing`,
+      )
+    }
+    if (trajectory.steps.length === 0 && !options.messagesOf) {
       missingTraces.push(record.runId)
       rows.push(
         mintLine(record, [], [], options, capturedAt, 'no trace spans recorded for this runId'),
@@ -427,9 +516,14 @@ export async function mintRolloutRows(
       const tail = options.maxSteps - head
       steps = [...steps.slice(0, head), ...steps.slice(steps.length - tail)]
     }
-    const conversation = finalConversation(
-      trajectory.steps.map((s) => s.span),
-      scrub,
+    const spans = trajectory.steps.map((s) => s.span)
+    const messages = captured ?? finalConversation(spans)
+    requireToolLinkage(messages, record.runId)
+    const conversation = messages.map((message) => projectMessage(message, scrub))
+    // SFT drops copied context. That projection must not orphan a retained result.
+    requireToolLinkage(
+      conversation.filter((message) => message.is_copied_context !== true),
+      record.runId,
     )
     const gap =
       conversation.length === 0 ? 'trace has no llm spans — no conversation to inline' : undefined
