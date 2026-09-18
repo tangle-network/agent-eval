@@ -11,6 +11,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `/rollout` `MintRolloutOptions.messagesOf`: an optional resolver of the full canonical `ChatMessage[]` for a run.
   When supplied, a missing or empty capture refuses the mint instead of falling back to the last model context.
 - `/rl` `runRLCampaign` result carries `rolloutLines`, the canonical rows it minted.
+- `/trace-analyst` `TraceInsightFinding.attribution`: an evidence-classed, byte-backed customer attribution (`validated-request-response`, `authoritative-execution`, `paired-corrected-document`, or an explicit `unknown` with reasons), with `isTraceInsightArtifact`, `isTraceInsightEvidence` and `isTraceInsightAttribution` guards.
+
+### Changed
+
+- `scoreTraceInsightReadiness` adds the critical `attribution-evidence` gate: a suite reaches `external-ready` only when every finding carries a structured attribution or an explicit unknown; narrative `evidence` no longer counts.
 
 ### Fixed
 
