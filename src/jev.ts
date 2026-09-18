@@ -167,7 +167,11 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
       version: config.version,
       questions: typeof source === 'function' ? 'dynamic' : source,
       dimensions,
-      weights,
+      // Omitted rather than undefined: contentHash canonicalizes to RFC 8785, which has no
+      // encoding for an absent value, so `weights: undefined` threw
+      // `LedgerCanonicalizationError: $.weights is undefined` and every judge that did not
+      // pass weights — the documented default — failed to construct.
+      ...(weights ? { weights } : {}),
     }),
     dimensions,
     appliesTo: config.appliesTo,
