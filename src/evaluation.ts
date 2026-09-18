@@ -23,7 +23,8 @@ export interface EvaluationContext {
   costPhase?: string
   costTags?: Record<string, string>
   maximumCharge?: MaximumCharge
-  onReceipt?: (receipt: CostReceipt) => void
+  /** Awaited after accounting and before validation or result delivery. */
+  onReceipt?: (receipt: CostReceipt) => void | Promise<void>
 }
 
 export type Evaluator<I, O> = (
@@ -38,8 +39,8 @@ export interface EvaluatorOptions<I, O> {
   model?: string | ((input: I) => string)
   costLedger?: CostLedgerHandle
   maximumCharge?: MaximumCharge
-  /** Runs after accounting, so invalid output never erases paid work. */
-  validate?: (value: O, input: I) => void
+  /** Awaited after accounting, so invalid output never erases paid work. */
+  validate?: (value: O, input: I) => void | Promise<void>
 }
 
 /** A metered function, independent of providers, question formats, and application policy. */
@@ -61,11 +62,11 @@ export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): Evaluato
       receipt: defaults.receipt,
       receiptFromError: defaults.receiptFromError,
     })
-    if (paid.receipt) context.onReceipt?.(paid.receipt)
+    if (paid.receipt) await context.onReceipt?.(paid.receipt)
     if (!paid.succeeded) throw paid.error
     // A transport can complete after cancellation. Keep its paid receipt, not a live decision.
     context.signal?.throwIfAborted()
-    defaults.validate?.(paid.value, input)
+    await defaults.validate?.(paid.value, input)
     context.signal?.throwIfAborted()
     return { value: paid.value, receipt: paid.receipt, durationMs: performance.now() - started }
   }
