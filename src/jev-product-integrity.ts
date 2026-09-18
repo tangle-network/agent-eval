@@ -22,8 +22,9 @@
  * unsupported by what is in front of them. They do not run the product. A judge that says
  * `plausible` has not executed anything, and `verify_product` remains the thing that does.
  */
-import { jevJudge, type JevJudgeOptions } from './jev'
+
 import type { JudgeConfig, Scenario } from './campaign/types'
+import { type JevJudgeOptions, jevJudge } from './jev'
 
 /**
  * What a judge is shown. Every field is evidence the run already retained, so nothing here
