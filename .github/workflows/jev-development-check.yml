@@ -1,0 +1,48 @@
+name: Jev development check
+on:
+  push:
+    branches: [feat/jev-native-evaluation]
+    paths:
+      - src/jev.ts
+      - src/jev-protocol.ts
+      - src/evaluation.ts
+      - tests/jev*.test.ts
+      - examples/jev*.ts
+      - .github/workflows/jev-development-check.yml
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Capture formatter and independent check results
+        shell: bash
+        run: |
+          mkdir -p /tmp/jev-check
+          pnpm exec biome check --write src/evaluation.ts src/jev.ts src/jev-protocol.ts examples/jev-product-integrity.ts tests/jev.test.ts tests/jev-product-integrity.test.ts > /tmp/jev-check/format.txt 2>&1
+          set +e
+          pnpm typecheck > /tmp/jev-check/typecheck.txt 2>&1
+          typecheck=$?
+          pnpm exec vitest run tests/jev.test.ts tests/jev-product-integrity.test.ts > /tmp/jev-check/tests.txt 2>&1
+          tests=$?
+          printf 'typecheck=%s\ntests=%s\n' "$typecheck" "$tests" | tee /tmp/jev-check/status.txt
+          cat /tmp/jev-check/typecheck.txt /tmp/jev-check/tests.txt
+          tar -czf /tmp/jev-check/source.tgz src/evaluation.ts src/jev.ts src/jev-protocol.ts examples/jev-product-integrity.ts tests/jev.test.ts tests/jev-product-integrity.test.ts biome.json
+          tar -czf /tmp/jev-check/dependencies.tgz node_modules
+          test "$typecheck" -eq 0 && test "$tests" -eq 0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: jev-development-check
+          path: /tmp/jev-check/
+          retention-days: 1
