@@ -63,7 +63,10 @@ export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): Evaluato
     })
     if (paid.receipt) context.onReceipt?.(paid.receipt)
     if (!paid.succeeded) throw paid.error
+    // A transport can complete after cancellation. Keep its paid receipt, not a live decision.
+    context.signal?.throwIfAborted()
     defaults.validate?.(paid.value, input)
+    context.signal?.throwIfAborted()
     return { value: paid.value, receipt: paid.receipt, durationMs: performance.now() - started }
   }
 }
