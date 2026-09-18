@@ -131,6 +131,7 @@ export {
 export {
   type PublicRlmDefinitionArgs,
   publicRlmAnalystDefinition,
+  rlmEngineLimits,
 } from './benchmark-public-rlm'
 export type {
   AnalystInstructionsOverride,
