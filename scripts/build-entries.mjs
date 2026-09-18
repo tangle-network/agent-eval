@@ -1,5 +1,6 @@
 export const buildEntries = {
   index: 'src/index.ts',
+  jev: 'src/jev.ts',
   'profile-cell': 'src/agent-profile-cell.ts',
   'analyst/index': 'src/analyst/index.ts',
   reporting: 'src/reporting.ts',
