@@ -36,8 +36,8 @@ export type { TraceAnalystHookOptions } from './hook'
 export { traceAnalystOnRunComplete } from './hook'
 export type {
   TraceInsightAttribution,
-  TraceInsightEvidence,
   TraceInsightContext,
+  TraceInsightEvidence,
   TraceInsightFinding,
   TraceInsightPanelRole,
   TraceInsightPromptInput,

@@ -46,30 +46,31 @@ export interface TraceInsightEvidence {
   spans: Array<{ traceId: string; spanId: string; artifact: SearchArtifactRef }>
 }
 
-export type TraceInsightAttribution = TraceInsightEvidence & (
-  | { outcome: 'unknown'; evidenceClass: 'unknown'; reasons: string[] }
-  | {
-      outcome: 'tool-failure'
-      evidenceClass: 'validated-request-response'
-      proof: SearchArtifactRef
-      authority: SearchArtifactRef
-    }
-  | {
-      outcome: 'documentation-failure'
-      evidenceClass: 'authoritative-execution'
-      documentation: 'stale' | 'contradictory'
-      proof: SearchArtifactRef
-      authority: SearchArtifactRef
-    }
-  | {
-      outcome: 'documentation-failure'
-      evidenceClass: 'paired-corrected-document'
-      proof: SearchArtifactRef
-      plan: SearchArtifactRef
-      comparisonId: string
-      correctedEvidence: SearchArtifactRef
-    }
-)
+export type TraceInsightAttribution = TraceInsightEvidence &
+  (
+    | { outcome: 'unknown'; evidenceClass: 'unknown'; reasons: string[] }
+    | {
+        outcome: 'tool-failure'
+        evidenceClass: 'validated-request-response'
+        proof: SearchArtifactRef
+        authority: SearchArtifactRef
+      }
+    | {
+        outcome: 'documentation-failure'
+        evidenceClass: 'authoritative-execution'
+        documentation: 'stale' | 'contradictory'
+        proof: SearchArtifactRef
+        authority: SearchArtifactRef
+      }
+    | {
+        outcome: 'documentation-failure'
+        evidenceClass: 'paired-corrected-document'
+        proof: SearchArtifactRef
+        plan: SearchArtifactRef
+        comparisonId: string
+        correctedEvidence: SearchArtifactRef
+      }
+  )
 
 function evidenceRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -81,9 +82,16 @@ function evidenceText(value: unknown): value is string {
 
 /** Structural validation only. The producer must verify bytes and execute the evidence rule. */
 export function isTraceInsightArtifact(value: unknown): value is SearchArtifactRef {
-  if (!evidenceRecord(value) || !evidenceText(value.role) || !evidenceText(value.uri) ||
-    typeof value.sha256 !== 'string' || !LEDGER_HASH_PATTERN.test(value.sha256) || !Number.isSafeInteger(value.byteLength) ||
-    (value.byteLength as number) < 0) return false
+  if (
+    !evidenceRecord(value) ||
+    !evidenceText(value.role) ||
+    !evidenceText(value.uri) ||
+    typeof value.sha256 !== 'string' ||
+    !LEDGER_HASH_PATTERN.test(value.sha256) ||
+    !Number.isSafeInteger(value.byteLength) ||
+    (value.byteLength as number) < 0
+  )
+    return false
   // Customer reports must not turn a locator into an executable link.
   try {
     const url = new URL(value.uri)
@@ -94,46 +102,90 @@ export function isTraceInsightArtifact(value: unknown): value is SearchArtifactR
 }
 
 export function isTraceInsightEvidence(value: unknown): value is TraceInsightEvidence {
-  if (!evidenceRecord(value) || !evidenceRecord(value.subject) ||
-    !evidenceRecord(value.artifacts) || !Array.isArray(value.spans)) return false
+  if (
+    !evidenceRecord(value) ||
+    !evidenceRecord(value.subject) ||
+    !evidenceRecord(value.artifacts) ||
+    !Array.isArray(value.spans)
+  )
+    return false
   const subject = value.subject
   if (!evidenceText(subject.verticalId) || !evidenceText(subject.taskId)) return false
   for (const field of ['cellId', 'attemptId', 'company', 'tool', 'toolRevision']) {
     if (subject[field] !== null && !evidenceText(subject[field])) return false
   }
-  for (const role of ['seed', 'task', 'cell', 'request', 'response', 'document', 'controls', 'binding']) {
+  for (const role of [
+    'seed',
+    'task',
+    'cell',
+    'request',
+    'response',
+    'document',
+    'controls',
+    'binding',
+  ]) {
     const artifact = value.artifacts[role]
-    if (artifact !== null && (!isTraceInsightArtifact(artifact) || artifact.role !== role)) return false
+    if (artifact !== null && (!isTraceInsightArtifact(artifact) || artifact.role !== role))
+      return false
   }
-  return value.spans.every((span) => evidenceRecord(span) &&
-    typeof span.traceId === 'string' && /^[a-f0-9]{32}$/.test(span.traceId) && !/^0+$/.test(span.traceId) &&
-    typeof span.spanId === 'string' && /^[a-f0-9]{16}$/.test(span.spanId) && !/^0+$/.test(span.spanId) &&
-    isTraceInsightArtifact(span.artifact) && span.artifact.role === 'span')
+  return value.spans.every(
+    (span) =>
+      evidenceRecord(span) &&
+      typeof span.traceId === 'string' &&
+      /^[a-f0-9]{32}$/.test(span.traceId) &&
+      !/^0+$/.test(span.traceId) &&
+      typeof span.spanId === 'string' &&
+      /^[a-f0-9]{16}$/.test(span.spanId) &&
+      !/^0+$/.test(span.spanId) &&
+      isTraceInsightArtifact(span.artifact) &&
+      span.artifact.role === 'span',
+  )
 }
 
 export function isTraceInsightAttribution(value: unknown): value is TraceInsightAttribution {
   if (!isTraceInsightEvidence(value)) return false
   const attribution = value as TraceInsightEvidence & Record<string, unknown>
   if (attribution.outcome === 'unknown') {
-    return attribution.evidenceClass === 'unknown' && Array.isArray(attribution.reasons) &&
-      attribution.reasons.length > 0 && attribution.reasons.every(evidenceText)
+    return (
+      attribution.evidenceClass === 'unknown' &&
+      Array.isArray(attribution.reasons) &&
+      attribution.reasons.length > 0 &&
+      attribution.reasons.every(evidenceText)
+    )
   }
-  if (Object.values(value.subject).some((entry) => entry === null) ||
-    Object.values(value.artifacts).some((artifact) => artifact === null) || value.spans.length === 0 ||
-    !isTraceInsightArtifact(attribution.proof)) return false
+  if (
+    Object.values(value.subject).some((entry) => entry === null) ||
+    Object.values(value.artifacts).some((artifact) => artifact === null) ||
+    value.spans.length === 0 ||
+    !isTraceInsightArtifact(attribution.proof)
+  )
+    return false
   if (attribution.outcome === 'tool-failure') {
-    return attribution.evidenceClass === 'validated-request-response' && attribution.proof.role === 'execution' &&
-      isTraceInsightArtifact(attribution.authority) && attribution.authority.role === 'authority'
+    return (
+      attribution.evidenceClass === 'validated-request-response' &&
+      attribution.proof.role === 'execution' &&
+      isTraceInsightArtifact(attribution.authority) &&
+      attribution.authority.role === 'authority'
+    )
   }
   if (attribution.outcome !== 'documentation-failure') return false
   if (attribution.evidenceClass === 'authoritative-execution') {
-    return (attribution.documentation === 'stale' || attribution.documentation === 'contradictory') &&
-      attribution.proof.role === 'execution' && isTraceInsightArtifact(attribution.authority) && attribution.authority.role === 'authority'
+    return (
+      (attribution.documentation === 'stale' || attribution.documentation === 'contradictory') &&
+      attribution.proof.role === 'execution' &&
+      isTraceInsightArtifact(attribution.authority) &&
+      attribution.authority.role === 'authority'
+    )
   }
-  return attribution.evidenceClass === 'paired-corrected-document' &&
-    attribution.proof.role === 'publication' && isTraceInsightArtifact(attribution.plan) && attribution.plan.role === 'plan' &&
-    isTraceInsightArtifact(attribution.correctedEvidence) && attribution.correctedEvidence.role === 'binding' &&
+  return (
+    attribution.evidenceClass === 'paired-corrected-document' &&
+    attribution.proof.role === 'publication' &&
+    isTraceInsightArtifact(attribution.plan) &&
+    attribution.plan.role === 'plan' &&
+    isTraceInsightArtifact(attribution.correctedEvidence) &&
+    attribution.correctedEvidence.role === 'binding' &&
     evidenceText(attribution.comparisonId)
+  )
 }
 
 export interface TraceInsightQuestion {
@@ -377,12 +429,22 @@ export function scoreTraceInsightReadiness(context: TraceInsightContext): TraceI
     {
       id: 'attribution-evidence',
       label: 'Evidence-classed customer findings',
-      passed: failedTasks.every((task) => context.findings.some((finding) =>
-        finding.taskIds.includes(task.id) && finding.attribution?.subject.taskId === task.id)) &&
-        context.findings.every((finding) => isTraceInsightAttribution(finding.attribution) &&
-          finding.taskIds.length === 1 && finding.taskIds[0] === finding.attribution.subject.taskId),
+      passed:
+        failedTasks.every((task) =>
+          context.findings.some(
+            (finding) =>
+              finding.taskIds.includes(task.id) && finding.attribution?.subject.taskId === task.id,
+          ),
+        ) &&
+        context.findings.every(
+          (finding) =>
+            isTraceInsightAttribution(finding.attribution) &&
+            finding.taskIds.length === 1 &&
+            finding.taskIds[0] === finding.attribution.subject.taskId,
+        ),
       severity: 'critical',
-      detail: 'Every finding needs an explicit evidence class and byte-backed links, or an explicit unknown; prose is not attribution evidence.',
+      detail:
+        'Every finding needs an explicit evidence class and byte-backed links, or an explicit unknown; prose is not attribution evidence.',
     },
   ]
   const penalty = gates.reduce((sum, gate) => {
