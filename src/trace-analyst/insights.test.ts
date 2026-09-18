@@ -94,15 +94,16 @@ describe('trace insight planning', () => {
       findings: [{ kind: 'missing-domain-integration', severity: 'high', taskIds: ['checkout'] }],
     })
     const readiness = scoreTraceInsightReadiness(context)
-    expect(readiness.grade).toBe('external-ready')
-    expect(readiness.score).toBe(1)
+    expect(readiness.grade).toBe('raw-analysis')
+    expect(readiness.score).toBe(0.65)
     expect(readiness.gates.map((gate) => gate.id)).toEqual([
       'domain-context',
       'panel-coverage',
       'failure-coverage',
       'gap-evidence',
+      'attribution-evidence',
     ])
-    expect(readiness.gates.every((gate) => gate.passed)).toBe(true)
+    expect(readiness.gates.find((gate) => gate.id === 'attribution-evidence')?.passed).toBe(false)
 
     const weak = scoreTraceInsightReadiness(
       buildTraceInsightContext({
@@ -116,6 +117,7 @@ describe('trace insight planning', () => {
     expect(weak.gates.filter((gate) => !gate.passed).map((gate) => gate.id)).toEqual([
       'failure-coverage',
       'gap-evidence',
+      'attribution-evidence',
     ])
   })
 })

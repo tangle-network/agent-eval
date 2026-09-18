@@ -35,6 +35,8 @@ export {
 export type { TraceAnalystHookOptions } from './hook'
 export { traceAnalystOnRunComplete } from './hook'
 export type {
+  TraceInsightAttribution,
+  TraceInsightEvidence,
   TraceInsightContext,
   TraceInsightFinding,
   TraceInsightPanelRole,
@@ -52,6 +54,9 @@ export {
   describeTraceInsightScope,
   domainEvidencePattern,
   inferDomainKeywords,
+  isTraceInsightArtifact,
+  isTraceInsightAttribution,
+  isTraceInsightEvidence,
   planTraceInsightQuestions,
   scoreTraceInsightReadiness,
   tokenizeDomainWords,

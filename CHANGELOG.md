@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `/trace-analyst` `TraceInsightFinding.attribution`: an evidence-classed, byte-backed customer attribution (`validated-request-response`, `authoritative-execution`, `paired-corrected-document`, or an explicit `unknown` with reasons), with `isTraceInsightArtifact`, `isTraceInsightEvidence` and `isTraceInsightAttribution` guards.
+
+### Changed
+
+- `scoreTraceInsightReadiness` adds the critical `attribution-evidence` gate: a suite reaches `external-ready` only when every finding carries a structured attribution or an explicit unknown; narrative `evidence` no longer counts.
+
 ## [0.183.0] — 2026-09-17
 
 ### Changed
