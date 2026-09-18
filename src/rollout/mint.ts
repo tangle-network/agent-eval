@@ -497,7 +497,9 @@ export async function mintRolloutRows(
     const trajectory = await buildTrajectory(store, record.runId)
     const captured = options.messagesOf ? await options.messagesOf(record.runId) : undefined
     if (options.messagesOf && (!Array.isArray(captured) || captured.length === 0)) {
-      throw new ValidationError(`Cannot mint rollout for run ${record.runId}: full capture is missing`)
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: full capture is missing`,
+      )
     }
     if (trajectory.steps.length === 0 && !options.messagesOf) {
       missingTraces.push(record.runId)
@@ -519,7 +521,10 @@ export async function mintRolloutRows(
     requireToolLinkage(messages, record.runId)
     const conversation = messages.map((message) => projectMessage(message, scrub))
     // SFT drops copied context. That projection must not orphan a retained result.
-    requireToolLinkage(conversation.filter((message) => message.is_copied_context !== true), record.runId)
+    requireToolLinkage(
+      conversation.filter((message) => message.is_copied_context !== true),
+      record.runId,
+    )
     const gap =
       conversation.length === 0 ? 'trace has no llm spans — no conversation to inline' : undefined
     rows.push(mintLine(record, steps, conversation, options, capturedAt, gap))
