@@ -151,14 +151,18 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
   if (!config.map && typeof source !== 'function') {
     parseJevRequest({ model: config.model, state: null, questions: source })
     if (Object.values(source).some((question) => question.type === 'choice')) {
-      throw new TypeError('Choice scoring requires an explicit map; labels have no numeric ordering')
+      throw new TypeError(
+        'Choice scoring requires an explicit map; labels have no numeric ordering',
+      )
     }
     if (weights) validateWeights(weights, Object.keys(source))
   }
-  const dimensions = config.dimensions ?? Object.entries(source).map(([key, question]) => ({
-    key,
-    description: typeof question.instructions === 'string' ? question.instructions : key,
-  }))
+  const dimensions =
+    config.dimensions ??
+    Object.entries(source).map(([key, question]) => ({
+      key,
+      description: typeof question.instructions === 'string' ? question.instructions : key,
+    }))
   const evaluate = jevEvaluator(config)
   return asJudge<A, S, JevResult<Q>>({
     name,
@@ -167,7 +171,11 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
       version: config.version,
       questions: typeof source === 'function' ? 'dynamic' : source,
       dimensions,
-      weights,
+      // Omitted rather than undefined: contentHash canonicalizes to RFC 8785, which has no
+      // encoding for an absent value, so `weights: undefined` threw
+      // `LedgerCanonicalizationError: $.weights is undefined` and every judge that did not
+      // pass weights — the documented default — failed to construct.
+      ...(weights ? { weights } : {}),
     }),
     dimensions,
     appliesTo: config.appliesTo,

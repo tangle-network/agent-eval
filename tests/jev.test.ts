@@ -153,6 +153,10 @@ describe('reusable evaluation and interpretation', () => {
   it('supports choices in a judge when the caller supplies the utility mapping', async () => {
     const judge = jevJudge('route', {
       model, version: 'v1', questions,
+      // A custom map decides what the judge reports, and nothing in `questions` predicts it:
+      // this map answers a question named `route` with a dimension named `ready`. Without the
+      // declaration the judge would advertise `route` and emit `ready`, so jevJudge requires it.
+      dimensions: [{ key: 'ready', description: 'Probability the route finishes' }],
       evaluate: async (request) => response(request),
       renderState: ({ artifact }: { artifact: string }) => artifact,
       map: (value) => ({ dimensions: { ready: value.answers.route.probabilities.finish }, composite: 1, notes: '' }),
