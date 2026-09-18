@@ -66,11 +66,12 @@ export function jsonDocument(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(jsonDocument)
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== Object.prototype && prototype !== null) return value
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (entry !== undefined) out[key] = jsonDocument(entry)
-  }
-  return out
+  // fromEntries creates own properties, including a caller's __proto__ key.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, jsonDocument(entry)]),
+  )
 }
 
 /** Name the offending value and path so a refusal is actionable. The RFC 8785

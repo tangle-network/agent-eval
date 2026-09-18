@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
+import { canonicalString } from './ledger-core/canonical'
 
 /** Structural equivalents of the native SDK types; callers can use its builders unchanged. */
 export type JevJson = string | number | boolean | null | JevJson[] | { [key: string]: JevJson }
@@ -64,19 +65,8 @@ function object(value: unknown): Record<string, unknown> {
 function entry(value: unknown): void {
   if (value === null || typeof value === 'string') return
   if (typeof value !== 'object') throw new TypeError('Expected text, JSON object/array, or null')
-  // Check serialization before paid admission. Cycles and non-JSON values must not be lossy.
-  JSON.stringify(value, (_key, item: unknown) => {
-    if (
-      item === undefined ||
-      typeof item === 'function' ||
-      typeof item === 'symbol' ||
-      typeof item === 'bigint' ||
-      (typeof item === 'number' && !Number.isFinite(item))
-    ) {
-      throw new TypeError('Evaluation entries must contain only JSON values')
-    }
-    return item
-  })
+  // Reuse the canonical JSON validator rather than accepting lossy Map/Date coercions.
+  canonicalString(value)
 }
 
 export function parseJevRequest(raw: unknown): JevRequest {
@@ -96,7 +86,9 @@ export function parseJevRequest(raw: unknown): JevRequest {
         if (Object.keys(criteria).some((key) => key !== 'true' && key !== 'false')) {
           throw new TypeError('Noul criteria must describe true and/or false')
         }
-        for (const value of Object.values(criteria)) entry(value)
+        for (const value of Object.values(criteria)) {
+          if (value !== undefined) entry(value)
+        }
       }
     } else if (question.type === 'score') {
       if (!Array.isArray(question.criteria) || question.criteria.length < 2) {
