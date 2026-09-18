@@ -257,14 +257,14 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
   const weights = options.weights
     ? { ...options.weights }
     : Object.fromEntries(keys.map((key) => [key, 1]))
-  if (keys.some((key) => config.questions[key].type === 'choice')) {
+  if (Object.values(config.questions).some((question) => question.type === 'choice')) {
     throw new TypeError(
       'Jev judges accept score or noul questions; choices have no numeric ordering',
     )
   }
   if (
-    Object.keys(weights).some(
-      (key) => !keys.includes(key) || !Number.isFinite(weights[key]) || weights[key] < 0,
+    Object.entries(weights).some(
+      ([key, weight]) => !keys.includes(key) || !Number.isFinite(weight) || weight < 0,
     ) ||
     Object.values(weights).reduce((sum, weight) => sum + weight, 0) <= 0
   ) {
@@ -274,9 +274,9 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
   const render = options.renderState
   return {
     name,
-    dimensions: keys.map((key) => ({
+    dimensions: Object.entries(config.questions).map(([key, question]) => ({
       key,
-      description: JSON.stringify(config.questions[key].instructions),
+      description: JSON.stringify(question.instructions),
     })),
     judgeVersion: contentHash({
       kind: 'jev',
@@ -308,6 +308,7 @@ export function jevJudge<TArtifact, TScenario extends Scenario = Scenario>(
       )
       const entries = keys.map((key) => {
         const answer = result.answers[key]
+        if (!answer) throw new JevResponseError(`missing answer ${key}`)
         if (answer.type === 'choice') throw new JevResponseError('choice cannot be scored')
         const scale = answer.type === 'score' ? Object.keys(answer.legend).length - 1 : 1
         const distribution =
