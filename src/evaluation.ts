@@ -32,10 +32,7 @@ export type Evaluator<I, O> = (
 ) => Promise<EvaluationResult<O>>
 
 export interface EvaluatorOptions<I, O> {
-  execute: (
-    input: I,
-    context: { signal: AbortSignal; idempotencyKey: string },
-  ) => Promise<O>
+  execute: (input: I, context: { signal: AbortSignal; idempotencyKey: string }) => Promise<O>
   receipt: (value: O) => CostReceiptInput
   receiptFromError?: (error: Error) => CostReceiptInput | undefined
   model?: string | ((input: I) => string)
@@ -54,7 +51,7 @@ export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): Evaluato
     const started = performance.now()
     const paid = await (context.costLedger ?? ledger).runPaidCall({
       actor: context.actor ?? 'evaluation',
-      channel: context.channel ?? 'judge',
+      channel: context.channel ?? 'evaluation',
       phase: context.costPhase ?? 'evaluation',
       tags: context.costTags,
       model: typeof defaults.model === 'function' ? defaults.model(input) : defaults.model,
@@ -121,16 +118,8 @@ export interface EvaluationAnalystOptions<I, O> {
     context: EvaluationContext,
     analystContext: AnalystContext,
   ) => Promise<EvaluationResult<O>>
-  map: (
-    value: O,
-    input: I,
-    context: AnalystContext,
-  ) => AnalystFinding[] | Promise<AnalystFinding[]>
-  record?: (
-    result: EvaluationResult<O>,
-    input: I,
-    context: AnalystContext,
-  ) => void | Promise<void>
+  map: (value: O, input: I, context: AnalystContext) => AnalystFinding[] | Promise<AnalystFinding[]>
+  record?: (result: EvaluationResult<O>, input: I, context: AnalystContext) => void | Promise<void>
 }
 
 /** Registry, graph, and trace consumers keep the same Analyst interface. */
