@@ -6,6 +6,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `/rollout` `MintRolloutOptions.messagesOf`: an optional resolver of the full canonical `ChatMessage[]` for a run.
+  When supplied, a missing or empty capture refuses the mint instead of falling back to the last model context.
+- `/rl` `runRLCampaign` result carries `rolloutLines`, the canonical rows it minted.
+
+### Fixed
+
+- Minted transcripts keep tool-call linkage: invocation ids, names, raw argument strings, result ids and copied-context labels survive projection, and orphaned, duplicated or out-of-order linkage refuses the mint.
+- `runRLCampaign` mints each scored record against the `TraceStore` it handed to evaluation instead of an empty replacement store.
+
 ## [0.183.0] — 2026-09-17
 
 ### Changed
