@@ -20,7 +20,7 @@ export interface JevRequest<Q extends JevQuestions = JevQuestions> {
 }
 
 type ScoreKeys<T extends JevScoreCriteria> = number extends T['length']
-  ? `${number}`
+  ? number
   : Extract<keyof T, `${number}`>
 export type JevAnswerFor<Q extends JevQuestion> = Q extends { type: 'noul' }
   ? { readonly type: 'noul'; readonly noul: number }
@@ -132,7 +132,10 @@ function probability(value: unknown): number {
 }
 
 function exactKeys(value: Record<string, unknown>, names: string[]): void {
-  if (Object.keys(value).length !== names.length || names.some((key) => !Object.hasOwn(value, key))) {
+  if (
+    Object.keys(value).length !== names.length ||
+    names.some((key) => !Object.hasOwn(value, key))
+  ) {
     throw new JevResponseError('Response keys differ from the request')
   }
 }
@@ -156,9 +159,10 @@ export function parseJevResult<Q extends JevQuestions>(
       continue
     }
     probability(answer.confidence)
-    const levels = question.type === 'score'
-      ? question.criteria.map((_, index) => String(index))
-      : Object.keys(question.criteria)
+    const levels =
+      question.type === 'score'
+        ? question.criteria.map((_, index) => String(index))
+        : Object.keys(question.criteria)
     const probabilities = object(answer.probabilities)
     exactKeys(probabilities, levels)
     const sum = levels.reduce((total, level) => total + probability(probabilities[level]), 0)
@@ -166,15 +170,30 @@ export function parseJevResult<Q extends JevQuestions>(
     if (question.type === 'score') {
       const legend = object(answer.legend)
       exactKeys(legend, levels)
-      if (levels.some((level) => !isDeepStrictEqual(legend[level], question.criteria[Number(level)]))) {
+      if (
+        levels.some((level) => !isDeepStrictEqual(legend[level], question.criteria[Number(level)]))
+      ) {
         throw new JevResponseError('Provider changed the rubric')
       }
-      const expected = levels.reduce((total, level) => total + Number(level) * Number(probabilities[level]), 0)
-      if (typeof answer.score !== 'number' || !Number.isFinite(answer.score) || Math.abs(answer.score - expected) > 0.0001) {
+      const expected = levels.reduce(
+        (total, level) => total + Number(level) * Number(probabilities[level]),
+        0,
+      )
+      if (
+        typeof answer.score !== 'number' ||
+        !Number.isFinite(answer.score) ||
+        Math.abs(answer.score - expected) > 0.0001
+      ) {
         throw new JevResponseError('Score differs from its distribution')
       }
-    } else if (typeof answer.choice !== 'string' || !Object.hasOwn(probabilities, answer.choice)
-      || levels.some((level) => Number(probabilities[level]) > Number(probabilities[String(answer.choice)]) + 0.0001)) {
+    } else if (
+      typeof answer.choice !== 'string' ||
+      !Object.hasOwn(probabilities, answer.choice) ||
+      levels.some(
+        (level) =>
+          Number(probabilities[level]) > Number(probabilities[String(answer.choice)]) + 0.0001,
+      )
+    ) {
       throw new JevResponseError('Choice is not a highest-probability option')
     }
   }
