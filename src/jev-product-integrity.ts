@@ -3,12 +3,17 @@
  *
  * A director that builds a product also grades it, and its grade is prose it wrote. Measured on
  * the DIU PROJ00716 campaign, 2026-09-17/18: a product whose own `independentReview` said
- * "verified" had four blocking defects a red team found in one pass; a winning packet reported
- * `latency: median 0.122 ms` for an operation that writes to a database, because the clock
- * started after the write; a packet with 5,083 lines of source shipped one test file; another
- * reported 417,993 lines that were a vendored dependency tree; an earlier one shipped
- * `[PLACEHOLDER]` inside the deliverable brief. Every one of those passed a bar made of
+ * "verified" had four blocking defects a red team found in one pass, one of them a latency
+ * figure about 6,500 times too fast because the timed region started after the durable write;
+ * another packet reported 417,993 lines that were a vendored dependency tree; an earlier one
+ * shipped `[PLACEHOLDER]` inside the deliverable brief. Every one of those passed a bar made of
  * predicates the director itself filled in.
+ *
+ * The same reading cuts the other way, which is why these judges read code rather than pattern
+ * match on a number: a wave-j winner reporting a 0.122 ms median looked like the same defect and
+ * was not. Its timed region covers normalisation, the durable write and a read-back that proves
+ * the row is queryable, and it is named for exactly that. A judge that flagged it on the figure
+ * alone would be wrong, which is the failure mode `measurementHonesty` is written to avoid.
  *
  * Jev answers a schema, not a prompt: each question returns a distribution over named levels,
  * so a gate reads a probability rather than parsing a paragraph. That is what makes these
