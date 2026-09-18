@@ -1,0 +1,76 @@
+name: Jev branch checks (temporary)
+on:
+  push:
+    branches: [feat/jev-decisions]
+    paths: [.jev-edit.json, .github/workflows/jev-branch-check.yml]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/jev-decisions
+      - name: Apply exact branch edits
+        id: edits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, os, subprocess
+          plan_path = pathlib.Path('.jev-edit.json')
+          if not plan_path.exists():
+              raise SystemExit('No pending branch edit plan')
+          plan = json.loads(plan_path.read_text())
+          changed = set()
+          def safe_path(name):
+              p = pathlib.Path(name)
+              if p.is_absolute() or '..' in p.parts or name.startswith('.github/'):
+                  raise ValueError('Invalid source edit path: ' + name)
+              return p
+          for edit in plan.get('replace', []):
+              p = safe_path(edit['path'])
+              text = p.read_text()
+              if text.count(edit['old']) != 1:
+                  raise ValueError('Expected exactly one match: ' + str(p))
+              p.write_text(text.replace(edit['old'], edit['new'], 1))
+              changed.add(str(p))
+          for name, content in plan.get('files', {}).items():
+              p = safe_path(name)
+              if p.exists():
+                  raise ValueError('Refuse to overwrite file: ' + name)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(content)
+              changed.add(str(p))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ('tests', 'typecheck'):
+                  command = plan.get(key, '')
+                  if '\n' in command:
+                      raise ValueError('Multiline command refused')
+                  output.write(key + '=' + command + '\n')
+          plan_path.unlink()
+          changed.add(str(plan_path))
+          subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
+          subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+          subprocess.run(['git', 'add', '--', *sorted(changed)], check=True)
+          subprocess.run(['git', 'commit', '-m', 'feat: apply reviewed Jev integration edits'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/feat/jev-decisions'], check=True)
+          PY
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Focused Jev checks
+        if: steps.edits.outputs.tests != ''
+        env:
+          CHECK_COMMAND: ${{ steps.edits.outputs.tests }}
+        run: bash -o pipefail -c "$CHECK_COMMAND"
+      - name: Typecheck
+        if: always() && steps.edits.outputs.typecheck != ''
+        env:
+          CHECK_COMMAND: ${{ steps.edits.outputs.typecheck }}
+        run: bash -o pipefail -c "$CHECK_COMMAND"
