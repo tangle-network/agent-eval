@@ -5,6 +5,7 @@ import type { EvaluationContext, EvaluationResult, EvaluatorOptions } from './ev
 import { asAnalyst, asJudge, createEvaluator } from './evaluation'
 import type { JevQuestions, JevRequest, JevResult, JevState } from './jev-protocol'
 import { jevUsage, parseJevRequest, parseJevResult } from './jev-protocol'
+import { jsonDocument } from './ledger-core/canonical'
 import { weightedComposite } from './statistics'
 import { contentHash } from './verdict-cache'
 
@@ -79,7 +80,7 @@ export interface JevJudgeOptions<
   model: string
   version: string
   questions: QuestionSource<Input<A, S>, Q>
-  renderState: (input: Input<A, S>) => JevState | Promise<JevState>
+  renderState: (input: Input<A, S>, context: EvaluationContext) => JevState | Promise<JevState>
   dimensions?: JudgeConfig<A, S>['dimensions']
   weights?: Record<string, number>
   map?: (value: JevResult<Q>, input: Input<A, S>) => JudgeScore | Promise<JudgeScore>
@@ -169,21 +170,18 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
     version: contentHash({
       model: config.model,
       version: config.version,
-      questions: typeof source === 'function' ? 'dynamic' : source,
+      questions: typeof source === 'function' ? 'dynamic' : jsonDocument(source),
       dimensions,
-      // Omitted rather than undefined: contentHash canonicalizes to RFC 8785, which has no
-      // encoding for an absent value, so `weights: undefined` threw
-      // `LedgerCanonicalizationError: $.weights is undefined` and every judge that did not
-      // pass weights — the documented default — failed to construct.
+      // Hash the JSON document: optional undefined fields are absent on the wire.
       ...(weights ? { weights } : {}),
     }),
     dimensions,
     appliesTo: config.appliesTo,
-    evaluate: async (input, context) =>
+    evaluate: async (input, context = {}) =>
       evaluate(
         {
           model: config.model,
-          state: await config.renderState(input),
+          state: await config.renderState(input, context),
           questions: typeof source === 'function' ? await source(input) : source,
         },
         context,
@@ -231,7 +229,7 @@ export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
     version: contentHash({
       model: config.model,
       version: config.version,
-      questions: typeof source === 'function' ? 'dynamic' : source,
+      questions: typeof source === 'function' ? 'dynamic' : jsonDocument(source),
     }),
     cost: { kind: 'llm', models: [config.model] },
     evaluate: async (input, context, analystContext) =>

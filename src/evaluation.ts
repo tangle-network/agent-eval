@@ -92,6 +92,7 @@ export function asJudge<A, S extends Scenario, O>(
     dimensions: options.dimensions,
     appliesTo: options.appliesTo,
     async score({ artifact, scenario, signal, costLedger, costPhase, costTags }) {
+      signal.throwIfAborted()
       const input = { artifact, scenario }
       const result = await options.evaluate(input, {
         signal,
@@ -102,7 +103,10 @@ export function asJudge<A, S extends Scenario, O>(
         costTags: { ...costTags, scenarioId: scenario.id },
       })
       await options.record?.(result, input)
-      return options.map(result.value, input)
+      signal.throwIfAborted()
+      const score = await options.map(result.value, input)
+      signal.throwIfAborted()
+      return score
     },
   }
 }
@@ -140,6 +144,7 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
       }
       const signal = AbortSignal.any(signals)
       signal.throwIfAborted()
+      const analystContext = { ...context, signal }
       const result = await options.evaluate(
         input,
         {
@@ -163,10 +168,13 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
                   },
             }),
         },
-        context,
+        analystContext,
       )
-      await options.record?.(result, input, context)
-      return options.map(result.value, input, context)
+      await options.record?.(result, input, analystContext)
+      signal.throwIfAborted()
+      const findings = await options.map(result.value, input, analystContext)
+      signal.throwIfAborted()
+      return findings
     },
   }
 }
