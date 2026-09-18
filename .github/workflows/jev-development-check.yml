@@ -38,6 +38,7 @@ jobs:
           printf 'typecheck=%s\ntests=%s\n' "$typecheck" "$tests" | tee /tmp/jev-check/status.txt
           cat /tmp/jev-check/typecheck.txt /tmp/jev-check/tests.txt
           tar -czf /tmp/jev-check/source.tgz src/evaluation.ts src/jev.ts src/jev-protocol.ts examples/jev-product-integrity.ts tests/jev.test.ts tests/jev-product-integrity.test.ts biome.json
+          git archive --format=tar.gz -o /tmp/jev-check/repository.tgz HEAD
           tar -czf /tmp/jev-check/dependencies.tgz node_modules
           test "$typecheck" -eq 0 && test "$tests" -eq 0
       - uses: actions/upload-artifact@v7
