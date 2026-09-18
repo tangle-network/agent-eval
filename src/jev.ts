@@ -32,16 +32,18 @@ export function jevEvaluator(options: JevEvaluatorOptions) {
     costLedger: config.costLedger,
     maximumCharge: config.maximumCharge,
     receiptFromError: config.receiptFromError,
-    receipt: config.receipt ?? ((raw) => {
-      const usage = jevUsage(raw)
-      const { model } = raw as JevResult
-      return {
-        model,
-        inputTokens: usage.input_tokens,
-        outputTokens: usage.output_tokens,
-        customTokenPricing: config.pricing,
-      }
-    }),
+    receipt:
+      config.receipt ??
+      ((raw) => {
+        const usage = jevUsage(raw)
+        const { model } = raw as JevResult
+        return {
+          model,
+          inputTokens: usage.input_tokens,
+          outputTokens: usage.output_tokens,
+          customTokenPricing: config.pricing,
+        }
+      }),
     validate: (raw, request) => {
       const result = parseJevResult(raw, request)
       if (config.acceptModel && !config.acceptModel(request.model, result.model)) {
@@ -69,8 +71,11 @@ export interface JevOptions extends JevEvaluatorOptions {
   version: string
   questions: JevQuestions
 }
-export interface JevJudgeOptions<A, S extends Scenario = Scenario, Q extends JevQuestions = JevQuestions>
-  extends JevEvaluatorOptions {
+export interface JevJudgeOptions<
+  A,
+  S extends Scenario = Scenario,
+  Q extends JevQuestions = JevQuestions,
+> extends JevEvaluatorOptions {
   model: string
   version: string
   questions: QuestionSource<Input<A, S>, Q>
@@ -82,28 +87,43 @@ export interface JevJudgeOptions<A, S extends Scenario = Scenario, Q extends Jev
   appliesTo?: (scenario: S) => boolean
 }
 
+function validateWeights(weights: Record<string, number>, keys: string[]): void {
+  if (
+    Object.entries(weights).some(
+      ([key, weight]) => !keys.includes(key) || !Number.isFinite(weight) || weight < 0,
+    ) ||
+    Object.values(weights).reduce((sum, weight) => sum + weight, 0) <= 0
+  ) {
+    throw new TypeError('Invalid judge weights')
+  }
+}
+
 /** Optional convention. Choice utilities and non-uniform scales belong in an explicit map. */
-export function normalizedJevScore(result: JevResult, weights?: Record<string, number>): JudgeScore {
-  const dimensions: Record<string, number> = {}
-  const distribution: NonNullable<JudgeScore['distribution']> = {}
+export function normalizedJevScore(
+  result: JevResult,
+  weights?: Record<string, number>,
+): JudgeScore {
+  const dimensions: Record<string, number> = Object.create(null)
+  const distribution: NonNullable<JudgeScore['distribution']> = Object.create(null)
   for (const [key, answer] of Object.entries(result.answers)) {
     if (answer.type === 'choice') throw new TypeError('Choice scoring requires an explicit map')
     if (answer.type === 'noul') {
       dimensions[key] = answer.noul
-      distribution[key] = [{ score: 0, probability: 1 - answer.noul }, { score: 1, probability: answer.noul }]
+      distribution[key] = [
+        { score: 0, probability: 1 - answer.noul },
+        { score: 1, probability: answer.noul },
+      ]
     } else {
       const scale = Object.keys(answer.legend).length - 1
       dimensions[key] = answer.score / scale
       distribution[key] = Object.entries(answer.probabilities).map(([level, probability]) => ({
-        score: Number(level) / scale, probability,
+        score: Number(level) / scale,
+        probability,
       }))
     }
   }
   const effective = weights ?? Object.fromEntries(Object.keys(dimensions).map((key) => [key, 1]))
-  if (Object.entries(effective).some(([key, weight]) => !Object.hasOwn(dimensions, key) || !Number.isFinite(weight) || weight < 0)
-    || Object.values(effective).reduce((sum, weight) => sum + weight, 0) <= 0) {
-    throw new TypeError('Invalid judge weights')
-  }
+  validateWeights(effective, Object.keys(dimensions))
   return {
     dimensions,
     composite: weightedComposite({ dims: dimensions, weights: effective }).composite,
@@ -118,34 +138,55 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
   name: string,
   options: JevJudgeOptions<A, S, Q>,
 ): JudgeConfig<A, S> {
-  const source = typeof options.questions === 'function' ? options.questions : structuredClone(options.questions)
+  const config = { ...options }
+  const source =
+    typeof options.questions === 'function' ? options.questions : structuredClone(options.questions)
   const weights = options.weights && { ...options.weights }
-  if (!name.trim() || !options.version.trim()) throw new TypeError('Judge name and version are required')
-  if (typeof source === 'function' && !options.dimensions) {
-    throw new TypeError('Dynamic questions require stable judge dimensions')
+  if (!name.trim() || !options.version.trim()) {
+    throw new TypeError('Judge name and version are required')
   }
-  if (!options.map && typeof source !== 'function' && Object.values(source).some((q) => q.type === 'choice')) {
-    throw new TypeError('Choice scoring requires an explicit map; labels have no numeric ordering')
+  if ((typeof source === 'function' || config.map) && !config.dimensions) {
+    throw new TypeError('Dynamic questions and custom mappings require stable judge dimensions')
   }
-  const evaluate = jevEvaluator(options)
-  return asJudge({
+  if (!config.map && typeof source !== 'function') {
+    parseJevRequest({ model: config.model, state: null, questions: source })
+    if (Object.values(source).some((question) => question.type === 'choice')) {
+      throw new TypeError('Choice scoring requires an explicit map; labels have no numeric ordering')
+    }
+    if (weights) validateWeights(weights, Object.keys(source))
+  }
+  const dimensions = config.dimensions ?? Object.entries(source).map(([key, question]) => ({
+    key,
+    description: typeof question.instructions === 'string' ? question.instructions : key,
+  }))
+  const evaluate = jevEvaluator(config)
+  return asJudge<A, S, JevResult<Q>>({
     name,
-    version: contentHash({ model: options.model, version: options.version, questions: typeof source === 'function' ? 'dynamic' : source, weights }),
-    dimensions: options.dimensions ?? Object.entries(source).map(([key, q]) => ({
-      key, description: typeof q.instructions === 'string' ? q.instructions : key,
-    })),
-    appliesTo: options.appliesTo,
-    evaluate: async (input, context) => evaluate({
-      model: options.model,
-      state: await options.renderState(input),
-      questions: typeof source === 'function' ? await source(input) : source,
-    }, context),
-    map: options.map ?? ((value) => normalizedJevScore(value, weights)),
-    record: options.record,
+    version: contentHash({
+      model: config.model,
+      version: config.version,
+      questions: typeof source === 'function' ? 'dynamic' : source,
+      dimensions,
+      weights,
+    }),
+    dimensions,
+    appliesTo: config.appliesTo,
+    evaluate: async (input, context) =>
+      evaluate(
+        {
+          model: config.model,
+          state: await config.renderState(input),
+          questions: typeof source === 'function' ? await source(input) : source,
+        },
+        context,
+      ),
+    map: config.map ?? ((value) => normalizedJevScore(value, weights)),
+    record: config.record,
   })
 }
 
-export interface JevAnalystOptions<I, Q extends JevQuestions = JevQuestions> extends JevEvaluatorOptions {
+export interface JevAnalystOptions<I, Q extends JevQuestions = JevQuestions>
+  extends JevEvaluatorOptions {
   id: string
   description: string
   inputKind: Analyst<I>['inputKind']
@@ -153,28 +194,54 @@ export interface JevAnalystOptions<I, Q extends JevQuestions = JevQuestions> ext
   version: string
   questions: Q | ((input: I, context: AnalystContext) => Q | Promise<Q>)
   renderState: (input: I, context: AnalystContext) => JevState | Promise<JevState>
-  findings: (value: JevResult<Q>, input: I, context: AnalystContext) => AnalystFinding[] | Promise<AnalystFinding[]>
-  record?: (result: EvaluationResult<JevResult<Q>>, input: I, context: AnalystContext) => void | Promise<void>
+  findings: (
+    value: JevResult<Q>,
+    input: I,
+    context: AnalystContext,
+  ) => AnalystFinding[] | Promise<AnalystFinding[]>
+  record?: (
+    result: EvaluationResult<JevResult<Q>>,
+    input: I,
+    context: AnalystContext,
+  ) => void | Promise<void>
 }
 
-export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(options: JevAnalystOptions<I, Q>): Analyst<I> {
-  const source = typeof options.questions === 'function' ? options.questions : structuredClone(options.questions)
-  if (!options.id.trim() || !options.version.trim() || !options.description.trim()) {
+export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
+  options: JevAnalystOptions<I, Q>,
+): Analyst<I> {
+  const config = { ...options }
+  const source =
+    typeof options.questions === 'function' ? options.questions : structuredClone(options.questions)
+  if (!config.id.trim() || !config.version.trim() || !config.description.trim()) {
     throw new TypeError('Analyst id, version, and description are required')
   }
-  const evaluate = jevEvaluator(options)
-  return asAnalyst({
-    id: options.id,
-    description: options.description,
-    inputKind: options.inputKind,
-    version: contentHash({ model: options.model, version: options.version, questions: typeof source === 'function' ? 'dynamic' : source }),
-    cost: { kind: 'llm', models: [options.model] },
-    evaluate: async (input, context, analystContext) => evaluate({
-      model: options.model,
-      state: await options.renderState(input, analystContext),
-      questions: typeof source === 'function' ? await source(input, analystContext) : source,
-    }, { ...context, costLedger: analystContext.costLedger ?? options.costLedger ?? context?.costLedger }),
-    map: options.findings,
-    record: options.record,
+  const evaluate = jevEvaluator(config)
+  return asAnalyst<I, JevResult<Q>>({
+    id: config.id,
+    description: config.description,
+    inputKind: config.inputKind,
+    version: contentHash({
+      model: config.model,
+      version: config.version,
+      questions: typeof source === 'function' ? 'dynamic' : source,
+    }),
+    cost: { kind: 'llm', models: [config.model] },
+    evaluate: async (input, context, analystContext) =>
+      evaluate(
+        {
+          model: config.model,
+          state: await config.renderState(input, analystContext),
+          questions: typeof source === 'function' ? await source(input, analystContext) : source,
+        },
+        {
+          ...context,
+          costLedger:
+            analystContext.costLedger ??
+            (analystContext.budgetUsd === undefined ? config.costLedger : undefined) ??
+            context.costLedger,
+        },
+      ),
+    map: config.findings,
+    record: config.record,
   })
 }
