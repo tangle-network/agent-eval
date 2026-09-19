@@ -254,3 +254,81 @@ export function auditEvaluator(input: EvaluatorAuditInput): EvaluatorAdmissionRe
   }
   return { ...body, reportDigest: hashCanonical(body) }
 }
+
+const probabilityThresholdsSchema = z
+  .object({
+    rejectAtOrBelow: z.number().finite().min(0).max(1),
+    acceptAtOrAbove: z.number().finite().min(0).max(1),
+  })
+  .strict()
+  .refine((value) => value.rejectAtOrBelow < value.acceptAtOrAbove, {
+    message: 'rejection and acceptance thresholds must not overlap',
+  })
+const probabilityObservationSchema = observationSchema
+  .omit({ observed: true })
+  .extend({ acceptProbability: z.number().finite().min(0).max(1).nullable() })
+  .strict()
+const probabilityAuditSchema = inputSchema.extend({
+  thresholds: probabilityThresholdsSchema,
+  observations: z.array(probabilityObservationSchema),
+})
+
+/** A frozen caller-owned rule over P(accept), not the provider's entropy/confidence statistic. */
+export type ProbabilityPolicyAuditInput = z.infer<typeof probabilityAuditSchema>
+
+export interface ProbabilityPolicyAuditReport extends EvaluatorAdmissionReport {
+  probabilityPolicy: {
+    sourceEvaluatorDigest: LedgerHash
+    thresholds: ProbabilityPolicyAuditInput['thresholds']
+    /** Retain probabilities by observation id so the reported mapping can be reproduced. */
+    observations: Array<{ id: string; acceptProbability: number | null }>
+  }
+}
+
+/**
+ * Audit a fixed probability-to-decision rule with the existing independent-unit error bounds.
+ * No threshold search, model calls, promotion, or assumption of calibrated probabilities.
+ * Null scores and the open interval between thresholds remain unknown, never correct by default.
+ */
+export function auditProbabilityPolicy(
+  input: ProbabilityPolicyAuditInput,
+): ProbabilityPolicyAuditReport {
+  const parsed = probabilityAuditSchema.safeParse(input)
+  if (!parsed.success) {
+    throw new ValidationError(`invalid probability policy audit: ${parsed.error.message}`)
+  }
+  const { thresholds, observations, ...source } = parsed.data
+  observations.sort((a, b) => compareCodeUnits(a.id, b.id))
+  const probabilityPolicy = {
+    sourceEvaluatorDigest: source.evaluatorDigest as LedgerHash,
+    thresholds,
+    observations: observations.map(({ id, acceptProbability }) => ({ id, acceptProbability })),
+  }
+  const audit = auditEvaluator({
+    ...source,
+    evaluatorDigest: hashCanonical({
+      kind: 'probability-policy-v1',
+      sourceEvaluatorDigest: source.evaluatorDigest,
+      thresholds,
+    }),
+    observations: observations.map(({ acceptProbability, ...observation }) => ({
+      ...observation,
+      observed:
+        acceptProbability === null
+          ? 'unknown'
+          : acceptProbability >= thresholds.acceptAtOrAbove
+            ? 'accept'
+            : acceptProbability <= thresholds.rejectAtOrBelow
+              ? 'reject'
+              : 'unknown',
+    })),
+  })
+  const { reportDigest: _baseDigest, ...baseReport } = audit
+  const body = {
+    ...baseReport,
+    // Bind the actual probabilities too, including changes that select the same action.
+    inputDigest: hashCanonical(parsed.data),
+    probabilityPolicy,
+  }
+  return { ...body, reportDigest: hashCanonical(body) }
+}
