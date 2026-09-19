@@ -251,13 +251,7 @@ export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
           state: await config.renderState(input, analystContext),
           questions: typeof source === 'function' ? await source(input, analystContext) : source,
         },
-        {
-          ...context,
-          costLedger:
-            analystContext.costLedger ??
-            (analystContext.budgetUsd === undefined ? config.costLedger : undefined) ??
-            context.costLedger,
-        },
+        context,
       ),
     map: config.findings,
     record: config.record,
