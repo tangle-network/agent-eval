@@ -89,6 +89,17 @@ export interface JevJudgeOptions<
   appliesTo?: (scenario: S) => boolean
 }
 
+/** Canonical identity also retains native question/alternative order; dispatch stays untouched. */
+function questionIdentity(questions: JevQuestions) {
+  return {
+    document: jsonDocument(questions),
+    order: Object.entries(questions).map(([name, question]) => [
+      name,
+      question.type === 'choice' ? Object.keys(question.criteria) : null,
+    ]),
+  }
+}
+
 function validateWeights(weights: Record<string, number>, keys: string[]): void {
   if (
     Object.entries(weights).some(
@@ -171,7 +182,7 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
     version: contentHash({
       model: config.model,
       version: config.version,
-      questions: typeof source === 'function' ? 'dynamic' : jsonDocument(source),
+      questions: typeof source === 'function' ? 'dynamic' : questionIdentity(source),
       dimensions,
       // Hash the JSON document: optional undefined fields are absent on the wire.
       ...(weights ? { weights } : {}),
@@ -230,7 +241,7 @@ export function jevAnalyst<I, Q extends JevQuestions = JevQuestions>(
     version: contentHash({
       model: config.model,
       version: config.version,
-      questions: typeof source === 'function' ? 'dynamic' : jsonDocument(source),
+      questions: typeof source === 'function' ? 'dynamic' : questionIdentity(source),
     }),
     cost: { kind: 'llm', models: [config.model] },
     evaluate: async (input, context, analystContext) =>
