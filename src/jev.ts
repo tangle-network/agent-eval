@@ -11,6 +11,7 @@ import { contentHash } from './verdict-cache'
 
 export * from './evaluation'
 export * from './jev-protocol'
+export * from './jev-review'
 
 export type JevEvaluate = EvaluatorOptions<JevRequest, unknown>['execute']
 export interface JevEvaluatorOptions {
