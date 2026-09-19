@@ -1,5 +1,6 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from './errors'
+import { canonicalString, jsonDocument } from './ledger-core/canonical'
 import { hashJson } from './pre-registration'
 
 export type AgentProfileCellSchemaVersion = 'agent-profile-cell/v1'
@@ -266,7 +267,7 @@ function normalizeDimensions(
     if (typeof value === 'number' && !Number.isFinite(value)) {
       throw new AgentProfileCellValidationError('expected finite number', `dimensions.${key}`)
     }
-    out[key] = value
+    Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true })
   }
   return out
 }
@@ -382,10 +383,10 @@ function requireSha256Hex(value: unknown, path: string): string {
 // the type system, not by every consumer remembering to do it right.
 // See blueprint-agent issue tangle-network/agent-eval#82.
 
-/** Canonical `sourceProfile.kind` values. Two products fingerprinting the
- *  same canonical profile MUST use the same kind for their cells to share
- *  `sourceProfile.hash`. Extend rather than create new strings — adding a
- *  new kind is a deliberate cross-product schema change. */
+/** Canonical `sourceProfile.kind` values. The profile alone determines
+ *  `sourceProfile.hash`; kind also contributes to cellId. Compare both kind and
+ *  hash when joining source identities across products. Extend rather than
+ *  create new strings — a new kind is a cross-product schema change. */
 export const AGENT_PROFILE_KINDS = {
   /** A profile declared via `defineAgentProfile(...)` from
    *  `@tangle-network/agent-interface`. The default kind for router-backed
@@ -395,27 +396,18 @@ export const AGENT_PROFILE_KINDS = {
 
 export type AgentProfileKind = (typeof AGENT_PROFILE_KINDS)[keyof typeof AGENT_PROFILE_KINDS]
 
-/** Canonicalize an arbitrary value into `AgentProfileJson` by JSON
- *  round-trip. Throws when the value contains anything not representable
- *  as JSON (functions, BigInt, cycles) — non-portable profiles fail loud
- *  rather than silently dropping fields. */
+/** Convert a profile's JSON document form using the shared canonical encoder.
+ *  Undefined object properties are absent from the document; other values with
+ *  no faithful JSON representation are rejected before hashing. */
 export function toAgentProfileJson(value: unknown): AgentProfileJson {
-  let serialized: string | undefined
   try {
-    serialized = JSON.stringify(value)
+    return JSON.parse(canonicalString(jsonDocument(value))) as AgentProfileJson
   } catch (err) {
     throw new AgentProfileCellValidationError(
       `agent profile must be JSON-serializable: ${err instanceof Error ? err.message : String(err)}`,
       'sourceProfile.profile',
     )
   }
-  if (serialized === undefined) {
-    throw new AgentProfileCellValidationError(
-      'agent profile must be JSON-serializable (got undefined after JSON.stringify)',
-      'sourceProfile.profile',
-    )
-  }
-  return JSON.parse(serialized) as AgentProfileJson
 }
 
 /** Canonical AgentProfile shape required when deriving a stable cell id. */
