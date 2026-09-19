@@ -90,25 +90,27 @@ export interface EvaluationJudgeOptions<A, S extends Scenario, O> {
 export function asJudge<A, S extends Scenario, O>(
   options: EvaluationJudgeOptions<A, S, O>,
 ): JudgeConfig<A, S> {
+  // The version describes these callbacks, not later mutations of the caller's options.
+  const config = { ...options, dimensions: structuredClone(options.dimensions) }
   return {
-    name: options.name,
-    judgeVersion: options.version,
-    dimensions: options.dimensions,
-    appliesTo: options.appliesTo,
+    name: config.name,
+    judgeVersion: config.version,
+    dimensions: config.dimensions,
+    appliesTo: config.appliesTo,
     async score({ artifact, scenario, signal, costLedger, costPhase, costTags }) {
       signal.throwIfAborted()
       const input = { artifact, scenario }
-      const result = await options.evaluate(input, {
+      const result = await config.evaluate(input, {
         signal,
         costLedger,
-        actor: options.name,
+        actor: config.name,
         channel: 'judge',
         costPhase,
         costTags: { ...costTags, scenarioId: scenario.id },
       })
-      await options.record?.(result, input)
+      await config.record?.(result, input)
       signal.throwIfAborted()
-      const score = await options.map(result.value, input)
+      const score = await config.map(result.value, input)
       signal.throwIfAborted()
       return score
     },
@@ -132,12 +134,13 @@ export interface EvaluationAnalystOptions<I, O> {
 
 /** Registry, graph, and trace consumers keep the same Analyst interface. */
 export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analyst<I> {
+  const config = { ...options, cost: structuredClone(options.cost) }
   return {
-    id: options.id,
-    version: options.version,
-    description: options.description,
-    inputKind: options.inputKind,
-    cost: options.cost,
+    id: config.id,
+    version: config.version,
+    description: config.description,
+    inputKind: config.inputKind,
+    cost: config.cost,
     async analyze(input, context) {
       const signals = context.signal ? [context.signal] : []
       if (context.deadlineMs !== undefined) {
@@ -149,12 +152,12 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
       const signal = AbortSignal.any(signals)
       signal.throwIfAborted()
       const analystContext = { ...context, signal }
-      const result = await options.evaluate(
+      const result = await config.evaluate(
         input,
         {
           signal,
           costLedger: context.costLedger ?? new CostLedger({ costCeilingUsd: context.budgetUsd }),
-          actor: options.id,
+          actor: config.id,
           channel: 'analyst',
           costPhase: context.costPhase,
           costTags: { ...context.tags, runId: context.runId, correlationId: context.correlationId },
@@ -174,9 +177,9 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
         },
         analystContext,
       )
-      await options.record?.(result, input, analystContext)
+      await config.record?.(result, input, analystContext)
       signal.throwIfAborted()
-      const findings = await options.map(result.value, input, analystContext)
+      const findings = await config.map(result.value, input, analystContext)
       signal.throwIfAborted()
       return findings
     },
