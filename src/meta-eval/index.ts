@@ -21,11 +21,14 @@ export * from './calibration'
 export * from './correlation-study'
 export {
   auditEvaluator,
+  auditProbabilityPolicy,
   type EvaluatorAdmissionPolicy,
   type EvaluatorAdmissionReport,
   type EvaluatorAuditInput,
   type EvaluatorAuditObservation,
   type EvaluatorErrorRate,
+  type ProbabilityPolicyAuditInput,
+  type ProbabilityPolicyAuditReport,
 } from './evaluator-admission'
 export type { CorrelationInterval, OutcomeReduction } from './outcome-observations'
 export * from './outcome-store'
