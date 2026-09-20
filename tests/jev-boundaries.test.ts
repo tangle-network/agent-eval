@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { asJudge, jevAnalyst, jevEvaluator, jevJudge, parseJevRequest } from '../src/jev'
+import {
+  asJudge,
+  jevAnalyst,
+  jevEvaluator,
+  jevJudge,
+  parseJevRequest,
+  parseJevResult,
+} from '../src/jev'
 import { canonicalString, jsonDocument } from '../src/ledger-core/canonical'
 
 const model = 'test-classifier'
@@ -133,5 +140,19 @@ describe('native SDK and execution boundaries', () => {
     ).rejects.toThrow()
     expect(record).toHaveBeenCalledOnce()
     expect(map).not.toHaveBeenCalled()
+  })
+})
+
+describe('retained native response metadata', () => {
+  it('preserves provider metadata without a second product parser', () => {
+    const raw = { ...rawResult, provenance: { revision: 'r1', evidence: ['e1'] } }
+    const request = { model, state: null, questions: { ready: { type: 'noul' as const } } }
+    expect(parseJevResult(raw, request)).toBe(raw)
+    expect(JSON.parse(JSON.stringify(parseJevResult(raw, request)))).toEqual(raw)
+  })
+  it('rejects overflow in retained metadata rather than changing it to null', () => {
+    const raw = { ...rawResult, providerMetadata: { limit: Infinity } }
+    const request = { model, state: null, questions: { ready: { type: 'noul' as const } } }
+    expect(() => parseJevResult(raw, request)).toThrow()
   })
 })

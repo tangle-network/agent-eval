@@ -190,5 +190,7 @@ export function parseJevResult<Q extends JevQuestions>(
     }
   }
   jevUsage(raw)
+  // Retained responses may include provider metadata. Reject lossy JSON once at this boundary.
+  canonicalString(raw)
   return raw as JevResult<Q>
 }

@@ -9,6 +9,9 @@ import type {
 } from './cost-ledger'
 import { CostLedger } from './cost-ledger'
 
+/** Minimal paid-call authority; accepts a full ledger or an existing campaign cell meter. */
+export type EvaluationAccount = Pick<CostLedgerHandle, 'runPaidCall'>
+
 export interface EvaluationResult<T> {
   value: T
   receipt: CostReceipt
@@ -20,7 +23,7 @@ export interface EvaluationContext {
    * Reusing it in one ledger conflicts; it is not an automatic result-replay policy. */
   callId?: string
   signal?: AbortSignal
-  costLedger?: CostLedgerHandle
+  costLedger?: EvaluationAccount
   actor?: string
   channel?: CostChannel
   costPhase?: string
@@ -40,7 +43,7 @@ export interface EvaluatorOptions<I, O> {
   receipt: (value: O) => CostReceiptInput
   receiptFromError?: (error: Error) => CostReceiptInput | undefined
   model?: string | ((input: I) => string)
-  costLedger?: CostLedgerHandle
+  costLedger?: EvaluationAccount
   maximumCharge?: MaximumCharge
   /** Awaited after accounting, so invalid output never erases paid work. */
   validate?: (value: O, input: I) => void | Promise<void>
