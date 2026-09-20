@@ -92,6 +92,24 @@ One injected call represents one paid attempt; do not hide retries at multiple l
 An idempotency header is correlation, not proof of upstream inference deduplication.
 Router charges the inference. Eval records attribution and must not charge it again.
 
+The shared analyst adapter uses an explicit `AnalystContext.costLedger` first. If
+none is supplied, an explicit `budgetUsd` creates an account for that invocation.
+Otherwise the evaluator keeps its configured ledger, including its cumulative cap
+across direct calls, judges, and analysts. An absent analyst budget never creates a
+fresh unlimited account that overrides the configured one. This precedence is the
+same for Jev and other classifiers. A per-analysis budget replaces the default
+account; it is not an additional child limit. Pass the shared run ledger explicitly
+when the whole run must conserve one authority. Only trusted host code should choose
+or replace that authority.
+
+`evaluate(request, { callId, costLedger, signal })` may supply the existing ledger's
+physical paid-call identity. It reaches both `receipt.callId` and the transport's
+`idempotencyKey`. Omit it for a newly allocated identity. Duplicate pending or settled
+calls in the same ledger are refused before another dispatch; they do not return a
+cached result. Preserve a retained observation for replay, and allocate a different
+physical-attempt identity only when a retry is explicitly authorized. This adds no
+cross-credential workflow recovery or provider-side deduplication guarantee.
+
 Usage settles before answer validation and mapping. Failed parsing or mapping never
 undoes paid work. Persisted observations remain available even if cancellation prevents
 their reduction to a decision. Unknown costs are not measured zero. `record` is a
@@ -113,10 +131,10 @@ confidence as demonstrated calibration or a classification as proof of root caus
 
 ## Checks
 
-Run `pnpm exec vitest run tests/jev*.test.ts`, `pnpm typecheck`, `pnpm build`, and
-`pnpm verify:package`. These are contract and execution checks, not live-provider
-quality or deployment evidence. The product-integrity rubric lives in `examples/`,
-not the generic implementation, and is not a default policy.
+Run `pnpm exec vitest run tests/jev*.test.ts tests/evaluation-authority.test.ts`,
+`pnpm typecheck`, `pnpm build`, and `pnpm verify:package`. These are contract and
+execution checks, not live-provider quality or deployment evidence. The product-integrity
+rubric lives in `examples/`, not the generic implementation, and is not a default policy.
 
 Protocol: https://docs.typesafe.ai/api
 SDK: https://github.com/typesafe-ai/typesafe-sdk-js

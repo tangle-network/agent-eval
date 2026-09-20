@@ -16,6 +16,9 @@ export interface EvaluationResult<T> {
 }
 
 export interface EvaluationContext {
+  /** Physical paid-call identity, forwarded through the existing ledger and transport.
+   * Reusing it in one ledger conflicts; it is not an automatic result-replay policy. */
+  callId?: string
   signal?: AbortSignal
   costLedger?: CostLedgerHandle
   actor?: string
@@ -51,6 +54,7 @@ export function createEvaluator<I, O>(options: EvaluatorOptions<I, O>): Evaluato
     context.signal?.throwIfAborted()
     const started = performance.now()
     const paid = await (context.costLedger ?? ledger).runPaidCall({
+      callId: context.callId,
       actor: context.actor ?? 'evaluation',
       channel: context.channel ?? 'evaluation',
       phase: context.costPhase ?? 'evaluation',
@@ -156,7 +160,12 @@ export function asAnalyst<I, O>(options: EvaluationAnalystOptions<I, O>): Analys
         input,
         {
           signal,
-          costLedger: context.costLedger ?? new CostLedger({ costCeilingUsd: context.budgetUsd }),
+          // No implicit account may override the evaluator's configured spending authority.
+          costLedger:
+            context.costLedger ??
+            (context.budgetUsd === undefined
+              ? undefined
+              : new CostLedger({ costCeilingUsd: context.budgetUsd })),
           actor: config.id,
           channel: 'analyst',
           costPhase: context.costPhase,
