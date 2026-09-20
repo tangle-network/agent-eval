@@ -137,6 +137,8 @@ export function parseJevResult<Q extends JevQuestions>(
   raw: unknown,
   request: JevRequest<Q>,
 ): JevResult<Q> {
+  // Preserve extension metadata, rejecting values that change when persisted as JSON.
+  canonicalString(raw)
   const response = object(raw)
   if (typeof response.model !== 'string' || !response.model.trim()) {
     throw new JevResponseError('Missing served model')
