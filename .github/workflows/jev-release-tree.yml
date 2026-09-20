@@ -1,0 +1,39 @@
+name: Prepare Jev adoption release tree
+on:
+  push:
+    branches: [feat/jev-product-adoption]
+    paths: [.github/workflows/jev-release-tree.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+      - name: Apply release metadata and leaf export
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('package.json'); data=json.loads(p.read_text()); assert data['version']=='0.183.0'
+          data['version']='0.184.0'
+          data['exports']['./jev/protocol']={'types':'./dist/jev-protocol.d.ts','import':'./dist/jev-protocol.js','default':'./dist/jev-protocol.js'}
+          p.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n')
+          for f in ['clients/python/pyproject.toml','clients/python/src/agent_eval_rpc/__init__.py']:
+            p=Path(f); s=p.read_text(); assert '0.183.0' in s; p.write_text(s.replace('0.183.0','0.184.0'))
+          p=Path('clients/python/uv.lock');s=p.read_text();old='name = "agent-eval-rpc"\nversion = "0.183.0"';assert old in s;p.write_text(s.replace(old,old.replace('0.183.0','0.184.0')))
+          p=Path('scripts/build-entries.mjs');s=p.read_text();old="  jev: 'src/jev.ts',";assert old in s;p.write_text(s.replace(old,old+"\n  'jev-protocol': 'src/jev-protocol.ts',"))
+          p=Path('src/jev-protocol.ts');s=p.read_text();old='  const response = object(raw)\n  if (typeof response.model';assert old in s
+          p.write_text(s.replace(old,'  // Preserve extension metadata, rejecting values that change when persisted as JSON.\n  canonicalString(raw)\n'+old))
+          p=Path('scripts/verify-package-exports.mjs');s=p.read_text();old="    './profile-cell': ['import', 'types'],";assert old in s
+          p.write_text(s.replace(old,old+"\n    './evaluation': ['import', 'types'],\n    './jev': ['import', 'types'],\n    './jev/protocol': ['import', 'types'],"))
+          PY
+          git rm .github/workflows/jev-release-tree.yml
+          git add package.json clients/python scripts/build-entries.mjs scripts/verify-package-exports.mjs src/jev-protocol.ts
+          git diff --cached --check
+          git -c user.name='drewstone' -c user.email='drewstone329@gmail.com' commit -m 'feat: publishable shared native protocol and product benchmark recipes'
+          git push origin HEAD:feat/jev-product-adoption
