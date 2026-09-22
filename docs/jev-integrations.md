@@ -38,6 +38,8 @@ The compareDecisions recipe accepts cases, configurations and an ordinary evalua
 separates input from expected decision (or reviewed unresolved label) and sourceUnit. Question
 builders receive only input. Mapping and recording failures remain failed cells with paid costs;
 unknown spend is not measured free. Concurrency, repetitions and budget authority are caller-owned.
+Configuration results use `id@version` keys, with each component URL encoded; duplicate pairs fail
+before execution. This keeps versions of one policy separate in scores and costs.
 
 Report accuracy and automation coverage separately: always abstaining does not make a useful agent.
 Reuse existing audit/calibration functions and independent source units rather than inventing another

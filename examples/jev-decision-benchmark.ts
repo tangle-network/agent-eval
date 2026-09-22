@@ -40,11 +40,19 @@ export async function compareDecisions(options: {
     decision: string | null
   }) => void | Promise<void>
 }) {
+  const configurations = options.configurations.map((value) => ({
+    id: `${encodeURIComponent(value.id)}@${encodeURIComponent(value.version)}`,
+    value,
+  }))
+  if (new Set(configurations.map(({ id }) => id)).size !== configurations.length) {
+    throw new Error('configuration id and version pairs must be unique')
+  }
+
   return runAgentMatrix({
     axes: [
       {
         name: 'configuration',
-        values: options.configurations.map((value) => ({ id: value.id, value })),
+        values: configurations,
       },
       { name: 'case', values: options.cases.map((value) => ({ id: value.id, value })) },
     ],
