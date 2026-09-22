@@ -15,6 +15,7 @@
  *   pnpm tsx examples/held-out-gate/index.ts
  */
 
+import { strict as assert } from 'node:assert'
 import { HeldOutGate, type RunRecord } from '../../src/index'
 
 function value(value: number | null): string {
@@ -60,9 +61,13 @@ function searchRun(
   }
 }
 
+function holdoutRuns(experimentId: string, candidateId: string, scores: number[]): RunRecord[] {
+  return scores.map((score, seed) => holdoutRun(experimentId, seed, candidateId, score))
+}
+
 const gate = new HeldOutGate({
   baselineKey: 'baseline-v1',
-  minProductiveRuns: 3,
+  minProductiveRuns: 20,
   pairedDeltaThreshold: 0,
   overfitGapThreshold: 0.15,
   bootstrapResamples: 500,
@@ -71,21 +76,18 @@ const gate = new HeldOutGate({
 
 // ── Case 1: a real win — candidate clearly above baseline on holdout ─────
 {
+  const baselineScores = Array.from({ length: 20 }, (_, seed) => 0.58 + (seed % 8) * 0.01)
+  const candidateScores = baselineScores.map((score, seed) => score + 0.15 + (seed % 3) * 0.01)
   const baseline = [
-    holdoutRun('expA', 0, 'baseline-v1', 0.6),
-    holdoutRun('expA', 1, 'baseline-v1', 0.62),
-    holdoutRun('expA', 2, 'baseline-v1', 0.61),
-    holdoutRun('expA', 3, 'baseline-v1', 0.59),
+    ...holdoutRuns('expA', 'baseline-v1', baselineScores),
     searchRun('expA', 0, 'baseline-v1', 0.65),
   ]
   const candidate = [
-    holdoutRun('expA', 0, 'cand-v2', 0.78),
-    holdoutRun('expA', 1, 'cand-v2', 0.81),
-    holdoutRun('expA', 2, 'cand-v2', 0.79),
-    holdoutRun('expA', 3, 'cand-v2', 0.8),
+    ...holdoutRuns('expA', 'cand-v2', candidateScores),
     searchRun('expA', 0, 'cand-v2', 0.82),
   ]
   const decision = gate.evaluate(candidate, baseline)
+  assert.equal(decision.promote, true, `clear win should promote: ${decision.reason}`)
   console.log('case 1 — clear win:')
   console.log('  promote:', decision.promote, decision.rejectionCode ?? '')
   console.log('  reason: ', decision.reason)
@@ -96,33 +98,31 @@ const gate = new HeldOutGate({
 // ── Case 2: too few productive runs — rejection on coverage. ─────────────
 {
   const decision = gate.evaluate(
-    [holdoutRun('expB', 0, 'cand-v2', 0.9)],
-    [holdoutRun('expB', 0, 'baseline-v1', 0.6)],
+    [holdoutRun('expB', 0, 'cand-v2', 0.9), searchRun('expB', 0, 'cand-v2', 0.92)],
+    [holdoutRun('expB', 0, 'baseline-v1', 0.6), searchRun('expB', 0, 'baseline-v1', 0.65)],
   )
+  assert.equal(decision.rejectionCode, 'few_runs')
   console.log('case 2 — too few runs:')
   console.log('  promote:', decision.promote, decision.rejectionCode)
   console.log('  reason: ', decision.reason)
   console.log()
 }
 
-// ── Case 3: classic overfit — candidate wins search big, loses holdout. ──
+// ── Case 3: search gain dwarfs the real holdout gain. ────────────────
 {
+  const baselineScores = Array.from({ length: 20 }, (_, seed) => 0.63 + (seed % 5) * 0.01)
+  const candidateScores = baselineScores.map((score, seed) => score + 0.04 + (seed % 3) * 0.01)
   const baseline = [
-    holdoutRun('expC', 0, 'baseline-v1', 0.65),
-    holdoutRun('expC', 1, 'baseline-v1', 0.66),
-    holdoutRun('expC', 2, 'baseline-v1', 0.64),
-    holdoutRun('expC', 3, 'baseline-v1', 0.65),
+    ...holdoutRuns('expC', 'baseline-v1', baselineScores),
     searchRun('expC', 0, 'baseline-v1', 0.68),
   ]
   const candidate = [
-    holdoutRun('expC', 0, 'cand-v2', 0.55),
-    holdoutRun('expC', 1, 'cand-v2', 0.57),
-    holdoutRun('expC', 2, 'cand-v2', 0.56),
-    holdoutRun('expC', 3, 'cand-v2', 0.55),
+    ...holdoutRuns('expC', 'cand-v2', candidateScores),
     searchRun('expC', 0, 'cand-v2', 0.95), // search wildly higher
   ]
   const decision = gate.evaluate(candidate, baseline)
-  console.log('case 3 — overfit (high search, low holdout):')
+  assert.equal(decision.rejectionCode, 'overfit_gap')
+  console.log('case 3 — overfit (search gain exceeds holdout gain):')
   console.log('  promote:', decision.promote, decision.rejectionCode ?? '')
   console.log('  reason: ', decision.reason)
   console.log('  overfitGap (candidate):', value(decision.evidence.overfitGap))
