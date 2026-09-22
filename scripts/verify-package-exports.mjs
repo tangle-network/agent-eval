@@ -88,6 +88,9 @@ try {
   const requiredExports = {
     '.': ['import', 'types'],
     './profile-cell': ['import', 'types'],
+    './evaluation': ['import', 'types'],
+    './jev': ['import', 'types'],
+    './jev/protocol': ['import', 'types'],
     './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
     './contract': ['import', 'types'],
