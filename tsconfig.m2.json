@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": [
+    "scripts/tb-repair-m2-lib.ts",
+    "scripts/tb-repair-m2-admit.ts",
+    "scripts/tb-repair-m2-analyze.ts",
+    "scripts/tb-repair-m2-analyze2.ts",
+    "scripts/tb-repair-m2-carrier.ts",
+    "scripts/tb-repair-m2-dspy.ts",
+    "scripts/tb-repair-m2-prompt.ts",
+    "scripts/tb-repair-m2-grade.ts",
+    "scripts/tb-repair-m2-report.ts",
+    "scripts/tb-repair-m2-merge-answers.ts",
+    "scripts/tb-repair-m2-classify.ts",
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests"
+  ]
+}
