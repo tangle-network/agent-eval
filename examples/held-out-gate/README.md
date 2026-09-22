@@ -21,8 +21,13 @@ The example walks through three decisions:
 
 - a clean win that promotes,
 - a coverage rejection (too few runs),
-- the overfit pattern: search 0.95, holdout 0.55. The gate refuses
-  to ship it.
+- the overfit pattern: search 0.95, holdout near 0.70. The candidate improves
+  on holdout, but its search-to-holdout gap exceeds the allowed increase.
+  The gate refuses to ship it.
+
+The example uses 20 paired holdout observations for the two decisions that
+estimate a continuous difference. The current mean estimator requires 20 pairs,
+even when `minProductiveRuns` is set lower.
 
 ```bash
 pnpm tsx examples/held-out-gate/index.ts

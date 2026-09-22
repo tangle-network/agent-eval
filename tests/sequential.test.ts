@@ -6,7 +6,7 @@ import {
 } from '../src/sequential'
 
 function deltasUnderNull(n: number, seed = 1, c = 0.1): number[] {
-  // Mean-zero noise inside [-c, c]. Used to verify type-I error control.
+  // Mean-zero noise inside [-c, c] for a fixed-seed over-rejection smoke.
   let s = seed >>> 0
   const out: number[] = []
   for (let i = 0; i < n; i++) {
@@ -58,13 +58,14 @@ describe('pairedEvalueSequence — basic behaviour', () => {
     }
   })
 
-  it('controls type-I error: 100 series under the null at α=0.05 reject < 5% of the time', () => {
+  it('does not over-reject more than 14 of 100 fixed-seed null streams', () => {
     let falseRejects = 0
     const trials = 100
     for (let s = 1; s <= trials; s++) {
       const seq = pairedEvalueSequence(deltasUnderNull(200, s), { alpha: 0.05, bound: 0.1 })
       if (seq.finalDecision === 'promote_now' || seq.finalDecision === 'reject_now') falseRejects++
     }
+    // This fixed sample catches gross regressions. It cannot establish a 5% type-I bound.
     expect(falseRejects).toBeLessThan(15)
   })
 
