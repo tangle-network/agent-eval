@@ -8,11 +8,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## [0.186.0] — 2026-09-23
 ### Added
-- `pairedPromotionPower({ n, alternative, calls, simulations, seed })` and `requiredPairsForPairedPromotion({ target, alternative, calls, minPairs, maxPairs })`: the joint power of one or more configured `decidePairedPromotion` calls under a registered alternative, computed by running the calls themselves on seeded draws from that alternative (#785).
+- `pairedPromotionPower({ n, alternative, calls, simulations, seed })` and `requiredPairsForPairedPromotion({ target, alternative, calls, minPairs, maxPairs })` (the first scanned n at the target and the first at its Wilson lower bound, with the whole curve, since power is not monotone in n on the exact and discrete routes): the joint power of one or more configured `decidePairedPromotion` calls under a registered alternative, computed by running the calls themselves on seeded draws from that alternative (#785).
   The alternative is a serializable joint law: cells drawn first, each with a probability, an optional pass/fail outcome per arm for the binary calls, and a law for the candidate-minus-baseline delta given the cell (`point`, `atoms` or `normal`).
   Every estimate carries its Monte Carlo standard error, a Wilson interval, the refusal and hold rates, and per-call rates by channel (`insufficient`, `indeterminate`, `exactTestVetoes`, `hold`) and by deciding method, so a gate sees which regime the call ran in and which channel bound.
   The closed forms that stood in for this (`mcnemarRequiredN`, `requiredPairedSampleSize`, `pairedMde`) each size a single channel the procedure may never run and under-size it where they do; they are unchanged and remain approximate floors.
-- `PairedPromotionDecisionOptions.continuous`: declare the outcome continuous so `decidePairedPromotion` never infers a two-point support from the observed values and the sealed call's estimator is fixed before the data is seen. Under discovery's E1 alternative at 20 pairs, 5.4 % of 2,000 simulated samples re-routed to the score interval without it.
+- `PairedPromotionDecisionOptions.continuous`: declare the outcome continuous so `decidePairedPromotion` never infers a two-point support from the observed values and the sealed call's estimator is fixed before the data is seen. Under discovery's E1 alternative at 20 pairs, 5.4 % of 2,000 simulated samples (exact rate 5.54 %) re-routed to the score interval without it.
 
 ## [0.185.0] — 2026-09-23
 

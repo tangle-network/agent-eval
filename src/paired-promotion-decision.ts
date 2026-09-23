@@ -111,9 +111,9 @@ export interface PairedPromotionDecisionOptions {
    * the sample happens to look like; with inference on, a sample whose values
    * all land on {0, s} is silently decided on the score interval instead.
    * Measured under discovery's E1 alternative (deltas in {+1, -0.5, 0} on a
-   * zero baseline) at 20 pairs: 5.4 % of 2,000 simulated samples re-route without
-   * this flag, 0 with it (`paired-promotion-power.test.ts`). Cannot accompany
-   * `binaryScale`.
+   * zero baseline) at 20 pairs: 5.4 % of 2,000 simulated samples (seed 11)
+   * re-route without this flag, 0 with it; the exact rate is 5.54 %
+   * (`paired-promotion-power.test.ts`). Cannot accompany `binaryScale`.
    */
   continuous?: boolean
 }

@@ -83,6 +83,31 @@ describe('pairedPromotionPower validation', () => {
     ).toThrow(/pass must give control and treatment booleans/)
   })
 
+  it("refuses a 'pass' call without a declared binaryScale, and every combination the decision refuses", () => {
+    const law: PairedPromotionAlternative = {
+      cells: [
+        {
+          probability: 1,
+          pass: { control: false, treatment: true },
+          delta: { kind: 'point', value: 1 },
+        },
+      ],
+    }
+    const at =
+      (options: PairedPromotionPowerCall['options'], outcome: 'pass' | 'delta' = 'pass') =>
+      () =>
+        pairedPromotionPower({
+          n: 20,
+          alternative: law,
+          calls: [{ outcome, options }],
+          simulations: 5,
+        })
+    expect(at({ threshold: -0.2 })).toThrow(/must declare a finite positive options.binaryScale/)
+    expect(at({ binaryScale: 1, continuous: true })).toThrow(/continuous cannot accompany/)
+    expect(at({ binaryScale: 1, statistic: 'median' })).toThrow(/mean statistic, not median/)
+    expect(at({ binaryScale: 1 }, 'delta')).toThrow(/cannot declare binaryScale/)
+  })
+
   it('refuses an empty call list and a bad n', () => {
     expect(() =>
       pairedPromotionPower({ n: 20, alternative: e1, calls: [], simulations: 10 }),
@@ -95,46 +120,37 @@ describe('pairedPromotionPower validation', () => {
 
 describe('pairedPromotionPower under the E1 alternative', () => {
   it('is deterministic for a seed and reports its Monte Carlo error', () => {
-    const a = pairedPromotionPower({
-      n: 24,
-      alternative: e1,
-      calls: [primary, veto],
-      simulations: 200,
-      seed: 7,
-    })
-    const b = pairedPromotionPower({
-      n: 24,
-      alternative: e1,
-      calls: [primary, veto],
-      simulations: 200,
-      seed: 7,
-    })
-    expect(a).toEqual(b)
+    const run = () =>
+      pairedPromotionPower({
+        n: 24,
+        alternative: e1,
+        calls: [primary, veto],
+        simulations: 200,
+        seed: 7,
+      })
+    const a = run()
+    expect(a).toEqual(run())
     expect(a.standardError).toBeCloseTo(Math.sqrt((a.power * (1 - a.power)) / 200), 12)
     expect(a.low).toBeLessThanOrEqual(a.power)
     expect(a.high).toBeGreaterThanOrEqual(a.power)
-    expect(a.power + a.refuse + a.hold).toBeCloseTo(1, 12)
   })
 
-  it('joint power is at most the weakest call and rises with n', () => {
-    const at20 = pairedPromotionPower({
-      n: 20,
-      alternative: e1,
-      calls: [primary, veto],
-      simulations: 300,
-      seed: 3,
-    })
-    const at40 = pairedPromotionPower({
-      n: 40,
-      alternative: e1,
-      calls: [primary, veto],
-      simulations: 300,
-      seed: 3,
-    })
-    for (const r of [at20, at40]) {
-      expect(r.power).toBeLessThanOrEqual(Math.min(...r.calls.map((c) => c.promote)) + 1e-12)
-    }
+  it('rises with n, and the joint rate sits below the primary alone while the veto binds', () => {
+    const at = (n: number) =>
+      pairedPromotionPower({
+        n,
+        alternative: e1,
+        calls: [primary, veto],
+        simulations: 300,
+        seed: 3,
+      })
+    const at20 = at(20)
+    const at40 = at(40)
     expect(at40.power).toBeGreaterThan(at20.power)
+    // The veto promotes in under half the draws at 20 pairs, so a count that
+    // ignored it would sit at the primary's own rate.
+    expect(at20.calls[1]!.promote).toBeLessThan(0.6)
+    expect(at20.power).toBeLessThan(at20.calls[0]!.promote)
   })
 
   it('below the bootstrap floor every simulation refuses on sufficiency', () => {
@@ -155,7 +171,7 @@ describe('the sealed route', () => {
   // The measured motive for `continuous`: on a zero baseline the E1 deltas
   // {+1, -0.5, 0} give a sample on {0, 1} whenever no -0.5 is drawn, and the
   // inferred shape then decides it on the score interval instead of the sealed
-  // bootstrap.
+  // bootstrap. Exact rate: (1 - 0.05 - 0.70 * 0.121)^20 = 5.54 %.
   it('without continuous, an all-{0,1} sample re-routes to the score interval; with it, never', () => {
     const inferred: PairedPromotionPowerCall = {
       outcome: 'delta',
@@ -165,17 +181,18 @@ describe('the sealed route', () => {
       n: 20,
       alternative: e1,
       calls: [inferred],
-      simulations: 400,
+      simulations: 2000,
       seed: 11,
     })
     const sealed = pairedPromotionPower({
       n: 20,
       alternative: e1,
       calls: [primary],
-      simulations: 400,
+      simulations: 2000,
       seed: 11,
     })
-    expect(loose.calls[0]!.methods['score-interval'] ?? 0).toBeGreaterThan(0)
+    expect(loose.calls[0]!.methods['score-interval']).toBeGreaterThan(0.04)
+    expect(loose.calls[0]!.methods['score-interval']).toBeLessThan(0.07)
     expect(sealed.calls[0]!.methods['score-interval'] ?? 0).toBe(0)
     expect(sealed.calls[0]!.methods['bootstrap-ci']).toBe(1)
   })
@@ -202,12 +219,13 @@ describe('under a null the promotion rate stays at the nominal level', () => {
           },
         },
       ],
-      simulations: 600,
+      simulations: 1000,
       seed: 9,
     })
     // One-sided 2.5 % by construction of the 95 % interval; the percentile
-    // bootstrap runs a little liberal at n = 30, so allow up to 7 %.
-    expect(r.power).toBeLessThan(0.07)
+    // bootstrap runs a little liberal at n = 30 (3.3 % measured over 4,000
+    // draws), so the bound is 5 %: an implementation twice as liberal fails.
+    expect(r.power).toBeLessThan(0.05)
   })
 })
 

@@ -81,7 +81,10 @@ export interface PairedPromotionPowerCall {
   outcome: 'delta' | 'pass'
   /** The call's options, exactly as the caller will run it. `minPairs`
    *  defaults to the simulated n, the value a gate seals; a caller-supplied
-   *  value is kept, and one above n refuses every simulation. */
+   *  value is kept, and one above n refuses every simulation. A `'pass'` call
+   *  must declare `binaryScale`: the simulation never declares one on the
+   *  caller's behalf, because a declared scale routes an all-zero sample to
+   *  the score interval where an inferred one refuses it. */
   options: PairedPromotionDecisionOptions
 }
 
@@ -150,11 +153,14 @@ export interface RequiredPairsForPairedPromotionOptions {
 
 export interface RequiredPairsForPairedPromotionResult {
   target: number
-  /** Smallest n whose estimated joint power reaches the target, or null when
-   *  no n up to `maxPairs` does. */
+  /** First n scanned whose estimated joint power reaches the target, or null
+   *  when no n up to `maxPairs` does. Power is not monotone in n on the exact
+   *  and discrete routes and carries Monte Carlo noise, so a later n can sit
+   *  below the target again; read the curve. */
   n: number | null
-  /** Smallest n whose Wilson lower bound reaches the target: the conservative
-   *  choice, which a preregistration should prefer. Null when not reached. */
+  /** First n scanned whose Wilson lower bound reaches the target: the
+   *  conservative choice, which a preregistration should prefer. Never set
+   *  while `n` is null. Null when not reached. */
   nAtLowerBound: number | null
   /** Every n scanned, in order, with its full power estimate. The scan stops
    *  at `nAtLowerBound` when that is reached, else at `maxPairs`. */
@@ -251,7 +257,7 @@ export function pairedPromotionPower(
 }
 
 /**
- * Smallest n at which {@link pairedPromotionPower} reaches the target, scanning
+ * First n at which {@link pairedPromotionPower} reaches the target, scanning
  * every n from `minPairs` upward. Both the point-estimate answer and the
  * Wilson-lower-bound answer are returned; the scan runs until the latter is
  * reached (so the curve past `n` is retained) or `maxPairs` is exhausted.
@@ -367,11 +373,12 @@ function runCall(
 ): PairedPromotionDecision {
   const options: PairedPromotionDecisionOptions = { minPairs: n, ...call.options }
   if (call.outcome === 'pass') {
-    const scale = call.options.binaryScale ?? 1
+    // Validated present: the scale is the caller's, never filled in here.
+    const scale = call.options.binaryScale as number
     return decidePairedPromotion(
       pairs.controlPass.map((p) => (p ? scale : 0)),
       pairs.candidatePass.map((p) => (p ? scale : 0)),
-      { ...options, binaryScale: scale },
+      options,
     )
   }
   return decidePairedPromotion(pairs.control, pairs.candidate, options)
@@ -396,6 +403,30 @@ function validateCalls(
     ) {
       throw new Error(
         `pairedPromotionPower: calls[${i}].options.minPairs must be a positive integer`,
+      )
+    }
+    // Every combination the decision itself refuses is refused here, before
+    // the first draw, with the reason named.
+    if (call.outcome === 'pass') {
+      const scale = call.options.binaryScale
+      if (scale === undefined || !Number.isFinite(scale) || scale <= 0) {
+        throw new Error(
+          `pairedPromotionPower: calls[${i}] is a 'pass' call and must declare a finite positive options.binaryScale`,
+        )
+      }
+      if (call.options.continuous) {
+        throw new Error(
+          `pairedPromotionPower: calls[${i}] is a 'pass' call; continuous cannot accompany it`,
+        )
+      }
+      if (call.options.statistic === 'median') {
+        throw new Error(
+          `pairedPromotionPower: calls[${i}] is a 'pass' call; binaryScale requires the mean statistic, not median`,
+        )
+      }
+    } else if (call.options.binaryScale !== undefined) {
+      throw new Error(
+        `pairedPromotionPower: calls[${i}] is a 'delta' call and cannot declare binaryScale; use a 'pass' call for a two-point outcome`,
       )
     }
   })
