@@ -10,8 +10,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Fixed
 
-- Metadata-only diagnosis removes top-level status messages and error prose attributes before a model reads spans.
-  A customer's tool status message previously reached the model despite `contentIncluded: false`.
+- Metadata-only diagnosis removes top-level status messages, error prose, tool argument aliases, and structured attribute values before a model reads spans.
+  A customer's tool status message and argument aliases previously reached the model despite `contentIncluded: false`.
   Status codes and error counts remain available to the deterministic pass.
 
 ## [0.186.1] — 2026-09-23
