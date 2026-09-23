@@ -65,9 +65,9 @@ export interface IngestReport {
  * trusting pattern redaction over free-form prose.
  */
 const CONTENT_ATTRIBUTE =
-  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|tool_arguments|arguments|args|full_command|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/
+  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|tool_arguments|arguments|args|full_command|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/i
 const PROSE_ATTRIBUTE =
-  /(?:^|[._])(?:error|exception|status)(?:[._][a-zA-Z0-9]+)*[._](?:message|stacktrace|stack|description|details|reason)$|^(?:error|exception|status)$|^(?:log|event)[._]message$|^otel\.status_description$|^(?:events?|logs?)$/
+  /(?:^|[._])(?:error|exception|status)(?:[._][a-zA-Z0-9]+)*[._](?:message|stacktrace|stack|description|details|reason)$|^(?:error|exception|status)$|^(?:log|event)[._]message$|^otel\.status_description$|^(?:events?|logs?)$/i
 
 const INPUT_ATTRIBUTE_KEYS = [
   'input.value',

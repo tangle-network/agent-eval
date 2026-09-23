@@ -306,6 +306,7 @@ describe('diagnoseSpans, model mode', () => {
     Object.assign(rows[1]!.attributes as Record<string, unknown>, {
       'error.message': canary,
       error_message: canary,
+      ERROR_MESSAGE: canary,
       'error.inner.message': canary,
       'exception.stacktrace': canary,
       events: [{ message: canary }],
@@ -320,6 +321,7 @@ describe('diagnoseSpans, model mode', () => {
       expect.arrayContaining([
         'error.message',
         'error_message',
+        'ERROR_MESSAGE',
         'error.inner.message',
         'exception.stacktrace',
         'events',
