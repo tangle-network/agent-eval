@@ -6,6 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.185.0] — 2026-09-23
+
+### Added
+
+- `/diagnosis` `diagnoseSpans(spans, context, options)`: the agent-failure diagnosis engine. Flat spans plus context in, a findings document out that validates against the diagnosis kit's `diagnosis-findings-v1` schema (`validateDiagnosisFindings`).
+  Every input passes the secret filter first (`DIAGNOSIS_SECRET_RULES`: trace-archive's line-anchored credential assignment plus token shapes), and content attributes are dropped unless the context includes content.
+  The deterministic pass reports the trace contract's capability table with the trace's own reasons, execution facts with token and cost accounting, and `observed` findings with measures and denominators.
+  Model mode reads the runs with the most errors through the prime protocol, in whole segments when a run exceeds the inline budget; each `inferred` finding cites span ids that resolve to the segment it read, and every rejected row is recorded with its reason.
+  `mode: 'deterministic'` makes no model call. The engine keeps no storage and makes no network call beyond the caller's transport.
+
+## [0.184.0] — 2026-09-22
+
 ### Added
 
 - `/rollout` `MintRolloutOptions.messagesOf`: an optional resolver of the full canonical `ChatMessage[]` for a run.
