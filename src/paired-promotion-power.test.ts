@@ -247,7 +247,49 @@ describe('requiredPairsForPairedPromotion', () => {
     if (r.nAtLowerBound !== null) {
       expect(r.nAtLowerBound).toBeGreaterThanOrEqual(r.n!)
       expect(r.curve[r.curve.length - 1]!.n).toBe(r.nAtLowerBound)
+      // The certificate is the independent simulation, not the scan's bound.
+      expect(r.confirmation?.n).toBe(r.nAtLowerBound)
+      expect(r.confirmation!.seed).not.toBe(2)
+      expect(r.confirmation!.low).toBeGreaterThanOrEqual(0.5)
     }
+  })
+
+  it('a candidate the scan selects but the confirmation refuses is recorded and passed over', () => {
+    // A law whose true power sits just under the target at every n, so the
+    // scan's own 95 % bound crosses by chance across many candidates while an
+    // independent draw at the same n usually does not.
+    const flat: PairedPromotionAlternative = {
+      cells: [
+        { probability: 0.5, delta: { kind: 'normal', mean: 0, sd: 1 } },
+        { probability: 0.5, delta: { kind: 'normal', mean: 0, sd: 1 } },
+      ],
+    }
+    const call: PairedPromotionPowerCall = {
+      outcome: 'delta',
+      options: {
+        threshold: 0,
+        confidence: 0.95,
+        statistic: 'mean',
+        resamples: 200,
+        seed: 5,
+        continuous: true,
+      },
+    }
+    const r = requiredPairsForPairedPromotion({
+      target: 0.03,
+      alternative: flat,
+      calls: [call],
+      minPairs: 20,
+      maxPairs: 60,
+      simulations: 200,
+      seed: 4,
+    })
+    // Under this null the promotion rate is about 3 %, so the target is a
+    // coin toss for a single 200-draw bound; over 41 candidates the scan
+    // selects several and the confirmation refuses at least one of them.
+    expect(r.rejected.length).toBeGreaterThan(0)
+    for (const x of r.rejected) expect(x.low).toBeLessThan(0.03)
+    if (r.nAtLowerBound !== null) expect(r.confirmation!.low).toBeGreaterThanOrEqual(0.03)
   })
 
   it('reports null when maxPairs is exhausted', () => {

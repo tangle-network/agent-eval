@@ -154,17 +154,29 @@ export interface RequiredPairsForPairedPromotionOptions {
 export interface RequiredPairsForPairedPromotionResult {
   target: number
   /** First n scanned whose estimated joint power reaches the target, or null
-   *  when no n up to `maxPairs` does. Power is not monotone in n on the exact
-   *  and discrete routes and carries Monte Carlo noise, so a later n can sit
-   *  below the target again; read the curve. */
+   *  when no n up to `maxPairs` does. Descriptive only: power is not monotone
+   *  in n on the exact and discrete routes, the scan reads one noisy estimate
+   *  per n, and the first crossing of many is biased low. Read the curve. */
   n: number | null
-  /** First n scanned whose Wilson lower bound reaches the target: the
-   *  conservative choice, which a preregistration should prefer. Never set
-   *  while `n` is null. Null when not reached. */
+  /**
+   * The conservative choice, which a preregistration should prefer: the first
+   * scanned n whose Wilson lower bound reaches the target AND whose
+   * independent confirmation (a second simulation at that n on a fresh seed,
+   * `confirmation` below) also has its lower bound at or above the target. The
+   * confirmation is what keeps the 95 % coverage: a scan over many n gives
+   * Monte Carlo noise many chances to push one bound across, so the scan's own
+   * bound selects a candidate and never certifies it. Never set while `n` is
+   * null. Null when not reached by `maxPairs`.
+   */
   nAtLowerBound: number | null
-  /** Every n scanned, in order, with its full power estimate. The scan stops
-   *  at `nAtLowerBound` when that is reached, else at `maxPairs`. */
+  /** The independent simulation at `nAtLowerBound`; null when not reached. */
+  confirmation: PairedPromotionPowerResult | null
+  /** Every n scanned, in order, with its scan estimate; candidates whose
+   *  confirmation failed are in `rejected`. The scan stops at `nAtLowerBound`
+   *  when that is reached, else at `maxPairs`. */
   curve: PairedPromotionPowerResult[]
+  /** Candidates the scan's bound selected and the confirmation refused. */
+  rejected: PairedPromotionPowerResult[]
 }
 
 /**
@@ -259,8 +271,11 @@ export function pairedPromotionPower(
 /**
  * First n at which {@link pairedPromotionPower} reaches the target, scanning
  * every n from `minPairs` upward. Both the point-estimate answer and the
- * Wilson-lower-bound answer are returned; the scan runs until the latter is
- * reached (so the curve past `n` is retained) or `maxPairs` is exhausted.
+ * confirmed lower-bound answer are returned; the scan runs until the latter is
+ * reached (so the curve past `n` is retained) or `maxPairs` is exhausted. A
+ * candidate selected by the scan's bound is certified only by an independent
+ * simulation at that n on a different seed; a candidate that fails it is
+ * recorded and the scan continues.
  */
 export function requiredPairsForPairedPromotion(
   options: RequiredPairsForPairedPromotionOptions,
@@ -281,25 +296,49 @@ export function requiredPairsForPairedPromotion(
       `requiredPairsForPairedPromotion: maxPairs must be an integer >= minPairs, got ${maxPairs}`,
     )
   }
+  const seed = options.seed ?? 1
   const curve: PairedPromotionPowerResult[] = []
+  const rejected: PairedPromotionPowerResult[] = []
   let n: number | null = null
   let nAtLowerBound: number | null = null
+  let confirmation: PairedPromotionPowerResult | null = null
   for (let candidate = minPairs; candidate <= maxPairs; candidate++) {
     const result = pairedPromotionPower({
       n: candidate,
       alternative: options.alternative,
       calls: options.calls,
       simulations: options.simulations,
-      seed: options.seed,
+      seed,
     })
     curve.push(result)
     if (n === null && result.power >= target) n = candidate
     if (result.low >= target) {
-      nAtLowerBound = candidate
-      break
+      // A fresh stream, keyed by the candidate so no two confirmations share
+      // draws with each other or with the scan.
+      const check = pairedPromotionPower({
+        n: candidate,
+        alternative: options.alternative,
+        calls: options.calls,
+        simulations: options.simulations,
+        seed: confirmationSeed(seed, candidate),
+      })
+      if (check.low >= target) {
+        nAtLowerBound = candidate
+        confirmation = check
+        break
+      }
+      rejected.push(check)
     }
   }
-  return { target, n, nAtLowerBound, curve }
+  return { target, n, nAtLowerBound, confirmation, curve, rejected }
+}
+
+/** A seed for the confirmation at `n` that never equals the scan seed. */
+function confirmationSeed(seed: number, n: number): number {
+  // Golden-ratio hashing keeps distinct (seed, n) pairs on distinct 32-bit
+  // streams; the final `| 1` guarantees it differs from the scan's own seed
+  // for every n, whose stream the scan already consumed.
+  return ((Math.imul((seed | 0) ^ 0x9e3779b9, 0x85ebca6b) + Math.imul(n, 0xc2b2ae35)) | 1) >>> 0
 }
 
 interface DrawnPairs {
