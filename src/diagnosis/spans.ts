@@ -65,7 +65,7 @@ export interface IngestReport {
  * trusting pattern redaction over free-form prose.
  */
 const CONTENT_ATTRIBUTE =
-  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|arguments|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/
+  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|arguments|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|(?:error|exception|status)(?:\.(?:message|stacktrace|stack|description|details|reason))?|(?:log|event)\.message|otel\.status_description|content|body|request|response|command)$|\.content$/
 
 const INPUT_ATTRIBUTE_KEYS = [
   'input.value',
@@ -146,7 +146,7 @@ export function ingestSpans(
       startMs: epochMillis(record.start_time ?? record.startTime ?? record.startTimeUnixNano),
       endMs: epochMillis(record.end_time ?? record.endTime ?? record.endTimeUnixNano),
       status: status.code,
-      statusMessage: options.contentIncluded ? statusMessage : truncate(statusMessage, 160),
+      statusMessage: options.contentIncluded ? statusMessage : null,
       toolName,
       model,
       inputDigest,
@@ -307,9 +307,4 @@ function firstString(attributes: Record<string, unknown>, keys: readonly string[
 
 function stringOr(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback
-}
-
-function truncate(value: string | null, max: number): string | null {
-  if (value === null || value.length <= max) return value
-  return `${value.slice(0, max)}…`
 }

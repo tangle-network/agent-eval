@@ -299,6 +299,40 @@ describe('diagnoseSpans, model mode', () => {
     expect(prompts[0]).toContain('"end":"2026-09-22T10:02:45.000Z"')
   })
 
+  it('keeps status and error prose out of metadata-only model input', async () => {
+    const canary = 'CUSTOMER_STATUS_MESSAGE_CANARY_20260923'
+    const rows = sampleRun()
+    rows[1]!.status_message = `failed while reading ${canary}`
+    Object.assign(rows[1]!.attributes as Record<string, unknown>, {
+      'error.message': canary,
+      'exception.stacktrace': canary,
+    })
+    const ingested = ingestSpans(rows, { contentIncluded: false })
+    expect(ingested.spans[1]!.statusMessage).toBeNull()
+    expect(ingested.spans[1]!.attributes['error.message']).toBeUndefined()
+    expect(ingested.report.droppedAttributes).toEqual(
+      expect.arrayContaining(['error.message', 'exception.stacktrace']),
+    )
+
+    const withheld = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    const result = await diagnoseSpans(
+      rows,
+      { subject: 'customer', label: 'metadata only', contentIncluded: false },
+      { mode: 'model', model: modelOptions(withheld.transport) },
+    )
+    expect(withheld.prompts).toHaveLength(1)
+    expect(withheld.prompts[0]).not.toContain(canary)
+    expect(JSON.stringify(result)).not.toContain(canary)
+
+    const optedIn = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    await diagnoseSpans(
+      rows,
+      { subject: 'customer', label: 'content allowed', contentIncluded: true },
+      { mode: 'model', model: modelOptions(optedIn.transport) },
+    )
+    expect(optedIn.prompts[0]).toContain(canary)
+  })
+
   it('keeps inferred findings with resolvable evidence and rejects the rest with a reason', async () => {
     const { transport, prompts } = fakeTransport(() => ({
       answer: 'The agent retried a missing command.',
