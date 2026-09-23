@@ -107,9 +107,12 @@ const SEVERITIES = new Set(['critical', 'high', 'medium', 'low'])
 
 export function modelQuestion(input: ModelPassInput): string {
   const focus = input.focus ? ` The owner's question: ${input.focus}` : ''
+  const withheld = input.contentIncluded
+    ? ''
+    : " Prompt, response and tool payload content was withheld at the owner's choice; do not report its absence as a defect, and reason from span names, kinds, order, timing, status and the remaining attributes."
   return input.subject === 'internal'
-    ? `Diagnose this coding-agent session from our own fleet: find concrete agent failures, wasted work, unsupported claims of success, and where the human operator's instructions caused trouble.${focus}`
-    : `Diagnose this agent run: find concrete failures, wasted work, and unsupported claims of success that cost the owner money, time, or correct results.${focus}`
+    ? `Diagnose this coding-agent session from our own fleet: find concrete agent failures, wasted work, unsupported claims of success, and where the human operator's instructions caused trouble.${withheld}${focus}`
+    : `Diagnose this agent run: find concrete failures, wasted work, and unsupported claims of success that cost the owner money, time, or correct results.${withheld}${focus}`
 }
 
 export function modelContractLines(subject: 'internal' | 'customer'): string[] {

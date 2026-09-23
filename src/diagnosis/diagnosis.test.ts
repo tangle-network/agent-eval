@@ -289,6 +289,7 @@ describe('diagnoseSpans, model mode', () => {
     expect(prompts[0]).not.toContain(OPENAI)
     expect(prompts[0]).not.toContain('zz9zz9')
     expect(prompts[0]).toContain('[REDACTED:openai-key]')
+    expect(prompts[0]).not.toContain('withheld at the owner')
     const inferred = result.document.findings.filter((f) => f.confidence === 'inferred')
     expect(inferred).toHaveLength(1)
     expect(inferred[0]!.evidence).toEqual(['tool0', 'tool1'])
