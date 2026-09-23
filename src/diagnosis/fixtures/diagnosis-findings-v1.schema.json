@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tangle.tools/schemas/diagnosis-findings-v1.json",
+  "title": "Diagnosis findings v1",
+  "description": "What the analysis engine returns and what the one-page report renders. Shared by the internal daily mining caller and the customer diagnosis caller; neither may add sinks to this shape.",
+  "type": "object",
+  "required": ["schemaVersion", "subject", "coverage", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "subject": {
+      "type": "object",
+      "required": ["label", "runCount", "window"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "What was analysed, in the customer's words. Never an internal id."
+        },
+        "runCount": { "type": "integer", "minimum": 0 },
+        "window": { "type": "string", "description": "ISO interval the runs span." },
+        "contentIncluded": {
+          "type": "boolean",
+          "description": "False under the metadata-only default. Renders on page one of the report."
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "description": "What the trace could not answer. This is a first-class result, not an appendix.",
+      "required": ["capabilities", "skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "type": "object",
+          "description": "Keyed by the traces capability ids: token-accounting, cost-attribution, tool-usage, loop-convergence, tree-comparison, steering-chain, latency-analysis.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["available"],
+            "properties": {
+              "available": { "type": "boolean" },
+              "reason": {
+                "type": "string",
+                "description": "Required when unavailable. The trace's own reason, not a guess."
+              }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "description": "Analyses not run, each with why. An empty array asserts nothing was skipped.",
+          "items": {
+            "type": "object",
+            "required": ["analysis", "reason"],
+            "properties": {
+              "analysis": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "redaction": {
+          "type": "object",
+          "description": "What was removed before any model read the spans.",
+          "properties": {
+            "redactionCount": { "type": "integer", "minimum": 0 },
+            "byRule": { "type": "object", "additionalProperties": { "type": "integer" } },
+            "droppedAttributes": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "claim", "consequence", "evidence", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "enum": ["critical", "high", "medium", "low"] },
+          "claim": { "type": "string", "description": "One sentence stating the defect." },
+          "consequence": {
+            "type": "string",
+            "description": "What it costs the customer in their terms: money, latency, failed runs, human escalations."
+          },
+          "measure": {
+            "type": "object",
+            "description": "The number, when there is one. Absent means the finding is qualitative and the report must say so.",
+            "required": ["name", "value", "unit"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "type": "number" },
+              "unit": { "type": "string" },
+              "denominator": {
+                "type": "string",
+                "description": "What the value is out of. A rate without a denominator is not reportable."
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Verbatim span ids. Ids that do not resolve against the artifact are rejected upstream, never guessed.",
+            "items": { "type": "string" }
+          },
+          "reproduce": {
+            "type": "string",
+            "description": "The exact command the customer runs to see this themselves."
+          },
+          "confidence": {
+            "enum": ["observed", "inferred"],
+            "description": "observed = read directly off the trace. inferred = a model's reading of it."
+          },
+          "recommendation": { "type": "string" }
+        }
+      }
+    }
+  }
+}

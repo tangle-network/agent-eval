@@ -10,11 +10,12 @@
  * milliseconds, so time parsing is owned here.
  */
 
-import { createHash } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 import {
   type ContractSpan,
   MODEL_ATTR_KEYS,
-  SPAN_KIND_ATTR_KEYS,
+  resolveSpanKind,
+  SPAN_KINDS,
   type SpanKind,
   TOOL_NAME_ATTR_KEYS,
 } from '@tangle-network/agent-trace-contract'
@@ -34,7 +35,12 @@ export interface DiagnosisSpan {
   statusMessage: string | null
   toolName: string | null
   model: string | null
-  /** SHA-256 of the tool call's input, taken after redaction; null when the span carries none. */
+  /**
+   * Keyed fingerprint of the tool call's input, taken before redaction so calls
+   * that differ only in secret material stay distinct. The key is random per
+   * ingest, so the fingerprint cannot be matched against a guessed payload or
+   * joined across diagnoses. Null when the span carries no input.
+   */
   inputDigest: string | null
   attributes: Record<string, unknown>
 }
@@ -59,7 +65,7 @@ export interface IngestReport {
  * trusting pattern redaction over free-form prose.
  */
 const CONTENT_ATTRIBUTE =
-  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|arguments|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?)$|\.content$/
+  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|arguments|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/
 
 const INPUT_ATTRIBUTE_KEYS = [
   'input.value',
@@ -77,9 +83,9 @@ export function isContentAttribute(key: string): boolean {
 
 /**
  * Filter secrets from every string, drop content attributes unless content is
- * included, and normalize each span. Order matters: the input digest is taken
- * after redaction and before the content drop, so repeated-call detection works
- * on metadata-only runs without the payload itself surviving.
+ * included, and normalize each span. Order matters: the input fingerprint is
+ * keyed and taken before redaction and the content drop, so repeated-call
+ * detection works on metadata-only runs without the payload itself surviving.
  */
 export function ingestSpans(
   raw: readonly unknown[],
@@ -93,6 +99,7 @@ export function ingestSpans(
   let duplicateSpans = 0
   const traceOfSpan = new Map<string, string>()
   const ambiguous = new Set<string>()
+  const digestKey = randomBytes(32)
   for (const line of raw) {
     if (line === null || typeof line !== 'object' || Array.isArray(line)) {
       unreadable += 1
@@ -115,8 +122,8 @@ export function ingestSpans(
     if (firstTrace === undefined) traceOfSpan.set(spanId, traceId)
     else if (firstTrace !== traceId) ambiguous.add(spanId)
     const merged = mergedAttributes(record)
+    const inputDigest = digestInput(merged, digestKey)
     const attributes = redactSecretsDeep(merged, secrets) as Record<string, unknown>
-    const inputDigest = digestInput(attributes)
     if (!options.contentIncluded) {
       for (const key of Object.keys(attributes)) {
         if (isContentAttribute(key)) {
@@ -129,12 +136,13 @@ export function ingestSpans(
     const statusMessage = status.message === null ? null : redactSecrets(status.message, secrets)
     const toolName = firstString(attributes, TOOL_NAME_ATTR_KEYS)
     const model = firstString(attributes, MODEL_ATTR_KEYS)
+    const name = redactSecrets(stringOr(record.name, 'unknown'), secrets)
     spans.push({
       traceId,
       spanId,
       parentSpanId: idField(record, 'parent_span_id', 'parentSpanId') ?? null,
-      name: redactSecrets(stringOr(record.name, 'unknown'), secrets),
-      kind: resolveKind(attributes, toolName, model),
+      name,
+      kind: resolveKind(record.kind, name, attributes),
       startMs: epochMillis(record.start_time ?? record.startTime ?? record.startTimeUnixNano),
       endMs: epochMillis(record.end_time ?? record.endTime ?? record.endTimeUnixNano),
       status: status.code,
@@ -256,33 +264,26 @@ function readStatus(record: Record<string, unknown>): {
   }
 }
 
-function resolveKind(
-  attributes: Record<string, unknown>,
-  toolName: string | null,
-  model: string | null,
-): SpanKind {
-  const declared = firstString(attributes, SPAN_KIND_ATTR_KEYS)?.toUpperCase()
-  if (
-    declared === 'AGENT' ||
-    declared === 'CHAIN' ||
-    declared === 'LLM' ||
-    declared === 'TOOL' ||
-    declared === 'EVALUATOR' ||
-    declared === 'RETRIEVER'
-  ) {
-    return declared
-  }
-  if (toolName) return 'TOOL'
-  if (model) return 'LLM'
-  return 'UNKNOWN'
+/**
+ * The contract's classifier decides the kind, so the capability table and the
+ * findings count the same tool and LLM spans. A top-level `kind` counts as a
+ * declaration only when it is a contract kind; OTLP words such as
+ * SPAN_KIND_INTERNAL fall through to the attribute and name signals.
+ */
+function resolveKind(kind: unknown, name: string, attributes: Record<string, unknown>): SpanKind {
+  const declared =
+    typeof kind === 'string' && (SPAN_KINDS as readonly string[]).includes(kind.toUpperCase())
+      ? kind.toUpperCase()
+      : undefined
+  return resolveSpanKind({ ...(declared ? { kind: declared } : {}), name, attributes })
 }
 
-function digestInput(attributes: Record<string, unknown>): string | null {
-  for (const key of INPUT_ATTRIBUTE_KEYS) {
-    const value = attributes[key]
+function digestInput(attributes: Record<string, unknown>, key: Buffer): string | null {
+  for (const name of INPUT_ATTRIBUTE_KEYS) {
+    const value = attributes[name]
     if (value === undefined || value === null || value === '') continue
     const text = typeof value === 'string' ? value : JSON.stringify(value)
-    return createHash('sha256').update(text).digest('hex').slice(0, 16)
+    return createHmac('sha256', key).update(text).digest('hex').slice(0, 16)
   }
   return null
 }

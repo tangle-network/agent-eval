@@ -91,6 +91,8 @@ export interface DiagnosisResult {
 }
 
 export const DEFAULT_MAX_MODEL_TRACES = 6
+/** Runs with fewer spans carry too little for the model to read. */
+export const MIN_MODEL_SPANS = 3
 
 export async function diagnoseSpans(
   spans: readonly unknown[],
@@ -132,6 +134,18 @@ export async function diagnoseSpans(
     const maxTraces = options.model.maxTraces ?? DEFAULT_MAX_MODEL_TRACES
     const ranked = rankTraces(traces)
     const selected = ranked.slice(0, maxTraces)
+    const short = traces.size - ranked.length
+    if (ranked.length === 0) {
+      skipped.push({
+        analysis: 'model reading of the runs',
+        reason: `no run has the ${MIN_MODEL_SPANS} spans the model needs to read it; ${traces.size} runs were too short`,
+      })
+    } else if (short > 0) {
+      skipped.push({
+        analysis: `model reading of ${short} of ${traces.size} runs`,
+        reason: `those runs have fewer than ${MIN_MODEL_SPANS} spans, too few for the model to read`,
+      })
+    }
     if (ranked.length > selected.length) {
       skipped.push({
         analysis: `model reading of ${ranked.length - selected.length} of ${ranked.length} runs`,
@@ -201,7 +215,7 @@ export async function diagnoseSpans(
   const document: DiagnosisFindingsDocument = {
     schemaVersion: 1,
     subject: {
-      label: context.label,
+      label: redactSecrets(context.label, ingest.secrets),
       runCount: traces.size,
       window: deterministic.window,
       contentIncluded,
@@ -244,10 +258,10 @@ export async function diagnoseSpans(
   }
 }
 
-/** Runs with more errors first, then larger runs; runs under three spans carry too little to read. */
+/** Runs with more errors first, then larger runs; runs under MIN_MODEL_SPANS are left out. */
 function rankTraces(traces: ReadonlyMap<string, import('./spans').DiagnosisSpan[]>) {
   return [...traces.entries()]
-    .filter(([, spans]) => spans.length >= 3)
+    .filter(([, spans]) => spans.length >= MIN_MODEL_SPANS)
     .map(([traceId, spans]) => ({
       traceId,
       spans,
@@ -281,6 +295,11 @@ function resolveEvidence(
   return kept
 }
 
+/**
+ * Token and cost totals over the model exchanges. No exchange attempted is a
+ * measured zero. An exchange that failed without reporting usage may still
+ * have been billed, so it makes the totals unknown (null) rather than zero.
+ */
 function totalUsage(
   runs: readonly ModelRunRecord[],
   pricing: DiagnosisModelOptions['pricing'],
@@ -289,13 +308,6 @@ function totalUsage(
   let outputTokens: number | null = 0
   let exchanges = 0
   for (const run of runs) {
-    if (
-      run.usage.calls === null &&
-      run.usage.inputTokens === null &&
-      run.usage.outputTokens === null &&
-      !run.ok
-    )
-      continue
     exchanges += 1
     inputTokens =
       inputTokens === null || run.usage.inputTokens === null
@@ -307,14 +319,11 @@ function totalUsage(
         : outputTokens + run.usage.outputTokens
   }
   const usd =
-    pricing && inputTokens !== null && outputTokens !== null
-      ? (inputTokens * pricing.inputUsdPerMillion + outputTokens * pricing.outputUsdPerMillion) /
-        1_000_000
-      : null
-  return {
-    exchanges,
-    inputTokens: exchanges === 0 ? 0 : inputTokens,
-    outputTokens: exchanges === 0 ? 0 : outputTokens,
-    usd,
-  }
+    exchanges === 0
+      ? 0
+      : pricing && inputTokens !== null && outputTokens !== null
+        ? (inputTokens * pricing.inputUsdPerMillion + outputTokens * pricing.outputUsdPerMillion) /
+          1_000_000
+        : null
+  return { exchanges, inputTokens, outputTokens, usd }
 }

@@ -23,7 +23,12 @@ import { type DiagnosisSpan, durationMs, toContractSpan } from './spans'
 
 /** Evidence ids cited per finding; the measure carries the full count. */
 export const MAX_EVIDENCE_PER_FINDING = 8
-/** Consecutive identical tool calls that count as a repeated-call run. */
+/**
+ * Identical tool calls with no different tool call between them that count as
+ * a repeated-call run. Model turns between the calls do not break the run: an
+ * agent that calls, reads, and calls again with the same input is the waste
+ * this detects.
+ */
 export const REPEAT_RUN_LENGTH = 3
 /** A tool is reported only once it has at least this many calls. */
 export const MIN_TOOL_CALLS = 3
@@ -186,8 +191,8 @@ function repeatedCallFindings(traces: ReadonlyMap<string, DiagnosisSpan[]>): Dia
     {
       id: stableId('repeated-calls', String(runs.length)),
       severity: rate >= 0.1 ? 'high' : rate >= 0.03 ? 'medium' : 'low',
-      claim: `The agent repeated an identical tool call ${REPEAT_RUN_LENGTH} or more times in a row ${runs.length} times across ${tracesAffected} runs; the longest streak was ${runs[0]!.length} calls.`,
-      consequence: `${wasted} calls repeated the call before them with the same input, which is work the agent paid for twice without new information.`,
+      claim: `The agent made the same tool call with the same input ${REPEAT_RUN_LENGTH} or more times with no other tool call in between, ${runs.length} times across ${tracesAffected} runs; the longest streak was ${runs[0]!.length} calls.`,
+      consequence: `${wasted} calls repeated the previous tool call with the same input, which is work the agent paid for twice without new information.`,
       measure: {
         name: 'repeated identical tool calls',
         value: wasted,

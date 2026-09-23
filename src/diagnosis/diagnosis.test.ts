@@ -1,3 +1,4 @@
+import Ajv2020 from 'ajv/dist/2020'
 import { describe, expect, it } from 'vitest'
 import type { PrimeBridgeTransportRequest } from '../analyst/prime-bridge-transport'
 import {
@@ -19,6 +20,17 @@ const JWT = [
   'eyJzdWIiOiIxMjM0NTY3ODkwIn0',
   'dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
 ].join('.')
+
+// Same JSON as tangle-network/traces main (ebae7c9)
+// diagnosis-kit/templates/findings.schema.json, the schema the kit validates with.
+import schema from './fixtures/diagnosis-findings-v1.schema.json'
+
+const validateAgainstKitSchema = new Ajv2020({ allErrors: true, strict: false }).compile(schema)
+function kitSchemaErrors(document: unknown): string[] {
+  return validateAgainstKitSchema(document)
+    ? []
+    : (validateAgainstKitSchema.errors ?? []).map((e) => `${e.instancePath} ${e.message}`)
+}
 
 const NS = (iso: string, plusMs = 0) => `${BigInt(Date.parse(iso) + plusMs) * 1_000_000n}`
 
@@ -183,6 +195,7 @@ describe('diagnoseSpans, deterministic mode', () => {
         spanIds: new Set(sampleRun().map((s) => s.span_id as string)),
       }),
     ).toEqual([])
+    expect(kitSchemaErrors(doc)).toEqual([])
     expect(doc.subject).toMatchObject({ runCount: 1, contentIncluded: false })
     expect(doc.findings.every((f) => f.confidence === 'observed')).toBe(true)
     const tool = doc.findings.find((f) => f.claim.includes('Bash'))!
@@ -196,7 +209,9 @@ describe('diagnoseSpans, deterministic mode', () => {
     expect(doc.findings.some((f) => f.claim.startsWith('1 of 1 runs ended with an error'))).toBe(
       true,
     )
-    expect(doc.findings.some((f) => f.claim.includes('identical tool call'))).toBe(true)
+    expect(doc.findings.some((f) => f.claim.includes('same tool call with the same input'))).toBe(
+      true,
+    )
     expect(doc.coverage.skipped).toContainEqual({
       analysis: 'model reading of the runs',
       reason: 'the customer declined third-party processing',
@@ -306,6 +321,7 @@ describe('diagnoseSpans, model mode', () => {
       usd: 0.0012,
     })
     expect(validateDiagnosisFindings(result.document)).toEqual([])
+    expect(kitSchemaErrors(result.document)).toEqual([])
   })
 
   it('reads operator critique and a redacted topology for internal runs', async () => {
@@ -381,5 +397,147 @@ describe('diagnoseSpans, model mode', () => {
     )
     expect(result.document.coverage.skipped.some((s) => s.reason.includes('503'))).toBe(true)
     expect(result.document.findings.every((f) => f.confidence === 'observed')).toBe(true)
+    // The failed call may have been billed, so its cost is unknown, not zero.
+    expect(result.model.usage).toEqual({
+      exchanges: 1,
+      inputTokens: null,
+      outputTokens: null,
+      usd: null,
+    })
+    expect(kitSchemaErrors(result.document)).toEqual([])
+  })
+
+  it('discards a whole row when any cited id is invalid, not just the invalid id', async () => {
+    const { transport } = fakeTransport(() => ({
+      answer: 'x',
+      rows: [
+        {
+          kind: 'finding',
+          severity: 'high',
+          claim: 'Half-supported claim.',
+          consequence: 'x',
+          evidence: ['tool0', 'ghost'],
+        },
+      ],
+    }))
+    const result = await diagnoseSpans(
+      sampleRun(),
+      { subject: 'customer', label: 'x' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+    expect(result.document.findings.some((f) => f.claim === 'Half-supported claim.')).toBe(false)
+    expect(result.rejected.map((r) => r.reason).join('\n')).toMatch(/discarded: it cites invalid/)
+  })
+
+  it('caps the rows accepted from one reply and records the overflow', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => ({
+      kind: 'finding',
+      severity: 'low',
+      claim: `Claim ${i}.`,
+      consequence: 'x',
+      evidence: ['tool0'],
+    }))
+    const { transport } = fakeTransport(() => ({ answer: 'x', rows }))
+    const result = await diagnoseSpans(
+      sampleRun(),
+      { subject: 'customer', label: 'x' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+    const inferred = result.document.findings.filter((f) => f.confidence === 'inferred')
+    expect(inferred).toHaveLength(12)
+    expect(result.rejected.map((r) => r.reason).join('\n')).toMatch(
+      /8 valid rows beyond the 12-row cap/,
+    )
+  })
+
+  it('records runs too short for the model as skipped, and a model pass that read nothing', async () => {
+    const { transport, prompts } = fakeTransport(() => ({ answer: 'ok', rows: [] }))
+    const short = [span({ trace_id: 'short', span_id: 'only' })]
+    const mixed = await diagnoseSpans(
+      [...sampleRun(), ...short],
+      { subject: 'customer', label: 'x' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+    expect(prompts).toHaveLength(1)
+    expect(mixed.document.coverage.skipped).toContainEqual({
+      analysis: 'model reading of 1 of 2 runs',
+      reason: 'those runs have fewer than 3 spans, too few for the model to read',
+    })
+    const none = await diagnoseSpans(
+      short,
+      { subject: 'customer', label: 'x' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+    expect(prompts).toHaveLength(1)
+    expect(none.document.coverage.skipped.map((s) => s.analysis)).toContain(
+      'model reading of the runs',
+    )
+    expect(none.model.usage).toEqual({ exchanges: 0, inputTokens: 0, outputTokens: 0, usd: 0 })
+  })
+
+  it('tells the model the caller projects', async () => {
+    const { transport, prompts } = fakeTransport(() => ({ answer: 'ok', rows: [] }))
+    await diagnoseSpans(
+      sampleRun(),
+      { subject: 'customer', label: 'x', projects: ['casework-api', 'intake-ui'] },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+    expect(prompts[0]).toContain('casework-api, intake-ui')
+  })
+})
+
+describe('contract edges', () => {
+  it('honours a top-level kind and the contract name patterns when classifying spans', () => {
+    const { spans } = ingestSpans(
+      [
+        span({ span_id: 'a', kind: 'TOOL', attributes: {} }),
+        span({ span_id: 'b', name: 'tool:read_file', attributes: {} }),
+        span({ span_id: 'c', kind: 'SPAN_KIND_INTERNAL', attributes: { 'tool.name': 'Bash' } }),
+        span({ span_id: 'd', name: 'chat.completions', attributes: {} }),
+      ],
+      { contentIncluded: false },
+    )
+    expect(spans.map((s) => s.kind)).toEqual(['TOOL', 'TOOL', 'TOOL', 'LLM'])
+  })
+
+  it('drops bare content, body, request, response and command attributes when content is withheld', () => {
+    const { spans } = ingestSpans(
+      [
+        span({
+          attributes: {
+            content: 'prose',
+            body: 'b',
+            request: 'q',
+            response: 'r',
+            command: 'c',
+            'tool.name': 'Bash',
+          },
+        }),
+      ],
+      { contentIncluded: false },
+    )
+    expect(Object.keys(spans[0]!.attributes)).toEqual(['tool.name'])
+  })
+
+  it('keeps calls that differ only in secret material distinct for repeated-call detection', () => {
+    const calls = ['A', 'B', 'C'].map((c, i) =>
+      span({
+        span_id: `k${i}`,
+        attributes: { 'tool.name': 'curl', input: `Authorization: Bearer ${c.repeat(24)}xyz123` },
+      }),
+    )
+    const { spans } = ingestSpans(calls, { contentIncluded: false })
+    expect(new Set(spans.map((s) => s.inputDigest)).size).toBe(3)
+  })
+
+  it('redacts a secret in the owner label', async () => {
+    const result = await diagnoseSpans(
+      sampleRun(),
+      { subject: 'customer', label: `case ${OPENAI}` },
+      { mode: 'deterministic' },
+    )
+    expect(result.document.subject.label).not.toContain(OPENAI)
+    expect(result.document.coverage.redaction?.redactionCount).toBeGreaterThan(0)
+    expect(kitSchemaErrors(result.document)).toEqual([])
   })
 })

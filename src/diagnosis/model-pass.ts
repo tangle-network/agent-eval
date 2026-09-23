@@ -107,12 +107,16 @@ const SEVERITIES = new Set(['critical', 'high', 'medium', 'low'])
 
 export function modelQuestion(input: ModelPassInput): string {
   const focus = input.focus ? ` The owner's question: ${input.focus}` : ''
+  const projects =
+    input.projects && input.projects.length > 0
+      ? ` The runs belong to these projects: ${input.projects.join(', ')}; set "project" on a row to one of these names when the run shows which one it concerns.`
+      : ''
   const withheld = input.contentIncluded
     ? ''
     : " Prompt, response and tool payload content was withheld at the owner's choice; do not report its absence as a defect, and reason from span names, kinds, order, timing, status and the remaining attributes."
   return input.subject === 'internal'
-    ? `Diagnose this coding-agent session from our own fleet: find concrete agent failures, wasted work, unsupported claims of success, and where the human operator's instructions caused trouble.${withheld}${focus}`
-    : `Diagnose this agent run: find concrete failures, wasted work, and unsupported claims of success that cost the owner money, time, or correct results.${withheld}${focus}`
+    ? `Diagnose this coding-agent session from our own fleet: find concrete agent failures, wasted work, unsupported claims of success, and where the human operator's instructions caused trouble.${withheld}${projects}${focus}`
+    : `Diagnose this agent run: find concrete failures, wasted work, and unsupported claims of success that cost the owner money, time, or correct results.${withheld}${projects}${focus}`
 }
 
 export function modelContractLines(subject: 'internal' | 'customer'): string[] {
@@ -127,9 +131,9 @@ export function modelContractLines(subject: 'internal' | 'customer'): string[] {
     ...(subject === 'internal'
       ? [
           'An "operator" row: {"kind":"operator","claim":"one sentence critiquing how the human operator instructed or steered the agent","evidence":["<span_id>", ...]}.',
-          'Add "project": "<repo or project name>" to any row when the run shows which project it belongs to.',
         ]
       : []),
+    'Add "project": "<repo or project name>" to any row when the run shows which project it belongs to.',
     'Every "finding" and "operator" row cites 1-8 span ids copied VERBATIM from the "id" fields of the trajectory. Rows citing ids that are not in the trajectory are discarded.',
     'Keep every string under 400 characters. Report only what the trajectory shows; an empty rows array is a valid answer.',
   ]
@@ -186,6 +190,7 @@ export async function runModelPass(
           rowsField: 'rows',
           contractLines,
           repairContractLines: contractLines,
+          maxRows: MAX_ROWS,
           decodeRow: (row) => decodeRow(row, input.subject),
         } satisfies PrimeReplyContract<RawRow>,
         prompt: buildPrimePrompt({
@@ -219,6 +224,12 @@ export async function runModelPass(
       }
       for (const rejection of outcome.rejected) {
         result.rejected.push({ traceId, reason: `row ${rejection.index}: ${rejection.reason}` })
+      }
+      if (outcome.overflow > 0) {
+        result.rejected.push({
+          traceId,
+          reason: `${outcome.overflow} valid rows beyond the ${MAX_ROWS}-row cap were dropped`,
+        })
       }
       if (outcome.answer)
         result.summaries.push({ traceId, answer: outcome.answer.slice(0, MAX_STRING) })
@@ -259,6 +270,7 @@ export async function runTopologyPass(
       rowsField: 'rows',
       contractLines,
       repairContractLines: contractLines,
+      maxRows: MAX_ROWS,
       decodeRow: (row) => decodeRow(row, 'topology'),
     },
     prompt: buildPrimePrompt({
@@ -281,6 +293,11 @@ export async function runTopologyPass(
   const notes: ModelRowNote[] = []
   const questions: ModelQuestion[] = []
   const rejected: ModelRejection[] = []
+  if (outcome.ok && outcome.overflow > 0) {
+    rejected.push({
+      reason: `${outcome.overflow} valid topology rows beyond the ${MAX_ROWS}-row cap were dropped`,
+    })
+  }
   if (!outcome.ok) {
     return {
       notes,
@@ -350,6 +367,15 @@ function acceptRows(
         question: row.question!,
         traceId,
         ...(row.project ? { project: row.project } : {}),
+      })
+      continue
+    }
+    // A claim that leaned on an invalid id is not supported by the valid ones
+    // left over, so the whole row goes rather than a trimmed version of it.
+    if (unresolved.length > 0 || ambiguous.length > 0) {
+      result.rejected.push({
+        traceId,
+        reason: `${row.kind} row "${(row.claim ?? '').slice(0, 80)}" discarded: it cites invalid evidence`,
       })
       continue
     }

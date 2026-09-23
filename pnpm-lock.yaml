@@ -57,6 +57,9 @@ importers:
       '@types/node':
         specifier: ^26.4.0
         version: 26.4.0
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
       autoevals:
         specifier: ^0.3.0
         version: 0.3.0(zod@4.5.4)
