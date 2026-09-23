@@ -65,7 +65,9 @@ export interface IngestReport {
  * trusting pattern redaction over free-form prose.
  */
 const CONTENT_ATTRIBUTE =
-  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|arguments|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/
+  /^(?:input\.value|output\.value|input|output|result|prompt|completion|text|thinking|message|messages|tool\.(?:input|output|arguments|result)|tool_input|tool_output|tool_arguments|arguments|args|full_command|gen_ai\.(?:prompt|completion|input\.messages|output\.messages|system_instructions|tool\.call\.(?:arguments|result))(?:\..*)?|llm\.(?:input|output)_messages(?:\..*)?|llm\.prompts?(?:\..*)?|content|body|request|response|command)$|\.content$/i
+const PROSE_ATTRIBUTE =
+  /(?:^|[._])(?:error|exception|status)(?:[._][a-zA-Z0-9]+)*[._](?:message|stacktrace|stack|description|details|reason)$|^(?:error|exception|status)$|^(?:log|event)[._]message$|^otel\.status_description$|^(?:events?|logs?)$/i
 
 const INPUT_ATTRIBUTE_KEYS = [
   'input.value',
@@ -73,12 +75,15 @@ const INPUT_ATTRIBUTE_KEYS = [
   'tool.input',
   'tool.arguments',
   'tool_input',
+  'tool_arguments',
   'arguments',
+  'args',
+  'full_command',
   'gen_ai.tool.call.arguments',
 ]
 
 export function isContentAttribute(key: string): boolean {
-  return CONTENT_ATTRIBUTE.test(key)
+  return CONTENT_ATTRIBUTE.test(key) || PROSE_ATTRIBUTE.test(key)
 }
 
 /**
@@ -125,8 +130,8 @@ export function ingestSpans(
     const inputDigest = digestInput(merged, digestKey)
     const attributes = redactSecretsDeep(merged, secrets) as Record<string, unknown>
     if (!options.contentIncluded) {
-      for (const key of Object.keys(attributes)) {
-        if (isContentAttribute(key)) {
+      for (const [key, value] of Object.entries(attributes)) {
+        if (isContentAttribute(key) || (value !== null && typeof value === 'object')) {
           delete attributes[key]
           dropped.add(key)
         }
@@ -146,7 +151,7 @@ export function ingestSpans(
       startMs: epochMillis(record.start_time ?? record.startTime ?? record.startTimeUnixNano),
       endMs: epochMillis(record.end_time ?? record.endTime ?? record.endTimeUnixNano),
       status: status.code,
-      statusMessage: options.contentIncluded ? statusMessage : truncate(statusMessage, 160),
+      statusMessage: options.contentIncluded ? statusMessage : null,
       toolName,
       model,
       inputDigest,
@@ -307,9 +312,4 @@ function firstString(attributes: Record<string, unknown>, keys: readonly string[
 
 function stringOr(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback
-}
-
-function truncate(value: string | null, max: number): string | null {
-  if (value === null || value.length <= max) return value
-  return `${value.slice(0, max)}…`
 }
