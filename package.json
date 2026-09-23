@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.184.0",
+  "version": "0.185.0",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -139,6 +139,11 @@
       "import": "./dist/trace-repair/index.js",
       "default": "./dist/trace-repair/index.js"
     },
+    "./diagnosis": {
+      "types": "./dist/diagnosis/index.d.ts",
+      "import": "./dist/diagnosis/index.js",
+      "default": "./dist/diagnosis/index.js"
+    },
     "./experiment": {
       "types": "./dist/experiment/index.d.ts",
       "import": "./dist/experiment/index.js",
@@ -226,6 +231,7 @@
     "@arizeai/phoenix-evals": "^2.3.0",
     "@biomejs/biome": "^2.5.11",
     "@types/node": "^26.4.0",
+    "ajv": "8.20.0",
     "autoevals": "^0.3.0",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
