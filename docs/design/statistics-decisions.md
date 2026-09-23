@@ -243,6 +243,12 @@ The normal CDF itself was corrected in 0.133.1; every other row below was still 
 
 `requiredSampleSize`, `requiredPairedSampleSize`, `pairedMde`, `mcnemarRequiredN`, `mcnemar`, `pairedSignTest`, `wilson`, `passAtK`, `corpusInterRaterAgreement`, `eProcess`, `holm`, `ranks`, `pearsonR`, `spearmanR`, `cliffsDelta`, and `pairedCohensDz` are **unaffected** — verified numerically identical before and after (`requiredSampleSize({effect: 0.5}) = 63`, `mcnemarRequiredN({p10: 0.2, p01: 0.1}) = 234` both ways).
 
+### Sizing the paired promotion decision (0.186.0)
+
+`decidePairedPromotion` is several channels behind one verdict, so no single closed form here sizes it: `mcnemarRequiredN` is Lachin's normal approximation over discordant pairs (0.65 exact power at its 14-pair floor for p 0.85, not 0.8), `requiredPairedSampleSize` and `pairedMde` size a paired t the decision never runs, and none of them sees the sufficiency floor, the zero-width refusal, the McNemar veto or a second sealed call on the same episodes.
+`pairedPromotionPower` and `requiredPairsForPairedPromotion` size the decision by running it: seeded draws from a registered joint law (cell first, delta given the cell), every configured call run exactly as sealed, the promotion rate counted, with the Monte Carlo error and the per-channel and per-method rates reported.
+The closed forms stay exported as the floors they are; a preregistration sizes on the simulation and records the seed.
+
 ### How to re-check a decision you already made
 
 The defect is monotone in `|z|`, so the affected band is exact and narrow.
