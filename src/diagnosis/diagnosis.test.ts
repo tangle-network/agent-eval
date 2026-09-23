@@ -305,13 +305,28 @@ describe('diagnoseSpans, model mode', () => {
     rows[1]!.status_message = `failed while reading ${canary}`
     Object.assign(rows[1]!.attributes as Record<string, unknown>, {
       'error.message': canary,
+      error_message: canary,
+      'error.inner.message': canary,
       'exception.stacktrace': canary,
+      events: [{ message: canary }],
+      args: canary,
+      tool_arguments: canary,
+      full_command: canary,
     })
     const ingested = ingestSpans(rows, { contentIncluded: false })
     expect(ingested.spans[1]!.statusMessage).toBeNull()
     expect(ingested.spans[1]!.attributes['error.message']).toBeUndefined()
     expect(ingested.report.droppedAttributes).toEqual(
-      expect.arrayContaining(['error.message', 'exception.stacktrace']),
+      expect.arrayContaining([
+        'error.message',
+        'error_message',
+        'error.inner.message',
+        'exception.stacktrace',
+        'events',
+        'args',
+        'tool_arguments',
+        'full_command',
+      ]),
     )
 
     const withheld = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
