@@ -104,6 +104,18 @@ export interface PairedPromotionDecisionOptions {
    *  support. Uses the risk-difference mean, so cannot accompany 'median'.
    *  Omitted: infer binary support from observed positive values. */
   binaryScale?: number
+  /**
+   * Declare the outcome continuous: never infer a two-point support from the
+   * observed values, so the estimator is fixed before the data is seen. A
+   * sealed call on a continuous measure must route to the bootstrap whatever
+   * the sample happens to look like; with inference on, a sample whose values
+   * all land on {0, s} is silently decided on the score interval instead.
+   * Measured under discovery's E1 alternative (deltas in {+1, -0.5, 0} on a
+   * zero baseline) at 20 pairs: 5.4 % of 2,000 simulated samples re-route without
+   * this flag, 0 with it (`paired-promotion-power.test.ts`). Cannot accompany
+   * `binaryScale`.
+   */
+  continuous?: boolean
 }
 
 export interface PairedPromotionDecision {
@@ -178,7 +190,11 @@ export function pairedDecisionShape(
   after: number[],
   statistic: 'mean' | 'median' = 'mean',
   declaredBinaryScale?: number,
+  continuous = false,
 ): PairedDecisionShape {
+  if (continuous && declaredBinaryScale !== undefined) {
+    throw new Error('pairedDecisionShape: continuous cannot accompany binaryScale')
+  }
   if (declaredBinaryScale !== undefined) {
     if (!Number.isFinite(declaredBinaryScale) || declaredBinaryScale <= 0) {
       throw new Error('pairedDecisionShape: binaryScale must be finite and positive')
@@ -203,6 +219,9 @@ export function pairedDecisionShape(
   const tieFraction = before.length === 0 ? null : pairedDeltaTieFraction(before, after)
   if (statistic === 'median') {
     return { statistic: 'median_bootstrap', binaryScale: null, tieFraction }
+  }
+  if (continuous) {
+    return { statistic: 'mean_bootstrap', binaryScale: null, tieFraction }
   }
   const binaryScale = declaredBinaryScale ?? pairedBinaryScale(before, after)
   if (binaryScale !== null) {
@@ -243,6 +262,7 @@ export function decidePairedPromotion(
     after,
     options.statistic,
     options.binaryScale,
+    options.continuous ?? false,
   )
   const estimatorMinimum =
     binaryScale === null && options.statistic !== 'median' ? BOOTSTRAP_GATE_MIN_N : exactMinimum
