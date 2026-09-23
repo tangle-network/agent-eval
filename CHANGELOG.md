@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.186.1] — 2026-09-23
+
+### Fixed
+
+- Diagnosis model trajectories include each span's start and end timestamps.
+  The model contract instructs analysts to count overlapping tool calls once when estimating wall time.
+  A customer run had described three concurrent calls as a 7.5-minute stall, although their combined wall interval was about 2.7 minutes.
+
 ## [0.186.0] — 2026-09-23
 ### Added
 - `pairedPromotionPower({ n, alternative, calls, simulations, seed })` and `requiredPairsForPairedPromotion({ target, alternative, calls, minPairs, maxPairs })` (the first scanned n at the target, descriptive, and the first n whose Wilson lower bound reaches the target and is then certified by an independent simulation on a fresh seed, since a scan over many n gives Monte Carlo noise many chances to push one bound across; the whole curve and every refused candidate are returned): the joint power of one or more configured `decidePairedPromotion` calls under a registered alternative, computed by running the calls themselves on seeded draws from that alternative (#785).

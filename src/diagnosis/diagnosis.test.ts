@@ -259,6 +259,46 @@ describe('diagnoseSpans, model mode', () => {
     pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
   })
 
+  it('shows overlapping call intervals before the model estimates wall delay', async () => {
+    const { transport, prompts } = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    const calls = [
+      span({
+        span_id: 'root',
+        name: 'session',
+        end_time: NS('2026-09-22T10:03:00Z'),
+        attributes: { 'openinference.span.kind': 'AGENT' },
+      }),
+      span({
+        span_id: 'a',
+        parent_span_id: 'root',
+        name: 'Bash',
+        end_time: NS('2026-09-22T10:02:30Z'),
+        attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'Bash' },
+      }),
+      span({
+        span_id: 'b',
+        parent_span_id: 'root',
+        name: 'Bash',
+        start_time: NS('2026-09-22T10:00:30Z'),
+        end_time: NS('2026-09-22T10:02:45Z'),
+        attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'Bash' },
+      }),
+    ]
+    await diagnoseSpans(
+      calls,
+      { subject: 'customer', label: 'Overlapping calls' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('count overlapping spans only once')
+    expect(prompts[0]).toContain('"id":"a"')
+    expect(prompts[0]).toContain('"start":"2026-09-22T10:00:00.000Z"')
+    expect(prompts[0]).toContain('"end":"2026-09-22T10:02:30.000Z"')
+    expect(prompts[0]).toContain('"start":"2026-09-22T10:00:30.000Z"')
+    expect(prompts[0]).toContain('"end":"2026-09-22T10:02:45.000Z"')
+  })
+
   it('keeps inferred findings with resolvable evidence and rejects the rest with a reason', async () => {
     const { transport, prompts } = fakeTransport(() => ({
       answer: 'The agent retried a missing command.',

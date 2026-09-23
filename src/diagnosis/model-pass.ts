@@ -135,6 +135,7 @@ export function modelContractLines(subject: 'internal' | 'customer'): string[] {
       : []),
     'Add "project": "<repo or project name>" to any row when the run shows which project it belongs to.',
     'Every "finding" and "operator" row cites 1-8 span ids copied VERBATIM from the "id" fields of the trajectory. Rows citing ids that are not in the trajectory are discarded.',
+    'For elapsed wall time, compare the start and end timestamps and count overlapping spans only once. Do not add overlapping ms durations or call their sum a stall. If timestamps are missing, do not claim a total wall delay.',
     'Keep every string under 400 characters. Report only what the trajectory shows; an empty rows array is a valid answer.',
   ]
 }
@@ -525,6 +526,10 @@ function renderSpan(
   if (span.statusMessage) out.status_message = clip(span.statusMessage, attributeChars)
   const duration = durationMs(span)
   if (duration !== null) out.ms = duration
+  if (span.startMs !== null && span.endMs !== null) {
+    out.start = new Date(span.startMs).toISOString()
+    out.end = new Date(span.endMs).toISOString()
+  }
   const attrs: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(span.attributes)) {
     if (SKIP_ATTRIBUTES.has(key)) continue
