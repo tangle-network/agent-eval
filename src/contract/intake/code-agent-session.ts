@@ -385,7 +385,7 @@ function fromCodeAgentSession(
         cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
         cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
         cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
-        cost_unknown: costProvenance.kind === 'uncaptured' ? 1 : 0,
+        cost_unknown: costUsd === null ? 1 : 0,
       },
     },
     splitTag,
@@ -410,7 +410,7 @@ function fromCodeAgentSession(
           metrics.reasoningTokens > 0 ||
           metrics.cachedTokens > 0 ||
           metrics.cacheWriteTokens > 0,
-        hasCost: costProvenance.kind !== 'uncaptured',
+        hasCost: costUsd !== null,
         costKind: costProvenance.kind,
         warnings,
       },
@@ -982,6 +982,13 @@ function resolveSessionCost(
       if (explicit.usd !== null) throw new Error('uncaptured cost must have usd: null')
       return { costUsd: null, costProvenance: explicit }
     }
+    if (explicit.kind === 'lower-bound') {
+      if (explicit.usd !== null) throw new Error('lower-bound cost must have usd: null')
+      if (!Number.isFinite(explicit.knownLowerBoundUsd) || explicit.knownLowerBoundUsd <= 0) {
+        throw new Error('lower-bound cost must have a finite, positive knownLowerBoundUsd')
+      }
+      return { costUsd: null, costProvenance: explicit }
+    }
     if (!Number.isFinite(explicit.usd) || explicit.usd < 0) {
       throw new Error(`${explicit.kind} cost must be a finite, non-negative USD amount`)
     }
@@ -1028,6 +1035,7 @@ function diagnosticsFor(
   }
   if (options.costKind === 'estimated')
     warnings.push('USD cost estimated from token usage and model pricing')
+  if (options.costKind === 'lower-bound') warnings.push('USD cost known only as a lower bound')
   if (options.costKind === 'uncaptured') warnings.push('USD cost uncaptured')
   if (options.costKind === 'uncaptured' && !isModelPriced(options.model))
     warnings.push('model pricing unknown')

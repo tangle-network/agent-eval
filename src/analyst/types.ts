@@ -16,8 +16,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { CostLedgerHandle } from '../cost-ledger'
-import type { RunCostProvenance, RunRecord, RunTokenUsage } from '../run-record'
+import type { CostLedgerHandle, CostProvenance } from '../cost-ledger'
+import type { RunRecord, RunTokenUsage } from '../run-record'
 import type { TraceAnalysisStore } from '../trace-analyst/store'
 import type { JudgeInput } from '../types'
 import type { ChatClient } from './chat-client'
@@ -263,7 +263,7 @@ export interface AnalystUsageReceipt {
   /** Null when the provider did not return token accounting. */
   tokens: RunTokenUsage | null
   /** Observed, estimated, or explicitly uncaptured dollar cost. */
-  cost: RunCostProvenance
+  cost: CostProvenance
   /** Known lower bound when one or more calls have uncaptured cost. */
   knownCostUsd?: number
   /**
@@ -384,7 +384,7 @@ export interface AnalystRunResult {
    * Provenance for `total_cost_usd`. When uncaptured, the numeric field is only
    * the known subtotal and must not be treated as the run's total spend.
    */
-  total_cost_provenance?: RunCostProvenance
+  total_cost_provenance?: CostProvenance
 }
 
 // ── Streaming event envelope ────────────────────────────────────────

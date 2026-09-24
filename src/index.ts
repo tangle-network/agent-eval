@@ -202,10 +202,12 @@ export type {
   RunJudgeMetadata,
   RunOutcome,
   RunRecord,
+  RunSearchCoordinates,
   RunSplitTag,
   RunTaskFailure,
   RunTerminalOutcome,
   RunTokenUsage,
+  RunTraceRef,
 } from './run-record'
 export {
   isRunRecord,
@@ -213,7 +215,9 @@ export {
   parseRunRecordSafe,
   RunRecordValidationError,
   roundTripRunRecord,
+  runCostFloorUsd,
   runTaskScore,
+  searchCellRunId,
   UNKNOWN_MODEL,
   validateRunRecord,
 } from './run-record'
@@ -385,6 +389,7 @@ export type {
   MintedRolloutLine,
   MintRolloutOptions,
   MintRolloutResult,
+  RolloutSearchLineage,
   ScorePreference,
 } from './rollout/index'
 export { mintRolloutRows } from './rollout/index'

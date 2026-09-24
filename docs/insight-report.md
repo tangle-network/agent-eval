@@ -103,8 +103,9 @@ Store it as `RunRecord.outcome.judgeScores` alongside the relevant search or hol
 Different judge means can reflect different coverage, scales, or criteria.
 Compare shared cases before attributing a difference to miscalibration.
 
-`costQuality.provenance` separates observed USD, estimated USD, and uncaptured costs.
-Uncaptured rows are excluded from the cost distribution and Pareto calculation.
+`costQuality.provenance` separates observed USD, estimated USD, lower-bound floors, and uncaptured costs.
+Lower-bound and uncaptured rows are excluded from the cost distribution and Pareto calculation.
+`lowerBound.floorUsd` sums the proven floors of runs whose total is unknown; it is never a total.
 Read `knownFraction` and `costQuality.degraded` before comparing costs.
 A frontier only compares the observed candidate points; it does not identify the best possible system.
 

@@ -40,7 +40,8 @@ export interface AdapterContext {
  * Errored or unjudged cells remain unlabeled while retaining explicit terminal
  * outcome, execution-error count, token usage, cost, and failure detail.
  * `candidateId` identifies the measured surface and defaults to the campaign
- * manifest hash.
+ * manifest hash. A run id is `${candidateId}:${cellId}`: a campaign cell id is
+ * `${scenario}:${rep}`, which every candidate run on that scenario shares.
  */
 export function campaignToRunRecords(
   campaign: CampaignResult,
@@ -50,7 +51,7 @@ export function campaignToRunRecords(
   const candidateId = ctx.candidateId ?? campaign.manifestHash
   return campaign.cells.map((cell) =>
     campaignCellToRunRecord(cell, {
-      runId: cell.cellId,
+      runId: `${candidateId}:${cell.cellId}`,
       experimentId: ctx.experimentId,
       candidateId,
       model: ctx.model,

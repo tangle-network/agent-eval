@@ -828,9 +828,8 @@ function completeCostMedian(runs: RunRecord[]): number | null {
   if (runs.length === 0) return null
   const costs: number[] = []
   for (const run of runs) {
-    const provenance = run.costProvenance
-    if (provenance.kind === 'uncaptured') return null
-    costs.push(provenance.usd)
+    if (run.costUsd === null) return null
+    costs.push(run.costUsd)
   }
   return medianFinite(costs)
 }

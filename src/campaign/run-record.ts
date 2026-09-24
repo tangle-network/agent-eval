@@ -2,15 +2,19 @@ import type { AgentProfileCell } from '../agent-profile-cell'
 import type { CostProvenance } from '../cost-ledger'
 import type {
   JudgeScoresRecord,
+  RunCostProvenance,
   RunOutcome,
   RunRecord,
+  RunSearchCoordinates,
   RunSplitTag,
   RunTerminalOutcome,
+  RunTraceRef,
 } from '../run-record'
 import { validateRunRecord } from '../run-record'
 import type { CampaignCellResult, JudgeScore } from './types'
 
 export interface CampaignCellRunRecordOptions {
+  /** With `search`, this must be `searchCellRunId(search)`. */
   runId: string
   experimentId: string
   candidateId: string
@@ -21,9 +25,13 @@ export interface CampaignCellRunRecordOptions {
   splitTag: RunSplitTag
   seed?: number
   scenarioId?: string
+  /** Estimated total for a cell that proved no spend at all. A cell that
+   *  proved part of its spend keeps that floor instead. */
   defaultCostUsd?: number
   agentProfile?: AgentProfileCell
   raw?: Record<string, number>
+  search?: RunSearchCoordinates
+  traceRef?: RunTraceRef
 }
 
 export interface CampaignCellQualityProjection {
@@ -82,23 +90,14 @@ export function campaignCellToRunRecord<TArtifact>(
     quality.raw.judge_error_count ?? 0,
     execution.judgeErrorCount ?? 0,
   )
-  const cellCostProvenance = campaignCellCostProvenance(cell)
-  const costProvenance: CostProvenance =
-    cellCostProvenance.kind === 'uncaptured' && options.defaultCostUsd !== undefined
-      ? { kind: 'estimated', usd: options.defaultCostUsd }
-      : cellCostProvenance
-  const costUsd = costProvenance.kind === 'uncaptured' ? null : costProvenance.usd
+  const costProvenance = campaignCellRunCostProvenance(cell, options.defaultCostUsd)
+  const costUsd = costProvenance.usd
   const raw: Record<string, number> = {
     ...finiteMetrics(options.raw),
     ...quality.raw,
     rep: cell.rep,
     duration_ms: cell.durationMs,
     ...(costUsd === null ? {} : { cost_usd: costUsd }),
-    // Retain the observed subtotal even when the caller supplies an estimated total.
-    ...(cellCostProvenance.kind === 'uncaptured' ? { cost_known_subtotal_usd: cell.costUsd } : {}),
-    cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
-    cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
-    cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
     tokens_input: cell.tokenUsage.input,
     tokens_output: cell.tokenUsage.output,
     tokens_known: cell.tokenUsage.tokensKnown === false ? 0 : 1,
@@ -156,7 +155,25 @@ export function campaignCellToRunRecord<TArtifact>(
     splitTag: options.splitTag,
     scenarioId: options.scenarioId ?? cell.scenarioId,
     ...(options.agentProfile ? { agentProfile: options.agentProfile } : {}),
+    ...(options.search ? { search: options.search } : {}),
+    ...(options.traceRef ? { traceRef: options.traceRef } : {}),
   })
+}
+
+/**
+ * A cell's cost as a RunRecord states it. An uncaptured cell's `costUsd` is
+ * the spend its receipts proved, so a positive one is the run's floor. The
+ * caller's `defaultCostUsd` stands in only when nothing was proved: a proven
+ * floor is never replaced by a guess.
+ */
+function campaignCellRunCostProvenance<TArtifact>(
+  cell: CampaignCellResult<TArtifact>,
+  defaultCostUsd: number | undefined,
+): RunCostProvenance {
+  const provenance = campaignCellCostProvenance(cell)
+  if (provenance.kind !== 'uncaptured') return provenance
+  if (cell.costUsd > 0) return { kind: 'lower-bound', usd: null, knownLowerBoundUsd: cell.costUsd }
+  return defaultCostUsd === undefined ? provenance : { kind: 'estimated', usd: defaultCostUsd }
 }
 
 /**

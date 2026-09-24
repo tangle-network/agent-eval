@@ -55,9 +55,10 @@ export interface InsightReport {
   costQuality: {
     cost: ScalarDistribution
     pareto: ParetoFigureSpec
-    /** Cost source coverage. `uncaptured` rows are excluded from the USD
-     *  distribution and Pareto chart; observed and estimated totals remain
-     *  separate so reports never present estimates as billed spend. */
+    /** Cost source coverage. `uncaptured` and `lower-bound` rows are excluded
+     *  from the USD distribution and Pareto chart; observed and estimated
+     *  totals remain separate so reports never present estimates as billed
+     *  spend, and floors stay separate so they never read as totals. */
     provenance?: CostProvenanceSummary
     /** Set when the cost/quality view is degraded because the input data
      *  doesn't fully support it — e.g. all `costUsd` were zero, or only a
@@ -121,6 +122,9 @@ export interface InsightReport {
 export interface CostProvenanceSummary {
   observed: { n: number; totalUsd: number }
   estimated: { n: number; totalUsd: number }
+  /** Runs whose total is unknown but proven to be at least a floor; `floorUsd`
+   *  sums those floors and is never a total. */
+  lowerBound: { n: number; floorUsd: number }
   uncaptured: { n: number }
   knownFraction: number
 }

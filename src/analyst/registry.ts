@@ -19,14 +19,14 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { combineAbortSignals } from '../abort-signal'
-import type { CostLedgerHandle } from '../cost-ledger'
+import type { CostLedgerHandle, CostProvenance } from '../cost-ledger'
 import {
   snapshotAnalystFindings,
   snapshotExactAnalystRunReceipt,
 } from '../feedback-trajectory-review'
 import { canonicalString, hashCanonical } from '../ledger-core/canonical'
 import { deepFreezeCanonicalJson } from '../ledger-core/deep-freeze'
-import type { RunCostProvenance, RunTokenUsage } from '../run-record'
+import type { RunTokenUsage } from '../run-record'
 import type { ChatClient } from './chat-client'
 import type {
   ExactAnalystExecutionPlanSnapshot,
@@ -1678,9 +1678,9 @@ function budgetDebit(receipt: AnalystUsageReceipt, allocatedUsd: number | undefi
 }
 
 function aggregateCostProvenance(
-  costs: ReadonlyArray<RunCostProvenance>,
+  costs: ReadonlyArray<CostProvenance>,
   exact = false,
-): RunCostProvenance {
+): CostProvenance {
   if (costs.some((cost) => cost.kind === 'uncaptured')) {
     return { kind: 'uncaptured', usd: null }
   }
@@ -1697,7 +1697,7 @@ function aggregateCostProvenance(
 function executionCost(
   executions: ReadonlyArray<AnalystExecution>,
   exact: boolean,
-): { known: number; provenance: RunCostProvenance } {
+): { known: number; provenance: CostProvenance } {
   const usages = executions.map((execution) => execution.summary.usage)
   return {
     known: usageSum(usages.map(knownCostUsd), exact, 'run known cost'),

@@ -72,13 +72,13 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 | field | from | decision |
 | --- | --- | --- |
 | `schema: "tangle.rollout.v1"` | ledger | wire key is `schema` (PR #410's `format` key retired) |
-| `rollout_id` / `parent_rollout_id` | ledger | minted lines use `runId` as `rollout_id` (deterministic); multi-agent producers mint UUIDs and point workers at their supervisor |
+| `rollout_id` / `parent_rollout_id` | ledger | minted lines use `runId` as `rollout_id` (deterministic; a search run's id is `cellId:attempt`); multi-agent producers mint UUIDs and point workers at their supervisor; a nested search run points at the run of the cell that contains the search |
 | `run_id` | both | `RunRecord.runId` |
 | `experiment_id`, `candidate_id` | PR #410 | required keys; `null` means the producer did not record the value |
-| `generation`, `candidate_index` | ledger | kept as improvement-loop coordinates; now `integer \| null` (`null` = not an improvement loop, `-1` = baseline) |
+| `generation`, `candidate_index` | ledger | search coordinates: node depth (`0` = the search root) and node registration order; `null` = not a search run. Mint fills both from `searchLineage` for a record with `search` coordinates and refuses such a record without it |
 | `role` | ledger | enum extended with `agent` for solo eval runs (mint default) |
 | `task.split` | conflict | **RunRecord semantics win**: `search` is the trainable pool; `dev` and `holdout` follow `RunSplitTag`; `canary` is retained for release checks |
-| `task.seed`, `task.rep` | ledger | seed from `RunRecord.seed`; rep 0 for minted solo runs |
+| `task.seed`, `task.rep` | ledger | seed from `RunRecord.seed`; rep from the search cell for a search run, 0 for other minted runs |
 | `policy.*` | ledger | + `prompt_hash`, `config_hash`, `agent_profile_cell_id` from PR #410's RunRecord provenance |
 | `messages` | ledger | canonical OpenAI chat-with-tools incl. `reasoning_content`; minted lines inline the final llm span's conversation |
 | `steps` | PR #410 | optional trace-span projections (llm/tool), absent on harness-store-derived lines |
@@ -86,8 +86,8 @@ Rule applied: where fields conflicted, RunRecord-derived semantics won; the ledg
 | `outcome.realness_gated` | PR #410 | required boolean; the anti-Goodhart gate travels into the data, the validator refuses it beside a positive reward, and SFT export refuses gated lines outright. `outcome.realness_screened` rides beside it (optional tri-state) so a screened-clean reward is distinguishable from a never-screened one |
 | `outcome.reward_source` / `verdict` / `metrics` | ledger | unchanged; mint fills `metrics` from `RunRecord.outcome.raw` |
 | `outcome.is_completed` / `is_truncated` / `error` | conflict | mint derives terminal fields from the required `RunRecord.terminalOutcome`; producers use the explicit `unknown` value when terminal evidence is unavailable |
-| `cost.*` | ledger | superset of PR #410's costUsd/totalTokens; `cost.usd` is `null` when `costProvenance.kind === 'uncaptured'` (never a fake 0) |
-| `artifacts.*`, `provenance.*` | ledger | `provenance.capture` gains `mint` alongside `settle-time` / `backfill` |
+| `cost.*` | ledger | superset of PR #410's costUsd/totalTokens; `cost.usd` is `null` unless `costProvenance.kind` is `observed` or `estimated`: an `uncaptured` cost is unknown and a `lower-bound` cost is only a floor (never a fake 0, never a floor read as a total) |
+| `artifacts.*`, `provenance.*` | ledger | `provenance.capture` gains `mint` alongside `settle-time` / `backfill`; minted lines set `artifacts.transcript_ref` to `trace:<traceId>` from `RunRecord.traceRef` |
 | gap discipline | ledger | records without trace spans become labeled gap lines (`messages: []`, `provenance.gap`) AND are listed in `missingTraces`; PR #410's silent skip retired |
 
 ## Export filters (fail-closed)

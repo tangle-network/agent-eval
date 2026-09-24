@@ -194,6 +194,12 @@ const CostProvenanceSummarySchema = z
         totalUsd: nonNegativeNumber,
       })
       .strict(),
+    lowerBound: z
+      .object({
+        n: nonNegativeInteger,
+        floorUsd: nonNegativeNumber,
+      })
+      .strict(),
     uncaptured: z.object({ n: nonNegativeInteger }).strict(),
     knownFraction: finiteNumber.min(0).max(1),
   })

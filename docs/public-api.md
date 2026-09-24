@@ -371,7 +371,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `requiredSampleSize` | planned | doc: docs/design/statistics-decisions.md |
 | `resolveModelPricing` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-primitives.ts |
 | `resolveSeat` | production | creative-agent:eval/agent.config.ts |
-| `roundTripRunRecord` | none | only this package's tests: tests/run-record.test.ts:3 |
+| `roundTripRunRecord` | none | none |
 | `routeFields` | none | only this package's tests: src/hidden-criteria-grading.test.ts:4 |
 | `runAgentControlLoop` | production | agent-runtime:src/run.ts |
 | `runBoundedProcess` | production | this package: src/command-runner.ts:28 |
@@ -1211,7 +1211,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `toTRLFormat` | production | blueprint-agent:scripts/experiments/lib/steering-dataset.ts |
 | `validateDatasetFormats` | planned | example: examples/publish-rl-dataset/build-dataset.ts:30 |
 | `varianceBasedCurriculum` | production | this package: src/fuzz/explorer.ts:18 |
-| `verificationReportToRunRecord` | none | only this package's tests: tests/rl-adapters.test.ts:5 |
+| `verificationReportToRunRecord` | none | none |
 | `VERIFIED_FINDING_SCHEMA` | none | only this package's tests: src/rl/verified-findings-dataset.test.ts:5 |
 | `verifiedFindingsToJsonl` | none | only this package's tests: src/rl/verified-findings-dataset.test.ts:5 |
 

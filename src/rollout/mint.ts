@@ -9,6 +9,7 @@
  *   - step structure          → `buildTrajectory` over the shared TraceStore
  *   - preference-pair export  → `feedbackTrajectoryToOptimizerRow` (feedback-trajectory.ts)
  *   - PRM / reward-model      → `reward-model-export.ts`
+ *   - search lineage          → `searchLineage`, read from the run's search ledger
  *
  * Anti-Goodhart invariant: a run whose `outcome.realness.gated` is true is
  * never exported with a positive reward OR with any of the numbers that reward
@@ -31,7 +32,7 @@
  */
 
 import { ValidationError } from '../errors'
-import { type RunRecord, runTaskScore } from '../run-record'
+import { type RunRecord, type RunSearchCoordinates, runTaskScore } from '../run-record'
 import type { LlmSpan, Span, ToolSpan } from '../trace/schema'
 import type { TraceStore } from '../trace/store'
 import { buildTrajectory } from '../trajectory'
@@ -48,6 +49,19 @@ import {
 
 /** Redactor for transcript/step payload text (secrets, PII), not opaque identity. */
 export type RolloutScrubber = (text: string) => string
+
+/** A search cell's place in its search tree, read from the search ledger. */
+export interface RolloutSearchLineage {
+  /** Edges between the cell's node and the search root; the root is 0. */
+  depth: number
+  /** Order in which the node registered in its search; the root is 0. */
+  ordinal: number
+  /** Repeat index of the cell on its task, from 0. */
+  rep: number
+  /** Run id of the cell whose execution contains this search; null for a
+   *  top-level search. */
+  containingRunId: string | null
+}
 
 export interface MintRolloutOptions {
   scrub?: RolloutScrubber
@@ -68,6 +82,16 @@ export interface MintRolloutOptions {
   suite?: string
   /** Injected clock for deterministic output. */
   now?: () => Date
+  /**
+   * Lineage of a search run, read from its search ledger. It fills the line's
+   * `generation` (node depth), `candidate_index` (node order), `task.rep` and
+   * `parent_rollout_id` (the containing cell's run). Mint refuses a record
+   * that carries `search` when this is absent, because a null `generation`
+   * states that the run is not part of a search.
+   */
+  searchLineage?: (
+    search: RunSearchCoordinates,
+  ) => RolloutSearchLineage | Promise<RolloutSearchLineage>
 }
 
 export interface MintRolloutResult {
@@ -364,6 +388,33 @@ function requireMintableRecord(record: RunRecord): void {
   throw new ValidationError(`Cannot mint rollout for run ${record.runId}: ${reasons.join('\n  ')}`)
 }
 
+/** The search lineage a record's line is built from; undefined for a record outside a search. */
+async function resolveSearchLineage(
+  record: RunRecord,
+  options: MintRolloutOptions,
+): Promise<RolloutSearchLineage | undefined> {
+  if (record.search === undefined) return undefined
+  const refuse: (detail: string) => never = (detail) => {
+    throw new ValidationError(`Cannot mint rollout for search run ${record.runId}: ${detail}`)
+  }
+  if (!options.searchLineage) {
+    refuse('pass searchLineage so generation, candidate_index, rep and parent come from its ledger')
+  }
+  const lineage = await options.searchLineage(record.search)
+  const isCount = (value: unknown): boolean => Number.isSafeInteger(value) && (value as number) >= 0
+  if (!isCount(lineage.depth)) refuse('lineage depth must be a non-negative integer')
+  if (!isCount(lineage.ordinal)) refuse('lineage ordinal must be a non-negative integer')
+  if (!isCount(lineage.rep)) refuse('lineage rep must be a non-negative integer')
+  if (
+    lineage.containingRunId !== null &&
+    (typeof lineage.containingRunId !== 'string' || lineage.containingRunId.length === 0)
+  ) {
+    refuse('lineage containingRunId must be null or a non-empty run id')
+  }
+  if (lineage.containingRunId === record.runId) refuse('a run cannot contain itself')
+  return lineage
+}
+
 const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
   search: 'search',
   dev: 'dev',
@@ -372,6 +423,7 @@ const SPLIT_FROM_TAG: Record<RunRecord['splitTag'], RolloutSplit> = {
 
 function mintLine(
   record: RunRecord,
+  lineage: RolloutSearchLineage | undefined,
   steps: RolloutStep[],
   messages: ChatMessage[],
   options: MintRolloutOptions,
@@ -395,7 +447,9 @@ function mintLine(
   // `reward` and `realness_gated` come out of one call, so neither door into
   // the waist can write one and forget the other.
   const rewardFields = rolloutRewardFields(record)
-  const uncaptured = record.costProvenance.kind === 'uncaptured'
+  // Only an observed or estimated amount is a total; a lower bound is not.
+  const knownTotal =
+    record.costProvenance.kind === 'observed' || record.costProvenance.kind === 'estimated'
   const terminalOutcome = record.terminalOutcome
   const isCompleted = terminalOutcome === 'succeeded' || terminalOutcome === 'failed'
   const isTruncated = terminalOutcome === 'cancelled' || terminalOutcome === 'incomplete'
@@ -412,19 +466,19 @@ function mintLine(
     {
       schema: ROLLOUT_SCHEMA,
       rollout_id: record.runId,
-      parent_rollout_id: null,
+      parent_rollout_id: lineage?.containingRunId ?? null,
       run_id: record.runId,
       experiment_id: record.experimentId,
       candidate_id: record.candidateId,
-      generation: null,
-      candidate_index: null,
+      generation: lineage?.depth ?? null,
+      candidate_index: lineage?.ordinal ?? null,
       role: options.role ?? 'agent',
       task: {
         suite: options.suite ?? record.experimentId,
         instance_id: record.scenarioId,
         split: SPLIT_FROM_TAG[record.splitTag],
         seed: record.seed,
-        rep: 0,
+        rep: lineage?.rep ?? 0,
       },
       policy: {
         harness: null,
@@ -459,7 +513,7 @@ function mintLine(
         error: terminalError,
       },
       cost: {
-        usd: uncaptured ? null : record.costUsd,
+        usd: knownTotal ? record.costUsd : null,
         tokens_in: record.tokenUsage.input,
         tokens_out: record.tokenUsage.output,
         tokens_reasoning: record.tokenUsage.reasoning ?? null,
@@ -467,7 +521,11 @@ function mintLine(
         cache_write: record.tokenUsage.cacheWrite ?? null,
         wall_s: Math.round(record.wallMs / 1000),
       },
-      artifacts: { patch_path: null, run_dir: null, transcript_ref: null },
+      artifacts: {
+        patch_path: null,
+        run_dir: null,
+        transcript_ref: record.traceRef ? `trace:${record.traceRef.traceId}` : null,
+      },
       provenance: {
         captured_at: capturedAt,
         capture: 'mint',
@@ -501,10 +559,19 @@ export async function mintRolloutRows(
         `Cannot mint rollout for run ${record.runId}: full capture is missing`,
       )
     }
+    const lineage = await resolveSearchLineage(record, options)
     if (trajectory.steps.length === 0 && !options.messagesOf) {
       missingTraces.push(record.runId)
       rows.push(
-        mintLine(record, [], [], options, capturedAt, 'no trace spans recorded for this runId'),
+        mintLine(
+          record,
+          lineage,
+          [],
+          [],
+          options,
+          capturedAt,
+          'no trace spans recorded for this runId',
+        ),
       )
       continue
     }
@@ -527,7 +594,7 @@ export async function mintRolloutRows(
     )
     const gap =
       conversation.length === 0 ? 'trace has no llm spans — no conversation to inline' : undefined
-    rows.push(mintLine(record, steps, conversation, options, capturedAt, gap))
+    rows.push(mintLine(record, lineage, steps, conversation, options, capturedAt, gap))
   }
   return { rows, missingTraces }
 }

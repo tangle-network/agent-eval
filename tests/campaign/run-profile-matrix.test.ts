@@ -147,9 +147,6 @@ describe('runProfileMatrix', () => {
     expect(raw.cost_usd).toBe(0.001)
     // Source-billed cost is authoritative — the estimate never overrides it.
     expect(rec.costProvenance).toEqual({ kind: 'observed', usd: 0.001 })
-    expect(raw.cost_observed).toBe(1)
-    expect(raw.cost_estimated).toBe(0)
-    expect(raw.cost_uncaptured).toBe(0)
     expect(raw.tokens_input).toBe(120)
     expect(raw.tokens_output).toBe(40)
     expect(raw.latency_ms).toBeGreaterThanOrEqual(0)
@@ -251,7 +248,6 @@ describe('runProfileMatrix', () => {
     // (no fabrication), and the estimate flag is off.
     expect(raw.cost_usd).toBe(0)
     expect(result.records[0]!.costProvenance).toEqual({ kind: 'observed', usd: 0 })
-    expect(raw.cost_estimated).toBe(0)
     expect('tokens_per_dollar' in raw).toBe(false) // guarded: cost === 0
     for (const v of Object.values(raw)) expect(Number.isFinite(v)).toBe(true)
   })
@@ -294,7 +290,6 @@ describe('runProfileMatrix', () => {
     expect(raw.cost_usd).toBeCloseTo(expected, 8)
     expect(rec.costUsd).toBeCloseTo(expected, 8) // canonical field → totalCostUsd populates
     expect(rec.costProvenance).toEqual({ kind: 'estimated', usd: expected })
-    expect(raw.cost_estimated).toBe(1) // labeled: an estimate, not a billed number
     expect(raw.tokens_per_dollar).toBeGreaterThan(0) // ratio now finite + populated
     // Integrity: real activity AND no longer uncosted (the cost axis is filled).
     expect(result.integrity.verdict).toBe('real')
@@ -399,10 +394,7 @@ describe('runProfileMatrix', () => {
     })
     expect(record.agentProfile?.profileId).toBe(profileId)
     expect(record.agentProfile?.model).toBeUndefined()
-    expect(record.outcome.raw).toMatchObject({
-      cost_uncaptured: 1,
-      tokens_known: 0,
-    })
+    expect(record.outcome.raw).toMatchObject({ tokens_known: 0 })
     expect(result.byProfile[profileId]!.model).toBe(UNKNOWN_MODEL)
   })
 
@@ -672,10 +664,6 @@ describe('runProfileMatrix', () => {
       },
     })
     expect(record.outcome.raw).toMatchObject({
-      cost_observed: 0,
-      cost_estimated: 0,
-      cost_uncaptured: 1,
-      cost_known_subtotal_usd: 0,
       tokens_input: inputTokens,
       tokens_cached: cachedTokens,
       tokens_cache_write: cacheWriteTokens,
