@@ -17,7 +17,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  isSubmitAction,
+  isSubmitOnlyAction,
   parseObservationOutput,
   parseRecordedReturncode,
   type RecordedTrajectoryStep,
@@ -52,6 +52,7 @@ export type ReplayExclusionReason =
   | 'missing-steps-json'
   | 'gold-step-outside-steps'
   | 'cwd-underivable'
+  | 'no-recorded-returncode-at-k'
 
 export interface ExcludedCase {
   readonly corpus: string
@@ -80,7 +81,8 @@ export interface ReplayableCase extends CaseResources {
   /** 1-based gold incorrect step ids, ascending. */
   readonly goldIncorrectSteps: readonly number[]
   /** k — the first gold incorrect step that is a real mid-trajectory action;
-   *  submit-command golds are skipped (see SUBMIT_ACTION_SIGNATURE). */
+   *  submit-only golds are skipped. A step that also changes state stays in
+   *  the trajectory and is excluded below if its exit was not recorded. */
   readonly k: number
   /** Gold steps before k skipped because their action is the submit command. */
   readonly submitGoldsSkipped: number
@@ -279,7 +281,7 @@ export function enumerateReplayableCases(corpora: readonly CorpusSpec[]): Enumer
           missingGoldId = goldId
           break
         }
-        if (isSubmitAction(step.action)) {
+        if (step.action.trim() === 'submit' || isSubmitOnlyAction(step.action)) {
           submitGoldsSkipped += 1
           continue
         }
@@ -304,12 +306,22 @@ export function enumerateReplayableCases(corpora: readonly CorpusSpec[]): Enumer
         })
         continue
       }
+      const recordedReturncodeAtK = parseRecordedReturncode(target.observation)
+      if (recordedReturncodeAtK === null) {
+        excluded.push({
+          corpus: corpus.name,
+          trajId,
+          reason: 'no-recorded-returncode-at-k',
+          detail: `k=${target.step_id}; arm A cannot confirm execution without a recorded returncode`,
+        })
+        continue
+      }
       replayable.push({
         ...resources,
         goldIncorrectSteps: gold,
         k: target.step_id,
         submitGoldsSkipped,
-        recordedReturncodeAtK: parseRecordedReturncode(target.observation),
+        recordedReturncodeAtK,
       })
     }
   }

@@ -300,14 +300,14 @@ export interface VerifyFindingsOptions {
 }
 
 /**
- * Arm A reproduced on a prefix the recording confirmed → the fix flipping it
+ * Arm A reproduced an observed failure on a confirmed prefix → a fix flipping it
  * beats plain reproduction; anything else diverged. A proof standing on a
  * prefix outside the divergence tolerance is divergent no matter what arm A
  * did: the state it ran against is not the recorded state.
  */
 export function classifyVerdict(verdict: ReplayVerdict): FindingVerificationStatus {
   if (!verdict.prefixWithinTolerance) return 'divergent'
-  if (!verdict.armA.failureSignatureMatch) return 'divergent'
+  if (verdict.scores?.armAReproduced !== 1) return 'divergent'
   if (verdict.armB?.failureVanished) return 'fix-flipped'
   return 'reproduced'
 }
@@ -322,6 +322,7 @@ interface ReceiptExecution {
     readonly command: string
     readonly exitCode: number
     readonly wallMs: number
+    readonly reproduced: boolean
     readonly failureSignatureMatch: boolean
   }
   readonly armB: {
@@ -350,6 +351,7 @@ function receiptExecution(verdict: ReplayVerdict): ReceiptExecution {
       command: verdict.armA.command,
       exitCode: verdict.armA.exitCode,
       wallMs: verdict.armA.wallMs,
+      reproduced: verdict.scores?.armAReproduced === 1,
       failureSignatureMatch: verdict.armA.failureSignatureMatch,
     },
     armB: verdict.armB

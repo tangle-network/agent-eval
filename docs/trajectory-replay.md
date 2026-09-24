@@ -55,8 +55,8 @@ Those are `runReplayBatch`, `replayVerifyFinding`, and `verifyFindings`.
 
 | Field | Meaning |
 |---|---|
-| `armA.failureSignatureMatch` | The recorded returncode came back, and the recorded error substring appeared. |
-| `armB.failureVanished` | A corrected command exited 0 and the error substring was gone. |
+| `armA.failureSignatureMatch` | A recorded error substring exists, the returncode matched, and the substring appeared. It is false when the recording has no signature. |
+| `armB.failureVanished` | The corrected command exited 0, the error substring was gone, and arm B's prefix stayed within tolerance. |
 | `prefixDivergences` | Prefix steps that did not confirm the recording, each with its `kind`. |
 | `prefixDivergencePct` | Divergent steps over executed steps. This is the number an admission pre-pass gates on. |
 | `prefixWithinTolerance` | `prefixDivergencePct` is at most `PREFIX_DIVERGENCE_TOLERANCE_PCT` (10). |
@@ -79,7 +79,11 @@ Counting it as agreement lets a replay that fails on every step report a perfect
 
 `runReplayBatch` reports the same split per case and across the corpus, under `headline.prefixFidelity`.
 Its `replayed` predicate requires `prefixWithinTolerance`, so an unconfirmed prefix is never admitted.
+An exit-0 gold action does not establish a reproduced failure, even if its output mentions an error.
+The batch excludes a gold target with no recorded returncode before it starts a sandbox.
+The batch reports each excluded case and reason.
 `verifyFindings` applies the same rule: a proof whose prefix fell outside the tolerance is `divergent`, whatever its arms did.
+The finding wire rejects a target with exit 0 or no recorded exit before it calls a fix model.
 
 Prefix divergence is reported, never hidden.
 A high divergence rate is a finding about replay fidelity, not a harness error.
@@ -122,8 +126,9 @@ A row whose commands cannot be reconstructed exactly as recorded is rejected, be
 Only trajectories that record their image are replayable.
 A task whose environment needs external compose peers cannot be replayed this way.
 
-A gold label on the submit step is never a replay target.
-A submit decision has no executable failure to reproduce, so those cases are excluded and counted.
+A pure submit decision is never a replay target.
+A submit command that also changes state stays in the trajectory; without a recorded exit, it is excluded as `no-recorded-returncode-at-k`.
+The same exclusion prevents shell replay of SWE-agent ACI editor commands whose recordings carry no shell returncode.
 
 `dockerImagePreparer` shells out to `docker`.
 Pass `preparer: null` on a corpus source when the images are already replay-ready.

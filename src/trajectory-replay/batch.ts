@@ -10,8 +10,9 @@
  *
  * Headline metrics:
  *   replayability rate — fraction of replayable cases where the prefix
- *     replays within the divergence tolerance AND arm A reproduces the
- *     recorded returncode at k;
+ *     replays within the divergence tolerance AND arm A reproduces a
+ *     recorded failure at k; a zero exit without an error signature is not
+ *     evidence of failure;
  *   prefix fidelity — executed prefix steps and the share of them that did
  *     not confirm the recording, split by kind. A corpus whose recordings
  *     carry no returncodes shows up here as unknown-expectation steps, never
@@ -131,8 +132,8 @@ export interface ReplayBatchCaseRow {
   readonly armAExit: number | null
   readonly armAReturncodeMatch: boolean
   readonly armASignatureMatch: boolean
-  /** Headline predicate: prefix divergence within tolerance AND arm A
-   *  reproduced the recorded returncode at k. */
+  /** Headline predicate: prefix within tolerance and arm A reproduced an
+   *  observed failure at k. */
   readonly replayed: boolean
   readonly fix: ReplayBatchFixResult | null
   readonly wallMs: number
@@ -147,7 +148,7 @@ export interface ReplayBatchReport {
     readonly executed: number
     readonly excludedByReason: Record<string, number>
     /** Per-corpus submit-gold accounting: cases dropped because every gold is
-     *  the submit command, and golds skipped inside still-replayable cases. */
+     *  a pure submit, and such golds skipped inside replayable cases. */
     readonly submitGoldsByCorpus: Record<
       string,
       { submitOnlyCases: number; goldsSkippedWithinReplayable: number }
@@ -171,8 +172,7 @@ export interface ReplayBatchReport {
       readonly casesExecuted: number
     }
     readonly fixFlipRate: { numerator: number; denominator: number; value: number | null } | null
-    /** Fix-flip restricted to cases whose recorded returncode at k is nonzero —
-     *  real recorded failures, where "the failure vanished" is not vacuous. */
+    /** Fix-flip restricted to cases whose recorded returncode at k is nonzero. */
     readonly fixFlipRateNonzeroRc: {
       numerator: number
       denominator: number
@@ -273,7 +273,10 @@ async function executeArmB(
     prefixExecuted: prefix.prefixExecuted,
     prefixDivergences: prefix.prefixDivergences.length,
     prefixDivergencePct: prefix.prefixDivergencePct,
-    failureVanished: exec.exitCode === 0 && (signature ? !output.includes(signature) : true),
+    failureVanished:
+      prefix.prefixWithinTolerance &&
+      exec.exitCode === 0 &&
+      (signature ? !output.includes(signature) : true),
     stdout: exec.stdout,
     stderr: exec.stderr,
   }
@@ -393,7 +396,7 @@ export async function runReplayBatch(options: ReplayBatchOptions): Promise<Repla
         armAExit: verdict.armA.exitCode,
         armAReturncodeMatch: returncodeMatch,
         armASignatureMatch: verdict.armA.failureSignatureMatch,
-        replayed: verdict.prefixWithinTolerance && returncodeMatch,
+        replayed: verdict.valid,
         fix: null,
         wallMs: Date.now() - caseStart,
       }
@@ -831,7 +834,7 @@ export function renderBatchReport(report: ReplayBatchReport): string {
   lines.push(
     `- **Replayability rate: ${pct(headline.replayabilityRate.value)}** ` +
       `(${headline.replayabilityRate.numerator}/${headline.replayabilityRate.denominator} replayable cases ` +
-      `where the prefix replayed within ${fidelity.tolerancePct}% divergence AND arm A reproduced the recorded returncode at the gold step k).`,
+      `where the prefix replayed within ${fidelity.tolerancePct}% divergence AND arm A reproduced an observed failure at the gold step k).`,
   )
   lines.push(
     `- Signature-strict rate: ${pct(headline.signatureStrictRate.value)} ` +
