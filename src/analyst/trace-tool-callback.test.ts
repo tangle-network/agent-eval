@@ -4,6 +4,8 @@ import { startTraceToolCallback } from './trace-tool-callback'
 
 const tool: TraceAnalysisToolDescriptor = {
   namespace: 'traces',
+  readOnly: true,
+  idempotent: true,
   name: 'echo',
   description: 'Echo input.',
   parameters: { type: 'object' },

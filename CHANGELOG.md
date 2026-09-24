@@ -39,6 +39,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
   Paired steps now also compare `status`, so a step that failed in one run and passed in the other is a divergence.
   The unused `stepEquals` option is removed.
+- Every trace analyst tool (`buildTraceAnalysisToolDescriptors`) now ends its description with `UNTRUSTED_TRACE_TEXT`, a warning that returned trace text is untrusted evidence and never instructions.
+  Before, only `readSpanSource` warned.
+  Each descriptor also declares `readOnly: true` and `idempotent: true`, so a transport such as an MCP server publishes them without restating them.
 
 ## [0.187.2] — 2026-09-24
 
