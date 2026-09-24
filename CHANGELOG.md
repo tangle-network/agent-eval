@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.187.1] — 2026-09-24
+
 ### Added
 
 - `/benchmarks` `createHarborBenchmarkAdapter()` and `readHarborTask()` import a Harbor dataset checkout (Terminal-Bench and others) as a `BenchmarkAdapter`.
