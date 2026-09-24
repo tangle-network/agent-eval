@@ -6,6 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- `/pipelines` `firstDivergenceView` pairs steps by id, then by position with the same name and kind, then by name and kind anywhere, instead of by index alone.
+  One inserted step no longer marks every later step as diverged.
+  The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
+  Paired steps now also compare `status`, so a step that failed in one run and passed in the other is a divergence.
+  The unused `stepEquals` option is removed.
+
+### Added
+
+- `/pipelines` `diffSteps()` diffs any two step lists, and `diffStepsFromSpans()` orders one run's flat OTLP spans for it, so trace consumers share one diff.
+
 ## [0.187.2] — 2026-09-24
 
 ### Added
