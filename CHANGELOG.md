@@ -8,6 +8,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `/experiment` `sealRandomizedCanaryRule()` and `decideRandomizedCanary()` decide fixed-horizon live binary lift over all randomized assignments.
+  A prospective protocol and independently verified frozen cohort bind the assignment roster, checked outcomes, raw traces, billed cost, and served identities.
+  The result reports the nominal 95% headline and a separate family-adjusted guard; missing or unverifiable evidence refuses inference.
+  Product cost and latency gates remain the release owner's decision.
 - `partitionTrainSelectionTest(items, options)` (root): the three-way sibling of `partitionHeldOut`.
   It splits items into the disjoint train, selection and test sets that `compareOptimizationMethods` and Runtime `improve()` take.
   Assignment hashes each item's unit (`unitOf`, default the id), so fresh runs of one task never straddle two partitions and a unit keeps its partition as the corpus grows.

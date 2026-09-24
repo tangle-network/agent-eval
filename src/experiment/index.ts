@@ -252,3 +252,18 @@ export {
   DesignRefusalError,
   type SignFlipFloor,
 } from './power'
+export {
+  type CanaryArm,
+  type CanaryAssignmentReceipt,
+  type CanaryCohortReceipt,
+  type CanaryCohortVerifier,
+  type CanaryObservation,
+  type CanaryRefusal,
+  decideRandomizedCanary,
+  type RandomizedCanaryDecision,
+  type RandomizedCanaryRule,
+  randomizedCanaryObservationDigest,
+  randomizedCanaryRosterDigest,
+  type SealedRandomizedCanaryRule,
+  sealRandomizedCanaryRule,
+} from './randomized-canary'
