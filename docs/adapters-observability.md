@@ -148,3 +148,29 @@ A false `known` flag means the amount is a recorded subtotal, not complete usage
 Missing maps, explicit empty maps, and invalid fields remain distinct from measured zero.
 Parent settlements and terminal results can include child usage, so these records are not additive totals.
 The reporter reads evidence; it does not enforce budgets or infer missing measurements.
+
+## Supervisor-run transcript coverage
+
+The Runtime reader names each transcript that Runtime retained, and the integrity report counts what is missing.
+The root transcript is `root-stream.jsonl`, which Runtime appends as each root provider event arrives.
+A worker's turn record is the output blob of each `execution-result` event, which holds that turn's provider events.
+A worker's native harness session is the blob that the `harnessTranscript` receipt on its terminal event names.
+
+Each worker source carries three facts:
+
+- `transcriptRef`: the native session blob when it exists, otherwise the newest retained turn output, otherwise null.
+- `turns`: the dispatched turns and the turns with a retained output blob.
+- `nativeSession`: the retained blob, or Runtime's reason that there is none, verbatim.
+
+The reader checks every named blob on disk; a receipt whose blob is gone reads as `receipt-blob-missing`.
+
+The integrity report uses three issue codes:
+
+- `transcript-unavailable` counts rows with no inlined messages and no transcript reference.
+  Its metadata also counts the rows that are retained by reference only.
+- `transcript-incomplete` counts closed workers that dispatched more turns than they retained.
+- `native-session-unavailable` counts closed workers without a native session, grouped by reason.
+  Only the native session records what the harness's own subagents did.
+
+A live worker is not counted as incomplete, because its current turn is still being written.
+Rows carry only the artifacts a reader declares; the reader never derives a path from the run directory.

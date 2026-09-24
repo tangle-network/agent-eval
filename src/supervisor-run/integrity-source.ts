@@ -1,5 +1,6 @@
 import { evidence, issue, MAX_EXAMPLES } from './integrity-issues'
 import { steerIssues } from './integrity-steer'
+import { transcriptIssues } from './integrity-transcript'
 import type { SupervisorRunIntegrityIssue } from './integrity-types'
 import type { SpawnRow, SupervisorTreeFacts, WorkerLogFacts } from './source-facts'
 import type { SupervisorRunSources, SupervisorRunTree } from './types'
@@ -263,6 +264,7 @@ export function sourceIssues(
     return out
   }
 
+  out.push(...transcriptIssues(source, facts))
   const joined = joinWorkerControls(facts)
   if (joined.issue !== null) out.push(joined.issue)
   const rootCompleted =

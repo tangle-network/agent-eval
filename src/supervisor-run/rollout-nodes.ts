@@ -253,17 +253,16 @@ export function supervisorRunRolloutLinesFromFacts(
       artifacts: {
         patch_path: typeof result?.patchPath === 'string' ? result.patchPath : null,
         run_dir: src.supRunDir,
-        transcript_ref:
-          src.rootTranscriptRef !== undefined
-            ? src.rootTranscriptRef
-            : src.supRunDir === null
-              ? null
-              : `${src.supRunDir}/journal.jsonl`,
+        // Only a reader's declared artifact: a guessed path would read as retained evidence.
+        transcript_ref: src.rootTranscriptRef ?? null,
       },
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
-        gap: 'supervision journal carries structure and spend, not the brain transcript',
+        gap:
+          src.rootTranscriptRef == null
+            ? 'supervision journal carries structure and spend, not the brain transcript'
+            : 'brain transcript retained by reference; messages not inlined into this row',
       },
     })
   } else {
@@ -385,31 +384,20 @@ export function supervisorRunRolloutLinesFromFacts(
           (close?.hasSpend && close.spend.tokens.hasCache ? close.spend.tokens.cacheWrite : null),
         wall_s: wallMs === null ? null : wallMs / 1000,
       },
-      // A reader that knows where its worker artifacts live says so; only the
-      // A local layout is derivable from `supRunDir`, so guessing it for another
-      // store would mint rows pointing at paths that never existed.
+      // Only artifacts a reader declares: a guessed path would mint rows pointing at files that
+      // never existed, and a transcript reference reads as retained evidence.
       artifacts: {
-        patch_path:
-          workerSource?.patchPath !== undefined
-            ? workerSource.patchPath
-            : src.supRunDir === null
-              ? null
-              : `${src.supRunDir}/workers/${spawn.label}.patch`,
+        patch_path: workerSource?.patchPath ?? null,
         run_dir: src.supRunDir,
-        transcript_ref:
-          workerSource?.transcriptRef !== undefined
-            ? workerSource.transcriptRef
-            : src.supRunDir === null
-              ? null
-              : `${src.supRunDir}/workers/${spawn.label}.ndjson`,
+        transcript_ref: workerSource?.transcriptRef ?? null,
       },
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
         gap:
           workerSource?.transcriptRef == null
-            ? 'worker transcript lives in the harness session store — hydrate via src/rollout/readers'
-            : 'worker transcript recorded by the harness; messages not inlined into this row',
+            ? 'no worker transcript was retained; messages unavailable'
+            : 'worker transcript retained by reference; messages not inlined into this row',
       },
     })
   }

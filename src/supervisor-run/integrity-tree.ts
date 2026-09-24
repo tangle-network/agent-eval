@@ -12,6 +12,8 @@ interface NodeRecord {
   readonly runId: string | null
   readonly role: string | null
   readonly messages: readonly unknown[] | null
+  /** The row's declared transcript artifact; null when the source retained none. */
+  readonly transcriptRef: string | null
   readonly profileId: string | null
   readonly completed: boolean | null
   readonly terminal: boolean | null
@@ -43,6 +45,7 @@ function nodeRecord(value: unknown, index: number): NodeRecord {
   const raw = isRecord(value) ? value : {}
   const policy = isRecord(raw.policy) ? raw.policy : null
   const outcome = isRecord(raw.outcome) ? raw.outcome : null
+  const artifacts = isRecord(raw.artifacts) ? raw.artifacts : null
   return {
     index,
     raw,
@@ -52,6 +55,7 @@ function nodeRecord(value: unknown, index: number): NodeRecord {
     runId: nonEmptyString(raw.run_id),
     role: nonEmptyString(raw.role),
     messages: Array.isArray(raw.messages) ? raw.messages : null,
+    transcriptRef: artifacts === null ? null : nonEmptyString(artifacts.transcript_ref),
     profileId: policy === null ? null : nonEmptyString(policy.agent_profile_cell_id),
     completed:
       outcome !== null && typeof outcome.is_completed === 'boolean' ? outcome.is_completed : null,
@@ -480,7 +484,10 @@ export function treeIssues(
     }
   }
 
-  const missingTranscripts = records.filter((record) => record.messages?.length === 0)
+  // A row whose messages are not inlined still has its transcript when the source retained it
+  // by reference; only a row with neither is missing one.
+  const uninlined = records.filter((record) => record.messages?.length === 0)
+  const missingTranscripts = uninlined.filter((record) => record.transcriptRef === null)
   if (missingTranscripts.length > 0) {
     out.push(
       issue({
@@ -489,15 +496,20 @@ export function treeIssues(
         severity: 'medium',
         subject: 'decision-transcripts',
         claim: 'Decision transcripts are unavailable for some supervisor-tree invocations',
-        detail: `${missingTranscripts.length}/${records.length} node row(s) have messages: [].`,
+        detail: `${missingTranscripts.length}/${records.length} node row(s) have no inlined messages and no retained transcript; ${uninlined.length - missingTranscripts.length} more are retained by reference only.`,
         evidence: [
           evidence('capture/missing-transcripts/count', missingTranscripts.length),
           ...missingTranscripts
             .slice(0, MAX_EXAMPLES)
-            .map((record) => nodeEvidence(record, 'messages', [])),
+            .map((record) => nodeEvidence(record, 'artifacts/transcript_ref', null)),
         ],
-        recommendedAction: 'Hydrate canonical messages from the retained session transcript.',
-        metadata: { assessment: 'unavailable', unavailable_count: missingTranscripts.length },
+        recommendedAction:
+          'Retain each invocation transcript and name it in artifacts.transcript_ref.',
+        metadata: {
+          assessment: 'unavailable',
+          unavailable_count: missingTranscripts.length,
+          retained_by_reference_count: uninlined.length - missingTranscripts.length,
+        },
       }),
     )
   }

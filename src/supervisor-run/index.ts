@@ -110,4 +110,6 @@ export {
   unavailable,
   type WallDistribution,
   type WorkerLogSource,
+  type WorkerNativeSession,
+  type WorkerTurnCoverage,
 } from './types'

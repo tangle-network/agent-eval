@@ -11,6 +11,10 @@
  * identity below `identity` and does not emit Eval's role field. This boundary
  * projects those fields without changing Runtime's dialect.
  *
+ * Transcripts come from Runtime's own records too: `root-stream.jsonl` is the root's, each
+ * worker's turn outputs and native-session receipt are read from the journal, and every blob
+ * a record names is checked on disk (see `workerTranscripts`).
+ *
  * The run's terminal record is Runtime's own: `result.json` is the
  * `SupervisedResult` that `supervise()` returned, verbatim, and its `kind`
  * (`winner`, `no-winner`, or whatever a later arm is called) is the status.
@@ -35,10 +39,13 @@ import {
   type SupervisorRunReader,
   type SupervisorRunSources,
   type WorkerLogSource,
+  type WorkerNativeSession,
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
 const OBSERVER_FILE = 'observer.jsonl'
+const ROOT_STREAM_FILE = 'root-stream.jsonl'
+const BLOB_DIR = 'blobs'
 const RESULT_FILE = 'result.json'
 const FAILURE_FILE = 'failure.json'
 
@@ -486,6 +493,95 @@ function runtimeBeginState(root: string, startedAt: string): string {
   return JSON.stringify({ id: root, startedAt })
 }
 
+/**
+ * The file Runtime's `FileResultBlobStore` writes for one content address
+ * (`sha256:<hex>` → `blobs/sha256-<hex>.json`), or null for anything that is not one.
+ */
+function blobFile(runDir: string, ref: unknown): string | null {
+  return typeof ref === 'string' && /^sha256:[0-9a-f]{64}$/u.test(ref)
+    ? join(runDir, BLOB_DIR, `${ref.replace(':', '-')}.json`)
+    : null
+}
+
+type WorkerTranscript = Pick<WorkerLogSource, 'transcriptRef' | 'turns' | 'nativeSession'>
+
+interface WorkerTranscriptFacts {
+  dispatched: number
+  readonly outputFiles: string[]
+  receipt: Record<string, unknown> | null
+}
+
+/**
+ * What Runtime retained of each worker's decisions, from its own records.
+ *
+ * - A turn is one `execution-admitted` event in the `dispatched` phase. Its `execution-result`
+ *   names an output blob holding that turn's provider event stream (reasoning, tool calls and
+ *   results as the harness reported them). A dispatched turn with no retained output lost its
+ *   record, which is how a worker that went down mid-turn shows up.
+ * - The terminal event's `harnessTranscript` receipt covers the harness's native session files.
+ *   Those are the only record of the harness's own subagents, so an unavailable receipt is a
+ *   separate gap from a missing turn, and its reason is Runtime's, verbatim.
+ *
+ * Blob files are checked on disk: a receipt that names a blob the directory no longer holds is
+ * not a retained transcript.
+ */
+async function workerTranscripts(
+  runDir: string,
+  events: readonly Record<string, unknown>[],
+  workerIds: ReadonlySet<string>,
+): Promise<Map<string, WorkerTranscript>> {
+  const facts = new Map<string, WorkerTranscriptFacts>()
+  const entry = (id: string): WorkerTranscriptFacts => {
+    let found = facts.get(id)
+    if (found === undefined) {
+      found = { dispatched: 0, outputFiles: [], receipt: null }
+      facts.set(id, found)
+    }
+    return found
+  }
+  for (const event of events) {
+    const id = nonEmptyString(event.id)
+    if (id === null || !workerIds.has(id)) continue
+    if (event.kind === 'execution-admitted' && record(event.admission)?.phase === 'dispatched') {
+      entry(id).dispatched += 1
+    } else if (event.kind === 'execution-result') {
+      const file = blobFile(runDir, event.outRef)
+      if (file !== null) entry(id).outputFiles.push(file)
+    } else if (event.kind === 'settled' || event.kind === 'cancelled') {
+      const receipt = record(event.harnessTranscript)
+      if (receipt !== null) entry(id).receipt = receipt
+    }
+  }
+  const out = new Map<string, WorkerTranscript>()
+  for (const [id, fact] of facts) {
+    const retained: string[] = []
+    for (const file of fact.outputFiles) if (await isFile(file)) retained.push(file)
+    let nativeSession: WorkerNativeSession | null = null
+    if (fact.receipt !== null) {
+      if (fact.receipt.status === 'available') {
+        const file = blobFile(runDir, fact.receipt.transcriptRef)
+        nativeSession =
+          file !== null && (await isFile(file))
+            ? { status: 'available', ref: file }
+            : { status: 'unavailable', reason: 'receipt-blob-missing' }
+      } else {
+        nativeSession = {
+          status: 'unavailable',
+          reason: nonEmptyString(fact.receipt.reason) ?? 'unavailable',
+        }
+      }
+    }
+    out.set(id, {
+      // The native session is the fuller record; the newest turn output is the next best.
+      transcriptRef:
+        nativeSession?.status === 'available' ? nativeSession.ref : (retained.at(-1) ?? null),
+      turns: { dispatched: fact.dispatched, retained: retained.length },
+      nativeSession,
+    })
+  }
+  return out
+}
+
 export interface RuntimeReaderOptions {
   /**
    * Throw on a missing spawn journal instead of returning absent-shaped
@@ -597,15 +693,24 @@ export async function readRuntimeSupervisorRun(
   const workerIds = new Set(
     childSpawns.map((event) => nonEmptyString(event.id)).filter((id): id is string => id !== null),
   )
-  const workers: WorkerLogSource[] = childSpawns.map((event) => ({
-    workerId: nonEmptyString(event.id) as string,
-    label: nonEmptyString(event.label) ?? String(event.id),
-    events: null,
-    inbox: null,
-    patchBytes: null,
-    transcriptRef: null,
-    patchPath: null,
-  }))
+  const transcripts = await workerTranscripts(runDir, normalized.events, workerIds)
+  const workers: WorkerLogSource[] = childSpawns.map((event) => {
+    const workerId = nonEmptyString(event.id) as string
+    const transcript = transcripts.get(workerId)
+    return {
+      workerId,
+      label: nonEmptyString(event.label) ?? String(event.id),
+      events: null,
+      inbox: null,
+      patchBytes: null,
+      transcriptRef: transcript?.transcriptRef ?? null,
+      turns: transcript?.turns ?? { dispatched: 0, retained: 0 },
+      nativeSession: transcript?.nativeSession ?? null,
+      patchPath: null,
+    }
+  })
+  // Runtime appends every root provider event to the root stream as it arrives.
+  const rootStream = join(runDir, ROOT_STREAM_FILE)
 
   return {
     runRef: runDir,
@@ -629,7 +734,7 @@ export async function readRuntimeSupervisorRun(
     harnessWorkerTokens: null,
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
-    rootTranscriptRef: null,
+    rootTranscriptRef: (await isFile(rootStream)) ? rootStream : null,
     traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
   }
 }
