@@ -349,8 +349,8 @@ export type {
   ExperimentStats,
   ImprovementThresholds,
   ImprovementVerdictResult,
-} from './experiment-tracker'
-export { computeExperimentStats, improvementVerdict } from './experiment-tracker'
+} from './improvement-verdict'
+export { computeExperimentStats, improvementVerdict } from './improvement-verdict'
 
 export { hashJson, manifestContentDigest } from './pre-registration'
 
