@@ -253,6 +253,14 @@ export {
   type SignFlipFloor,
 } from './power'
 export {
+  joinProspectiveCanaryReceipts,
+  type ProspectiveCanaryAssignment,
+  type ProspectiveCanaryBilling,
+  type ProspectiveCanaryExecution,
+  type ProspectiveCanaryJoinInput,
+  type ProspectiveCanaryOutcome,
+} from './prospective-canary-join'
+export {
   type CanaryArm,
   type CanaryAssignmentReceipt,
   type CanaryCohortReceipt,
