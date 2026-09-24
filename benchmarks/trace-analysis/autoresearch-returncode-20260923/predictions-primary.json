@@ -1,0 +1,739 @@
+{
+  "schema": "agent-eval/autoresearch-returncode-predictions@1",
+  "predictor": "predict.mjs",
+  "traceFiles": 32,
+  "rows": [
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-path-tracing-79ade2b0",
+      "traceSha256": "b4ee7a673f2a2a076d8ccc04d2b0bee35b7efaf8fad396bad70727cc879a00cb",
+      "actions": 47,
+      "stepsWithReturncode": 46,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [],
+      "predictions": {
+        "all": []
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-run-pdp11-code-ba499e4b",
+      "traceSha256": "fe324d9e8ca253cb9a51b488d26d18264ba2afe74a1a55a004fe879c3c418624",
+      "actions": 31,
+      "stepsWithReturncode": 30,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        4,
+        6,
+        10
+      ],
+      "predictions": {
+        "all": [
+          4,
+          6,
+          10
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-spinning-up-rl-c435941e",
+      "traceSha256": "19ad10db95bdec824372cd4f2a323ac641fb6f456ff6d5d0e49cfff721b4a2a8",
+      "actions": 64,
+      "stepsWithReturncode": 63,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        9,
+        10,
+        22,
+        23,
+        26,
+        27,
+        28,
+        29,
+        31,
+        33,
+        41,
+        42,
+        44,
+        49,
+        51,
+        53,
+        55,
+        57,
+        60
+      ],
+      "predictions": {
+        "all": [
+          3,
+          9,
+          10,
+          22,
+          23,
+          26,
+          27,
+          28,
+          29,
+          31,
+          33,
+          41,
+          42,
+          44,
+          49,
+          51,
+          53,
+          55,
+          57,
+          60
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-write-compressor-9fff4fee",
+      "traceSha256": "61ca74b3a65fa2addb008c2c03bf08083246093c27d7bbeaa80332997681864f",
+      "actions": 44,
+      "stepsWithReturncode": 43,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        8,
+        11,
+        13,
+        15,
+        19,
+        28,
+        30,
+        33,
+        41
+      ],
+      "predictions": {
+        "all": [
+          8,
+          11,
+          13,
+          15,
+          19,
+          28,
+          30,
+          33,
+          41
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-72d231f6",
+      "traceSha256": "b0f89d76eca35f9e1391ea0e486335a7d102c1271e0c341b5e6d805edc9cdee6",
+      "actions": 28,
+      "stepsWithReturncode": 27,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        9,
+        12,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        23,
+        25
+      ],
+      "predictions": {
+        "all": [
+          9,
+          12,
+          13,
+          14,
+          15,
+          16,
+          19,
+          21,
+          23,
+          25
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-74a92a16",
+      "traceSha256": "e39543313f6674a5f1bb582dfc839ebc7ce8a4af11b6c5e1fbbb32bf65af8662",
+      "actions": 24,
+      "stepsWithReturncode": 23,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        4,
+        8,
+        14,
+        15,
+        16
+      ],
+      "predictions": {
+        "all": [
+          4,
+          8,
+          14,
+          15,
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-get-bitcoin-nodes-6004dfc9",
+      "traceSha256": "2e782da242cf2afb8bd8636ff47652b41231d5785fd76588664a4affbcec9428",
+      "actions": 27,
+      "stepsWithReturncode": 25,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [],
+      "predictions": {
+        "all": []
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-hf-lora-adapter-f46ef20a",
+      "traceSha256": "41920076816e9caafe4a50d67c83f80011ab4e71c3513c8cc90c1b59b7affafc",
+      "actions": 20,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        13
+      ],
+      "predictions": {
+        "all": [
+          2,
+          13
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-lean4-proof-bd0e040f",
+      "traceSha256": "93a2cc2ea037c38723b24b29990b1ca52d68724c360cc4f4dfed12aa7489fbd3",
+      "actions": 42,
+      "stepsWithReturncode": 41,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        4,
+        6,
+        8,
+        21,
+        30,
+        36
+      ],
+      "predictions": {
+        "all": [
+          3,
+          4,
+          6,
+          8,
+          21,
+          30,
+          36
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-play-zork-c1cce947",
+      "traceSha256": "120bf8fb6df0a3d3cfab421f024f7e9cb51efc12ff2588bfe89dbc9c96d5d673",
+      "actions": 20,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        11
+      ],
+      "predictions": {
+        "all": [
+          11
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-port-compressor-4652dd99",
+      "traceSha256": "d1783755a887099dad8d85e0a2f3ab3c9be5f8d3bf33416ba681fe56b6f3e2b1",
+      "actions": 68,
+      "stepsWithReturncode": 67,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [],
+      "predictions": {
+        "all": []
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-schemelike-metacircular-eval-e73a741e",
+      "traceSha256": "756b2e7902720f0b9c6fbfb55068cb16d93c657ed0db7d899dea28a94075f79e",
+      "actions": 49,
+      "stepsWithReturncode": 48,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        34
+      ],
+      "predictions": {
+        "all": [
+          34
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-astropy__astropy-14598-416c95db",
+      "traceSha256": "aa6effa8c7f85492acc437be95419bf00f83382a97b98d4d1debeb99be40e082",
+      "actions": 26,
+      "stepsWithReturncode": 24,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        10,
+        11,
+        12,
+        16,
+        18,
+        19,
+        21
+      ],
+      "predictions": {
+        "all": [
+          1,
+          10,
+          11,
+          12,
+          16,
+          18,
+          19,
+          21
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-django__django-16032-a1ba93e9",
+      "traceSha256": "1909061a85d5b4e81e1269035b79c84bc4d5fb2952d273060c3b858acd680fc0",
+      "actions": 29,
+      "stepsWithReturncode": 27,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        11,
+        16,
+        17,
+        20,
+        22,
+        24,
+        25
+      ],
+      "predictions": {
+        "all": [
+          11,
+          16,
+          17,
+          20,
+          22,
+          24,
+          25
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa",
+      "traceSha256": "a83d0109fe583446d1a37e9cf462cfc71a6c47207c3e2ff42a0f73929eb8757c",
+      "actions": 30,
+      "stepsWithReturncode": 28,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        7
+      ],
+      "predictions": {
+        "all": [
+          2,
+          7
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86-7568ee74",
+      "traceSha256": "73eec166e9f23baacc1689524c16b73712783cf262c8a1f3ffffa7e9feab66db",
+      "actions": 24,
+      "stepsWithReturncode": 22,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        18,
+        19,
+        20
+      ],
+      "predictions": {
+        "all": [
+          18,
+          19,
+          20
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan-ca34b75e",
+      "traceSha256": "14c4607ecd8111a8030f329eb13092f0ee9b363c3514b11ded99296415c67d70",
+      "actions": 23,
+      "stepsWithReturncode": 21,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        7,
+        17,
+        18,
+        21
+      ],
+      "predictions": {
+        "all": [
+          1,
+          7,
+          17,
+          18,
+          21
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-3649aa96",
+      "traceSha256": "2e7e59007ba1b0d3f8e0cdb55a25c3084dff32d670ea74cd5864ec7ee6d227c0",
+      "actions": 21,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        13
+      ],
+      "predictions": {
+        "all": [
+          13
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-f8adf46a",
+      "traceSha256": "8044f69c1dbb40d137dbf4e6978ab55b8ab08952230b4e9483100dea81acf68d",
+      "actions": 20,
+      "stepsWithReturncode": 18,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        15
+      ],
+      "predictions": {
+        "all": [
+          2,
+          15
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-442534db",
+      "traceSha256": "66fb7bd6a9d5c7713ba9abbc076e1ad81229b2609f3af6ae4ae091f622036550",
+      "actions": 22,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        18,
+        20
+      ],
+      "predictions": {
+        "all": [
+          2,
+          18,
+          20
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-23299-3c79bc6c",
+      "traceSha256": "1aee2409ffacfc97187007fe578ef40e8b4e452b174a0f7f59c8678feaca665d",
+      "actions": 20,
+      "stepsWithReturncode": 18,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        16
+      ],
+      "predictions": {
+        "all": [
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-26208-deec0657",
+      "traceSha256": "8136bdcd466d7758ad45ce9e4aa03ade4e7c08c4910cf8fc585e91b237fe51c5",
+      "actions": 26,
+      "stepsWithReturncode": 24,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        21
+      ],
+      "predictions": {
+        "all": [
+          21
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-1057-56b583ae",
+      "traceSha256": "523dfcbd7d7d37ce02473b34dd71e6596d146f78a312d44dcc882207a41076f2",
+      "actions": 57,
+      "stepsWithReturncode": 55,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        35,
+        38,
+        41,
+        42,
+        43,
+        44,
+        47,
+        50,
+        52,
+        54
+      ],
+      "predictions": {
+        "all": [
+          35,
+          38,
+          41,
+          42,
+          43,
+          44,
+          47,
+          50,
+          52,
+          54
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2532-98ccc9cb",
+      "traceSha256": "84475840e280c579ebf1cbb0a1f24e4abe81dee30c52b2076ffa6b95f1b533f8",
+      "actions": 21,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        12,
+        16,
+        17,
+        18
+      ],
+      "predictions": {
+        "all": [
+          1,
+          12,
+          16,
+          17,
+          18
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-12930-d76c2178",
+      "traceSha256": "68c5819618636db658dc1a558be3eb05c6f46430f80606b2c1cdbb5067afac89",
+      "actions": 21,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        10,
+        14,
+        15
+      ],
+      "predictions": {
+        "all": [
+          10,
+          14,
+          15
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-8638-0bbaf886",
+      "traceSha256": "ac4e34d3097d221facd4d242b90e387c6c18d0d8bdb0a55c7dc69be5c07ffb36",
+      "actions": 20,
+      "stepsWithReturncode": 18,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        8,
+        10,
+        11,
+        16
+      ],
+      "predictions": {
+        "all": [
+          8,
+          10,
+          11,
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9461-b131876c",
+      "traceSha256": "e460c39ec281cd9bcd7de6a4c0fcc161fe0fae622f336c1640888518d20bb61d",
+      "actions": 21,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        8,
+        14,
+        15
+      ],
+      "predictions": {
+        "all": [
+          8,
+          14,
+          15
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9602-27a680bd",
+      "traceSha256": "421ef821ad1ab2246eb2fc124fd456bc4930230dd5052d9a316d479ee70995da",
+      "actions": 21,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        10,
+        12,
+        14,
+        15,
+        16
+      ],
+      "predictions": {
+        "all": [
+          10,
+          12,
+          14,
+          15,
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-10608-2fe6d098",
+      "traceSha256": "589c9d5d160f10838916dfbc63b0cacf9e8badf26c7e8ecddffb11575321e175",
+      "actions": 29,
+      "stepsWithReturncode": 26,
+      "stepsWithoutReturncode": 3,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        23
+      ],
+      "predictions": {
+        "all": [
+          23
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-12419-4a50ba40",
+      "traceSha256": "b693b82354af6dbf250355ebb271bdeba5eff4ab70c427c4913eb844abf2cd5a",
+      "actions": 34,
+      "stepsWithReturncode": 32,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        6,
+        7,
+        13,
+        15,
+        17,
+        19,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "predictions": {
+        "all": [
+          6,
+          7,
+          13,
+          15,
+          17,
+          19,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-15976-80927487",
+      "traceSha256": "941722b36ba6b0667cb97a7c2cd429b12c7920a0aa1b43ba9556f780af4e81a7",
+      "actions": 24,
+      "stepsWithReturncode": 22,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        5,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        19,
+        20
+      ],
+      "predictions": {
+        "all": [
+          5,
+          11,
+          12,
+          13,
+          14,
+          15,
+          17,
+          19,
+          20
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-20428-5f09fe17",
+      "traceSha256": "6e212a41a618f14cdcc53e81d66afb3585c411b489801d9ab8586b62716631d0",
+      "actions": 22,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        14,
+        19
+      ],
+      "predictions": {
+        "all": [
+          14,
+          19
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1650 @@
+{
+  "schema": "agent-eval/autoresearch-returncode-score@1",
+  "inputs": {
+    "predictionSha256": "9cc9581aa2133e38b38bc4f4920c3f55d6f67ce0305247d10262418d4809b5f5",
+    "labelsSha256": "399cfed3b9b53dc47e61735ad0dde94acfeb3fcd63cd9879fe96e90df093d6d1",
+    "excludedLabelsSha256": "53af5ffe3962f3378f2d65419b92b8a56fe7d6c8efc619a0bc2b8f0872bc4f83",
+    "referenceSha256": null,
+    "selectedCases": 104,
+    "excludedTaskOverlap": [
+      "sweagent-OpenAI__GPT-5-clap-rs__clap-2758-594e09d1",
+      "sweagent-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-853de2e9"
+    ]
+  },
+  "referenceReceipts": null,
+  "scores": [
+    {
+      "mode": "all",
+      "cases": 104,
+      "meanPerRowF1": 0.0,
+      "microF1": 0.0,
+      "matchedGoldSteps": 0,
+      "goldSteps": 199,
+      "predictedSteps": 0,
+      "positiveCases": 56,
+      "trustedNegativeCases": 36,
+      "trustedNegativeFalsePositives": 0,
+      "unlabeledCases": 12,
+      "actionsWithReturncode": 0,
+      "actionsWithoutReturncode": 4309,
+      "casesWithNonzeroReturncode": 0,
+      "pairedVsEmpty": {
+        "meanDelta": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "pairedVsReference": null,
+      "rows": [
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-Significant-Gravitas__AutoGPT-4652-b968024b",
+          "taskName": "Significant-Gravitas__AutoGPT-4652",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 32,
+          "nonzeroSteps": [],
+          "traceSha256": "263f366c872edc6b098335e58b313fba4e359b09e69300f4fb0aedd957873f6d"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-cli__cli-5019-51dee7c3",
+          "taskName": "cli__cli-5019",
+          "gold": [
+            54
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 54,
+          "nonzeroSteps": [],
+          "traceSha256": "5c4bace7708afe12d5096c76fa25b0ad70d2bd50aaa401cb8da53a8694e775d4"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-cli__cli-6706-b74f46a9",
+          "taskName": "cli__cli-6706",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 59,
+          "nonzeroSteps": [],
+          "traceSha256": "b40d65027fd79c92f00780a591063c81319b66c9dcc37031e702fb44b8a6d1e6"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-expressjs__express-3870-7594bfc0",
+          "taskName": "expressjs__express-3870",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 27,
+          "nonzeroSteps": [],
+          "traceSha256": "53703d4ac6c5bb190a9b772452431351d06123f8db15ef9537db0dbfb944f627"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1243-1c933b6d",
+          "taskName": "facebook__zstd-1243",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 46,
+          "nonzeroSteps": [],
+          "traceSha256": "33f0a81798cbb248584684932fb3fd9ab8c68fd357d9c760bd3f6388807748e3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1390-2ca70e40",
+          "taskName": "facebook__zstd-1390",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 20,
+          "nonzeroSteps": [],
+          "traceSha256": "8dd9134739a1049b426a4cf5e160a10889a9cd55c6dfe9fd1b7db4d59747212c"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1532-6f816f49",
+          "taskName": "facebook__zstd-1532",
+          "gold": [
+            20,
+            21
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 33,
+          "nonzeroSteps": [],
+          "traceSha256": "8546c29ad51ea8d0d434656580bc41b3832ce7775014ec199df38e5b88c9cc3b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-637-94afe4df",
+          "taskName": "facebook__zstd-637",
+          "gold": [
+            47
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 47,
+          "nonzeroSteps": [],
+          "traceSha256": "b57c401e527a0953a148df231170c5cdaf46436d45f17f4f83efb3a4074a4ca9"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-fasterxml__jackson-core-964-ab40902f",
+          "taskName": "fasterxml__jackson-core-964",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 38,
+          "nonzeroSteps": [],
+          "traceSha256": "2eb0236ec3a093e7e7ad08480a52c8d338fab5fc3fd2d82c21074bc904ee7087"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-fmtlib__fmt-2394-5f39d316",
+          "taskName": "fmtlib__fmt-2394",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 20,
+          "nonzeroSteps": [],
+          "traceSha256": "8cbbad06fcf493db908ba8233ce6a6a6656da91579aff98c25a0d53b41bcd920"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13693-ee32c741",
+          "taskName": "huggingface__transformers-13693",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 34,
+          "nonzeroSteps": [],
+          "traceSha256": "b500d05dd14b893000958a4fdadfed45ed92059f995cfbd20fa59501043897b3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13865-44d517cd",
+          "taskName": "huggingface__transformers-13865",
+          "gold": [
+            12,
+            14,
+            15,
+            19,
+            21,
+            35,
+            37,
+            44
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 48,
+          "nonzeroSteps": [],
+          "traceSha256": "7c5dfa4fa127fe4469d6161292a7c995ee6390c1c893c5457237f0ae9b8604dd"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13989-f41dae7b",
+          "taskName": "huggingface__transformers-13989",
+          "gold": [
+            64,
+            66,
+            119,
+            121,
+            123
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 123,
+          "nonzeroSteps": [],
+          "traceSha256": "1e34a889cd530ac562f38f913a1a52d4de7824aea7e73026d1c124131dffba11"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-15158-25e0c0d7",
+          "taskName": "huggingface__transformers-15158",
+          "gold": [
+            32,
+            33,
+            35
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 35,
+          "nonzeroSteps": [],
+          "traceSha256": "0596751e6ce5d290df23d95bb0aa3e44668b951384e7b442ebcfd6f0c54db1a4"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-16198-1bb854f7",
+          "taskName": "huggingface__transformers-16198",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 43,
+          "nonzeroSteps": [],
+          "traceSha256": "2c0076489efcca711d6752a2eeaf4735b6151a633937b0af0bf30267c58fc11b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-19590-6ee9899a",
+          "taskName": "huggingface__transformers-19590",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 39,
+          "nonzeroSteps": [],
+          "traceSha256": "e519d51fe081d2e2a7748d0331ad5770a841c16e52c0ba4b625dad9164fd9a0c"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-20136-2b7c0524",
+          "taskName": "huggingface__transformers-20136",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 93,
+          "nonzeroSteps": [],
+          "traceSha256": "0cc4030141ebbbfa80a822bd5cff4e533566ec0386ff4b853775a9f09a769174"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-21768-91cf46b0",
+          "taskName": "huggingface__transformers-21768",
+          "gold": [
+            27,
+            28,
+            30
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 30,
+          "nonzeroSteps": [],
+          "traceSha256": "8d94f364151bc40f34a83def2fe4c0739be9f710f0100bbb1f1b1db145416631"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-22458-ce29b23d",
+          "taskName": "huggingface__transformers-22458",
+          "gold": [
+            21,
+            22,
+            24
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 24,
+          "nonzeroSteps": [],
+          "traceSha256": "8454a3478fbd6cf63bb0b3ceb62525628e7bcfd67f65025a32607278376b9a8b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-22920-27c55020",
+          "taskName": "huggingface__transformers-22920",
+          "gold": [
+            18,
+            19,
+            21
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 21,
+          "nonzeroSteps": [],
+          "traceSha256": "d472ff01d43665cb734d67273c673b88c6a72946e1670e8040f1af4cd3974e6c"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-23126-684431b2",
+          "taskName": "huggingface__transformers-23126",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 25,
+          "nonzeroSteps": [],
+          "traceSha256": "b73807901afdec8af0472a71c09d6bd13637ad50d6770a8568ae6e81e32578b1"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-23223-ba60b3d2",
+          "taskName": "huggingface__transformers-23223",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 41,
+          "nonzeroSteps": [],
+          "traceSha256": "0ab50ea553ff3aa219dfe712cf7c69468a83ad5724c5a0c60baa485b4261f826"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-24238-963711c1",
+          "taskName": "huggingface__transformers-24238",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 24,
+          "nonzeroSteps": [],
+          "traceSha256": "d18185365d270564e4ddbe6920474ae75ccf5265d9852df4872f13fa3e6468a0"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-27463-1b3f334c",
+          "taskName": "huggingface__transformers-27463",
+          "gold": [
+            50,
+            52,
+            53
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 53,
+          "nonzeroSteps": [],
+          "traceSha256": "0e438796f0feb902b57d18eb5bdcedbb5729cc3ab25ac629bca930ec46d7a12a"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-28517-9f0c9e72",
+          "taskName": "huggingface__transformers-28517",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 41,
+          "nonzeroSteps": [],
+          "traceSha256": "1c708ea5fc6de26a327c7998690e0c93c58cbbe67ecd7de066a55d8c3227cb26"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-28535-e28436fb",
+          "taskName": "huggingface__transformers-28535",
+          "gold": [
+            23,
+            24,
+            25,
+            26
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 26,
+          "nonzeroSteps": [],
+          "traceSha256": "b08f11e606ddc95c57e4ab05f5b95943d1c904f5b7b71d21aaeccc36506eb9a4"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-29311-5bbe74e8",
+          "taskName": "huggingface__transformers-29311",
+          "gold": [
+            13,
+            15,
+            16,
+            18,
+            20,
+            22,
+            24,
+            25,
+            26
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 34,
+          "nonzeroSteps": [],
+          "traceSha256": "a9f3dcc38b298474725a3207f8e4bad09dc3026fa57850b6c9c57a5596c368af"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-29449-deaa19e6",
+          "taskName": "huggingface__transformers-29449",
+          "gold": [
+            23,
+            25,
+            27
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 27,
+          "nonzeroSteps": [],
+          "traceSha256": "17780fe9fff29c3ac366d54092e4487d3dea75e6c005762c1a7e5442a66fb6a3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-3716-5872d333",
+          "taskName": "huggingface__transformers-3716",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 41,
+          "nonzeroSteps": [],
+          "traceSha256": "e12152b557eae243be05a908e1e446a682ab8964711d320f0d3b5f06b6d1cdcf"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-6098-aea35e9a",
+          "taskName": "huggingface__transformers-6098",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 37,
+          "nonzeroSteps": [],
+          "traceSha256": "72f4e61a456023deb0217cf2a0bb120c1925b7f699dceef7f9928e76244cbfbf"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-7078-090b230e",
+          "taskName": "huggingface__transformers-7078",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 33,
+          "nonzeroSteps": [],
+          "traceSha256": "5e78d2e897777836aed2ac9622b32e4109278f8a3c55a49212d17da35ee74da0"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-8624-b9dc0bc1",
+          "taskName": "huggingface__transformers-8624",
+          "gold": [
+            30
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 36,
+          "nonzeroSteps": [],
+          "traceSha256": "b68120b2847c37293069ffec5c3dd44c4e158e9e9ef3511b55b1a78125ba0b86"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1319-1ad50ca6",
+          "taskName": "iamkun__dayjs-1319",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 45,
+          "nonzeroSteps": [],
+          "traceSha256": "bbff982bed3dd1bbeca56d12ca87bc1273d293cc9ea0f25cf134b3e127542151"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1414-7722295d",
+          "taskName": "iamkun__dayjs-1414",
+          "gold": [
+            68
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 68,
+          "nonzeroSteps": [],
+          "traceSha256": "bc92fcb0875b563bfc085b66b8f6a341ce3dabe7f9457c41ef9c4bbc0c197183"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1725-4fa6a2e1",
+          "taskName": "iamkun__dayjs-1725",
+          "gold": [
+            34,
+            35
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 35,
+          "nonzeroSteps": [],
+          "traceSha256": "9323f042b847437eedc224e01069b97e36ef2969d4297dfb1655e3c588b3dc98"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan-556a7837",
+          "taskName": "instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 33,
+          "nonzeroSteps": [],
+          "traceSha256": "7ae45d2b00d521f1f2a291d21946edb3242ae8f1284f01ebdeaba8ef08cdc51a"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2-3f41fa59",
+          "taskName": "instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 26,
+          "nonzeroSteps": [],
+          "traceSha256": "1bfa9095b6c470bd5df6ba859dd2da18d8f115983aceb8d5597ad1b0475b8594"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-3e1660fe",
+          "taskName": "instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 23,
+          "nonzeroSteps": [],
+          "traceSha256": "1889fe7c11df0b7281b05f3116eaaf07ee46be6fffbdbd8f087ea71d63628ae1"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-6cc97447aac5816745278f3735af128afb255c81-v0f01c69f1e2528b935359cfe578530722bca2c59-1c989b98",
+          "taskName": "instance_ansible__ansible-6cc97447aac5816745278f3735af128afb255c81-v0f01c69f1e2528b935359cfe578530722bca2c59",
+          "gold": [
+            42,
+            49,
+            50,
+            51,
+            82
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 89,
+          "nonzeroSteps": [],
+          "traceSha256": "8cafbabdc8842055878f1ce7a7fca33db6c3b8e8e8fa93dec7e539d1a8917c5f"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-77658704217d5f166404fc67997203c25381cb6e-v390e508d27db7a51eece36bb6d9698b63a5b638a-3b3b7d5d",
+          "taskName": "instance_ansible__ansible-77658704217d5f166404fc67997203c25381cb6e-v390e508d27db7a51eece36bb6d9698b63a5b638a",
+          "gold": [
+            16,
+            18,
+            19,
+            20
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 20,
+          "nonzeroSteps": [],
+          "traceSha256": "4dfe78cad94ed3217758f5abad76f06db11539044f8f28131aff4adec9272fa2"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-8127abbc298cabf04aaa89a478fc5e5e3432a6fc-v30a923fb5c164d6cd18280c02422f75e611e8fb2-79f7945f",
+          "taskName": "instance_ansible__ansible-8127abbc298cabf04aaa89a478fc5e5e3432a6fc-v30a923fb5c164d6cd18280c02422f75e611e8fb2",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 90,
+          "nonzeroSteps": [],
+          "traceSha256": "44146d8334dc5da7866f6d8f645629da87078ae8c194a2715f395b04f3dca195"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59-9bfb3524",
+          "taskName": "instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 34,
+          "nonzeroSteps": [],
+          "traceSha256": "46c21033c961af99059cac182864c9c8cf82221dea6500cec2630963010c47a6"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-942424e10b2095a173dbd78e7128f52f7995849b-v30a923fb5c164d6cd18280c02422f75e611e8fb2-0761ffc8",
+          "taskName": "instance_ansible__ansible-942424e10b2095a173dbd78e7128f52f7995849b-v30a923fb5c164d6cd18280c02422f75e611e8fb2",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 50,
+          "nonzeroSteps": [],
+          "traceSha256": "8253b08f83f19110a0313168c94156a90bcf52f67417d4c97cc2a5e30360020e"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59-16808561",
+          "taskName": "instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59",
+          "gold": [
+            25,
+            27,
+            28,
+            29
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 80,
+          "nonzeroSteps": [],
+          "traceSha256": "2273b98ca91d66432d48e4b6299c34fd0d68e2a651ca58ec1d5a4edcb32e30dc"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59-6b53fdb8",
+          "taskName": "instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 37,
+          "nonzeroSteps": [],
+          "traceSha256": "a78a9edebe2b03c301e8cce1582585b0d925ad05e66e0f38814bd4b13ec1d1f2"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b2a289dcbb702003377221e25f62c8a3608f0e89-v173091e2e36d38c978002990795f66cfc0af30ad-7e516d53",
+          "taskName": "instance_ansible__ansible-b2a289dcbb702003377221e25f62c8a3608f0e89-v173091e2e36d38c978002990795f66cfc0af30ad",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 63,
+          "nonzeroSteps": [],
+          "traceSha256": "318d305b39f67c4a5db68ac8c277ac3a54038b3a6e0ab1728fe7e4de59cf4983"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b5e0293645570f3f404ad1dbbe5f006956ada0df-v0f01c69f1e2528b935359cfe578530722bca2c59-8f74ece3",
+          "taskName": "instance_ansible__ansible-b5e0293645570f3f404ad1dbbe5f006956ada0df-v0f01c69f1e2528b935359cfe578530722bca2c59",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 22,
+          "nonzeroSteps": [],
+          "traceSha256": "101c7a5f6adfcfe0d9e00ca0ce8c66e7333a5f130fd6a786c90f40ae22e204bc"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2-ab0b8f1f",
+          "taskName": "instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2",
+          "gold": [
+            27
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 53,
+          "nonzeroSteps": [],
+          "traceSha256": "6e7b5d13c118c6f5585c58a8840aa36de7b6b13749de56e4baad23fd798f8802"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-d58e69c82d7edd0583dd8e78d76b075c33c3151e-v173091e2e36d38c978002990795f66cfc0af30ad-32930979",
+          "taskName": "instance_ansible__ansible-d58e69c82d7edd0583dd8e78d76b075c33c3151e-v173091e2e36d38c978002990795f66cfc0af30ad",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 75,
+          "nonzeroSteps": [],
+          "traceSha256": "8e396f34fdb906658c8e646df5734371015b7be571873c4ea749ed9535aa764b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-e9e6001263f51103e96e58ad382660df0f3d0e39-v30a923fb5c164d6cd18280c02422f75e611e8fb2-44b42789",
+          "taskName": "instance_ansible__ansible-e9e6001263f51103e96e58ad382660df0f3d0e39-v30a923fb5c164d6cd18280c02422f75e611e8fb2",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 22,
+          "nonzeroSteps": [],
+          "traceSha256": "942db8cd94117ec47bfce292844b28de7211af1864471497c6f209466e486e21"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8-479591a7",
+          "taskName": "instance_flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8",
+          "gold": [
+            31,
+            46
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 62,
+          "nonzeroSteps": [],
+          "traceSha256": "0b6036453b65f91e1432a9adf192128a1c89ab7d5b9b693914f93d0d51f31703"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355-74bc5f38",
+          "taskName": "instance_flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355",
+          "gold": [
+            55,
+            57,
+            59
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 59,
+          "nonzeroSteps": [],
+          "traceSha256": "84d98c88465054de7ad64c571b5b55beef78d6aaef9180987c567b01f693204f"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc-e3bc6a2f",
+          "taskName": "instance_future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 42,
+          "nonzeroSteps": [],
+          "traceSha256": "a198446f7f970a7404826e1f7bab52016118698eab84adb77dcdf787eb46f596"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-60725705782832a2cb22e17c49697948a42a9d03-v298a7a812ceed28c4c18355a091f1b268fe56d86-0036e996",
+          "taskName": "instance_internetarchive__openlibrary-60725705782832a2cb22e17c49697948a42a9d03-v298a7a812ceed28c4c18355a091f1b268fe56d86",
+          "gold": [
+            20,
+            22,
+            24
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 24,
+          "nonzeroSteps": [],
+          "traceSha256": "6cd13a58fb4ae72bd5c5e90995c68f15b7352f05b9362b069df03beba2469577"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-f2b0c13d",
+          "taskName": "instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 44,
+          "nonzeroSteps": [],
+          "traceSha256": "953194b685a5ce2e166e3198cceb708fbc3c5d272ed7f96dfd84b8243efe7209"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-77c16d530b4d5c0f33d68bead2c6b329aee9b996-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-904f86da",
+          "taskName": "instance_internetarchive__openlibrary-77c16d530b4d5c0f33d68bead2c6b329aee9b996-ve8c8d62a2b60610a3c4631f5f23ed866bada9818",
+          "gold": [
+            16,
+            17,
+            19
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 50,
+          "nonzeroSteps": [],
+          "traceSha256": "6fcd2925cce5973244ea91bce91a23fe22cee10138954595c193fb272f25ec35"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-8a5a63af6e0be406aa6c8c9b6d5f28b2f1b6af5a-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-0e380383",
+          "taskName": "instance_internetarchive__openlibrary-8a5a63af6e0be406aa6c8c9b6d5f28b2f1b6af5a-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+          "gold": [
+            20
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 31,
+          "nonzeroSteps": [],
+          "traceSha256": "21fff92009b8a84725f43b691e1cfecd82ddb915896c7180db2a05f93b8652c5"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-910b08570210509f3bcfebf35c093a48243fe754-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-084561f5",
+          "taskName": "instance_internetarchive__openlibrary-910b08570210509f3bcfebf35c093a48243fe754-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 57,
+          "nonzeroSteps": [],
+          "traceSha256": "4b006e92cfce17ff664b097cc4e4c983aee00869904625105d1b361309e4b29f"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-767f3550",
+          "taskName": "instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 46,
+          "nonzeroSteps": [],
+          "traceSha256": "354bf2ff660cb11e28859149a82fa8633e7da9d13ea265e415975f04126fd9b6"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-d109cc7e6e161170391f98f9a6fa1d02534c18e4-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-54010cb4",
+          "taskName": "instance_internetarchive__openlibrary-d109cc7e6e161170391f98f9a6fa1d02534c18e4-ve8c8d62a2b60610a3c4631f5f23ed866bada9818",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 121,
+          "nonzeroSteps": [],
+          "traceSha256": "c0a5fa82726a0dac20ab6cf01eba040790e15793b9b3e34da226d2e5ce3e9637"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-e1e502986a3b003899a8347ac8a7ff7b08cbfc39-v08d8e8889ec945ab821fb156c04c7d2e2810debb-1e80cfac",
+          "taskName": "instance_internetarchive__openlibrary-e1e502986a3b003899a8347ac8a7ff7b08cbfc39-v08d8e8889ec945ab821fb156c04c7d2e2810debb",
+          "gold": [
+            18,
+            20,
+            22
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 22,
+          "nonzeroSteps": [],
+          "traceSha256": "0124d2297bc4e5e7ce784f354d55f3aa2f556da230057cc95fd708a490ccc0dd"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-9d1c92b0",
+          "taskName": "instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d",
+          "gold": [
+            50,
+            54,
+            55,
+            56,
+            60,
+            62,
+            63,
+            64,
+            65
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 94,
+          "nonzeroSteps": [],
+          "traceSha256": "aad3a3775f1b59d4427c70c902b6932bf5df0553d02a247c10c47dfde6f657bb"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-d3f257e7",
+          "taskName": "instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d",
+          "gold": [
+            31,
+            33,
+            35
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 35,
+          "nonzeroSteps": [],
+          "traceSha256": "6177fac2152e49930616d1ed9c5043aedcddd4d2a69973ddedd9e7545e7f3a84"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e-f1d1d09d",
+          "taskName": "instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e",
+          "gold": [
+            46,
+            47,
+            48,
+            49,
+            50
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 50,
+          "nonzeroSteps": [],
+          "traceSha256": "83d25a4777331c63b6026a1581b13e39683bfccab916b981feaead42c5e0a34b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-1793-6f5470b0",
+          "taskName": "jqlang__jq-1793",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 52,
+          "nonzeroSteps": [],
+          "traceSha256": "5af920e02a4e4240d70c1ba24e6e74746310ef63444bba886c9c4ab4489c1945"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-2654-6603ae02",
+          "taskName": "jqlang__jq-2654",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 25,
+          "nonzeroSteps": [],
+          "traceSha256": "35d00c2ce1063871f5bfd9a875991412087c0bc8586d8f7d820a3049f1243c77"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-2919-93f075bf",
+          "taskName": "jqlang__jq-2919",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 33,
+          "nonzeroSteps": [],
+          "traceSha256": "ac944845cfd40ca0d78b52c7392f74711f8012aa7c5ba8492c8d2ec0876f302c"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-18553-468c06f3",
+          "taskName": "keras-team__keras-18553",
+          "gold": [
+            21,
+            22,
+            34,
+            35,
+            37
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 38,
+          "nonzeroSteps": [],
+          "traceSha256": "70b95bf3e193f208f3fe58908ad3ff58fbc585c1d5fa90649d7f991283f6ac66"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-18871-85aa3499",
+          "taskName": "keras-team__keras-18871",
+          "gold": [
+            14,
+            16,
+            17,
+            20
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 20,
+          "nonzeroSteps": [],
+          "traceSha256": "086168d7ce44132198616b950989e3bd4a909e9f7c8a71db6f1e0b5ac78287bc"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19201-a9b06a76",
+          "taskName": "keras-team__keras-19201",
+          "gold": [
+            35,
+            37,
+            39
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 39,
+          "nonzeroSteps": [],
+          "traceSha256": "77af4bf9ec386451ce4f35584f585d6d4336a691e97d919cdeda657ca644e0ae"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19484-e97d97d4",
+          "taskName": "keras-team__keras-19484",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 28,
+          "nonzeroSteps": [],
+          "traceSha256": "4ab602f8f1c30058c82c82f2ea0ea551fc5c496e3ccadafc95dd510960411d20"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19636-be8c419a",
+          "taskName": "keras-team__keras-19636",
+          "gold": [
+            30,
+            31,
+            33
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 33,
+          "nonzeroSteps": [],
+          "traceSha256": "0de74c578c52d8a5570547c2bff381eb3da6bd3e9df2bb9538b492653156d72e"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19838-040f1c90",
+          "taskName": "keras-team__keras-19838",
+          "gold": [
+            24,
+            25,
+            26
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 26,
+          "nonzeroSteps": [],
+          "traceSha256": "b5cec3e4f4ea4df529f2cd717dcae12936290e7bd53284bcca4ecab703b36649"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19844-ca79bed1",
+          "taskName": "keras-team__keras-19844",
+          "gold": [
+            54,
+            55,
+            58,
+            59,
+            60
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 63,
+          "nonzeroSteps": [],
+          "traceSha256": "b60e3a9fd75fe4a89d867627f89faeed3458bc0f0465cd061f46eafe1f5fe171"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19863-d4ec1df3",
+          "taskName": "keras-team__keras-19863",
+          "gold": [
+            42,
+            44,
+            46
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 46,
+          "nonzeroSteps": [],
+          "traceSha256": "c84ab01f08aa24e143be1d30b3088d56ecd175726d8fd9c9061da2fa02d99fb1"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19924-dc8be29c",
+          "taskName": "keras-team__keras-19924",
+          "gold": [
+            11,
+            14
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 44,
+          "nonzeroSteps": [],
+          "traceSha256": "a69aece8558fe4dd19c20beb86547959d389c786459457ad7b23cfc71d2df760"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-langchain-ai__langchain-4009-0a56c80f",
+          "taskName": "langchain-ai__langchain-4009",
+          "gold": [
+            11
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 23,
+          "nonzeroSteps": [],
+          "traceSha256": "757a1568025cd105a0b01afb56c8a13e7d0b5b20ced6547d9afc5c9ed984edaf"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-langchain-ai__langchain-5609-c3440b94",
+          "taskName": "langchain-ai__langchain-5609",
+          "gold": [
+            25,
+            26,
+            28
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 28,
+          "nonzeroSteps": [],
+          "traceSha256": "ad3056cacfd349443d6a524656ba19af2c3c2f39cc3c9b31706b4bb2e3598ad3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-135197-4a0fddee",
+          "taskName": "microsoft__vscode-135197",
+          "gold": [
+            53,
+            55
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 72,
+          "nonzeroSteps": [],
+          "traceSha256": "fbb4b058a1a5bfa50e17096727b88ed20a7263d220e39febe9191a282b5c9b9e"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-160342-b846798e",
+          "taskName": "microsoft__vscode-160342",
+          "gold": [
+            13,
+            20,
+            21,
+            23
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 23,
+          "nonzeroSteps": [],
+          "traceSha256": "383fa884e3f2a597f97b0c64494b01ed6b3df18fbf96f5845b9247d41b94b289"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-177084-ddcf304b",
+          "taskName": "microsoft__vscode-177084",
+          "gold": [
+            15,
+            17,
+            20,
+            22,
+            25,
+            26,
+            27
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 27,
+          "nonzeroSteps": [],
+          "traceSha256": "5fcdb9e5f0675d5fd5dbeeb962757363804122c234a81c72cd632a4b2560b16d"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-13778-d70b6204",
+          "taskName": "mui__material-ui-13778",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 25,
+          "nonzeroSteps": [],
+          "traceSha256": "d1f84a20a7feddeadadf8acedb96d03876929e346b98fdf1997355f16b21719f"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-15359-31082364",
+          "taskName": "mui__material-ui-15359",
+          "gold": [
+            40,
+            41,
+            43
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 43,
+          "nonzeroSteps": [],
+          "traceSha256": "d364d93bde6628b676007f3c1832c4fbe3a36d4eb8f63671567eefec7cac9ba3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18141-c7612a1f",
+          "taskName": "mui__material-ui-18141",
+          "gold": [
+            23,
+            25,
+            28
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 28,
+          "nonzeroSteps": [],
+          "traceSha256": "796859ab2c8ae7be3eb7a4372334190f308fe04ccaa5b5f668e8c1a697355109"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18257-ecfae4b2",
+          "taskName": "mui__material-ui-18257",
+          "gold": [
+            20,
+            21,
+            23
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 23,
+          "nonzeroSteps": [],
+          "traceSha256": "8a6060bbff83a7693a7f81cc7a0040a1ae8fde4cf6e4392ecd787eaeaff3c012"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18683-2bd64ee3",
+          "taskName": "mui__material-ui-18683",
+          "gold": [
+            19,
+            20,
+            22
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 22,
+          "nonzeroSteps": [],
+          "traceSha256": "a51e26dbb66d7d34d64b73bb05466600a26b727a1c9bd64b3797d34b02cfa3b4"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-19849-4ff77a47",
+          "taskName": "mui__material-ui-19849",
+          "gold": [
+            36,
+            39
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 39,
+          "nonzeroSteps": [],
+          "traceSha256": "d14171ac850f28dcc6ef79a7bb4e19c088063694c6b6f1b65631d19c2166f1dc"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-20252-99dc0124",
+          "taskName": "mui__material-ui-20252",
+          "gold": [
+            13,
+            16,
+            17,
+            18
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 25,
+          "nonzeroSteps": [],
+          "traceSha256": "00808dc07e6bb18c1f2a40fb00c9e5305f2a35f864aaad611676930aedc0bfa8"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-26061-b6ecdd74",
+          "taskName": "mui__material-ui-26061",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 31,
+          "nonzeroSteps": [],
+          "traceSha256": "d7dabb0944a56aec05b1233a06a7cc97f4e4523d9fe273099e0ff0306b7261fd"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-26807-0de9c978",
+          "taskName": "mui__material-ui-26807",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 58,
+          "nonzeroSteps": [],
+          "traceSha256": "af395598ae4c27e8b2aa6faf5904a89c8c46a102311155dba8278a1fb4aec230"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-28813-77bdd20a",
+          "taskName": "mui__material-ui-28813",
+          "gold": [
+            35,
+            36,
+            38
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 38,
+          "nonzeroSteps": [],
+          "traceSha256": "a0e6a7803748d7899f33d8111b89f6a74f72d39b6fe44953aed9b2def2048861"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-29023-06898477",
+          "taskName": "mui__material-ui-29023",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 59,
+          "nonzeroSteps": [],
+          "traceSha256": "c9a88b4007011543fa90b7464a791d371fa9bdecd69af852f4f9cbc190bd91c6"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-34610-d8f4d813",
+          "taskName": "mui__material-ui-34610",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 42,
+          "nonzeroSteps": [],
+          "traceSha256": "b10baebe5d4999648a3a6728fc5b75228dbcec8638f2049eda419267beaa9677"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-42412-73b8be1c",
+          "taskName": "mui__material-ui-42412",
+          "gold": [
+            25,
+            26
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 28,
+          "nonzeroSteps": [],
+          "traceSha256": "54ffa62ba88b3cede58a810f15ced9b3e3d4c8bc9ea8685a1b00f8a1d3e24c31"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-nlohmann__json-2989-de7a03b5",
+          "taskName": "nlohmann__json-2989",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 52,
+          "nonzeroSteps": [],
+          "traceSha256": "895c571f60444afdba890ebc66e4b117a152248e7a5fc3c97c282adda3034552"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-ponylang__ponyc-1057-f7b52e61",
+          "taskName": "ponylang__ponyc-1057",
+          "gold": [
+            15,
+            17,
+            20
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 20,
+          "nonzeroSteps": [],
+          "traceSha256": "23f9441313fd1a11f06f4b68dae46fe72b3c8d550278dbe5152774abece91d34"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-3515-d2f26ed0",
+          "taskName": "prettier__prettier-3515",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 29,
+          "nonzeroSteps": [],
+          "traceSha256": "ca5cad1193afc393a5ee9b9d047a50fe6021d482d141da12a3cd7b2b5d7ac74a"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-361-0e842b35",
+          "taskName": "prettier__prettier-361",
+          "gold": [
+            9,
+            21,
+            22,
+            23,
+            24
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 24,
+          "nonzeroSteps": [],
+          "traceSha256": "6f335fb99edd4cc8721c9515b3e04510132bb00d5d782ccce4237fa0573bf79b"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-8046-6c1254db",
+          "taskName": "prettier__prettier-8046",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 26,
+          "nonzeroSteps": [],
+          "traceSha256": "dbed798ec142b4ca1dd9251dcb6f8dc33a857b0fd64c40c6d206b5085f36b524"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-2576-80a1d381",
+          "taskName": "serverless__serverless-2576",
+          "gold": [
+            5,
+            7,
+            10,
+            12,
+            13,
+            15,
+            16,
+            18,
+            19,
+            23,
+            24,
+            26,
+            27,
+            29,
+            30
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 62,
+          "nonzeroSteps": [],
+          "traceSha256": "4316cb8e42e714c486545a657b12d77e8c5c16f1d0f9e3d63dc82c0bdcc9aae1"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-3457-5ad91382",
+          "taskName": "serverless__serverless-3457",
+          "gold": [
+            26,
+            27,
+            28,
+            29
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 29,
+          "nonzeroSteps": [],
+          "traceSha256": "6c9630a5ae86f6a2820c827ae66a6e0a8656100cda1e1f5cfbe936fe68ae5b24"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-7374-2a246c8b",
+          "taskName": "serverless__serverless-7374",
+          "gold": [
+            31,
+            32,
+            34
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 34,
+          "nonzeroSteps": [],
+          "traceSha256": "52f765bd60009dd5f0c234c48033b090dade01b01c51a8634abae68f592d1595"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-5933-2584b464",
+          "taskName": "yt-dlp__yt-dlp-5933",
+          "gold": [
+            33,
+            35,
+            37
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 37,
+          "nonzeroSteps": [],
+          "traceSha256": "b5b4f6c0c18e5f7d3b95c85fa694512636b3b26435dfceb1bd7c0ae7f9fb38b3"
+        },
+        {
+          "traceId": "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-9862-841baea5",
+          "taskName": "yt-dlp__yt-dlp-9862",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "trusted-negative",
+          "stepsWithReturncode": 0,
+          "stepsWithoutReturncode": 29,
+          "nonzeroSteps": [],
+          "traceSha256": "401b42cddf322a8c2d4649025e009486731e1d1fd13eb58d38726a17971df536"
+        }
+      ]
+    }
+  ]
+}
