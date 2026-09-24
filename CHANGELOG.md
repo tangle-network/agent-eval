@@ -17,6 +17,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Failures that ended at the same instant, or without an end time, are `ambiguous` rather than ordered by guess.
   The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
   `diagnoseSpans` reports one per run as `facts.firstFailures`.
+- `/pipelines` `diffSteps()` diffs any two step lists, and `diffStepsFromSpans()` orders one run's flat OTLP spans for it, so trace consumers share one diff.
 
 ### Changed
 
@@ -33,6 +34,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
   A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
   Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
+- `/pipelines` `firstDivergenceView` pairs steps by id, then by position with the same name and kind, then by name and kind anywhere, instead of by index alone.
+  One inserted step no longer marks every later step as diverged.
+  The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
+  Paired steps now also compare `status`, so a step that failed in one run and passed in the other is a divergence.
+  The unused `stepEquals` option is removed.
 
 ## [0.187.2] — 2026-09-24
 
