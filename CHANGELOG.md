@@ -6,6 +6,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `precedes` and `neverUnless` take `{ order }`: `start-order` (default), `finish-before-start`, or `all-occurrences`.
+- New trace-contract operators: `atMost(p, max)`, `tokensAtMost(p, max)` (an unknown token count fails), `run({ requireCompleted, allowedStatuses, maxDurationMs })` (unknown statuses are rejected), and `argument(p, { pointer, check, occurrence })`, an RFC 6901 JSON Pointer check on tool-call arguments that fails when the arguments were not captured.
+- Predicates gain `kind` (read through agent-trace-contract's classifier), `model`, `not`, and the `{ oneOf: [...] }` matcher.
+- A contract can be scoped to one subtree with `scope({ root })`, and can list `alternative(id, ...)` rule sets of which one must pass.
+- `evaluateTraceContract` and the contract types are exported from the package root.
+- `/diagnosis` `rankFirstFailure()` names the first failure of one run by a fixed precedence: the innermost failing span, then a failed `agent.outcome`, then an explicit `none`.
+  Failures that ended at the same instant, or without an end time, are `ambiguous` rather than ordered by guess.
+  The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
+  `diagnoseSpans` reports one per run as `facts.firstFailures`.
+
 ### Changed
 
 - `TraceEmitter` never throws a failed store write into the traced run.
@@ -21,14 +33,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
   A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
   Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
-
-### Added
-
-- `precedes` and `neverUnless` take `{ order }`: `start-order` (default), `finish-before-start`, or `all-occurrences`.
-- New trace-contract operators: `atMost(p, max)`, `tokensAtMost(p, max)` (an unknown token count fails), `run({ requireCompleted, allowedStatuses, maxDurationMs })` (unknown statuses are rejected), and `argument(p, { pointer, check, occurrence })`, an RFC 6901 JSON Pointer check on tool-call arguments that fails when the arguments were not captured.
-- Predicates gain `kind` (read through agent-trace-contract's classifier), `model`, `not`, and the `{ oneOf: [...] }` matcher.
-- A contract can be scoped to one subtree with `scope({ root })`, and can list `alternative(id, ...)` rule sets of which one must pass.
-- `evaluateTraceContract` and the contract types are exported from the package root.
 
 ## [0.187.2] — 2026-09-24
 

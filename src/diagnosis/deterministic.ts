@@ -19,6 +19,7 @@ import type {
   DiagnosisSeverity,
   DiagnosisSkippedAnalysis,
 } from './findings'
+import { type FirstFailure, rankFirstFailure } from './first-failure'
 import { type DiagnosisSpan, durationMs, toContractSpan } from './spans'
 
 /** Evidence ids cited per finding; the measure carries the full count. */
@@ -58,6 +59,8 @@ export interface ExecutionFacts {
   errorSpans: number
   toolCalls: number
   models: string[]
+  /** The first failure of each run, in trace id order. See `rankFirstFailure`. */
+  firstFailures: FirstFailure[]
   /** agent-eval execution summary; null with a reason when it could not be computed. */
   execution: ExecutionReport | null
   executionError?: string
@@ -108,7 +111,7 @@ export function runDeterministicPass(spans: readonly DiagnosisSpan[]): Determini
   }
   findings.push(...failedRunFindings(traces))
 
-  const facts = executionFacts(spans, traces.size)
+  const facts = executionFacts(spans, traces)
   return { validation, capabilities, skipped, facts, findings, window: timeWindow(spans) }
 }
 
@@ -237,7 +240,10 @@ function failedRunFindings(traces: ReadonlyMap<string, DiagnosisSpan[]>): Diagno
   ]
 }
 
-function executionFacts(spans: readonly DiagnosisSpan[], runs: number): ExecutionFacts {
+function executionFacts(
+  spans: readonly DiagnosisSpan[],
+  traces: ReadonlyMap<string, DiagnosisSpan[]>,
+): ExecutionFacts {
   const spansByKind: Record<string, number> = {}
   const models = new Set<string>()
   let errorSpans = 0
@@ -249,12 +255,15 @@ function executionFacts(spans: readonly DiagnosisSpan[], runs: number): Executio
     if (span.model) models.add(span.model)
   }
   const facts: ExecutionFacts = {
-    runs,
+    runs: traces.size,
     spans: spans.length,
     spansByKind,
     errorSpans,
     toolCalls,
     models: [...models].sort(),
+    firstFailures: [...traces.keys()]
+      .sort()
+      .map((traceId) => rankFirstFailure(traces.get(traceId)!)),
     execution: null,
   }
   try {

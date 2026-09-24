@@ -29,6 +29,14 @@ export type {
 } from './findings'
 export { DIAGNOSIS_FINDINGS_SCHEMA_ID, validateDiagnosisFindings } from './findings'
 export type {
+  FirstFailure,
+  FirstFailureAmbiguous,
+  FirstFailureFound,
+  FirstFailureNone,
+  FirstFailureStage,
+} from './first-failure'
+export { MAX_FIRST_FAILURE_IDS, rankFirstFailure } from './first-failure'
+export type {
   DiagnosisModelOptions,
   ModelQuestion,
   ModelRejection,
