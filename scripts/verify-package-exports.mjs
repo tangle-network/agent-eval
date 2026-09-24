@@ -99,6 +99,7 @@ try {
     './rl': ['import', 'types'],
     './meta-eval': ['import', 'types'],
     './hosted': ['import', 'types'],
+    './experiment': ['import', 'types'],
     './wire': ['import', 'types'],
     './openapi.json': ['default'],
   }
@@ -806,6 +807,68 @@ try {
     `,
   )
   writeFileSync(
+    join(appDir, 'canary-import.ts'),
+    `
+      import {
+        decideRandomizedCanary,
+        randomizedCanaryObservationDigest,
+        randomizedCanaryRosterDigest,
+        sealRandomizedCanaryRule,
+        type CanaryObservation,
+      } from '@tangle-network/agent-eval/experiment'
+
+      const rows: CanaryObservation[] = ['control', 'candidate'].map((arm, i) => ({
+        assignmentId: String(i), assignmentSourceId: 'assignment:' + i,
+        clusterId: String(i), arm: arm as 'control' | 'candidate',
+        checkedOutcome: i as 0 | 1, outcomeSourceId: 'checker:' + i,
+        billedCostUsd: 0, billingSourceId: 'billing:' + i,
+        traceSourceId: 'trace:' + i, noExecutionSourceId: null, turns: 1,
+        servedProfileDigest: arm === 'control' ? 'control' : 'candidate',
+        servedCodeRevisionDigest: 'served-revision',
+        outcomeCheckerDigest: 'checker-revision',
+      }))
+      const sealed = sealRandomizedCanaryRule({
+        experimentId: 'packed-canary', populationId: 'packed-test',
+        eligibilityRuleDigest: 'eligibility', randomizationSourceId: 'packed-randomizer',
+        assignmentLedgerAuthorityId: 'packed-ledger',
+        controlProfileDigest: 'control', candidateProfileDigest: 'candidate',
+        servedCodeRevisionDigest: 'served-revision', outcomeCheckerDigest: 'checker-revision',
+        confirmatoryFamilyId: 'packed-family', confirmatoryFamilySize: 1,
+        confirmatoryIndex: 1, familyReservationSourceId: 'packed-family-slot',
+        assignmentUnit: 'session', clusterUnit: 'session',
+        stoppingRule: 'fixed-time', analysisCutoff: '2026-09-25T06:00:00Z',
+        outcomeMaturityMs: 120_000, minimumLift: 0, minimumClusters: 40,
+      })
+      const cohort = {
+        protocolDigest: sealed.digest,
+        assignmentRosterDigest: randomizedCanaryRosterDigest(rows),
+        assignmentCount: 2, assignmentLedgerSourceId: 'packed-assignments',
+        assignmentLedgerTipDigest: 'sha256:' + 'a'.repeat(64),
+        outcomeLedgerSourceId: 'packed-outcomes', billingLedgerSourceId: 'packed-billing',
+        observationSnapshotDigest: randomizedCanaryObservationDigest(rows),
+        observationFrozenAt: '2026-09-25T06:02:00Z',
+        authorityId: 'packed-ledger', attestationSourceId: 'packed-attestation',
+        closedAt: '2026-09-25T06:01:00Z', attestedAt: '2026-09-25T06:03:00Z',
+      }
+      const decision = decideRandomizedCanary(sealed, cohort, rows, (receipt) => ({
+        verified: true, authorityId: receipt.authorityId,
+        protocolWitnessedBeforeTraffic: true,
+        familySlotReservedBeforeTraffic: true,
+        eligibilityAndDispositionVerified: true,
+        randomizationVerified: true,
+        rosterCompleteAtCutoff: true,
+        outcomeAndBillingSnapshotFrozen: true,
+        sourceJoinsVerified: true,
+        armIsolationVerified: true,
+      }))
+      if (decision.refusal !== 'insufficient-clusters' ||
+          decision.coverage.control.checkedOutcomes !== 1 ||
+          decision.controlBilledCostUsd !== 0) {
+        throw new Error('packed canary decision lost refusal or receipt coverage')
+      }
+    `,
+  )
+  writeFileSync(
     join(appDir, 'tsconfig.json'),
     JSON.stringify({
       compilerOptions: {
@@ -816,11 +879,12 @@ try {
         skipLibCheck: true,
         outDir: 'dist',
       },
-      include: ['index.ts', 'quickstart.ts', 'integrity-imports.ts'],
+      include: ['index.ts', 'quickstart.ts', 'integrity-imports.ts', 'canary-import.ts'],
     }),
   )
   run(join(repoRoot, 'node_modules', '.bin', 'tsc'), ['-p', 'tsconfig.json'], appDir)
   run(process.execPath, [join(appDir, 'dist', 'integrity-imports.js')], appDir)
+  run(process.execPath, [join(appDir, 'dist', 'canary-import.js')], appDir)
   const quickstartOutput = run(process.execPath, [join(appDir, 'dist', 'quickstart.js')], appDir)
   const plainQuickstartOutput = quickstartOutput.replace(/\x1b\[[0-9;]*m/g, '')
   const expectedQuickstartOutput = readme.match(/## Quickstart[\s\S]*?```text\n([\s\S]*?)\n```/)?.[1]

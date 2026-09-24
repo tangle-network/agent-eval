@@ -26,6 +26,100 @@ Calling `registered.decide()` does not automatically run admission, power, budge
 | Cluster-aware power | `clusteredPower`, `assertDesignAdequate` | Assess a declared effect under a simulated outcome model and cluster-count policy. |
 | Denominator chain | `buildFunnel`, `executeAdmissionRule`, `composeFunnels`, `renderFunnelTable` | Reconcile retained and excluded evidence. |
 | Matched budgets | `verifyMatchedBudgets`, `assertMatchedBudgets` | Check realized tokens against a declared tolerance. |
+| Randomized served canary | `sealRandomizedCanaryRule`, `decideRandomizedCanary` | Decide fixed-horizon assignment-level lift from checked binary outcomes. |
+
+### Randomized served canary
+
+Use the canary decision when control and candidate receive different live assignments.
+The paired promotion rule applies to replayed cases, not this served comparison.
+
+Seal the prospective protocol before the first eligible assignment.
+Register eligibility, randomization, both profiles, served revision, checker revision, assignment unit, cluster unit, fixed cutoff, outcome maturity, and minimum lift.
+Register one confirmatory family slot before traffic.
+The family size sets an additional Bonferroni interval; the nominal 95% headline keeps its original definition.
+An independent witness must establish protocol timing and prevent reusing a family slot.
+The seal detects edits but cannot authenticate its own creation time or family reservation.
+
+At the fixed assignment cutoff, freeze the complete append-only assignment ledger.
+Its roster digest covers every assignment ID, assignment source ID, cluster ID, and arm.
+Assignment IDs and assignment source IDs must each be unique, so a retry cannot enter the denominator twice.
+At exactly `analysisCutoff + outcomeMaturityMs`, freeze the complete outcome, trace, turn, and billed-cost snapshot.
+Retain the assignment ledger tip, observation snapshot digest, and independent attestation source.
+The required host verifier checks ledger signatures, authority, registration timing, family reservation, randomizer execution, and the fixed snapshot.
+It receives the cohort receipt and sealed protocol, so it can resolve each registered source against the independent services.
+It verifies eligibility before assignment and an immutable disposition for every eligible arrival through the cutoff.
+It resolves each assignment to the raw trace or checked no-execution record, checker result, settled bill, and served revision.
+It also verifies arm-isolated memory and persistent state, or witnessed statelessness, for every assignment design.
+The library checks the receipt's identities, counts, digests, and times against the supplied rows and sealed protocol.
+An arbitrary verifier that returns success does not establish independent evidence.
+
+Keep every assigned unit in its original arm, including failed executions.
+Use outcome `0` only when the registered checker established failure.
+Use `null` when a checked outcome is unavailable; missing evidence refuses inference.
+A missing trace is valid only with an independent no-execution source, zero turns, zero billed cost, and checked failure.
+The library refuses changed served profile, code revision, or checker revision.
+It also refuses fewer than 40 clusters, fewer than 20 clusters per arm, a dominant cluster, or zero variance.
+
+The estimand is candidate minus control checked success probability across **all assigned units**.
+The interval uses a cluster sandwich variance and Student-t critical value with `G - 1` degrees of freedom.
+A customer cluster may contain sessions in both arms; their covariance remains in one contribution.
+Such traffic needs arm-isolated memory and persistent state to avoid treatment spillover into control.
+Use customer assignment when that isolation cannot be proved.
+This large-cluster approximation requires independent clusters, trustworthy randomization, stable serving, and the fixed observation snapshot.
+It is neither an anytime-valid sequence nor an exact small-sample test.
+
+`nominal95Interval` and `headline95Pass` report the fixed live headline.
+`familyAdjustedInterval` and `familywisePass` provide the additional repeated-candidate guard.
+`successCriterionMet` requires both, but it is only the primary lift criterion.
+The product still applies its registered cost and latency guardrails before any release.
+Arm coverage counts and billed-cost totals remain visible; missing cost stays `null`, never a measured zero.
+
+```ts
+import {
+  decideRandomizedCanary,
+  sealRandomizedCanaryRule,
+} from '@tangle-network/agent-eval/experiment'
+
+const protocol = sealRandomizedCanaryRule({
+  experimentId: 'served-agent-2026-09-24',
+  populationId: 'eligible-live-requests',
+  eligibilityRuleDigest: 'eligibility-revision',
+  randomizationSourceId: 'randomizer-receipt-id',
+  assignmentLedgerAuthorityId: 'platform-ledger',
+  controlProfileDigest: 'control-profile-digest',
+  candidateProfileDigest: 'candidate-profile-digest',
+  servedCodeRevisionDigest: 'served-revision-digest',
+  outcomeCheckerDigest: 'checker-revision-digest',
+  confirmatoryFamilyId: 'weekly-live-agent-improvement',
+  confirmatoryFamilySize: 1,
+  confirmatoryIndex: 1,
+  familyReservationSourceId: 'family-ledger-slot-id',
+  assignmentUnit: 'session',
+  clusterUnit: 'customer',
+  stoppingRule: 'fixed-time',
+  analysisCutoff: '2026-09-25T06:00:00Z',
+  outcomeMaturityMs: 120_000,
+  minimumLift: 0,
+  minimumClusters: 40,
+})
+
+// Witness `protocol` and reserve the family slot before serving traffic.
+// The host freezes `cohortReceipt` and `checkedObservations` at the registered times.
+const decision = decideRandomizedCanary(
+  protocol,
+  cohortReceipt,
+  checkedObservations,
+  verifyPlatformCohortReceipt,
+)
+if (decision.refusal !== null) throw new Error(decision.refusal)
+```
+
+`cohortReceipt` binds the post-cutoff complete roster and the fixed observation snapshot to the prospective protocol.
+The deterministic calibration in `src/experiment/randomized-canary.test.ts` used 500 trials per law, 60 customers, and four sessions per customer.
+Each customer had a shared pass propensity of 0.25 or 0.65 with equal probability.
+Two sessions entered each arm in random order; the positive law added 0.20 to candidate pass probability.
+The nominal 95% headline passed 14/500 null trials (2.8%) and 465/500 positive trials (93.0%).
+These frequencies only calibrate this stated synthetic law and do not prove coverage for other cluster structures or live traffic.
 
 ### Sealing and execution
 
