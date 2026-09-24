@@ -6,6 +6,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `/diagnosis` `rankFirstFailure()` names the first failure of one run by a fixed precedence: the innermost failing span, then a failed `agent.outcome`, then an explicit `none`.
+  Failures that ended at the same instant, or without an end time, are `ambiguous` rather than ordered by guess.
+  The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
+  `diagnoseSpans` reports one per run as `facts.firstFailures`.
+
 ## [0.187.2] — 2026-09-24
 
 ### Added
