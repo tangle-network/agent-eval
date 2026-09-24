@@ -12,6 +12,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Items carry each task's instruction, timeouts, requested resources and declared artifacts.
   `evaluate` delegates to the caller's `grade` callback, which runs the dataset's own verifier; a verifier that did not run throws rather than scoring zero.
 - `BenchmarkSource` gains `revision`, `rules` and `contamination`, so an adapter reports the exact upstream commit, the rules a result must follow, and its known training-data exposure.
+- `/supervisor-run` reads the transcripts Runtime retained.
+  The Runtime reader names the root stream, each worker's retained turn outputs (`turns`) and its native-session receipt (`nativeSession`), and checks each named blob on disk.
+  The integrity report adds `transcript-incomplete` (closed workers that lost dispatched turns) and `native-session-unavailable` (closed workers without a native harness session, by Runtime's reason).
+
+### Changed
+
+- `transcript-unavailable` counts only rows with neither inlined messages nor a transcript reference, and reports the rows retained by reference.
+  Before this, every Runtime node was counted, whatever Runtime had kept.
+- Supervisor-run rollout rows carry only the patch and transcript artifacts a reader declares; they no longer derive paths from the run directory.
 
 ## [0.187.0] — 2026-09-23
 

@@ -61,6 +61,17 @@ export function showMeasured(v: Measured<number | string | boolean | null>): str
 /** The two invocation roles a recursive supervision tree can contain. */
 export type SupervisorRunNodeRole = 'supervisor' | 'worker'
 
+/** Turn-level transcript coverage for one worker. */
+export interface WorkerTurnCoverage {
+  readonly dispatched: number
+  readonly retained: number
+}
+
+/** A native harness session receipt: the retained artifact, or the store's reason there is none. */
+export type WorkerNativeSession =
+  | { readonly status: 'available'; readonly ref: string }
+  | { readonly status: 'unavailable'; readonly reason: string }
+
 /**
  * One worker's logs, as read. `null` means the artifact did not exist; `''`
  * means the artifact was captured and contained no rows.
@@ -81,6 +92,18 @@ export interface WorkerLogSource {
   readonly patchBytes: number | null
   /** Where this worker's transcript lives, for the rollout row. Null = no such artifact. */
   readonly transcriptRef?: string | null
+  /**
+   * Harness turns this worker dispatched, and how many left a retained output (the turn's own
+   * event stream). A settled worker with fewer retained than dispatched lost those turns' record.
+   * Null or absent = the store does not record turns.
+   */
+  readonly turns?: WorkerTurnCoverage | null
+  /**
+   * The store's receipt for this worker's native harness session: the harness's own session
+   * files, which are the only record of what its native subagents did. Null or absent = the
+   * store kept no receipt for this worker.
+   */
+  readonly nativeSession?: WorkerNativeSession | null
   /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
   readonly patchPath?: string | null
   /** This worker's own inference tokens, when the store records them per worker. */

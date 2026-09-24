@@ -27,6 +27,8 @@ export type SupervisorRunIntegrityIssueCode =
   | 'parent-cycle'
   | 'child-terminal-unavailable'
   | 'transcript-unavailable'
+  | 'transcript-incomplete'
+  | 'native-session-unavailable'
   | 'profile-id-unavailable'
   | 'source-row-malformed'
   | 'source-event-identity-unavailable'
