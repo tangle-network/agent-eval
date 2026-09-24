@@ -15,7 +15,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   A span whose needed `startedAt` or `endedAt` is missing fails the rule; array position is no longer taken as time, and mixed timestamps no longer throw for rules that do not order.
 - Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
   A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
-  Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
+  Errored rules are absent from `scores` rather than scored 0.
 
 ### Added
 
@@ -24,6 +24,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Predicates gain `kind` (read through agent-trace-contract's classifier), `model`, `not`, and the `{ oneOf: [...] }` matcher.
 - A contract can be scoped to one subtree with `scope({ root })`, and can list `alternative(id, ...)` rule sets of which one must pass.
 - `evaluateTraceContract` and the contract types are exported from the package root.
+- `compileTraceContractSpec()` compiles a declarative JSON contract (`run`, `tools`, `llm`, `scope`, `alternatives.anyOf`, low-level `rules`) onto these operators.
+  Parsing is strict: an unknown key or status is an error that names the closest known word.
+  `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
+  See `docs/trace-contracts.md`.
+
+### Removed
+
+- `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
+- The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
 
 ## [0.187.2] — 2026-09-24
 
