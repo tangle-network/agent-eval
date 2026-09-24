@@ -1,0 +1,985 @@
+{
+  "schema": "agent-eval/autoresearch-returncode-predictions@1",
+  "predictor": "predict.mjs",
+  "traceFiles": 32,
+  "rows": [
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-add-benchmark-lm-eval-harness-54ac67f0",
+      "traceSha256": "d23e916d3a4f4e1078afef49cfcc824cf50a1fafa160b32989e0ddc18f74aa8e",
+      "actions": 47,
+      "stepsWithReturncode": 46,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        7,
+        16,
+        30
+      ],
+      "predictions": {
+        "first": [
+          7
+        ],
+        "last": [
+          30
+        ],
+        "all": [
+          7,
+          16,
+          30
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-attention-mil-5da3063a",
+      "traceSha256": "b98fe1284c29bbcfa5604a1d29003502b6c3924cb812939d1c04c761964a491a",
+      "actions": 21,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        19
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          19
+        ],
+        "all": [
+          3,
+          19
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-linux-kernel-qemu-504a7c57",
+      "traceSha256": "6f3f72450d1f860db36e3b94e6fa6a940bfcf1301e8949ee444f57f258fa33ca",
+      "actions": 36,
+      "stepsWithReturncode": 35,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        6,
+        7,
+        21
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          21
+        ],
+        "all": [
+          3,
+          6,
+          7,
+          21
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-pmars-23413a0e",
+      "traceSha256": "919f8e61d63fce38b56f20db1356fccbe325d362228a32b97c97c22456b25bec",
+      "actions": 44,
+      "stepsWithReturncode": 43,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        4,
+        15,
+        24,
+        26,
+        32,
+        34,
+        37
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          37
+        ],
+        "all": [
+          3,
+          4,
+          15,
+          24,
+          26,
+          32,
+          34,
+          37
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-stp-23b2a67b",
+      "traceSha256": "851c4054b5df156afb338651fe86b9b568c49b80f942520c434383e634abc6ad",
+      "actions": 51,
+      "stepsWithReturncode": 50,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        6,
+        7,
+        10,
+        12,
+        13,
+        14,
+        17,
+        18,
+        19,
+        20,
+        21,
+        23,
+        25,
+        29,
+        31,
+        33,
+        34,
+        37,
+        40
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          40
+        ],
+        "all": [
+          3,
+          6,
+          7,
+          10,
+          12,
+          13,
+          14,
+          17,
+          18,
+          19,
+          20,
+          21,
+          23,
+          25,
+          29,
+          31,
+          33,
+          34,
+          37,
+          40
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-chem-property-targeting-8ff9ebfd",
+      "traceSha256": "12cdc29069a9632b6123acffcd5af35a5b0446698a4a69e1bc46728f17f4805c",
+      "actions": 20,
+      "stepsWithReturncode": 19,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        5
+      ],
+      "predictions": {
+        "first": [
+          5
+        ],
+        "last": [
+          5
+        ],
+        "all": [
+          5
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-crack-7z-hash-6657a30e",
+      "traceSha256": "97b3f9a9d08bb68630a26093f9aa7f6469874f725b6c2022127188a315561b3c",
+      "actions": 44,
+      "stepsWithReturncode": 43,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        8,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        23,
+        26,
+        27,
+        28,
+        31,
+        32,
+        33,
+        34,
+        37
+      ],
+      "predictions": {
+        "first": [
+          2
+        ],
+        "last": [
+          37
+        ],
+        "all": [
+          2,
+          8,
+          15,
+          16,
+          18,
+          19,
+          20,
+          21,
+          23,
+          26,
+          27,
+          28,
+          31,
+          32,
+          33,
+          34,
+          37
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-deterministic-tarball-1853a607",
+      "traceSha256": "5b9a57dba831885f37303c152afe75e8f850aed4a3e0dc8abbde14f79f21dbe8",
+      "actions": 41,
+      "stepsWithReturncode": 40,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [],
+      "predictions": {
+        "first": [],
+        "last": [],
+        "all": []
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-code-vulnerability-c2cb504b",
+      "traceSha256": "a14346d458f8ad3e7cab4bc9279e5a39037ada69a30ed48dbb824ccdc2bb70d1",
+      "actions": 25,
+      "stepsWithReturncode": 24,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        10,
+        21,
+        22
+      ],
+      "predictions": {
+        "first": [
+          10
+        ],
+        "last": [
+          22
+        ],
+        "all": [
+          10,
+          21,
+          22
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-ocaml-gc-29624b4f",
+      "traceSha256": "f91a72007505e374e56233119b8129541a7103590bf279b4a0dbe765fed3bf53",
+      "actions": 49,
+      "stepsWithReturncode": 48,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        29,
+        30,
+        31,
+        41,
+        47
+      ],
+      "predictions": {
+        "first": [
+          29
+        ],
+        "last": [
+          47
+        ],
+        "all": [
+          29,
+          30,
+          31,
+          41,
+          47
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-hf-lora-adapter-019612de",
+      "traceSha256": "7dd178442593f0bb0d66f7f2ac8ca1a6313c5f9f9b991ff661fd67e14750e20b",
+      "actions": 23,
+      "stepsWithReturncode": 22,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        14,
+        15,
+        16
+      ],
+      "predictions": {
+        "first": [
+          14
+        ],
+        "last": [
+          16
+        ],
+        "all": [
+          14,
+          15,
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-implement-eigenvectors-from-eigenvalues-research-paper-7ecc5fed",
+      "traceSha256": "940cb231e1e1e0beb41314f760f0ba7585e1eccf568872f5bc165a87c4d8c7ed",
+      "actions": 28,
+      "stepsWithReturncode": 27,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        8,
+        9,
+        10,
+        17,
+        23,
+        24
+      ],
+      "predictions": {
+        "first": [
+          2
+        ],
+        "last": [
+          24
+        ],
+        "all": [
+          2,
+          8,
+          9,
+          10,
+          17,
+          23,
+          24
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-xp-edd35096",
+      "traceSha256": "4006288008096dca5787fcb9baabf3d3bd3b62c4610b82bc235433b21b0cb1d9",
+      "actions": 21,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        7,
+        12,
+        17
+      ],
+      "predictions": {
+        "first": [
+          7
+        ],
+        "last": [
+          17
+        ],
+        "all": [
+          7,
+          12,
+          17
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-merge-diff-arc-agi-task-dab7c1f1",
+      "traceSha256": "2ecb8534afcf87e0e704a98816cb3f3a575c492f6aa1232c44fd8d33df8d0447",
+      "actions": 25,
+      "stepsWithReturncode": 24,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        12,
+        13
+      ],
+      "predictions": {
+        "first": [
+          2
+        ],
+        "last": [
+          13
+        ],
+        "all": [
+          2,
+          12,
+          13
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-regex-chess-a83c78d9",
+      "traceSha256": "1fd0ba78ef1b858734812879ee4a765833f577add68539b815f38d06ae49b798",
+      "actions": 39,
+      "stepsWithReturncode": 38,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        7,
+        8,
+        10,
+        16,
+        22,
+        24,
+        34
+      ],
+      "predictions": {
+        "first": [
+          7
+        ],
+        "last": [
+          34
+        ],
+        "all": [
+          7,
+          8,
+          10,
+          16,
+          22,
+          24,
+          34
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-rstan-to-pystan-6bdccdda",
+      "traceSha256": "12bef7c911c4186fdc2bd762b46aea9d75f7afdb365c458c129a506d1afd0bca",
+      "actions": 38,
+      "stepsWithReturncode": 37,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        6,
+        8,
+        14,
+        15,
+        16,
+        20,
+        22,
+        28
+      ],
+      "predictions": {
+        "first": [
+          6
+        ],
+        "last": [
+          28
+        ],
+        "all": [
+          6,
+          8,
+          14,
+          15,
+          16,
+          20,
+          22,
+          28
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cron-broken-network-c02d5c8b",
+      "traceSha256": "1a2b630f07fe3a9139fcb7979ddf3daa4147d4633f0ab790b79e4f29b8ab4dd0",
+      "actions": 24,
+      "stepsWithReturncode": 23,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        2,
+        4,
+        5,
+        6,
+        7,
+        8,
+        15,
+        17
+      ],
+      "predictions": {
+        "first": [
+          2
+        ],
+        "last": [
+          17
+        ],
+        "all": [
+          2,
+          4,
+          5,
+          6,
+          7,
+          8,
+          15,
+          17
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-db-wal-recovery-92bbb058",
+      "traceSha256": "d4f7e4eaa58b70a1eff8c790bd1d42890f3542ddade65b9491d9e31be1373fe0",
+      "actions": 37,
+      "stepsWithReturncode": 36,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        14,
+        15,
+        27
+      ],
+      "predictions": {
+        "first": [
+          7
+        ],
+        "last": [
+          27
+        ],
+        "all": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          14,
+          15,
+          27
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-jupyter-notebook-server-f573deb2",
+      "traceSha256": "f30575f5a951e845f3c1313504381a01466bfe0aa55815d3ca989c4ff9356c05",
+      "actions": 35,
+      "stepsWithReturncode": 34,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        6,
+        8,
+        18,
+        24
+      ],
+      "predictions": {
+        "first": [
+          6
+        ],
+        "last": [
+          24
+        ],
+        "all": [
+          6,
+          8,
+          18,
+          24
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-portfolio-optimization-c32c1a67",
+      "traceSha256": "86f026f46b45ecc315da2e5f302ec051969c12edec759738b8f498a814eecfd8",
+      "actions": 21,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        9
+      ],
+      "predictions": {
+        "first": [
+          9
+        ],
+        "last": [
+          9
+        ],
+        "all": [
+          9
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-query-optimize-3b3e2297",
+      "traceSha256": "a1d294fd49d4617ceb2dda086c07ae00db1c709b4c2f703d425380029e7df215",
+      "actions": 24,
+      "stepsWithReturncode": 23,
+      "stepsWithoutReturncode": 1,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        7,
+        8,
+        19
+      ],
+      "predictions": {
+        "first": [
+          7
+        ],
+        "last": [
+          19
+        ],
+        "all": [
+          7,
+          8,
+          19
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2501-1c7ee8f3",
+      "traceSha256": "2e8937511a6b6a50c9a40f0a2bd993bb64dffa15d52712d0ca95b2987b7a3f0a",
+      "actions": 25,
+      "stepsWithReturncode": 23,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        6
+      ],
+      "predictions": {
+        "first": [
+          1
+        ],
+        "last": [
+          6
+        ],
+        "all": [
+          1,
+          6
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2534-42faa8a1",
+      "traceSha256": "f17cf9dbb2d7f31f71c2d3b6516ba9210726b1b006ec45e2c47c59076d6d87e0",
+      "actions": 20,
+      "stepsWithReturncode": 18,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        9,
+        15,
+        16
+      ],
+      "predictions": {
+        "first": [
+          9
+        ],
+        "last": [
+          16
+        ],
+        "all": [
+          9,
+          15,
+          16
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2758-8f87bc0d",
+      "traceSha256": "b17171d10b0386e1b0a89cf307e8f1b5bd5e65e571bd0a3f7f8f1c8d4c6eea36",
+      "actions": 41,
+      "stepsWithReturncode": 39,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        24,
+        30,
+        34
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          34
+        ],
+        "all": [
+          3,
+          24,
+          30,
+          34
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2895-928269b9",
+      "traceSha256": "ad55a438a7e22511e451b6db7731705042bb6be40de413343112f15c8765f903",
+      "actions": 24,
+      "stepsWithReturncode": 22,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        14,
+        16,
+        20
+      ],
+      "predictions": {
+        "first": [
+          1
+        ],
+        "last": [
+          20
+        ],
+        "all": [
+          1,
+          14,
+          16,
+          20
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3179-107b6c1d",
+      "traceSha256": "c03aeb4d11afefa2686b6c9d260020aa4b90d6ced7da44ff2c6d346337143a1a",
+      "actions": 37,
+      "stepsWithReturncode": 35,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        11,
+        12,
+        25,
+        26,
+        27,
+        28,
+        31,
+        32,
+        34,
+        35
+      ],
+      "predictions": {
+        "first": [
+          11
+        ],
+        "last": [
+          35
+        ],
+        "all": [
+          11,
+          12,
+          25,
+          26,
+          27,
+          28,
+          31,
+          32,
+          34,
+          35
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3421-8c92021d",
+      "traceSha256": "5d19fd5ff73c697dfb4ecc0a626cca2f775b275a3cd92965ed542590673c7ae4",
+      "actions": 35,
+      "stepsWithReturncode": 33,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        3,
+        13,
+        23,
+        25,
+        30,
+        31,
+        32
+      ],
+      "predictions": {
+        "first": [
+          3
+        ],
+        "last": [
+          32
+        ],
+        "all": [
+          3,
+          13,
+          23,
+          25,
+          30,
+          31,
+          32
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3975-5f1af46d",
+      "traceSha256": "652caeb5bd240ee297c02d6bfc4d08bd196870f082eb10e6fc1aa4001f221bb7",
+      "actions": 40,
+      "stepsWithReturncode": 38,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        2,
+        7,
+        8,
+        9,
+        20,
+        30,
+        32,
+        33,
+        34,
+        35
+      ],
+      "predictions": {
+        "first": [
+          1
+        ],
+        "last": [
+          35
+        ],
+        "all": [
+          1,
+          2,
+          7,
+          8,
+          9,
+          20,
+          30,
+          32,
+          33,
+          34,
+          35
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-4248-85bd7a43",
+      "traceSha256": "5a5aeb37fc76a3b8ad44039959fa177fd6564c4444e9ab61fe3f31e5df64d3e8",
+      "actions": 35,
+      "stepsWithReturncode": 33,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        1,
+        15,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "predictions": {
+        "first": [
+          1
+        ],
+        "last": [
+          30
+        ],
+        "all": [
+          1,
+          15,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-facebook__zstd-1733-786102c1",
+      "traceSha256": "4ebbca0a7c69be17fe74c51ba88ed75054c77898c40a7f834e25758e1665ee9b",
+      "actions": 44,
+      "stepsWithReturncode": 42,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        37
+      ],
+      "predictions": {
+        "first": [
+          37
+        ],
+        "last": [
+          37
+        ],
+        "all": [
+          37
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-f7c2004c",
+      "traceSha256": "1f853644998ffc8daa394995da7239fa41dbb902fde7b4f90847e2712821e730",
+      "actions": 22,
+      "stepsWithReturncode": 20,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        15
+      ],
+      "predictions": {
+        "first": [
+          15
+        ],
+        "last": [
+          15
+        ],
+        "all": [
+          15
+        ]
+      }
+    },
+    {
+      "traceId": "miniswe-OpenAI__GPT-5-pydata__xarray-6599-7db3a931",
+      "traceSha256": "8a121457d84e2ccc4c4a83532779f7fcafec7af1682fd8389e5faa4ebf817ac7",
+      "actions": 20,
+      "stepsWithReturncode": 18,
+      "stepsWithoutReturncode": 2,
+      "unmatchedReturncodes": 0,
+      "nonzeroSteps": [
+        8
+      ],
+      "predictions": {
+        "first": [
+          8
+        ],
+        "last": [
+          8
+        ],
+        "all": [
+          8
+        ]
+      }
+    }
+  ]
+}
