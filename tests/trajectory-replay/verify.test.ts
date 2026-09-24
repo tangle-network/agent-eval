@@ -247,6 +247,100 @@ describe('replayVerify', () => {
     expect(report).toContain('failureVanished: **true**')
   })
 
+  it('does not call a successful wrong edit a reproduced failure without an error signal', async () => {
+    // miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7, k=19:
+    // gold incorrect sed edit exited 0 with empty output and was counted as reproduced.
+    const stepsPath = writeSteps([step(1, 'ls', 0), step(2, 'sed -i wrong file.c', 0)])
+    const backend = scriptedBackend(() => ({ exitCode: 0, stdout: '', stderr: '' }))
+    const verdict = await replayVerify({
+      stepsPath,
+      image: 'example/image:tag',
+      at: 2,
+      cwd: '/repo',
+      out: join(outDir, 'out'),
+      backend,
+    })
+    expect(verdict.recordedReturncode).toBe(0)
+    expect(verdict.signature).toBeNull()
+    expect(verdict.armA.failureSignatureMatch).toBe(false)
+    expect(verdict.scores.armAReproduced).toBe(0)
+    expect(verdict.valid).toBe(false)
+
+    // A successful command can print an error summary without proving that
+    // the annotated semantic mistake was reproduced.
+    writeFileSync(
+      stepsPath,
+      JSON.stringify([step(1, 'ls', 0), step(2, 'make check', 0, 'reported error count: 0')]),
+    )
+    const second = await replayVerify({
+      stepsPath,
+      image: 'example/image:tag',
+      at: 2,
+      cwd: '/repo',
+      out: join(outDir, 'with-error-word'),
+      backend: scriptedBackend((action) => ({
+        exitCode: 0,
+        stdout: action === 'make check' ? 'reported error count: 0' : '',
+        stderr: '',
+      })),
+    })
+    expect(second.armA.failureSignatureMatch).toBe(true)
+    expect(second.valid).toBe(false)
+  })
+
+  it('keeps returncode-only reproduction distinct from a signature match', async () => {
+    // Before command-not-found extraction, the real ansible applypatch k=7
+    // reported signatureStrict=true despite having no signature at all.
+    const stepsPath = writeSteps([step(1, 'ls', 0), step(2, 'make target', 2, 'stopped')])
+    const backend = scriptedBackend((action) => ({
+      exitCode: action === 'make target' ? 2 : 0,
+      stdout: 'stopped',
+      stderr: '',
+    }))
+    const verdict = await replayVerify({
+      stepsPath,
+      image: 'example/image:tag',
+      at: 2,
+      cwd: '/repo',
+      out: join(outDir, 'out'),
+      backend,
+    })
+    expect(verdict.signatureBasis).toBe('returncode-only')
+    expect(verdict.armA.failureSignatureMatch).toBe(false)
+    expect(verdict.scores.armAReproduced).toBe(1)
+    expect(verdict.valid).toBe(true)
+  })
+
+  it('withholds a fix flip when arm B replays a divergent prefix', async () => {
+    // run6's miniswe-OpenAI__GPT-5-clap-rs__clap-4248-85bd7a43
+    // observed arm B prefix drift (1/22); this drives it beyond the 10% gate.
+    const stepsPath = writeSteps(failingSteps)
+    let calls = 0
+    const backend = scriptedBackend((action) => {
+      calls += 1
+      if (action === 'ls' && calls === 4) {
+        return { exitCode: 1, stdout: '', stderr: 'different state' }
+      }
+      if (action === 'make target') {
+        return { exitCode: 2, stdout: '', stderr: 'file.c:9:2: error: broken build' }
+      }
+      return { exitCode: 0, stdout: '', stderr: '' }
+    })
+    const verdict = await replayVerify({
+      stepsPath,
+      image: 'example/image:tag',
+      at: 3,
+      fixCommand: 'fix file.c && make target',
+      cwd: '/repo',
+      out: join(outDir, 'out'),
+      backend,
+    })
+    expect(verdict.armA.prefix.prefixWithinTolerance).toBe(true)
+    expect(verdict.armB?.prefix.prefixDivergencePct).toBe(50)
+    expect(verdict.armB?.failureVanished).toBe(false)
+    expect(verdict.valid).toBe(false)
+  })
+
   it('records prefix divergences honestly and keeps replaying', async () => {
     const stepsPath = writeSteps(failingSteps)
     const backend = scriptedBackend((action) => {

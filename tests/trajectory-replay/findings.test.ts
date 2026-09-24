@@ -181,13 +181,15 @@ describe('resolveFindingReplayability', () => {
 
 describe('classifyVerdict', () => {
   const verdict = (
-    armAMatch: boolean,
+    armAReproduced: boolean,
     armB: { failureVanished: boolean } | null,
     prefixWithinTolerance = true,
+    failureSignatureMatch = armAReproduced,
   ): ReplayVerdict =>
     ({
       prefixWithinTolerance,
-      armA: { failureSignatureMatch: armAMatch },
+      scores: { armAReproduced: armAReproduced ? 1 : 0 },
+      armA: { failureSignatureMatch },
       armB,
     }) as unknown as ReplayVerdict
 
@@ -202,6 +204,11 @@ describe('classifyVerdict', () => {
   it('calls a proof on an unconfirmed prefix divergent whatever the arms did', () => {
     expect(classifyVerdict(verdict(true, null, false))).toBe('divergent')
     expect(classifyVerdict(verdict(true, { failureVanished: true }, false))).toBe('divergent')
+  })
+
+  it('uses the failure reproduction score instead of a vacuous or absent signature', () => {
+    expect(classifyVerdict(verdict(true, null, true, false))).toBe('reproduced')
+    expect(classifyVerdict(verdict(false, null, true, true))).toBe('divergent')
   })
 })
 
@@ -253,7 +260,12 @@ describe('verifyFindings', () => {
       trajectory_id: 'traj-ok',
       step: 3,
       execution: {
-        armA: { command: 'make target', exitCode: 2, failureSignatureMatch: true },
+        armA: {
+          command: 'make target',
+          exitCode: 2,
+          reproduced: true,
+          failureSignatureMatch: true,
+        },
         recordedReturncode: 2,
         armB: null,
       },

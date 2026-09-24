@@ -323,9 +323,9 @@ export interface ReplayArmVerdict {
 }
 
 /** Extends the substrate verdict spine: `valid` = the claim the caller asked
- *  to verify held under execution — arm A reproduced the recorded failure on
+ *  to verify held under execution — arm A reproduced a recorded failure on
  *  an in-tolerance prefix, and, when arm B ran, the corrected step made the
- *  failure vanish. `score` is the same bit as a number; the sub-measurements
+ *  failure vanish on another in-tolerance prefix. `score` is the same bit as a number; the sub-measurements
  *  live in `scores`. Certified as `'replication'`: a re-execution from the
  *  pinned image, deterministic given the pins. */
 export interface ReplayVerdict extends DefaultVerdict {
@@ -377,7 +377,10 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
   }
   const caseId = options.caseId ?? options.stepsPath
   const recordedReturncode = parseRecordedReturncode(target.observation)
-  const signature = options.signature ?? deriveFailureSignature(target.observation)
+  const signature =
+    options.signature === undefined
+      ? deriveFailureSignature(target.observation)
+      : options.signature.trim() || null
   const signatureBasis: ReplayVerdict['signatureBasis'] = signature
     ? 'returncode+output-substring'
     : 'returncode-only'
@@ -404,10 +407,13 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
   const armAMs = Date.now() - armAStart
   const armAExec = requireExec(armARunner, 'arm A')
   const armAOutput = `${armAExec.stdout}\n${armAExec.stderr}`
+  const returncodeMatch = recordedReturncode !== null && armAExec.exitCode === recordedReturncode
   const failureSignatureMatch =
-    recordedReturncode !== null &&
-    armAExec.exitCode === recordedReturncode &&
-    (signature ? armAOutput.includes(signature) : true)
+    returncodeMatch && signature !== null && armAOutput.includes(signature)
+  // Exit zero proves only that the command ran; many gold incorrect steps
+  // are semantic edits that also exit zero.
+  const failureReproduced =
+    recordedReturncode !== 0 && returncodeMatch && (signature === null || failureSignatureMatch)
 
   let armBRunner: SandboxCounterfactualRunner | null = null
   let armBExec: ArmExecutionResult | null = null
@@ -470,6 +476,7 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
             wallMs: armBExec.wallMs,
             prefix: requirePrefix(armBRunner, 'arm B'),
             failureVanished:
+              requirePrefix(armBRunner, 'arm B').prefixWithinTolerance &&
               armBExec.exitCode === 0 &&
               (signature && armBOutput ? !armBOutput.includes(signature) : true),
           }
@@ -501,9 +508,14 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
       'no output substring derived from the recording — reproduction rests on the returncode alone',
     )
   }
+  if (core.armB !== null && !core.armB.prefix.prefixWithinTolerance) {
+    assumptions.push(
+      'arm B prefix diverged beyond tolerance — the corrected step ran from a different state',
+    )
+  }
   const valid =
     core.prefixWithinTolerance &&
-    failureSignatureMatch &&
+    failureReproduced &&
     (core.armB === null || core.armB.failureVanished)
   const verdict: ReplayVerdict = {
     ...core,
@@ -511,7 +523,7 @@ export async function replayVerify(options: ReplayVerifyOptions): Promise<Replay
     score: valid ? 1 : 0,
     scores: {
       prefixFidelity: 1 - core.prefixDivergencePct / 100,
-      armAReproduced: failureSignatureMatch ? 1 : 0,
+      armAReproduced: failureReproduced ? 1 : 0,
       ...(core.armB === null ? {} : { armBFailureVanished: core.armB.failureVanished ? 1 : 0 }),
     },
     certification: {

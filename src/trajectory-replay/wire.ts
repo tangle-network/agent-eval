@@ -14,6 +14,7 @@
 import { type CaseResources, type CorpusSpec, resolveCaseResources } from './corpus'
 import type { ReplayExecBackendFactory } from './exec'
 import { type ChatCompletionCaller, generateFixCommand } from './fix'
+import { parseRecordedReturncode } from './steps'
 import { type ReplayVerdict, replayVerify } from './verify'
 
 export interface IncorrectStepsSubject {
@@ -75,6 +76,17 @@ export function resolveFindingInvocation(
         throw new Error(
           `trajectory-replay: finding step ${at} is outside ${finding.trajId} ` +
             `(${resolution.resources.steps.length} steps)`,
+        )
+      }
+      const recordedReturncode = parseRecordedReturncode(step.observation)
+      if (recordedReturncode === null) {
+        throw new Error(
+          `trajectory-replay: finding step ${at} in ${finding.trajId} has no recorded returncode`,
+        )
+      }
+      if (recordedReturncode === 0) {
+        throw new Error(
+          `trajectory-replay: finding step ${at} in ${finding.trajId} exited 0; shell replay cannot verify its semantic error`,
         )
       }
       return { resources: resolution.resources, subject, at }

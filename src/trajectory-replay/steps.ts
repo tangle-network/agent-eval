@@ -57,17 +57,20 @@ export function parseObservationOutput(observation: string | null): string {
 }
 
 /**
- * Stable failure-signature candidate: the first line of the recorded output
- * that contains the word "error". Null when no such line exists — a verdict
- * then falls back to returncode-only matching and says so.
+ * Stable failure-signature candidate: the first error line, or a shell
+ * command-not-found suffix. Null when neither exists — a verdict then falls
+ * back to returncode-only matching and says so.
  * Pass an explicit signature to override (compiler quote glyphs vary with
  * locale, so a hand-picked ASCII substring is often more robust).
  */
 export function deriveFailureSignature(observation: string | null): string | null {
-  const line = parseObservationOutput(observation)
-    .split('\n')
-    .find((l) => /\berror\b/i.test(l))
-  return line ? line.trim().slice(0, 200) : null
+  for (const line of parseObservationOutput(observation).split('\n')) {
+    if (/\berror\b/i.test(line)) return line.trim().slice(0, 200)
+    // The shell prefix differs between recorded bash and replayed /bin/sh.
+    const missingCommand = /([A-Za-z0-9_.+/-]+: (?:command )?not found)\b/.exec(line)
+    if (missingCommand) return missingCommand[1]!.slice(0, 200)
+  }
+  return null
 }
 
 /** mini-SWE's end-of-run submit convention: the agent echoes this sentinel
