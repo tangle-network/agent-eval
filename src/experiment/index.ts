@@ -47,15 +47,6 @@ export {
   pairHoldout,
 } from '../campaign/gates/statistical-heldout'
 export {
-  type Experiment,
-  type ExperimentRep,
-  type ExperimentStats,
-  ExperimentTracker,
-  type ExperimentVerdict,
-  fileExperimentStore,
-  inMemoryExperimentStore,
-} from '../experiment-tracker'
-export {
   comparePairedArms,
   type MatchedPair,
   type PairArmsOptions,

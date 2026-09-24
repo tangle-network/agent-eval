@@ -269,7 +269,6 @@ The statistical machinery underneath is re-exported from its existing homes; thi
 | `paretoSignificanceGate`, `buildEvidenceVector` | `src/campaign/gates/promotion-policy.ts` |
 | `pairArms`, `comparePairedArms`, `pairRunRecords` | `src/paired-arms.ts` |
 | `hashJson`, `manifestContentDigest`, `signManifest`, `verifyManifest`, `HypothesisManifest` | `src/pre-registration.ts` |
-| `ExperimentTracker` (run ledger with KEEP/ITERATE/NOISE/REGRESSION) | `src/experiment-tracker.ts` |
 
 `HypothesisManifest` stays as the lightweight single-metric registration; `sealExperiment` is the full-design registration.
 The trace-repair admission machinery (`buildDenominatorChain`, oracle determinism, control policy) keeps its repair vocabulary in `./trace-repair`; this module is the general form new experiments should register against.
