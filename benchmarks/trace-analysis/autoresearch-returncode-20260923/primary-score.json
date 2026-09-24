@@ -1,0 +1,1015 @@
+{
+  "schema": "agent-eval/autoresearch-returncode-score@1",
+  "inputs": {
+    "predictionSha256": "83c228e85f6f3e8c95bf3e4aa255f1ec87ba94bcae161c8c4d8251d9ea9624af",
+    "labelsSha256": "2db46579b7993edc376acbbcacf67a1d0ddfcdb94e28930c2bb8dfcf1dc32fb2",
+    "excludedLabelsSha256": "53af5ffe3962f3378f2d65419b92b8a56fe7d6c8efc619a0bc2b8f0872bc4f83",
+    "referenceSha256": "e1175425b98956f637fd807fd7775d216cf50223db6fc191fe7852fcec83bf03",
+    "selectedCases": 31,
+    "excludedTaskOverlap": [
+      "miniswe-DeepSeek__DeepSeek-V3.2-hf-lora-adapter-f46ef20a"
+    ]
+  },
+  "referenceReceipts": {
+    "observations": 64,
+    "includedObservations": 62,
+    "calls": 885,
+    "estimatedCostUsd": 7.7584586,
+    "costKinds": [
+      "estimated"
+    ]
+  },
+  "scores": [
+    {
+      "mode": "all",
+      "cases": 31,
+      "meanPerRowF1": 0.356749578077197,
+      "microF1": 0.40978593272171254,
+      "matchedGoldSteps": 67,
+      "goldSteps": 184,
+      "predictedSteps": 143,
+      "positiveCases": 29,
+      "trustedNegativeCases": 0,
+      "trustedNegativeFalsePositives": 0,
+      "unlabeledCases": 2,
+      "actionsWithReturncode": 902,
+      "actionsWithoutReturncode": 53,
+      "casesWithNonzeroReturncode": 28,
+      "pairedVsEmpty": {
+        "meanDelta": 0.356749578077197,
+        "ci95": [
+          0.2584834416548576,
+          0.4555740180032694
+        ]
+      },
+      "pairedVsReference": {
+        "referenceMeanF1": 0.5494828619886586,
+        "meanDelta": -0.1927332839114616,
+        "ci95": [
+          -0.3153367233344587,
+          -0.0672609167316026
+        ]
+      },
+      "rows": [
+        {
+          "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-path-tracing-79ade2b0",
+          "taskName": "path-tracing",
+          "gold": [],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 46,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [],
+          "traceSha256": "b4ee7a673f2a2a076d8ccc04d2b0bee35b7efaf8fad396bad70727cc879a00cb"
+        },
+        {
+          "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-run-pdp11-code-ba499e4b",
+          "taskName": "run-pdp11-code",
+          "gold": [
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "predicted": [
+            4,
+            6,
+            10
+          ],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 30,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            4,
+            6,
+            10
+          ],
+          "traceSha256": "fe324d9e8ca253cb9a51b488d26d18264ba2afe74a1a55a004fe879c3c418624"
+        },
+        {
+          "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-spinning-up-rl-c435941e",
+          "taskName": "spinning-up-rl",
+          "gold": [
+            49,
+            50,
+            52,
+            54,
+            56,
+            58,
+            60,
+            61,
+            62
+          ],
+          "predicted": [
+            3,
+            9,
+            10,
+            22,
+            23,
+            26,
+            27,
+            28,
+            29,
+            31,
+            33,
+            41,
+            42,
+            44,
+            49,
+            51,
+            53,
+            55,
+            57,
+            60
+          ],
+          "f1": 0.13793103448275862,
+          "matched": 2,
+          "labelState": "positive",
+          "stepsWithReturncode": 63,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            3,
+            9,
+            10,
+            22,
+            23,
+            26,
+            27,
+            28,
+            29,
+            31,
+            33,
+            41,
+            42,
+            44,
+            49,
+            51,
+            53,
+            55,
+            57,
+            60
+          ],
+          "traceSha256": "19ad10db95bdec824372cd4f2a323ac641fb6f456ff6d5d0e49cfff721b4a2a8"
+        },
+        {
+          "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-write-compressor-9fff4fee",
+          "taskName": "write-compressor",
+          "gold": [
+            40,
+            41,
+            42,
+            43
+          ],
+          "predicted": [
+            8,
+            11,
+            13,
+            15,
+            19,
+            28,
+            30,
+            33,
+            41
+          ],
+          "f1": 0.15384615384615385,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 43,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            8,
+            11,
+            13,
+            15,
+            19,
+            28,
+            30,
+            33,
+            41
+          ],
+          "traceSha256": "61ca74b3a65fa2addb008c2c03bf08083246093c27d7bbeaa80332997681864f"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-72d231f6",
+          "taskName": "build-cython-ext",
+          "gold": [],
+          "predicted": [
+            9,
+            12,
+            13,
+            14,
+            15,
+            16,
+            19,
+            21,
+            23,
+            25
+          ],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "unlabeled",
+          "stepsWithReturncode": 27,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            9,
+            12,
+            13,
+            14,
+            15,
+            16,
+            19,
+            21,
+            23,
+            25
+          ],
+          "traceSha256": "b0f89d76eca35f9e1391ea0e486335a7d102c1271e0c341b5e6d805edc9cdee6"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-74a92a16",
+          "taskName": "cartpole-rl-training",
+          "gold": [
+            13,
+            14,
+            15,
+            16
+          ],
+          "predicted": [
+            4,
+            8,
+            14,
+            15,
+            16
+          ],
+          "f1": 0.6666666666666666,
+          "matched": 3,
+          "labelState": "positive",
+          "stepsWithReturncode": 23,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            4,
+            8,
+            14,
+            15,
+            16
+          ],
+          "traceSha256": "e39543313f6674a5f1bb582dfc839ebc7ce8a4af11b6c5e1fbbb32bf65af8662"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-get-bitcoin-nodes-6004dfc9",
+          "taskName": "get-bitcoin-nodes",
+          "gold": [
+            21,
+            22,
+            23,
+            25,
+            26
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 25,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [],
+          "traceSha256": "2e782da242cf2afb8bd8636ff47652b41231d5785fd76588664a4affbcec9428"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-lean4-proof-bd0e040f",
+          "taskName": "lean4-proof",
+          "gold": [
+            25,
+            26,
+            28,
+            29,
+            38,
+            39,
+            40
+          ],
+          "predicted": [
+            3,
+            4,
+            6,
+            8,
+            21,
+            30,
+            36
+          ],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 41,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            3,
+            4,
+            6,
+            8,
+            21,
+            30,
+            36
+          ],
+          "traceSha256": "93a2cc2ea037c38723b24b29990b1ca52d68724c360cc4f4dfed12aa7489fbd3"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-play-zork-c1cce947",
+          "taskName": "play-zork",
+          "gold": [
+            10,
+            11,
+            17,
+            19
+          ],
+          "predicted": [
+            11
+          ],
+          "f1": 0.4,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            11
+          ],
+          "traceSha256": "120bf8fb6df0a3d3cfab421f024f7e9cb51efc12ff2588bfe89dbc9c96d5d673"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-port-compressor-4652dd99",
+          "taskName": "port-compressor",
+          "gold": [
+            7,
+            9,
+            15,
+            16
+          ],
+          "predicted": [],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 67,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [],
+          "traceSha256": "d1783755a887099dad8d85e0a2f3ab3c9be5f8d3bf33416ba681fe56b6f3e2b1"
+        },
+        {
+          "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-schemelike-metacircular-eval-e73a741e",
+          "taskName": "schemelike-metacircular-eval",
+          "gold": [
+            28,
+            29,
+            30,
+            32,
+            36,
+            38,
+            40,
+            41,
+            44,
+            46,
+            47,
+            48
+          ],
+          "predicted": [
+            34
+          ],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 48,
+          "stepsWithoutReturncode": 1,
+          "nonzeroSteps": [
+            34
+          ],
+          "traceSha256": "756b2e7902720f0b9c6fbfb55068cb16d93c657ed0db7d899dea28a94075f79e"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-astropy__astropy-14598-416c95db",
+          "taskName": "astropy__astropy-14598",
+          "gold": [
+            10,
+            11,
+            12,
+            16,
+            18,
+            19,
+            21,
+            22,
+            25
+          ],
+          "predicted": [
+            1,
+            10,
+            11,
+            12,
+            16,
+            18,
+            19,
+            21
+          ],
+          "f1": 0.8235294117647058,
+          "matched": 7,
+          "labelState": "positive",
+          "stepsWithReturncode": 24,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            1,
+            10,
+            11,
+            12,
+            16,
+            18,
+            19,
+            21
+          ],
+          "traceSha256": "aa6effa8c7f85492acc437be95419bf00f83382a97b98d4d1debeb99be40e082"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-django__django-16032-a1ba93e9",
+          "taskName": "django__django-16032",
+          "gold": [
+            11,
+            12,
+            14,
+            24,
+            25
+          ],
+          "predicted": [
+            11,
+            16,
+            17,
+            20,
+            22,
+            24,
+            25
+          ],
+          "f1": 0.5,
+          "matched": 3,
+          "labelState": "positive",
+          "stepsWithReturncode": 27,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            11,
+            16,
+            17,
+            20,
+            22,
+            24,
+            25
+          ],
+          "traceSha256": "1909061a85d5b4e81e1269035b79c84bc4d5fb2952d273060c3b858acd680fc0"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa",
+          "taskName": "instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86",
+          "gold": [
+            7,
+            23,
+            26,
+            28,
+            29
+          ],
+          "predicted": [
+            2,
+            7
+          ],
+          "f1": 0.2857142857142857,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 28,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            2,
+            7
+          ],
+          "traceSha256": "a83d0109fe583446d1a37e9cf462cfc71a6c47207c3e2ff42a0f73929eb8757c"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86-7568ee74",
+          "taskName": "instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86",
+          "gold": [
+            13,
+            17,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24
+          ],
+          "predicted": [
+            18,
+            19,
+            20
+          ],
+          "f1": 0.36363636363636365,
+          "matched": 2,
+          "labelState": "positive",
+          "stepsWithReturncode": 22,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            18,
+            19,
+            20
+          ],
+          "traceSha256": "73eec166e9f23baacc1689524c16b73712783cf262c8a1f3ffffa7e9feab66db"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan-ca34b75e",
+          "taskName": "instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan",
+          "gold": [
+            17,
+            18,
+            19,
+            22
+          ],
+          "predicted": [
+            1,
+            7,
+            17,
+            18,
+            21
+          ],
+          "f1": 0.4444444444444444,
+          "matched": 2,
+          "labelState": "positive",
+          "stepsWithReturncode": 21,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            1,
+            7,
+            17,
+            18,
+            21
+          ],
+          "traceSha256": "14c4607ecd8111a8030f329eb13092f0ee9b363c3514b11ded99296415c67d70"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-3649aa96",
+          "taskName": "instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818",
+          "gold": [
+            10,
+            11,
+            12,
+            19,
+            20,
+            21
+          ],
+          "predicted": [
+            13
+          ],
+          "f1": 0.0,
+          "matched": 0,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            13
+          ],
+          "traceSha256": "2e7e59007ba1b0d3f8e0cdb55a25c3084dff32d670ea74cd5864ec7ee6d227c0"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-f8adf46a",
+          "taskName": "instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d",
+          "gold": [
+            15,
+            16,
+            19,
+            20
+          ],
+          "predicted": [
+            2,
+            15
+          ],
+          "f1": 0.3333333333333333,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 18,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            2,
+            15
+          ],
+          "traceSha256": "8044f69c1dbb40d137dbf4e6978ab55b8ab08952230b4e9483100dea81acf68d"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-442534db",
+          "taskName": "instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d",
+          "gold": [
+            18,
+            19,
+            21,
+            22
+          ],
+          "predicted": [
+            2,
+            18,
+            20
+          ],
+          "f1": 0.2857142857142857,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 20,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            2,
+            18,
+            20
+          ],
+          "traceSha256": "66fb7bd6a9d5c7713ba9abbc076e1ad81229b2609f3af6ae4ae091f622036550"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-23299-3c79bc6c",
+          "taskName": "matplotlib__matplotlib-23299",
+          "gold": [
+            16,
+            17,
+            19,
+            20
+          ],
+          "predicted": [
+            16
+          ],
+          "f1": 0.4,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 18,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            16
+          ],
+          "traceSha256": "1aee2409ffacfc97187007fe578ef40e8b4e452b174a0f7f59c8678feaca665d"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-26208-deec0657",
+          "taskName": "matplotlib__matplotlib-26208",
+          "gold": [
+            21,
+            22,
+            23,
+            25,
+            26
+          ],
+          "predicted": [
+            21
+          ],
+          "f1": 0.3333333333333333,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 24,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            21
+          ],
+          "traceSha256": "8136bdcd466d7758ad45ce9e4aa03ade4e7c08c4910cf8fc585e91b237fe51c5"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-1057-56b583ae",
+          "taskName": "ponylang__ponyc-1057",
+          "gold": [
+            35,
+            38,
+            41,
+            42,
+            43,
+            44,
+            45
+          ],
+          "predicted": [
+            35,
+            38,
+            41,
+            42,
+            43,
+            44,
+            47,
+            50,
+            52,
+            54
+          ],
+          "f1": 0.7058823529411765,
+          "matched": 6,
+          "labelState": "positive",
+          "stepsWithReturncode": 55,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            35,
+            38,
+            41,
+            42,
+            43,
+            44,
+            47,
+            50,
+            52,
+            54
+          ],
+          "traceSha256": "523dfcbd7d7d37ce02473b34dd71e6596d146f78a312d44dcc882207a41076f2"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2532-98ccc9cb",
+          "taskName": "ponylang__ponyc-2532",
+          "gold": [
+            12,
+            16,
+            17,
+            18
+          ],
+          "predicted": [
+            1,
+            12,
+            16,
+            17,
+            18
+          ],
+          "f1": 0.8888888888888888,
+          "matched": 4,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            1,
+            12,
+            16,
+            17,
+            18
+          ],
+          "traceSha256": "84475840e280c579ebf1cbb0a1f24e4abe81dee30c52b2076ffa6b95f1b533f8"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-12930-d76c2178",
+          "taskName": "prettier__prettier-12930",
+          "gold": [
+            10,
+            12,
+            14,
+            15,
+            20
+          ],
+          "predicted": [
+            10,
+            14,
+            15
+          ],
+          "f1": 0.75,
+          "matched": 3,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            10,
+            14,
+            15
+          ],
+          "traceSha256": "68c5819618636db658dc1a558be3eb05c6f46430f80606b2c1cdbb5067afac89"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-8638-0bbaf886",
+          "taskName": "sphinx-doc__sphinx-8638",
+          "gold": [
+            8,
+            10,
+            16,
+            17,
+            19,
+            20
+          ],
+          "predicted": [
+            8,
+            10,
+            11,
+            16
+          ],
+          "f1": 0.6,
+          "matched": 3,
+          "labelState": "positive",
+          "stepsWithReturncode": 18,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            8,
+            10,
+            11,
+            16
+          ],
+          "traceSha256": "ac4e34d3097d221facd4d242b90e387c6c18d0d8bdb0a55c7dc69be5c07ffb36"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9461-b131876c",
+          "taskName": "sphinx-doc__sphinx-9461",
+          "gold": [
+            8,
+            9,
+            10
+          ],
+          "predicted": [
+            8,
+            14,
+            15
+          ],
+          "f1": 0.3333333333333333,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            8,
+            14,
+            15
+          ],
+          "traceSha256": "e460c39ec281cd9bcd7de6a4c0fcc161fe0fae622f336c1640888518d20bb61d"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9602-27a680bd",
+          "taskName": "sphinx-doc__sphinx-9602",
+          "gold": [
+            10,
+            11,
+            12,
+            20
+          ],
+          "predicted": [
+            10,
+            12,
+            14,
+            15,
+            16
+          ],
+          "f1": 0.4444444444444444,
+          "matched": 2,
+          "labelState": "positive",
+          "stepsWithReturncode": 19,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            10,
+            12,
+            14,
+            15,
+            16
+          ],
+          "traceSha256": "421ef821ad1ab2246eb2fc124fd456bc4930230dd5052d9a316d479ee70995da"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-10608-2fe6d098",
+          "taskName": "sveltejs__svelte-10608",
+          "gold": [
+            23,
+            24,
+            26,
+            28,
+            29
+          ],
+          "predicted": [
+            23
+          ],
+          "f1": 0.3333333333333333,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 26,
+          "stepsWithoutReturncode": 3,
+          "nonzeroSteps": [
+            23
+          ],
+          "traceSha256": "589c9d5d160f10838916dfbc63b0cacf9e8badf26c7e8ecddffb11575321e175"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-12419-4a50ba40",
+          "taskName": "sympy__sympy-12419",
+          "gold": [
+            6,
+            7,
+            8,
+            13,
+            15,
+            17,
+            19,
+            21,
+            23,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33
+          ],
+          "predicted": [
+            6,
+            7,
+            13,
+            15,
+            17,
+            19,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ],
+          "f1": 0.8275862068965517,
+          "matched": 12,
+          "labelState": "positive",
+          "stepsWithReturncode": 32,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            6,
+            7,
+            13,
+            15,
+            17,
+            19,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ],
+          "traceSha256": "b693b82354af6dbf250355ebb271bdeba5eff4ab70c427c4913eb844abf2cd5a"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-15976-80927487",
+          "taskName": "sympy__sympy-15976",
+          "gold": [
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            22,
+            23,
+            24
+          ],
+          "predicted": [
+            5,
+            11,
+            12,
+            13,
+            14,
+            15,
+            17,
+            19,
+            20
+          ],
+          "f1": 0.7619047619047619,
+          "matched": 8,
+          "labelState": "positive",
+          "stepsWithReturncode": 22,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            5,
+            11,
+            12,
+            13,
+            14,
+            15,
+            17,
+            19,
+            20
+          ],
+          "traceSha256": "941722b36ba6b0667cb97a7c2cd429b12c7920a0aa1b43ba9556f780af4e81a7"
+        },
+        {
+          "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-20428-5f09fe17",
+          "taskName": "sympy__sympy-20428",
+          "gold": [
+            14,
+            15,
+            16,
+            18,
+            21
+          ],
+          "predicted": [
+            14,
+            19
+          ],
+          "f1": 0.2857142857142857,
+          "matched": 1,
+          "labelState": "positive",
+          "stepsWithReturncode": 20,
+          "stepsWithoutReturncode": 2,
+          "nonzeroSteps": [
+            14,
+            19
+          ],
+          "traceSha256": "6e212a41a618f14cdcc53e81d66afb3585c411b489801d9ab8586b62716631d0"
+        }
+      ]
+    }
+  ]
+}
