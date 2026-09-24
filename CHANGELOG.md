@@ -6,6 +6,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `partitionTrainSelectionTest(items, options)` (root): the three-way sibling of `partitionHeldOut`.
+  It splits items into the disjoint train, selection and test sets that `compareOptimizationMethods` and Runtime `improve()` take.
+  Assignment hashes each item's unit (`unitOf`, default the id), so fresh runs of one task never straddle two partitions and a unit keeps its partition as the corpus grows.
+  Empty input, duplicate or empty ids, an empty unit, fractions outside (0, 1) or summing to 1 or more, and a partition below its floor throw.
 ## [0.186.2] — 2026-09-23
 
 ### Fixed

@@ -587,8 +587,13 @@ export type { PairedDeltaTestOptions, PairedDeltaTestResult } from './paired-del
 export { minimumPairsForPairedDeltaTest, pairedDeltaTest } from './paired-delta-test'
 export type { Objective, ParetoResult } from './pareto'
 export { dominates, paretoFrontier } from './pareto'
-export type { HeldOutPartition, PartitionHeldOutOptions } from './partition-held-out'
-export { partitionHeldOut } from './partition-held-out'
+export type {
+  HeldOutPartition,
+  PartitionHeldOutOptions,
+  TrainSelectionTestOptions,
+  TrainSelectionTestPartition,
+} from './partition-held-out'
+export { partitionHeldOut, partitionTrainSelectionTest } from './partition-held-out'
 export { budgetBreachView } from './pipelines/budget-breach'
 export { failureClusterView } from './pipelines/failure-cluster'
 export { judgeAgreementView } from './pipelines/judge-agreement'
