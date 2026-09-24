@@ -6,6 +6,47 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `precedes` and `neverUnless` take `{ order }`: `start-order` (default), `finish-before-start`, or `all-occurrences`.
+- New trace-contract operators: `atMost(p, max)`, `tokensAtMost(p, max)` (an unknown token count fails), `run({ requireCompleted, allowedStatuses, maxDurationMs })` (unknown statuses are rejected), and `argument(p, { pointer, check, occurrence })`, an RFC 6901 JSON Pointer check on tool-call arguments that fails when the arguments were not captured.
+- Predicates gain `kind` (read through agent-trace-contract's classifier), `model`, `not`, and the `{ oneOf: [...] }` matcher.
+- A contract can be scoped to one subtree with `scope({ root })`, and can list `alternative(id, ...)` rule sets of which one must pass.
+- `evaluateTraceContract` and the contract types are exported from the package root.
+- `/diagnosis` `rankFirstFailure()` names the first failure of one run by a fixed precedence: the innermost failing span, then a failed `agent.outcome`, then an explicit `none`.
+  Failures that ended at the same instant, or without an end time, are `ambiguous` rather than ordered by guess.
+  The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
+  `diagnoseSpans` reports one per run as `facts.firstFailures`.
+- `/pipelines` `diffSteps()` diffs any two step lists, and `diffStepsFromSpans()` orders one run's flat OTLP spans for it, so trace consumers share one diff.
+
+### Changed
+
+- `TraceEmitter` never throws a failed store write into the traced run.
+  It counts written and dropped writes, reports each failure to `onCaptureError` (default: one process warning), and writes the counts onto the Run as `capture` when it ends.
+  `assertRunCaptured` reports `dropped_writes` for a run whose producer dropped records, so an incomplete run no longer reads as a shorter one.
+- `TraceEmitter.within` runs its callback in its own async context, so parallel `within` calls parent their own children without passing `parentSpanId`.
+  `currentSpanId()` names the span a new span would be parented to.
+- Trace contracts no longer pass when a required step never ran.
+  `precedes(a, b)` now fails when either endpoint is missing.
+  For the conditional form ("every `b` needs an earlier `a`; a run without `b` passes"), use `neverUnless(b, a)`, which keeps that meaning.
+- Ordering rules read timestamps only.
+  A span whose needed `startedAt` or `endedAt` is missing fails the rule; array position is no longer taken as time, and mixed timestamps no longer throw for rules that do not order.
+- Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
+  A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
+  Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
+- `/pipelines` `firstDivergenceView` pairs steps by id, then by position with the same name and kind, then by name and kind anywhere, instead of by index alone.
+  One inserted step no longer marks every later step as diverged.
+  The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
+  Paired steps now also compare `status`, so a step that failed in one run and passed in the other is a divergence.
+  The unused `stepEquals` option is removed.
+- Every trace analyst tool (`buildTraceAnalysisToolDescriptors`) now ends its description with `UNTRUSTED_TRACE_TEXT`, a warning that returned trace text is untrusted evidence and never instructions.
+  Before, only `readSpanSource` warned.
+  Each descriptor also declares `readOnly: true` and `idempotent: true`, so a transport such as an MCP server publishes them without restating them.
+
+### Removed
+
+- **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
+
 ## [0.187.2] — 2026-09-24
 
 ### Added

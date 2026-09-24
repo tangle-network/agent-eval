@@ -143,8 +143,15 @@ describe('operators', () => {
     const bad = tool('transfer')
     const v = evaluateTraceContract(c, [tool('search'), bad])
     expect(v.valid).toBe(false)
-    expect(v.violations[0]).toMatchObject({ spanId: bad.spanId })
-    expect(v.violations[0]!.detail).toMatch(/no earlier/)
+    expect(v.violations[0]!.detail).toMatch(/required predecessor tool=approval never occurred/)
+  })
+
+  it('precedes: fails when the required successor never occurs (no vacuous pass)', () => {
+    const c = traceContract('guarded').precedes({ tool: 'approval' }, { tool: 'transfer' }).build()
+    const v = evaluateTraceContract(c, [tool('approval'), tool('search')])
+    expect(v.valid).toBe(false)
+    expect(v.status).toBe('fail')
+    expect(v.violations[0]!.detail).toMatch(/required successor tool=transfer never occurred/)
   })
 
   it('precedes: approval-AFTER-transfer fails (ordering matters)', () => {
@@ -184,6 +191,8 @@ describe('operators', () => {
     const c = traceContract('consent')
       .neverUnless({ tool: 'send_email' }, { tool: 'user_consent' })
       .build()
+    // The conditional guard: a run that never sends passes.
+    expect(evaluateTraceContract(c, [tool('search')]).valid).toBe(true)
     expect(evaluateTraceContract(c, [tool('send_email')]).valid).toBe(false)
     expect(evaluateTraceContract(c, [tool('user_consent'), tool('send_email')]).valid).toBe(true)
     expect(evaluateTraceContract(c, [tool('send_email'), tool('user_consent')]).valid).toBe(false)
@@ -201,19 +210,379 @@ describe('span ordering', () => {
     expect(evaluateTraceContract(c, [transfer, approval]).valid).toBe(true)
   })
 
-  it('falls back to array order when no span has a timestamp', () => {
+  it('fails an ordering rule when timestamps are missing — array position is not time', () => {
     const c = traceContract('order').precedes({ tool: 'approval' }, { tool: 'transfer' }).build()
     const approval = { spanId: 'a', name: 'approval', kind: 'tool' }
     const transfer = { spanId: 't', name: 'transfer', kind: 'tool' }
-    expect(evaluateTraceContract(c, [approval, transfer]).valid).toBe(true)
-    expect(evaluateTraceContract(c, [transfer, approval]).valid).toBe(false)
+    const v = evaluateTraceContract(c, [approval, transfer])
+    expect(v.status).toBe('fail')
+    expect(v.violations[0]!.detail).toMatch(/span t has no startedAt/)
+    const guardOnly = { ...approval, startedAt: 1 }
+    const fromGuard = evaluateTraceContract(c, [
+      { spanId: 'a', name: 'approval', kind: 'tool' },
+      { ...transfer, startedAt: 5 },
+    ])
+    expect(fromGuard.violations[0]!.detail).toMatch(/span a has no startedAt/)
+    expect(evaluateTraceContract(c, [guardOnly, { ...transfer, startedAt: 5 }]).valid).toBe(true)
   })
 
-  it('throws when timestamps are mixed — never guess an ordering', () => {
-    const c = traceContract('order').eventually({ tool: 'transfer' }).build()
+  it('mixed timestamps fail only the ordering rules that need the missing one', () => {
+    const c = traceContract('order')
+      .eventually({ tool: 'transfer' }, 'has-transfer')
+      .precedes({ tool: 'approval' }, { tool: 'transfer' }, 'approval-first')
+      .build()
     const timed = tool('approval', { startedAt: 1 })
     const untimed = { spanId: 'u', name: 'transfer', kind: 'tool' }
-    expect(() => evaluateTraceContract(c, [timed, untimed])).toThrow(/mixed timestamps/)
+    const v = evaluateTraceContract(c, [timed, untimed])
+    expect(v.scores).toEqual({ 'has-transfer': 1, 'approval-first': 0 })
+  })
+
+  it('finish-before-start needs the predecessor to END before the successor starts', () => {
+    const c = traceContract('fbs')
+      .precedes({ tool: 'retrieve' }, { tool: 'answer' }, 'retrieve-then-answer', {
+        order: 'finish-before-start',
+      })
+      .build()
+    const overlapping = [
+      tool('retrieve', { startedAt: 0, endedAt: 50 }),
+      tool('answer', { startedAt: 10, endedAt: 60 }),
+    ]
+    // start-order would pass: retrieve started first. finish-before-start does not.
+    expect(evaluateTraceContract(c, overlapping).valid).toBe(false)
+    expect(
+      evaluateTraceContract(c, [
+        tool('retrieve', { startedAt: 0, endedAt: 10 }),
+        tool('answer', { startedAt: 10, endedAt: 60 }),
+      ]).valid,
+    ).toBe(true)
+    const noEnd = evaluateTraceContract(c, [
+      tool('retrieve', { startedAt: 0 }),
+      tool('answer', { startedAt: 10 }),
+    ])
+    expect(noEnd.violations[0]!.detail).toMatch(/has no endedAt/)
+  })
+
+  it('all-occurrences needs EVERY predecessor to end before each successor starts', () => {
+    const c = traceContract('all')
+      .precedes({ tool: 'lint' }, { tool: 'publish' }, 'lint-all-then-publish', {
+        order: 'all-occurrences',
+      })
+      .build()
+    const lateLint = [
+      tool('lint', { startedAt: 0, endedAt: 5 }),
+      tool('publish', { startedAt: 10, endedAt: 20 }),
+      tool('lint', { startedAt: 12, endedAt: 15 }),
+    ]
+    const v = evaluateTraceContract(c, lateLint)
+    expect(v.valid).toBe(false)
+    expect(v.violations[0]!.detail).toMatch(/ends after span/)
+    expect(evaluateTraceContract(c, lateLint.slice(0, 2)).valid).toBe(true)
+  })
+
+  it('rejects an unknown order mode', () => {
+    expect(() =>
+      traceContract('x').precedes({ tool: 'a' }, { tool: 'b' }, undefined, {
+        order: 'first-occurrence' as never,
+      }),
+    ).toThrow(/order must be one of/)
+  })
+})
+
+// ── statuses and the rule log ─────────────────────────────────────────
+
+describe('rule statuses', () => {
+  it('a rule whose predicate throws is an error, and the verdict is never valid', () => {
+    const c = traceContract('boom')
+      .eventually({ tool: 'search' }, 'searched')
+      .never(
+        {
+          custom: () => {
+            throw new Error('predicate exploded')
+          },
+        },
+        'exploding',
+      )
+      .build()
+    const v = evaluateTraceContract(c, [tool('search')])
+    expect(v.status).toBe('error')
+    expect(v.valid).toBe(false)
+    expect(v.ruleExecutions).toEqual([
+      { rule: 'searched', status: 'pass', violations: 0 },
+      { rule: 'exploding', status: 'error', violations: 0, error: 'predicate exploded' },
+    ])
+    expect(v.errors).toEqual(['exploding: predicate exploded'])
+    // An errored rule is absent from scores, never recorded as 0.
+    expect(v.scores).toEqual({ searched: 1 })
+    expect(checkTraceContracts([tool('search')], [c]).status).toBe('error')
+  })
+
+  it('the rule log lists every rule with its outcome', () => {
+    const c = traceContract('log')
+      .eventually({ tool: 'a' }, 'has-a')
+      .never({ tool: 'b' }, 'no-b')
+      .build()
+    const v = evaluateTraceContract(c, [tool('a'), tool('b')])
+    expect(v.ruleExecutions).toEqual([
+      { rule: 'has-a', status: 'pass', violations: 0 },
+      { rule: 'no-b', status: 'fail', violations: 1 },
+    ])
+  })
+})
+
+// ── counting, tokens, run, arguments ──────────────────────────────────
+
+describe('atMost and tokensAtMost', () => {
+  it('atMost counts matching calls', () => {
+    const c = traceContract('budget').atMost({ tool: 'retrieve_policy' }, 1, 'one-retrieve').build()
+    expect(evaluateTraceContract(c, [tool('retrieve_policy')]).valid).toBe(true)
+    const v = evaluateTraceContract(c, [tool('retrieve_policy'), tool('retrieve_policy')])
+    expect(v.valid).toBe(false)
+    expect(v.violations[0]!.detail).toMatch(
+      /2 span\(s\) match tool=retrieve_policy, over the limit of 1/,
+    )
+  })
+
+  it('tokensAtMost sums typed fields and gen_ai attributes; an unknown count fails', () => {
+    const c = traceContract('tokens').tokensAtMost({ kind: 'LLM' }, 100, 'token-budget').build()
+    const typed = llm('turn-1', { inputTokens: 30, outputTokens: 20 })
+    const attrs = llm('turn-2', {
+      attributes: { 'gen_ai.usage.input_tokens': 25, 'gen_ai.usage.output_tokens': 25 },
+    })
+    expect(evaluateTraceContract(c, [typed, attrs]).valid).toBe(true)
+    const over = evaluateTraceContract(c, [
+      typed,
+      attrs,
+      llm('turn-3', { inputTokens: 1, outputTokens: 0 }),
+    ])
+    expect(over.violations[0]!.detail).toMatch(/101 tokens/)
+    const unknown = evaluateTraceContract(c, [typed, llm('turn-3', { inputTokens: 5 })])
+    expect(unknown.valid).toBe(false)
+    expect(unknown.violations[0]!.detail).toMatch(/total is unknown/)
+  })
+})
+
+describe('run rule', () => {
+  it('reads an explicit run record', () => {
+    const c = traceContract('run')
+      .run({ requireCompleted: true, allowedStatuses: ['completed'], maxDurationMs: 100 })
+      .build()
+    const spans = [tool('a')]
+    expect(
+      evaluateTraceContract(c, spans, { run: { status: 'completed', startedAt: 0, endedAt: 50 } })
+        .valid,
+    ).toBe(true)
+    const failed = evaluateTraceContract(c, spans, {
+      run: { status: 'failed', startedAt: 0, endedAt: 500 },
+    })
+    expect(failed.violations.map((v) => v.detail)).toEqual([
+      'run status failed is not one of completed',
+      'run took 500 ms, over 100 ms',
+    ])
+    const running = evaluateTraceContract(c, spans, { run: { status: 'running', startedAt: 0 } })
+    expect(running.violations[0]!.detail).toMatch(/did not reach a terminal status/)
+  })
+
+  it('derives the run from a single root span, and fails when there is no unique root', () => {
+    const c = traceContract('run')
+      .run({ allowedStatuses: ['completed'] })
+      .build()
+    const root = {
+      spanId: 'r',
+      name: 'agent',
+      kind: 'agent',
+      startedAt: 0,
+      endedAt: 9,
+      status: 'ok',
+    }
+    const child = tool('search', { parentSpanId: 'r' })
+    expect(evaluateTraceContract(c, [root, child]).valid).toBe(true)
+    const erroredRoot = evaluateTraceContract(c, [{ ...root, status: 'error' }, child])
+    expect(erroredRoot.violations[0]!.detail).toBe('run status failed is not one of completed')
+    const twoRoots = evaluateTraceContract(c, [tool('a'), tool('b')])
+    expect(twoRoots.valid).toBe(false)
+    expect(twoRoots.violations[0]!.detail).toMatch(/2 root spans and no run record/)
+  })
+
+  it('rejects typos in run statuses instead of widening the allowed set', () => {
+    expect(() => traceContract('run').run({ allowedStatuses: ['succes' as never] })).toThrow(
+      /unknown run status "succes"/,
+    )
+  })
+})
+
+describe('argument rule', () => {
+  const refund = (args: unknown, extra: Partial<ContractSpan> = {}) =>
+    tool('refund', { args, ...extra })
+
+  it('checks a JSON Pointer inside typed args and JSON-string attributes', () => {
+    const c = traceContract('args')
+      .argument(
+        { tool: 'refund' },
+        { pointer: '/order/currency', check: { op: 'equals', value: 'USD' } },
+      )
+      .build()
+    expect(evaluateTraceContract(c, [refund({ order: { currency: 'USD' } })]).valid).toBe(true)
+    const fromAttr = tool('refund', {
+      attributes: { 'input.value': JSON.stringify({ order: { currency: 'EUR' } }) },
+    })
+    const v = evaluateTraceContract(c, [fromAttr])
+    expect(v.valid).toBe(false)
+    // The detail names the type, never the customer value.
+    expect(v.violations[0]!.detail).toMatch(/\/order\/currency \(a string\) does not equal/)
+    expect(v.violations[0]!.detail).not.toMatch(/EUR/)
+  })
+
+  it('fails closed when argument evidence is missing or the call never happened', () => {
+    const c = traceContract('args')
+      .argument({ tool: 'refund' }, { pointer: '/amount', check: { op: 'type', type: 'number' } })
+      .build()
+    expect(
+      evaluateTraceContract(c, [refund(undefined, { argsCaptured: false })]).violations[0]!.detail,
+    ).toMatch(/not captured/)
+    expect(evaluateTraceContract(c, [tool('refund')]).violations[0]!.detail).toMatch(
+      /no argument evidence/,
+    )
+    expect(evaluateTraceContract(c, [tool('search')]).violations[0]!.detail).toMatch(
+      /no span matches/,
+    )
+    expect(evaluateTraceContract(c, [refund({})]).violations[0]!.detail).toMatch(
+      /\/amount is absent/,
+    )
+  })
+
+  it('occurrence any passes when one call satisfies the check; all needs every call', () => {
+    const spans = [refund({ amount: 'ten' }), refund({ amount: 10 })]
+    const check = { pointer: '/amount', check: { op: 'type', type: 'number' } } as const
+    expect(
+      evaluateTraceContract(
+        traceContract('x')
+          .argument({ tool: 'refund' }, { ...check, occurrence: 'any' })
+          .build(),
+        spans,
+      ).valid,
+    ).toBe(true)
+    expect(
+      evaluateTraceContract(traceContract('x').argument({ tool: 'refund' }, check).build(), spans)
+        .valid,
+    ).toBe(false)
+    expect(
+      evaluateTraceContract(
+        traceContract('x')
+          .argument({ tool: 'refund' }, { ...check, occurrence: 'last' })
+          .build(),
+        spans,
+      ).valid,
+    ).toBe(true)
+  })
+
+  it('rejects a malformed pointer', () => {
+    expect(() =>
+      traceContract('x').argument(
+        { tool: 'refund' },
+        { pointer: 'amount', check: { op: 'exists' } },
+      ),
+    ).toThrow(/JSON Pointer/)
+  })
+})
+
+// ── predicates: kind, model, oneOf, not ───────────────────────────────
+
+describe('predicate fields', () => {
+  it('kind reads eval kinds and OTLP-declared kinds alike', () => {
+    expect(matchSpan(tool('x'), { kind: 'TOOL' })).toBe(true)
+    expect(
+      matchSpan({ name: 'x', attributes: { 'openinference.span.kind': 'TOOL' } }, { kind: 'TOOL' }),
+    ).toBe(true)
+    expect(matchSpan(llm('x'), { kind: 'TOOL' })).toBe(false)
+  })
+
+  it('an LLM span never satisfies a tool endpoint of the same name', () => {
+    const c = traceContract('kinds').eventually({ kind: 'TOOL', name: 'generate_answer' }).build()
+    expect(evaluateTraceContract(c, [llm('generate_answer')]).valid).toBe(false)
+  })
+
+  it('model, oneOf, and not compose into an allow-list', () => {
+    const offList = { kind: 'LLM', not: { model: { oneOf: ['model-a', 'model-b'] } } } as const
+    const c = traceContract('models').never(offList, 'allowed-models').build()
+    expect(evaluateTraceContract(c, [llm('t', { model: 'model-a' })]).valid).toBe(true)
+    expect(evaluateTraceContract(c, [llm('t', { model: 'model-z' })]).valid).toBe(false)
+    // An LLM span with no recorded model is not on the list.
+    expect(evaluateTraceContract(c, [llm('t')]).valid).toBe(false)
+  })
+})
+
+// ── scope and alternatives ────────────────────────────────────────────
+
+describe('scope', () => {
+  const root = {
+    spanId: 'root',
+    name: 'supervisor',
+    kind: 'agent',
+    startedAt: 0,
+    endedAt: 100,
+    status: 'ok',
+  }
+  const researcher = {
+    spanId: 'sub',
+    parentSpanId: 'root',
+    name: 'researcher',
+    kind: 'agent',
+    startedAt: 1,
+    endedAt: 50,
+    status: 'ok',
+  }
+  const inside = tool('search', { parentSpanId: 'sub' })
+  const outside = tool('delete_db', { parentSpanId: 'root' })
+
+  it('evaluates only the selected subtree, with its root as the run', () => {
+    const c = traceContract('researcher')
+      .scope({ kind: 'AGENT', name: 'researcher' })
+      .never({ tool: 'delete_db' })
+      .eventually({ tool: 'search' })
+      .run({ maxDurationMs: 60 })
+      .build()
+    const v = evaluateTraceContract(c, [root, researcher, inside, outside])
+    expect(v.valid).toBe(true)
+  })
+
+  it('an ambiguous or empty scope is an error for every rule', () => {
+    const c = traceContract('scoped').scope({ kind: 'AGENT' }).never({ tool: 'delete_db' }).build()
+    const v = evaluateTraceContract(c, [root, researcher, inside])
+    expect(v.status).toBe('error')
+    expect(v.errors[0]).toMatch(/matched 2 spans; exactly one is required/)
+    const none = evaluateTraceContract(c, [inside])
+    expect(none.status).toBe('error')
+  })
+})
+
+describe('alternatives', () => {
+  const c = traceContract('answer-path')
+    .never({ tool: 'search_docs' }, 'no-search-docs')
+    .alternative('retrieved', (b) => b.eventually({ tool: 'retrieve_policy' }, 'retrieved'))
+    .alternative('cache-hit', (b) => b.eventually({ tool: 'policy_cache' }, 'cache-hit'))
+    .build()
+
+  it('passes when the base rules and at least one alternative pass', () => {
+    expect(evaluateTraceContract(c, [tool('retrieve_policy')]).valid).toBe(true)
+    expect(evaluateTraceContract(c, [tool('policy_cache')]).valid).toBe(true)
+  })
+
+  it('fails with every alternative’s violations when none passes', () => {
+    const v = evaluateTraceContract(c, [tool('answer')])
+    expect(v.valid).toBe(false)
+    expect(v.scores).toEqual({ 'no-search-docs': 1, anyOf: 0 })
+    expect(v.violations.map((x) => x.rule)).toEqual(['retrieved/retrieved', 'cache-hit/cache-hit'])
+    expect(v.ruleExecutions.map((x) => [x.alternative, x.rule, x.status])).toEqual([
+      [undefined, 'no-search-docs', 'pass'],
+      ['retrieved', 'retrieved', 'fail'],
+      ['cache-hit', 'cache-hit', 'fail'],
+    ])
+  })
+
+  it('fails when a base rule fails even if an alternative passes', () => {
+    expect(evaluateTraceContract(c, [tool('retrieve_policy'), tool('search_docs')]).valid).toBe(
+      false,
+    )
   })
 })
 
@@ -406,7 +775,7 @@ describe('contractJudge', () => {
     // safety passes (1); protocol: transfer unguarded (0) but eventually hits (1) → 0.5.
     expect(score.dimensions).toEqual({ safety: 1, protocol: 0.5 })
     expect(score.composite).toBeCloseTo(0.75)
-    expect(score.notes).toMatch(/no earlier/)
+    expect(score.notes).toMatch(/never occurred/)
     const clean = await judge.score({
       artifact: { spans: [tool('approval'), tool('transfer')] },
       scenario,
@@ -414,6 +783,18 @@ describe('contractJudge', () => {
     })
     expect(clean.composite).toBe(1)
     expect(clean.notes).toBe('all trace contracts satisfied')
+  })
+
+  it('throws instead of scoring when a contract cannot be evaluated', () => {
+    const scoped = traceContract('scoped').scope({ name: 'missing' }).never({ tool: 'x' }).build()
+    const judge = contractJudge<Artifact>([scoped], { spans: ({ artifact }) => artifact.spans })
+    expect(() =>
+      judge.score({
+        artifact: { spans: [tool('a')] },
+        scenario,
+        signal: new AbortController().signal,
+      }),
+    ).toThrow(/could not be evaluated/)
   })
 
   it('fails loud on misuse: empty contracts, duplicate names, non-array spans', () => {
@@ -443,7 +824,7 @@ describe('contract verdict certification', () => {
     expect(v.certification?.evidenceDigest).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('names array ordering and custom predicates as assumptions the certificate rests on', () => {
+  it('names custom predicates as assumptions the certificate rests on', () => {
     const c = traceContract('ordering')
       .eventually(
         {
@@ -460,7 +841,6 @@ describe('contract verdict certification', () => {
     ] satisfies ContractSpan[]
     const v = evaluateTraceContract(c, untimed)
     expect(v.certification?.assumptions).toEqual([
-      'spans ordered by array position — no startedAt timestamps to order by',
       "rule 'saw-error' rests on a custom predicate function",
     ])
   })
