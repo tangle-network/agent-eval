@@ -111,6 +111,7 @@ export {
   buildTraceAnalysisToolDescriptors,
   TRACE_ANALYST_TOOL_NAMESPACE,
   traceAnalystFunctionGroup,
+  UNTRUSTED_TRACE_TEXT,
 } from './tools'
 
 export type {
