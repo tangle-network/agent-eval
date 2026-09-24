@@ -40,6 +40,7 @@ import {
   type ContractRule,
   ORDER_MODES,
   type OrderMode,
+  RUN_STATUSES,
   type RunChecks,
   type SpanPredicate,
   type TraceContract,
@@ -308,6 +309,11 @@ function parsePath(path: Obj, prefix: string): void {
   if (path.run !== undefined) {
     const run = object(path.run, at('run'))
     strictKeys(run, RUN_KEYS, at('run'))
+    if (Array.isArray(run.allowedStatuses)) {
+      run.allowedStatuses.forEach((status, i) => {
+        oneOfValues(status, RUN_STATUSES, at(`run.allowedStatuses[${i}]`))
+      })
+    }
     assertRule({ kind: 'run', label: 'run', ...(run as RunChecks) }, at('run'))
   }
   if (path.tools !== undefined) {
