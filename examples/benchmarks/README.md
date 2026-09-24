@@ -74,6 +74,17 @@ The retrieval evaluator accepts ranked document IDs and reports nDCG@k, recall@k
 It does not copy the full corpus into every query payload unless `includeCorpusInPayload` is explicitly set.
 Domain packages such as `agent-knowledge` can then map those items into their own RAG scenario types instead of re-parsing every public benchmark.
 
+## Harbor datasets
+
+`createHarborBenchmarkAdapter` imports a checkout of a [Harbor](https://harborframework.com) dataset, such as Terminal-Bench, as a `BenchmarkAdapter`.
+It reads each `tasks/<task>/task.toml` and `instruction.md` into an item. The item holds the instruction verbatim, the agent and verifier timeouts, the requested resources, the declared artifacts, and whether the environment starts more than one container.
+Pin the checkout: `source.revision` is the commit, and `source.rules` and `source.contamination` state the upstream rules and what is known about training-data exposure.
+
+The dataset's own verifier is the scorer.
+The caller's `grade(item, artifact)` runs it, for example `harbor run -p <taskDir>` with an agent that installs the collected artifacts, and returns the reward as a typed outcome.
+A grader that fails raises an error. It never produces a score of zero.
+`loadAll()` returns every task regardless of split, because a public benchmark reports all of its tasks.
+
 ## Adding a new benchmark
 
 1. Create `examples/benchmarks/<your-benchmark>/index.ts`.

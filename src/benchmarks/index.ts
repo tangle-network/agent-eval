@@ -6,6 +6,8 @@
  *   - `runBenchmarkAdapter` for campaign-backed benchmark execution.
  *   - `calibrateBenchmarkMetric` for weak/strong metric checks.
  *   - Standard retrieval parsers for BEIR/MTEB/MS MARCO/TREC/MIRACL-style files.
+ *   - `createHarborBenchmarkAdapter` — a Harbor dataset checkout (Terminal-Bench and others)
+ *     as an adapter whose scorer is the dataset's own verifier, run by the caller.
  *   - `deterministicSplit` + `BENCHMARK_SPLIT_SEED` for split assignment.
  *   - `routing` — synthetic 16-task router benchmark. The only novel
  *     benchmark we built; ships in the package.
@@ -26,6 +28,15 @@ export {
   type BenchmarkMetricCalibrationResult,
   calibrateBenchmarkMetric,
 } from './calibration'
+export {
+  createHarborBenchmarkAdapter,
+  type HarborBenchmarkAdapter,
+  type HarborBenchmarkOptions,
+  type HarborGradeOutcome,
+  type HarborTaskItem,
+  type HarborTaskPayload,
+  readHarborTask,
+} from './harbor'
 export * as routing from './routing/index'
 export {
   type BenchmarkDistribution,

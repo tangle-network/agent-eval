@@ -224,6 +224,7 @@
     "hono": "^4.13.5",
     "linear-sum-assignment": "1.0.9",
     "re2js": "2.8.6",
+    "smol-toml": "1.8.0",
     "zod": "4.5.4"
   },
   "devDependencies": {

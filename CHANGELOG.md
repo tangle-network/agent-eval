@@ -6,6 +6,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `/benchmarks` `createHarborBenchmarkAdapter()` and `readHarborTask()` import a Harbor dataset checkout (Terminal-Bench and others) as a `BenchmarkAdapter`.
+  Items carry each task's instruction, timeouts, requested resources and declared artifacts.
+  `evaluate` delegates to the caller's `grade` callback, which runs the dataset's own verifier; a verifier that did not run throws rather than scoring zero.
+- `BenchmarkSource` gains `revision`, `rules` and `contamination`, so an adapter reports the exact upstream commit, the rules a result must follow, and its known training-data exposure.
+
 ## [0.187.0] — 2026-09-23
 
 ### Added

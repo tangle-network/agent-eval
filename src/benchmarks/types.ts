@@ -69,8 +69,17 @@ export interface BenchmarkSource {
   name?: string
   url?: string
   version?: string
+  /** The exact upstream revision, such as a git commit, when `version` names a release. */
+  revision?: string
   license?: string
   citation?: string
+  /** Where the upstream states how a result must be produced to count, such as leaderboard rules. */
+  rules?: string
+  /**
+   * Whether the tasks or their solutions may be in a model's training data: `unknown` until
+   * checked, `none-known`, `suspected`, or `confirmed` (then report results as historical).
+   */
+  contamination?: 'unknown' | 'none-known' | 'suspected' | 'confirmed'
 }
 
 /** Common signature implemented by every adapter under `src/benchmarks/*`. */
