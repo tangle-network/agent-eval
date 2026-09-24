@@ -114,7 +114,25 @@ interface AppendSample {
   lockRetries: number
 }
 
-/** One reserve or expose, retried while another process holds the lock. */
+type Outcome<T> =
+  | { succeeded: true; value: T }
+  | { succeeded: false; error: { message: string } }
+
+/** Run a ledger call, retrying while another process holds the journal lock. */
+async function whileLocked<T>(
+  call: () => Promise<Outcome<T>>,
+): Promise<{ value: T; lockRetries: number }> {
+  for (let lockRetries = 0; ; lockRetries += 1) {
+    const result = await call()
+    if (result.succeeded) return { value: result.value, lockRetries }
+    if (!result.error.message.includes('lock is held') || lockRetries > 10_000) {
+      throw new Error(result.error.message)
+    }
+    await new Promise((done) => setTimeout(done, Math.random() * 3))
+  }
+}
+
+/** One reserve or expose. */
 async function appendOne(
   ledger: Ledger,
   index: number,
@@ -124,42 +142,33 @@ async function appendOne(
   const before = snapshot()
   const started = performance.now()
   const cpu = process.cpuUsage()
-  for (let retries = 0; ; retries += 1) {
-    const result =
-      index % 2 === 0
-        ? await ledger.reserve({
-            requestId,
-            claimDigest: digestOf(`claim:${requestId}`),
-            populationId: 'load',
-            inputDigest: digestOf(`input:${requestId}`),
-            unitIds: [`${requestId}-a`, `${requestId}-b`],
-          })
-        : await ledger.expose(requestId, {
-            evaluatorDigest: digestOf('evaluator'),
-            candidateDigests: [digestOf(`candidate:${requestId}`)],
-          })
-    if (result.succeeded) {
-      const read = delta(before)
-      const { user, system } = process.cpuUsage(cpu)
-      return {
-        ...read,
-        ms: performance.now() - started,
-        cpuMs: (user + system) / 1000,
-        lockRetries: retries,
-      }
-    }
-    if (!result.error.message.includes('lock is held') || retries > 10_000) {
-      throw new Error(`append ${index} failed: ${result.error.message}`)
-    }
-    await new Promise((done) => setTimeout(done, Math.random() * 3))
+  const { lockRetries } = await whileLocked(() =>
+    index % 2 === 0
+      ? ledger.reserve({
+          requestId,
+          claimDigest: digestOf(`claim:${requestId}`),
+          populationId: 'load',
+          inputDigest: digestOf(`input:${requestId}`),
+          unitIds: [`${requestId}-a`, `${requestId}-b`],
+        })
+      : ledger.expose(requestId, {
+          evaluatorDigest: digestOf('evaluator'),
+          candidateDigests: [digestOf(`candidate:${requestId}`)],
+        }),
+  )
+  const { user, system } = process.cpuUsage(cpu)
+  return {
+    ...delta(before),
+    ms: performance.now() - started,
+    cpuMs: (user + system) / 1000,
+    lockRetries,
   }
 }
 
 async function readAll(ledger: Ledger): Promise<{ digest: string; journalBytes: number }> {
   const before = snapshot()
-  const result = await ledger.read()
-  if (!result.succeeded) throw new Error(`read failed: ${result.error.message}`)
-  return { digest: digestOf(canonicalString(result.value)), journalBytes: delta(before).journal }
+  const { value } = await whileLocked(() => ledger.read())
+  return { digest: digestOf(canonicalString(value)), journalBytes: delta(before).journal }
 }
 
 function fileEntries(): number {
