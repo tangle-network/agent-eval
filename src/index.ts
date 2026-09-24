@@ -267,12 +267,19 @@ export { isJudgeSpan, isLlmSpan, isToolSpan } from './trace/schema'
 export type { EventFilter, RunFilter, SpanFilter, TraceStore } from './trace/store'
 export { FileSystemTraceStore, InMemoryTraceStore } from './trace/store'
 export type {
+  ArgumentCheck,
   ContractCheckResult,
+  ContractRule,
+  ContractRuleExecution,
+  ContractRun,
   ContractSpan,
+  ContractStatus,
   ContractVerdict,
+  OrderMode,
+  SpanPredicate,
   TraceContract,
 } from './trace-contracts'
-export { checkTraceContracts, traceContract } from './trace-contracts'
+export { checkTraceContracts, evaluateTraceContract, traceContract } from './trace-contracts'
 export type { Trajectory, TrajectoryStep } from './trajectory'
 export { buildTrajectory } from './trajectory'
 
