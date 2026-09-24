@@ -6,6 +6,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `/experiment` `joinProspectiveCanaryReceipts()` joins separate served assignment, checked outcome, execution, and settled billing receipts.
+  It is off by default and rejects reused source units, orphan receipts, duplicate evidence sources, and incomplete provider-call billing joins.
+  Unknown customer cost remains null; the host still verifies source authority, completeness, randomization, and the pre-traffic witness.
+
 ## [0.187.1] — 2026-09-24
 
 ### Added

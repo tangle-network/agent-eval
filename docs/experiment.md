@@ -115,6 +115,14 @@ if (decision.refusal !== null) throw new Error(decision.refusal)
 ```
 
 `cohortReceipt` binds the post-cutoff complete roster and the fixed observation snapshot to the prospective protocol.
+`joinProspectiveCanaryReceipts` joins separate assignment, checker, execution, and billing rows before this decision.
+The join is disabled unless the host explicitly enables it.
+It rejects reused source units, assignments outside the witnessed window, orphan receipts, duplicate source IDs, and provider-call mismatches.
+An unsettled customer cost remains `null`, including a failed provider dispatch with unknown actual cost.
+The host must independently attest the historical source roster, pre-traffic witness, assignment completeness, randomization, and receipt authority.
+The append-only assignment ledger covered by `assignmentLedgerTipDigest` must retain each source unit and assignment time for that attestation.
+The join does not route traffic or turn a synthetic fixture into a live cohort.
+`src/experiment/prospective-canary-join.test.ts` exercises a 40-assignment synthetic fixture through `decideRandomizedCanary`.
 The deterministic calibration in `src/experiment/randomized-canary.test.ts` used 500 trials per law, 60 customers, and four sessions per customer.
 Each customer had a shared pass propensity of 0.25 or 0.65 with equal probability.
 Two sessions entered each arm in random order; the positive law added 0.20 to candidate pass probability.
