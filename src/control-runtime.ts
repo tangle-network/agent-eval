@@ -255,7 +255,11 @@ export async function runAgentControlLoop<
       )
     : undefined
   const history: ControlStep<TState, TAction, TActionResult, TEval>[] = []
-  const emitter = config.store ? new TraceEmitter(config.store) : undefined
+  // `runTrace` records every dropped trace write as a runtime error, so the
+  // emitter's default process warning would only repeat it.
+  const emitter = config.store
+    ? new TraceEmitter(config.store, { onCaptureError: () => undefined })
+    : undefined
   let spentCostUsd = 0
   const runtimeErrors: ControlRuntimeError[] = []
   // The stuck-detection kernels (shared with the online detectors). Thresholds 0 = disabled; the
@@ -270,7 +274,7 @@ export async function runAgentControlLoop<
 
   try {
     if (emitter) {
-      await runTrace(runtimeErrors, 0, () =>
+      await runTrace(emitter, runtimeErrors, 0, () =>
         emitter.startRun({
           scenarioId: config.scenarioId ?? 'agent-control-loop',
           projectId: config.projectId,
@@ -504,7 +508,7 @@ export async function runAgentControlLoop<
       const scoreBefore = averageScore(evals)
       const actionStarted = Date.now()
       const stepHandle = emitter
-        ? await runTrace(runtimeErrors, stepIndex, () =>
+        ? await runTrace(emitter, runtimeErrors, stepIndex, () =>
             emitter.tool({
               name: `control-step-${stepIndex}`,
               toolName: 'agent-control-action',
@@ -552,7 +556,7 @@ export async function runAgentControlLoop<
           durationMs: Date.now() - actionStarted,
         }
         if (actionFailure === 'stop') {
-          await runTrace(runtimeErrors, stepIndex, () =>
+          await runTrace(emitter, runtimeErrors, stepIndex, () =>
             stepHandle?.fail(actionOutcome.error ?? 'action failed'),
           )
           const step: ControlStep<TState, TAction, TActionResult, TEval> = {
@@ -603,7 +607,7 @@ export async function runAgentControlLoop<
           endedAt: new Date().toISOString(),
         }
         history.push(step)
-        await runTrace(runtimeErrors, stepIndex, () =>
+        await runTrace(emitter, runtimeErrors, stepIndex, () =>
           stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
         )
         await runOnStep(config.onStep, step, runtimeErrors)
@@ -653,7 +657,7 @@ export async function runAgentControlLoop<
           endedAt: new Date().toISOString(),
         }
         history.push(step)
-        await runTrace(runtimeErrors, stepIndex, () =>
+        await runTrace(emitter, runtimeErrors, stepIndex, () =>
           stepHandle?.fail(runtimeErrors[runtimeErrors.length - 1]!.message),
         )
         await runOnStep(config.onStep, step, runtimeErrors)
@@ -692,7 +696,7 @@ export async function runAgentControlLoop<
       }
       history.push(step)
       if (actionOutcome.ok) {
-        await runTrace(runtimeErrors, stepIndex, () =>
+        await runTrace(emitter, runtimeErrors, stepIndex, () =>
           stepHandle?.end({
             attributes: {
               actionCostUsd: actionOutcome.costUsd ?? null,
@@ -704,7 +708,7 @@ export async function runAgentControlLoop<
           }),
         )
       } else {
-        await runTrace(runtimeErrors, stepIndex, () =>
+        await runTrace(emitter, runtimeErrors, stepIndex, () =>
           stepHandle?.fail(actionOutcome.error ?? 'action failed', {
             attributes: {
               spentCostUsd,
@@ -998,7 +1002,7 @@ async function recordCostBudget(
 ): Promise<void> {
   if (!emitter || budget.maxCostUsd === undefined) return
   const maxCostUsd = budget.maxCostUsd
-  await runTrace(runtimeErrors, stepIndex, () =>
+  await runTrace(emitter, runtimeErrors, stepIndex, () =>
     emitter.recordBudget({
       dimension: 'usd',
       limit: maxCostUsd,
@@ -1020,7 +1024,7 @@ async function recordEvalSpans(
 ): Promise<void> {
   if (!emitter) return
   for (const result of evals) {
-    await runTrace(runtimeErrors, stepIndex, () =>
+    await runTrace(emitter, runtimeErrors, stepIndex, () =>
       emitter.recordJudge({
         judgeId: result.objective ? 'objective-validator' : 'subjective-judge',
         targetSpanId: targetSpanId ?? emitter.runId,
@@ -1053,17 +1057,31 @@ async function runOnStep<TState, TAction, TActionResult, TEval extends ControlEv
   }
 }
 
+/**
+ * Run trace writes and record a `trace` runtime error when any of them was
+ * dropped. The emitter never throws a failed store write; it counts it, so the
+ * count is what this reads. A throw from building the write is recorded too.
+ */
 async function runTrace<T>(
+  emitter: TraceEmitter | undefined,
   runtimeErrors: ControlRuntimeError[],
   stepIndex: number,
   write: () => Promise<T | undefined> | T | undefined,
 ): Promise<T | undefined> {
+  if (!emitter) return undefined
+  const droppedBefore = emitter.captureStats().dropped
+  let value: T | undefined
   try {
-    return await write()
+    value = await write()
   } catch (err) {
     runtimeErrors.push(runtimeError('trace', stepIndex, err))
     return undefined
   }
+  const after = emitter.captureStats()
+  if (after.dropped > droppedBefore) {
+    runtimeErrors.push(runtimeError('trace', stepIndex, after.lastError ?? 'trace write dropped'))
+  }
+  return value
 }
 
 function fingerprintState<TState, TAction>(
@@ -1113,7 +1131,7 @@ async function finish<TState, TAction, TActionResult, TEval extends ControlEvalR
   emitter: TraceEmitter | undefined,
   result: ControlRunResult<TState, TAction, TActionResult, TEval>,
 ): Promise<ControlRunResult<TState, TAction, TActionResult, TEval>> {
-  await runTrace(result.runtimeErrors, result.steps.length, () =>
+  await runTrace(emitter, result.runtimeErrors, result.steps.length, () =>
     emitter?.endRun({
       pass: result.pass,
       score: result.score ?? averageScore(result.finalEvals),
