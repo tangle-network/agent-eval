@@ -325,6 +325,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `pairedDeltaTieFraction` | production | this package: src/paired-promotion-decision.ts:50 |
 | `pairedEvalueSequence` | production | creative-agent:src/lib/experiments/ab-design.ts |
 | `pairedMde` | production | discovery-lab:tools/design-gate.mjs |
+| `pairedPromotionPower` | production | discovery:research/e1-topology-20260920/gate/gate.mjs |
 | `pairedRiskDifference` | production | blueprint-agent:scripts/experiments/lib/validity-gates.ts |
 | `pairedRiskDifferenceExact` | production | this package: src/paired-promotion-decision.ts:50 |
 | `pairedRiskDifferenceScore` | production | this package: src/paired-promotion-decision.ts:50 |
@@ -366,6 +367,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `renderPreferenceMemoryMarkdown` | production | agent-builder:src/lib/.server/eval/loops/auto-research-runner.ts |
 | `repeatedActionDetector` | production | agent-runtime:src/runtime/supervise/detector-monitor.ts |
 | `requiredPairedSampleSize` | production | discovery-lab:tools/design-gate.mjs |
+| `requiredPairsForPairedPromotion` | production | discovery:research/e1-topology-20260920/gate/gate.mjs |
 | `requiredSampleSize` | planned | doc: docs/design/statistics-decisions.md |
 | `resolveModelPricing` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-primitives.ts |
 | `resolveSeat` | production | creative-agent:eval/agent.config.ts |

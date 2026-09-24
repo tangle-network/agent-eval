@@ -12,6 +12,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   It splits items into the disjoint train, selection and test sets that `compareOptimizationMethods` and Runtime `improve()` take.
   Assignment hashes each item's unit (`unitOf`, default the id), so fresh runs of one task never straddle two partitions and a unit keeps its partition as the corpus grows.
   Empty input, duplicate or empty ids, an empty unit, fractions outside (0, 1) or summing to 1 or more, and a partition below its floor throw.
+## [0.186.2] — 2026-09-23
+
+### Fixed
+
+- Metadata-only diagnosis removes top-level status messages, error prose, tool argument aliases, and structured attribute values before a model reads spans.
+  A customer's tool status message and argument aliases previously reached the model despite `contentIncluded: false`.
+  Status codes and error counts remain available to the deterministic pass.
+
+## [0.186.1] — 2026-09-23
+
+### Fixed
+
+- Diagnosis model trajectories include each span's start and end timestamps.
+  The model contract instructs analysts to count overlapping tool calls once when estimating wall time.
+  A customer run had described three concurrent calls as a 7.5-minute stall, although their combined wall interval was about 2.7 minutes.
+
+## [0.186.0] — 2026-09-23
+### Added
+- `pairedPromotionPower({ n, alternative, calls, simulations, seed })` and `requiredPairsForPairedPromotion({ target, alternative, calls, minPairs, maxPairs })` (the first scanned n at the target, descriptive, and the first n whose Wilson lower bound reaches the target and is then certified by an independent simulation on a fresh seed, since a scan over many n gives Monte Carlo noise many chances to push one bound across; the whole curve and every refused candidate are returned): the joint power of one or more configured `decidePairedPromotion` calls under a registered alternative, computed by running the calls themselves on seeded draws from that alternative (#785).
+  The alternative is a serializable joint law: cells drawn first, each with a probability, an optional pass/fail outcome per arm for the binary calls, and a law for the candidate-minus-baseline delta given the cell (`point`, `atoms` or `normal`).
+  Every estimate carries its Monte Carlo standard error, a Wilson interval, the refusal and hold rates, and per-call rates by channel (`insufficient`, `indeterminate`, `exactTestVetoes`, `hold`) and by deciding method, so a gate sees which regime the call ran in and which channel bound.
+  The closed forms that stood in for this (`mcnemarRequiredN`, `requiredPairedSampleSize`, `pairedMde`) each size a single channel the procedure may never run and under-size it where they do; they are unchanged and remain approximate floors.
+- `PairedPromotionDecisionOptions.continuous`: declare the outcome continuous so `decidePairedPromotion` never infers a two-point support from the observed values and the sealed call's estimator is fixed before the data is seen. Under discovery's E1 alternative at 20 pairs, 5.4 % of 2,000 simulated samples (exact rate 5.54 %) re-routed to the score interval without it.
 
 ## [0.185.0] — 2026-09-23
 

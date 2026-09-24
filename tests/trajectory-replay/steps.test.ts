@@ -8,6 +8,7 @@ import {
   assertReplayableTrajectory,
   classifyObservation,
   decodeRecordedTurns,
+  deriveFailureSignature,
   finalRecordedOutcome,
   isElidedField,
   isRecordedTimeout,
@@ -99,6 +100,20 @@ describe('classifyObservation', () => {
     expect(classifyObservation(observation)).toBe('command-result')
     expect(isRecordedTimeout(observation)).toBe(false)
     expect(parseRecordedReturncode(observation)).toBe(0)
+  })
+})
+
+describe('deriveFailureSignature', () => {
+  it('keeps the executable and missing-command message from a real CodeTraceBench applypatch failure', () => {
+    // miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa, k=7.
+    const recorded =
+      '<returncode>127</returncode>\n<output>\n/bin/sh: 1: applypatch: not found\n</output>'
+    expect(deriveFailureSignature(recorded)).toBe('applypatch: not found')
+    expect(
+      deriveFailureSignature(
+        '<returncode>127</returncode>\n<output>\nbash: line 1: cargo: command not found\n</output>',
+      ),
+    ).toBe('cargo: command not found')
   })
 })
 

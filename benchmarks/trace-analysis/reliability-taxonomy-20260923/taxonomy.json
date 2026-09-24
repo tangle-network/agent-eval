@@ -1,0 +1,4067 @@
+{
+  "cases": [
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 38,
+      "goldIncorrectSteps": [
+        38,
+        46
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-add-benchmark-lm-eval-harness-54ac67f0",
+      "traceSpans": 95
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-attention-mil-5da3063a",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc",
+      "traceSpans": 47
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03",
+      "traceSpans": 73
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-linux-kernel-qemu-504a7c57",
+      "traceSpans": 73
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-pmars-23413a0e",
+      "traceSpans": 89
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 128,
+      "firstGoldStep": 33,
+      "goldIncorrectSteps": [
+        33,
+        34
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-stp-23b2a67b",
+      "traceSpans": 103
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 4,
+      "goldIncorrectSteps": [
+        4
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-chem-property-targeting-8ff9ebfd",
+      "traceSpans": 41
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        23,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-crack-7z-hash-6657a30e",
+      "traceSpans": 89
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-deterministic-tarball-1853a607",
+      "traceSpans": 83
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-code-vulnerability-c2cb504b",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-ocaml-gc-29624b4f",
+      "traceSpans": 99
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43",
+      "traceSpans": 47
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2",
+      "traceSpans": 65
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-hf-lora-adapter-019612de",
+      "traceSpans": 47
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-implement-eigenvectors-from-eigenvalues-research-paper-7ecc5fed",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25,
+        26,
+        27,
+        29
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2",
+      "traceSpans": 77
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 5,
+      "goldIncorrectSteps": [
+        5,
+        6,
+        9
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-xp-edd35096",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-merge-diff-arc-agi-task-dab7c1f1",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 24,
+      "goldIncorrectSteps": [
+        24,
+        25
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19",
+      "traceSpans": 53
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25
+      ],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93",
+      "traceSpans": 61
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-path-tracing-79ade2b0",
+      "traceSpans": 95
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b",
+      "traceSpans": 65
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-regex-chess-a83c78d9",
+      "traceSpans": 79
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 5,
+      "goldIncorrectSteps": [
+        5,
+        6,
+        7
+      ],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301",
+      "traceSpans": 87
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 1,
+      "firstGoldStep": 14,
+      "goldIncorrectSteps": [
+        14,
+        16,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-rstan-to-pystan-6bdccdda",
+      "traceSpans": 77
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-run-pdp11-code-ba499e4b",
+      "traceSpans": 63
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 8,
+      "goldIncorrectSteps": [
+        8,
+        13
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-sam-cell-seg-93dae667",
+      "traceSpans": 41
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18,
+        20
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b",
+      "traceSpans": 45
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 1,
+      "firstGoldStep": 49,
+      "goldIncorrectSteps": [
+        49,
+        50,
+        52,
+        54,
+        56,
+        58,
+        60,
+        61,
+        62
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-spinning-up-rl-c435941e",
+      "traceSpans": 129
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 30,
+      "goldIncorrectSteps": [
+        30,
+        32,
+        34
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-vul-flask-4946dda9",
+      "traceSpans": 73
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 40,
+      "goldIncorrectSteps": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "solved": false,
+      "traceId": "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-write-compressor-9fff4fee",
+      "traceSpans": 89
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "dev",
+      "firstGoldReturncode": 2,
+      "firstGoldStep": 12,
+      "goldIncorrectSteps": [
+        12,
+        13,
+        15
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-72d231f6",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "dev",
+      "firstGoldReturncode": 1,
+      "firstGoldStep": 8,
+      "goldIncorrectSteps": [
+        8,
+        10,
+        11,
+        12,
+        14,
+        15,
+        16
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5",
+      "traceSpans": 71
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 31,
+      "goldIncorrectSteps": [
+        31
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-build-linux-kernel-qemu-ea803cf1",
+      "traceSpans": 63
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-74a92a16",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cron-broken-network-c02d5c8b",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-db-wal-recovery-92bbb058",
+      "traceSpans": 75
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 14,
+      "goldIncorrectSteps": [
+        14,
+        15
+      ],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 34,
+      "goldIncorrectSteps": [
+        34,
+        36,
+        37
+      ],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569",
+      "traceSpans": 79
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 54,
+      "goldIncorrectSteps": [
+        54,
+        56,
+        58,
+        59,
+        60,
+        62
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a",
+      "traceSpans": 145
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        23,
+        25,
+        26
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-get-bitcoin-nodes-6004dfc9",
+      "traceSpans": 54
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        14
+      ],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 8,
+      "goldIncorrectSteps": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-hf-lora-adapter-f46ef20a",
+      "traceSpans": 41
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 1,
+      "firstGoldStep": 6,
+      "goldIncorrectSteps": [
+        6,
+        7,
+        8,
+        10,
+        13,
+        15,
+        16
+      ],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-jupyter-notebook-server-f573deb2",
+      "traceSpans": 71
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25,
+        26,
+        28,
+        29,
+        38,
+        39,
+        40
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-lean4-proof-bd0e040f",
+      "traceSpans": 85
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-other-nonzero",
+      "corpus": "split-3",
+      "firstGoldReturncode": 128,
+      "firstGoldStep": 6,
+      "goldIncorrectSteps": [
+        6
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-merge-diff-arc-agi-task-cb5aafdd",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19,
+        22
+      ],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f",
+      "traceSpans": 51
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772",
+      "traceSpans": 47
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 10,
+      "goldIncorrectSteps": [
+        10,
+        11,
+        17,
+        19
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-play-zork-c1cce947",
+      "traceSpans": 41
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 7,
+      "goldIncorrectSteps": [
+        7,
+        9,
+        15,
+        16
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-port-compressor-4652dd99",
+      "traceSpans": 137
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-portfolio-optimization-c32c1a67",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064",
+      "traceSpans": 43
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 24,
+      "goldIncorrectSteps": [
+        24
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-protein-assembly-472264a0",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-query-optimize-3b3e2297",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 28,
+      "goldIncorrectSteps": [
+        28,
+        29,
+        30,
+        32,
+        36,
+        38,
+        40,
+        41,
+        44,
+        46,
+        47,
+        48
+      ],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-schemelike-metacircular-eval-e73a741e",
+      "traceSpans": 99
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591",
+      "traceSpans": 93
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 10,
+      "goldIncorrectSteps": [
+        10,
+        11,
+        12,
+        16,
+        18,
+        19,
+        21,
+        22,
+        25
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-astropy__astropy-14598-416c95db",
+      "traceSpans": 52
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 24,
+      "goldIncorrectSteps": [
+        24
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2501-1c7ee8f3",
+      "traceSpans": 50
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19,
+        20
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2534-42faa8a1",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2758-8f87bc0d",
+      "traceSpans": 82
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-2895-928269b9",
+      "traceSpans": 48
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 33,
+      "goldIncorrectSteps": [
+        33,
+        35,
+        36,
+        37
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3179-107b6c1d",
+      "traceSpans": 74
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 2,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        24,
+        25,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3421-8c92021d",
+      "traceSpans": 70
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 101,
+      "firstGoldStep": 33,
+      "goldIncorrectSteps": [
+        33,
+        34,
+        35,
+        39,
+        40
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-3975-5f1af46d",
+      "traceSpans": 80
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": 2,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        34
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-clap-rs__clap-4248-85bd7a43",
+      "traceSpans": 70
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 7,
+      "goldIncorrectSteps": [
+        7,
+        8,
+        19
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-django__django-14999-5d6ca542",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 11,
+      "goldIncorrectSteps": [
+        11,
+        12,
+        14,
+        24,
+        25
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-django__django-16032-a1ba93e9",
+      "traceSpans": 58
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-facebook__zstd-1733-786102c1",
+      "traceSpans": 88
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 27,
+      "goldIncorrectSteps": [
+        27
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-facebook__zstd-2094-7f31a0cb",
+      "traceSpans": 56
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 22,
+      "goldIncorrectSteps": [
+        22
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-fasterxml__jackson-databind-4641-989d1554",
+      "traceSpans": 46
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-fasterxml__jackson-dataformat-xml-638-5311424b",
+      "traceSpans": 49
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-fmtlib__fmt-4286-f5dcb102",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 9,
+      "goldIncorrectSteps": [
+        9,
+        10,
+        11,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        24
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b",
+      "traceSpans": 50
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5",
+      "traceSpans": 46
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-09135d56",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2-e1edb594",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 37,
+      "goldIncorrectSteps": [
+        37
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-1b70260d5aa2f6c9782fd2b848e8d16566e50d85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-0b674c2a",
+      "traceSpans": 76
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 7,
+      "goldIncorrectSteps": [
+        7,
+        23,
+        26,
+        28,
+        29
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa",
+      "traceSpans": 60
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        23
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-5640093f1ca63fd6af231cc8a7fb7d40e1907b8c-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-21500546",
+      "traceSpans": 48
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-f7c2004c",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59-48b421ba",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 26,
+      "goldIncorrectSteps": [
+        26
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59-3a45c2a2",
+      "traceSpans": 54
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2-1af9d682",
+      "traceSpans": 72
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        17,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86-7568ee74",
+      "traceSpans": 48
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 22,
+      "goldIncorrectSteps": [
+        22
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-cb94c0cc550df9e98f1247bc71d8c2b861c75049-v1055803c3a812189a1133297f7f5468579283f86-6c8d52c0",
+      "traceSpans": 46
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_ansible__ansible-f8ef34672b961a95ec7282643679492862c688ec-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-f91ad040",
+      "traceSpans": 72
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 32,
+      "goldIncorrectSteps": [
+        32
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-5dfde12c1c1c0b6e48f17e3405468593e39d9492-vnan-15dbf87c",
+      "traceSpans": 66
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        29
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-aeabf3b18896ac1eb7ae9757e66ce886120f8309-vnan-dc9947f9",
+      "traceSpans": 60
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 2,
+      "firstGoldStep": 17,
+      "goldIncorrectSteps": [
+        17,
+        18,
+        19,
+        22
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan-ca34b75e",
+      "traceSpans": 46
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 10,
+      "goldIncorrectSteps": [
+        10,
+        11,
+        12,
+        19,
+        20,
+        21
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-3649aa96",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 29,
+      "goldIncorrectSteps": [
+        29
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-78872a1e",
+      "traceSpans": 60
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 15,
+      "goldIncorrectSteps": [
+        15,
+        16,
+        19,
+        20
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-f8adf46a",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18,
+        19,
+        21,
+        22
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-442534db",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-submit-with-work",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e-b08f9fd3",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-keras-team__keras-19484-2bd0f0db",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-keras-team__keras-19636-0123c279",
+      "traceSpans": 54
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 16,
+      "goldIncorrectSteps": [
+        16,
+        17,
+        19,
+        20
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-23299-3c79bc6c",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 14,
+      "goldIncorrectSteps": [
+        14
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-24627-ee685446",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        23,
+        25,
+        26
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-26208-deec0657",
+      "traceSpans": 52
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-mockito__mockito-3220-ce8a6968",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 28,
+      "goldIncorrectSteps": [
+        28,
+        30
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-nushell__nushell-13357-4bd10bdc",
+      "traceSpans": 62
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35,
+        38,
+        41,
+        42,
+        43,
+        44,
+        45
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-1057-56b583ae",
+      "traceSpans": 114
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 27,
+      "goldIncorrectSteps": [
+        27,
+        28,
+        31
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2205-2a662253",
+      "traceSpans": 64
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2247-a9fb6037",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 1,
+      "firstGoldStep": 12,
+      "goldIncorrectSteps": [
+        12,
+        16,
+        17,
+        18
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-2532-98ccc9cb",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-ponylang__ponyc-3973-6087c41b",
+      "traceSpans": 47
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 10,
+      "goldIncorrectSteps": [
+        10,
+        12,
+        14,
+        15,
+        20
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-12930-d76c2178",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "dev",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff",
+      "traceSpans": 52
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "holdout-1",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-pydata__xarray-6599-7db3a931",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 24,
+      "goldIncorrectSteps": [
+        24,
+        26,
+        40,
+        41
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-simdjson__simdjson-2016-953561fe",
+      "traceSpans": 82
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-0",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 17,
+      "goldIncorrectSteps": [
+        17,
+        19,
+        20,
+        25
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-11445-fa910280",
+      "traceSpans": 52
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 8,
+      "goldIncorrectSteps": [
+        8,
+        10,
+        16,
+        17,
+        19,
+        20
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-8638-0bbaf886",
+      "traceSpans": 40
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 8,
+      "goldIncorrectSteps": [
+        8,
+        9,
+        10
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9461-b131876c",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 10,
+      "goldIncorrectSteps": [
+        10,
+        11,
+        12,
+        20
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9602-27a680bd",
+      "traceSpans": 42
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        24,
+        26,
+        28,
+        29
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-10608-2fe6d098",
+      "traceSpans": 57
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 0,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19,
+        21
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 22,
+      "goldIncorrectSteps": [
+        22
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-13097-f6faf669",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        26
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-sveltejs__svelte-9962-571c4e95",
+      "traceSpans": 54
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 6,
+      "goldIncorrectSteps": [
+        6,
+        7,
+        8,
+        13,
+        15,
+        17,
+        19,
+        21,
+        23,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-12419-4a50ba40",
+      "traceSpans": 68
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 11,
+      "goldIncorrectSteps": [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        20,
+        22,
+        23,
+        24
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-15976-80927487",
+      "traceSpans": 48
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "unsolved-command-exit-127",
+      "corpus": "holdout-2",
+      "firstGoldReturncode": 127,
+      "firstGoldStep": 14,
+      "goldIncorrectSteps": [
+        14,
+        15,
+        16,
+        18,
+        21
+      ],
+      "solved": false,
+      "traceId": "miniswe-OpenAI__GPT-5-sympy__sympy-20428-5f09fe17",
+      "traceSpans": 44
+    },
+    {
+      "agent": "mini-SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "split-3",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 22,
+      "goldIncorrectSteps": [
+        22
+      ],
+      "solved": true,
+      "traceId": "miniswe-OpenAI__GPT-5-vuejs__core-9213-5aade8e3",
+      "traceSpans": 46
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-Significant-Gravitas__AutoGPT-4652-b968024b",
+      "traceSpans": 66
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 30,
+      "goldIncorrectSteps": [
+        30
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-clap-rs__clap-2758-594e09d1",
+      "traceSpans": 62
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 54,
+      "goldIncorrectSteps": [
+        54
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-cli__cli-5019-51dee7c3",
+      "traceSpans": 110
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-cli__cli-6706-b74f46a9",
+      "traceSpans": 120
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-expressjs__express-3870-7594bfc0",
+      "traceSpans": 56
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1243-1c933b6d",
+      "traceSpans": 94
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1390-2ca70e40",
+      "traceSpans": 42
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20,
+        21
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-1532-6f816f49",
+      "traceSpans": 68
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 47,
+      "goldIncorrectSteps": [
+        47
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-facebook__zstd-637-94afe4df",
+      "traceSpans": 96
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-fasterxml__jackson-core-964-ab40902f",
+      "traceSpans": 78
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-fmtlib__fmt-2394-5f39d316",
+      "traceSpans": 42
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13693-ee32c741",
+      "traceSpans": 70
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 12,
+      "goldIncorrectSteps": [
+        12,
+        14,
+        15,
+        19,
+        21,
+        35,
+        37,
+        44
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13865-44d517cd",
+      "traceSpans": 98
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 64,
+      "goldIncorrectSteps": [
+        64,
+        66,
+        119,
+        121,
+        123
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-13989-f41dae7b",
+      "traceSpans": 248
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 32,
+      "goldIncorrectSteps": [
+        32,
+        33,
+        35
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-15158-25e0c0d7",
+      "traceSpans": 72
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-16198-1bb854f7",
+      "traceSpans": 88
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-19590-6ee9899a",
+      "traceSpans": 80
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-20136-2b7c0524",
+      "traceSpans": 188
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 27,
+      "goldIncorrectSteps": [
+        27,
+        28,
+        30
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-21768-91cf46b0",
+      "traceSpans": 62
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        24
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-22458-ce29b23d",
+      "traceSpans": 50
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18,
+        19,
+        21
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-22920-27c55020",
+      "traceSpans": 44
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-23126-684431b2",
+      "traceSpans": 52
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-23223-ba60b3d2",
+      "traceSpans": 84
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-24238-963711c1",
+      "traceSpans": 50
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 50,
+      "goldIncorrectSteps": [
+        50,
+        52,
+        53
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-27463-1b3f334c",
+      "traceSpans": 108
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-28517-9f0c9e72",
+      "traceSpans": 84
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        24,
+        25,
+        26
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-28535-e28436fb",
+      "traceSpans": 54
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        15,
+        16,
+        18,
+        20,
+        22,
+        24,
+        25,
+        26
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-29311-5bbe74e8",
+      "traceSpans": 70
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        25,
+        27
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-29449-deaa19e6",
+      "traceSpans": 56
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-3716-5872d333",
+      "traceSpans": 84
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-6098-aea35e9a",
+      "traceSpans": 76
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-7078-090b230e",
+      "traceSpans": 68
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 30,
+      "goldIncorrectSteps": [
+        30
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-huggingface__transformers-8624-b9dc0bc1",
+      "traceSpans": 74
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1319-1ad50ca6",
+      "traceSpans": 92
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 68,
+      "goldIncorrectSteps": [
+        68
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1414-7722295d",
+      "traceSpans": 138
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 34,
+      "goldIncorrectSteps": [
+        34,
+        35
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-iamkun__dayjs-1725-4fa6a2e1",
+      "traceSpans": 72
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan-556a7837",
+      "traceSpans": 68
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2-3f41fa59",
+      "traceSpans": 54
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-3e1660fe",
+      "traceSpans": 48
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 42,
+      "goldIncorrectSteps": [
+        42,
+        49,
+        50,
+        51,
+        82
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-6cc97447aac5816745278f3735af128afb255c81-v0f01c69f1e2528b935359cfe578530722bca2c59-1c989b98",
+      "traceSpans": 180
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 16,
+      "goldIncorrectSteps": [
+        16,
+        18,
+        19,
+        20
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-77658704217d5f166404fc67997203c25381cb6e-v390e508d27db7a51eece36bb6d9698b63a5b638a-3b3b7d5d",
+      "traceSpans": 42
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-853de2e9",
+      "traceSpans": 64
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-8127abbc298cabf04aaa89a478fc5e5e3432a6fc-v30a923fb5c164d6cd18280c02422f75e611e8fb2-79f7945f",
+      "traceSpans": 182
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59-9bfb3524",
+      "traceSpans": 70
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-942424e10b2095a173dbd78e7128f52f7995849b-v30a923fb5c164d6cd18280c02422f75e611e8fb2-0761ffc8",
+      "traceSpans": 102
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25,
+        27,
+        28,
+        29
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59-16808561",
+      "traceSpans": 162
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59-6b53fdb8",
+      "traceSpans": 76
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b2a289dcbb702003377221e25f62c8a3608f0e89-v173091e2e36d38c978002990795f66cfc0af30ad-7e516d53",
+      "traceSpans": 128
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b5e0293645570f3f404ad1dbbe5f006956ada0df-v0f01c69f1e2528b935359cfe578530722bca2c59-8f74ece3",
+      "traceSpans": 46
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 27,
+      "goldIncorrectSteps": [
+        27
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2-ab0b8f1f",
+      "traceSpans": 108
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-d58e69c82d7edd0583dd8e78d76b075c33c3151e-v173091e2e36d38c978002990795f66cfc0af30ad-32930979",
+      "traceSpans": 152
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_ansible__ansible-e9e6001263f51103e96e58ad382660df0f3d0e39-v30a923fb5c164d6cd18280c02422f75e611e8fb2-44b42789",
+      "traceSpans": 46
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 31,
+      "goldIncorrectSteps": [
+        31,
+        46
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8-479591a7",
+      "traceSpans": 126
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 55,
+      "goldIncorrectSteps": [
+        55,
+        57,
+        59
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355-74bc5f38",
+      "traceSpans": 120
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc-e3bc6a2f",
+      "traceSpans": 86
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20,
+        22,
+        24
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-60725705782832a2cb22e17c49697948a42a9d03-v298a7a812ceed28c4c18355a091f1b268fe56d86-0036e996",
+      "traceSpans": 50
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-f2b0c13d",
+      "traceSpans": 90
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 16,
+      "goldIncorrectSteps": [
+        16,
+        17,
+        19
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-77c16d530b4d5c0f33d68bead2c6b329aee9b996-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-904f86da",
+      "traceSpans": 102
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-8a5a63af6e0be406aa6c8c9b6d5f28b2f1b6af5a-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-0e380383",
+      "traceSpans": 64
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-910b08570210509f3bcfebf35c093a48243fe754-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-084561f5",
+      "traceSpans": 116
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-767f3550",
+      "traceSpans": 94
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-unknown-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-d109cc7e6e161170391f98f9a6fa1d02534c18e4-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-54010cb4",
+      "traceSpans": 244
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 18,
+      "goldIncorrectSteps": [
+        18,
+        20,
+        22
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-e1e502986a3b003899a8347ac8a7ff7b08cbfc39-v08d8e8889ec945ab821fb156c04c7d2e2810debb-1e80cfac",
+      "traceSpans": 46
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 50,
+      "goldIncorrectSteps": [
+        50,
+        54,
+        55,
+        56,
+        60,
+        62,
+        63,
+        64,
+        65
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-9d1c92b0",
+      "traceSpans": 190
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 31,
+      "goldIncorrectSteps": [
+        31,
+        33,
+        35
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-d3f257e7",
+      "traceSpans": 72
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 46,
+      "goldIncorrectSteps": [
+        46,
+        47,
+        48,
+        49,
+        50
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e-f1d1d09d",
+      "traceSpans": 102
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-1793-6f5470b0",
+      "traceSpans": 106
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-2654-6603ae02",
+      "traceSpans": 52
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-jqlang__jq-2919-93f075bf",
+      "traceSpans": 68
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 21,
+      "goldIncorrectSteps": [
+        21,
+        22,
+        34,
+        35,
+        37
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-18553-468c06f3",
+      "traceSpans": 78
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 14,
+      "goldIncorrectSteps": [
+        14,
+        16,
+        17,
+        20
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-18871-85aa3499",
+      "traceSpans": 42
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35,
+        37,
+        39
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19201-a9b06a76",
+      "traceSpans": 80
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19484-e97d97d4",
+      "traceSpans": 58
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 30,
+      "goldIncorrectSteps": [
+        30,
+        31,
+        33
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19636-be8c419a",
+      "traceSpans": 68
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 24,
+      "goldIncorrectSteps": [
+        24,
+        25,
+        26
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19838-040f1c90",
+      "traceSpans": 54
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 54,
+      "goldIncorrectSteps": [
+        54,
+        55,
+        58,
+        59,
+        60
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19844-ca79bed1",
+      "traceSpans": 128
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 42,
+      "goldIncorrectSteps": [
+        42,
+        44,
+        46
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19863-d4ec1df3",
+      "traceSpans": 94
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 11,
+      "goldIncorrectSteps": [
+        11,
+        14
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-keras-team__keras-19924-dc8be29c",
+      "traceSpans": 90
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-aci-no-returncode",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 11,
+      "goldIncorrectSteps": [
+        11
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-langchain-ai__langchain-4009-0a56c80f",
+      "traceSpans": 48
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25,
+        26,
+        28
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-langchain-ai__langchain-5609-c3440b94",
+      "traceSpans": 58
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 53,
+      "goldIncorrectSteps": [
+        53,
+        55
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-135197-4a0fddee",
+      "traceSpans": 146
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        20,
+        21,
+        23
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-160342-b846798e",
+      "traceSpans": 48
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 15,
+      "goldIncorrectSteps": [
+        15,
+        17,
+        20,
+        22,
+        25,
+        26,
+        27
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-microsoft__vscode-177084-ddcf304b",
+      "traceSpans": 56
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-13778-d70b6204",
+      "traceSpans": 52
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 40,
+      "goldIncorrectSteps": [
+        40,
+        41,
+        43
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-15359-31082364",
+      "traceSpans": 88
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 23,
+      "goldIncorrectSteps": [
+        23,
+        25,
+        28
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18141-c7612a1f",
+      "traceSpans": 58
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 20,
+      "goldIncorrectSteps": [
+        20,
+        21,
+        23
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18257-ecfae4b2",
+      "traceSpans": 48
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 19,
+      "goldIncorrectSteps": [
+        19,
+        20,
+        22
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-18683-2bd64ee3",
+      "traceSpans": 46
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 36,
+      "goldIncorrectSteps": [
+        36,
+        39
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-19849-4ff77a47",
+      "traceSpans": 80
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 13,
+      "goldIncorrectSteps": [
+        13,
+        16,
+        17,
+        18
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-20252-99dc0124",
+      "traceSpans": 52
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-26061-b6ecdd74",
+      "traceSpans": 64
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-26807-0de9c978",
+      "traceSpans": 118
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 35,
+      "goldIncorrectSteps": [
+        35,
+        36,
+        38
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-28813-77bdd20a",
+      "traceSpans": 78
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-29023-06898477",
+      "traceSpans": 120
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-34610-d8f4d813",
+      "traceSpans": 86
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 25,
+      "goldIncorrectSteps": [
+        25,
+        26
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-mui__material-ui-42412-73b8be1c",
+      "traceSpans": 58
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-nlohmann__json-2989-de7a03b5",
+      "traceSpans": 106
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 15,
+      "goldIncorrectSteps": [
+        15,
+        17,
+        20
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-ponylang__ponyc-1057-f7b52e61",
+      "traceSpans": 42
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-3515-d2f26ed0",
+      "traceSpans": 60
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 9,
+      "goldIncorrectSteps": [
+        9,
+        21,
+        22,
+        23,
+        24
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-361-0e842b35",
+      "traceSpans": 50
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-prettier__prettier-8046-6c1254db",
+      "traceSpans": 54
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 5,
+      "goldIncorrectSteps": [
+        5,
+        7,
+        10,
+        12,
+        13,
+        15,
+        16,
+        18,
+        19,
+        23,
+        24,
+        26,
+        27,
+        29,
+        30
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-2576-80a1d381",
+      "traceSpans": 126
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 26,
+      "goldIncorrectSteps": [
+        26,
+        27,
+        28,
+        29
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-3457-5ad91382",
+      "traceSpans": 60
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-with-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 31,
+      "goldIncorrectSteps": [
+        31,
+        32,
+        34
+      ],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-serverless__serverless-7374-2a246c8b",
+      "traceSpans": 70
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "unsolved-submit-only",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": 33,
+      "goldIncorrectSteps": [
+        33,
+        35,
+        37
+      ],
+      "solved": false,
+      "traceId": "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-5933-2584b464",
+      "traceSpans": 76
+    },
+    {
+      "agent": "SWE-agent",
+      "class": "solved-no-gold",
+      "corpus": "sweagent",
+      "firstGoldReturncode": null,
+      "firstGoldStep": null,
+      "goldIncorrectSteps": [],
+      "solved": true,
+      "traceId": "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-9862-841baea5",
+      "traceSpans": 60
+    }
+  ],
+  "classes": [
+    {
+      "count": 50,
+      "denominator": 239,
+      "id": "solved-no-gold",
+      "traceIds": [
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-attention-mil-5da3063a",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-broken-python-05edf5bc",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-deterministic-tarball-1853a607",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-git-workflow-hack-15e07e43",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-setup-custom-dev-env-534cdad2",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-bpe-tokenizer-2df9c860",
+        "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-b9a801ee",
+        "miniswe-DeepSeek__DeepSeek-V3.2-ancient-puzzle-c925a84b",
+        "miniswe-DeepSeek__DeepSeek-V3.2-cross-entropy-method-2b0ae0fc",
+        "miniswe-DeepSeek__DeepSeek-V3.2-portfolio-optimization-c32c1a67",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-2758-8f87bc0d",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-2895-928269b9",
+        "miniswe-OpenAI__GPT-5-facebook__zstd-1733-786102c1",
+        "miniswe-OpenAI__GPT-5-mui__material-ui-34610-9e552319",
+        "sweagent-OpenAI__GPT-5-cli__cli-6706-b74f46a9",
+        "sweagent-OpenAI__GPT-5-expressjs__express-3870-7594bfc0",
+        "sweagent-OpenAI__GPT-5-facebook__zstd-1243-1c933b6d",
+        "sweagent-OpenAI__GPT-5-facebook__zstd-1390-2ca70e40",
+        "sweagent-OpenAI__GPT-5-fasterxml__jackson-core-964-ab40902f",
+        "sweagent-OpenAI__GPT-5-fmtlib__fmt-2394-5f39d316",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-13693-ee32c741",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-16198-1bb854f7",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-23126-684431b2",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-24238-963711c1",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-28517-9f0c9e72",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-6098-aea35e9a",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-7078-090b230e",
+        "sweagent-OpenAI__GPT-5-iamkun__dayjs-1319-1ad50ca6",
+        "sweagent-OpenAI__GPT-5-instance_NodeBB__NodeBB-767973717be700f46f06f3e7f4fc550c63509046-vnan-556a7837",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2-3f41fa59",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-3e1660fe",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59-9bfb3524",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-942424e10b2095a173dbd78e7128f52f7995849b-v30a923fb5c164d6cd18280c02422f75e611e8fb2-0761ffc8",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-a7d2a4e03209cff1e97e59fd54bb2b05fdbdbec6-v0f01c69f1e2528b935359cfe578530722bca2c59-6b53fdb8",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-e9e6001263f51103e96e58ad382660df0f3d0e39-v30a923fb5c164d6cd18280c02422f75e611e8fb2-44b42789",
+        "sweagent-OpenAI__GPT-5-instance_future-architect__vuls-b8db2e0b74f60cb7d45f710f255e061f054b6afc-e3bc6a2f",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-f2b0c13d",
+        "sweagent-OpenAI__GPT-5-jqlang__jq-1793-6f5470b0",
+        "sweagent-OpenAI__GPT-5-jqlang__jq-2654-6603ae02",
+        "sweagent-OpenAI__GPT-5-jqlang__jq-2919-93f075bf",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19484-e97d97d4",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-13778-d70b6204",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-26061-b6ecdd74",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-26807-0de9c978",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-29023-06898477",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-34610-d8f4d813",
+        "sweagent-OpenAI__GPT-5-nlohmann__json-2989-de7a03b5",
+        "sweagent-OpenAI__GPT-5-prettier__prettier-3515-d2f26ed0",
+        "sweagent-OpenAI__GPT-5-prettier__prettier-8046-6c1254db",
+        "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-9862-841baea5"
+      ]
+    },
+    {
+      "count": 90,
+      "denominator": 239,
+      "id": "solved-with-gold",
+      "traceIds": [
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-crack-7z-hash-6657a30e",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-parallelize-graph-41ae5c93",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-reshard-c4-data-f4ff7301",
+        "miniswe-DeepSeek__DeepSeek-V3.2-download-youtube-10de49b9",
+        "miniswe-DeepSeek__DeepSeek-V3.2-extract-elf-437a4569",
+        "miniswe-DeepSeek__DeepSeek-V3.2-git-workflow-hack-e602a230",
+        "miniswe-DeepSeek__DeepSeek-V3.2-jupyter-notebook-server-f573deb2",
+        "miniswe-DeepSeek__DeepSeek-V3.2-neuron-to-jaxley-conversion-7edc2e4f",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-2501-1c7ee8f3",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-2534-42faa8a1",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-3179-107b6c1d",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-3421-8c92021d",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-3975-5f1af46d",
+        "miniswe-OpenAI__GPT-5-clap-rs__clap-4248-85bd7a43",
+        "miniswe-OpenAI__GPT-5-django__django-14999-5d6ca542",
+        "miniswe-OpenAI__GPT-5-django__django-16032-a1ba93e9",
+        "miniswe-OpenAI__GPT-5-facebook__zstd-2094-7f31a0cb",
+        "miniswe-OpenAI__GPT-5-fasterxml__jackson-databind-4641-989d1554",
+        "miniswe-OpenAI__GPT-5-fasterxml__jackson-dataformat-xml-638-5311424b",
+        "miniswe-OpenAI__GPT-5-fmtlib__fmt-4286-f5dcb102",
+        "miniswe-OpenAI__GPT-5-huggingface__transformers-15795-e799e83b",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-0fd88717c953b92ed8a50495d55e630eb5d59166-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-09135d56",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-1a4644ff15355fd696ac5b9d074a566a80fe7ca3-v30a923fb5c164d6cd18280c02422f75e611e8fb2-e1edb594",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-5640093f1ca63fd6af231cc8a7fb7d40e1907b8c-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-21500546",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-f8ef34672b961a95ec7282643679492862c688ec-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-f91ad040",
+        "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-5dfde12c1c1c0b6e48f17e3405468593e39d9492-vnan-15dbf87c",
+        "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-aeabf3b18896ac1eb7ae9757e66ce886120f8309-vnan-dc9947f9",
+        "miniswe-OpenAI__GPT-5-instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan-ca34b75e",
+        "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-3649aa96",
+        "miniswe-OpenAI__GPT-5-keras-team__keras-19484-2bd0f0db",
+        "miniswe-OpenAI__GPT-5-keras-team__keras-19636-0123c279",
+        "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-24627-ee685446",
+        "miniswe-OpenAI__GPT-5-mockito__mockito-3220-ce8a6968",
+        "miniswe-OpenAI__GPT-5-nushell__nushell-13357-4bd10bdc",
+        "miniswe-OpenAI__GPT-5-ponylang__ponyc-1057-56b583ae",
+        "miniswe-OpenAI__GPT-5-ponylang__ponyc-2205-2a662253",
+        "miniswe-OpenAI__GPT-5-ponylang__ponyc-2247-a9fb6037",
+        "miniswe-OpenAI__GPT-5-ponylang__ponyc-2532-98ccc9cb",
+        "miniswe-OpenAI__GPT-5-ponylang__ponyc-3973-6087c41b",
+        "miniswe-OpenAI__GPT-5-prettier__prettier-12930-d76c2178",
+        "miniswe-OpenAI__GPT-5-prettier__prettier-14400-477c8cff",
+        "miniswe-OpenAI__GPT-5-simdjson__simdjson-2016-953561fe",
+        "miniswe-OpenAI__GPT-5-sveltejs__svelte-10608-2fe6d098",
+        "miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7",
+        "miniswe-OpenAI__GPT-5-sveltejs__svelte-13097-f6faf669",
+        "miniswe-OpenAI__GPT-5-sveltejs__svelte-9962-571c4e95",
+        "miniswe-OpenAI__GPT-5-sympy__sympy-12419-4a50ba40",
+        "miniswe-OpenAI__GPT-5-vuejs__core-9213-5aade8e3",
+        "sweagent-OpenAI__GPT-5-clap-rs__clap-2758-594e09d1",
+        "sweagent-OpenAI__GPT-5-cli__cli-5019-51dee7c3",
+        "sweagent-OpenAI__GPT-5-facebook__zstd-1532-6f816f49",
+        "sweagent-OpenAI__GPT-5-facebook__zstd-637-94afe4df",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-15158-25e0c0d7",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-21768-91cf46b0",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-27463-1b3f334c",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-28535-e28436fb",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-29311-5bbe74e8",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-29449-deaa19e6",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-8624-b9dc0bc1",
+        "sweagent-OpenAI__GPT-5-iamkun__dayjs-1414-7722295d",
+        "sweagent-OpenAI__GPT-5-iamkun__dayjs-1725-4fa6a2e1",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-77658704217d5f166404fc67997203c25381cb6e-v390e508d27db7a51eece36bb6d9698b63a5b638a-3b3b7d5d",
+        "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-3d5a345f94c2adc8a0eaa102c189c08ad4c0f8e8-479591a7",
+        "sweagent-OpenAI__GPT-5-instance_flipt-io__flipt-756f00f79ba8abf9fe53f3c6c818123b42eb7355-74bc5f38",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-60725705782832a2cb22e17c49697948a42a9d03-v298a7a812ceed28c4c18355a091f1b268fe56d86-0036e996",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-8a5a63af6e0be406aa6c8c9b6d5f28b2f1b6af5a-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-0e380383",
+        "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-9d1c92b0",
+        "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e-f1d1d09d",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19201-a9b06a76",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19636-be8c419a",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19838-040f1c90",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19844-ca79bed1",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19924-dc8be29c",
+        "sweagent-OpenAI__GPT-5-langchain-ai__langchain-5609-c3440b94",
+        "sweagent-OpenAI__GPT-5-microsoft__vscode-135197-4a0fddee",
+        "sweagent-OpenAI__GPT-5-microsoft__vscode-160342-b846798e",
+        "sweagent-OpenAI__GPT-5-microsoft__vscode-177084-ddcf304b",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-15359-31082364",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-18141-c7612a1f",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-18257-ecfae4b2",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-18683-2bd64ee3",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-19849-4ff77a47",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-20252-99dc0124",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-28813-77bdd20a",
+        "sweagent-OpenAI__GPT-5-mui__material-ui-42412-73b8be1c",
+        "sweagent-OpenAI__GPT-5-ponylang__ponyc-1057-f7b52e61",
+        "sweagent-OpenAI__GPT-5-prettier__prettier-361-0e842b35",
+        "sweagent-OpenAI__GPT-5-serverless__serverless-2576-80a1d381",
+        "sweagent-OpenAI__GPT-5-serverless__serverless-3457-5ad91382",
+        "sweagent-OpenAI__GPT-5-serverless__serverless-7374-2a246c8b"
+      ]
+    },
+    {
+      "count": 8,
+      "denominator": 239,
+      "id": "unsolved-aci-no-returncode",
+      "traceIds": [
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-13865-44d517cd",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-13989-f41dae7b",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-6cc97447aac5816745278f3735af128afb255c81-v0f01c69f1e2528b935359cfe578530722bca2c59-1c989b98",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59-16808561",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2-ab0b8f1f",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-77c16d530b4d5c0f33d68bead2c6b329aee9b996-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-904f86da",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-18553-468c06f3",
+        "sweagent-OpenAI__GPT-5-langchain-ai__langchain-4009-0a56c80f"
+      ]
+    },
+    {
+      "count": 24,
+      "denominator": 239,
+      "id": "unsolved-command-exit-0",
+      "traceIds": [
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-add-benchmark-lm-eval-harness-54ac67f0",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-linux-kernel-qemu-504a7c57",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-chem-property-targeting-8ff9ebfd",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-code-vulnerability-c2cb504b",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-implement-eigenvectors-from-eigenvalues-research-paper-7ecc5fed",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-3.11-cfba53a2",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-install-windows-xp-edd35096",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-neuron-to-jaxley-conversion-87200f19",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-run-pdp11-code-ba499e4b",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-sam-cell-seg-93dae667",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-speech-to-text-52bfba5b",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-vul-flask-4946dda9",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-write-compressor-9fff4fee",
+        "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-74a92a16",
+        "miniswe-DeepSeek__DeepSeek-V3.2-cartpole-rl-training-fec5f97e",
+        "miniswe-DeepSeek__DeepSeek-V3.2-fix-ocaml-gc-2299ab4a",
+        "miniswe-DeepSeek__DeepSeek-V3.2-get-bitcoin-nodes-6004dfc9",
+        "miniswe-DeepSeek__DeepSeek-V3.2-hf-lora-adapter-f46ef20a",
+        "miniswe-DeepSeek__DeepSeek-V3.2-lean4-proof-bd0e040f",
+        "miniswe-DeepSeek__DeepSeek-V3.2-play-zork-c1cce947",
+        "miniswe-DeepSeek__DeepSeek-V3.2-port-compressor-4652dd99",
+        "miniswe-DeepSeek__DeepSeek-V3.2-schemelike-metacircular-eval-e73a741e",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86-7568ee74",
+        "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-11445-fa910280"
+      ]
+    },
+    {
+      "count": 11,
+      "denominator": 239,
+      "id": "unsolved-command-exit-127",
+      "traceIds": [
+        "miniswe-OpenAI__GPT-5-astropy__astropy-14598-416c95db",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa",
+        "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-f8adf46a",
+        "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-442534db",
+        "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-23299-3c79bc6c",
+        "miniswe-OpenAI__GPT-5-matplotlib__matplotlib-26208-deec0657",
+        "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-8638-0bbaf886",
+        "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9461-b131876c",
+        "miniswe-OpenAI__GPT-5-sphinx-doc__sphinx-9602-27a680bd",
+        "miniswe-OpenAI__GPT-5-sympy__sympy-15976-80927487",
+        "miniswe-OpenAI__GPT-5-sympy__sympy-20428-5f09fe17"
+      ]
+    },
+    {
+      "count": 6,
+      "denominator": 239,
+      "id": "unsolved-command-other-nonzero",
+      "traceIds": [
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-stp-23b2a67b",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-rstan-to-pystan-6bdccdda",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-spinning-up-rl-c435941e",
+        "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-3334a181",
+        "miniswe-DeepSeek__DeepSeek-V3.2-build-initramfs-qemu-da062aa5",
+        "miniswe-DeepSeek__DeepSeek-V3.2-merge-diff-arc-agi-task-cb5aafdd"
+      ]
+    },
+    {
+      "count": 9,
+      "denominator": 239,
+      "id": "unsolved-submit-only",
+      "traceIds": [
+        "miniswe-DeepSeek__DeepSeek-V3.2-build-linux-kernel-qemu-ea803cf1",
+        "miniswe-DeepSeek__DeepSeek-V3.2-protein-assembly-472264a0",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-22458-ce29b23d",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-22920-27c55020",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-e1e502986a3b003899a8347ac8a7ff7b08cbfc39-v08d8e8889ec945ab821fb156c04c7d2e2810debb-1e80cfac",
+        "sweagent-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-d3f257e7",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-18871-85aa3499",
+        "sweagent-OpenAI__GPT-5-keras-team__keras-19863-d4ec1df3",
+        "sweagent-OpenAI__GPT-5-yt-dlp__yt-dlp-5933-2584b464"
+      ]
+    },
+    {
+      "count": 8,
+      "denominator": 239,
+      "id": "unsolved-submit-with-work",
+      "traceIds": [
+        "miniswe-OpenAI__GPT-5-huggingface__transformers-20136-e547c8dd",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-1b70260d5aa2f6c9782fd2b848e8d16566e50d85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-0b674c2a",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-9142be2f6cabbe6597c9254c5bb9186d17036d55-v0f01c69f1e2528b935359cfe578530722bca2c59-48b421ba",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-949c503f2ef4b2c5d668af0492a5c0db1ab86140-v0f01c69f1e2528b935359cfe578530722bca2c59-3a45c2a2",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-bec27fb4c0a40c5f8bbcf26a475704227d65ee73-v30a923fb5c164d6cd18280c02422f75e611e8fb2-1af9d682",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-cb94c0cc550df9e98f1247bc71d8c2b861c75049-v1055803c3a812189a1133297f7f5468579283f86-6c8d52c0",
+        "miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-78872a1e",
+        "miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-f8e7fea0becae25ae20606f1422068137189fe9e-b08f9fd3"
+      ]
+    },
+    {
+      "count": 33,
+      "denominator": 239,
+      "id": "unsolved-unknown-no-gold",
+      "traceIds": [
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-cython-ext-d15c5d03",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-build-pmars-23413a0e",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-fix-ocaml-gc-29624b4f",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-gpt2-codegolf-cf06bae2",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-hf-lora-adapter-019612de",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-merge-diff-arc-agi-task-dab7c1f1",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-path-tracing-79ade2b0",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-postgres-csv-clean-f7b1415b",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-regex-chess-a83c78d9",
+        "miniswe-Anthropic__Claude-Sonnet-4-20250514-Thinking-train-fasttext-36447b26",
+        "miniswe-DeepSeek__DeepSeek-V3.2-build-cython-ext-72d231f6",
+        "miniswe-DeepSeek__DeepSeek-V3.2-cron-broken-network-c02d5c8b",
+        "miniswe-DeepSeek__DeepSeek-V3.2-db-wal-recovery-92bbb058",
+        "miniswe-DeepSeek__DeepSeek-V3.2-path-tracing-710cd772",
+        "miniswe-DeepSeek__DeepSeek-V3.2-processing-pipeline-805b0064",
+        "miniswe-DeepSeek__DeepSeek-V3.2-query-optimize-3b3e2297",
+        "miniswe-DeepSeek__DeepSeek-V3.2-vul-flask-a496d591",
+        "miniswe-OpenAI__GPT-5-huggingface__transformers-23223-8f2625a5",
+        "miniswe-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-f7c2004c",
+        "miniswe-OpenAI__GPT-5-pydata__xarray-6599-7db3a931",
+        "sweagent-OpenAI__GPT-5-Significant-Gravitas__AutoGPT-4652-b968024b",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-19590-6ee9899a",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-20136-2b7c0524",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-23223-ba60b3d2",
+        "sweagent-OpenAI__GPT-5-huggingface__transformers-3716-5872d333",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-7e1a347695c7987ae56ef1b6919156d9254010ad-v390e508d27db7a51eece36bb6d9698b63a5b638a-853de2e9",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-8127abbc298cabf04aaa89a478fc5e5e3432a6fc-v30a923fb5c164d6cd18280c02422f75e611e8fb2-79f7945f",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b2a289dcbb702003377221e25f62c8a3608f0e89-v173091e2e36d38c978002990795f66cfc0af30ad-7e516d53",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-b5e0293645570f3f404ad1dbbe5f006956ada0df-v0f01c69f1e2528b935359cfe578530722bca2c59-8f74ece3",
+        "sweagent-OpenAI__GPT-5-instance_ansible__ansible-d58e69c82d7edd0583dd8e78d76b075c33c3151e-v173091e2e36d38c978002990795f66cfc0af30ad-32930979",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-910b08570210509f3bcfebf35c093a48243fe754-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4-084561f5",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-bb152d23c004f3d68986877143bb0f83531fe401-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-767f3550",
+        "sweagent-OpenAI__GPT-5-instance_internetarchive__openlibrary-d109cc7e6e161170391f98f9a6fa1d02534c18e4-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-54010cb4"
+      ]
+    }
+  ],
+  "interpretation": "Observed task outcome and first annotated incorrect-step evidence; not a causal root-cause or hosted-agent prevalence estimate.",
+  "revision": "aa213b84ffb6690fc37ca15766d6ca174ec36d4d",
+  "schema": "agent-eval/code-trace-failure-taxonomy@1",
+  "source": "NJU-LINK/CodeTraceBench",
+  "sources": [
+    {
+      "cases": 32,
+      "corpus": "dev",
+      "labelsSha256": "5d8b4024c3e2114965cbf2f2fa0124bbf59b3fb134824fa06dd6a38ee07e8412",
+      "stepsSetSha256": "c775068ff683c04410330273b684e0639361e9d4f42de57daaff421dabfcb9de",
+      "traceSpans": 1897,
+      "tracesSetSha256": "212dfe48a199a8ced0386dd88e7d7c46bc5f18ab252a54c9946c4250d9ff6500"
+    },
+    {
+      "cases": 32,
+      "corpus": "holdout-1",
+      "labelsSha256": "53af5ffe3962f3378f2d65419b92b8a56fe7d6c8efc619a0bc2b8f0872bc4f83",
+      "stepsSetSha256": "6b51e1567ba0084ecaa76ab5caa1c9f1e9af2212a025fa16be14f06e44e85545",
+      "traceSpans": 2093,
+      "tracesSetSha256": "f66db4149037974a93fd74f29b90f52b30740a1ebeb82d0ebc60c69a8a4abb45"
+    },
+    {
+      "cases": 32,
+      "corpus": "holdout-2",
+      "labelsSha256": "2db46579b7993edc376acbbcacf67a1d0ddfcdb94e28930c2bb8dfcf1dc32fb2",
+      "stepsSetSha256": "5027beb6b6773af348f9db0b5f25358980367839d0ac40a0c3f5cabd4ac0562a",
+      "traceSpans": 1960,
+      "tracesSetSha256": "839622c14e434a67f944698526621ac5e7367d2dda8a4761ce1ef680d7238c52"
+    },
+    {
+      "cases": 37,
+      "corpus": "split-3",
+      "labelsSha256": "d0347ec7a5ec9a07bd3fcd16aa06b07bcb33ffabca39cb0b0f7a564fb500ae08",
+      "stepsSetSha256": "a41d45c987f568d2935f2e99271ff82cca5ed6c625eebb482cb5d5bef17c46e9",
+      "traceSpans": 1941,
+      "tracesSetSha256": "a12e6407d53e777d1baa3bd3bd6911efa30790b88aa6c8c1781e3c7dc4703378"
+    },
+    {
+      "cases": 106,
+      "corpus": "sweagent",
+      "labelsSha256": "399cfed3b9b53dc47e61735ad0dde94acfeb3fcd63cd9879fe96e90df093d6d1",
+      "stepsSetSha256": "869e954b11d6d4cd442c144a11debf87108eb5f3fea20ed9f8d1b0ac18b027dd",
+      "traceSpans": 8952,
+      "tracesSetSha256": "600cefcf598c996b6c69f8e36176ceb35264c6f6a729c6fdcf8c1a058f78531e"
+    }
+  ],
+  "units": {
+    "solved": 140,
+    "trajectories": 239,
+    "unsolved": 99,
+    "verifiedRunRows": 44,
+    "verifiedUniqueCases": 22
+  },
+  "verifiedCases": [
+    {
+      "caseId": "holdout-1/miniswe-OpenAI__GPT-5-clap-rs__clap-3179-107b6c1d",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-1/miniswe-OpenAI__GPT-5-clap-rs__clap-3421-8c92021d",
+      "run2": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 2,
+        "reproduced": true,
+        "signature": "/bin/sh: 140: Syntax error: \"&&\" unexpected"
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 2,
+        "reproduced": false,
+        "signature": "/bin/sh: 140: Syntax error: \"&&\" unexpected"
+      }
+    },
+    {
+      "caseId": "holdout-1/miniswe-OpenAI__GPT-5-clap-rs__clap-3975-5f1af46d",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 101,
+        "reproduced": false,
+        "signature": "error: expected identifier, found keyword `pub`"
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 101,
+        "reproduced": false,
+        "signature": "error: expected identifier, found keyword `pub`"
+      }
+    },
+    {
+      "caseId": "holdout-1/miniswe-OpenAI__GPT-5-clap-rs__clap-4248-85bd7a43",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 2,
+        "reproduced": true,
+        "signature": "/bin/sh: 45: Syntax error: end of file unexpected (expecting \"}\")"
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 2,
+        "reproduced": true,
+        "signature": "/bin/sh: 45: Syntax error: end of file unexpected (expecting \"}\")"
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_ansible__ansible-4c5ce5a1a9e79a845aff4978cfeb72a0d4ecf7d6-v1055803c3a812189a1133297f7f5468579283f86-6e5a7eaa",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 127,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_ansible__ansible-bf98f031f3f5af31a2d78dc2f0a58fe92ebae0bb-v1055803c3a812189a1133297f7f5468579283f86-7568ee74",
+      "run2": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_element-hq__element-web-fe14847bb9bb07cab1b9c6c54335ff22ca5e516a-vnan-ca34b75e",
+      "run2": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 2,
+        "reproduced": true,
+        "signature": "/bin/sh: 9: Syntax error: \"&&\" unexpected"
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 2,
+        "reproduced": true,
+        "signature": "/bin/sh: 9: Syntax error: \"&&\" unexpected"
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_internetarchive__openlibrary-757fcf46c70530739c150c57b37d6375f155dc97-ve8c8d62a2b60610a3c4631f5f23ed866bada9818-3649aa96",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-2dd8966fdcf11972062c540b7a787e4d0de8d372-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-f8adf46a",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-instance_qutebrowser__qutebrowser-473a15f7908f2bb6d670b0e908ab34a28d8cf7e2-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d-442534db",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-ponylang__ponyc-1057-56b583ae",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-ponylang__ponyc-2532-98ccc9cb",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 1,
+        "reproduced": true,
+        "signature": "error: a/src/libponyc/codegen/genmatch.c: No such file or directory"
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 1,
+        "reproduced": true,
+        "signature": "error: a/src/libponyc/codegen/genmatch.c: No such file or directory"
+      }
+    },
+    {
+      "caseId": "holdout-2/miniswe-OpenAI__GPT-5-sveltejs__svelte-10608-2fe6d098",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-fasterxml__jackson-dataformat-xml-638-5311424b",
+      "run2": {
+        "fixOutcome": "not-flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-instance_ansible__ansible-5640093f1ca63fd6af231cc8a7fb7d40e1907b8c-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-21500546",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-instance_element-hq__element-web-aeabf3b18896ac1eb7ae9757e66ce886120f8309-vnan-dc9947f9",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-nushell__nushell-13357-4bd10bdc",
+      "run2": {
+        "fixOutcome": "not-flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-flipped",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-ponylang__ponyc-2205-2a662253",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 127,
+        "reproduced": false,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 127,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-ponylang__ponyc-3973-6087c41b",
+      "run2": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-simdjson__simdjson-2016-953561fe",
+      "run2": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-sveltejs__svelte-11913-1fe8a1b7",
+      "run2": {
+        "fixOutcome": "flipped",
+        "recordedReturncode": 0,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "not-attempted",
+        "recordedReturncode": 0,
+        "reproduced": false,
+        "signature": null
+      }
+    },
+    {
+      "caseId": "split3/miniswe-OpenAI__GPT-5-sveltejs__svelte-9962-571c4e95",
+      "run2": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      },
+      "run6": {
+        "fixOutcome": "generation-failed",
+        "recordedReturncode": 127,
+        "reproduced": true,
+        "signature": null
+      }
+    }
+  ],
+  "verifiedSources": [
+    {
+      "rows": 22,
+      "run": "run2",
+      "sha256": "afcbfb7b21c14868f8654bb27d113f42ba66fd951bcdc64b5f32b1e8b33641e3"
+    },
+    {
+      "rows": 22,
+      "run": "run6",
+      "sha256": "78e7329bbb5fc0019689238a6093f8acf02716c73ef9ea9c28c669694ac8af82"
+    }
+  ]
+}

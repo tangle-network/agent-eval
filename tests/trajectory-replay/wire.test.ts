@@ -8,7 +8,12 @@ import {
   replayVerifyFinding,
   resolveFindingInvocation,
 } from '../../src/trajectory-replay/wire'
-import { fixtureStep, scriptedBackend, writeFixtureCorpus } from './fixtures'
+import {
+  fixtureStep,
+  fixtureStepUnrecordedReturncode,
+  scriptedBackend,
+  writeFixtureCorpus,
+} from './fixtures'
 
 let root: string
 afterEach(() => {
@@ -102,6 +107,47 @@ describe('resolveFindingInvocation', () => {
         [corpus],
       ),
     ).toThrow(/outside/)
+  })
+
+  it('rejects unverified gold actions before invoking a fix model', async () => {
+    const dir = makeRoot()
+    const corpus = writeFixtureCorpus(dir, 'unverified', [
+      {
+        // CodeTraceBench sveltejs__svelte-11913: a wrong edit returned 0.
+        trajId: 'wrong-edit',
+        steps: [fixtureStep(1, 'ls', 0), fixtureStep(2, 'sed -i wrong file.c', 0)],
+        raw: { baseImage: 'example/img:1', runConfigCwd: '/repo' },
+      },
+      {
+        // CodeTraceBench sweagent transformers-13865: ACI edit has no returncode.
+        trajId: 'aci-edit',
+        steps: [
+          fixtureStep(1, 'ls', 0),
+          fixtureStepUnrecordedReturncode(2, 'str_replace_editor str_replace /testbed/f.py'),
+        ],
+        raw: { baseImage: 'example/img:2', runConfigCwd: '/repo' },
+      },
+    ])
+    let calls = 0
+    for (const trajId of ['wrong-edit', 'aci-edit']) {
+      await expect(
+        replayVerifyFinding(
+          { trajId, subject: 'incorrect-steps-2-2-unescaped-consequence-3' },
+          {
+            corpora: [corpus],
+            out: join(dir, trajId),
+            fixCaller: {
+              complete: async () => {
+                calls += 1
+                return { succeeded: false, error: 'unexpected model call' }
+              },
+            },
+            backendFactory: () => scriptedBackend(() => ({ exitCode: 0, stdout: '', stderr: '' })),
+          },
+        ),
+      ).rejects.toThrow(trajId === 'wrong-edit' ? /exited 0/ : /no recorded returncode/)
+    }
+    expect(calls).toBe(0)
   })
 })
 

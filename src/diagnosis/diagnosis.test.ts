@@ -259,6 +259,97 @@ describe('diagnoseSpans, model mode', () => {
     pricing: { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
   })
 
+  it('shows overlapping call intervals before the model estimates wall delay', async () => {
+    const { transport, prompts } = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    const calls = [
+      span({
+        span_id: 'root',
+        name: 'session',
+        end_time: NS('2026-09-22T10:03:00Z'),
+        attributes: { 'openinference.span.kind': 'AGENT' },
+      }),
+      span({
+        span_id: 'a',
+        parent_span_id: 'root',
+        name: 'Bash',
+        end_time: NS('2026-09-22T10:02:30Z'),
+        attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'Bash' },
+      }),
+      span({
+        span_id: 'b',
+        parent_span_id: 'root',
+        name: 'Bash',
+        start_time: NS('2026-09-22T10:00:30Z'),
+        end_time: NS('2026-09-22T10:02:45Z'),
+        attributes: { 'openinference.span.kind': 'TOOL', 'tool.name': 'Bash' },
+      }),
+    ]
+    await diagnoseSpans(
+      calls,
+      { subject: 'customer', label: 'Overlapping calls' },
+      { mode: 'model', model: modelOptions(transport) },
+    )
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('count overlapping spans only once')
+    expect(prompts[0]).toContain('"id":"a"')
+    expect(prompts[0]).toContain('"start":"2026-09-22T10:00:00.000Z"')
+    expect(prompts[0]).toContain('"end":"2026-09-22T10:02:30.000Z"')
+    expect(prompts[0]).toContain('"start":"2026-09-22T10:00:30.000Z"')
+    expect(prompts[0]).toContain('"end":"2026-09-22T10:02:45.000Z"')
+  })
+
+  it('keeps status and error prose out of metadata-only model input', async () => {
+    const canary = 'CUSTOMER_STATUS_MESSAGE_CANARY_20260923'
+    const rows = sampleRun()
+    rows[1]!.status_message = `failed while reading ${canary}`
+    Object.assign(rows[1]!.attributes as Record<string, unknown>, {
+      'error.message': canary,
+      error_message: canary,
+      ERROR_MESSAGE: canary,
+      'error.inner.message': canary,
+      'exception.stacktrace': canary,
+      events: [{ message: canary }],
+      args: canary,
+      tool_arguments: canary,
+      full_command: canary,
+    })
+    const ingested = ingestSpans(rows, { contentIncluded: false })
+    expect(ingested.spans[1]!.statusMessage).toBeNull()
+    expect(ingested.spans[1]!.attributes['error.message']).toBeUndefined()
+    expect(ingested.report.droppedAttributes).toEqual(
+      expect.arrayContaining([
+        'error.message',
+        'error_message',
+        'ERROR_MESSAGE',
+        'error.inner.message',
+        'exception.stacktrace',
+        'events',
+        'args',
+        'tool_arguments',
+        'full_command',
+      ]),
+    )
+
+    const withheld = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    const result = await diagnoseSpans(
+      rows,
+      { subject: 'customer', label: 'metadata only', contentIncluded: false },
+      { mode: 'model', model: modelOptions(withheld.transport) },
+    )
+    expect(withheld.prompts).toHaveLength(1)
+    expect(withheld.prompts[0]).not.toContain(canary)
+    expect(JSON.stringify(result)).not.toContain(canary)
+
+    const optedIn = fakeTransport(() => ({ answer: 'No claim.', rows: [] }))
+    await diagnoseSpans(
+      rows,
+      { subject: 'customer', label: 'content allowed', contentIncluded: true },
+      { mode: 'model', model: modelOptions(optedIn.transport) },
+    )
+    expect(optedIn.prompts[0]).toContain(canary)
+  })
+
   it('keeps inferred findings with resolvable evidence and rejects the rest with a reason', async () => {
     const { transport, prompts } = fakeTransport(() => ({
       answer: 'The agent retried a missing command.',

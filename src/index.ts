@@ -946,6 +946,18 @@ export type {
   PairedPromotionDecisionOptions,
 } from './paired-promotion-decision'
 export { decidePairedPromotion } from './paired-promotion-decision'
+export type {
+  PairedPromotionAlternative,
+  PairedPromotionAlternativeCell,
+  PairedPromotionCallRates,
+  PairedPromotionPowerCall,
+  PairedPromotionPowerOptions,
+  PairedPromotionPowerResult,
+  PairedValueLaw,
+  RequiredPairsForPairedPromotionOptions,
+  RequiredPairsForPairedPromotionResult,
+} from './paired-promotion-power'
+export { pairedPromotionPower, requiredPairsForPairedPromotion } from './paired-promotion-power'
 
 export type {
   ArtifactEventLike,

@@ -152,7 +152,8 @@ describe('enumerateReplayableCases', () => {
   })
 
   it('skips submit-command golds when choosing k and excludes submit-only cases', () => {
-    const submitAction =
+    const submitAction = 'echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT'
+    const submitWithWork =
       'echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && git add -A && git diff --cached'
     const dir = makeRoot()
     const corpus = writeFixtureCorpus(dir, 'submit', [
@@ -173,6 +174,30 @@ describe('enumerateReplayableCases', () => {
         steps: [fixtureStep(1, 'ls', 0), fixtureStep(2, submitAction, null)],
         goldIncorrectSteps: [2],
         raw: { baseImage: 'example/img:2', runConfigCwd: '/r' },
+      },
+      {
+        // split-3: miniswe-OpenAI__GPT-5-instance_ansible__ansible-1b70260d5aa2f6c9782fd2b848e8d16566e50d85-vba6da65a0f3baefda7a058ebbd0a8dcafb8512f5-0b674c2a.
+        // Its gold submit action also ran git add.
+        // There is no recorded exit, so it cannot be replay-certified.
+        trajId: 'traj-submit-with-work',
+        steps: [fixtureStep(1, 'ls', 0), fixtureStep(2, submitWithWork, null)],
+        goldIncorrectSteps: [2],
+        raw: { baseImage: 'example/img:4', runConfigCwd: '/r' },
+      },
+      {
+        // sweagent-OpenAI__GPT-5-huggingface__transformers-13865-44d517cd:
+        // its ACI editor records prose, not a shell returncode.
+        trajId: 'traj-aci-editor',
+        steps: [
+          fixtureStep(1, 'ls', 0),
+          fixtureStepUnrecordedReturncode(
+            2,
+            'str_replace_editor str_replace /testbed/f.py',
+            'edited',
+          ),
+        ],
+        goldIncorrectSteps: [2],
+        raw: { baseImage: 'example/img:5', runConfigCwd: '/r' },
       },
       {
         trajId: 'traj-no-submit-gold',
@@ -202,6 +227,18 @@ describe('enumerateReplayableCases', () => {
         trajId: 'traj-submit-only',
         reason: 'gold-only-submit-step',
         detail: '1 gold step(s), all submit commands',
+      },
+      {
+        corpus: 'submit',
+        trajId: 'traj-submit-with-work',
+        reason: 'no-recorded-returncode-at-k',
+        detail: 'k=2; arm A cannot confirm execution without a recorded returncode',
+      },
+      {
+        corpus: 'submit',
+        trajId: 'traj-aci-editor',
+        reason: 'no-recorded-returncode-at-k',
+        detail: 'k=2; arm A cannot confirm execution without a recorded returncode',
       },
     ])
   })
@@ -289,8 +326,7 @@ describe('runReplayBatch', () => {
         taskMd: 'Fix the build.',
       },
       {
-        // Gold step is a final submit with no recorded observation: arm A can
-        // never reproduce a returncode, so the case counts against the rate.
+        // Gold step has no recorded returncode: exclude before sandbox work.
         trajId: 'traj-submit-gold',
         steps: [...failingSteps().slice(0, 3), fixtureStep(4, 'echo SUBMIT', null)],
         goldIncorrectSteps: [4],
@@ -342,14 +378,12 @@ describe('runReplayBatch', () => {
         }),
     })
 
-    expect(report.totals).toMatchObject({ labelEntries: 5, replayable: 3, executed: 3 })
+    expect(report.totals).toMatchObject({ labelEntries: 5, replayable: 2, executed: 2 })
     expect(report.totals.excludedByReason).toEqual({
       'no-swe-raw-trajectory': 1,
-      'gold-only-submit-step': 1,
+      'no-recorded-returncode-at-k': 2,
     })
-    expect(report.totals.submitGoldsByCorpus).toEqual({
-      batch: { submitOnlyCases: 1, goldsSkippedWithinReplayable: 0 },
-    })
+    expect(report.totals.submitGoldsByCorpus).toEqual({})
     expect(report.pullFailures).toEqual([
       {
         corpus: 'batch',
@@ -358,12 +392,12 @@ describe('runReplayBatch', () => {
         error: 'pull example/missing:1: not found',
       },
     ])
-    // Only traj-reproduces replays: submit-gold has no recorded returncode,
-    // pull-fails never reached an exec backend.
+    // Only traj-reproduces replays: submit-gold was excluded before execution,
+    // and pull-fails never reached an exec backend.
     expect(report.headline.replayabilityRate).toEqual({
       numerator: 1,
-      denominator: 3,
-      value: 1 / 3,
+      denominator: 2,
+      value: 1 / 2,
     })
     expect(report.headline.signatureStrictRate.numerator).toBe(1)
     expect(report.headline.fixFlipRate).toEqual({ numerator: 1, denominator: 1, value: 1 })
@@ -394,21 +428,14 @@ describe('runReplayBatch', () => {
       armBExit: 0,
       failureVanished: true,
     })
-    const submit = report.cases.find((c) => c.trajId === 'traj-submit-gold')!
-    expect(submit).toMatchObject({
-      status: 'ok',
-      armAReturncodeMatch: false,
-      replayed: false,
-      fix: null,
-    })
+    expect(report.cases.some((c) => c.trajId === 'traj-submit-gold')).toBe(false)
 
     expect(existsSync(join(out, 'batch-report.json'))).toBe(true)
     expect(existsSync(join(out, 'cases.jsonl'))).toBe(true)
     const markdown = readFileSync(join(out, 'batch-report.md'), 'utf8')
-    expect(markdown).toContain('Replayability rate: 33.3%')
+    expect(markdown).toContain('Replayability rate: 50.0%')
     expect(markdown).toContain('Fix-flip rate: 100.0%')
     expect(markdown).toContain('pull example/missing:1: not found')
-    expect(markdown).toContain('| batch | 1 | 0 |')
     const verdictPath = join(out, 'batch--traj-reproduces', 'replay-verdict.json')
     expect(existsSync(verdictPath)).toBe(true)
     expect(existsSync(join(out, 'batch--traj-reproduces', 'armB-result.json'))).toBe(true)
