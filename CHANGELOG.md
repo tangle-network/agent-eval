@@ -8,6 +8,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- `TraceEmitter` never throws a failed store write into the traced run.
+  It counts written and dropped writes, reports each failure to `onCaptureError` (default: one process warning), and writes the counts onto the Run as `capture` when it ends.
+  `assertRunCaptured` reports `dropped_writes` for a run whose producer dropped records, so an incomplete run no longer reads as a shorter one.
+- `TraceEmitter.within` runs its callback in its own async context, so parallel `within` calls parent their own children without passing `parentSpanId`.
+  `currentSpanId()` names the span a new span would be parented to.
 - Trace contracts no longer pass when a required step never ran.
   `precedes(a, b)` now fails when either endpoint is missing.
   For the conditional form ("every `b` needs an earlier `a`; a run without `b` passes"), use `neverUnless(b, a)`, which keeps that meaning.

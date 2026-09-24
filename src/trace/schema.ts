@@ -81,6 +81,22 @@ export interface Run {
   budget?: BudgetSpec
   /** Free-form labels for downstream grouping. */
   tags?: Record<string, string>
+  /**
+   * The producer's own account of its store writes for this run, written when
+   * the run ends. Absent when the producer kept no account, which is unknown,
+   * not complete.
+   */
+  capture?: RunCaptureReport
+}
+
+/** Store writes a producer made for one run. */
+export interface RunCaptureReport {
+  /** Writes that landed. */
+  written: number
+  /** Writes that failed; those records are missing from the store. */
+  dropped: number
+  /** The most recent failure, prefixed with the write that failed. */
+  lastError?: string
 }
 
 // ── Spans (hierarchical work units) ──────────────────────────────────
