@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- `TraceEmitter` never throws a failed store write into the traced run.
+  It counts written and dropped writes, reports each failure to `onCaptureError` (default: one process warning), and writes the counts onto the Run as `capture` when it ends.
+  `assertRunCaptured` reports `dropped_writes` for a run whose producer dropped records, so an incomplete run no longer reads as a shorter one.
+- `TraceEmitter.within` runs its callback in its own async context, so parallel `within` calls parent their own children without passing `parentSpanId`.
+  `currentSpanId()` names the span a new span would be parented to.
+
 ## [0.187.2] — 2026-09-24
 
 ### Added
