@@ -570,6 +570,101 @@ describe('Runtime FileRunContext supervisor reader', () => {
     ])
   })
 
+  it('drops the owner marker Runtime repeats inside an owned tree, so a nested manager is one worker', async () => {
+    // The shape agent-runtime 0.252 to 0.261 writes (discovery-lab e1-depth2-20260924): the owned
+    // tree's key is the path `root/root:s0`, and its first spawn repeats the owner `root:s0` with
+    // no parent. Read as a worker, that marker doubled every nested manager's row.
+    const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
+    const runDir = join(parent, 'owned-tree-marker')
+    const childId = 'root:s0'
+    const leafId = `${childId}:s0`
+    const ownedTreeRoot = `root/${childId}`
+    await writeJournal(runDir, [
+      begin('root', 0),
+      event('root', {
+        kind: 'spawned',
+        id: 'root',
+        label: 'root',
+        identity: { profileDigest: ROOT_PROFILE },
+        budget: {},
+        seq: 0,
+        at: at(0),
+      }),
+      event('root', {
+        kind: 'spawned',
+        id: childId,
+        parent: 'root',
+        ownedTreeRoot,
+        label: 'nested-researcher',
+        identity: { profileDigest: CHILD_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      begin(ownedTreeRoot, 1),
+      event(ownedTreeRoot, {
+        kind: 'spawned',
+        id: childId,
+        label: 'nested-researcher',
+        identity: { profileDigest: CHILD_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 0,
+        at: at(1),
+      }),
+      event(ownedTreeRoot, {
+        kind: 'spawned',
+        id: leafId,
+        parent: childId,
+        label: 'leaf',
+        identity: { profileDigest: LEAF_PROFILE },
+        runtime: 'driver',
+        budget: {},
+        seq: 1,
+        at: at(2),
+      }),
+      event(ownedTreeRoot, {
+        kind: 'settled',
+        id: leafId,
+        status: 'done',
+        harnessTranscript: { status: 'unavailable', reason: 'no-transcript' },
+        seq: 2,
+        at: at(3),
+      }),
+      event('root', {
+        kind: 'settled',
+        id: childId,
+        status: 'done',
+        harnessTranscript: { status: 'unavailable', reason: 'executor-exposes-no-transcript' },
+        seq: 1,
+        at: at(4),
+      }),
+    ])
+
+    const source = await readRuntimeSupervisorRun(runDir, { strict: true })
+    const facts = parseSupervisorTree(source)
+
+    expect(facts.spawns.map((spawn) => [spawn.id, spawn.parent, spawn.role])).toEqual([
+      ['root', null, 'supervisor'],
+      [childId, 'root', 'supervisor'],
+      [leafId, childId, 'worker'],
+    ])
+    expect(source.workers?.map((worker) => worker.workerId)).toEqual([childId, leafId])
+
+    const report = analyzeSupervisorRunIntegrity(source)
+    const codes = report.issues.map((issue) => issue.code)
+    expect(codes).not.toContain('source-row-malformed')
+    expect(
+      report.issues.find((issue) => issue.code === 'native-session-unavailable')?.metadata,
+    ).toEqual(
+      expect.objectContaining({
+        unavailable_count: 2,
+        reasons: { 'executor-exposes-no-transcript': 1, 'no-transcript': 1 },
+      }),
+    )
+  })
+
   it('refuses an ambiguous child-id tree when the spawn names a different owned tree', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
     const runDir = join(parent, 'ambiguous-owned-tree-root')

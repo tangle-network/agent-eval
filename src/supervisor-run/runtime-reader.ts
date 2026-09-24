@@ -4,10 +4,12 @@
  * Runtime stores multiple recursive trees in one `spawn-journal.jsonl`.
  * Each line is an envelope whose `root` identifies the local tree. A journal
  * can connect a nested tree with `spawned.ownedTreeRoot`. It can also use the
- * spawned child id as the nested root and repeat the spawn as a parentless
- * marker when no owned tree is recorded. Descendant spawns must occur in the
- * tree their parent owns. This reader removes a duplicate marker and preserves
- * the other envelopes for the supervisor-run analyzer. Runtime stores profile
+ * spawned child id as the nested root when no owned tree is recorded. Either
+ * way the nested tree may repeat its owner's spawn as a parentless marker: the
+ * owner's id, not the tree key, identifies it (an owned tree's key is a path
+ * such as `root/root:s0`). Descendant spawns must occur in the tree their
+ * parent owns. This reader removes a duplicate marker and preserves the other
+ * envelopes for the supervisor-run analyzer. Runtime stores profile
  * identity below `identity` and does not emit Eval's role field. This boundary
  * projects those fields without changing Runtime's dialect.
  *
@@ -169,7 +171,6 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
 
   const parentSpawnsById = new Map<string, EventRecord[]>()
   const parentSpawnsByOwnedTreeRoot = new Map<string, EventRecord[]>()
-  const rootMarkersByTree = new Map<string, EventRecord[]>()
   for (const entry of events) {
     if (entry.event.kind !== 'spawned') continue
     const id = nonEmptyString(entry.event.id)
@@ -185,11 +186,6 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
         matches.push(entry)
         parentSpawnsById.set(id, matches)
       }
-    }
-    if (entry.root === id && (entry.event.parent === undefined || entry.event.parent === null)) {
-      const markers = rootMarkersByTree.get(entry.root) ?? []
-      markers.push(entry)
-      rootMarkersByTree.set(entry.root, markers)
     }
   }
 
@@ -224,6 +220,27 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
     )
   }
   const top = topRoots[0] as BeginRecord
+
+  // A tree's root marker is a parentless spawn of the node that owns the tree: the top root
+  // itself, or the parent spawn that owns a nested tree. An owned tree's key is a path, so
+  // the owner's id is compared, never the tree key.
+  const ownerIdByTree = new Map<string, string>([[top.root, top.root]])
+  for (const [nestedRoot, parentSpawn] of nestedParentSpawns) {
+    const ownerId = nonEmptyString(parentSpawn.event.id)
+    if (ownerId !== null) ownerIdByTree.set(nestedRoot, ownerId)
+  }
+  const isRootMarker = (entry: EventRecord): boolean =>
+    entry.event.kind === 'spawned' &&
+    (entry.event.parent === undefined || entry.event.parent === null) &&
+    nonEmptyString(entry.event.id) !== null &&
+    entry.event.id === ownerIdByTree.get(entry.root)
+  const rootMarkersByTree = new Map<string, EventRecord[]>()
+  for (const entry of events) {
+    if (!isRootMarker(entry)) continue
+    const markers = rootMarkersByTree.get(entry.root) ?? []
+    markers.push(entry)
+    rootMarkersByTree.set(entry.root, markers)
+  }
 
   for (const nestedRoot of nestedRoots) {
     const markers = rootMarkersByTree.get(nestedRoot) ?? []
@@ -300,15 +317,7 @@ function parseEnvelopeJournal(text: string, path: string): NormalizedRuntimeJour
       .filter((id): id is string => id !== null),
   ])
   const normalized = events
-    .filter(
-      (entry) =>
-        !(
-          nestedRoots.has(entry.root) &&
-          entry.event.kind === 'spawned' &&
-          entry.event.id === entry.root &&
-          (entry.event.parent === undefined || entry.event.parent === null)
-        ),
-    )
+    .filter((entry) => !(nestedRoots.has(entry.root) && isRootMarker(entry)))
     .map((entry) => {
       const event = { ...entry.event }
       if (event.kind === 'spawned') {
