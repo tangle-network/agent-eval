@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FileLedgerJournal, type LedgerJournalCodec } from './journal'
+import { FileLedgerJournal, type LedgerEntryOf, type LedgerJournalCodec } from './journal'
 
 interface MetricEvent {
   eventId: string
@@ -18,7 +18,11 @@ class MetricIntegrityError extends Error {
   override readonly name = 'MetricIntegrityError'
 }
 
-function metricCodec(): LedgerJournalCodec<MetricHeader, MetricEvent, MetricEvent[]> {
+function metricCodec(): LedgerJournalCodec<
+  MetricHeader,
+  MetricEvent,
+  { entries: LedgerEntryOf<MetricHeader, MetricEvent>[] }
+> {
   return {
     subject: 'metric journal',
     integrityError: (message, options) => new MetricIntegrityError(message, options),
@@ -27,8 +31,8 @@ function metricCodec(): LedgerJournalCodec<MetricHeader, MetricEvent, MetricEven
     parseEntry: (raw) => raw as never,
     checkEntryHeader: () => {},
     createProjector: () => {
-      const events: MetricEvent[] = []
-      return { apply: (entry) => events.push(entry.event), finish: () => events }
+      const entries: LedgerEntryOf<MetricHeader, MetricEvent>[] = []
+      return { apply: (entry) => entries.push(entry), snapshot: () => ({ entries: [...entries] }) }
     },
   }
 }

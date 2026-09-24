@@ -209,9 +209,11 @@ export interface LedgerTrustedHeadSubject {
 
 /** The entry at exactly `head.sequence` must still carry `head.entryHash`.
  * Entries must already have passed chain verification, which is what makes
- * index and sequence interchangeable here. */
+ * index and sequence interchangeable here. An array serves as `entries`; a
+ * journal that keeps no entries in memory passes a reader with the same
+ * `length` and `at`. */
 export function verifyEntriesAgainstTrustedHead(
-  entries: readonly LedgerAnchoredEntry[],
+  entries: Pick<readonly LedgerAnchoredEntry[], 'length' | 'at'>,
   head: LedgerTrustedHead,
   context: LedgerFileContext,
   naming: LedgerTrustedHeadSubject,
@@ -225,7 +227,7 @@ export function verifyEntriesAgainstTrustedHead(
     )
   }
   const { subject, trustedHeadPath } = naming
-  const pinned = entries[head.sequence]
+  const pinned = entries.at(head.sequence)
   if (pinned === undefined) {
     throw context.integrityError(
       `${subject} trusted head ${trustedHeadPath} pins sequence ${head.sequence} (${head.entryHash}) but the journal has ${entries.length} entries — pinned history is missing (truncation, rollback, or rewrite). Restore the journal, or abandon the pinned history on purpose with clearTrustedHead().`,

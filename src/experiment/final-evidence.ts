@@ -192,7 +192,9 @@ function codec(): LedgerJournalCodec<{ schema: typeof schema }, Event, FinalEvid
             }
           }
         },
-        finish: () => [...records.values()],
+        // Records are copied because a later exposure replaces a field of the
+        // live record, and a returned projection must not change under its reader.
+        snapshot: () => [...records.values()].map((record) => ({ ...record })),
       }
     },
   }
@@ -256,6 +258,6 @@ export function openFinalEvidenceLedger(options: { path: string }): FinalEvidenc
         if (!record) throw invalid('exposed record is missing after append')
         return { record, replayed: !result.appended }
       }),
-    read: () => outcome(async () => (await journal.replay()).projection),
+    read: () => outcome(() => journal.replay()),
   }
 }

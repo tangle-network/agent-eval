@@ -6,6 +6,22 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- `/ledger-core` `FileLedgerJournal` verifies incrementally.
+  An instance verifies its whole file on its first call, then each append or replay checks that the head row it verified is still in place and reads, verifies, and projects only the rows past it.
+  An append reads one entry's bytes instead of the whole file, so writing a ledger costs O(n) instead of O(n²); `openSearchLedger` and `openFinalEvidenceLedger` gain the same speed.
+  A replaced, shrunk, or rewritten head is verified whole again; a same-length rewrite of earlier rows is refused by the next new instance, not by one already open.
+  A new entry passes through the codec's own row parse before it is written, so a journal never writes a row it would refuse to read.
+  Entries are deep-frozen; code that mutated an entry or event from a replay now throws.
+
+### Breaking
+
+- `LedgerProjector.finish(entries)` is now `snapshot()`.
+  One projector lives across appends, so a projector keeps what it needs from `apply` and its snapshot must not alias state a later `apply` mutates.
+- `FileLedgerJournal.replay()` and `replayLedgerText()` return the projection itself; `LedgerReplayResult` is removed.
+  Migration: replace `(await journal.replay()).projection` with `await journal.replay()`, and keep entries in the projector when a caller needs them.
+
 ## [0.187.2] — 2026-09-24
 
 ### Added
