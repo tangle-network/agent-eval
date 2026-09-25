@@ -142,7 +142,7 @@ round-robin, region-affinity from a previous run, scheduling table).
 | **Auth** | Bearer token on `Authorization`; pluggable via `auth: string \| () => string \| Promise<string>` for rotation/refresh. |
 | **Payload size** | Server enforces `maxBodyBytes` (default 10 MB). |
 | **Traces** | Both ends emit OTel: if both point at the same OTLP collector, you get a unified trace per cell. See `docs/adapters-observability.md`. |
-| **Cost** | Worker's `ctx.cost.runPaidCall(...)` writes durable receipts in the worker process. Roll up those receipts server-side and attach them to worker telemetry; they are not forwarded to the coordinator automatically. |
+| **Cost** | Worker's `ctx.cost.runPaidCall(...)` writes durable receipts in the worker's own `CostLedger`. `runDispatchServer` returns them with the artifact; `httpDispatch` replays each one into the coordinator's `ctx.cost`, so the coordinator's `CostLedger` — its summary, its cost ceiling, `CampaignCellResult.costUsd` — sees remote spend exactly like an in-process cell's. A worker whose `contextFactory` never wires a real cost meter (the default `NOOP_COST`) sends no receipts, so a real deployment must wire one. A dispatch that fails after paying for part of its work still returns those receipts with its error, so a remote failure never drops spend on the floor. |
 
 ## Running the reference example
 
@@ -164,10 +164,6 @@ and using `cellPlacement` to fan across many of them.
 
 ## Known gaps + follow-ups
 
-- **Cost roll-up across the wire**: worker-side `ctx.cost` observations
-  stay on the worker. We need to forward them in the response body so
-  `defaultProductionGate`'s `budgetUsd` ceiling reflects total spend, not
-  coordinator-side spend. Tracked as a 0.45.x follow-up.
 - **Per-cell artifact streaming**: when the worker writes intermediate artifacts through `ctx.artifacts.write`, those files remain in worker storage.
   Multi-worker campaigns need a shared `CampaignStorage` implementation reachable from both sides.
   This package does not include an S3 or GCS implementation.
