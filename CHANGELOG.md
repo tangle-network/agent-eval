@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.188.0] — 2026-09-24
+
 ### Added
 
 - `precedes` and `neverUnless` take `{ order }`: `start-order` (default), `finish-before-start`, or `all-occurrences`.
