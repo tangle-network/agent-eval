@@ -21,6 +21,8 @@ export interface SearchCellPlan {
 export interface SearchAllocator {
   /** Recorded as the search's `policy.allocation`. */
   readonly name: string
+  /** Repeats of each task. The claim runs its test cells at the same repeats. */
+  readonly reps: number
   /** Every cell the node needs now. The kernel allocates the ones missing. */
   plan(state: SearchStateView, nodeId: string): SearchCellPlan[]
   /** Cells a newly admitted node's screen allocates, so the kernel can price an
@@ -59,6 +61,7 @@ export function uniform(options: { reps?: number } = {}): SearchAllocator {
   }
   return {
     name: reps === 1 ? 'uniform' : `uniform(reps=${reps})`,
+    reps,
     plan: (state, nodeId) => cells(state, nodeId === state.rootNodeId),
     screenSize: (state) => cells(state, false).length,
   }

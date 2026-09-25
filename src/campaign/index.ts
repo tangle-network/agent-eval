@@ -367,6 +367,16 @@ export {
   campaignBreakdown,
   campaignMeanComposite,
 } from './score-utils'
+// ── The claim: finalists, power, and the paired test on the sealed split ──
+export {
+  decideSearchClaim,
+  type PlanSearchClaimInput,
+  planSearchClaim,
+  SEARCH_CLAIM_RULE,
+  type SearchClaimDecision,
+  type SearchClaimPlan,
+  searchClaimReserveUsd,
+} from './search-claim'
 // ── Compact proof over a search ledger ─────────────────────────────────
 export {
   assertCompleteSearchHistory,
@@ -399,6 +409,7 @@ export {
   type SearchProposedChild,
   type SearchProposerPort,
   type SearchRunResult,
+  searchDivergence,
   searchExpansionIndex,
   searchPolicyView,
 } from './search-kernel'
@@ -423,7 +434,10 @@ export {
   type SearchCellSettledEvent,
   type SearchCellStage,
   type SearchClaim,
+  type SearchClaimEstimator,
+  type SearchClaimFinalist,
   type SearchClaimPower,
+  type SearchClaimTest,
   type SearchClosedEvent,
   type SearchCloseReason,
   type SearchCostAccounting,

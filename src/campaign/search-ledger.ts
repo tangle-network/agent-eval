@@ -453,38 +453,63 @@ const NodeDecidedSchema = z
   })
   .strict()
 
+const CONFIDENCE = z.number().gt(0).lt(1)
+
+const ClaimEstimatorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('continuous') }).strict(),
+  z.object({ kind: z.literal('binary'), scale: z.number().finite().positive() }).strict(),
+])
+
+const ClaimSchema = z
+  .object({
+    rule: SourceRefSchema,
+    confidence: CONFIDENCE,
+    power: z.union([
+      z
+        .object({
+          adequate: z.boolean(),
+          minimumEffect: z.number().finite().positive(),
+          powerAtMinimumEffect: z.number().min(0).max(1),
+          targetPower: z.number().gt(0).max(1),
+          units: NON_NEGATIVE_INT,
+          finalists: POSITIVE_INT,
+          pooledVariance: z.number().finite().nonnegative(),
+          estimator: ClaimEstimatorSchema,
+        })
+        .strict(),
+      UnknownRefSchema,
+    ]),
+    finalists: z.array(
+      z
+        .object({
+          nodeId: NODE_ID,
+          estimate: NodeEstimateSchema.nullable(),
+          test: z
+            .object({
+              pairs: NON_NEGATIVE_INT,
+              confidence: CONFIDENCE,
+              method: z.enum(['score-interval', 'bootstrap-ci', 'exact-sign']),
+              delta: FINITE_NUMBER,
+              interval: z.tuple([FINITE_NUMBER, FINITE_NUMBER]),
+            })
+            .strict()
+            .nullable(),
+          promote: z.boolean(),
+        })
+        .strict(),
+    ),
+    selected: NODE_ID.nullable(),
+    decision: z.enum(['ship', 'hold', 'test-cannot-resolve']),
+    reason: NON_EMPTY,
+  })
+  .strict()
+
 const SearchClosedSchema = z
   .object({
     ...EventBaseShape,
     kind: z.literal('search-closed'),
     reason: z.enum(['budget', 'deadline', 'max-nodes', 'patience', 'converged', 'aborted']),
-    claim: z
-      .object({
-        power: z.union([
-          z
-            .object({
-              adequate: z.boolean(),
-              minimumEffect: z.number().finite().positive(),
-              powerAtMinimumEffect: z.number().min(0).max(1),
-              units: NON_NEGATIVE_INT,
-            })
-            .strict(),
-          UnknownRefSchema,
-        ]),
-        finalists: z.array(
-          z
-            .object({
-              nodeId: NODE_ID,
-              estimate: NodeEstimateSchema.nullable(),
-              promote: z.boolean(),
-            })
-            .strict(),
-        ),
-        selected: NODE_ID.nullable(),
-        decision: z.enum(['ship', 'hold', 'test-cannot-resolve']),
-      })
-      .strict()
-      .nullable(),
+    claim: ClaimSchema.nullable(),
   })
   .strict()
 

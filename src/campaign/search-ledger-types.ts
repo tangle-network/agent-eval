@@ -286,23 +286,74 @@ export type SearchCloseReason =
 
 export type SearchCancelReason = 'pruned' | 'budget' | 'deadline' | 'aborted'
 
+/** How the claim's paired decision reads per-unit test means, fixed before any
+ * test cell runs. `binary`: every unit mean is 0 or `scale` (a pass rate).
+ * `continuous`: any other score. */
+export type SearchClaimEstimator = { kind: 'continuous' } | { kind: 'binary'; scale: number }
+
+/**
+ * Whether the test split can resolve the claim's minimum effect, checked on
+ * selection data before any test cell runs. The power is the claim decision's
+ * own promotion rate, simulated at a true improvement of `minimumEffect` with
+ * the search's pooled between-unit variance.
+ */
 export type SearchClaimPower =
   | {
       adequate: boolean
+      /** The improvement the test must resolve, in the metric's units. */
       minimumEffect: number
       powerAtMinimumEffect: number
+      targetPower: number
+      /** Independent test units. */
       units: number
+      /** Finalists the family-wise confidence is divided among. */
+      finalists: number
+      /** Between-unit variance of selection improvements over the root, pooled
+       * across every node with 2 or more shared units. */
+      pooledVariance: number
+      estimator: SearchClaimEstimator
     }
   | SearchUnknown
 
-/** The claim made once, on the sealed test split. `selected` names the node the
- * search keeps: a finalist on `ship`, the root otherwise (or null when the
- * search keeps nothing). */
+/** A finalist's paired test against the root at its Bonferroni confidence. */
+export interface SearchClaimTest {
+  /** Test units the finalist and the root both scored. */
+  pairs: number
+  /** `1 - (1 - claim.confidence) / finalists`. */
+  confidence: number
+  method: 'score-interval' | 'bootstrap-ci' | 'exact-sign'
+  /** Node minus root in the metric's units, like `NodeEstimate.delta`; a
+   * `minimize` improvement is negative. */
+  delta: number
+  interval: [number, number]
+}
+
+export interface SearchClaimFinalist {
+  nodeId: string
+  /** The node's test estimate against the root, as every view computes it.
+   * Null when no test cell ran. */
+  estimate: NodeEstimate | null
+  /** The deciding test. Null when no test cell ran. */
+  test: SearchClaimTest | null
+  promote: boolean
+}
+
+/**
+ * The claim made once, on the sealed test split. `selected` names the node the
+ * search keeps: the shipped finalist on `ship`, the root otherwise (null when
+ * the root has no scored cell).
+ */
 export interface SearchClaim {
+  /** The claim procedure; its revision digests every rule and parameter. */
+  rule: SearchSourceRef
+  /** Family-wise confidence across the finalists. */
+  confidence: number
   power: SearchClaimPower
-  finalists: Array<{ nodeId: string; estimate: NodeEstimate | null; promote: boolean }>
+  finalists: SearchClaimFinalist[]
   selected: string | null
   decision: 'ship' | 'hold' | 'test-cannot-resolve'
+  /** Why the claim reached its decision. */
+  reason: string
 }
 
 interface SearchLedgerEventBase {

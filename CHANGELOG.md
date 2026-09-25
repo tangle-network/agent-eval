@@ -6,6 +6,29 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.193.0] — 2026-09-25
+
+### Added
+
+- A search with a test split ends in its claim ([search ledger](./docs/search-ledger.md#the-claim)).
+  When expansion stops, `runSearch` fixes the claim's design before any test cell exists (`planSearchClaim`, stored as the `claim-plan` blob of the `claim` operation): at most 3 finalists that scored every selection unit and beat the root there, ranked by selection mean; the estimator; and a power check that simulates the claim's own `decidePairedPromotion` call at the claim's `minimumEffect` with the search's pooled selection variance (`pairedPromotionPower`).
+  The finalists are decided `finalist`, the root's and their test cells run together ahead of everything else, and `decideSearchClaim` tests each finalist against the root at Bonferroni confidence `1 - 0.05 / k`.
+  A test split that cannot resolve the minimum effect closes as `test-cannot-resolve` with no test spend.
+  In 200 simulated 50-node searches in which no node differs from the root (12 selection and 24 test units, minimum effect 0.1), the claim shipped 5 times: 2.5 %, Wilson 95 % interval [1.1 %, 5.7 %]; per finalist, 5 of 584 tests promoted. With one child planted 0.15 better, it shipped a truly better node in 200 of 200.
+- The divergence rule: a node whose train mean rose over its parent's while its selection interval against the parent lies wholly on the worse side is decided `invalid` with rule `divergence` (`searchDivergence`), and never becomes a parent or a finalist.
+- `searchClaimReserveUsd({ testTasks, reps, cellUsd })` sizes `budget.reservedClaimUsd`; `SearchRunResult.claim` returns the claim.
+- `renderSearchSummary(state, { split })` (`/campaign`) renders a search as compact text: the leading nodes against the root, recently discarded nodes with the measurement that discarded them, and recent proposals; `agent-eval search show <ledger>` verifies a ledger and prints it. `ProposeContext` gains `parents`, `train` (a `searchProposerView`, which reads only the train split) and `summary`, and `runOptimization`'s proposal step fills all three.
+- `scripts/search-sim.ts claims` runs many simulated searches on in-memory ledgers and tallies their claims; `--null`, `--plant-gain`, `--plant-divergence`, `--test` and `--min-effect` shape them.
+
+### Changed
+
+- **Breaking:** `runSearch` refuses to start a search with a test split that has no selection split, no claim `minimumEffect`, or an unpinned judge, and, under a cap, one whose `reservedClaimUsd` cannot hold the root and 3 finalists on every test task or whose cap cannot also cover the root and one screening round.
+- **Breaking:** the `search-closed` claim records its `rule`, family-wise `confidence` and `reason`; its power check records the target power, finalist count, pooled variance and estimator; each finalist records its deciding `test` (pairs, confidence, method, delta, interval).
+- **Breaking:** `SearchAllocator` declares `reps`, the repeats the claim's test cells run at.
+- The projector refuses a finalist that is the root, a fourth finalist, a finalist decided after a claim cell, any operation, node, edge or non-claim cell after the first finalist, an edge from a node decided `invalid`, a claim that omits a finalist or tests one at the wrong Bonferroni confidence, and a `ship` claim without a pinned judge or with a test unit the root or the shipped finalist did not score.
+- `operation-started` binds its artifacts, which `SearchOperation.artifacts` lists before the recorded ones.
+- Migration: add `reps` to a custom allocator; give a search with a test split a selection split, `objective.claim.minimumEffect`, a pinned `objective.judge` and, when capped, `budget.reservedClaimUsd` of at least `searchClaimReserveUsd(...)`.
+
 ## [0.192.0] — 2026-09-25
 
 ### Added
