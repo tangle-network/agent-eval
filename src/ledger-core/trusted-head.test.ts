@@ -28,7 +28,7 @@ class TickIntegrityError extends Error {
 
 type TickEntry = LedgerEntryOf<TickHeader, TickEvent>
 
-function tickCodec(): LedgerJournalCodec<TickHeader, TickEvent, TickEvent[]> {
+function tickCodec(): LedgerJournalCodec<TickHeader, TickEvent, { entries: TickEntry[] }> {
   return {
     subject: 'tick journal',
     integrityError: (message, options) => new TickIntegrityError(message, options),
@@ -47,8 +47,8 @@ function tickCodec(): LedgerJournalCodec<TickHeader, TickEvent, TickEvent[]> {
       }
     },
     createProjector: () => {
-      const events: TickEvent[] = []
-      return { apply: (entry) => events.push(entry.event), finish: () => events }
+      const entries: TickEntry[] = []
+      return { apply: (entry) => entries.push(entry), snapshot: () => ({ entries: [...entries] }) }
     },
   }
 }

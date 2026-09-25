@@ -19,6 +19,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- `/ledger-core` `FileLedgerJournal` verifies incrementally.
+  An instance verifies its whole file on its first call, then each append or replay checks that the head row it verified is still in place and reads, verifies, and projects only the rows past it.
+  An append reads one entry's bytes instead of the whole file, so writing a ledger costs O(n) instead of O(n²); `openSearchLedger` and `openFinalEvidenceLedger` gain the same speed.
+  At 20,000 entries an append read 571 bytes instead of 10,852,776 (`scripts/ledger-journal-load.ts`).
+  A replaced, shrunk, or rewritten head is verified whole again; a same-length rewrite of earlier rows is refused by the next new instance, not by one already open.
+  A new entry passes through the codec's own row parse before it is written, so a journal never writes a row it would refuse to read.
+  Entries are deep-frozen; code that mutated an entry or event from a replay now throws.
+- **Breaking:** `LedgerProjector.finish(entries)` is now `snapshot()`.
+  One projector lives across appends, so a projector keeps what it needs from `apply` and its snapshot must not alias state a later `apply` mutates.
+- **Breaking:** `FileLedgerJournal.replay()` and `replayLedgerText()` return the projection itself.
+  Migration: replace `(await journal.replay()).projection` with `await journal.replay()`, and keep entries in the projector when a caller needs them.
 - **Breaking:** `campaignToRunRecords` ids runs `${candidateId}:${cellId}`.
   A campaign cell id is `${scenario}:${rep}`, so a baseline and a candidate over the same holdout produced the same run ids.
 - **Breaking:** `campaignCellToRunRecord` keeps a proven subtotal as a `lower-bound` cost instead of replacing it with `defaultCostUsd`; the default now applies only to a cell that proved no spend.
@@ -30,6 +41,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Removed
 
+- `/ledger-core` `LedgerReplayResult`; `replay()` and `replayLedgerText()` return the projection.
 - The RunRecord, rl-adapter, run-profile-matrix and campaign cost unit tests; a real climb's records through the validator, mint and `analyzeRuns` are the proof.
 
 ## [0.188.0] — 2026-09-24

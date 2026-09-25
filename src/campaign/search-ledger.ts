@@ -545,7 +545,7 @@ export function replaySearchLedgerText(
   campaignId: string,
   source: string,
 ): SearchLedgerReplay {
-  return replayLedgerText(text, source, searchLedgerCodec(campaignId)).projection
+  return replayLedgerText(text, source, searchLedgerCodec(campaignId))
 }
 
 interface SearchLedgerHeader {
@@ -600,7 +600,7 @@ export class FileSearchLedger implements SearchLedger {
   }
 
   async replay(): Promise<SearchLedgerReplay> {
-    return (await this.journal.replay()).projection
+    return this.journal.replay()
   }
 
   async append(input: SearchLedgerEvent): Promise<SearchLedgerAppendResult> {
