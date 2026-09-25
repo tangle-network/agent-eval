@@ -895,28 +895,34 @@ class SearchKernel<TArtifact> {
    */
   private async applyClaimPlan(plan: SearchClaimPlan): Promise<void> {
     const root = this.state.rootNodeId!
+    // Estimate from one read of the state, then append: an append retires the view.
+    const bases = plan.finalists.map((finalist) =>
+      estimateNode(this.state, finalist.nodeId, { against: root, split: 'selection' }),
+    )
     for (const [rank, finalist] of plan.finalists.entries()) {
-      const basis = estimateNode(this.state, finalist.nodeId, { against: root, split: 'selection' })
       await this.recorder.decideNode({
         nodeId: finalist.nodeId,
         decision: { status: 'finalist' },
-        basis,
+        basis: bases[rank]!,
         rule: SEARCH_CLAIM_RULE_NAME,
         reason: `rank ${rank + 1} of ${plan.finalists.length} by selection mean (${finalist.selectionMean}); ${plan.reason}`,
       })
     }
     await this.refresh()
     if (plan.test !== 'run') return
-    const fresh: string[] = []
-    for (const cell of this.claimCells(plan.finalists.length, root, plan)) {
-      const cellId = searchCellId(
-        this.recorder.searchId,
-        cell.nodeId,
-        cell.plan.taskId,
-        'test',
-        cell.plan.rep,
-      )
-      if (this.state.cell(cellId)) continue
+    const missing = this.claimCells(plan.finalists.length, root, plan)
+      .map((cell) => ({
+        ...cell,
+        cellId: searchCellId(
+          this.recorder.searchId,
+          cell.nodeId,
+          cell.plan.taskId,
+          'test',
+          cell.plan.rep,
+        ),
+      }))
+      .filter((cell) => !this.state.cell(cell.cellId))
+    for (const cell of missing) {
       await this.recorder.allocateCell({
         nodeId: cell.nodeId,
         taskId: cell.plan.taskId,
@@ -926,10 +932,9 @@ class SearchKernel<TArtifact> {
         lane: cell.lane.name,
         reservation: cell.reservation,
       })
-      fresh.push(cellId)
     }
     await this.refresh()
-    for (const cellId of fresh) this.enqueue(this.state.cell(cellId)!)
+    for (const cell of missing) this.enqueue(this.state.cell(cell.cellId)!)
   }
 
   /** The test cells of the root and the first `finalists` of the plan (or of
