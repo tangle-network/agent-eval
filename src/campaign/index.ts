@@ -215,6 +215,7 @@ export {
   type GepaPopulationImport,
   importExternalEvaluations,
   importGepaPopulation,
+  recordGepaSearch,
 } from './gepa-search-import'
 // ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
 export {
