@@ -220,6 +220,8 @@ function rulePredicates(rule: ContractRule): SpanPredicate[] {
     case 'neverUnless':
       return [rule.p, rule.prior]
     case 'run':
+    case 'toolsOffered':
+    case 'retrySafe':
       return []
     default:
       return [rule.p]

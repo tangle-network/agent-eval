@@ -7,6 +7,7 @@ import type {
   ContractAlternative,
   ContractRule,
   OrderMode,
+  RetryWrite,
   RunChecks,
   SpanPredicate,
   TraceContract,
@@ -134,6 +135,30 @@ export class TraceContractBuilder {
       ...(options.occurrence === undefined ? {} : { occurrence: options.occurrence }),
     }
     assertRule(rule, this.where('argument'))
+    return this.add(rule)
+  }
+
+  /** The trace records the tools offered to the model, every call is one of
+   *  them, and, with `declared`, every offered tool is declared. */
+  toolsOffered(declared?: string[], label = 'toolsOffered'): this {
+    const rule: ContractRule = {
+      kind: 'toolsOffered',
+      label,
+      ...(declared === undefined ? {} : { declared: [...declared] }),
+    }
+    assertRule(rule, this.where('toolsOffered'))
+    return this.add(rule)
+  }
+
+  /** No call repeats a side effect that is not proven safe to repeat. */
+  retrySafe(options: { reads?: string[]; writes?: RetryWrite[] }, label = 'retrySafe'): this {
+    const rule: ContractRule = {
+      kind: 'retrySafe',
+      label,
+      ...(options.reads === undefined ? {} : { reads: [...options.reads] }),
+      ...(options.writes === undefined ? {} : { writes: options.writes.map((w) => ({ ...w })) }),
+    }
+    assertRule(rule, this.where('retrySafe'))
     return this.add(rule)
   }
 
