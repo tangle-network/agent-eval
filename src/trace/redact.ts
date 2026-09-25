@@ -48,7 +48,7 @@ export type SafetyCategory = 'credential' | 'personal-data' | 'identifier' | 'ra
  * redaction behavior (saved optimizer inputs, per-span redaction stamps) keys
  * on it, so bump it whenever a detector, key list, cap or marker changes.
  */
-export const REDACTION_VERSION = '2.3.0'
+export const REDACTION_VERSION = '2.4.0'
 
 export interface RedactionFinding {
   /** JSON Pointer (RFC 6901) to the value or key that was changed. */
@@ -428,7 +428,15 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
   { id: 'slack-token', pattern: /xox[abeoprs]-[A-Za-z0-9-]{10,}/ },
   { id: 'aws-access-key', pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
   { id: 'tangle-capability', pattern: /(?:hubcap_|hct_)[A-Za-z0-9_=-]{8,}/ },
-  { id: 'url-credentials', pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i },
+  {
+    // Scheme, userinfo user and password each bounded (32/512/512 chars): the
+    // unbounded `*`/`+` here made `detectCredential` catastrophically slow on
+    // adversarial text with no `://` at all — 256 KiB of `"a."` took ~59s,
+    // measured before this fix (scratchpad/rv/before.ts). A real URL's scheme
+    // and userinfo are always far under these bounds.
+    id: 'url-credentials',
+    pattern: /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/:@]{1,512}:[^\s/@]{1,512}@/i,
+  },
   {
     id: 'url-secret-param',
     pattern:
@@ -440,9 +448,14 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     // characters, so prose (`token: string`), variable references (`$TOKEN`)
     // and dotenvx ciphertext (`encrypted:…`) pass. The pattern starts at the
     // key word itself, with no identifier prefix, so it scans in linear time.
+    // The two mixed-content lookaheads and the value itself are bounded to
+    // 512 chars: unbounded, `'token='` repeated took ~20s at 256 KiB and
+    // `'password:x'` repeated took ~12s at 256 KiB (measured before this fix,
+    // scratchpad/rv/before.ts). A real credential value is always far under
+    // 512 chars.
     id: 'secret-assignment',
     pattern:
-      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]*[0-9])(?=[^\s"'`,;&|]*[A-Za-z])[^\s"'`,;&|]{12,}/i,
+      /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]{0,512}[0-9])(?=[^\s"'`,;&|]{0,512}[A-Za-z])[^\s"'`,;&|]{12,512}/i,
   },
   {
     // `{"password": "hunter2"}` or `'client_secret': '…'` inside serialized
@@ -467,15 +480,18 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
       /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)[^\s"'`,;&|]{4,}/,
   },
   // Bare-key shapes not covered above. Each requires a distinctive prefix so
-  // it does not fire on ordinary identifiers.
-  { id: 'huggingface-token', pattern: /\bhf_[A-Za-z0-9]{20,}/ },
-  { id: 'npm-token', pattern: /\bnpm_[A-Za-z0-9]{20,}/ },
-  { id: 'gitlab-token', pattern: /\bglpat-[A-Za-z0-9_-]{16,}/ },
-  { id: 'groq-key', pattern: /\bgsk_[A-Za-z0-9]{20,}/ },
-  { id: 'xai-key', pattern: /\bxai-[A-Za-z0-9]{16,}/ },
+  // it does not fire on ordinary identifiers — same reasoning as the
+  // provider-branded block above, and the same leading-`\b` bug: a token
+  // glued to preceding text by a digit or underscore (`1ghp_…`, `_sk_live_…`)
+  // is invisible to an anchored detector.
+  { id: 'huggingface-token', pattern: /hf_[A-Za-z0-9]{20,}/ },
+  { id: 'npm-token', pattern: /npm_[A-Za-z0-9]{20,}/ },
+  { id: 'gitlab-token', pattern: /glpat-[A-Za-z0-9_-]{16,}/ },
+  { id: 'groq-key', pattern: /gsk_[A-Za-z0-9]{20,}/ },
+  { id: 'xai-key', pattern: /xai-[A-Za-z0-9]{16,}/ },
   // ElevenLabs and similar bare `sk_<hex>` shapes — underscore, unlike the
   // hyphenated `sk-…` `provider-key` pattern above, so the two never overlap.
-  { id: 'bare-sk-key', pattern: /\bsk_[A-Za-z0-9]{32,}\b/ },
+  { id: 'bare-sk-key', pattern: /sk_[A-Za-z0-9]{32,}\b/ },
   {
     // `Cookie: sessionid=…; csrftoken=…` in free text or a captured header.
     id: 'cookie-header',
@@ -626,16 +642,38 @@ function knownSecretForms(values: readonly string[] | undefined): string[] {
 
 const BASE64_TEXT = /^[A-Za-z0-9+/_-]+={0,2}$/
 
+// A base64 blob embedded in larger text — `Authorization: Basic <base64>` is
+// the common case — can hold a known secret without the WHOLE string being
+// base64. Bounded to 4096 chars per candidate: this scans in linear time (the
+// sum of candidate lengths is at most `text.length`), so no ReDoS risk.
+const EMBEDDED_BASE64 = /[A-Za-z0-9+/]{16,4096}={0,2}/g
+
 function containsKnownSecret(text: string, forms: readonly string[]): boolean {
   if (forms.length === 0) return false
   if (forms.some((form) => text.includes(form))) return true
   // A whole-string base64 payload can hold a secret at any byte offset.
-  if (text.length < 8 || !BASE64_TEXT.test(text)) return false
-  const decoded = Buffer.from(
-    text,
-    text.includes('-') || text.includes('_') ? 'base64url' : 'base64',
-  ).toString('utf8')
-  return forms.some((form) => decoded.includes(form))
+  if (text.length >= 8 && BASE64_TEXT.test(text)) {
+    const decoded = Buffer.from(
+      text,
+      text.includes('-') || text.includes('_') ? 'base64url' : 'base64',
+    ).toString('utf8')
+    if (forms.some((form) => decoded.includes(form))) return true
+  }
+  // `Basic <base64(user:key)>` jointly encodes the userinfo, so the secret's
+  // OWN base64 form (added to `forms` above) is generally not a substring of
+  // it — 3-byte base64 group alignment shifts with whatever precedes the
+  // secret in the original bytes. Decode any embedded base64-looking run and
+  // check its plaintext directly instead of relying on aligned forms.
+  for (const match of text.matchAll(EMBEDDED_BASE64)) {
+    if (match[0] === text) continue // already checked above
+    try {
+      const decoded = Buffer.from(match[0], 'base64').toString('utf8')
+      if (forms.some((form) => decoded.includes(form))) return true
+    } catch {
+      // Not valid base64 (e.g. wrong padding) — not a candidate.
+    }
+  }
+  return false
 }
 
 /** The detector that marks `text` as a credential: a known secret first, then the value shapes. */
@@ -799,20 +837,29 @@ function redactStringAt(text: string, path: string, state: WalkState): string {
     return marker('media')
   }
   // A value shape, or a whole-string base64 payload that holds a known secret
-  // at any byte offset, replaces the whole string.
-  const credential = credentialIn(output, state.knownSecrets)
+  // at any byte offset, replaces the whole string. The detectors themselves
+  // only ever see a bounded prefix (`boundForScan`): a credential that lives
+  // entirely beyond `maxStringBytes` would be truncated out of the output
+  // below anyway, so scanning past the bound costs time without changing
+  // what can leak. The untouched tail is reattached after the personal-data
+  // pass so later truncation still sees (and cuts) the full length.
+  const boundLen = Math.min(output.length, state.maxStringBytes)
+  let scanTarget = output.slice(0, boundLen)
+  const tail = output.slice(boundLen)
+  const credential = credentialIn(scanTarget, state.knownSecrets)
   if (credential) {
     record(state, path, 'credential', credential, 'redacted')
     return marker(credential)
   }
   for (const detector of PERSONAL_DATA_DETECTORS) {
-    if (detector.requires && !output.includes(detector.requires)) continue
-    output = output.replace(detector.pattern, (match) => {
+    if (detector.requires && !scanTarget.includes(detector.requires)) continue
+    scanTarget = scanTarget.replace(detector.pattern, (match) => {
       if (detector.accept && !detector.accept(match)) return match
       record(state, path, 'personal-data', detector.id, 'redacted')
       return marker(detector.id)
     })
   }
+  output = scanTarget + tail
   const truncated = truncateUtf8(output, state.maxStringBytes)
   if (truncated === undefined) return output
   record(state, path, 'raw-content', 'size-cap', 'truncated')
@@ -894,10 +941,19 @@ function walk(value: unknown, path: string, depth: number, state: WalkState): un
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
       let outKey = key
       const keyCredential = credentialIn(key, state.knownSecrets)
+      // A personal-data value used AS a key (an email or card number mapping
+      // to something) is just as reachable as one in a value — walk() only
+      // ever inspects keys for a credential shape, so `{'alice@x.com': 3}`
+      // passed through unchanged with verdict SAFE.
+      const keyPersonalData = keyCredential ? undefined : detectPersonalData(key)[0]
       if (keyCredential) {
         renamed += 1
         outKey = `${marker(keyCredential)}#${renamed}`
         record(state, pointer(path, outKey), 'credential', keyCredential, 'redacted')
+      } else if (keyPersonalData) {
+        renamed += 1
+        outKey = `${marker(keyPersonalData)}#${renamed}`
+        record(state, pointer(path, outKey), 'personal-data', keyPersonalData, 'redacted')
       }
       out[outKey] = redactKeyed(key, item, pointer(path, outKey), depth, state)
     }
@@ -1097,10 +1153,15 @@ function scan(value: unknown, path: string, depth: number, state: ScanState): vo
       return
     }
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      // A credential used as a key must not reach the finding paths.
+      // A credential or personal-data value used as a key must not reach the
+      // finding paths.
       const keyCredential = credentialIn(key, state.knownSecrets)
-      const segment = keyCredential ? marker(keyCredential) : key
+      const keyPersonalData = keyCredential ? undefined : detectPersonalData(key)[0]
+      const keyDetector = keyCredential ?? keyPersonalData
+      const segment = keyDetector ? marker(keyDetector) : key
       if (keyCredential) flag(state, pointer(path, segment), 'credential', keyCredential)
+      else if (keyPersonalData)
+        flag(state, pointer(path, segment), 'personal-data', keyPersonalData)
       scanKeyed(key, item, pointer(path, segment), depth, state)
     }
   } finally {
