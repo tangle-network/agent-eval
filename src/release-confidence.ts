@@ -233,7 +233,9 @@ export function evaluateReleaseConfidence(
   const failed = failedRows(runs, traces, thresholds.failureScoreThreshold)
   const searchMeanScore = meanOrNull(searchScores)
   const holdoutMeanScore = meanOrNull(holdoutScores)
-  const runCosts = runs.flatMap((run) => (run.costUsd === null ? [] : [run.costUsd]))
+  const runCosts = runs.flatMap((run) =>
+    run.costProvenance.usd === null ? [] : [run.costProvenance.usd],
+  )
   const traceCosts = traces.map((trace) => trace.costUsd).filter(isFiniteNumber)
   const meanCostUsd =
     runs.length > 0

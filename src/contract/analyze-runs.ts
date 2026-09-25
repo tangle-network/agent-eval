@@ -169,7 +169,7 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     runs,
     histogramBins: bins,
   })
-  const knownCostRuns = runs.filter((run) => run.costUsd !== null)
+  const knownCostRuns = runs.filter((run) => run.costProvenance.usd !== null)
   const costs = knownCostRuns.map((r) => r.costUsd).filter(isFiniteNumber)
   const costDist = distributionOf(costs, bins)
   const pareto = paretoChart(knownCostRuns, { split })
@@ -594,7 +594,10 @@ function computePriorPeriodComparison(
 }
 
 function knownCostValues(runs: RunRecord[]): number[] {
-  return runs.map((run) => run.costUsd).filter(isFiniteNumber)
+  return runs
+    .filter((run) => run.costProvenance.usd !== null)
+    .map((run) => run.costUsd)
+    .filter(isFiniteNumber)
 }
 
 function isFiniteNumber(value: unknown): value is number {

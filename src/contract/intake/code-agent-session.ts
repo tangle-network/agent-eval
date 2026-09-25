@@ -385,7 +385,7 @@ function fromCodeAgentSession(
         cost_observed: costProvenance.kind === 'observed' ? 1 : 0,
         cost_estimated: costProvenance.kind === 'estimated' ? 1 : 0,
         cost_uncaptured: costProvenance.kind === 'uncaptured' ? 1 : 0,
-        cost_unknown: costUsd === null ? 1 : 0,
+        cost_unknown: costProvenance.usd === null ? 1 : 0,
       },
     },
     splitTag,
@@ -410,7 +410,7 @@ function fromCodeAgentSession(
           metrics.reasoningTokens > 0 ||
           metrics.cachedTokens > 0 ||
           metrics.cacheWriteTokens > 0,
-        hasCost: costUsd !== null,
+        hasCost: costProvenance.usd !== null,
         costKind: costProvenance.kind,
         warnings,
       },

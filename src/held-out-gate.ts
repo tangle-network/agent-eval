@@ -232,8 +232,9 @@ export interface HeldOutGateConfig {
    *
    * This exists because "we ship the better prompt" is only an honest
    * pitch when the better prompt also fits a customer-stated budget.
-   * Cost is read from `RunRecord.costUsd`; a null amount rejects a
-   * configured cost check because the limit cannot be proven.
+   * Cost is read from `RunRecord.costProvenance.usd`; an unknown total
+   * (uncaptured, or only a lower bound) rejects a configured cost check
+   * because the limit cannot be proven.
    */
   costPerTaskCeiling?: number
 }
@@ -828,8 +829,10 @@ function completeCostMedian(runs: RunRecord[]): number | null {
   if (runs.length === 0) return null
   const costs: number[] = []
   for (const run of runs) {
-    if (run.costUsd === null) return null
-    costs.push(run.costUsd)
+    // `usd` is null for both unknown kinds, so a floor never reads as a total.
+    const usd = run.costProvenance.usd
+    if (usd === null) return null
+    costs.push(usd)
   }
   return medianFinite(costs)
 }

@@ -557,12 +557,13 @@ describe('code-agent session intake', () => {
     expect(report.costQuality.provenance).toEqual({
       observed: { n: 0, totalUsd: 0 },
       estimated: { n: 0, totalUsd: 0 },
+      lowerBound: { n: 0, floorUsd: 0 },
       uncaptured: { n: 1 },
       knownFraction: 0,
     })
     expect(report.costQuality.cost.n).toBe(0)
     expect(report.costQuality.pareto.points).toHaveLength(0)
-    expect(report.costQuality.degraded?.cost).toMatch(/uncaptured for all 1 runs/)
+    expect(report.costQuality.degraded?.cost).toMatch(/total unknown for all 1 runs/)
   })
 
   it('treats a failed Codex exec turn as an explicit abort', () => {
