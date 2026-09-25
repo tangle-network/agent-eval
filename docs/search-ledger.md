@@ -17,6 +17,7 @@ search-ledger.jsonl          canonical JSONL, SHA-256 hash chain, trusted-head p
   `nodeId` is `searchNodeId(searchId, artifactDigest)`, so identical content in one search is one node.
 - **Edge:** the proposal that derived a node from its parents.
   It records the operator, the proposer, the redacted rationale, and one parent-to-child diff per parent.
+  `edgeId` is `searchEdgeId(searchId, childNodeId, proposalKey)`, where the proposal key names the proposal within the search, so a resumed search recognizes its own edges.
 - **Cell:** one node on one task in one split at one repeat.
   `cellId` is `searchCellId(searchId, nodeId, taskId, split, rep)`.
   Each attempt at a cell has the run id `cellId:attempt`, the id its RunRecord carries.
