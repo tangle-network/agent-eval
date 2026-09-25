@@ -11,6 +11,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
   It used to accept any terminal status, so a run that ended in an error passed.
   Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
+- `REDACTION_VERSION` is `2.1.0`, because the `json-secret` detector changes what the redaction core removes.
+  Work keyed on the version, such as a traces upload's dedup identity, sees the change.
 
 ### Added
 
