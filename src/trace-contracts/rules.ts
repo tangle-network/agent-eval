@@ -1,3 +1,4 @@
+import { CaptureIntegrityError } from '../errors'
 import { canonicalString } from '../ledger-core/canonical'
 import { describePredicate } from './explain'
 import { predicateMatches } from './predicates'
@@ -39,6 +40,45 @@ export interface RuleOutcome {
 
 function spanRef(span: ContractSpan, index: number): string {
   return span.spanId ?? `#${index}`
+}
+
+/**
+ * Whether this trace shows any sign that spans of `kind` are actually
+ * captured, independent of whether any span happens to match a given rule's
+ * predicate. A `never`, `atMost`, `tokensAtMost` or `retrySafe` rule that
+ * targets TOOL or LLM spans and finds zero matches cannot otherwise tell "no
+ * calls happened" from "calls were not recorded": an exporter that silently
+ * drops a span kind makes `forbidden`, `allowed`, `maxCalls` and `retries`
+ * checks on that kind pass vacuously. Evidence is: a span of that kind
+ * anywhere in the trace, or — for TOOL — a recorded offered-tool set
+ * (`gen_ai.tool.definitions`), which proves the capture pipeline ran even on
+ * a turn that called no tool.
+ */
+function hasCaptureEvidence(spans: readonly ContractSpan[], kind: 'TOOL' | 'LLM'): boolean {
+  if (spans.some((span) => contractSpanKind(span) === kind)) return true
+  if (kind === 'TOOL') return spans.some((span) => spanOfferedTools(span).recorded)
+  return false
+}
+
+/** Only `TOOL`/`LLM`-scoped predicates have capture evidence to check. */
+function capturedKindOf(p: SpanPredicate): 'TOOL' | 'LLM' | undefined {
+  return p.kind === 'TOOL' || p.kind === 'LLM' ? p.kind : undefined
+}
+
+function requireCaptureEvidence(
+  spans: readonly ContractSpan[],
+  p: SpanPredicate,
+  rule: string,
+  situation: string,
+): void {
+  const kind = capturedKindOf(p)
+  if (kind === undefined) return
+  if (hasCaptureEvidence(spans, kind)) return
+  throw new CaptureIntegrityError(
+    `rule '${rule}': ${situation} and the trace has no ${kind} capture evidence (no ${kind} span` +
+      (kind === 'TOOL' ? `, no ${TOOL_DEFINITIONS_ATTR}` : '') +
+      `) — cannot tell whether ${describePredicate(p)} never happened or was never recorded`,
+  )
 }
 
 function indexed(
@@ -379,7 +419,15 @@ function checkRetrySafe(
   const out: ContractViolation[] = []
   const groups = new Map<string, Array<{ span: ContractSpan; ref: string }>>()
   const unseen = new Map<string, Array<{ span: ContractSpan; ref: string }>>()
-  for (const call of toolSpans(spans)) {
+  const calls = toolSpans(spans)
+  if (calls.length === 0 && !hasCaptureEvidence(spans, 'TOOL')) {
+    throw new CaptureIntegrityError(
+      `rule '${rule.label}': retrySafe found 0 TOOL spans and the trace has no TOOL capture ` +
+        `evidence (no TOOL span, no ${TOOL_DEFINITIONS_ATTR}) — cannot tell whether no reads or ` +
+        'writes happened or the trace lost its TOOL spans',
+    )
+  }
+  for (const call of calls) {
     const name = contractSpanToolName(call.span)
     if (name === undefined) {
       out.push({
@@ -523,12 +571,22 @@ function checkRule(rule: ContractRule, ctx: RuleContext): ContractViolation[] {
               },
             ],
       )
-    case 'never':
-      return indexed(spans, rule.p).map(({ span, ref }) => ({
+    case 'never': {
+      const matches = indexed(spans, rule.p)
+      if (matches.length === 0) {
+        requireCaptureEvidence(
+          spans,
+          rule.p,
+          rule.label,
+          `never(${describePredicate(rule.p)}) matched 0 spans`,
+        )
+      }
+      return matches.map(({ span, ref }) => ({
         rule: rule.label,
         spanId: span.spanId,
         detail: `span ${ref} ("${span.name ?? ''}") matches never(${describePredicate(rule.p)})`,
       }))
+    }
     case 'eventually':
       return spans.some((span) => predicateMatches(span, rule.p))
         ? []
@@ -573,6 +631,14 @@ function checkRule(rule: ContractRule, ctx: RuleContext): ContractViolation[] {
       )
     case 'atMost': {
       const matches = indexed(spans, rule.p)
+      if (matches.length === 0) {
+        requireCaptureEvidence(
+          spans,
+          rule.p,
+          rule.label,
+          `atMost(${describePredicate(rule.p)}) matched 0 spans`,
+        )
+      }
       return matches.length <= rule.max
         ? []
         : [
@@ -585,6 +651,14 @@ function checkRule(rule: ContractRule, ctx: RuleContext): ContractViolation[] {
     }
     case 'tokensAtMost': {
       const matches = indexed(spans, rule.p)
+      if (matches.length === 0) {
+        requireCaptureEvidence(
+          spans,
+          rule.p,
+          rule.label,
+          `tokensAtMost(${describePredicate(rule.p)}) matched 0 spans`,
+        )
+      }
       const unknown = matches.find((m) => spanTotalTokens(m.span) === undefined)
       if (unknown) {
         return [
