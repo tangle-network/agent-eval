@@ -157,12 +157,11 @@ const RULE_KEYS: Record<ContractRule['kind'], readonly string[]> = {
 export function compileTraceContractSpec(input: unknown): TraceContract {
   const spec = parseSpec(input)
   const scope = spec.scope ? { root: normalizePredicate(spec.scope.root, 'scope.root') } : undefined
-  const alternatives: ContractAlternative[] | undefined = spec.alternatives?.anyOf.map(
-    (alt, i) => ({
-      id: alt.id,
-      rules: compilePath(alt, `alternatives.anyOf[${i}]`),
-    }),
-  )
+  // Reports name an alternative's rules `<id>/<label>`, so its labels carry no path prefix.
+  const alternatives: ContractAlternative[] | undefined = spec.alternatives?.anyOf.map((alt) => ({
+    id: alt.id,
+    rules: compilePath(alt, ''),
+  }))
   const contract: TraceContract = {
     name: spec.name,
     ...(spec.description === undefined ? {} : { description: spec.description }),
