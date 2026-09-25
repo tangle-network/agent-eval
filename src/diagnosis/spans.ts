@@ -19,7 +19,7 @@ import {
   type SpanKind,
   TOOL_NAME_ATTR_KEYS,
 } from '@tangle-network/agent-trace-contract'
-import { redactSecrets, redactSecretsDeep, type SecretFilterReport } from './secret-filter'
+import { emptyRedactionReport, type RedactionReport, redact, redactText } from '../trace/redact'
 
 export type DiagnosisSpanStatus = 'OK' | 'ERROR' | 'UNSET'
 
@@ -54,7 +54,7 @@ export interface IngestReport {
   duplicateSpans: number
   /** Span ids that occur in more than one trace, which evidence cannot cite unambiguously. */
   ambiguousSpanIds: string[]
-  secrets: SecretFilterReport
+  secrets: RedactionReport
   /** Attribute keys removed because content was not included. */
   droppedAttributes: string[]
 }
@@ -96,7 +96,7 @@ export function ingestSpans(
   raw: readonly unknown[],
   options: { contentIncluded: boolean },
 ): { spans: DiagnosisSpan[]; report: IngestReport } {
-  const secrets: SecretFilterReport = { redactionCount: 0, byRule: {} }
+  const secrets = emptyRedactionReport()
   const dropped = new Set<string>()
   const seen = new Set<string>()
   const spans: DiagnosisSpan[] = []
@@ -128,7 +128,7 @@ export function ingestSpans(
     else if (firstTrace !== traceId) ambiguous.add(spanId)
     const merged = mergedAttributes(record)
     const inputDigest = digestInput(merged, digestKey)
-    const attributes = redactSecretsDeep(merged, secrets) as Record<string, unknown>
+    const attributes = redact(merged, { report: secrets }).value
     if (!options.contentIncluded) {
       for (const [key, value] of Object.entries(attributes)) {
         if (isContentAttribute(key) || (value !== null && typeof value === 'object')) {
@@ -138,10 +138,11 @@ export function ingestSpans(
       }
     }
     const status = readStatus(record)
-    const statusMessage = status.message === null ? null : redactSecrets(status.message, secrets)
+    const statusMessage =
+      status.message === null ? null : redactText(status.message, { report: secrets })
     const toolName = firstString(attributes, TOOL_NAME_ATTR_KEYS)
     const model = firstString(attributes, MODEL_ATTR_KEYS)
-    const name = redactSecrets(stringOr(record.name, 'unknown'), secrets)
+    const name = redactText(stringOr(record.name, 'unknown'), { report: secrets })
     spans.push({
       traceId,
       spanId,

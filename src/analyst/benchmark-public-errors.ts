@@ -6,6 +6,7 @@ import {
 } from '../cost-ledger'
 import { AgentEvalError } from '../errors'
 import { LlmCallError, LlmResponseError } from '../llm-client'
+import { redactText } from '../trace/redact'
 import type { AnalystBenchmarkError } from './benchmark'
 
 export function publicBenchmarkError(
@@ -87,16 +88,7 @@ export function publicBenchmarkError(
 }
 
 function redactSensitiveText(value: string, secrets: readonly string[]): string {
-  let redacted = value
-  for (const secret of secrets) {
-    if (secret) redacted = redacted.replaceAll(secret, '[REDACTED]')
-  }
-  redacted = redacted
-    .replace(/\bBearer\s+[^\s"',;]+/gi, 'Bearer [REDACTED]')
-    .replace(
-      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\b\s*[:=]\s*[^\s"',;]+/gi,
-      '$1=[REDACTED]',
-    )
+  const redacted = redactText(value, { knownSecrets: secrets })
   if (redacted.length <= 500) return redacted
   const head = redacted.slice(0, 180)
   const omitted = redacted.length - 460

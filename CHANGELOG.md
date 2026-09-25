@@ -8,6 +8,34 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
+- `RunRecord.traceRef` (`{ traceId, execRunId? }`) points at the run's trace and execution tree; a minted rollout line sets `artifacts.transcript_ref` to `trace:<traceId>`.
+- `RunCostProvenance` gains `{ kind: 'lower-bound', usd: null, knownLowerBoundUsd }` for a run whose receipts prove only part of its spend.
+  `costUsd` stays null, so no reader of the total takes a floor for a total; `runCostFloorUsd(record)` returns the proven spend.
+  A $0 floor is refused; write it as `uncaptured`.
+- `mintRolloutRows` takes `searchLineage(search) => { depth, ordinal, rep, containingRunId }` and fills `generation`, `candidate_index`, `task.rep` and `parent_rollout_id` from it.
+  A record with `search` and no `searchLineage` is refused.
+- `InsightReport.costQuality.provenance.lowerBound` (`{ n, floorUsd }`) counts lower-bound runs and sums their floors, separate from totals.
+
+### Changed
+
+- **Breaking:** `campaignToRunRecords` ids runs `${candidateId}:${cellId}`.
+  A campaign cell id is `${scenario}:${rep}`, so a baseline and a candidate over the same holdout produced the same run ids.
+- **Breaking:** `campaignCellToRunRecord` keeps a proven subtotal as a `lower-bound` cost instead of replacing it with `defaultCostUsd`; the default now applies only to a cell that proved no spend.
+  The duplicate `outcome.raw` keys `cost_observed`, `cost_estimated`, `cost_uncaptured` and `cost_known_subtotal_usd` are gone; read `costProvenance`.
+- **Breaking:** rollout `generation` is the node's search depth (the root is 0) and `candidate_index` its registration order; both are null outside a search.
+  The unused `-1 = baseline` convention is gone.
+- Migration for the lower-bound kind: a `switch` over `RunRecord.costProvenance.kind` needs a `lower-bound` branch, and a reader of the total reads `costUsd` or `costProvenance.usd`, which are null for both unknown kinds.
+- `analyzeRuns`, `HeldOutGate`'s cost ceiling and `evaluateReleaseConfidence` treat a lower-bound cost as an unknown total.
+
+### Removed
+
+- The RunRecord, rl-adapter, run-profile-matrix and campaign cost unit tests; a real climb's records through the validator, mint and `analyzeRuns` are the proof.
+
+## [0.188.0] — 2026-09-24
+
+### Added
+
 - `precedes` and `neverUnless` take `{ order }`: `start-order` (default), `finish-before-start`, or `all-occurrences`.
 - New trace-contract operators: `atMost(p, max)`, `tokensAtMost(p, max)` (an unknown token count fails), `run({ requireCompleted, allowedStatuses, maxDurationMs })` (unknown statuses are rejected), and `argument(p, { pointer, check, occurrence })`, an RFC 6901 JSON Pointer check on tool-call arguments that fails when the arguments were not captured.
 - Predicates gain `kind` (read through agent-trace-contract's classifier), `model`, `not`, and the `{ oneOf: [...] }` matcher.
@@ -22,14 +50,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Parsing is strict: an unknown key or status is an error that names the closest known word.
   `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
   See `docs/trace-contracts.md`.
-- `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
-- `RunRecord.traceRef` (`{ traceId, execRunId? }`) points at the run's trace and execution tree; a minted rollout line sets `artifacts.transcript_ref` to `trace:<traceId>`.
-- `RunCostProvenance` gains `{ kind: 'lower-bound', usd: null, knownLowerBoundUsd }` for a run whose receipts prove only part of its spend.
-  `costUsd` stays null, so no reader of the total takes a floor for a total; `runCostFloorUsd(record)` returns the proven spend.
-  A $0 floor is refused; write it as `uncaptured`.
-- `mintRolloutRows` takes `searchLineage(search) => { depth, ordinal, rep, containingRunId }` and fills `generation`, `candidate_index`, `task.rep` and `parent_rollout_id` from it.
-  A record with `search` and no `searchLineage` is refused.
-- `InsightReport.costQuality.provenance.lowerBound` (`{ n, floorUsd }`) counts lower-bound runs and sums their floors, separate from totals.
+- `/traces` owns the one redaction core ([docs/redaction.md](./docs/redaction.md)): `redact(value, { profile })` with `default`, `share` and `strict` profiles and per-profile string byte caps, `redactText`, and `classifyKey`, which normalizes camel, kebab and dotted field names and keeps token counts (`inputTokens`, `max_tokens`, `token_count`) and names such as `author`.
+  A string that holds a credential (bearer, JWT, `sk-`, `sk-ant-`, `AIza`, `gh*_`, `AKIA`, PEM, `key=value` and others) is replaced whole.
+  `knownSecrets` removes exact values in plain, base64, base64url and URL-encoded form.
+- `assessShareSafety`, `redactForShare`, `combineVerdicts` and `shareAllowed` give a share verdict of `SAFE`, `SAFE_WITH_WARNINGS`, `UNSAFE` or `UNKNOWN`; `redactForShare` re-scans the redacted output, and a part the scanner cannot read makes the verdict `UNKNOWN`.
+- `pnpm redaction:corpus` runs the core over `scripts/redaction-corpus.json`, the must-flag and must-not-flag cases (including agent-inspect's safety corpus, MIT).
 
 ### Changed
 
@@ -54,21 +79,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Every trace analyst tool (`buildTraceAnalysisToolDescriptors`) now ends its description with `UNTRUSTED_TRACE_TEXT`, a warning that returned trace text is untrusted evidence and never instructions.
   Before, only `readSpanSource` warned.
   Each descriptor also declares `readOnly: true` and `idempotent: true`, so a transport such as an MCP server publishes them without restating them.
-- **Breaking:** `campaignToRunRecords` ids runs `${candidateId}:${cellId}`.
-  A campaign cell id is `${scenario}:${rep}`, so a baseline and a candidate over the same holdout produced the same run ids.
-- **Breaking:** `campaignCellToRunRecord` keeps a proven subtotal as a `lower-bound` cost instead of replacing it with `defaultCostUsd`; the default now applies only to a cell that proved no spend.
-  The duplicate `outcome.raw` keys `cost_observed`, `cost_estimated`, `cost_uncaptured` and `cost_known_subtotal_usd` are gone; read `costProvenance`.
-- **Breaking:** rollout `generation` is the node's search depth (the root is 0) and `candidate_index` its registration order; both are null outside a search.
-  The unused `-1 = baseline` convention is gone.
-- Migration for the lower-bound kind: a `switch` over `RunRecord.costProvenance.kind` needs a `lower-bound` branch, and a reader of the total reads `costUsd` or `costProvenance.usd`, which are null for both unknown kinds.
-- `analyzeRuns`, `HeldOutGate`'s cost ceiling and `evaluateReleaseConfidence` treat a lower-bound cost as an unknown total.
 
 ### Removed
 
+- **The rule-list redactor is replaced by the redaction core.** Removed `DEFAULT_REDACTION_RULES`, `RedactionRule`, `redactString` and `redactValue` (root and `/traces`), and `/diagnosis` `DIAGNOSIS_SECRET_RULES`, `holdsSecret`, `redactSecrets`, `redactSecretsDeep`, `SECRET_ASSIGNMENT_PATTERN` and their types. `RedactionReport` now has `byDetector` and `findings` instead of `byRule`, and `REDACTION_VERSION` is `2.0.0`. **Migration:** `redactValue(v)` becomes `redact(v).value`, `redactString(s).output` becomes `redactText(s)`, and a custom rule list becomes `knownSecrets` or a case in the corpus. `defaultProviderRedactor` now runs the core, so a credential header keeps its name with a `[REDACTED:credential-key]` value, and `redactedFields` holds JSON Pointers.
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
 - `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
 - The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
-- The RunRecord, rl-adapter, run-profile-matrix and campaign cost unit tests; a real climb's records through the validator, mint and `analyzeRuns` are the proof.
 
 ## [0.187.2] — 2026-09-24
 

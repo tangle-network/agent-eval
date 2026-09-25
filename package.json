@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-eval",
-  "version": "0.187.2",
+  "version": "0.188.0",
   "description": "Evaluate and improve AI agents from runs, traces, judges, and feedback. Compare candidates, cluster failures, measure lift, and gate releases.",
   "homepage": "https://github.com/tangle-network/agent-eval#readme",
   "repository": {
@@ -213,7 +213,8 @@
     "contract:finding": "tsx scripts/emit-finding-contract.ts",
     "contract:finding:check": "tsx scripts/emit-finding-contract.ts --check",
     "evidence:render": "tsx scripts/render-evidence-index.ts",
-    "evidence:check": "tsx scripts/render-evidence-index.ts --check"
+    "evidence:check": "tsx scripts/render-evidence-index.ts --check",
+    "redaction:corpus": "tsx scripts/redaction-corpus.ts"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
