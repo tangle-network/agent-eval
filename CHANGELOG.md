@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.193.0] — 2026-09-25
+
 ### Added
 
 - A search with a test split ends in its claim ([search ledger](./docs/search-ledger.md#the-claim)).
@@ -15,6 +17,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   In 200 simulated 50-node searches in which no node differs from the root (12 selection and 24 test units, minimum effect 0.1), the claim shipped 5 times: 2.5 %, Wilson 95 % interval [1.1 %, 5.7 %]; per finalist, 5 of 584 tests promoted. With one child planted 0.15 better, it shipped a truly better node in 200 of 200.
 - The divergence rule: a node whose train mean rose over its parent's while its selection interval against the parent lies wholly on the worse side is decided `invalid` with rule `divergence` (`searchDivergence`), and never becomes a parent or a finalist.
 - `searchClaimReserveUsd({ testTasks, reps, cellUsd })` sizes `budget.reservedClaimUsd`; `SearchRunResult.claim` returns the claim.
+- `renderSearchSummary(state, { split })` (`/campaign`) renders a search as compact text: the leading nodes against the root, recently discarded nodes with the measurement that discarded them, and recent proposals; `agent-eval search show <ledger>` verifies a ledger and prints it. `ProposeContext` gains `parents`, `train` (a `searchProposerView`, which reads only the train split) and `summary`, and `runOptimization`'s proposal step fills all three.
 - `scripts/search-sim.ts claims` runs many simulated searches on in-memory ledgers and tallies their claims; `--null`, `--plant-gain`, `--plant-divergence`, `--test` and `--min-effect` shape them.
 
 ### Changed
