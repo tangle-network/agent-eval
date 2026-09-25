@@ -9,6 +9,11 @@
  */
 
 import { type Objective, paretoFrontierWithCrowding } from '../pareto'
+import {
+  EXPANSION_OPERATORS,
+  type ExpansionOperator,
+  type OperatorYieldSignal,
+} from '../search/lenses/operator-yield'
 import { mulberry32 } from '../statistics/random'
 import type { NodeEstimate, SearchEdgeOperator } from './search-ledger-types'
 import type { SearchUnitScore } from './search-state'
@@ -36,6 +41,10 @@ export interface SearchPolicyView {
   unitScores(nodeId: string): readonly SearchUnitScore[]
   /** The paired contrast of `nodeId` against `against` on `split`. */
   estimate(nodeId: string, against: string): NodeEstimate
+  /** The `operatorYield` lens's signal (search-tree-design §12) on `split`:
+   * an expandable operator's yield mean once it has enough measured
+   * outcomes, else null. Recomputed for every view a policy is handed. */
+  readonly operatorWeights: OperatorYieldSignal
 }
 
 /** One expansion: the parents a proposer derives a child from, and how. */
@@ -77,6 +86,75 @@ export function incumbent(options: { patience?: number } = {}): SearchPolicy {
     patience,
     parent: (_view, leader) => ({ nodeId: leader, evidence: {} }),
   })
+}
+
+/**
+ * The hill climb (as `incumbent`), with its operator drawn from the
+ * `operatorYield` lens instead of fixed at `improve` (search-tree-design
+ * §12): a weighted draw, seeded from `seed` and the expansion index like
+ * `crowdedFrontierParent`, over the lens's per-operator yield once every
+ * expandable operator has enough measured outcomes to trust
+ * (`view.operatorWeights[op] !== null` for all of them — the lens's own
+ * `MIN_OUTCOMES_FOR_WEIGHT` gate). Until then every draw uses `fixedWeights`
+ * (uniform by default), so a not-yet-tried operator is never starved before
+ * it has been measured enough to earn a data-driven weight. A yield at or
+ * below zero still gets a small positive share of the draw (never zero, so a
+ * so-far-bad operator can still be re-measured) rather than being excluded.
+ */
+export function incumbentWithOperatorBandit(
+  options: {
+    patience?: number
+    seed: number
+    fixedWeights?: Partial<Record<ExpansionOperator, number>>
+  } = { seed: 0 },
+): SearchPolicy {
+  const { patience, seed } = options
+  if (!Number.isInteger(seed)) {
+    throw new TypeError(`incumbentWithOperatorBandit: seed must be an integer, got ${String(seed)}`)
+  }
+  const fixedWeights: Record<ExpansionOperator, number> = {
+    draft: options.fixedWeights?.draft ?? 1,
+    improve: options.fixedWeights?.improve ?? 1,
+    debug: options.fixedWeights?.debug ?? 1,
+    merge: options.fixedWeights?.merge ?? 1,
+  }
+  for (const operator of EXPANSION_OPERATORS) {
+    const weight = fixedWeights[operator]
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new TypeError(
+        `incumbentWithOperatorBandit: fixedWeights.${operator} must be >= 0, got ${weight}`,
+      )
+    }
+  }
+  return hillClimb({
+    name:
+      patience === undefined
+        ? `incumbent-operator-bandit(seed=${seed})`
+        : `incumbent-operator-bandit(seed=${seed},patience=${patience})`,
+    patience,
+    parent: (_view, leader) => ({ nodeId: leader, evidence: {} }),
+    operator: (view) => chooseOperator(view.operatorWeights, fixedWeights, seed, view.expansions),
+  })
+}
+
+function chooseOperator(
+  measured: OperatorYieldSignal,
+  fixedWeights: Record<ExpansionOperator, number>,
+  seed: number,
+  expansionIndex: number,
+): ExpansionOperator {
+  const trusted = EXPANSION_OPERATORS.every((operator) => measured[operator] !== null)
+  const weights = EXPANSION_OPERATORS.map((operator) =>
+    trusted ? Math.max(measured[operator]!, 0) + 1e-6 : fixedWeights[operator],
+  )
+  const total = weights.reduce((a, b) => a + b, 0)
+  const rng = mulberry32((seed ^ Math.imul(expansionIndex + 1, 0x9e3779b1)) | 0)
+  let draw = rng() * total
+  for (let index = 0; index < EXPANSION_OPERATORS.length; index++) {
+    draw -= weights[index]!
+    if (draw <= 0) return EXPANSION_OPERATORS[index]!
+  }
+  return EXPANSION_OPERATORS[EXPANSION_OPERATORS.length - 1]!
 }
 
 /**
@@ -131,6 +209,9 @@ function hillClimb(spec: {
     view: SearchPolicyView,
     leader: string,
   ): { nodeId: string; evidence: Record<string, number> }
+  /** Defaults to always `improve`, the prior behavior of every hill-climb
+   * policy before the operator bandit. */
+  operator?(view: SearchPolicyView): Exclude<SearchEdgeOperator, 'seed' | 'derive'>
 }): SearchPolicy {
   const leader = (view: SearchPolicyView): string => {
     let current = view.rootNodeId
@@ -151,7 +232,7 @@ function hillClimb(spec: {
       const units = view.unitScores(chosen.nodeId)
       return {
         parents: [chosen.nodeId],
-        operator: 'improve',
+        operator: spec.operator ? spec.operator(view) : 'improve',
         selection: {
           rule: spec.name,
           evidence: {
