@@ -45,10 +45,14 @@ const CAPABILITY_ANALYSES: Record<string, string> = {
   'latency-analysis': 'latency distribution',
 }
 
-/** Capabilities the engine reports but has no analysis for yet. */
+/** Capabilities the engine reports but does not analyze, with where to go instead. */
 const NOT_BUILT = new Map([
   ['loop-convergence', 'the engine has no round-over-round convergence analysis yet'],
-  ['tree-comparison', 'the engine has no arm-vs-arm comparison yet'],
+  [
+    'tree-comparison',
+    'the engine does not pick which arms to compare; diff two arms with diffSteps from /pipelines ' +
+      '(traces diff <file>#branch=<a> <file>#branch=<b>)',
+  ],
   ['steering-chain', 'the engine has no steering-chain analysis yet'],
 ])
 

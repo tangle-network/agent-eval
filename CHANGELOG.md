@@ -8,6 +8,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- The diagnosis engine's skipped arm-vs-arm comparison now says where that comparison lives: `diffSteps` from `/pipelines`, which `traces diff <file>#branch=<a> <file>#branch=<b>` runs.
 - A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
   It used to accept any terminal status, so a run that ended in an error passed.
   Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
