@@ -14,8 +14,11 @@
  * It applies the same rules a production store must: every line is verified
  * and linked to the stored head with `admitSearchLedgerBatch`, every accepted
  * entry passes the `SearchState` state machine, blobs are re-hashed, and a
- * fork or gap answers 409 with the store's head. Storage is in memory on
- * purpose: this file is a reference for receiver behavior, not a database.
+ * fork or gap answers 409 with the store's head. A closed search's claim is
+ * made again from the stored entries (`verifySearchClaim`), so the store
+ * reports what the ledger supports, not what the producer wrote. Storage is
+ * in memory on purpose: this file is a reference for receiver behavior, not a
+ * database.
  */
 
 import { createHash } from 'node:crypto'
@@ -23,6 +26,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { serve } from '@hono/node-server'
 import { type Context, Hono } from 'hono'
 import type { ZodError } from 'zod'
+import { verifySearchClaim } from '../../src/campaign/search-claim'
 import { SearchLedgerError } from '../../src/campaign/search-ledger'
 import type { SearchLedgerHash } from '../../src/campaign/search-ledger-types'
 import { SearchState } from '../../src/campaign/search-state'
@@ -262,6 +266,7 @@ export function createReferenceReceiverApp(opts: {
       runKind: search.runKind,
       audit: view.audit,
       closed: view.closed,
+      claimVerification: view.closed ? verifySearchClaim(view) : null,
     })
   })
 

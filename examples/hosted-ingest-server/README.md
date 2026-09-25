@@ -38,6 +38,7 @@ selfImprove({
 2. `GET /v1/ingest/search-ledger/<searchId>/head` returns where its copy of the chain ends.
 3. `POST /v1/ingest/search-ledger` verifies each line with `admitSearchLedgerBatch`, replays new entries through `SearchState`, and answers 409 with its head on a gap or a fork.
 4. `GET /v1/searches/<searchId>` returns the head and the replayed audit, so you can compare it with the local ledger.
+   For a closed search it also returns `claimVerification`: the claim made again from the stored entries with `verifySearchClaim`, which is `mismatch` when the producer's claim is not the one its cells support.
 5. `POST /v1/ingest/traces` and `GET /v1/runs/<runId>/traces` store and read trace spans.
 
 ## Why it is built this way
