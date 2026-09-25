@@ -30,7 +30,7 @@ Their additional fields distinguish failed checks from incomplete or unmeasured 
 | --- | --- | --- | --- | --- |
 | `MultiLayerVerifier.run()` | `VerificationReport` | `composite` | Ordered verification layers | `layers`, `allPass`, and optional `taskScore` |
 | `verifyCompletion()` | `CompletionVerdict` | The supplied checker's strategy | Completion requirements matched against produced state | Requirement evidence, `correct`, and `unmeasured` |
-| `evaluateTraceContract()` | `ContractVerdict` | `invariant` | Temporal rules over recorded spans | Rule results and assumptions about ordering and predicates |
+| `evaluateTraceContract()` | `ContractVerdict` | `invariant` | Ordering, count, token, run, and argument rules over recorded spans | `status` (`pass`, `fail`, or `error`), `ruleExecutions`, `violations`, and custom-predicate assumptions |
 | `evaluateOracles()` | `OracleReport` | `test` | Declared expected-outcome assertions | `results`, `passCount`, and `failCount` |
 | `replayVerify()` | `ReplayVerdict` | `replication` | Failure reproduction and an optional fix under re-execution | Prefix fidelity, signature matches, and both execution arms |
 | `verifyFindings()` | `VerifyFindingsRun` | `replication` | Analyst findings checked through replay | `executions`, `counts`, and individual verifications |

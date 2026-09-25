@@ -92,6 +92,8 @@ describe('createDspyRlmTraceEngine', () => {
     let toolExecutions = 0
     const tool: TraceAnalysisToolDescriptor = {
       namespace: 'traces',
+      readOnly: true,
+      idempotent: true,
       name: 'getDatasetOverview',
       description: 'Return a summary.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
@@ -193,6 +195,8 @@ describe('createDspyRlmTraceEngine', () => {
 
     const tool: TraceAnalysisToolDescriptor = {
       namespace: 'traces',
+      readOnly: true,
+      idempotent: true,
       name: 'getDatasetOverview',
       description: 'Return a summary.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
