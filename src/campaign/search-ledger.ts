@@ -1,24 +1,25 @@
 /**
- * Durable append-only audit log for improvement searches.
+ * Durable, append-only event log of one search: nodes (content-addressed
+ * artifacts), edges (the proposals that derived them), cells (one run of one
+ * node on one task), operations, decisions, and the claim.
  *
- * Existing campaign artifacts keep their own rich records: `RunRecord` owns a
- * measured run and `CostLedger` owns per-call accounting. This ledger does not
- * copy those structures. It binds their immutable ids and receipts into one replayable event stream so a
- * search can answer, after a crash, exactly which candidates and task attempts
- * existed, which surfaces actually fired, what they cost, and why they were
- * selected or rejected.
+ * The ledger is the search's only lineage record and its only resume
+ * checkpoint. A RunRecord owns one measured run and `CostLedger` owns per-call
+ * accounting; this ledger binds them by digest instead of copying them.
  *
  * The file format is canonical JSONL with a SHA-256 hash chain. Every append is
  * serialized across processes, fsynced before acknowledgement, and idempotent
  * by `eventId`. A malformed, non-canonical, truncated, reordered, or conflicting
- * log fails loudly; the implementation never skips a bad row.
+ * log fails loudly; a bad row is never skipped. A ledger written under another
+ * schema tag is refused with that tag named, never translated.
  *
- * The journal machinery itself (hash chain, locking, fsync, idempotent append)
- * is the generic `ledger-core` journal; this module supplies the campaign
- * codec: event schemas, canonical event ordering, and the search state machine.
+ * The journal machinery is the generic `ledger-core` journal. This module is
+ * the search codec: event schemas and canonical ordering. `SearchState` is the
+ * state machine and read model.
  */
 
 import { z } from 'zod'
+import { evaluationClaimSchema } from '../experiment/claim'
 import {
   canonicalString,
   FileLedgerJournal,
@@ -36,15 +37,14 @@ import {
 } from './search-ledger-errors'
 import { SEARCH_LEDGER_FILE_CONTEXT } from './search-ledger-file'
 import { artifactKey, compareStrings } from './search-ledger-ordering'
-import { createSearchLedgerProjector } from './search-ledger-projector'
 import {
   SEARCH_LEDGER_SCHEMA,
   type SearchArtifactRef,
-  type SearchLedgerAppendResult,
   type SearchLedgerEntry,
   type SearchLedgerEvent,
-  type SearchLedgerReplay,
+  type SearchTask,
 } from './search-ledger-types'
+import { SearchState, type SearchStateView } from './search-state'
 
 export { SearchLedgerConflictError, SearchLedgerError, SearchLedgerIntegrityError }
 
@@ -54,8 +54,6 @@ const NON_EMPTY = z
   .refine((value) => value.trim() === value, 'must not contain surrounding whitespace')
 
 const HASH = z.string().regex(/^sha256:[a-f0-9]{64}$/)
-
-const LINEAGE_NODE_ID = z.string().regex(/^[a-f0-9]{16}$/)
 
 const IMMUTABLE_REVISION = z
   .string()
@@ -67,36 +65,56 @@ const ISO_TIMESTAMP = z
   .refine((value) => Number.isFinite(Date.parse(value)), 'invalid timestamp')
 
 const NON_NEGATIVE_INT = z.number().int().nonnegative().safe()
-
+const POSITIVE_INT = z.number().int().positive().safe()
 const FINITE_NUMBER = z.number().finite()
+const USD = z.number().finite().nonnegative()
+
+const NODE_ID = z.string().regex(/^node_[a-f0-9]{32}$/)
+const CELL_ID = z.string().regex(/^cell_[a-f0-9]{32}$/)
 
 const ArtifactRefSchema = z
-  .object({
-    role: NON_EMPTY,
-    uri: NON_EMPTY,
-    sha256: HASH,
-    byteLength: NON_NEGATIVE_INT,
-  })
+  .object({ role: NON_EMPTY, uri: NON_EMPTY, sha256: HASH, byteLength: NON_NEGATIVE_INT })
   .strict()
 
-const SourceRefSchema = z
-  .object({
-    uri: NON_EMPTY,
-    revision: IMMUTABLE_REVISION,
-  })
+const SourceRefSchema = z.object({ uri: NON_EMPTY, revision: IMMUTABLE_REVISION }).strict()
+
+const UnknownRefSchema = z.object({ unknown: NON_EMPTY }).strict()
+
+const FailureReasonSchema = z.object({ code: NON_EMPTY, message: NON_EMPTY }).strict()
+
+const ModelIdentitySchema = z.union([
+  z
+    .object({
+      provider: NON_EMPTY,
+      snapshot: NON_EMPTY.refine(modelHasSnapshot, 'model must include an immutable snapshot'),
+    })
+    .strict(),
+  z.object({ provider: NON_EMPTY, alias: NON_EMPTY, unknown: NON_EMPTY }).strict(),
+])
+
+const ExecutionIdentitySchema = z
+  .object({ model: ModelIdentitySchema, agent: SourceRefSchema, benchmark: SourceRefSchema })
   .strict()
 
-const FailureReasonSchema = z
-  .object({
-    code: NON_EMPTY,
-    message: NON_EMPTY,
-  })
-  .strict()
+const SURFACE_KINDS = [
+  'prompt',
+  'tool-contract',
+  'runtime-config',
+  'memory',
+  'knowledge',
+  'agent-profile',
+  'code',
+  'deployment',
+] as const
+
+const SPLIT = z.enum(['train', 'selection', 'test'])
+
+const ReservationSchema = z.object({ kind: z.enum(['hard', 'estimate']), usd: USD }).strict()
 
 const EventBaseShape = {
   eventId: NON_EMPTY,
   occurredAt: ISO_TIMESTAMP,
-  artifacts: z.array(ArtifactRefSchema).min(1),
+  artifacts: z.array(ArtifactRefSchema),
 }
 
 const OperationKindSchema = z.enum([
@@ -107,112 +125,6 @@ const OperationKindSchema = z.enum([
   'other',
 ])
 
-const CandidateSlotSchema = z
-  .object({
-    slotId: NON_EMPTY,
-    generationOperationId: NON_EMPTY,
-  })
-  .strict()
-
-const PlannedOperationSchema = z
-  .object({
-    operationId: NON_EMPTY,
-    kind: OperationKindSchema,
-  })
-  .strict()
-
-const SearchPlanExtendedSchema = z
-  .object({
-    ...EventBaseShape,
-    kind: z.literal('search-plan-extended'),
-    extension: z
-      .object({
-        candidateSlots: z.array(CandidateSlotSchema),
-        operations: z.array(PlannedOperationSchema),
-      })
-      .strict()
-      .superRefine((extension, ctx) => {
-        if (extension.candidateSlots.length === 0 && extension.operations.length === 0) {
-          ctx.addIssue({ code: 'custom', message: 'a plan extension must add slots or operations' })
-        }
-      }),
-  })
-  .strict()
-
-const SearchPlannedSchema = z
-  .object({
-    ...EventBaseShape,
-    kind: z.literal('search-planned'),
-    plan: z
-      .object({
-        candidateSlots: z.array(CandidateSlotSchema).min(1),
-        tasks: z
-          .array(
-            z
-              .object({
-                taskId: NON_EMPTY,
-                source: SourceRefSchema,
-                benchmark: SourceRefSchema,
-                maxAttempts: z.number().int().positive().safe(),
-              })
-              .strict(),
-          )
-          .min(1),
-        operations: z.array(PlannedOperationSchema).min(1),
-      })
-      .strict(),
-  })
-  .strict()
-
-const CandidateRegisteredSchema = z
-  .object({
-    ...EventBaseShape,
-    kind: z.literal('candidate-registered'),
-    slotId: NON_EMPTY,
-    generationOperationId: NON_EMPTY,
-    candidateId: NON_EMPTY,
-    lineage: z
-      .object({
-        lineageNodeId: LINEAGE_NODE_ID,
-        parentCandidateIds: z.array(NON_EMPTY),
-        generation: NON_NEGATIVE_INT,
-        proposer: NON_EMPTY,
-        proposerSource: SourceRefSchema,
-      })
-      .strict(),
-    surfaces: z
-      .array(
-        z
-          .object({
-            surfaceId: NON_EMPTY,
-            kind: z.enum([
-              'prompt',
-              'tool-contract',
-              'runtime-config',
-              'memory',
-              'knowledge',
-              'agent-profile',
-              'code',
-              'deployment',
-            ]),
-            artifact: ArtifactRefSchema,
-          })
-          .strict(),
-      )
-      .min(1),
-  })
-  .strict()
-
-const CandidateSlotClosedSchema = z
-  .object({
-    ...EventBaseShape,
-    kind: z.literal('candidate-slot-closed'),
-    slotId: NON_EMPTY,
-    generationOperationId: NON_EMPTY,
-    reason: FailureReasonSchema,
-  })
-  .strict()
-
 const KnownTokensSchema = z
   .object({
     status: z.literal('known'),
@@ -222,17 +134,12 @@ const KnownTokensSchema = z
   })
   .strict()
 
-const UnknownSchema = z
-  .object({
-    status: z.literal('unknown'),
-    reason: NON_EMPTY,
-  })
-  .strict()
+const UnknownTokensSchema = z.object({ status: z.literal('unknown'), reason: NON_EMPTY }).strict()
 
 const KnownCostSchema = z
   .object({
     status: z.literal('known'),
-    usd: z.number().finite().nonnegative(),
+    usd: USD,
     source: z.enum(['provider', 'pricing-table', 'free']),
   })
   .strict()
@@ -243,16 +150,12 @@ const KnownCostSchema = z
   })
 
 const UnknownCostSchema = z
-  .object({
-    status: z.literal('unknown'),
-    knownLowerBoundUsd: z.number().finite().nonnegative(),
-    reason: NON_EMPTY,
-  })
+  .object({ status: z.literal('unknown'), knownLowerBoundUsd: USD, reason: NON_EMPTY })
   .strict()
 
 const AccountingSchema = z
   .object({
-    tokens: z.discriminatedUnion('status', [KnownTokensSchema, UnknownSchema]),
+    tokens: z.discriminatedUnion('status', [KnownTokensSchema, UnknownTokensSchema]),
     cost: z.discriminatedUnion('status', [KnownCostSchema, UnknownCostSchema]),
   })
   .strict()
@@ -266,13 +169,7 @@ const MetricsSchema = z.record(NON_EMPTY, FINITE_NUMBER).superRefine((metrics, c
 })
 
 const OutcomeSchema = z.discriminatedUnion('status', [
-  z
-    .object({
-      status: z.literal('passed'),
-      score: FINITE_NUMBER,
-      metrics: MetricsSchema,
-    })
-    .strict(),
+  z.object({ status: z.literal('passed'), score: FINITE_NUMBER, metrics: MetricsSchema }).strict(),
   z
     .object({
       status: z.literal('failed'),
@@ -307,12 +204,7 @@ const EffectSchema = z.discriminatedUnion('status', [
         ctx.addIssue({ code: 'custom', message: 'delta must equal candidateValue - baselineValue' })
       }
     }),
-  z
-    .object({
-      status: z.literal('not-measured'),
-      reason: NON_EMPTY,
-    })
-    .strict(),
+  z.object({ status: z.literal('not-measured'), reason: NON_EMPTY }).strict(),
 ])
 
 const SurfaceEvidenceSchema = z
@@ -325,153 +217,290 @@ const SurfaceEvidenceSchema = z
   })
   .strict()
   .superRefine((evidence, ctx) => {
-    if (evidence.fired && evidence.firingCount === 0) {
-      ctx.addIssue({ code: 'custom', message: 'a fired surface must have firingCount >= 1' })
-    }
-    if (!evidence.fired && evidence.firingCount !== 0) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a surface that did not fire must have firingCount 0',
-      })
+    if (evidence.fired !== evidence.firingCount > 0) {
+      ctx.addIssue({ code: 'custom', message: 'fired must equal firingCount > 0' })
     }
     if (!evidence.fired && evidence.effect.status === 'measured' && evidence.effect.delta !== 0) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'a surface that did not fire cannot claim non-zero effect',
-      })
+      ctx.addIssue({ code: 'custom', message: 'a surface that did not fire has no effect' })
     }
   })
 
-const TaskAttemptedSchema = z
+const TaskSchema = z
+  .object({ taskId: NON_EMPTY, unitId: NON_EMPTY, source: SourceRefSchema })
+  .strict()
+
+const SplitTasksSchema = z.object({ taskSetDigest: HASH, tasks: z.array(TaskSchema) }).strict()
+
+const SearchOpenedSchema = z
   .object({
     ...EventBaseShape,
-    kind: z.literal('task-attempted'),
-    candidateId: NON_EMPTY,
-    runId: NON_EMPTY,
-    attemptIndex: NON_NEGATIVE_INT,
-    task: z.object({ taskId: NON_EMPTY, source: SourceRefSchema }).strict(),
-    identity: z
+    kind: z.literal('search-opened'),
+    subject: NON_EMPTY,
+    process: z.object({ name: NON_EMPTY, executionRef: SourceRefSchema }).strict(),
+    artifactKind: z.enum([...SURFACE_KINDS, 'output']),
+    objective: z
       .object({
-        model: z
-          .object({
-            provider: NON_EMPTY,
-            snapshot: NON_EMPTY.refine(
-              modelHasSnapshot,
-              'model must include an immutable snapshot',
-            ),
-          })
-          .strict(),
-        agent: SourceRefSchema,
-        benchmark: SourceRefSchema,
+        metric: NON_EMPTY,
+        direction: z.enum(['maximize', 'minimize']),
+        judge: z.union([SourceRefSchema, UnknownRefSchema]),
+        claim: evaluationClaimSchema,
       })
       .strict(),
-    outcome: OutcomeSchema,
-    accounting: AccountingSchema,
-    surfaceEvidence: z.array(SurfaceEvidenceSchema).min(1),
+    splits: z
+      .object({
+        train: SplitTasksSchema,
+        selection: SplitTasksSchema,
+        test: SplitTasksSchema,
+        heldOutUnits: z.boolean(),
+      })
+      .strict(),
+    policy: z
+      .object({ expansion: NON_EMPTY, allocation: NON_EMPTY, seed: z.number().int().safe() })
+      .strict(),
+    budget: z
+      .object({
+        maxUsd: USD.nullable(),
+        maxCells: POSITIVE_INT.nullable(),
+        maxNodes: POSITIVE_INT.nullable(),
+        deadline: ISO_TIMESTAMP.nullable(),
+        maxConcurrency: POSITIVE_INT.nullable(),
+        reservedClaimUsd: USD,
+      })
+      .strict(),
+    containment: z
+      .object({ searchId: NON_EMPTY, cellId: CELL_ID, attempt: POSITIVE_INT })
+      .strict()
+      .nullable(),
+    derivedFrom: z
+      .object({ searchId: NON_EMPTY, nodeId: NODE_ID, headHash: HASH })
+      .strict()
+      .nullable(),
+    identity: ExecutionIdentitySchema,
   })
   .strict()
 
-const SearchOperationRecordedSchema = z
+const OperationStartedSchema = z
   .object({
     ...EventBaseShape,
-    kind: z.literal('search-operation-recorded'),
+    kind: z.literal('operation-started'),
+    operationId: NON_EMPTY,
+    operationKind: OperationKindSchema,
+    reservation: ReservationSchema.nullable(),
+  })
+  .strict()
+
+const OperationRecordedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('operation-recorded'),
     operationId: NON_EMPTY,
     operationKind: OperationKindSchema,
     execution: z.discriminatedUnion('kind', [
       z
-        .object({
-          kind: z.literal('model'),
-          model: z
-            .object({
-              provider: NON_EMPTY,
-              snapshot: NON_EMPTY.refine(
-                modelHasSnapshot,
-                'model must include an immutable snapshot',
-              ),
-            })
-            .strict(),
-          source: SourceRefSchema,
-        })
+        .object({ kind: z.literal('model'), model: ModelIdentitySchema, source: SourceRefSchema })
         .strict(),
-      z
-        .object({
-          kind: z.literal('deterministic'),
-          source: SourceRefSchema,
-        })
-        .strict(),
+      z.object({ kind: z.literal('deterministic'), source: SourceRefSchema }).strict(),
     ]),
     outcome: z.discriminatedUnion('status', [
       z.object({ status: z.literal('completed') }).strict(),
-      z
-        .object({
-          status: z.literal('partial'),
-          failure: FailureReasonSchema,
-        })
-        .strict(),
-      z
-        .object({
-          status: z.literal('failed'),
-          failure: FailureReasonSchema,
-        })
-        .strict(),
+      z.object({ status: z.literal('partial'), failure: FailureReasonSchema }).strict(),
+      z.object({ status: z.literal('failed'), failure: FailureReasonSchema }).strict(),
     ]),
     accounting: AccountingSchema,
   })
   .strict()
 
-const CandidateDecidedSchema = z
+const NodeRegisteredSchema = z
   .object({
     ...EventBaseShape,
-    kind: z.literal('candidate-decided'),
-    candidateId: NON_EMPTY,
-    decision: z.discriminatedUnion('status', [
-      z.object({ status: z.literal('selected') }).strict(),
+    kind: z.literal('node-registered'),
+    nodeId: NODE_ID,
+    artifactDigest: HASH,
+    artifact: ArtifactRefSchema,
+    surfaces: z.array(
       z
-        .object({
-          status: z.literal('rejected'),
-          reason: FailureReasonSchema,
-        })
+        .object({ surfaceId: NON_EMPTY, kind: z.enum(SURFACE_KINDS), artifact: ArtifactRefSchema })
         .strict(),
-    ]),
+    ),
   })
   .strict()
 
-const SearchCompletedSchema = z
+const NodeRefSchema = z.object({ searchId: NON_EMPTY, nodeId: NODE_ID }).strict()
+
+const ArtifactOrUnknownSchema = z.union([ArtifactRefSchema, UnknownRefSchema])
+
+const EdgeRecordedSchema = z
   .object({
     ...EventBaseShape,
-    kind: z.literal('search-completed'),
-    result: z.discriminatedUnion('status', [
-      z
-        .object({
-          status: z.literal('selected'),
-          candidateId: NON_EMPTY,
-        })
-        .strict(),
-      z
-        .object({
-          status: z.literal('all-rejected'),
-          reason: FailureReasonSchema,
-        })
-        .strict(),
+    kind: z.literal('edge-recorded'),
+    edgeId: z.string().regex(/^edge_[a-f0-9]{32}$/),
+    childNodeId: NODE_ID,
+    parents: z.array(NodeRefSchema),
+    operator: z.enum(['seed', 'draft', 'improve', 'debug', 'merge', 'derive']),
+    attribution: z.enum(['explicit', 'correlated', 'unknown']),
+    proposer: z
+      .object({
+        kind: z.enum(['trace', 'frontier-author', 'human', 'optimizer', 'compound']),
+        name: NON_EMPTY,
+        operationId: NON_EMPTY.nullable(),
+        source: SourceRefSchema,
+      })
+      .strict()
+      .nullable(),
+    selection: z
+      .object({ rule: NON_EMPTY, evidence: z.record(NON_EMPTY, FINITE_NUMBER) })
+      .strict()
+      .nullable(),
+    rationale: ArtifactOrUnknownSchema,
+    diffs: z.array(ArtifactOrUnknownSchema),
+    label: z.string(),
+  })
+  .strict()
+
+const CellAllocatedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('cell-allocated'),
+    cellId: CELL_ID,
+    nodeId: NODE_ID,
+    taskId: NON_EMPTY,
+    unitId: NON_EMPTY,
+    split: SPLIT,
+    rep: NON_NEGATIVE_INT,
+    stage: z.enum(['root', 'train', 'screen', 'rung', 'claim', 'external']),
+    lane: NON_EMPTY.nullable(),
+    reservation: ReservationSchema.nullable(),
+  })
+  .strict()
+
+const TraceRefSchema = z.union([
+  z
+    .object({
+      traceId: NON_EMPTY,
+      execRunId: NON_EMPTY.nullable(),
+      spansWritten: NON_NEGATIVE_INT.nullable(),
+      spansDropped: NON_NEGATIVE_INT.nullable(),
+    })
+    .strict(),
+  UnknownRefSchema,
+])
+
+const NON_NEGATIVE = z.number().finite().nonnegative()
+
+const CellSettledSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('cell-settled'),
+    cellId: CELL_ID,
+    attempt: POSITIVE_INT,
+    runId: NON_EMPTY,
+    outcome: OutcomeSchema,
+    accounting: AccountingSchema,
+    boxMinutes: NON_NEGATIVE.nullable(),
+    wallMs: NON_NEGATIVE.nullable(),
+    queueMs: NON_NEGATIVE.nullable(),
+    placement: z.object({ lane: NON_EMPTY, boxId: NON_EMPTY.nullable() }).strict().nullable(),
+    identity: ExecutionIdentitySchema,
+    surfaceEvidence: z.array(SurfaceEvidenceSchema),
+    traceRef: TraceRefSchema,
+  })
+  .strict()
+
+const CellCancelledSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('cell-cancelled'),
+    cellId: CELL_ID,
+    reason: z.enum(['pruned', 'budget', 'deadline', 'aborted']),
+  })
+  .strict()
+
+const NodeEstimateSchema = z
+  .object({
+    against: NODE_ID,
+    split: SPLIT,
+    units: NON_NEGATIVE_INT,
+    pairs: NON_NEGATIVE_INT,
+    delta: FINITE_NUMBER.nullable(),
+    interval: z.tuple([FINITE_NUMBER, FINITE_NUMBER]).nullable(),
+    method: z.enum(['none', 'insufficient', 'descriptive', 'bootstrap']),
+    exactSignP: z.number().min(0).max(1).nullable(),
+    cellSetDigest: HASH,
+    estimator: SourceRefSchema,
+  })
+  .strict()
+
+const NodeDecidedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('node-decided'),
+    nodeId: NODE_ID,
+    decision: z.discriminatedUnion('status', [
+      z.object({ status: z.literal('advanced'), rung: NON_NEGATIVE_INT }).strict(),
+      z.object({ status: z.literal('pruned') }).strict(),
+      z.object({ status: z.literal('invalid') }).strict(),
+      z.object({ status: z.literal('finalist') }).strict(),
+      z.object({ status: z.literal('selected') }).strict(),
+      z.object({ status: z.literal('rejected') }).strict(),
     ]),
+    basis: NodeEstimateSchema.nullable(),
+    rule: NON_EMPTY,
+    reason: NON_EMPTY,
+  })
+  .strict()
+
+const SearchClosedSchema = z
+  .object({
+    ...EventBaseShape,
+    kind: z.literal('search-closed'),
+    reason: z.enum(['budget', 'deadline', 'max-nodes', 'patience', 'converged', 'aborted']),
+    claim: z
+      .object({
+        power: z.union([
+          z
+            .object({
+              adequate: z.boolean(),
+              minimumEffect: z.number().finite().positive(),
+              powerAtMinimumEffect: z.number().min(0).max(1),
+              units: NON_NEGATIVE_INT,
+            })
+            .strict(),
+          UnknownRefSchema,
+        ]),
+        finalists: z.array(
+          z
+            .object({
+              nodeId: NODE_ID,
+              estimate: NodeEstimateSchema.nullable(),
+              promote: z.boolean(),
+            })
+            .strict(),
+        ),
+        selected: NODE_ID.nullable(),
+        decision: z.enum(['ship', 'hold', 'test-cannot-resolve']),
+      })
+      .strict()
+      .nullable(),
   })
   .strict()
 
 const EventSchema = z.discriminatedUnion('kind', [
-  SearchPlannedSchema,
-  SearchPlanExtendedSchema,
-  CandidateRegisteredSchema,
-  CandidateSlotClosedSchema,
-  TaskAttemptedSchema,
-  SearchOperationRecordedSchema,
-  CandidateDecidedSchema,
-  SearchCompletedSchema,
+  SearchOpenedSchema,
+  OperationStartedSchema,
+  OperationRecordedSchema,
+  NodeRegisteredSchema,
+  EdgeRecordedSchema,
+  CellAllocatedSchema,
+  CellSettledSchema,
+  CellCancelledSchema,
+  NodeDecidedSchema,
+  SearchClosedSchema,
 ])
 
 const EntrySchema = z
   .object({
     schema: z.literal(SEARCH_LEDGER_SCHEMA),
-    campaignId: NON_EMPTY,
+    searchId: NON_EMPTY,
     sequence: NON_NEGATIVE_INT,
     previousHash: z.union([HASH, z.null()]),
     event: EventSchema,
@@ -479,8 +508,8 @@ const EntrySchema = z
   })
   .strict()
 
-/** Validate and return a canonical copy. Arrays whose order is not semantic are
- * sorted so retries from different processes produce byte-identical events. */
+/** Validate and return a canonical copy. Arrays whose order carries no meaning
+ * are sorted, so retries from different processes produce identical bytes. */
 export function validateSearchLedgerEvent(input: unknown): SearchLedgerEvent {
   const parsed = EventSchema.safeParse(input)
   if (!parsed.success) {
@@ -498,8 +527,7 @@ export function validateSearchLedgerEvent(input: unknown): SearchLedgerEvent {
  * - `pin` (default): every append records the new head, and a pin that is
  *   present is verified on every read.
  * - `require`: additionally refuses to read a non-empty ledger whose pin is
- *   gone, so deleting the sibling file cannot downgrade the guarantee. Only for
- *   ledgers written under `pin` from their first entry.
+ *   gone, so deleting the sibling file cannot downgrade the guarantee.
  * - `off`: chain verification only. Truncation to a valid shorter prefix is
  *   undetectable.
  */
@@ -507,99 +535,101 @@ export type SearchLedgerTrustedHeadMode = 'pin' | 'require' | 'off'
 
 export interface OpenSearchLedgerOptions {
   path: string
-  campaignId: string
+  searchId: string
   trustedHead?: SearchLedgerTrustedHeadMode
+}
+
+export interface SearchLedgerAppendResult {
+  entry: SearchLedgerEntry
+  /** False when the exact event was already durably present. */
+  appended: boolean
+  state: SearchStateView
 }
 
 export interface SearchLedger {
   readonly path: string
-  readonly campaignId: string
+  readonly searchId: string
   /** Sibling file holding this ledger's trusted head. */
   readonly trustedHeadPath: string
   append(event: SearchLedgerEvent): Promise<SearchLedgerAppendResult>
-  replay(): Promise<SearchLedgerReplay>
+  /** The verified state at the file's current head. */
+  state(): Promise<SearchStateView>
   /** The pinned head, or null when this ledger has never been pinned. */
   trustedHead(): Promise<LedgerTrustedHead | null>
-  /** Pin the current verified head: how a ledger written under `off`, or one
-   * whose pin file was removed, acquires a pin without rewriting a byte. */
+  /** Pin the current verified head without rewriting a byte. */
   pinTrustedHead(): Promise<LedgerTrustedHead>
-  /** Discard this ledger's pin, reporting what was discarded. Deleting or
-   * rebuilding the ledger file leaves a pin naming history the file no longer
-   * carries, and every later read is refused because that is exactly the
-   * deletion the pin exists to catch; clearing is the supported way to abandon
-   * that history on purpose. It gives up the deletion guarantee for every entry
-   * the pin covered. */
+  /** Discard this ledger's pin, reporting what was discarded. It gives up the
+   * deletion guarantee for every entry the pin covered. */
   clearTrustedHead(): Promise<LedgerTrustedHeadRemoval>
 }
 
 /** Open a durable filesystem search ledger. Construction performs no I/O; the
- * first `append` or `replay` validates the complete existing file. */
+ * first `append` or `state` verifies the whole existing file. */
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
-  if (options.path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-  return new FileSearchLedger(options.path, options.campaignId, options.trustedHead)
+  return new FileSearchLedger(options.path, options.searchId, options.trustedHead)
 }
 
-/** Replay immutable search-ledger JSONL through the same codec as FileSearchLedger. */
+/** Verify and project immutable search-ledger JSONL through the same codec as
+ * `FileSearchLedger`. */
 export function replaySearchLedgerText(
   text: string,
-  campaignId: string,
+  searchId: string,
   source: string,
-): SearchLedgerReplay {
-  return replayLedgerText(text, source, searchLedgerCodec(campaignId))
+): SearchStateView {
+  return replayLedgerText(text, source, searchLedgerCodec(searchId))
 }
 
 interface SearchLedgerHeader {
   schema: typeof SEARCH_LEDGER_SCHEMA
-  campaignId: string
+  searchId: string
 }
 
 function searchLedgerCodec(
-  campaignId: string,
-): LedgerJournalCodec<SearchLedgerHeader, SearchLedgerEvent, SearchLedgerReplay> {
+  searchId: string,
+): LedgerJournalCodec<SearchLedgerHeader, SearchLedgerEvent, SearchStateView> {
   return {
     ...SEARCH_LEDGER_FILE_CONTEXT,
-    header: { schema: SEARCH_LEDGER_SCHEMA, campaignId },
+    header: { schema: SEARCH_LEDGER_SCHEMA, searchId },
     conflictError: (message) => new SearchLedgerConflictError(message),
     parseEntry: parseSearchLedgerEntry,
     checkEntryHeader: (entry, index) => {
-      if (entry.campaignId !== campaignId) {
+      if (entry.searchId !== searchId) {
         throw new SearchLedgerIntegrityError(
-          `entry ${index} belongs to campaign ${entry.campaignId}, expected ${campaignId}`,
+          `entry ${index} belongs to search ${entry.searchId}, expected ${searchId}`,
         )
       }
     },
-    createProjector: () => createSearchLedgerProjector(campaignId),
+    createProjector: () => new SearchState(searchId),
   }
 }
 
-/** Append-only file-backed search ledger with idempotent writes and replay. */
+/** Append-only file-backed search ledger with idempotent writes. */
 export class FileSearchLedger implements SearchLedger {
   readonly path: string
-  readonly campaignId: string
+  readonly searchId: string
   readonly trustedHeadPath: string
   private readonly trustedHeadMode: SearchLedgerTrustedHeadMode
   private readonly journal: FileLedgerJournal<
     SearchLedgerHeader,
     SearchLedgerEvent,
-    SearchLedgerReplay
+    SearchStateView
   >
 
-  constructor(path: string, campaignId: string, trustedHead: SearchLedgerTrustedHeadMode = 'pin') {
+  constructor(path: string, searchId: string, trustedHead: SearchLedgerTrustedHeadMode = 'pin') {
     if (path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
-    if (campaignId.length === 0) throw new SearchLedgerError('campaignId is empty')
-    if (campaignId.trim() !== campaignId) {
-      throw new SearchLedgerError('campaignId must not contain surrounding whitespace')
+    if (searchId.length === 0 || searchId.trim() !== searchId) {
+      throw new SearchLedgerError('searchId must be non-empty without surrounding whitespace')
     }
-    this.campaignId = campaignId
+    this.searchId = searchId
     this.trustedHeadMode = trustedHead
-    this.journal = new FileLedgerJournal(path, searchLedgerCodec(campaignId), {
+    this.journal = new FileLedgerJournal(path, searchLedgerCodec(searchId), {
       requireTrustedHead: trustedHead === 'require',
     })
     this.path = this.journal.path
     this.trustedHeadPath = this.journal.trustedHeadPath
   }
 
-  async replay(): Promise<SearchLedgerReplay> {
+  async state(): Promise<SearchStateView> {
     return this.journal.replay()
   }
 
@@ -610,7 +640,7 @@ export class FileSearchLedger implements SearchLedger {
     const { entry, appended, projection } = await this.journal.append(event, {
       pinHead: this.trustedHeadMode !== 'off',
     })
-    return { entry, appended, replay: projection }
+    return { entry, appended, state: projection }
   }
 
   async trustedHead(): Promise<LedgerTrustedHead | null> {
@@ -627,6 +657,12 @@ export class FileSearchLedger implements SearchLedger {
 }
 
 function parseSearchLedgerEntry(raw: unknown, context: LedgerLineContext): SearchLedgerEntry {
+  const schema = (raw as { schema?: unknown } | null)?.schema
+  if (schema !== SEARCH_LEDGER_SCHEMA) {
+    throw new SearchLedgerIntegrityError(
+      `search ledger ${context.path} line ${context.line} was written under schema ${JSON.stringify(schema)}; this version reads only ${SEARCH_LEDGER_SCHEMA} and does not translate other formats`,
+    )
+  }
   const parsed = EntrySchema.safeParse(raw)
   if (!parsed.success) {
     throw new SearchLedgerIntegrityError(
@@ -645,68 +681,43 @@ function parseSearchLedgerEntry(raw: unknown, context: LedgerLineContext): Searc
 
 function normalizeEvent(event: SearchLedgerEvent): SearchLedgerEvent {
   const artifacts = sortArtifacts(event.artifacts)
-  if (event.kind === 'search-planned') {
-    return {
-      ...event,
-      artifacts,
-      plan: {
-        candidateSlots: [...event.plan.candidateSlots].sort((a, b) =>
-          compareStrings(a.slotId, b.slotId),
-        ),
-        tasks: [...event.plan.tasks].sort((a, b) => compareStrings(a.taskId, b.taskId)),
-        operations: [...event.plan.operations].sort((a, b) =>
-          compareStrings(a.operationId, b.operationId),
-        ),
-      },
-    }
+  switch (event.kind) {
+    case 'search-opened':
+      return {
+        ...event,
+        artifacts,
+        splits: {
+          ...event.splits,
+          train: { ...event.splits.train, tasks: sortTasks(event.splits.train.tasks) },
+          selection: { ...event.splits.selection, tasks: sortTasks(event.splits.selection.tasks) },
+          test: { ...event.splits.test, tasks: sortTasks(event.splits.test.tasks) },
+        },
+      }
+    case 'node-registered':
+      return {
+        ...event,
+        artifacts,
+        surfaces: [...event.surfaces].sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
+      }
+    case 'cell-settled':
+      return {
+        ...event,
+        artifacts,
+        surfaceEvidence: [...event.surfaceEvidence]
+          .map((evidence) => ({ ...evidence, evidence: sortArtifacts(evidence.evidence) }))
+          .sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
+      }
+    default:
+      return { ...event, artifacts }
   }
-  if (event.kind === 'search-plan-extended') {
-    return {
-      ...event,
-      artifacts,
-      extension: {
-        candidateSlots: [...event.extension.candidateSlots].sort((a, b) =>
-          compareStrings(a.slotId, b.slotId),
-        ),
-        operations: [...event.extension.operations].sort((a, b) =>
-          compareStrings(a.operationId, b.operationId),
-        ),
-      },
-    }
-  }
-  if (event.kind === 'candidate-registered') {
-    return {
-      ...event,
-      artifacts,
-      lineage: {
-        ...event.lineage,
-        parentCandidateIds: sortedStrings(event.lineage.parentCandidateIds),
-      },
-      surfaces: [...event.surfaces]
-        .map((surface) => ({ ...surface, artifact: { ...surface.artifact } }))
-        .sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
-    }
-  }
-  if (event.kind === 'task-attempted') {
-    return {
-      ...event,
-      artifacts,
-      surfaceEvidence: [...event.surfaceEvidence]
-        .map((evidence) => ({ ...evidence, evidence: sortArtifacts(evidence.evidence) }))
-        .sort((a, b) => compareStrings(a.surfaceId, b.surfaceId)),
-    }
-  }
-  return { ...event, artifacts }
+}
+
+function sortTasks(tasks: SearchTask[]): SearchTask[] {
+  return [...tasks].sort((a, b) => compareStrings(a.taskId, b.taskId))
 }
 
 function sortArtifacts(artifacts: SearchArtifactRef[]): SearchArtifactRef[] {
-  return [...artifacts]
-    .map((artifact) => ({ ...artifact }))
-    .sort((a, b) => compareStrings(artifactKey(a), artifactKey(b)))
-}
-
-function sortedStrings(values: string[]): string[] {
-  return [...values].sort()
+  return [...artifacts].sort((a, b) => compareStrings(artifactKey(a), artifactKey(b)))
 }
 
 function formatZodError(error: z.ZodError): string {
@@ -715,38 +726,5 @@ function formatZodError(error: z.ZodError): string {
     .join('; ')
 }
 
-export type {
-  SearchAccountingAudit,
-  SearchArtifactRef,
-  SearchAttemptAccounting,
-  SearchCandidateDecidedEvent,
-  SearchCandidateLineage,
-  SearchCandidateRegisteredEvent,
-  SearchCandidateSlot,
-  SearchCandidateSlotClosedEvent,
-  SearchCandidateSurface,
-  SearchCompletedEvent,
-  SearchCostAccounting,
-  SearchFailureReason,
-  SearchLedgerAppendResult,
-  SearchLedgerAudit,
-  SearchLedgerEntry,
-  SearchLedgerEvent,
-  SearchLedgerHash,
-  SearchLedgerReplay,
-  SearchModelIdentity,
-  SearchOperationKind,
-  SearchOperationRecordedEvent,
-  SearchPlan,
-  SearchPlanExtendedEvent,
-  SearchPlannedEvent,
-  SearchPlannedOperation,
-  SearchPlannedTask,
-  SearchSourceRef,
-  SearchSurfaceEffect,
-  SearchSurfaceEvidence,
-  SearchSurfaceKind,
-  SearchTaskAttemptedEvent,
-  SearchTaskOutcome,
-  SearchTokenAccounting,
-} from './search-ledger-types'
+export type * from './search-ledger-types'
+export { SEARCH_LEDGER_SCHEMA }

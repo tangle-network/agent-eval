@@ -8,6 +8,7 @@ import {
 import {
   openExternalOptimizerExecutionLog,
   openExternalOptimizerObservationLog,
+  readExternalOptimizerObservationArtifact,
 } from './external-optimizer-observations'
 import {
   closeExternalOptimizerResources,
@@ -54,6 +55,7 @@ import {
   snapshotGepaOptimizationConfig,
 } from './gepa-optimization-config'
 import { assertGepaBridgeOutput, type GepaBridgeOutput } from './gepa-optimization-result'
+import { recordGepaSearch } from './gepa-search-import'
 import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
   combineComparisonCosts,
@@ -63,8 +65,7 @@ import {
 } from './presets/compare-optimization-methods'
 import type { SearchHistoryReceipt } from './search-history-receipt'
 import type { SearchAttemptAccounting } from './search-ledger'
-import { openSearchLedger } from './search-ledger'
-import { recordCandidatePopulationSearch, type SearchRunIdentity } from './search-ledger-recording'
+import type { SearchRunIdentity } from './search-ledger-recording'
 import { fsCampaignStorage } from './storage'
 import type { Scenario } from './types'
 
@@ -192,12 +193,13 @@ export interface GepaOptimizationMethodConfig<TScenario extends Scenario, TArtif
   trustResumeState?: boolean
   runner?: GepaRunnerCommand
   /**
-   * Record GEPA's own candidate population into the canonical `SearchLedger`
-   * and return the bounded receipt on the method result, so a comparison run
-   * under `searchHistoryPolicy: 'require-complete'` accepts this method.
+   * Record GEPA's search into a search ledger and return the bounded receipt
+   * on the method result, so a comparison under `searchHistoryPolicy:
+   * 'require-complete'` accepts this method. The population becomes nodes and
+   * `correlated` edges, and every callback evaluation becomes a cell.
    *
-   * `identity` declares the immutable revisions and the model snapshot the
-   * ledger requires and the bridge does not report. `path` defaults to
+   * `identity` declares the immutable revisions and the model the ledger
+   * requires and the bridge does not report. `path` defaults to
    * `<runDir>/search-ledger.jsonl`.
    */
   searchLedger?: { identity: SearchRunIdentity; path?: string }
@@ -549,19 +551,23 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           throw new Error(`${name}: GEPA candidate population identifies a different winner`)
         }
         if (config.searchLedger) {
-          searchHistory = await recordCandidatePopulationSearch({
-            ledger: openSearchLedger({
-              path: config.searchLedger.path ?? `${runDir}/search-ledger.jsonl`,
-              campaignId: runId,
-            }),
-            storage,
-            runDir,
+          searchHistory = await recordGepaSearch({
+            name,
+            path: config.searchLedger.path ?? `${runDir}/search-ledger.jsonl`,
+            searchId: runId,
             identity: config.searchLedger.identity,
+            storage,
+            seed: input.seed,
+            baselineSurface: input.baselineSurface,
+            trainScenarios: input.trainScenarios,
+            selectionScenarios: input.selectionScenarios,
+            evaluationLimit,
             population,
-            scenarios: input.selectionScenarios,
+            observations: readExternalOptimizerObservationArtifact({
+              summary: observationLog.summary(),
+              storage,
+            }),
             generationAccounting: optimizerAccounting(result.tokenUsage, result.proposerCostUsd),
-            producerId: name,
-            runId,
           })
         }
       }
