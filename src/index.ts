@@ -275,6 +275,7 @@ export { FileSystemTraceStore, InMemoryTraceStore } from './trace/store'
 export type {
   ArgumentCheck,
   ContractCheckResult,
+  ContractLintFinding,
   ContractRule,
   ContractRuleExecution,
   ContractRun,
@@ -284,8 +285,16 @@ export type {
   OrderMode,
   SpanPredicate,
   TraceContract,
+  TraceContractSpec,
 } from './trace-contracts'
-export { checkTraceContracts, evaluateTraceContract, traceContract } from './trace-contracts'
+export {
+  checkTraceContracts,
+  compileTraceContractSpec,
+  evaluateTraceContract,
+  explainTraceContract,
+  lintTraceContractSpec,
+  traceContract,
+} from './trace-contracts'
 export type { Trajectory, TrajectoryStep } from './trajectory'
 export { buildTrajectory } from './trajectory'
 
