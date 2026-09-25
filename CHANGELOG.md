@@ -6,6 +6,41 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `runSearch` (`/campaign`) is the one search kernel: an event-driven loop with no generation barrier that separates where to expand (`SearchPolicy`), where to spend rollouts (`SearchAllocator`) and what to claim ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
+  A lane that frees up takes the next allocated cell (claim, then rung and root, then screen, then train); the policy proposes when no cell waits and the cap admits one proposal and its expected screens.
+  Its ports are an executor (`lanes`, `place`, `run`, `adopt`), a proposer, and an artifact codec.
+  Every reservation passes the ledger's admission rule before it is asked for: a hard lane holds its enforced per-cell maximum, an estimate lane 1.5 times the p99 of its settled cells once 20 settled (else its prior), and spend above a hold is recorded as overspend.
+  The ledger is the only checkpoint: rerun on an open ledger, the kernel records an interrupted proposal as failed at an unknown cost, finishes a recorded proposal from its stored output, and offers every unsettled cell to `executor.adopt` before it runs it.
+  Killed with SIGKILL 8 times at random ledger positions, a simulated search (7 nodes, 56 cells, 10 % environment faults, an $8 cap, estimate lanes) resumed to the same nodes, edges, cells, scores, decisions and close as an uninterrupted run; 10 attempts that finished before a kill were adopted, none finished twice, and committed spend ($2.55) stayed within the cap plus recorded overspend ($0.18).
+  A real `runOptimization` (runCampaign, CostLedger, cell cache, file ledger; 7 nodes, 28 cells) killed 6 times, once inside a proposal, returned the same winner and generations as an uninterrupted run and dispatched the same 28 cells to completion.
+  With 1.5 s cells on 4 slots, all 4 slots were busy for 93 % of the time any cell ran.
+- `incumbent({ patience })` and `crowdedFrontierParent({ seed })` are `SearchPolicy`s; `uniform({ reps })` is the fixed-plan `SearchAllocator`.
+- `SearchStateView.budget` gives the admission rule's room (`headroomUsd`, `claimReserveUsd`), and `SearchOperation` carries its recorded outcome and artifacts.
+- `SearchRecorder.readBlob(ref)` reads a stored blob back and checks its digest and length.
+- `openSearchLedger({ store })` keeps a ledger in an in-process text store (an in-memory `CampaignStorage`) for runs without a filesystem, with the file ledger's chain, parse and state rules.
+- `scripts/search-sim.ts` runs the real kernel over a seeded synthetic objective, proposer and executor; `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
+
+### Changed
+
+- **Breaking:** `runOptimization` is a search on the kernel with `incumbent()` (or `policy`) and `uniform({ reps })`.
+  Its search ledger is always written (`<runDir>/search/ledger.jsonl`, held in `storage` unless that is the filesystem, or where `searchLedger` puts it), and `searchHistory` is always returned.
+  Running it again on the same run directory continues an interrupted search and reruns nothing that settled; after a closed search it starts the next one beside it.
+  A generation is one proposal of `populationSize` candidates; each candidate runs one cell at a time on lanes of `candidateConcurrency * maxConcurrency` slots.
+  `analyzeGeneration` runs just before the proposal it feeds, inside that proposal's operation, so its spend is booked there.
+  A candidate identical to a surface the search holds is a second edge into that node and is not measured again; it used to throw.
+  The kept surface is the policy's leader: the candidate that scored every scenario and beats the leader on the scenarios they share.
+- **Breaking:** `selfImprove({ selectParent })` is `selfImprove({ policy })`, and `ProposeContext` gains `operator`.
+- `CampaignStorage.kind` names a filesystem or memory storage.
+- Migration: replace `selectParent: crowdedFrontierParent({ seed })` with `policy: crowdedFrontierParent({ seed })`; drop `selectionRankKey` (a domain metric belongs in the judge's composite, which the leader rule ranks); read a candidate's lineage from the search ledger's edges and its contrast from `estimateNode(state, nodeId, { against, split: 'train' })` instead of `parentSurfaceHash`, `parentComposite` and `observedDeltaFromParent`.
+
+### Removed
+
+- The generation loop body of `runOptimization`, its `compareRankKeys` promotion and the `selectionRankKey` option, `compareRankKeys`, `assertFiniteRankKey`, the `ParentSelector` and `ParentSelectionContext` types, and `OptimizationSearch`.
+- `GenerationCandidate.ci95` (always null), `parentSurfaceHash`, `parentComposite` and the unpaired `observedDeltaFromParent`, with their `LoopProvenanceCandidate` copies and span attributes.
+- The `runOptimization`, proposal-findings, parent-selection, loop-provenance-integrity and `selfImprove` unit tests. The proof is the search simulator's kill-resume run and a real `runOptimization` (runCampaign, CostLedger, cell cache, file ledger) killed and resumed against an uninterrupted run.
+
 ## [0.191.0] — 2026-09-25
 
 ### Changed
@@ -84,6 +119,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Work keyed on the version, such as a traces upload's dedup identity, sees the change.
 - `knownSecrets` are cut out where they stand instead of replacing the whole string, so `redactText('cleanup failed: <key> was still set', { knownSecrets: [key] })` keeps `cleanup failed:` and `was still set`.
   A whole-string base64 payload that holds a known secret at any byte offset is still replaced whole, and value shapes such as bearer tokens still replace the whole string.
+
 
 ### Removed
 

@@ -39,6 +39,8 @@ export {
   type LedgerLineContext,
   type LedgerProjector,
   type LedgerProjectorSnapshotCodec,
+  type LedgerTextStore,
+  MemoryLedgerJournal,
   replayLedgerText,
 } from './journal'
 export {

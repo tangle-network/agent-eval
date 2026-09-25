@@ -91,7 +91,6 @@ describe('candidate attribution rides the loop untouched', () => {
         totalDurationMs: 1,
       })
       expect(provenance.candidates[0]!.attribution).toEqual(attribution)
-      expect(provenance.candidates[0]!.parentSurfaceHash).toBe(surfaceHash('Base prompt.'))
     } finally {
       rmSync(runDir, { recursive: true, force: true })
     }

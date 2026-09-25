@@ -621,9 +621,6 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
     const candidateSpan = spans.find((s) => s.name.startsWith('candidate-'))!
     expect(candidateSpan.attributes['tangle.candidateRationale']).toBe(RATIONALE)
     expect(candidateSpan.attributes['tangle.candidateLabel']).toBe(LABEL)
-    expect(candidateSpan.attributes['tangle.parentSurfaceHash']).toBe(surfaceHash('BASE'))
-    expect(candidateSpan.attributes['tangle.parentComposite']).toBe(0)
-    expect(candidateSpan.attributes['tangle.observedDeltaFromParent']).toBe(1)
     expect(candidateSpan.attributes['tangle.eligibleForPromotion']).toBe(true)
     expect(candidateSpan.attributes['tangle.expectedCells']).toBe(2)
     expect(candidateSpan.attributes['tangle.scorableCells']).toBe(2)
@@ -701,10 +698,6 @@ describe('loop provenance emission (transaction-extraction shape, offline)', () 
             {
               surfaceHash: surfaceHash('BASE NEW'),
               composite: 1,
-              ci95: [1, 1],
-              parentSurfaceHash: surfaceHash('BASE'),
-              parentComposite: 0,
-              observedDeltaFromParent: 1,
               eligibleForPromotion: true,
               coverage: { expectedCells: 1, scorableCells: 1, unscorableCells: [] },
               dimensions: {},

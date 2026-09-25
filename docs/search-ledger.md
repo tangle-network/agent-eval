@@ -134,12 +134,69 @@ const cellId = await recorder.allocateCell({ nodeId: root.nodeId, taskId, split:
 await recorder.settleCell({ cellId, outcome, accounting, identity, runRecord })
 ```
 
-`runOptimization({ searchLedger: { ledger, identity } })` and `selfImprove` record through the recorder and return the receipt on `searchHistory`.
+`runOptimization` and `selfImprove` run on the kernel below and return the receipt on `searchHistory`.
 The loop's scenarios are its proposer's feedback, so they are the train split; its promotions are budget decisions and it makes no claim.
 
 `gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's search when it finishes.
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
 `importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
+
+## Run a search: the kernel
+
+`runSearch` is the one loop every optimizer runs on.
+It separates three decisions: where to expand (a `SearchPolicy`), where to spend rollouts (a `SearchAllocator`), and what to claim (the claim step on the sealed test split).
+There is no generation barrier.
+A lane that frees up takes the next allocated cell: claim cells first, then rung and root cells, then screens, then train cells.
+The policy proposes when no cell waits, fewer than twice the lanes' capacity run, and the cap admits one proposal and its expected screens.
+
+```ts
+import { incumbent, runSearch, SearchRecorder, uniform } from '@tangle-network/agent-eval/campaign'
+
+const policy = incumbent({ patience: 3 })
+const allocation = uniform({ reps: 1 })
+const recorder = await SearchRecorder.open({ ledger }, {
+  ...opening,
+  policy: { expansion: policy.name, allocation: allocation.name, seed },
+})
+const { state, leader, reason } = await runSearch({
+  recorder, root, codec, policy, allocation, proposer, executor, maxExpansions: 10,
+})
+```
+
+The ports:
+
+- **Executor:** `lanes()` declares pools of slots, each `hard` (it enforces `cellUsd` per cell) or `estimate` (it cannot); `place(cell)` picks a cell's lane; `run(work)` runs one attempt and returns its outcome, accounting and identity; `adopt(work)` returns an attempt an earlier process finished, or null.
+  An environment fault is an `errored` outcome; a rejection stops the search.
+- **Proposer:** `propose({ parents, operator, leader })` returns children with a label, a rationale and optional typed `attribution`, plus the operation's accounting.
+  Its output is stored as a `proposal` blob on `operation-recorded` before any child is registered.
+- **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.
+- **Policy:** `expand(view)` returns parents and an operator, or null to wait; `leader(view)` names the node the search keeps.
+  The view holds the policy split (selection, or train when a search has none) and no test cell.
+  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened, and a node that scored every unit of its screen leads when it beats the leader on the units they share.
+  `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament and keeps the incumbent's leader rule.
+- **Allocator:** `plan(state, nodeId)` lists the cells a node needs now; the kernel allocates the ones the ledger lacks.
+  `uniform({ reps })` gives the root every train and selection task as `root` cells, and every other node every train task (`train`) and selection task (`screen`).
+
+**Budget.**
+Every reservation passes the ledger's admission rule: committed spend plus open reservations plus the unspent claim reserve plus the new hold stays within `maxUsd`.
+The kernel checks `state.budget.headroomUsd` first and prices an expansion as one proposal plus `childrenPerProposal` screens.
+A hard lane holds its maximum; an estimate lane holds 1.5 times the p99 of its settled cells once 20 settled, else its prior.
+Spend above a hold is recorded as overspend, never refused.
+Expansion stops at `maxNodes`, `maxExpansions`, the deadline, after `patience` expansions without a new leader, when the cap cannot admit one more expansion, or when the proposer stops.
+Allocated cells still run; at the deadline the ones not yet started are cancelled.
+At close the leader is decided `selected` when it has a scored cell, every other undecided node `rejected` with its estimate against the leader, and the search closes with no claim.
+
+**Resume.**
+The ledger is the only checkpoint.
+Running the kernel again on an open ledger replays it and continues.
+An operation that started without a result is recorded `failed` with an unknown cost and a floor of 0, and the next proposal runs under a new operation id.
+A recorded proposal whose children were not all registered is finished from its stored output.
+A cell the ledger shows unsettled is offered to `executor.adopt` before its first dispatch, so an attempt that finished before the restart is recorded once and not run again.
+Aborting the `signal` pauses the search: in-flight cells are aborted, a scored result that still arrives is recorded, an attempt that ends in an error while the search stops stays unsettled (the error may be the interruption), and the ledger stays open.
+One kernel runs a ledger file at a time on a host: a second one is refused by a pid lock beside the ledger, and a killed holder's lock is reclaimed.
+A closed ledger returns its result; more work on a closed search is a new search.
+
+`scripts/search-sim.ts` runs the real kernel, ledger and policies over a seeded synthetic objective, proposer and executor, and `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
 
 ## Ship a search
 
@@ -186,6 +243,10 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-state.ts`: `SearchState`, the invariants and read model, and the id functions.
 - `src/campaign/estimate-node.ts`: `estimateNode`, `estimateNodeFromCells` and `searchPosterior`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
+- `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, and `searchPolicyView`.
+- `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
+- `src/campaign/allocation.ts`: `SearchAllocator` and `uniform`.
+- `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
 - `src/campaign/search-history-receipt.ts`: receipts and admission.
 - `src/ledger-core/`: hashing, locking, durable appends, chain verification, and the trusted-head pin.

@@ -26,8 +26,10 @@ import {
   hashCanonical,
   type LedgerJournalCodec,
   type LedgerLineContext,
+  type LedgerTextStore,
   type LedgerTrustedHead,
   type LedgerTrustedHeadRemoval,
+  MemoryLedgerJournal,
   replayLedgerText,
 } from '../ledger-core'
 import { modelHasSnapshot } from '../run-record'
@@ -539,6 +541,13 @@ export interface OpenSearchLedgerOptions {
   path: string
   searchId: string
   trustedHead?: SearchLedgerTrustedHeadMode
+  /**
+   * Keep the ledger's text in this in-process store instead of a file, for a
+   * run without a filesystem (an in-memory `CampaignStorage`, keyed by `path`).
+   * The chain, parse and state rules are the file ledger's; there is no lock,
+   * fsync or trusted head, and the ledger lives as long as the store.
+   */
+  store?: LedgerTextStore
 }
 
 export interface SearchLedgerAppendResult {
@@ -568,6 +577,7 @@ export interface SearchLedger {
 /** Open a durable filesystem search ledger. Construction performs no I/O; the
  * first `append` or `state` verifies the whole existing file. */
 export function openSearchLedger(options: OpenSearchLedgerOptions): SearchLedger {
+  if (options.store) return new MemorySearchLedger(options.path, options.searchId, options.store)
   return new FileSearchLedger(options.path, options.searchId, options.trustedHead)
 }
 
@@ -697,6 +707,54 @@ export class FileSearchLedger implements SearchLedger {
 
   async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
     return this.journal.clearTrustedHead()
+  }
+}
+
+/** A search ledger held in an in-process text store. */
+class MemorySearchLedger implements SearchLedger {
+  readonly path: string
+  readonly searchId: string
+  readonly trustedHeadPath: string
+  private readonly journal: MemoryLedgerJournal<
+    SearchLedgerHeader,
+    SearchLedgerEvent,
+    SearchStateView
+  >
+
+  constructor(path: string, searchId: string, store: LedgerTextStore) {
+    if (path.trim().length === 0) throw new SearchLedgerError('ledger path is empty')
+    if (searchId.length === 0 || searchId.trim() !== searchId) {
+      throw new SearchLedgerError('searchId must be non-empty without surrounding whitespace')
+    }
+    this.path = path
+    this.searchId = searchId
+    this.trustedHeadPath = `${path}.head`
+    this.journal = new MemoryLedgerJournal(path, searchLedgerCodec(searchId), store)
+  }
+
+  async state(): Promise<SearchStateView> {
+    return this.journal.replay()
+  }
+
+  async append(input: SearchLedgerEvent): Promise<SearchLedgerAppendResult> {
+    const { entry, appended, projection } = await this.journal.append(
+      validateSearchLedgerEvent(input),
+    )
+    return { entry, appended, state: projection }
+  }
+
+  async trustedHead(): Promise<LedgerTrustedHead | null> {
+    return null
+  }
+
+  async pinTrustedHead(): Promise<LedgerTrustedHead> {
+    throw new SearchLedgerError(
+      `search ledger ${this.path} is held in memory; a trusted head protects only a file`,
+    )
+  }
+
+  async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
+    return { removed: false }
   }
 }
 

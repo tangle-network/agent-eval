@@ -78,12 +78,6 @@ export interface LoopProvenanceCandidate {
    *  `GenerationCandidate.attribution`. Opaque here; the producer's schema tag
    *  governs interpretation. */
   attribution?: Readonly<Record<string, unknown>>
-  /** Exact complete incumbent this candidate mutated. */
-  parentSurfaceHash: string
-  /** Search-split composite of the exact parent. */
-  parentComposite: number
-  /** Search-split composite change relative to the exact parent. */
-  observedDeltaFromParent?: number
   /** Whether the candidate completed every designed cell and could be selected. */
   eligibleForPromotion: boolean
   /** Designed-denominator receipt retained even for incomplete candidates. */
@@ -348,12 +342,7 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       }
     }
     for (const c of gen.candidates) {
-      validateCandidateMeasurement(
-        c,
-        incumbentSurfaceHash,
-        incumbentComposite,
-        promotedSet.has(c.surfaceHash),
-      )
+      validateCandidateMeasurement(c, incumbentComposite, promotedSet.has(c.surfaceHash))
       const measured = surfaceByHash.get(c.surfaceHash)
       if (measured === undefined) {
         throw new Error('buildLoopProvenanceRecord: measured candidate is missing its surface')
@@ -374,8 +363,6 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
         surfaceHash: c.surfaceHash,
         contentHash: surfaceContentHash(surface),
         campaignDigest: campaignMeasurementDigest(campaign),
-        parentSurfaceHash: c.parentSurfaceHash!,
-        parentComposite: c.parentComposite!,
         eligibleForPromotion: c.eligibleForPromotion,
         coverage: {
           expectedCells: c.coverage.expectedCells,
@@ -388,9 +375,6 @@ export function buildLoopProvenanceRecord<TArtifact, TScenario extends Scenario>
       if (c.label) entry.label = c.label
       if (c.rationale) entry.rationale = c.rationale
       if (c.attribution) entry.attribution = c.attribution
-      if (c.observedDeltaFromParent !== undefined) {
-        entry.observedDeltaFromParent = c.observedDeltaFromParent
-      }
       candidates.push(entry)
     }
     const promotedHash = gen.promoted[0]
@@ -680,39 +664,14 @@ function assertGateContributions(
   }
 }
 
+/** A candidate's coverage receipt and composite agree, and a promoted
+ * candidate is complete and beats the incumbent it replaced. Its lineage is
+ * the search ledger's to prove, not this record's. */
 function validateCandidateMeasurement(
   candidate: GenerationCandidate,
-  expectedParentHash: string,
-  expectedParentComposite: number,
+  incumbentComposite: number,
   promoted: boolean,
 ): void {
-  if (!candidate.parentSurfaceHash || !/^[a-f0-9]{16}$/.test(candidate.parentSurfaceHash)) {
-    throw new Error(
-      'buildLoopProvenanceRecord: parentSurfaceHash must be 16 lowercase hex characters',
-    )
-  }
-  if (candidate.parentSurfaceHash !== expectedParentHash) {
-    throw new Error('buildLoopProvenanceRecord: candidate parent does not match the incumbent')
-  }
-  if (
-    candidate.parentComposite === undefined ||
-    !Number.isFinite(candidate.parentComposite) ||
-    Math.abs(candidate.parentComposite - expectedParentComposite) > 1e-12
-  ) {
-    throw new Error(
-      'buildLoopProvenanceRecord: candidate parentComposite does not match the incumbent',
-    )
-  }
-  if (candidate.observedDeltaFromParent !== undefined) {
-    if (!Number.isFinite(candidate.observedDeltaFromParent)) {
-      throw new Error('buildLoopProvenanceRecord: observedDeltaFromParent must be finite')
-    }
-    if (candidate.eligibleForPromotion !== true) {
-      throw new Error(
-        'buildLoopProvenanceRecord: observedDeltaFromParent requires a complete eligible candidate and parentSurfaceHash',
-      )
-    }
-  }
   const coverage = candidate.coverage
   if (
     !Number.isSafeInteger(coverage.expectedCells) ||
@@ -752,24 +711,13 @@ function validateCandidateMeasurement(
     if (candidate.composite === null || !Number.isFinite(candidate.composite)) {
       throw new Error('buildLoopProvenanceRecord: complete candidate composite must be finite')
     }
-    if (candidate.observedDeltaFromParent === undefined) {
-      throw new Error(
-        'buildLoopProvenanceRecord: complete candidate is missing observedDeltaFromParent',
-      )
-    }
-    const recomputed = candidate.composite - candidate.parentComposite
-    if (Math.abs(candidate.observedDeltaFromParent - recomputed) > 1e-12) {
-      throw new Error('buildLoopProvenanceRecord: observed delta does not match measured scores')
-    }
-  } else {
-    if (candidate.composite !== null && !Number.isFinite(candidate.composite)) {
-      throw new Error('buildLoopProvenanceRecord: candidate composite must be finite or null')
-    }
-    if (candidate.observedDeltaFromParent !== undefined) {
-      throw new Error('buildLoopProvenanceRecord: incomplete candidate cannot carry observed delta')
-    }
+  } else if (candidate.composite !== null && !Number.isFinite(candidate.composite)) {
+    throw new Error('buildLoopProvenanceRecord: candidate composite must be finite or null')
   }
-  if (promoted && (!complete || (candidate.observedDeltaFromParent ?? 0) <= 0)) {
+  if (
+    promoted &&
+    (!complete || (candidate.composite ?? Number.NEGATIVE_INFINITY) <= incumbentComposite)
+  ) {
     throw new Error('buildLoopProvenanceRecord: promoted candidate must improve the incumbent')
   }
 }
@@ -875,8 +823,6 @@ export function loopProvenanceSpans(
         'tangle.generation': generation,
         'tangle.surfaceHash': c.surfaceHash,
         'tangle.contentHash': c.contentHash,
-        'tangle.parentSurfaceHash': c.parentSurfaceHash,
-        'tangle.parentComposite': c.parentComposite,
         'tangle.eligibleForPromotion': c.eligibleForPromotion,
         'tangle.expectedCells': c.coverage.expectedCells,
         'tangle.scorableCells': c.coverage.scorableCells,
@@ -884,9 +830,6 @@ export function loopProvenanceSpans(
         'tangle.promoted': c.promoted,
       }
       if (c.composite !== null) attributes['tangle.composite'] = c.composite
-      if (c.observedDeltaFromParent !== undefined) {
-        attributes['tangle.observedDeltaFromParent'] = c.observedDeltaFromParent
-      }
       if (c.label) attributes['tangle.candidateLabel'] = c.label
       if (c.rationale) attributes['tangle.candidateRationale'] = c.rationale
       spans.push({

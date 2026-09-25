@@ -286,6 +286,28 @@ export class SearchRecorder {
     }
   }
 
+  /**
+   * Read back a blob this recorder stored, by its content address. The bytes
+   * must hash to the reference's digest and length, so a resumed search reads
+   * exactly what the ledger bound.
+   */
+  readBlob(ref: SearchArtifactRef): unknown {
+    const hex = ref.sha256.slice('sha256:'.length)
+    const path = join(this.blobDir, `${hex}.json`)
+    const text = this.storage.read(path)
+    if (text === undefined) {
+      throw new Error(
+        `search ${this.searchId}: blob ${ref.sha256} (${ref.role}) is missing at ${path}`,
+      )
+    }
+    const bytes = Buffer.from(text, 'utf8')
+    const actual = createHash('sha256').update(bytes).digest('hex')
+    if (actual !== hex || bytes.byteLength !== ref.byteLength) {
+      throw new Error(`search ${this.searchId}: blob at ${path} does not match ${ref.sha256}`)
+    }
+    return JSON.parse(text)
+  }
+
   /** Register a node, or return the existing node with the same artifact digest. */
   async registerNode(
     input: RegisterSearchNodeInput,

@@ -20,6 +20,8 @@ export type {
 } from '../reference-equivalence-judge'
 export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 export type { SeriesDistribution } from '../statistics'
+// ── The search kernel: policies, allocation, executor and proposer ports ──
+export { type SearchAllocator, type SearchCellPlan, uniform } from './allocation'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type BuildTraceAnalystSurfaceDispatchOptions,
@@ -252,12 +254,6 @@ export type {
   OpenAICompatibleOptimizerModel,
   OptimizerModelBudget,
 } from './optimizer-model'
-export {
-  type CrowdedFrontierParentOptions,
-  crowdedFrontierParent,
-  type ParentSelectionContext,
-  type ParentSelector,
-} from './parent-selection'
 // ── Presets (the documented public surface) ──────────────────────────
 export {
   type CompareOptimizationMethodsOptions,
@@ -370,7 +366,6 @@ export {
   type CampaignBreakdown,
   campaignBreakdown,
   campaignMeanComposite,
-  compareRankKeys,
 } from './score-utils'
 // ── Compact proof over a search ledger ─────────────────────────────────
 export {
@@ -389,6 +384,24 @@ export {
   verifySearchHistoryArtifact,
   verifySearchHistoryReceipt,
 } from './search-history-receipt'
+export {
+  type RunSearchOptions,
+  runSearch,
+  SEARCH_KERNEL_SOURCE,
+  type SearchArtifactCodec,
+  type SearchCellResult,
+  type SearchCellWork,
+  type SearchExecutor,
+  type SearchLane,
+  type SearchProposalBlob,
+  type SearchProposalRequest,
+  type SearchProposalResult,
+  type SearchProposedChild,
+  type SearchProposerPort,
+  type SearchRunResult,
+  searchExpansionIndex,
+  searchPolicyView,
+} from './search-kernel'
 // ── Search ledger: nodes, edges and cells of one search ────────────────
 export {
   FileSearchLedger,
@@ -471,6 +484,13 @@ export {
   surfaceDiff,
   surfaceNode,
 } from './search-ledger-recording'
+export {
+  crowdedFrontierParent,
+  incumbent,
+  type SearchExpansion,
+  type SearchPolicy,
+  type SearchPolicyView,
+} from './search-policy'
 export {
   type SearchCell,
   type SearchCompletion,

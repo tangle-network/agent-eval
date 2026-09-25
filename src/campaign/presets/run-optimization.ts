@@ -1,57 +1,103 @@
 /**
- * `runOptimization` runs a caller-owned candidate generator for a bounded
- * number of rounds. Each candidate is measured on the same cases, and only a
- * candidate that beats the current best becomes the incumbent. By default the
- * incumbent is also the parent every generation mutates; a `selectParent`
- * policy draws the parent from the Pareto frontier instead.
- * The same loop accepts deterministic, model-backed, or agent-backed
- * proposers; they differ only in how `propose()` picks candidates.
+ * `runOptimization` improves a mutable surface with a caller-owned proposer,
+ * as a search on the one kernel (`runSearch`).
  *
- * `runImprovementLoop` adds a separate final comparison, a release decision,
- * and optional pull request creation.
+ * The baseline is the seeded root. The scenarios are the train split: the
+ * proposer reads their scores, and the policy ranks on them because the loop
+ * has no private selection split. A "generation" is one proposal of
+ * `populationSize` candidates from the node the policy chose (by default the
+ * incumbent, once every earlier candidate is measured). Every candidate is a
+ * node measured on every scenario at every repeat, one cell at a time on the
+ * run's lanes. The kept surface is the policy's leader: a budget decision on
+ * the train split that claims nothing; `runImprovementLoop` compares it with
+ * the baseline on separate cases.
+ *
+ * The search ledger is always written, beside the run (`<runDir>/search/`) or
+ * where `searchLedger` puts it, and it is the run's only checkpoint: running
+ * again on the same run directory and options continues an interrupted run
+ * instead of starting over, and reruns nothing that settled.
  */
 
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import { assertProposalFindings } from '../../analyst/proposal-findings'
 import type { ProposalFinding } from '../../analyst/types'
-import { mapConcurrent } from '../../concurrency'
-import type { CostLedgerHandle, CostLedgerSummary } from '../../cost-ledger'
+import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
+import { hashCanonical } from '../../ledger-core/canonical'
 import { type Objective, paretoFrontier } from '../../pareto'
+import { modelHasSnapshot } from '../../run-record'
+import { uniform } from '../allocation'
 import { computeManifestHash } from '../campaign-manifest'
+import { computeAggregates } from '../cell-aggregates'
+import { cellCachePath, cellDirectory } from '../cell-schedule'
 import {
   assertCampaignSplitIdentity,
   type CampaignCoverage,
   campaignCoverage,
+  campaignScenarioIdentity,
   campaignSplitDigest,
   formatCoverageFailures,
 } from '../coverage'
-import type { ParentSelector } from '../parent-selection'
-import { type RunCampaignOptions, runCampaign } from '../run-campaign'
-import { resolveRunDir } from '../run-dir'
 import {
-  assertFiniteRankKey,
+  type CampaignCellFailureReceipt,
+  type RunCampaignOptions,
+  runCampaign,
+} from '../run-campaign'
+import { resolveRunDir } from '../run-dir'
+import { projectCampaignCellQuality } from '../run-record'
+import {
   campaignBreakdown,
   campaignMeanComposite,
   campaignMeanCompositeOrNull,
-  compareRankKeys,
 } from '../score-utils'
 import type { SearchHistoryReceipt } from '../search-history-receipt'
-import type { SearchLedgerBinding } from '../search-ledger-recording'
-import type { SearchCloseReason } from '../search-ledger-types'
-import { createRunCostLedger, fsCampaignStorage } from '../storage'
+import {
+  runSearch,
+  SEARCH_KERNEL_SOURCE,
+  type SearchArtifactCodec,
+  type SearchCellResult,
+  type SearchCellWork,
+  type SearchExecutor,
+  type SearchProposalBlob,
+  type SearchProposerPort,
+  searchExpansionIndex,
+  searchPolicyView,
+} from '../search-kernel'
+import { openSearchLedger } from '../search-ledger'
+import {
+  developmentClaim,
+  type SearchLedgerBinding,
+  SearchRecorder,
+  type SearchRunIdentity,
+  surfaceDiff,
+  surfaceNode,
+} from '../search-ledger-recording'
+import type {
+  SearchArtifactKind,
+  SearchAttemptAccounting,
+  SearchExecutionIdentity,
+  SearchModelIdentity,
+  SearchOperationRecordedEvent,
+  SearchTaskOutcome,
+} from '../search-ledger-types'
+import { incumbent, type SearchPolicy } from '../search-policy'
+import type { SearchStateView } from '../search-state'
+import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceDispatchRef, surfaceHash, surfaceHashMatches } from '../surface-identity'
 import {
+  type CampaignCellResult,
   type CampaignResult,
+  type GenerationCandidate,
   type GenerationRecord,
   isProposedCandidate,
+  type JudgeConfig,
   type MutableSurface,
   type ParetoParent,
   type ProposeContext,
-  type ProposedCandidate,
   type Scenario,
   type ScoredSurfaceOutcome,
   type SurfaceProposer,
 } from '../types'
-import { OptimizationSearch } from './run-optimization-recording'
 
 export interface PremeasuredOptimizationBaseline<TArtifact, TScenario extends Scenario> {
   /** Hash of the exact surface that produced `campaign`. */
@@ -67,13 +113,12 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   /**
    * Complete prior measurement of `baselineSurface`. When present,
    * `runOptimization` validates its surface, scenario split, seed, reps, and
-   * normal campaign coverage, then skips the baseline campaign entirely — no
-   * dispatch or resumability-cache lookup. Candidate campaigns still run
-   * normally. Prior spend remains in the imported campaign aggregates and is
-   * not added again to this continuation's CostLedger.
+   * normal campaign coverage, then records its cells as the root's instead of
+   * dispatching them. Prior spend stays in the imported campaign aggregates and
+   * is not added again to this run's CostLedger.
    */
   premeasuredBaseline?: PremeasuredOptimizationBaseline<TArtifact, TScenario>
-  /** Dispatcher that takes the CURRENT surface + scenario → artifact. */
+  /** Dispatcher that takes a surface and a scenario to an artifact. */
   dispatchWithSurface: (
     surface: MutableSurface,
     scenario: TScenario,
@@ -81,26 +126,25 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   ) => Promise<TArtifact>
   /** The candidate-generation strategy. */
   proposer: SurfaceProposer<ProposalFinding>
+  /** Candidates asked of each proposal. */
   populationSize: number
+  /** Proposals the search may make. */
   maxGenerations: number
-  /** Candidate campaigns run at once. Default 1. Total concurrent cells are
-   *  bounded by candidateConcurrency * maxConcurrency. */
+  /** Scales the run's cell lanes: at most `candidateConcurrency *
+   * maxConcurrency` cells run at once. Default 1. */
   candidateConcurrency?: number
-  /** DEPTH knob forwarded to the proposer's `propose()` — max iterations the
+  /** DEPTH knob forwarded to the proposer's `propose()`: max iterations the
    *  agentic generator may take per candidate. */
   maxImprovementShots?: number
   /** Search or observed-production findings forwarded to candidate generation. */
   findings?: ReadonlyArray<ProposalFinding>
-  /** Per-generation findings producer. Runs once on the BASELINE campaign
-   *  (as `generation: -1`, the baseline convention) before generation 0
-   *  proposes — so even a single-generation run proposes with trace context —
-   *  and then after each generation's candidates are scored with that
-   *  generation's results; whatever it returns REPLACES `ctx.findings` for the
-   *  NEXT `propose()`, so the diagnosis is refreshed each round instead
-   *  of being a static one-shot. Generic by design: the substrate does not
-   *  import an analyst — the consumer plugs its trace-analyst registry / HALO
-   *  here (reading the per-candidate `runDir` traces). When absent, findings
-   *  stay the static `opts.findings`. */
+  /** Findings producer. Before each proposal it runs on the previous
+   *  generation's measured candidates (the baseline, as `generation: -1`,
+   *  before the first), and what it returns REPLACES `ctx.findings` for that
+   *  proposal. The substrate does not import an analyst: the consumer plugs its
+   *  trace-analyst registry here, reading the per-candidate `runDir` traces.
+   *  When absent, findings stay the static `opts.findings`. Its spend is
+   *  booked to the proposal's operation. */
   analyzeGeneration?: (input: {
     generation: number
     runDir: string
@@ -114,49 +158,14 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
     costLedger?: CostLedgerHandle
     costPhase?: string
   }) => Promise<ReadonlyArray<ProposalFinding>>
-  /**
-   * Optional override for how the WINNER is selected among coverage-complete
-   * candidates (and how the incumbent bar is set). Returns a lexicographic rank
-   * key — each element higher-is-better; candidates are ranked by descending key
-   * (`compareRankKeys`) and the top must STRICTLY beat the incumbent's key to
-   * promote. Defaults to `[campaignMeanComposite(campaign)]`, i.e. the historical
-   * scalar-mean ranking (single-element key ⇒ identical behavior).
-   *
-   * A binary-with-replicates consumer (e.g. swe-arena, whose ship-gate counts an
-   * instance resolved only when EVERY replicate resolved) passes a fail-closed
-   * key built from the SAME reduction its gate uses, so winner-selection and the
-   * ship-gate rank on the identical metric and can never invert — the selector
-   * cannot promote a flaky per-cell-mean candidate the gate would reject over a
-   * fail-closed candidate the gate would accept. Only the winner CHOICE changes;
-   * the descriptive `composite` (mean) on every record and the Pareto objective
-   * vectors are untouched, so proposer diversity and reporting are unaffected.
-   */
-  selectionRankKey?: (campaign: CampaignResult<TArtifact, TScenario>) => number[]
-  /**
-   * Optional policy for which scored surface the next generation MUTATES.
-   * Absent, every generation mutates the global incumbent, so the recorded
-   * `parentSurfaceHash` lineage is a chain. Present, the selector receives the
-   * Pareto frontier so far, the measured incumbent, the generation history,
-   * and the generation index, and returns one frontier parent; the loop hands
-   * that parent to `propose()` as `currentSurface` + `parentOutcome` and
-   * records it as every candidate's `parentSurfaceHash`. Promotion is
-   * unchanged: a candidate still has to beat the incumbent. The loop refuses
-   * a parent it has not measured to completion. `crowdedFrontierParent` is
-   * the provided seeded policy.
-   */
-  selectParent?: ParentSelector
-  /**
-   * Record this search into a search ledger as it runs: the baseline as the
-   * seeded root and its cells, each generation's candidate-generation
-   * operation, each candidate as a node with an explicit edge, rationale and
-   * diff from the parent it mutated, each designed cell when its campaign
-   * starts and settles, one decision per node, and the close. Returns a
-   * bounded `searchHistory` receipt over the exact ledger bytes.
-   *
-   * `identity` declares what the ledger requires and a campaign cannot infer:
-   * immutable revisions for the agent, proposer, and search implementations,
-   * and the model the agent runs when a cell reports none.
-   */
+  /** Which node each proposal extends, and which node the run keeps. Default
+   *  `incumbent()`: the hill climb. `crowdedFrontierParent({ seed })` draws
+   *  the parent from the Pareto frontier instead. */
+  policy?: SearchPolicy
+  /** Where the search ledger goes and the identities it records. Default: a
+   *  ledger at `<runDir>/search/ledger.jsonl`, held in `storage` unless that is
+   *  the filesystem, whose identities are the dispatch ref's and proposer's
+   *  digests. */
   searchLedger?: SearchLedgerBinding
 }
 
@@ -166,6 +175,7 @@ export type RunOptimizationOptions<
 > = RunOptimizationBaseOptions<TScenario, TArtifact>
 
 export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
+  /** One entry per proposal, with the candidates it registered. */
   generations: Array<{
     record: GenerationRecord
     surfaces: Array<{
@@ -178,36 +188,24 @@ export interface RunOptimizationResult<TArtifact, TScenario extends Scenario> {
   baselineSurface: MutableSurface
   winnerSurface: MutableSurface
   winnerSurfaceHash: string
-  /** Proposer label for the promoted surface. Present when the winning
-   *  candidate came from a `ProposedCandidate` (a reflective proposer);
-   *  absent when the winner is the baseline or a bare-surface mutator. */
+  /** Proposer label for the kept surface; absent when the winner is the baseline. */
   winnerLabel?: string
-  /** Proposer rationale for the promoted surface — the "because Z" that
-   *  motivated the winning change. Survives to `SelfImproveResult` and the
-   *  emitted provenance record. Absent when the winner is the baseline. */
+  /** Proposer rationale for the kept surface, as stored: redacted with the
+   *  share profile. Absent when the winner is the baseline. */
   winnerRationale?: string
   baselineCampaign: CampaignResult<TArtifact, TScenario>
   /** Run-wide spend, including agents, proposers, analysts, and judges. */
   cost: CostLedgerSummary
-  /** Bounded proof envelope over the canonical search ledger. Present only
-   *  when `searchLedger` was supplied. `complete` is false when the search was
-   *  interrupted or a candidate left a designed cell unscored. */
-  searchHistory?: SearchHistoryReceipt
-  /** The GEPA Pareto frontier across every scored surface (baseline + all
-   *  generations) by per-scenario objective vector — the non-dominated set.
-   *  Each generation's `propose()` received the frontier-so-far as
-   *  `ctx.paretoParents`; this is the final frontier. A surface here that is
-   *  NOT the winner is uniquely best on some scenario the winner loses on. */
+  /** Bounded proof envelope over the search ledger. */
+  searchHistory: SearchHistoryReceipt
+  /** The non-dominated set of measured surfaces by per-scenario composite. */
   paretoFrontier: ParetoParent[]
 }
 
-/**
- * Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and one global incumbent across generations. The parent each generation mutates is the incumbent unless `selectParent` draws it from the frontier.
- */
+/** Improve a surface as a search on the kernel; see the module comment. */
 export async function runOptimization<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
 ): Promise<RunOptimizationResult<TArtifact, TScenario>> {
-  const { proposer } = opts
   const candidateConcurrency = opts.candidateConcurrency ?? 1
   if (typeof opts.runDir !== 'string' || opts.runDir.trim().length === 0) {
     throw new Error('runOptimization: runDir is required and must be a non-empty string')
@@ -215,489 +213,862 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   if (!Number.isInteger(candidateConcurrency) || candidateConcurrency < 1) {
     throw new Error('runOptimization: candidateConcurrency must be a positive integer')
   }
+  for (const [name, value] of [
+    ['populationSize', opts.populationSize],
+    ['maxGenerations', opts.maxGenerations],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`runOptimization: ${name} must be a non-negative integer`)
+    }
+  }
   const initialFindings = immutableProposalSnapshot(
     assertProposalFindings(opts.findings ?? [], 'runOptimization initial proposal findings'),
     'initial findings',
   )
   const baselineSurface = immutableProposalSnapshot(opts.baselineSurface, 'baseline surface')
-  opts.runDir = resolveRunDir(opts.runDir, opts.repo)
+  const runDir = resolveRunDir(opts.runDir, opts.repo)
   const storage = opts.storage ?? fsCampaignStorage()
   const costLedger =
-    opts.costLedger ??
-    createRunCostLedger({
-      storage,
-      runDir: opts.runDir,
-      costCeilingUsd: opts.costCeiling,
-    })
-  const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+    opts.costLedger ?? createRunCostLedger({ storage, runDir, costCeilingUsd: opts.costCeiling })
   const reps = opts.reps ?? 1
-  const premeasuredBaseline = opts.premeasuredBaseline
-  const baselineCampaign = premeasuredBaseline
+  const seed = opts.seed ?? 42
+  const requireJudgeScore = (opts.judges?.length ?? 0) > 0
+  const premeasured = opts.premeasuredBaseline
     ? validatedPremeasuredBaseline({
-        input: premeasuredBaseline,
+        input: opts.premeasuredBaseline,
         baselineSurface,
         scenarios: opts.scenarios,
         reps,
-        seed: opts.seed ?? 42,
+        seed,
         judges: opts.judges ?? [],
         dispatchRef: surfaceDispatchRef(baselineSurface, opts.dispatchRef),
-      })
-    : await runCampaign<TScenario, TArtifact>({
-        ...opts,
-        costLedger,
-        costPhase: 'search.baseline',
-        dispatchRef: surfaceDispatchRef(baselineSurface, opts.dispatchRef),
-        dispatch: (scenario, ctx) => opts.dispatchWithSurface(baselineSurface, scenario, ctx),
-        runDir: `${opts.runDir}/baseline`,
-      })
-  const baselineCoverage = campaignCoverage(
-    baselineCampaign.cells,
-    opts.scenarios,
-    reps,
-    requireJudgeScore,
-  )
-  if (!baselineCoverage.complete) {
-    const label = opts.premeasuredBaseline ? 'premeasured baseline' : 'baseline'
-    throw new Error(
-      `runOptimization: ${label} is incomplete (${baselineCoverage.scorableCellIds.length}/${baselineCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(baselineCoverage)}. Refusing to optimize against an incomplete incumbent.`,
-    )
-  }
-
-  const opened = opts.searchLedger
-    ? await OptimizationSearch.open({
-        binding: opts.searchLedger,
-        storage,
-        costLedger,
-        scenarios: opts.scenarios,
-        reps,
-        seed: opts.seed ?? 42,
-        splitDigest: baselineCampaign.splitDigest,
-        proposerName: proposer.kind,
-        expansion: opts.selectParent ? 'select-parent' : 'incumbent',
-        maxUsd: opts.costCeiling ?? null,
-        baselineSurface,
-        baselineCells: baselineCampaign.cells,
+        requireJudgeScore,
       })
     : undefined
-  const search = opened?.search
-  // Ledger node of every surface the loop registered, by loop key.
-  const nodeIdByHash = new Map<string, string>()
-  if (opened) nodeIdByHash.set(surfaceHash(baselineSurface), opened.rootNodeId)
-  const incompleteNodeIds = new Set<string>()
-  const promotedNodeIds = new Set<string>()
-  let stopReason: SearchCloseReason = 'max-nodes'
 
-  const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
-  const history: GenerationRecord[] = []
-  // Refreshed each generation by `analyzeGeneration`; seeded with the static
-  // caller-supplied findings.
-  let currentFindings: ReadonlyArray<ProposalFinding> = initialFindings
-  // Winner selection ranks candidates by a lexicographic key (higher-is-better
-  // per element). Default = the scalar mean composite, so a single-element key
-  // reproduces the historical `b.composite - a.composite` ordering exactly. A
-  // fail-closed consumer overrides it so selection and its ship-gate rank on the
-  // identical metric (see `selectionRankKey` docs).
-  const selectionRankKey =
-    opts.selectionRankKey ??
-    ((campaign: CampaignResult<TArtifact, TScenario>) => [campaignMeanComposite(campaign)])
-  let winnerSurface = baselineSurface
-  let winnerSurfaceHash = surfaceHash(baselineSurface)
-  // A surface identity may enter the population only once. Keep the
-  // incumbent in this set so a proposer cannot spend a candidate cell on a
-  // no-op or repeat a surface from an earlier generation.
-  const admittedCandidateHashes = new Set([winnerSurfaceHash])
-  let winnerComposite = campaignMeanComposite(baselineCampaign)
-  let winnerRankKey = selectionRankKey(baselineCampaign)
-  assertFiniteRankKey(winnerRankKey, 'selectionRankKey for baseline')
-  const baselineOutcome = toScoredSurfaceOutcome(
-    winnerSurfaceHash,
-    baselineCampaign,
-    baselineCoverage,
-    -1,
+  const splitDigest = campaignSplitDigest(opts.scenarios, reps)
+  const binding = opts.searchLedger ?? (await defaultBinding(opts, runDir, storage))
+  const { identity } = binding
+  const execution: SearchExecutionIdentity = {
+    model: identity.model,
+    agent: identity.agent,
+    benchmark: { uri: 'campaign://scenarios', revision: splitDigest },
+  }
+  const policy = opts.policy ?? incumbent()
+  const allocation = uniform({ reps })
+  const recorder = await SearchRecorder.open(
+    { ledger: binding.ledger, storage },
+    {
+      subject: identity.subject ?? opts.proposer.kind,
+      process: { name: 'runOptimization', executionRef: identity.search },
+      artifactKind: artifactKindOf(baselineSurface),
+      objective: {
+        metric: 'composite',
+        direction: 'maximize',
+        judge: identity.judge ?? {
+          unknown: 'runOptimization receives its judges as functions without a pinned source',
+        },
+        claim: identity.claim ?? developmentClaim(splitDigest),
+      },
+      splits: {
+        train: opts.scenarios.map((scenario) => ({
+          taskId: scenario.id,
+          unitId: scenario.id,
+          source: { uri: `scenario://${scenario.id}`, revision: hashCanonical(scenario) },
+        })),
+        selection: [],
+        test: [],
+        heldOutUnits: true,
+      },
+      policy: { expansion: policy.name, allocation: allocation.name, seed },
+      budget: {
+        maxUsd: opts.costCeiling ?? null,
+        maxCells: null,
+        maxNodes: 1 + opts.populationSize * opts.maxGenerations,
+        deadline: null,
+        maxConcurrency: null,
+        reservedClaimUsd: 0,
+      },
+      containment: null,
+      derivedFrom: null,
+      identity: execution,
+    },
   )
-  let winnerOutcome = baselineOutcome
-  let winnerLabel: string | undefined
-  let winnerRationale: string | undefined
 
-  // GEPA frontier accumulator — every scored surface as an objective vector
-  // (per-scenario composite). The baseline seeds it as generation -1; each
-  // candidate is added after its campaign. The non-dominated set of this list
-  // is recomputed before every `propose()` and handed to the proposer.
-  const scored: ParetoParent[] = [
-    toParetoParent(baselineSurface, winnerSurfaceHash, baselineCampaign, -1),
-  ]
-  // Every complete scored surface by hash, so a parent a `selectParent` policy
-  // returns resolves to the exact measured record this run holds for it.
-  const measuredByHash = new Map<string, MeasuredSurface>([
-    [winnerSurfaceHash, { parent: scored[0]!, outcome: baselineOutcome }],
-  ])
+  const nodes = new SurfaceNodes<TScenario, TArtifact>({
+    opts,
+    recorder,
+    runDir,
+    costLedger,
+    execution,
+    premeasured,
+  })
+  const scenarioById = new Map(opts.scenarios.map((scenario) => [scenario.id, scenario]))
+  let findings: ReadonlyArray<ProposalFinding> = initialFindings
 
-  // Diagnose the BASELINE traces before generation 0 proposes. The
-  // between-generation producer call below only fires after gen g to feed gen
-  // g+1, so without this a single-generation run (maxGenerations = 1)
-  // proposes blind even though baseline traces exist. Baseline is
-  // `generation: -1` — the same convention the Pareto accumulator uses above.
-  // Skipped when the baseline produced no cells (dry/offline modes have no
-  // traces to analyze) or there is no generation 0 to feed; `propose()` then
-  // sees the static seed findings exactly as before.
-  if (opts.analyzeGeneration && opts.maxGenerations > 0 && baselineCampaign.cells.length > 0) {
-    const fresh = await opts.analyzeGeneration({
-      generation: -1,
-      runDir: baselineCampaign.runDir,
-      candidates: [
-        { surfaceHash: winnerSurfaceHash, campaign: baselineCampaign, composite: winnerComposite },
-      ],
-      history,
-      costLedger,
-      costPhase: 'analysis.baseline',
-    })
-    if (!Array.isArray(fresh)) {
-      throw new TypeError('runOptimization: analyzeGeneration must return an array')
-    }
-    currentFindings = immutableProposalSnapshot(
-      assertProposalFindings(fresh, 'runOptimization baseline analysis findings'),
-      'baseline analysis findings',
-    )
+  const executor: SearchExecutor<MutableSurface> = {
+    lanes: () => [
+      {
+        name: 'campaign',
+        capacity: candidateConcurrency * (opts.maxConcurrency ?? 2),
+        costCap: 'estimate',
+        cellUsd: 0,
+      },
+    ],
+    place: () => 'campaign',
+    run: (work) => nodes.runCell(work, scenarioById),
+    adopt: (work) => nodes.adoptCell(work),
   }
 
-  for (let gen = 0; gen < opts.maxGenerations; gen++) {
-    const proposalHistory = immutableProposalSnapshot(history, 'history')
-    // Decide: the proposer may stop early based on accumulated history.
-    if (proposer.decide?.({ history: proposalHistory }).stop) {
-      stopReason = 'converged'
-      break
-    }
-
-    // Plan: the proposer proposes N candidates from the parent surface, the
-    // accumulated generation history, the Pareto frontier so far, and any
-    // external findings.
-    const paretoParents = immutableProposalSnapshot(computeParetoFrontier(scored), 'Pareto parents')
-    const incumbentOutcome = immutableProposalSnapshot(winnerOutcome, 'incumbent outcome')
-    // The mutation anchor. By default it is the best complete surface seen
-    // across the whole run: exploratory losers remain in history/Pareto
-    // evidence, but a later generation never compounds a candidate already
-    // known to regress. A `selectParent` policy draws the anchor from the
-    // frontier instead; promotion below still compares against the incumbent.
-    const selected = opts.selectParent
-      ? resolveSelectedParent(
-          opts.selectParent(
-            Object.freeze({
-              frontier: paretoParents,
-              incumbent: incumbentOutcome,
-              history: proposalHistory,
-              generation: gen,
-            }),
-          ),
-          measuredByHash,
-          gen,
-        )
-      : undefined
-    const parentSurface = selected ? selected.parent.surface : winnerSurface
-    const parentSurfaceHash = selected ? selected.parent.surfaceHash : winnerSurfaceHash
-    const parentComposite = selected ? selected.outcome.composite : winnerComposite
-    const parentOutcome = selected ? selected.outcome : winnerOutcome
-    const proposalContext: ProposeContext<ProposalFinding> = Object.freeze({
-      currentSurface: immutableProposalSnapshot(parentSurface, 'current surface'),
-      history: proposalHistory,
-      findings: immutableProposalSnapshot(
-        assertProposalFindings(currentFindings, 'runOptimization proposal findings'),
-        'findings',
-      ),
-      populationSize: opts.populationSize,
-      generation: gen,
-      signal: opts.signal ?? new AbortController().signal,
-      baselineOutcome: immutableProposalSnapshot(baselineOutcome, 'baseline outcome'),
-      incumbentOutcome,
-      parentOutcome: immutableProposalSnapshot(parentOutcome, 'parent outcome'),
-      maxImprovementShots: opts.maxImprovementShots,
-      paretoParents,
-      costLedger,
-      costPhase: 'search.proposal',
-    })
-    await search?.startGeneration(gen)
-    const proposed = await proposer.propose(proposalContext)
-    if (!Array.isArray(proposed)) {
-      throw new TypeError('runOptimization: proposer must return an array')
-    }
-    const proposalSnapshot = immutableProposalSnapshot(proposed, 'candidate outputs')
-    if (proposalSnapshot.length === 0) {
-      await search?.failGeneration(gen, 'the proposer returned no candidates')
-      stopReason = 'converged'
-      break
-    }
-
-    // Normalize: a proposer may return bare surfaces (blind mutators) or
-    // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
-    // each candidate stays attributable through to the result + provenance.
-    const candidates: ProposedCandidate[] = proposalSnapshot.map((p) =>
-      isProposedCandidate(p) ? p : { surface: p, label: '', rationale: '' },
-    )
-
-    // Validate the complete proposal before dispatching any candidate. This
-    // keeps duplicate population entries from becoming separate records or
-    // consuming a candidate cell. Use `reps` when measuring one surface again.
-    const generationHashes = new Set<string>()
-    for (const { surface } of candidates) {
-      const hash = surfaceHash(surface)
-      if (admittedCandidateHashes.has(hash) || generationHashes.has(hash)) {
+  const proposer = opts.proposer
+  const proposerSource = identity.proposer.source
+  const port: SearchProposerPort<MutableSurface> = {
+    name: proposer.kind,
+    kind: 'optimizer',
+    source: proposerSource,
+    execution: identity.proposer,
+    childrenPerProposal: opts.populationSize,
+    async propose(request) {
+      const phases = ['search.proposal', 'analysis.baseline', 'analysis.generation']
+      const before = new Set(phases.flatMap((phase) => costLedger.list({ phase })).map(receiptKey))
+      const accounting = (): {
+        accounting: SearchAttemptAccounting
+        execution: SearchOperationRecordedEvent['execution']
+      } => {
+        const fresh = phases
+          .flatMap((phase) => costLedger.list({ phase }))
+          .filter((receipt) => !before.has(receiptKey(receipt)))
+        return {
+          accounting: receiptAccounting(fresh),
+          execution: opts.searchLedger
+            ? identity.proposer
+            : proposalExecution(fresh, identity.model.provider, proposerSource),
+        }
+      }
+      // Every read of the ledger below happens synchronously on one state
+      // view: an await lets the kernel append, which retires the view.
+      const earlier = await recorder.state()
+      const root = earlier.rootNodeId!
+      const rootCampaign = nodes.campaign(earlier, root)
+      const rootCoverage = campaignCoverage(
+        rootCampaign.cells,
+        opts.scenarios,
+        reps,
+        requireJudgeScore,
+      )
+      if (!rootCoverage.complete) {
+        const label = premeasured ? 'premeasured baseline' : 'baseline'
         throw new Error(
-          `runOptimization: duplicate candidate surface hash "${hash}" in generation ${gen}; candidate surfaces must be unique`,
+          `runOptimization: ${label} is incomplete (${rootCoverage.scorableCellIds.length}/${rootCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(rootCoverage)}. Refusing to optimize against an incomplete incumbent.`,
         )
       }
-      generationHashes.add(hash)
-    }
-    for (const hash of generationHashes) admittedCandidateHashes.add(hash)
-    if (search) {
-      const nodeIds = await search.recordProposal({
-        generation: gen,
-        parent: {
-          nodeId: nodeIdByHash.get(parentSurfaceHash)!,
-          surface: parentSurface,
-          composite: parentComposite,
-        },
-        selectionRule: opts.selectParent ? 'select-parent' : 'incumbent',
-        candidates,
-      })
-      for (const [index, nodeId] of nodeIds.entries()) {
-        nodeIdByHash.set(surfaceHash(candidates[index]!.surface), nodeId)
-        await search.allocate(nodeId)
-      }
-    }
-
-    // Run each candidate as its own campaign.
-    type SurfaceResult = {
-      surfaceHash: string
-      surface: MutableSurface
-      label: string
-      rationale: string
-      attribution?: Readonly<Record<string, unknown>>
-      campaign: CampaignResult<TArtifact, TScenario>
-      composite: number | null
-      /** Lexicographic winner-selection key (higher-is-better per element). */
-      rankKey: number[] | null
-      coverage: CampaignCoverage
-    }
-    const surfaceResults = await mapConcurrent(
-      candidates,
-      candidateConcurrency,
-      async ({ surface, label, rationale, attribution }, i, signal): Promise<SurfaceResult> => {
-        const hash = surfaceHash(surface)
-        const campaign = await runCampaign<TScenario, TArtifact>({
-          ...opts,
-          signal,
-          costLedger,
-          costPhase: 'search.candidate',
-          dispatchRef: surfaceDispatchRef(surface, opts.dispatchRef),
-          dispatch: (scenario, ctx) => opts.dispatchWithSurface(surface, scenario, ctx),
-          runDir: `${opts.runDir}/gen-${gen}/candidate-${i}`,
+      // A generation is a proposal that registered a candidate; a proposal
+      // lost to a crash or made only of re-proposals is not one.
+      const generation = nodes.generations(earlier).length
+      if (opts.analyzeGeneration) {
+        const previous = generation - 1
+        const nodeIds =
+          previous < 0
+            ? [root]
+            : nodes.expansionNodes(earlier, nodes.generations(earlier)[previous]!)
+        const candidates = nodeIds.map((nodeId) => {
+          const campaign = nodes.campaign(earlier, nodeId)
+          return {
+            surfaceHash: surfaceHash(nodes.surface(earlier, nodeId)),
+            campaign,
+            composite: campaignMeanCompositeOrNull(campaign),
+          }
         })
-        const coverage = campaignCoverage(
-          campaign.cells,
-          opts.scenarios,
-          opts.reps ?? 1,
-          requireJudgeScore,
-        )
-        const composite = campaignMeanCompositeOrNull(campaign)
-        const rankKey = coverage.complete ? selectionRankKey(campaign) : null
-        if (rankKey) {
-          assertFiniteRankKey(
-            rankKey,
-            `selectionRankKey for generation ${gen} candidate ${i}`,
-            winnerRankKey.length,
+        const history = nodes.history(earlier, policy)
+        if (candidates.some(({ campaign }) => campaign.cells.length > 0)) {
+          const fresh = await opts.analyzeGeneration({
+            generation: previous,
+            runDir: previous < 0 ? rootCampaign.runDir : `${runDir}/candidates`,
+            candidates,
+            history,
+            costLedger,
+            costPhase: previous < 0 ? 'analysis.baseline' : 'analysis.generation',
+          })
+          if (!Array.isArray(fresh)) {
+            throw new TypeError('runOptimization: analyzeGeneration must return an array')
+          }
+          findings = immutableProposalSnapshot(
+            assertProposalFindings(fresh, 'runOptimization analysis findings'),
+            'analysis findings',
           )
         }
-        return {
-          surfaceHash: hash,
-          surface,
-          label,
-          rationale,
-          ...(attribution ? { attribution } : {}),
-          campaign,
-          composite,
-          rankKey,
-          coverage,
-        }
-      },
-      opts.signal,
-    )
-    for (const result of surfaceResults) {
-      const { surface, surfaceHash: hash, campaign, coverage, label, rationale } = result
-      if (coverage.complete) {
-        // Incomplete candidates retain their raw campaign and history row but
-        // cannot gain Pareto value by avoiding a difficult cell.
-        const parent = toParetoParent(
-          surface,
-          hash,
-          campaign,
-          gen,
-          label || undefined,
-          rationale || undefined,
-        )
-        scored.push(parent)
-        measuredByHash.set(hash, {
-          parent,
-          outcome: toScoredSurfaceOutcome(hash, campaign, coverage, gen),
-        })
       }
-    }
-
-    if (search) {
-      for (const result of surfaceResults) {
-        const nodeId = nodeIdByHash.get(result.surfaceHash)!
-        await search.recordCells(nodeId, 'train', result.campaign.cells)
-        if (!result.coverage.complete) incompleteNodeIds.add(nodeId)
-      }
-    }
-
-    // Rank only candidates with the complete designed denominator. Incomplete
-    // rows follow the eligible rows for auditability but never promote.
-    surfaceResults.sort((a, b) => {
-      if (a.coverage.complete !== b.coverage.complete) return a.coverage.complete ? -1 : 1
-      if (a.rankKey && b.rankKey) return compareRankKeys(b.rankKey, a.rankKey)
-      return a.surfaceHash.localeCompare(b.surfaceHash)
-    })
-    const eligibleResults = surfaceResults.filter(
-      (result): result is SurfaceResult & { composite: number; rankKey: number[] } =>
-        result.coverage.complete && result.composite !== null && result.rankKey !== null,
-    )
-    const top = eligibleResults[0]
-    const promoted = top && compareRankKeys(top.rankKey, winnerRankKey) > 0 ? [top] : []
-    if (promoted[0]) {
-      const top = promoted[0]
-      const promotedNodeId = nodeIdByHash.get(top.surfaceHash)
-      if (promotedNodeId) promotedNodeIds.add(promotedNodeId)
-      winnerSurface = top.surface
-      winnerSurfaceHash = top.surfaceHash
-      winnerComposite = top.composite
-      winnerRankKey = top.rankKey
-      winnerOutcome = toScoredSurfaceOutcome(top.surfaceHash, top.campaign, top.coverage, gen)
-      winnerLabel = top.label || undefined
-      winnerRationale = top.rationale || undefined
-    }
-
-    const record: GenerationRecord = {
-      generationIndex: gen,
-      candidates: surfaceResults.map((s) => {
-        const breakdown = campaignBreakdown(s.campaign)
-        const candidate: GenerationRecord['candidates'][number] = {
-          surfaceHash: s.surfaceHash,
-          composite: s.composite,
-          ci95: null,
-          parentSurfaceHash,
-          parentComposite,
-          ...(s.coverage.complete
-            ? { observedDeltaFromParent: s.composite! - parentComposite }
-            : {}),
-          eligibleForPromotion: s.coverage.complete,
-          coverage: {
-            expectedCells: s.coverage.expectedCellIds.length,
-            scorableCells: s.coverage.scorableCellIds.length,
-            unscorableCells: s.coverage.unscorableCells,
-          },
-          dimensions: breakdown.dimensions,
-          scenarios: breakdown.scenarios,
-        }
-        if (s.label) candidate.label = s.label
-        if (s.rationale) candidate.rationale = s.rationale
-        if (s.attribution) candidate.attribution = s.attribution
-        return candidate
-      }),
-      promoted: promoted.map((p) => p.surfaceHash),
-    }
-    history.push(record)
-    generations.push({
-      record,
-      surfaces: surfaceResults.map((s) => ({
-        surfaceHash: s.surfaceHash,
-        surface: s.surface,
-        campaign: s.campaign,
-      })),
-    })
-
-    // Re-diagnose this generation's results and feed fresh findings to the next
-    // generation's propose(). On the last generation there is no
-    // next propose(), so skip the (potentially expensive) producer call.
-    if (opts.analyzeGeneration && gen < opts.maxGenerations - 1) {
-      const fresh = await opts.analyzeGeneration({
-        generation: gen,
-        runDir: `${opts.runDir}/gen-${gen}`,
-        candidates: surfaceResults.map((s) => ({
-          surfaceHash: s.surfaceHash,
-          campaign: s.campaign,
-          composite: s.composite,
-        })),
-        history,
+      const state = await recorder.state()
+      const proposalHistory = immutableProposalSnapshot(nodes.history(state, policy), 'history')
+      const parent = request.parents[0]!
+      const context: ProposeContext<ProposalFinding> = Object.freeze({
+        currentSurface: immutableProposalSnapshot(parent.artifact, 'current surface'),
+        operator: request.operator,
+        history: proposalHistory,
+        findings: immutableProposalSnapshot(
+          assertProposalFindings(findings, 'runOptimization proposal findings'),
+          'findings',
+        ),
+        populationSize: opts.populationSize,
+        generation,
+        signal: request.signal,
+        baselineOutcome: immutableProposalSnapshot(nodes.outcome(state, root), 'baseline'),
+        incumbentOutcome: immutableProposalSnapshot(
+          nodes.outcome(state, request.leader),
+          'incumbent outcome',
+        ),
+        parentOutcome: immutableProposalSnapshot(
+          nodes.outcome(state, parent.nodeId),
+          'parent outcome',
+        ),
+        maxImprovementShots: opts.maxImprovementShots,
+        paretoParents: immutableProposalSnapshot(nodes.frontier(state), 'Pareto parents'),
         costLedger,
-        costPhase: 'analysis.generation',
+        costPhase: 'search.proposal',
       })
-      if (!Array.isArray(fresh)) {
-        throw new TypeError('runOptimization: analyzeGeneration must return an array')
+      if (proposer.decide?.({ history: proposalHistory }).stop) {
+        return { children: [], stop: 'the proposer decided to stop', ...accounting() }
       }
-      currentFindings = immutableProposalSnapshot(
-        assertProposalFindings(fresh, 'runOptimization generation analysis findings'),
-        'generation analysis findings',
-      )
-    }
+      const proposed = await proposer.propose(context)
+      if (!Array.isArray(proposed)) {
+        throw new TypeError('runOptimization: proposer must return an array')
+      }
+      const snapshot = immutableProposalSnapshot(proposed, 'candidate outputs')
+      return {
+        children: snapshot.slice(0, opts.populationSize).map((candidate) =>
+          isProposedCandidate(candidate)
+            ? {
+                artifact: candidate.surface,
+                label: candidate.label,
+                rationale: candidate.rationale,
+                ...(candidate.attribution ? { attribution: candidate.attribution } : {}),
+              }
+            : { artifact: candidate, label: '', rationale: '' },
+        ),
+        ...accounting(),
+      }
+    },
   }
 
-  const searchHistory = await search?.finish({
-    winnerNodeId: nodeIdByHash.get(winnerSurfaceHash)!,
-    promotedNodeIds,
-    incompleteNodeIds,
-    reason: stopReason,
-    runId: opts.runDir,
+  const result = await runSearch({
+    recorder,
+    root: baselineSurface,
+    codec: surfaceCodec,
+    policy,
+    allocation,
+    proposer: port,
+    executor,
+    maxExpansions: opts.maxGenerations,
+    signal: opts.signal,
   })
 
+  const state = result.state
+  const winnerSurface = nodes.surface(state, result.leader)
+  const firstEdge = state.edge(state.node(result.leader)!.edgeIds[0]!)!
+  const winnerRationale =
+    firstEdge.operator === 'seed' || !('sha256' in firstEdge.rationale)
+      ? undefined
+      : (recorder.readBlob(firstEdge.rationale) as { text: string }).text
+  const expansions = nodes.generations(state)
+  const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = nodes
+    .history(state, policy)
+    .map((record) => ({
+      record,
+      surfaces: nodes.expansionNodes(state, expansions[record.generationIndex]!).map((nodeId) => {
+        const surface = nodes.surface(state, nodeId)
+        return {
+          surfaceHash: surfaceHash(surface),
+          surface,
+          campaign: nodes.campaign(state, nodeId),
+        }
+      }),
+    }))
   return {
     generations,
     baselineSurface,
     winnerSurface,
-    winnerSurfaceHash,
-    winnerLabel,
-    winnerRationale,
-    baselineCampaign,
-    ...(searchHistory ? { searchHistory } : {}),
-    paretoFrontier: computeParetoFrontier(scored),
+    winnerSurfaceHash: surfaceHash(winnerSurface),
+    ...(firstEdge.operator !== 'seed' && firstEdge.label ? { winnerLabel: firstEdge.label } : {}),
+    ...(winnerRationale ? { winnerRationale } : {}),
+    baselineCampaign: nodes.campaign(state, state.rootNodeId!),
     cost: costLedger.summary(),
+    searchHistory: recorder.receipt({ producerId: proposer.kind, runId: runDir }),
+    paretoFrontier: nodes.frontier(state),
   }
 }
 
-/** One complete scored surface: its frontier record and its measured outcome. */
-interface MeasuredSurface {
-  parent: ParetoParent
-  outcome: ScoredSurfaceOutcome
+/** A mutable surface as a search artifact. */
+const surfaceCodec: SearchArtifactCodec<MutableSurface> = {
+  node: surfaceNode,
+  diff: surfaceDiff,
+  load: (recorder, node) => {
+    const stored = recorder.readBlob(node.artifact) as { kind?: unknown; surface?: MutableSurface }
+    if (stored.kind !== 'mutable-surface' || stored.surface === undefined) {
+      throw new Error(`runOptimization: node ${node.nodeId} does not hold a mutable surface`)
+    }
+    return stored.surface
+  },
 }
 
-/** Resolve the parent a `selectParent` policy returned to the measured record
- *  this run holds for it. Refuses a surface the run never measured to
- *  completion, and a parent whose surface does not hash to its `surfaceHash`. */
-function resolveSelectedParent(
-  returned: unknown,
-  measuredByHash: ReadonlyMap<string, MeasuredSurface>,
-  generation: number,
-): MeasuredSurface {
-  if (
-    typeof returned !== 'object' ||
-    returned === null ||
-    typeof (returned as { surfaceHash?: unknown }).surfaceHash !== 'string'
-  ) {
-    throw new TypeError(
-      `runOptimization: selectParent must return a ParetoParent (generation ${generation})`,
+/**
+ * The run's view of its surface nodes: where each one's cells run, its
+ * campaign, and the proposer's reads over them. Everything here derives from
+ * the ledger and the per-cell campaign cache, so a resumed run reads the same.
+ */
+class SurfaceNodes<TScenario extends Scenario, TArtifact> {
+  private readonly opts: RunOptimizationOptions<TScenario, TArtifact>
+  private readonly recorder: SearchRecorder
+  private readonly runDir: string
+  private readonly costLedger: CostLedgerHandle
+  private readonly execution: SearchExecutionIdentity
+  private readonly premeasured: CampaignResult<TArtifact, TScenario> | undefined
+  private readonly storage: CampaignStorage
+  private readonly campaigns = new Map<
+    string,
+    { cells: string; campaign: CampaignResult<TArtifact, TScenario> }
+  >()
+  private readonly proposals = new Map<number, SearchProposalBlob>()
+  /** Cells this process ran or adopted, by node, keyed `scenarioId:rep`. */
+  private readonly cells = new Map<string, Map<string, CampaignCellResult<TArtifact>>>()
+
+  constructor(input: {
+    opts: RunOptimizationOptions<TScenario, TArtifact>
+    recorder: SearchRecorder
+    runDir: string
+    costLedger: CostLedgerHandle
+    execution: SearchExecutionIdentity
+    premeasured: CampaignResult<TArtifact, TScenario> | undefined
+  }) {
+    this.opts = input.opts
+    this.recorder = input.recorder
+    this.runDir = input.runDir
+    this.costLedger = input.costLedger
+    this.execution = input.execution
+    this.premeasured = input.premeasured
+    this.storage = input.opts.storage ?? fsCampaignStorage()
+  }
+
+  /** `<runDir>/baseline` for the root, `<runDir>/candidates/<surfaceHash>`
+   * for every other node: content-addressed, so a cell's directory needs no
+   * ledger read and one surface keeps one cache across the run's searches. */
+  nodeDir(surface: MutableSurface, root: boolean): string {
+    return root ? `${this.runDir}/baseline` : `${this.runDir}/candidates/${surfaceHash(surface)}`
+  }
+
+  surface(state: SearchStateView, nodeId: string): MutableSurface {
+    return surfaceCodec.load(this.recorder, state.node(nodeId)!)
+  }
+
+  /** Nodes proposal `expansion` registered, in the order it returned them. */
+  expansionNodes(state: SearchStateView, expansion: number): string[] {
+    const blob = this.proposal(state, expansion)
+    if (!blob) return []
+    const ids: string[] = []
+    for (const child of blob.children) {
+      const nodeId = state.nodeIdForDigest(child.node.artifactDigest)
+      if (nodeId === undefined || ids.includes(nodeId)) continue
+      if (this.origin(state, nodeId).expansion === expansion) ids.push(nodeId)
+    }
+    return ids
+  }
+
+  /**
+   * The scored attempt of a cell an earlier process ran, from its node's
+   * cache; null otherwise, so the kernel runs the cell. A failure is not
+   * adopted: the stop that interrupted the earlier process may have caused it.
+   */
+  async adoptCell(work: SearchCellWork<MutableSurface>): Promise<SearchCellResult | null> {
+    if (work.stage === 'root' && this.premeasured) return this.premeasuredCell(work)
+    const dir = this.nodeDir(work.artifact, work.stage === 'root')
+    const cached = this.storage.read(cellCachePath(dir, `${work.taskId}:${work.rep}`))
+    const cell =
+      cached === undefined ? undefined : (JSON.parse(cached) as CampaignCellResult<TArtifact>)
+    if (cell?.manifestHash !== this.manifestFor(work.artifact)) return null
+    this.remember(work.nodeId, cell)
+    return this.cellResult(cell, work)
+  }
+
+  /** Run one cell as a one-cell campaign in its node's directory; a cached
+   * cell is read back, not dispatched again. */
+  async runCell(
+    work: SearchCellWork<MutableSurface>,
+    scenarios: ReadonlyMap<string, TScenario>,
+  ): Promise<SearchCellResult> {
+    if (work.stage === 'root' && this.premeasured) return this.premeasuredCell(work)
+    if (!scenarios.has(work.taskId)) {
+      throw new Error(`runOptimization: cell ${work.cellId} names unknown scenario ${work.taskId}`)
+    }
+    const dir = this.nodeDir(work.artifact, work.stage === 'root')
+    const campaign = await this.campaignRun(dir, work.artifact, {
+      signal: work.signal,
+      costPhase: work.stage === 'root' ? 'search.baseline' : 'search.candidate',
+      cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
+    })
+    const cell = campaign.cells[0]
+    if (!cell) throw new Error(`runOptimization: cell ${work.cellId} produced no campaign cell`)
+    this.remember(work.nodeId, cell)
+    return this.cellResult(cell, work)
+  }
+
+  /** The node's campaign over the cells the ledger settled: the cells this
+   * process ran, else their cached results or failure receipts. */
+  campaign(state: SearchStateView, nodeId: string): CampaignResult<TArtifact, TScenario> {
+    const root = nodeId === state.rootNodeId
+    if (root && this.premeasured) return this.premeasured
+    const surface = this.surface(state, nodeId)
+    const dir = this.nodeDir(surface, root)
+    const settled = state
+      .cells({ nodeId })
+      .filter((cell) => cell.attempts > 0)
+      .map((cell) => ({ taskId: cell.taskId, rep: cell.rep }))
+    const key = settled
+      .map(({ taskId, rep }) => `${taskId}:${rep}`)
+      .sort()
+      .join('\n')
+    const held = this.campaigns.get(nodeId)
+    if (held?.cells === key) return held.campaign
+    const known = this.cells.get(nodeId)
+    const cells = settled.map(({ taskId, rep }) => {
+      const cell = known?.get(`${taskId}:${rep}`) ?? this.storedCell(dir, surface, taskId, rep)
+      if (!cell) {
+        throw new Error(
+          `runOptimization: cell ${taskId}:${rep} of node ${nodeId} settled, but ${dir} holds neither its cached result nor its failure receipt`,
+        )
+      }
+      return cell
+    })
+    cells.sort((a, b) => (a.cellId < b.cellId ? -1 : a.cellId > b.cellId ? 1 : 0))
+    const reps = this.opts.reps ?? 1
+    const seed = this.opts.seed ?? 42
+    const judges = this.opts.judges ?? []
+    const now = new Date().toISOString()
+    const durationMs = cells.reduce((sum, cell) => sum + cell.durationMs, 0)
+    const campaign: CampaignResult<TArtifact, TScenario> = {
+      manifestHash: this.manifestFor(surface),
+      splitDigest: campaignSplitDigest(this.opts.scenarios, reps),
+      seed,
+      reps,
+      startedAt: now,
+      endedAt: now,
+      durationMs,
+      cells,
+      aggregates: computeAggregates(
+        cells,
+        judges as unknown as JudgeConfig<TArtifact>[],
+        seed,
+        this.costLedger.summary({ tags: { runDir: dir } }),
+      ),
+      runDir: dir,
+      artifactsByPath: {},
+      scenarios: this.opts.scenarios.map(campaignScenarioIdentity),
+    }
+    this.campaigns.set(nodeId, { cells: key, campaign })
+    return campaign
+  }
+
+  outcome(state: SearchStateView, nodeId: string): ScoredSurfaceOutcome {
+    const campaign = this.campaign(state, nodeId)
+    const reps = this.opts.reps ?? 1
+    const coverage = campaignCoverage(
+      campaign.cells,
+      this.opts.scenarios,
+      reps,
+      (this.opts.judges?.length ?? 0) > 0,
+    )
+    const expansion =
+      nodeId === state.rootNodeId
+        ? -1
+        : this.generationOf(state, this.origin(state, nodeId).expansion)
+    return toScoredSurfaceOutcome(
+      surfaceHash(this.surface(state, nodeId)),
+      campaign,
+      coverage,
+      expansion,
     )
   }
-  const parent = returned as ParetoParent
-  const measured = measuredByHash.get(parent.surfaceHash)
-  if (!measured) {
-    throw new Error(
-      `runOptimization: selectParent returned surface "${parent.surfaceHash}" in generation ${generation}, which this run has not measured to completion; a parent must be a scored surface from the frontier`,
-    )
+
+  /** The Pareto frontier over every measured, complete node. */
+  frontier(state: SearchStateView): ParetoParent[] {
+    const scored: ParetoParent[] = []
+    for (const node of state.nodes()) {
+      if (node.status === 'invalid' || node.cellCount === 0) continue
+      const cells = state.cells({ nodeId: node.nodeId })
+      if (cells.some((cell) => cell.attempts === 0 && cell.cancelled === null)) continue
+      if (cells.some((cell) => cell.score === null)) continue
+      const campaign = this.campaign(state, node.nodeId)
+      const edge = state.edge(node.edgeIds[0]!)!
+      scored.push(
+        toParetoParent(
+          this.surface(state, node.nodeId),
+          campaign,
+          node.nodeId === state.rootNodeId
+            ? -1
+            : this.generationOf(state, this.origin(state, node.nodeId).expansion),
+          edge.operator === 'seed' ? undefined : edge.label || undefined,
+        ),
+      )
+    }
+    return computeParetoFrontier(scored)
   }
-  if (!surfaceHashMatches(parent.surface, parent.surfaceHash)) {
-    throw new Error(
-      `runOptimization: selectParent returned a parent whose surface does not match its surfaceHash "${parent.surfaceHash}" (generation ${generation})`,
-    )
+
+  /** Kernel expansions that registered a candidate, in order: generation g
+   * is `generations(state)[g]`. */
+  generations(state: SearchStateView): number[] {
+    const expansions: number[] = []
+    for (let expansion = 0; state.operation(`expand-${expansion}`); expansion++) {
+      if (this.expansionNodes(state, expansion).length > 0) expansions.push(expansion)
+    }
+    return expansions
   }
-  return measured
+
+  /** One record per generation, with its candidates and the one that took
+   * the lead, if any. */
+  history(state: SearchStateView, policy: SearchPolicy): GenerationRecord[] {
+    const records: GenerationRecord[] = []
+    const measured = (nodeId: string) =>
+      state.node(nodeId)!.status !== 'invalid' &&
+      state.cells({ nodeId }).every((cell) => cell.attempts > 0 || cell.cancelled !== null)
+    const screened: string[] = [state.rootNodeId!]
+    let leader = policy.leader(searchPolicyView(state, { screened, screening: 0, expansions: 0 }))
+    for (const [generation, expansion] of this.generations(state).entries()) {
+      const nodeIds = this.expansionNodes(state, expansion)
+      screened.push(...nodeIds.filter(measured))
+      screened.sort((a, b) => state.node(a)!.ordinal - state.node(b)!.ordinal)
+      const next = policy.leader(
+        searchPolicyView(state, { screened, screening: 0, expansions: expansion + 1 }),
+      )
+      const candidates: GenerationCandidate[] = []
+      for (const nodeId of nodeIds) {
+        candidates.push(this.candidate(state, nodeId, expansion))
+      }
+      records.push({
+        generationIndex: generation,
+        candidates,
+        promoted:
+          next !== leader && nodeIds.includes(next) ? [surfaceHash(this.surface(state, next))] : [],
+      })
+      leader = next
+    }
+    return records
+  }
+
+  private candidate(
+    state: SearchStateView,
+    nodeId: string,
+    expansion: number,
+  ): GenerationCandidate {
+    const campaign = this.campaign(state, nodeId)
+    const coverage = campaignCoverage(
+      campaign.cells,
+      this.opts.scenarios,
+      this.opts.reps ?? 1,
+      (this.opts.judges?.length ?? 0) > 0,
+    )
+    const breakdown = campaignBreakdown(campaign)
+    const child = this.proposal(state, expansion)!.children.find(
+      (entry) => state.nodeIdForDigest(entry.node.artifactDigest) === nodeId,
+    )!
+    return {
+      surfaceHash: surfaceHash(this.surface(state, nodeId)),
+      composite: campaignMeanCompositeOrNull(campaign),
+      eligibleForPromotion: coverage.complete,
+      coverage: {
+        expectedCells: coverage.expectedCellIds.length,
+        scorableCells: coverage.scorableCellIds.length,
+        unscorableCells: coverage.unscorableCells,
+      },
+      dimensions: breakdown.dimensions,
+      scenarios: breakdown.scenarios,
+      ...(child.label ? { label: child.label } : {}),
+      ...(child.rationale ? { rationale: child.rationale } : {}),
+      ...(child.attribution ? { attribution: child.attribution } : {}),
+    }
+  }
+
+  private generationOf(state: SearchStateView, expansion: number): number {
+    return this.generations(state).indexOf(expansion)
+  }
+
+  private origin(state: SearchStateView, nodeId: string): { expansion: number; index: number } {
+    const node = state.node(nodeId)!
+    const operationId = state.edge(node.edgeIds[0]!)?.proposer?.operationId ?? null
+    const expansion = operationId === null ? null : searchExpansionIndex(operationId)
+    if (expansion === null) {
+      throw new Error(`runOptimization: node ${nodeId} was not proposed by this run's search`)
+    }
+    const blob = this.proposal(state, expansion)!
+    const index = blob.children.findIndex(
+      (child) => child.node.artifactDigest === node.artifactDigest,
+    )
+    return { expansion, index }
+  }
+
+  private proposal(state: SearchStateView, expansion: number): SearchProposalBlob | undefined {
+    const held = this.proposals.get(expansion)
+    if (held) return held
+    const operation = state.operation(`expand-${expansion}`)
+    const ref = operation?.artifacts.find((artifact) => artifact.role === 'proposal')
+    if (!ref) return undefined
+    const blob = this.recorder.readBlob(ref) as SearchProposalBlob
+    this.proposals.set(expansion, blob)
+    return blob
+  }
+
+  private async campaignRun(
+    runDir: string,
+    surface: MutableSurface,
+    input: {
+      signal?: AbortSignal
+      costPhase: string
+      cellFilter: NonNullable<RunCampaignOptions<TScenario, TArtifact>['cellFilter']>
+    },
+  ): Promise<CampaignResult<TArtifact, TScenario>> {
+    const {
+      baselineSurface: _baselineSurface,
+      premeasuredBaseline: _premeasuredBaseline,
+      dispatchWithSurface,
+      proposer: _proposer,
+      populationSize: _populationSize,
+      maxGenerations: _maxGenerations,
+      candidateConcurrency: _candidateConcurrency,
+      maxImprovementShots: _maxImprovementShots,
+      findings: _findings,
+      analyzeGeneration: _analyzeGeneration,
+      policy: _policy,
+      searchLedger: _searchLedger,
+      ...campaignOptions
+    } = this.opts
+    return runCampaign<TScenario, TArtifact>({
+      ...campaignOptions,
+      signal: input.signal ?? this.opts.signal,
+      costLedger: this.costLedger,
+      costPhase: input.costPhase,
+      dispatchRef: surfaceDispatchRef(surface, this.opts.dispatchRef),
+      dispatch: (scenario, ctx) => dispatchWithSurface(surface, scenario, ctx),
+      runDir,
+      cellFilter: input.cellFilter,
+      resumable: true,
+      maxConcurrency: 1,
+    })
+  }
+
+  private premeasuredCell(work: SearchCellWork<MutableSurface>): SearchCellResult {
+    const cell = this.premeasured!.cells.find(
+      (candidate) => candidate.scenarioId === work.taskId && candidate.rep === work.rep,
+    )
+    if (!cell) {
+      throw new Error(`runOptimization: premeasured baseline lacks ${work.taskId}:${work.rep}`)
+    }
+    return this.cellResult(cell, work)
+  }
+
+  /** A cell's result as its campaign stored it: the cache of a scored cell,
+   * the final failure receipt of a failed one. */
+  /** A cell's result as its campaign stored it for this surface: the cache of
+   * a scored cell, the final failure receipt of a failed one. A result another
+   * surface left in the same directory does not count. */
+  private storedCell(
+    dir: string,
+    surface: MutableSurface,
+    taskId: string,
+    rep: number,
+  ): CampaignCellResult<TArtifact> | undefined {
+    const cellId = `${taskId}:${rep}`
+    const manifestHash = this.manifestFor(surface)
+    const cached = this.storage.read(cellCachePath(dir, cellId))
+    const scored =
+      cached === undefined ? undefined : (JSON.parse(cached) as CampaignCellResult<TArtifact>)
+    if (scored?.manifestHash === manifestHash) return scored
+    const receipt = this.storage.read(join(cellDirectory(dir, cellId), 'failure-receipt.json'))
+    const failed =
+      receipt === undefined
+        ? undefined
+        : (JSON.parse(receipt) as CampaignCellFailureReceipt<TArtifact>).cell
+    return failed?.manifestHash === manifestHash ? failed : undefined
+  }
+
+  private manifestFor(surface: MutableSurface): string {
+    return computeManifestHash({
+      scenarios: this.opts.scenarios,
+      judges: this.opts.judges ?? [],
+      dispatchRef: surfaceDispatchRef(surface, this.opts.dispatchRef),
+      seed: this.opts.seed ?? 42,
+      reps: this.opts.reps ?? 1,
+    })
+  }
+
+  private remember(nodeId: string, cell: CampaignCellResult<TArtifact>): void {
+    const cells = this.cells.get(nodeId) ?? new Map<string, CampaignCellResult<TArtifact>>()
+    cells.set(`${cell.scenarioId}:${cell.rep}`, cell)
+    this.cells.set(nodeId, cells)
+  }
+
+  private cellResult(
+    cell: CampaignCellResult<TArtifact>,
+    work: SearchCellWork<MutableSurface>,
+  ): SearchCellResult {
+    return {
+      outcome: cellOutcome(cell),
+      accounting: cellAccounting(cell),
+      identity: { ...this.execution, model: cellModel(cell, this.execution.model) },
+      wallMs: cell.durationMs,
+      placement: { lane: work.lane, boxId: null },
+      traceRef: { unknown: 'runCampaign reports no trace id per cell' },
+    }
+  }
+}
+
+/** The default ledger and identities when the caller binds none. Revisions are
+ * content digests of what the caller declared, and each uri names what its
+ * digest covers: the dispatch ref, the proposer kind, the kernel. */
+async function defaultBinding<TScenario extends Scenario, TArtifact>(
+  opts: RunOptimizationOptions<TScenario, TArtifact>,
+  runDir: string,
+  storage: CampaignStorage,
+): Promise<SearchLedgerBinding> {
+  const base = `optimization-${createHash('sha256').update(runDir).digest('hex').slice(0, 16)}`
+  const dispatchRef = opts.dispatchRef ?? 'anonymous'
+  const identity: SearchRunIdentity = {
+    agent: { uri: `dispatch-ref:${dispatchRef}`, revision: hashCanonical({ dispatchRef }) },
+    proposer: {
+      kind: 'deterministic',
+      source: {
+        uri: `proposer:${opts.proposer.kind}`,
+        revision: hashCanonical({ proposer: opts.proposer.kind }),
+      },
+    },
+    search: SEARCH_KERNEL_SOURCE,
+    model: {
+      provider: 'unspecified',
+      alias: 'unspecified',
+      unknown: 'runOptimization was not told which model the agent runs',
+    },
+  }
+  // A closed search is final. The run directory's first search that is still
+  // open, or not started, is this call's: an interrupted run continues, and a
+  // run after a finished one starts the next search beside it.
+  for (let slot = 1; ; slot++) {
+    const dir = slot === 1 ? `${runDir}/search` : `${runDir}/search-${slot}`
+    const path = `${dir}/ledger.jsonl`
+    const searchId = slot === 1 ? base : `${base}-${slot}`
+    // The ledger lives where the run's storage lives: a filesystem run gets
+    // the durable file journal; any other storage holds the ledger's text.
+    const ledger =
+      storage.kind === 'filesystem'
+        ? openSearchLedger({ path, searchId })
+        : openSearchLedger({ path, searchId, store: storage })
+    if (!(await ledger.state()).closed) return { ledger, identity }
+  }
+}
+
+function artifactKindOf(surface: MutableSurface): SearchArtifactKind {
+  return typeof surface === 'object' && surface.kind === 'code' ? 'code' : 'prompt'
+}
+
+function receiptKey(receipt: CostReceipt): string {
+  return receipt.callId
+}
+
+/** A proposal that made a paid call ran a model; one that made none ran code. */
+function proposalExecution(
+  receipts: ReadonlyArray<CostReceipt>,
+  provider: string,
+  source: SearchOperationRecordedEvent['execution']['source'],
+): SearchOperationRecordedEvent['execution'] {
+  const model = receipts.find((receipt) => receipt.channel !== 'judge')?.model
+  if (model === undefined) return { kind: 'deterministic', source }
+  return { kind: 'model', model: modelIdentity(model, provider), source }
+}
+
+function modelIdentity(model: string, provider: string): SearchModelIdentity {
+  return modelHasSnapshot(model)
+    ? { provider, snapshot: model }
+    : { provider, alias: model, unknown: 'the provider reported a moving alias, not a snapshot' }
+}
+
+function cellModel<TArtifact>(
+  cell: CampaignCellResult<TArtifact>,
+  fallback: SearchModelIdentity,
+): SearchModelIdentity {
+  return cell.resolvedModel === undefined
+    ? fallback
+    : modelIdentity(cell.resolvedModel, fallback.provider)
+}
+
+function cellOutcome<TArtifact>(cell: CampaignCellResult<TArtifact>): SearchTaskOutcome {
+  const quality = projectCampaignCellQuality(cell)
+  if (quality.score === undefined) {
+    return {
+      status: 'errored',
+      metrics: {},
+      error: {
+        code: cell.errorStage ?? 'unscored',
+        message: cell.error ?? 'the cell produced no complete judge score',
+        retryable: false,
+      },
+    }
+  }
+  const metrics: Record<string, number> = { composite: quality.score }
+  for (const [judge, score] of Object.entries(quality.successfulJudgeScores)) {
+    metrics[`judge.${judge}`] = score.composite
+  }
+  return { status: 'passed', score: quality.score, metrics }
+}
+
+function cellAccounting<TArtifact>(cell: CampaignCellResult<TArtifact>): SearchAttemptAccounting {
+  const usage = cell.tokenUsage
+  return {
+    tokens:
+      usage.tokensKnown === false
+        ? { status: 'unknown', reason: 'a paid call in this cell reported no token usage' }
+        : {
+            status: 'known',
+            inputTokens: usage.input,
+            outputTokens: usage.output,
+            cachedTokens: 0,
+          },
+    cost:
+      cell.costProvenance.kind === 'uncaptured'
+        ? {
+            status: 'unknown',
+            knownLowerBoundUsd: cell.costUsd,
+            reason: 'the cell recorded spend without a provider receipt',
+          }
+        : {
+            status: 'known',
+            usd: cell.costUsd,
+            source: cell.costProvenance.kind === 'observed' ? 'provider' : 'pricing-table',
+          },
+  }
+}
+
+function receiptAccounting(receipts: ReadonlyArray<CostReceipt>): SearchAttemptAccounting {
+  let inputTokens = 0
+  let outputTokens = 0
+  let cachedTokens = 0
+  let usd = 0
+  let tokensKnown = true
+  let costKnown = true
+  for (const receipt of receipts) {
+    if (receipt.usageUnknown === true) tokensKnown = false
+    inputTokens += receipt.inputTokens
+    outputTokens += receipt.outputTokens
+    cachedTokens += receipt.cachedTokens ?? 0
+    if (receipt.costUnknown) costKnown = false
+    else usd += receipt.costUsd
+  }
+  return {
+    tokens: tokensKnown
+      ? { status: 'known', inputTokens, outputTokens, cachedTokens }
+      : { status: 'unknown', reason: 'a candidate-generation call reported no token usage' },
+    cost: costKnown
+      ? { status: 'known', usd, source: usd === 0 ? 'free' : 'provider' }
+      : {
+          status: 'unknown',
+          knownLowerBoundUsd: usd,
+          reason: 'a candidate-generation call recorded no provider cost',
+        },
+  }
 }
 
 function immutableProposalSnapshot<T>(value: T, label: string): T {
@@ -727,6 +1098,7 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
   seed: number
   judges: NonNullable<RunCampaignOptions<TScenario, TArtifact>['judges']>
   dispatchRef: string
+  requireJudgeScore: boolean
 }): CampaignResult<TArtifact, TScenario> {
   const { input } = args
   if (!surfaceHashMatches(args.baselineSurface, input.surfaceHash)) {
@@ -734,7 +1106,6 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
       'runOptimization: premeasured baseline surface hash does not match baselineSurface',
     )
   }
-
   const campaign = input.campaign
   if (campaign.reps !== args.reps) {
     throw new Error(
@@ -746,7 +1117,6 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
       `runOptimization: premeasured baseline seed ${campaign.seed} does not match requested seed ${args.seed}`,
     )
   }
-
   try {
     assertCampaignSplitIdentity(campaign.scenarios, campaign.reps, campaign.splitDigest)
   } catch (error) {
@@ -771,18 +1141,26 @@ function validatedPremeasuredBaseline<TScenario extends Scenario, TArtifact>(arg
       'runOptimization: premeasured baseline evaluator identity does not match the requested dispatch and judges',
     )
   }
+  const coverage = campaignCoverage(
+    campaign.cells,
+    args.scenarios,
+    args.reps,
+    args.requireJudgeScore,
+  )
+  if (!coverage.complete) {
+    throw new Error(
+      `runOptimization: premeasured baseline is incomplete (${coverage.scorableCellIds.length}/${coverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(coverage)}. Refusing to optimize against an incomplete incumbent.`,
+    )
+  }
   return campaign
 }
 
-/** Build a `ParetoParent` from a scored campaign — objective vector =
- *  per-scenario composite, scalar = mean composite. */
+/** A scored campaign as a frontier member: per-scenario composite objectives. */
 function toParetoParent<TArtifact, TScenario extends Scenario>(
   surface: MutableSurface,
-  hash: string,
   campaign: CampaignResult<TArtifact, TScenario>,
   generation: number,
   label?: string,
-  rationale?: string,
 ): ParetoParent {
   const objectives: Record<string, number> = {}
   for (const { scenarioId, composite } of campaignBreakdown(campaign).scenarios) {
@@ -790,48 +1168,31 @@ function toParetoParent<TArtifact, TScenario extends Scenario>(
   }
   const parent: ParetoParent = {
     surface,
-    surfaceHash: hash,
+    surfaceHash: surfaceHash(surface),
     objectives,
     composite: campaignMeanComposite(campaign),
     generation,
   }
   if (label) parent.label = label
-  if (rationale) parent.rationale = rationale
   return parent
 }
 
-/** The non-dominated set over the per-scenario objective vectors. Every
- *  scenario seen across the scored set becomes a `maximize` objective.
- *  `runOptimization` admits only complete campaigns to this set; the finite
- *  floor remains a defensive fallback for manually constructed/no-judge
- *  vectors. Delegates dominance to the package-canonical `paretoFrontier`. */
+/** The non-dominated set over the per-scenario objective vectors. */
 function computeParetoFrontier(scored: ParetoParent[]): ParetoParent[] {
   if (scored.length <= 1) return [...scored]
   const ids = new Set<string>()
   for (const p of scored) for (const id of Object.keys(p.objectives)) ids.add(id)
   if (ids.size === 0) return [...scored]
-  const floor: Record<string, number> = {}
-  for (const id of ids) {
-    let min = Number.POSITIVE_INFINITY
-    for (const p of scored) {
-      const v = p.objectives[id]
-      if (typeof v === 'number' && Number.isFinite(v) && v < min) min = v
-    }
-    floor[id] = Number.isFinite(min) ? min : 0
-  }
   const objectives: Objective<ParetoParent>[] = [...ids].map((id) => ({
     name: id,
     direction: 'maximize',
-    value: (p) => {
-      const v = p.objectives[id]
-      return typeof v === 'number' && Number.isFinite(v) ? v : (floor[id] ?? 0)
-    },
+    value: (p) => p.objectives[id] ?? Number.NEGATIVE_INFINITY,
   }))
   return paretoFrontier(scored, objectives).frontier
 }
 
 function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
-  surfaceHash: string,
+  hash: string,
   campaign: CampaignResult<TArtifact, TScenario>,
   coverage: CampaignCoverage,
   generation: number,
@@ -840,7 +1201,7 @@ function toScoredSurfaceOutcome<TArtifact, TScenario extends Scenario>(
   return {
     split: 'search',
     generation,
-    surfaceHash,
+    surfaceHash: hash,
     composite: campaignMeanComposite(campaign),
     dimensions: breakdown.dimensions,
     scenarios: breakdown.scenarios,
