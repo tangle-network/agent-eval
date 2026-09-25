@@ -17,7 +17,6 @@ export {
   type HostedTenant,
   hostedClientFromEnv,
   hostedTenantFromEnv,
-  retryAfterMs,
   type SearchLedgerIngestOutcome,
 } from './client'
 export {
@@ -46,7 +45,6 @@ export {
   searchBlobPath,
   searchLedgerArtifactRefs,
   searchLedgerHeadPath,
-  searchLedgerLinesByteLength,
 } from './search-ledger-wire'
 export {
   SearchShipConflictError,

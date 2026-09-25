@@ -93,7 +93,7 @@ Each output line holds `{id, question, answer}` — the exact shape [`benchmarks
 |---|---|
 | Coordinate workers across processes | [`distributed-driver`](./distributed-driver/) |
 | Run setup, execution, and scoring in one work directory | [`same-sandbox-harness`](./same-sandbox-harness/) |
-| Receive optional hosted events | [`hosted-ingest-server`](./hosted-ingest-server/) |
+| Receive shipped search ledgers and trace spans | [`hosted-ingest-server`](./hosted-ingest-server/) |
 
 `_shared/` holds fixtures reused by several examples.
 It is not a standalone example.

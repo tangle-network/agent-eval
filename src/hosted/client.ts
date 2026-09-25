@@ -121,7 +121,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** `Retry-After` as milliseconds: delay-seconds or an HTTP date. Null when
  * absent or unreadable, so the caller falls back to its own backoff. */
-export function retryAfterMs(value: string | null, now = Date.now()): number | null {
+function retryAfterMs(value: string | null, now = Date.now()): number | null {
   if (value === null) return null
   const trimmed = value.trim()
   if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000

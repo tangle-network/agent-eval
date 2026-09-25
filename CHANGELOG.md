@@ -26,6 +26,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - **Breaking:** a `SearchHistoryReceipt` (schema `2026-09`) is built from the ledger's bytes by `createSearchHistoryReceipt({ producerId, runId, ledger })`, binds their raw SHA-256, and is complete exactly when the ledger holds `search-closed`.
   `require-complete` therefore means the search closed with every cell, operation and node accounted for.
   `assertSearchHistoryMatchesState` replaces `assertSearchHistoryMatchesReplay`.
+- **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
+  A producer uploads each blob an entry names (`PUT /v1/search-blobs/<sha256>`), reads the store's head (`GET /v1/ingest/search-ledger/<searchId>/head`), and posts canonical ledger lines from there (`POST /v1/ingest/search-ledger`, at most 1,000 lines or 1 MiB).
+  A store answers `409 sequence_gap` or `409 chain_conflict` with its head; `admitSearchLedgerBatch` is that rule, and the wire's zod schemas are exported from `/hosted`.
+  The client waits for `Retry-After` on 408, 429 and 5xx responses in TypeScript and Python.
+- **Breaking:** `selfImprove({ hostedTenant })` ships the run's search ledger while the loop runs, so in proposer mode it requires `searchLedger`; in method mode it ships the ledger the method recorded.
+  It no longer posts a baseline-and-winner summary, and `hostedLabels` is gone.
+- Migration: pass `searchLedger: { ledger: openSearchLedger({ path, searchId }), identity }` next to `hostedTenant`, or ship a ledger yourself with `shipSearchLedger` or `agent-eval search ship <ledger> --run-kind optimization|eval`. Read runs from the store's search pages instead of `/v1/runs`, and compare two nodes of a search instead of `diffRuns`.
 - Migration: rebuild a search's ledger with the recorder; there is no translation from the candidate-slot format. Replace `openSearchLedger({ campaignId })` with `searchId`, `replay()` with `state()`, `recordCandidatePopulationSearch` with `importGepaPopulation`, and read counts from `state.audit`.
 - The diagnosis engine's skipped arm-vs-arm comparison now says where that comparison lives: `diffSteps` from `/pipelines`, which `traces diff <file>#branch=<a> <file>#branch=<b>` runs.
 - A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
@@ -39,10 +46,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Removed
 
 - The candidate-slot ledger: `SearchPlan`, candidate slots, `search-planned`, `search-plan-extended`, `candidate-registered`, `candidate-slot-closed`, `task-attempted`, `candidate-decided`, `search-completed`, `lineageNodeId`, `SearchLedgerReplay`, `SearchLedgerAudit`, `search-ledger-projector.ts`, and `recordCandidatePopulationSearch`.
+- The eval-run wire: `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `EvalRunStatus`, `IngestEvalRunsRequest`, their schemas, `InsightReportSchema`, `HostedClient.ingestEvalRun` and `ingestEvalRuns`, and the Python `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `ingest_eval_run` and `ingest_eval_runs`.
+  Every shipper posted only the baseline and the winner, so a store never saw the search.
+- `diffRuns`, `diffGenerations`, `diffRunBaselineToWinner` and their types, which paired two eval-run events by generation index.
+- The winner-only shippers in `selfImprove`, its method mode, and `emitLoopProvenance`, which still ships its trace spans.
+- The hosted client's mocked transport, environment-mapping and eval-run round-trip tests. The proof is the shipper against the reference receiver over HTTP: a real VerticalBench climb ledger, `Retry-After`, a lost response, a kill and resume, a store restart during a live `selfImprove`, a fork, and 100,000 entries.
 - The search-ledger, search-history receipt, `runOptimization` ledger and comparison-history unit tests. The proof is the two real VerticalBench GEPA climbs imported through the recorder and the GEPA importer, replayed from bytes, and checked against every invariant.
 
 ### Added
 
+- `shipSearchLedger` and `startSearchShipper` send a search ledger to a hosted store from the store's head: blobs first, batches after, a resend from the store's head after a gap, and `SearchShipConflictError` on a fork. `startSearchShipper` tails the file while the search runs and never blocks it.
+- `agent-eval search ship <ledger> --run-kind optimization|eval [--content full|digests]` ships or resumes a ledger to the store in `TANGLE_INGEST_URL`.
+- `parseSearchLedgerLine` verifies one stored line (schema tag, schemas, canonical bytes, entry hash, search) for a store that receives lines one batch at a time.
+- The reference receiver in `examples/hosted-ingest-server/` implements the search-ledger routes with `admitSearchLedgerBatch` and `SearchState`.
 - Trace contracts check what the harness enforced and whether a call repeated a side effect.
   `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
   It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
