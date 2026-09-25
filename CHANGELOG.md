@@ -12,8 +12,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
   It used to accept any terminal status, so a run that ended in an error passed.
   Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
-- `REDACTION_VERSION` is `2.1.0`, because the `json-secret` detector changes what the redaction core removes.
+- `REDACTION_VERSION` is `2.1.0`, because the `json-secret` detector and in-place known-secret removal change what the redaction core removes.
   Work keyed on the version, such as a traces upload's dedup identity, sees the change.
+- `knownSecrets` are cut out where they stand instead of replacing the whole string, so `redactText('cleanup failed: <key> was still set', { knownSecrets: [key] })` keeps `cleanup failed:` and `was still set`.
+  A whole-string base64 payload that holds a known secret at any byte offset is still replaced whole, and value shapes such as bearer tokens still replace the whole string.
 
 ### Added
 

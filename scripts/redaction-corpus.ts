@@ -33,7 +33,7 @@ interface Corpus {
     mustFlag: Array<{ detector: string; parts: string[] }>
     mustNotFlag: string[]
   }
-  knownSecrets: { secret: string; texts: string[] }
+  knownSecrets: { secret: string; texts: Array<{ text: string; expected: string }> }
   agentInspect: {
     license: string
     notice: string
@@ -75,9 +75,9 @@ for (const text of corpus.values.mustNotFlag) {
 
 const { secret, texts } = corpus.knownSecrets
 expect(redactText(`plain ${secret}`) === `plain ${secret}`, 'known secret is not a credential without knownSecrets')
-for (const text of texts) {
+for (const { text, expected } of texts) {
   const out = redactText(text, { knownSecrets: [secret] })
-  expect(out === '[REDACTED:known-secret]', `known secret must be removed: ${text}`)
+  expect(out === expected, `known secret: expected ${expected}, got ${out}`)
   const verdict = assessShareSafety({ text }, { knownSecrets: [secret] })
   expect(verdict.status === 'UNSAFE', `known secret must make the verdict UNSAFE: ${text}`)
 }

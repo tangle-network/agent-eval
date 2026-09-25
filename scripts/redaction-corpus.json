@@ -359,12 +359,29 @@
     ]
   },
   "knownSecrets": {
-    "about": "A caller-supplied secret with no recognizable shape is removed as written, base64-encoded and URL-encoded.",
+    "about": "A caller-supplied secret with no recognizable shape is cut out where it stands, as written, base64-encoded and URL-encoded, and the text around it is kept. A whole-string base64 payload that holds it at any byte offset is replaced whole.",
     "secret": "zq9 Opaque/Deploy Key 77",
     "texts": [
-      "deploying with zq9 Opaque/Deploy Key 77 now",
-      "header: enE5IE9wYXF1ZS9EZXBsb3kgS2V5IDc3",
-      "https://hooks.example.test/x?k=zq9%20Opaque%2FDeploy%20Key%2077"
+      {
+        "text": "deploying with zq9 Opaque/Deploy Key 77 now",
+        "expected": "deploying with [REDACTED:known-secret] now"
+      },
+      {
+        "text": "header: enE5IE9wYXF1ZS9EZXBsb3kgS2V5IDc3",
+        "expected": "header: [REDACTED:known-secret]"
+      },
+      {
+        "text": "https://hooks.example.test/x?k=zq9%20Opaque%2FDeploy%20Key%2077",
+        "expected": "https://hooks.example.test/x?k=[REDACTED:known-secret]"
+      },
+      {
+        "text": "cleanup failed twice: zq9 Opaque/Deploy Key 77 was still set; termination is not proven",
+        "expected": "cleanup failed twice: [REDACTED:known-secret] was still set; termination is not proven"
+      },
+      {
+        "text": "eHl6cTkgT3BhcXVlL0RlcGxveSBLZXkgNzch",
+        "expected": "[REDACTED:known-secret]"
+      }
     ]
   },
   "agentInspect": {
