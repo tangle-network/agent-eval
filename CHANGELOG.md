@@ -11,23 +11,31 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `asha({ units, eta, trainUnits, reps })` (`/campaign`) is a `SearchAllocator` for asynchronous successive halving over one permutation of the selection units, seeded by the search's seed ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
   Rung k is the first `units × 2^k` units (default 6, 12, 24, ...); the root runs every unit first, and a new node screens on rung 0 plus 2 train units that only the proposer reads.
   Every node at a rung runs the units its parent, the root and its siblings ran, so every contrast pairs.
-  A node that finished rung k advances once it ranks in the top floor(n / 3) of the n nodes that finished rung k; there is no barrier, and a node left waiting is decided `pruned` with its rank at close.
+  A node that finished rung k advances once it ranks in the top floor(n / 3) of the n nodes that finished rung k (the root included, invalid nodes excluded); there is no barrier, and a node left waiting is decided `pruned` with its rank at close.
+  In 200 seeded searches over a pool of 50 candidates with one planted 0.10 above the rest (24 selection units), `asha` kept the same node as `uniform` in 200 of 200, the planted one every time, with 45.8 % of the cells; every measured edge paired on at least 6 units.
 - The kernel records the allocator's rank decisions: an `advanced {rung}` decision is appended only once the cap admits the rung's cells, which the kernel then allocates, and rungs keep opening after expansion stops, until the deadline or the claim.
-- `scripts/search-sim.ts compare` runs one search per seed under `uniform` and `asha` and reports cells, the kept node and the units each edge pairs on; `--pool-gap` swaps the hill climb for a fixed pool with one planted best candidate.
-  Every simulated run re-derives each `advanced` and `pruned` decision from the ledger before it.
-- `scripts/search-sim.ts` gains `--binary` (pass/fail cells), `--minimize` (a minimized objective) and `--cost-scale X` (cells cost X times the lane's prior).
+  A resumed `asha` search holds only rank decisions its own ledger re-derives; because a restart changes the order cells finish in, it may promote differently from an uninterrupted run.
+- `scripts/search-sim.ts compare` runs one search per seed under `uniform` and `asha` and reports cells, the kept node, node statuses and the units each edge pairs on; `--pool-gap` swaps the hill climb for a fixed pool with one planted best candidate.
+  Every simulated run re-derives each `advanced` and `pruned` decision, with its rule, rank reason and estimate, from the ledger before it.
 
 ### Changed
 
 - **Breaking:** `SearchAllocator.plan(state, nodeId, rung)` takes the node's rung, and an allocator implements `advance(view)` and `prune(view, keep)`; `uniform` returns no decisions.
 - `incumbent` and `crowdedFrontierParent`: a node leads only when it scored every unit the leader scored and beats the leader's mean on them, so a node an allocator has only screened cannot take the lead on less evidence than the leader holds.
   A node dodged a unit only when a cell ran and ended unscored; a cell still to run no longer counts against it.
+- The divergence check judges a node's screen once; a node an allocator advanced is not judged again on its rung cells, after a restart either.
 - Migration: a custom allocator adds a `rung` parameter to `plan` and returns `[]` from `advance` and `prune` to keep its behavior.
+
+## [0.194.0] — 2026-09-25
 
 ### Fixed
 
 - A capped search whose cells cost more than their holds could never close: once overspend took committed spend plus the claim reserve past `maxUsd`, the projector refused the `claim` operation, which holds nothing, and every resume failed the same way (`operation claim is not admissible: committed $3.449935 + open $0 + claim reserve $6.5 + hold $0 exceeds the cap $9.6`, with a planted better node already found). The admission rule now admits holds only: an event without a reservation is always recorded, and a claim cell within the unspent claim reserve is admitted however much earlier cells overspent. The same search now runs its 48 claim cells on the reserve, ships the planted node, and ends at $6.31 committed against the $9.60 cap plus $0.79 recorded overspend. `runSearch` also stops expanding once overspend took the search past its cap, even at a zero-dollar lane prior.
 - The shared projector accepted any claim a producer wrote: a `ship` over a finalist whose test interval includes 0, a family-wise confidence of 0.5, rewritten test intervals or estimates, and a fabricated power all replayed and closed. `verifySearchClaim(state)` (`/campaign`) makes the claim again from the closed ledger alone, with no blob, and compares it byte for byte; it detects all five. `runSearch` runs it on every close and on every rerun of a closed ledger, throws on a mismatch, and returns it as `SearchRunResult.claimVerification`. The reference receiver returns it with a closed search.
+
+### Added
+
+- `scripts/search-sim.ts` gains `--binary` (pass/fail cells), `--minimize` (a minimized objective) and `--cost-scale X` (cells cost X times the lane's prior).
 
 ## [0.193.2] — 2026-09-25
 
