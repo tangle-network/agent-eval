@@ -256,8 +256,21 @@ export type { OtlpFlatLine } from './trace/otlp-flat'
 export { argHash, judgeSpans, runsForScenario } from './trace/query'
 export type { RawProviderEvent, RawProviderSink } from './trace/raw-provider-sink'
 export { FileSystemRawProviderSink, NoopRawProviderSink } from './trace/raw-provider-sink'
-export type { RedactionRule } from './trace/redact'
-export { DEFAULT_REDACTION_RULES, REDACTION_VERSION, redactString } from './trace/redact'
+export type {
+  RedactionProfile,
+  RedactionReport,
+  RedactOptions,
+  ShareSafetyStatus,
+  ShareSafetyVerdict,
+} from './trace/redact'
+export {
+  assessShareSafety,
+  REDACTION_VERSION,
+  redact,
+  redactForShare,
+  redactText,
+  shareAllowed,
+} from './trace/redact'
 export type {
   Artifact,
   BudgetLedgerEntry,

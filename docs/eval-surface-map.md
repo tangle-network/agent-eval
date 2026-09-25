@@ -74,7 +74,7 @@ Use the decision diagnostics and intervals to distinguish insufficient evidence 
 
 | Subpath | Use |
 |---|---|
-| `/traces`, `/trace-attributes` | Store trace evidence, [connect observability exporters](./adapters-observability.md), and use canonical measurement attribute names. |
+| `/traces`, `/trace-attributes` | Store trace evidence, [redact it and check it is safe to share](./redaction.md), [connect observability exporters](./adapters-observability.md), and use canonical measurement attribute names. |
 | `/analyst` | Execute declared analysts against recorded evidence. |
 | `/reporting`, `/pipelines` | Compare runs, render [research reports](./research-report-methodology.md), and extract recorded failure patterns. |
 | `/supervisor-run` | Read recursive run directories and their evidence coverage. |

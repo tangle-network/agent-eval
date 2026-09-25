@@ -20,9 +20,8 @@ Only an internal context may carry a `topology` (a run graph); a customer contex
 
 ## Order of operations
 
-1. The secret filter runs on every string: span attributes, names, status messages, the focus question, and the topology.
-   `DIAGNOSIS_SECRET_RULES` holds trace-archive's line-anchored credential-assignment pattern plus token shapes (`sk-`, `sk-ant-`, GitHub, Slack, AWS, Google, JWT, bearer headers, URL passwords, PEM blocks, and JSON or inline `...key=` values).
-   A match becomes `[REDACTED:<rule>]`, and the document's `coverage.redaction` counts matches by rule.
+1. The redaction core ([redaction.md](./redaction.md), default profile) runs on span attributes, names, status messages, the focus question, and the topology.
+   A string that holds a credential becomes `[REDACTED:<detector>]`, and the document's `coverage.redaction` counts replacements by detector.
 2. The deterministic pass reports the trace contract's capability table with the trace's own reasons, execution facts with token and cost accounting, and `observed` findings.
    Each observed finding carries a measure with its denominator and cites the spans it counted.
 3. Model mode reads the runs with the most errors through the prime protocol (`runPrimeExchange`).
