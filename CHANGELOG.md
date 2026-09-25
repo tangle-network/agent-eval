@@ -18,6 +18,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
   `diagnoseSpans` reports one per run as `facts.firstFailures`.
 - `/pipelines` `diffSteps()` diffs any two step lists, and `diffStepsFromSpans()` orders one run's flat OTLP spans for it, so trace consumers share one diff.
+- `compileTraceContractSpec()` compiles a declarative JSON contract (`run`, `tools`, `llm`, `scope`, `alternatives.anyOf`, low-level `rules`) onto these operators.
+  Parsing is strict: an unknown key or status is an error that names the closest known word.
+  `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
+  See `docs/trace-contracts.md`.
 - `/traces` owns the one redaction core ([docs/redaction.md](./docs/redaction.md)): `redact(value, { profile })` with `default`, `share` and `strict` profiles and per-profile string byte caps, `redactText`, and `classifyKey`, which normalizes camel, kebab and dotted field names and keeps token counts (`inputTokens`, `max_tokens`, `token_count`) and names such as `author`.
   A string that holds a credential (bearer, JWT, `sk-`, `sk-ant-`, `AIza`, `gh*_`, `AKIA`, PEM, `key=value` and others) is replaced whole.
   `knownSecrets` removes exact values in plain, base64, base64url and URL-encoded form.
@@ -38,7 +42,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   A span whose needed `startedAt` or `endedAt` is missing fails the rule; array position is no longer taken as time, and mixed timestamps no longer throw for rules that do not order.
 - Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
   A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
-  Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
+  Errored rules are absent from `scores` rather than scored 0.
 - `/pipelines` `firstDivergenceView` pairs steps by id, then by position with the same name and kind, then by name and kind anywhere, instead of by index alone.
   One inserted step no longer marks every later step as diverged.
   The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
@@ -52,6 +56,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - **The rule-list redactor is replaced by the redaction core.** Removed `DEFAULT_REDACTION_RULES`, `RedactionRule`, `redactString` and `redactValue` (root and `/traces`), and `/diagnosis` `DIAGNOSIS_SECRET_RULES`, `holdsSecret`, `redactSecrets`, `redactSecretsDeep`, `SECRET_ASSIGNMENT_PATTERN` and their types. `RedactionReport` now has `byDetector` and `findings` instead of `byRule`, and `REDACTION_VERSION` is `2.0.0`. **Migration:** `redactValue(v)` becomes `redact(v).value`, `redactString(s).output` becomes `redactText(s)`, and a custom rule list becomes `knownSecrets` or a case in the corpus. `defaultProviderRedactor` now runs the core, so a credential header keeps its name with a `[REDACTED:credential-key]` value, and `redactedFields` holds JSON Pointers.
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
+- `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
+- The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
 
 ## [0.187.2] — 2026-09-24
 
