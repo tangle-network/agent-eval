@@ -192,7 +192,8 @@ Running the kernel again on an open ledger replays it and continues.
 An operation that started without a result is recorded `failed` with an unknown cost and a floor of 0, and the next proposal runs under a new operation id.
 A recorded proposal whose children were not all registered is finished from its stored output.
 A cell the ledger shows unsettled is offered to `executor.adopt` before its first dispatch, so an attempt that finished before the restart is recorded once and not run again.
-Aborting the `signal` pauses the search: in-flight cells are aborted, what settled is recorded, and the ledger stays open.
+Aborting the `signal` pauses the search: in-flight cells are aborted, a scored result that still arrives is recorded, an attempt that ends in an error while the search stops stays unsettled (the error may be the interruption), and the ledger stays open.
+One kernel runs a ledger file at a time on a host: a second one is refused by a pid lock beside the ledger, and a killed holder's lock is reclaimed.
 A closed ledger returns its result; more work on a closed search is a new search.
 
 `scripts/search-sim.ts` runs the real kernel, ledger and policies over a seeded synthetic objective, proposer and executor, and `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.

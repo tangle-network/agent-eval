@@ -203,6 +203,9 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
         const result = simulateCell(work, options)
         writeFileSync(resultPath(work.runId), JSON.stringify(result))
         appendFileSync(join(executorDir, 'finished.log'), `${work.runId}\n`)
+        // The worker has finished; its response takes a while to arrive, so a
+        // restart in this window finds a result to adopt.
+        await new Promise((done) => setTimeout(done, options.delayMs / 2))
         return result
       } finally {
         track(-1)
@@ -397,7 +400,7 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
   for (let index = 0; index < kills; index++) {
     const floor = killPoints.at(-1) ?? 1
     const at = floor + 1 + Math.floor(unit(options.seed, 'kill', index) * ((total - floor) / 2))
-    if (at >= total) break
+    if (at >= total - 1) break
     const outcome = await runChild(killed, argv, at)
     killPoints.push(outcome.killed ? outcome.atSequence : ledgerLength(killed))
     if (!outcome.killed) break

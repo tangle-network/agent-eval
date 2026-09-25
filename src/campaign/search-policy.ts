@@ -22,7 +22,7 @@ export interface SearchPolicyView {
    * declares no selection split (the proposer's own feedback then ranks). */
   readonly split: 'selection' | 'train'
   readonly rootNodeId: string
-  /** Expansions started so far, including one that failed. */
+  /** Proposals completed so far. One an interrupted process lost does not count. */
   readonly expansions: number
   /** Admitted nodes whose screen finished, in registration order, root first. */
   readonly screened: readonly string[]

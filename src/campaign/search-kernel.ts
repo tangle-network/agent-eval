@@ -312,7 +312,12 @@ class SearchKernel<TArtifact> {
   /** Cells the ledger showed unsettled at start: an earlier process may hold their attempt. */
   private readonly adoptable = new Set<string>()
   private readonly operationCosts: number[] = []
+  /** Operations started: the next one's id. */
   private expansions = 0
+  /** Proposals that completed, by operation index. A proposal an interrupted
+   * process lost counts toward none of the stop rules, so a resumed search
+   * makes the proposals the uninterrupted one would have made. */
+  private readonly completed: number[] = []
   private stopReason: SearchCloseReason | null = null
   private failure: { error: unknown } | null = null
 
@@ -436,6 +441,7 @@ class SearchKernel<TArtifact> {
       if (operation.recorded) {
         this.operationCosts.push(operation.spentUsd)
         recorded.push(expansion)
+        if (operation.outcome === 'completed') this.completed.push(expansion)
         continue
       }
       await this.recorder.recordOperation({
@@ -737,7 +743,7 @@ class SearchKernel<TArtifact> {
     const { maxNodes, maxCells } = this.state.header!.budget
     if (maxNodes !== null && this.state.audit.nodes >= maxNodes) return 'max-nodes'
     const { maxExpansions } = this.options
-    if (maxExpansions !== undefined && this.expansions >= maxExpansions) return 'max-nodes'
+    if (maxExpansions !== undefined && this.completed.length >= maxExpansions) return 'max-nodes'
     if (this.queuedCount() > 0) return 'converged'
     if (this.inFlight.size >= 2 * this.capacity()) return 'converged'
     const view = this.policyView()
@@ -745,7 +751,8 @@ class SearchKernel<TArtifact> {
     const leader = policy.leader(view)
     if (
       policy.patience !== undefined &&
-      this.expansions - ((this.expansionOf.get(leader) ?? -1) + 1) >= policy.patience
+      this.completed.filter((index) => index > (this.expansionOf.get(leader) ?? -1)).length >=
+        policy.patience
     ) {
       return 'patience'
     }
@@ -855,6 +862,7 @@ class SearchKernel<TArtifact> {
     })
     await this.refresh()
     this.operationCosts.push(this.state.operation(operationId)!.spentUsd)
+    this.completed.push(expansion)
     for (const [index, child] of blob.children.entries()) {
       this.proposed.set(child.node.artifactDigest, result.children[index]!.artifact)
     }
@@ -971,7 +979,7 @@ class SearchKernel<TArtifact> {
     return searchPolicyView(this.state, {
       screened: this.screened,
       screening: this.admitted.size - this.screenedSet.size,
-      expansions: this.expansions,
+      expansions: this.completed.length,
     })
   }
 
