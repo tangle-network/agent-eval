@@ -13,16 +13,14 @@
  * `ViewTraceOversized`.
  */
 
-/** OTLP span kind (subset we actually use). */
-export type TraceAnalystSpanKind =
-  | 'AGENT'
-  | 'LLM'
-  | 'TOOL'
-  | 'CHAIN'
-  | 'EVALUATOR'
-  | 'GUARDRAIL'
-  | 'SPAN'
-  | 'UNKNOWN'
+import type { SpanKind } from '@tangle-network/agent-trace-contract'
+
+/**
+ * A span's declared OpenInference kind, as `@tangle-network/agent-trace-contract`
+ * spells it. A span that declares no recognised kind is `UNKNOWN`: the analyst
+ * shows what the producer said and never infers a kind from tokens or names.
+ */
+export type TraceAnalystSpanKind = SpanKind
 
 export type TraceAnalystSpanStatus = 'OK' | 'ERROR' | 'UNSET'
 

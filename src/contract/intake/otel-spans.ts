@@ -27,6 +27,7 @@
  * error cannot become a task failure.
  */
 
+import { resolveSpanKind } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
 import type { TraceSpanEvent } from '../../hosted/types'
 import type {
@@ -41,12 +42,7 @@ import {
   recordAggregateMeasurements,
   summarizeExecutionMeasurements,
 } from '../../trace/execution-measurements'
-import {
-  classifyOtlpSpanRole,
-  isOtlpModelCall,
-  LLM_MODEL_ATTR_KEYS,
-  SPAN_KIND_ATTR_KEYS,
-} from '../../trace/otlp-attributes'
+import { LLM_MODEL_ATTR_KEYS, SPAN_KIND_ATTR_KEYS } from '../../trace/otlp-attributes'
 import { readTaskFailureLabels } from '../../trace/task-failure-attributes'
 
 const TASK_SCORE_ATTR_KEYS = [
@@ -86,8 +82,7 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
         id: span.spanId,
         ...(span.parentSpanId ? { parentId: span.parentSpanId } : {}),
         attributes: span.attributes,
-        modelCall: isExplicitModelCall(span),
-        aggregate: isExplicitAggregate(span),
+        kind: errorRoleForSpan(span),
       })),
     )
     const callSpanIds = new Set(measurements.callSpanIds)
@@ -209,7 +204,7 @@ function readSpanKind(span: TraceSpanEvent): string | undefined {
 }
 
 function errorRoleForSpan(span: TraceSpanEvent): TraceErrorRole {
-  return classifyOtlpSpanRole({
+  return resolveSpanKind({
     kind: readSpanKind(span),
     name: span.name,
     attributes: span.attributes,
@@ -222,19 +217,6 @@ function spanIdentity(span: TraceSpanEvent): string {
 
 function parentIdentity(span: TraceSpanEvent): string {
   return `${span.traceId}:${span.parentSpanId}`
-}
-
-function isExplicitModelCall(span: TraceSpanEvent): boolean {
-  return isOtlpModelCall({
-    kind: readSpanKind(span),
-    name: span.name,
-    attributes: span.attributes,
-  })
-}
-
-function isExplicitAggregate(span: TraceSpanEvent): boolean {
-  const kind = readSpanKind(span)
-  return kind !== undefined && kind !== 'LLM'
 }
 
 // ── Internal helpers ────────────────────────────────────────────────

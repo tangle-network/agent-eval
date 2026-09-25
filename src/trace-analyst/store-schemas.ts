@@ -1,3 +1,4 @@
+import { SPAN_KINDS, type SpanKind } from '@tangle-network/agent-trace-contract'
 import { z } from 'zod'
 import { TraceAnalysisStoreContractError, TraceAnalysisValidationError } from './errors'
 import { TRACE_ANALYSIS_LIMITS } from './store-contract'
@@ -84,16 +85,13 @@ export const traceStoreInputSchemas = {
     .strict(),
 } as const
 
-const spanKind = z.enum([
-  'AGENT',
-  'LLM',
-  'TOOL',
-  'CHAIN',
-  'EVALUATOR',
-  'GUARDRAIL',
-  'SPAN',
-  'UNKNOWN',
-])
+// Legacy stores (Intelligence's PostgresTraceAnalystStore, agent-builder's D1 adapter) still
+// return the pre-contract 'SPAN' fallback for an undeclared span. Normalize it to UNKNOWN here
+// instead of rejecting the whole response; the public SpanKind type never carries 'SPAN'.
+const spanKind = z.preprocess(
+  (value) => (value === 'SPAN' ? 'UNKNOWN' : value),
+  z.enum(SPAN_KINDS as [SpanKind, ...SpanKind[]]),
+)
 const spanStatus = z.enum(['OK', 'ERROR', 'UNSET'])
 
 const traceSpan = z

@@ -10,6 +10,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- Span classification and the attribute key lists come from `@tangle-network/agent-trace-contract` (`resolveSpanKind`, `declaredSpanKind`, `SPAN_KINDS`); agent-eval's own copies are gone (#823).
+  The analyst shows the declared OpenInference kind, agent-eval's own spans export as `RETRIEVER` and `UNKNOWN` where they wrote `CHAIN` and `SPAN`, and a legacy `SPAN` kind is still accepted on read.
+  Both OTLP intakes decide model calls and aggregates from one span kind, so an undeclared agent or workflow span no longer sums its children's tokens a second time.
 - **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
   A producer uploads each blob an entry names (`PUT /v1/search-blobs/<sha256>`), reads the store's head (`GET /v1/ingest/search-ledger/<searchId>/head`), and posts canonical ledger lines from there (`POST /v1/ingest/search-ledger`, at most 1,000 lines or 1 MiB).
   A store answers `409 sequence_gap` or `409 chain_conflict` with its head; `admitSearchLedgerBatch` is that rule, and the wire's zod schemas are exported from `/hosted`.
