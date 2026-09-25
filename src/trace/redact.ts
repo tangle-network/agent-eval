@@ -48,7 +48,7 @@ export type SafetyCategory = 'credential' | 'personal-data' | 'identifier' | 'ra
  * redaction behavior (saved optimizer inputs, per-span redaction stamps) keys
  * on it, so bump it whenever a detector, key list, cap or marker changes.
  */
-export const REDACTION_VERSION = '2.2.0'
+export const REDACTION_VERSION = '2.3.0'
 
 export interface RedactionFinding {
   /** JSON Pointer (RFC 6901) to the value or key that was changed. */
@@ -400,23 +400,34 @@ interface ValueDetector {
 /**
  * High-confidence credential shapes. A hit replaces the whole string. Each
  * pattern is written without the `g` flag so `test` stays stateless.
+ *
+ * The provider-branded prefixes below (`sk-ant-`, `AIza`, `ghp_`, `xoxb-`,
+ * `AKIA`, `hubcap_`, `eyJ`…) have no leading `\b`. A `\b` word-boundary
+ * assertion does not fire between two word characters, so it silently passed
+ * a real token when something else glued a word character directly in front
+ * of it — a compound identifier like `env.GITHUB_TOKEN_ghp_<token>` (a `_`
+ * before `ghp_`) or `BACKUP_AKIA<key>` (a `_` before `AKIA`). These prefixes
+ * are distinctive enough on their own, so scanning without that boundary
+ * catches the same real credential wherever it is glued, at the cost of no
+ * meaningful new false positives (`scripts/redaction-corpus.json` covers
+ * both).
  */
 const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
   { id: 'private-key', pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/ },
-  { id: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/ },
+  { id: 'jwt', pattern: /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/ },
   { id: 'bearer', pattern: /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/i },
   {
     id: 'authorization-header',
     pattern: /^\s*(?:basic|digest|apikey)\s+[A-Za-z0-9._~+/=:-]{8,}\s*$/i,
   },
-  { id: 'anthropic-key', pattern: /\bsk-ant-[A-Za-z0-9_-]{16,}/ },
-  { id: 'provider-key', pattern: /\bsk-(?:proj-|tan-)?[A-Za-z0-9_-]{16,}/ },
-  { id: 'stripe-key', pattern: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_]{10,}/ },
-  { id: 'google-api-key', pattern: /\bAIza[0-9A-Za-z_-]{20,}/ },
-  { id: 'github-token', pattern: /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/ },
-  { id: 'slack-token', pattern: /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/ },
-  { id: 'aws-access-key', pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
-  { id: 'tangle-capability', pattern: /\b(?:hubcap_|hct_)[A-Za-z0-9_=-]{8,}/ },
+  { id: 'anthropic-key', pattern: /sk-ant-[A-Za-z0-9_-]{16,}/ },
+  { id: 'provider-key', pattern: /sk-(?:proj-|tan-)?[A-Za-z0-9_-]{16,}/ },
+  { id: 'stripe-key', pattern: /(?:sk|rk)_(?:live|test)_[A-Za-z0-9_]{10,}/ },
+  { id: 'google-api-key', pattern: /AIza[0-9A-Za-z_-]{20,}/ },
+  { id: 'github-token', pattern: /(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})/ },
+  { id: 'slack-token', pattern: /xox[abeoprs]-[A-Za-z0-9-]{10,}/ },
+  { id: 'aws-access-key', pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
+  { id: 'tangle-capability', pattern: /(?:hubcap_|hct_)[A-Za-z0-9_=-]{8,}/ },
   { id: 'url-credentials', pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i },
   {
     id: 'url-secret-param',
