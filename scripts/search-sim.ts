@@ -30,7 +30,7 @@
  * --deadline ISO, --min-effect X (the claim's minimum effect), --null (every
  * step is 0, so no node differs from the root), --plant-gain X (the root's
  * first child is X better), --plant-divergence (the root's second child gains
- * 0.3 on train and loses 0.2 on selection and test), --judge-revision N (1).
+ * 0.3 on train and loses 0.2 on selection and test), --judge-revision N|none (1).
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
  */
@@ -52,7 +52,7 @@ import {
 } from '../src/campaign/search-kernel'
 import { openSearchLedger } from '../src/campaign/search-ledger'
 import { developmentClaim, SearchRecorder } from '../src/campaign/search-ledger-recording'
-import type { SearchSourceRef, SearchTask } from '../src/campaign/search-ledger-types'
+import type { SearchSourceRef, SearchTask, SearchUnknown } from '../src/campaign/search-ledger-types'
 import type { SearchStateView } from '../src/campaign/search-state'
 import { incumbent } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
@@ -90,7 +90,8 @@ interface SimOptions {
   nullSteps: boolean
   plantGain: number | null
   plantDivergence: boolean
-  judgeRevision: number
+  /** Null: the judge is not pinned. */
+  judgeRevision: number | null
 }
 
 const SEARCH_ID = 'search-sim'
@@ -112,7 +113,8 @@ function benchmark(options: SimOptions): SearchSourceRef {
   return { uri: 'sim://tasks', revision: hashCanonical({ seed, train, selection, test }) }
 }
 
-function judge(options: SimOptions): SearchSourceRef {
+function judge(options: SimOptions): SearchSourceRef | SearchUnknown {
+  if (options.judgeRevision === null) return { unknown: 'the judge is not pinned (--judge-revision none)' }
   return {
     uri: 'script:scripts/search-sim.ts#judge',
     revision: hashCanonical({ judge: 'sim-score', version: options.judgeRevision }),
@@ -766,7 +768,7 @@ async function main(): Promise<void> {
     nullSteps: values.null,
     plantGain: values['plant-gain'] === undefined ? null : Number(values['plant-gain']),
     plantDivergence: values['plant-divergence'],
-    judgeRevision: Number(values['judge-revision']),
+    judgeRevision: values['judge-revision'] === 'none' ? null : Number(values['judge-revision']),
   }
   if (mode === 'claims') {
     console.log(JSON.stringify(await claims(options, Number(values.searches)), null, 2))
