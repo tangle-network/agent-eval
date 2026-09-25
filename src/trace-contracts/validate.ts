@@ -101,7 +101,7 @@ export function assertRule(rule: ContractRule, where: string): void {
       return
     case 'run': {
       if (
-        rule.requireCompleted === undefined &&
+        !rule.requireCompleted &&
         rule.allowedStatuses === undefined &&
         rule.maxDurationMs === undefined
       ) {

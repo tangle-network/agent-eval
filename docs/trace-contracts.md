@@ -36,7 +36,7 @@ Write the contract as JSON and compile it with `compileTraceContractSpec`:
 | `tools.maxCalls`, `tools.maxCallsPerTool` | Ceilings on tool calls, overall and per tool. |
 | `tools.requiredOrder`, `tools.orderMode` | Each tool is called, and each comes before the next. |
 | `tools.arguments` | An RFC 6901 JSON Pointer check (`exists`, `equals`, `oneOf`, `type`) on tool-call arguments. A call without captured arguments fails. |
-| `llm.maxCalls`, `llm.maxTotalTokens` | Ceilings on model calls and on input plus output tokens. An unrecorded token count fails. |
+| `llm.maxCalls`, `llm.maxTotalTokens` | Ceilings on model calls and on input plus output tokens. Input includes cache-read and cache-write tokens when the span records them, per the OTel GenAI definition — a cached call's prompt-token count alone omits most of what it spent. An unrecorded token count fails. |
 | `tools.enforced` | The trace records the tools the harness offered the model (`gen_ai.tool.definitions`), every call is one of them, and every offered tool is in `tools.allowed`. A trace that records no offered tools fails. |
 | `retries.reads`, `retries.writes` | A tool called again with the same arguments repeats its side effect. A read may repeat. A write may repeat only when every call carries the same idempotency key at `idempotencyKey`. Any other tool may not repeat. |
 | `llm.allowedModels` | Every model call names a listed model. A call without a model fails. |
@@ -88,6 +88,8 @@ The check groups calls by tool and arguments, without the idempotency key.
 A group of more than one call passes for a read, and for a write only when every call carries the same key.
 A repeated call of an unlisted tool fails, because its side effect is unknown.
 A call without captured arguments fails when its tool is called more than once, because the checker cannot tell whether it repeats.
+Grouping matches arguments exactly: a retry that re-encodes a value (`42.5` vs `"42.50"`) is not recognized as the same call.
+Independent of grouping, a declared write whose call itself errored (including a timeout) and carries no idempotency key always fails — its outcome at the target is unknown, so nothing proves a retry, however it was encoded, would be safe.
 
 ## Rule semantics
 
@@ -127,6 +129,8 @@ const result = checkTraceContracts(await store.spans({ runId }), [contract])
 ```
 
 ## Gate CI on a contract
+
+**Unreleased.** `traces check` lives on `feat/traces-check` in `/traces` (PR #128), proven against this package but not yet mergeable: it needs the traces/agent-runtime redaction-core migration first, so a `/traces` build on this package's contract API does not crash at load. Until then, call `evaluateTraceContract` / `checkTraceContracts` directly, as shown above.
 
 `traces check` runs a contract over a recorded trace and exits with a code a CI step can read:
 

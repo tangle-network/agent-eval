@@ -88,6 +88,17 @@ export type {
   CrossSurfaceSelections,
   CrossSurfaceTaskRow,
 } from './cross-surface-types'
+// ── Per-node statistics of a search ─────────────────────────────────────
+export {
+  type EstimateNodeCellsInput,
+  estimateNode,
+  estimateNodeFromCells,
+  type NodePosterior,
+  SEARCH_ESTIMATOR,
+  type SearchPosterior,
+  searchCellSetDigest,
+  searchPosterior,
+} from './estimate-node'
 export type {
   ExternalOptimizerExecutionSummary,
   ExternalOptimizerObservationArtifact,
@@ -465,6 +476,7 @@ export {
   type SearchDecisionRecord,
   type SearchNode,
   type SearchOperation,
+  type SearchScoredCell,
   type SearchSpend,
   SearchState,
   SearchStateView,
@@ -472,6 +484,7 @@ export {
   searchCellId,
   searchNodeId,
   searchTaskSetDigest,
+  searchUnitScores,
 } from './search-state'
 export {
   acquireSingleRunLock,

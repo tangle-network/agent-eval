@@ -6,6 +6,7 @@ import {
   contractSpanKind,
   contractSpanToolName,
   finite,
+  isSpanError,
   spanArguments,
   spanOfferedTools,
   spanTotalTokens,
@@ -455,6 +456,28 @@ function checkRetrySafe(
         spanId: calls[1]!.span.spanId,
         detail: `write ${name} was called ${calls.length} times with the same arguments (spans ${refs}) under ${keys.size} different idempotency keys, so the target cannot tell they are one operation`,
       })
+    }
+  }
+  // A declared write whose call errored (a timeout included: the target's
+  // handling of the write is unknown) and carries no idempotency key is
+  // unsafe to retry even when no repeat is detected — a retry that changes
+  // the argument encoding, or one this trace never captured, would apply
+  // the write twice with nothing to de-duplicate it by.
+  const flagged = new Set(out.map((v) => v.spanId))
+  for (const call of toolSpans(spans)) {
+    const name = contractSpanToolName(call.span)
+    if (name === undefined || flagged.has(call.span.spanId)) continue
+    const write = writes.get(name)
+    if (!write || !isSpanError(call.span)) continue
+    const pointer = write.idempotencyKey
+    const hasKey = pointer !== undefined && 'key' in idempotencyKey(call.span, pointer)
+    if (!hasKey) {
+      out.push({
+        rule: rule.label,
+        spanId: call.span.spanId,
+        detail: `write ${name} (span ${call.ref}) errored and ${pointer === undefined ? 'declares no idempotency key' : `has ${(idempotencyKey(call.span, pointer) as { missing: string }).missing}`}; its outcome is unknown, so a retry cannot be proven safe`,
+      })
+      flagged.add(call.span.spanId)
     }
   }
   return out

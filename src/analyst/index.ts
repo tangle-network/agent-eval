@@ -367,6 +367,13 @@ export { decodeReplyRows } from './reply-contract'
 export type { TraceToolGroupName } from './tool-groups'
 export { buildTraceToolsForGroup } from './tool-groups'
 export type {
+  AskTraceQuestionsOptions,
+  TraceQuestionOutcome,
+  TraceQuestionSpec,
+  VerifiedTraceFinding,
+} from './trace-questions'
+export { askTraceQuestions, citedSpansOnly } from './trace-questions'
+export type {
   Analyst,
   AnalystContext,
   AnalystCost,

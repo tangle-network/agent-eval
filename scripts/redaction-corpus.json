@@ -321,6 +321,69 @@
           "cfg: {'refresh_tok",
           "en': 'r1-xyz'}"
         ]
+      },
+      {
+        "detector": "env-secret-assignment",
+        "parts": [
+          "DB_PASSWORD=Correct",
+          "HorseBatteryStaple"
+        ]
+      },
+      {
+        "detector": "env-secret-assignment",
+        "parts": [
+          "PGPASSWORD=",
+          "postgres"
+        ]
+      },
+      {
+        "detector": "bare-sk-key",
+        "parts": [
+          "sk_",
+          "0123456789abcdef0123456789abcdef01234567"
+        ]
+      },
+      {
+        "detector": "groq-key",
+        "parts": [
+          "gsk_",
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        ]
+      },
+      {
+        "detector": "huggingface-token",
+        "parts": [
+          "hf_",
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+        ]
+      },
+      {
+        "detector": "npm-token",
+        "parts": [
+          "npm_",
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        ]
+      },
+      {
+        "detector": "gitlab-token",
+        "parts": [
+          "glpat-",
+          "ABCDEFGHIJKLMNOP0123"
+        ]
+      },
+      {
+        "detector": "xai-key",
+        "parts": [
+          "xai-",
+          "ABCDEFGHIJKLMNOP0123"
+        ]
+      },
+      {
+        "detector": "cookie-header",
+        "parts": [
+          "Cookie: sessionid=",
+          "abc123def456xyz789"
+        ]
       }
     ],
     "mustNotFlag": [
@@ -355,7 +418,10 @@
       "{\"max_tokens\": \"4096\"}",
       "{\"password_min_length\": \"12\"}",
       "{\"apiKey\": \"{env:TANGLE_API_KEY}\"}",
-      "{\"credentials\": \"Environment variables the provider reads at startup\"}"
+      "{\"credentials\": \"Environment variables the provider reads at startup\"}",
+      "MAX_TOKENS=16",
+      "SESSION_TOKEN_EXPIRY=3600",
+      "PASSWORD_MIN_LENGTH=12"
     ]
   },
   "knownSecrets": {

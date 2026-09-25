@@ -425,6 +425,7 @@ const NodeEstimateSchema = z
     interval: z.tuple([FINITE_NUMBER, FINITE_NUMBER]).nullable(),
     method: z.enum(['none', 'insufficient', 'descriptive', 'bootstrap']),
     exactSignP: z.number().min(0).max(1).nullable(),
+    indeterminate: z.boolean(),
     cellSetDigest: HASH,
     estimator: SourceRefSchema,
   })

@@ -239,18 +239,29 @@ export type SearchEstimateMethod = 'none' | 'insufficient' | 'descriptive' | 'bo
 
 /**
  * A paired contrast of one node against another on shared units. `none` below
- * 2 units, `insufficient` below 6, `descriptive` below 20, `bootstrap` from 20.
+ * 2 pairs, `insufficient` below 6, `descriptive` below 20, `bootstrap` from 20.
  * `estimateNode` computes it; the ledger records the estimate a decision used.
  */
 export interface NodeEstimate {
   against: string
   split: SearchSplit
+  /** Units the node scored on the split. */
   units: number
+  /** Units both nodes scored: the paired sample. */
   pairs: number
+  /** Mean per-unit difference, node minus `against`, in the metric's units.
+   * Null for `none`. */
   delta: number | null
+  /** Bootstrap interval on `delta`: spread for `descriptive`, decision grade
+   * for `bootstrap`. Null for `none`, `insufficient` and an indeterminate sample. */
   interval: [number, number] | null
   method: SearchEstimateMethod
+  /** Exact one-sided sign-test p toward improvement; `descriptive` only. */
   exactSignP: number | null
+  /** Every paired delta is equal, so an interval would have zero width and
+   * carries no evidence either way. */
+  indeterminate: boolean
+  /** Digest of the cells read, which also seeds the bootstrap. */
   cellSetDigest: SearchLedgerHash
   estimator: SearchSourceRef
 }

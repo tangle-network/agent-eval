@@ -10,8 +10,17 @@
  *      is when the failure was recorded.
  *   2. `failed-outcome`: no span errored, but a span carries `agent.outcome`
  *      "fail". The run completed and its graded work failed.
- *   3. `none`: neither exists. This describes the recorded spans. It is not a
- *      verdict that the run succeeded.
+ *   3. `none`: neither exists, and at least one span recorded a definitive
+ *      OK or ERROR status. This describes the recorded spans. It is not a
+ *      verdict that the run succeeded, only that nothing failed among what
+ *      was recorded.
+ *
+ * A trace where no span recorded OK or ERROR — every span is UNSET, the
+ * common shape for a capture that failed before any status was written —
+ * ranks `unknown`, not `none`. `none` asserts something was observed and
+ * nothing failed in it; a trace of pure UNSET spans observed nothing, so
+ * treating it as a clean run manufactures a false negative for whatever
+ * consumed it (a comparison, a pass/fail gate).
  *
  * When the leading candidates end at the same instant, or a candidate has no
  * end time, the result is `ambiguous` and names the candidates. The rank never
@@ -20,8 +29,10 @@
  * The failing span's status message is classified by the failure taxonomy
  * (`classifyFailureReason`), whose `blame` separates machine and provider
  * failures from the agent's own. A span without a message is `unreported` and
- * blamed `unknown`. A failed outcome with no error is blamed on the agent: the
- * machine and the provider recorded no failure, and the graded work failed.
+ * blamed `unknown`. A failed outcome with no error span is blamed `unknown`
+ * too: the machine and the provider recorded no failure, but absence of a
+ * recorded cause is not evidence the agent caused it. Blame only reads
+ * `agent` when the taxonomy names the agent from actual evidence.
  */
 
 import type { SpanKind } from '@tangle-network/agent-trace-contract'
@@ -72,7 +83,24 @@ export interface FirstFailureNone {
   reason: string
 }
 
-export type FirstFailure = FirstFailureFound | FirstFailureAmbiguous | FirstFailureNone
+/**
+ * No span recorded a definitive OK or ERROR status, so the recording says
+ * nothing about whether the run failed. Distinct from `none`, which asserts
+ * spans were observed and none of them failed.
+ */
+export interface FirstFailureUnknown {
+  status: 'unknown'
+  traceId: string
+  /** Count of spans with UNSET status among the spans ranked. */
+  unsetCount: number
+  reason: string
+}
+
+export type FirstFailure =
+  | FirstFailureFound
+  | FirstFailureAmbiguous
+  | FirstFailureNone
+  | FirstFailureUnknown
 
 /** Rank the first failure of one trace. Throws when the spans belong to more than one trace. */
 export function rankFirstFailure(spans: readonly DiagnosisSpan[]): FirstFailure {
@@ -98,6 +126,16 @@ export function rankFirstFailure(spans: readonly DiagnosisSpan[]): FirstFailure 
 
   const failed = spans.filter((span) => span.attributes[OUTCOME_ATTR] === 'fail')
   if (failed.length > 0) return rank(traceId, 'failed-outcome', failed)
+
+  const unsetCount = spans.filter((span) => span.status === 'UNSET').length
+  if (unsetCount === spans.length && spans.length > 0) {
+    return {
+      status: 'unknown',
+      traceId,
+      unsetCount,
+      reason: `none of ${spans.length} spans has status OK or ERROR (all UNSET), so whether the run failed was never recorded`,
+    }
+  }
 
   return {
     status: 'none',
@@ -169,7 +207,7 @@ function rank(
     kind: first.kind,
     message: first.statusMessage,
     classification,
-    blame: classification?.blame ?? 'agent',
+    blame: classification?.blame ?? 'unknown',
     later: later.slice(0, MAX_FIRST_FAILURE_IDS).map((span) => span.spanId),
     laterCount: later.length,
   }
