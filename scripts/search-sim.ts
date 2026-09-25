@@ -159,10 +159,15 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
   let peak = 0
   let lastChange = Date.now()
   let busyArea = 0
+  let busyTime = 0
+  let fullTime = 0
   const startedAt = Date.now()
   const track = (delta: number): void => {
     const now = Date.now()
-    busyArea += inFlight * (now - lastChange)
+    const span = now - lastChange
+    busyArea += inFlight * span
+    if (inFlight > 0) busyTime += span
+    if (inFlight >= options.capacity) fullTime += span
     lastChange = now
     inFlight += delta
     peak = Math.max(peak, inFlight)
@@ -256,6 +261,8 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
       capacity: options.capacity,
       peakInFlight: peak,
       meanInFlight: round(busyArea / Math.max(1, Date.now() - startedAt)),
+      /** Of the time any cell ran, the share with every slot busy. */
+      atCapacityShare: round(fullTime / Math.max(1, busyTime)),
     },
     adopted,
   }

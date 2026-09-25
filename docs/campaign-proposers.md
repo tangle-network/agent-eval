@@ -100,7 +100,7 @@ Underreported spending and incomplete receipts remain explicit; `raw.method.cost
 Inspect `cost.accountingComplete` and `cost.incompleteReasons` before treating the known subtotal as complete spending.
 The shared dollar limit controls calls admitted through the cost ledger; arbitrary off-ledger callbacks must enforce their own spending limits.
 
-Native generation records report `ci95: null` because search does not estimate candidate uncertainty.
+Native generation records carry no interval; a candidate's paired contrast with its parent or the baseline is `estimateNode` over the run's search ledger.
 Final comparisons retain their independently computed statistics.
 Every final case and replica must have complete execution and judge results before comparison.
 
@@ -596,37 +596,35 @@ const proposer: SurfaceProposer = {
 Return a label and rationale when they will help later analysis.
 Candidate creation must not read final test results.
 
-A proposer may attach `attribution`: an opaque JSON-safe record retained on `GenerationCandidate.attribution` and in loop provenance.
+A proposer may attach `attribution`: an opaque JSON-safe record stored with the proposal in the search ledger and retained on `GenerationCandidate.attribution` and in loop provenance.
 The loop never interprets it.
 Tag it with a schema field and validate it on readback.
 `makePolicyEditCandidateRecord` from `/analyst` records an edit forecast that can later be compared with the measured change.
 
-`runOptimization()` rejects a candidate whose `surfaceHash` was already admitted.
-This includes the baseline, an earlier generation, and another candidate in the same proposal.
-The complete proposal is checked before candidate dispatch, so duplicates cannot consume candidate cells.
+A candidate is a content-addressed node in the run's search ledger.
+A candidate identical to a surface the search already holds, including the baseline, is a re-proposal: the ledger records a second edge into the existing node, and the surface is not measured again.
 Use `reps` when one surface needs repeated measurements.
+Lineage lives in the ledger: read a node's parents from its edges and its paired contrast from `estimateNode`, not from the generation record.
 
 ### Choose The Parent
 
-`runOptimization()` is incumbent-anchored by default.
-Every generation mutates the single best complete surface seen so far, and only a candidate that beats the incumbent becomes the next incumbent.
-The recorded `parentSurfaceHash` lineage is then a chain.
-Pass `selectParent` to draw the parent from the Pareto frontier instead.
-The selector receives the frontier so far, the measured incumbent, the generation history, and the generation index, and returns one frontier parent.
-The loop hands that parent to the proposer as `ctx.currentSurface` and `ctx.parentOutcome`, and records it as every candidate's `parentSurfaceHash`.
-`ctx.incumbentOutcome` stays the global promotion bar, and a candidate still has to beat the incumbent to promote.
-`crowdedFrontierParent({ seed })` is the provided policy: a seeded NSGA-II crowded tournament that prefers isolated frontier parents.
-The loop refuses a parent it has not measured to completion.
-`selfImprove({ selectParent })` forwards the same policy in proposer mode.
+`runOptimization()` runs on the search kernel with a `SearchPolicy` ([search ledger](./search-ledger.md#run-a-search-the-kernel)).
+The default, `incumbent()`, is the hill climb: each proposal extends the leader once every earlier candidate is measured, and a candidate that scored every scenario leads when it beats the leader on the scenarios they share.
+Pass `policy: crowdedFrontierParent({ seed })` to draw the parent from the Pareto frontier instead: a seeded NSGA-II crowded tournament that prefers isolated frontier members.
+The proposer receives that parent as `ctx.currentSurface` and `ctx.parentOutcome`; `ctx.incumbentOutcome` stays the leader, and only a candidate that beats the leader leads.
+`selfImprove({ policy })` forwards the same policy in proposer mode.
 
 ```ts
 import { crowdedFrontierParent, runOptimization } from '@tangle-network/agent-eval/campaign'
 
 const result = await runOptimization({
   // ...scenarios, dispatchWithSurface, judges, proposer, populationSize, maxGenerations, runDir
-  selectParent: crowdedFrontierParent({ seed: 42 }),
+  policy: crowdedFrontierParent({ seed: 42 }),
 })
 ```
+
+`runOptimization` always writes its search ledger, at `<runDir>/search/ledger.jsonl` unless `searchLedger` puts it elsewhere, and returns the receipt on `searchHistory`.
+Running it again on the same run directory continues an interrupted search and reruns nothing that settled; after a finished search it starts the next one beside it.
 
 ## Data And Cost Rules
 
