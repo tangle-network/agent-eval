@@ -26,12 +26,18 @@
  * --population N (3), --expansions N (6), --capacity N (4), --max-usd X
  * (none), --cell-usd X (0.05), --cost-cap hard|estimate (estimate),
  * --fault-rate X (0), --delay-ms N (5), --patience N, --deadline ISO,
- * --allocation uniform|asha (uniform), --plant-gap X (none): the first
- * proposal's child `root.<--plant-child N (0)>` gets the root's quality plus X
- * instead of a seeded step, so the search has one known best node.
+ * --allocation uniform|asha (uniform), --plant-gap X (none), --plant-child N
+ * (seeded).
+ *
+ * `--plant-gap X` swaps the hill climb's steps for a planted pool: every child
+ * is the root's quality plus a seeded step in [-0.1, 0), whatever its parent,
+ * except child `c<N>` (the Nth registered, a seeded place in the pool by
+ * default), which is the root plus X. The pool depends only on the seed and
+ * the number of proposals, so `uniform` and `asha` measure the same
+ * candidates and the planted child is the one right answer.
  *
  * Every run checks its ledger: each `advanced` and `pruned` decision must be
- * one the allocator makes again from the ledger before it, and every screened
+ * one the allocator makes again from the ledger before it, and every measured
  * edge's pairs against its parent are counted.
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
@@ -86,7 +92,8 @@ interface SimOptions {
   deadline: string | null
   allocation: 'uniform' | 'asha'
   plantGap: number | null
-  plantChild: number
+  /** The planted child's registration index; null: seeded from the seed. */
+  plantChild: number | null
 }
 
 const SEARCH_ID = 'search-sim'
@@ -95,10 +102,13 @@ const SIM_SOURCE: SearchSourceRef = {
   revision: hashCanonical({ simulator: 'search-sim', version: 1 }),
 }
 const PROPOSAL_USD = 0.002
+const ROOT_QUALITY = 0.5
 
 /** Uniform [0, 1) from the seed and a key: the simulator's only randomness. */
 function unit(seed: number, ...key: Array<string | number>): number {
-  const digest = createHash('sha256').update(JSON.stringify([seed, ...key])).digest()
+  const digest = createHash('sha256')
+    .update(JSON.stringify([seed, ...key]))
+    .digest()
   return digest.readUInt32BE(0) / 2 ** 32
 }
 
@@ -121,12 +131,25 @@ function tasks(prefix: string, count: number): SearchTask[] {
 
 const MAX_ATTEMPTS = 3
 
+/** The planted child's registration index: the option, or a seeded place in the pool. */
+function plantIndex(options: SimOptions): number {
+  return (
+    options.plantChild ??
+    Math.floor(unit(options.seed, 'plant') * options.population * options.expansions)
+  )
+}
+
 function allocationOf(options: SimOptions): SearchAllocator {
-  return options.allocation === 'asha' ? asha({ reps: options.reps }) : uniform({ reps: options.reps })
+  return options.allocation === 'asha'
+    ? asha({ reps: options.reps })
+    : uniform({ reps: options.reps })
 }
 
 /** In-process text for `compare`: the ledger's rules without a file. */
-function memoryStore(): { read(path: string): string | undefined; write(path: string, text: string): void } {
+function memoryStore(): {
+  read(path: string): string | undefined
+  write(path: string, text: string): void
+} {
   const texts = new Map<string, string>()
   return { read: (path) => texts.get(path), write: (path, text) => void texts.set(path, text) }
 }
@@ -269,17 +292,38 @@ async function runSimulation(
     childrenPerProposal: options.population,
     async propose(request) {
       const parent = request.parents[0]!
-      // Children are numbered after the parent's existing children, so a
-      // proposal lost to a crash is proposed again identically.
+      // Children are numbered from what the ledger holds, so a proposal lost
+      // to a crash is proposed again identically.
       const state: SearchStateView = await recorder.state()
+      if (options.plantGap !== null) {
+        // The planted pool: every child is the root plus a seeded step below
+        // zero, whatever its parent, except one child planted `plantGap` above
+        // the root. Both allocators then measure the same candidates.
+        const born = state.audit.nodes - 1
+        return {
+          children: Array.from({ length: options.population }, (_, index) => {
+            const name = `c${born + index}`
+            const step =
+              born + index === plantIndex(options)
+                ? options.plantGap!
+                : -0.1 * unit(options.seed, 'pool', name)
+            return {
+              artifact: { name, quality: round(ROOT_QUALITY + step) },
+              label: `pool ${name}`,
+              rationale: `a seeded pool candidate, proposed from ${parent.artifact.name}`,
+            }
+          }),
+          accounting: {
+            tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+            cost: { status: 'known', usd: PROPOSAL_USD, source: 'pricing-table' },
+          },
+        }
+      }
       const born = state.node(parent.nodeId)!.children.length
       return {
         children: Array.from({ length: options.population }, (_, index) => {
           const name = `${parent.artifact.name}.${born + index}`
-          const step =
-            options.plantGap !== null && name === `root.${options.plantChild}`
-              ? options.plantGap
-              : -0.08 + 0.18 * unit(options.seed, 'step', name)
+          const step = -0.08 + 0.18 * unit(options.seed, 'step', name)
           return {
             artifact: { name, quality: round(parent.artifact.quality + step) },
             label: `step ${name}`,
@@ -296,7 +340,7 @@ async function runSimulation(
 
   const result = await runSearch({
     recorder,
-    root: { name: 'root', quality: 0.5 },
+    root: { name: 'root', quality: ROOT_QUALITY },
     codec,
     policy,
     allocation,
@@ -307,16 +351,17 @@ async function runSimulation(
   })
   track(0)
   const { audit } = result.state
-  const text =
-    store?.read(ledgerPath) ?? readFileSync(ledgerPath, 'utf8')
+  const text = store?.read(ledgerPath) ?? readFileSync(ledgerPath, 'utf8')
   const kept = result.state.node(result.leader)!
   const artifactOf = (nodeId: string): SimArtifact =>
     (recorder.readBlob(result.state.node(nodeId)!.artifact) as { artifact: SimArtifact }).artifact
   const planted =
     options.plantGap === null
       ? null
-      : (result.state.nodes().find((node) => artifactOf(node.nodeId).name === `root.${options.plantChild}`)
-          ?.nodeId ?? null)
+      : (result.state
+          .nodes()
+          .find((node) => artifactOf(node.nodeId).name === `c${plantIndex(options)}`)?.nodeId ??
+        null)
   return {
     reason: result.reason,
     leader: result.leader,
@@ -389,18 +434,29 @@ function checkLedger(text: string, allocation: SearchAllocator): Record<string, 
   const split = final.header!.splits.selection.tasks.length > 0 ? 'selection' : 'train'
   const edgePairs: Record<string, number> = {}
   for (const node of final.nodes()) {
-    if (node.primaryParentId === null || final.scoredCells(node.nodeId, split).length === 0) continue
+    if (node.primaryParentId === null || final.scoredCells(node.nodeId, split).length === 0)
+      continue
     const { pairs } = estimateNode(final, node.nodeId, { against: node.primaryParentId, split })
     edgePairs[pairs] = (edgePairs[pairs] ?? 0) + 1
+  }
+  const advancedTo: Record<string, number> = {}
+  for (const node of final.nodes()) {
+    for (const { decision } of node.decisions) {
+      if (decision.status === 'advanced') {
+        advancedTo[decision.rung] = (advancedTo[decision.rung] ?? 0) + 1
+      }
+    }
   }
   const cellsByStage: Record<string, number> = {}
   for (const cell of final.cells()) cellsByStage[cell.stage] = (cellsByStage[cell.stage] ?? 0) + 1
   const statuses: Record<string, number> = {}
-  for (const node of final.nodes()) statuses[node.status ?? 'none'] = (statuses[node.status ?? 'none'] ?? 0) + 1
+  for (const node of final.nodes())
+    statuses[node.status ?? 'none'] = (statuses[node.status ?? 'none'] ?? 0) + 1
   return {
     ok: decisions.unexplained.length === 0,
     decisions,
     edgePairs,
+    advancedTo,
     cellsByStage,
     statuses,
   }
@@ -496,7 +552,15 @@ async function runChild(
   return new Promise((resolveChild, reject) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', resolve(import.meta.dirname, 'search-sim.ts'), 'run', '--dir', dir, ...argv],
+      [
+        '--import',
+        'tsx',
+        resolve(import.meta.dirname, 'search-sim.ts'),
+        'run',
+        '--dir',
+        dir,
+        ...argv,
+      ],
       { stdio: ['ignore', 'pipe', 'inherit'] },
     )
     let stdout = ''
@@ -544,8 +608,7 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
   const resumedSummary = JSON.parse(finalRun.stdout) as Record<string, unknown>
   const expected = finalFacts(reference)
   const actual = finalFacts(killed)
-  const same = (key: string) =>
-    JSON.stringify(expected[key]) === JSON.stringify(actual[key])
+  const same = (key: string) => JSON.stringify(expected[key]) === JSON.stringify(actual[key])
   const started = lines(join(killed, 'executor', 'started.log'))
   const finished = lines(join(killed, 'executor', 'finished.log'))
   const adopted = lines(join(killed, 'executor', 'adopted.log'))
@@ -601,21 +664,33 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
 
 /**
  * The same search under `uniform` and `asha`, once per seed from `options.seed`:
- * cells each allocated, and whether both kept the same node. Ledgers are held
- * in memory; every run's ledger audit must pass.
+ * cells each allocated, the node each kept, and the units each measured edge
+ * pairs on. Ledgers are held in memory; every run's ledger audit must pass.
  */
 async function compare(options: SimOptions, seeds: number) {
-  const rows: Array<Record<string, unknown>> = []
+  interface ArmRow {
+    cells: number
+    nodes: number
+    kept: string
+    quality: number
+    planted: boolean
+    ledgerOk: boolean
+    edgePairs: Record<string, number>
+    advancedTo: Record<string, number>
+  }
+  const rows: Array<{ seed: number; uniform: ArmRow; asha: ArmRow }> = []
   for (let seed = options.seed; seed < options.seed + seeds; seed++) {
-    const arms: Record<string, Record<string, unknown>> = {}
+    const arms = {} as Record<'uniform' | 'asha', ArmRow>
     for (const allocation of ['uniform', 'asha'] as const) {
-      arms[allocation] = await runSimulation(null, { ...options, seed, allocation })
-    }
-    const summary = (arm: Record<string, unknown>) => {
+      const arm = await runSimulation(null, { ...options, seed, allocation })
       const audit = arm.audit as { cells: { allocated: number }; nodes: number }
       const kept = arm.kept as { name: string; quality: number; planted: boolean }
-      const checks = arm.ledgerChecks as { ok: boolean; edgePairs: Record<string, number> }
-      return {
+      const checks = arm.ledgerChecks as {
+        ok: boolean
+        edgePairs: Record<string, number>
+        advancedTo: Record<string, number>
+      }
+      arms[allocation] = {
         cells: audit.cells.allocated,
         nodes: audit.nodes,
         kept: kept.name,
@@ -623,20 +698,24 @@ async function compare(options: SimOptions, seeds: number) {
         planted: kept.planted,
         ledgerOk: checks.ok,
         edgePairs: checks.edgePairs,
+        advancedTo: checks.advancedTo,
       }
     }
-    const uniformRow = summary(arms.uniform!)
-    const ashaRow = summary(arms.asha!)
-    rows.push({ seed, uniform: uniformRow, asha: ashaRow, sameKept: uniformRow.kept === ashaRow.kept })
+    rows.push({ seed, ...arms })
   }
-  type Row = { cells: number; quality: number; planted: boolean; ledgerOk: boolean; edgePairs: Record<string, number> }
+  const add = (into: Record<string, number>, from: Record<string, number>): void => {
+    for (const [key, value] of Object.entries(from)) into[key] = (into[key] ?? 0) + value
+  }
   const arm = (name: 'uniform' | 'asha') => {
-    const list = rows.map((row) => row[name] as Row)
+    const list = rows.map((row) => row[name])
     const cells = list.map((row) => row.cells).sort((a, b) => a - b)
-    const pairs: Record<string, number> = {}
+    const edgePairs: Record<string, number> = {}
+    const advancedTo: Record<string, number> = {}
     for (const row of list) {
-      for (const [count, edges] of Object.entries(row.edgePairs)) pairs[count] = (pairs[count] ?? 0) + edges
+      add(edgePairs, row.edgePairs)
+      add(advancedTo, row.advancedTo)
     }
+    const pairCounts = Object.keys(edgePairs).map(Number)
     return {
       cells: {
         total: cells.reduce((sum, value) => sum + value, 0),
@@ -644,23 +723,34 @@ async function compare(options: SimOptions, seeds: number) {
         median: cells[Math.floor(cells.length / 2)],
         max: cells.at(-1),
       },
+      nodes: list.reduce((sum, row) => sum + row.nodes, 0),
       keptPlanted: list.filter((row) => row.planted).length,
       meanKeptQuality: round(list.reduce((sum, row) => sum + row.quality, 0) / list.length),
       ledgerAuditsPassed: list.filter((row) => row.ledgerOk).length,
-      edgePairs: pairs,
+      /** Measured edges by the units they pair on against their parent. */
+      edgePairs,
+      minEdgePairs: pairCounts.length === 0 ? null : Math.min(...pairCounts),
+      /** `advanced` decisions by the rung they opened. */
+      advancedTo,
     }
   }
   const uniformArm = arm('uniform')
   const ashaArm = arm('asha')
-  const sameKept = rows.filter((row) => row.sameKept).length
   return {
     ok: uniformArm.ledgerAuditsPassed === rows.length && ashaArm.ledgerAuditsPassed === rows.length,
     seeds: rows.length,
-    sameKept,
+    sameKept: rows.filter((row) => row.uniform.kept === row.asha.kept).length,
+    ashaFewerCells: rows.filter((row) => row.asha.cells < row.uniform.cells).length,
     ashaCellShare: round(ashaArm.cells.total / uniformArm.cells.total),
     uniform: uniformArm,
     asha: ashaArm,
-    differing: rows.filter((row) => !row.sameKept),
+    differing: rows
+      .filter((row) => row.uniform.kept !== row.asha.kept)
+      .map((row) => ({
+        seed: row.seed,
+        uniform: { kept: row.uniform.kept, quality: row.uniform.quality, cells: row.uniform.cells },
+        asha: { kept: row.asha.kept, quality: row.asha.quality, cells: row.asha.cells },
+      })),
   }
 }
 
@@ -687,7 +777,7 @@ async function main(): Promise<void> {
       kills: { type: 'string', default: '6' },
       allocation: { type: 'string', default: 'uniform' },
       'plant-gap': { type: 'string' },
-      'plant-child': { type: 'string', default: '0' },
+      'plant-child': { type: 'string' },
       seeds: { type: 'string', default: '100' },
     },
   })
@@ -711,7 +801,7 @@ async function main(): Promise<void> {
     deadline: values.deadline ?? null,
     allocation: values.allocation,
     plantGap: values['plant-gap'] === undefined ? null : Number(values['plant-gap']),
-    plantChild: Number(values['plant-child']),
+    plantChild: values['plant-child'] === undefined ? null : Number(values['plant-child']),
   }
   if (mode === 'compare') {
     const report = await compare(options, Number(values.seeds))

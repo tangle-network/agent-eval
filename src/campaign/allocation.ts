@@ -293,15 +293,20 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
       const decisions: SearchRungDecision[] = []
       for (let k = layout.top - 1; k >= 0; k--) {
         const ranked = ranking(state, layout, standing, k)
+        const top = Math.floor(ranked.length / eta)
         ranked.forEach((entry, index) => {
           if (entry.root || entry.nodeId === keep) return
           if (entry.finished !== k || entry.rung !== k || entry.means.size === 0) return
+          const why =
+            index < top && entry.mean !== null
+              ? `it earned rung ${k + 1}, but the budget did not admit its cells`
+              : 'it waited outside the top when the search closed'
           decisions.push({
             nodeId: entry.nodeId,
             decision: { status: 'pruned' },
             basis: estimateNode(state, entry.nodeId, { against: rootId, split: layout.split }),
             rule: name,
-            reason: `${reason(ranked, index, k, layout)}; it waited outside the top when the search closed`,
+            reason: `${reason(ranked, index, k, layout)}; ${why}`,
           })
         })
       }

@@ -648,10 +648,11 @@ class SearchKernel<TArtifact> {
     }
     const left = (this.pending.get(cell.nodeId) ?? 1) - 1
     this.pending.set(cell.nodeId, left)
-    if (left === 0) await this.onScreenDone(cell.nodeId)
+    if (left === 0) await this.onNodeIdle(cell.nodeId)
   }
 
-  private async onScreenDone(nodeId: string): Promise<void> {
+  /** Every cell allocated to the node is done: its screen, or a rung. */
+  private async onNodeIdle(nodeId: string): Promise<void> {
     this.markScreened(nodeId)
     await this.advance()
   }
@@ -983,6 +984,7 @@ class SearchKernel<TArtifact> {
     const { split } = view
     const root = this.state.rootNodeId!
     const rule = this.options.policy.name
+    const leaderUnits = view.unitScores(leader).map((unit) => unit.unitId)
     // Decide from one read of the state, then append: an append moves the
     // ledger on and retires the view.
     const decisions = this.state
@@ -996,6 +998,7 @@ class SearchKernel<TArtifact> {
           node.nodeId === against || !scored
             ? null
             : estimateNode(this.state, node.nodeId, { against, split })
+        const units = new Set(view.unitScores(node.nodeId).map((unit) => unit.unitId))
         return {
           nodeId: node.nodeId,
           decision: { status: lead ? ('selected' as const) : ('rejected' as const) },
@@ -1006,8 +1009,10 @@ class SearchKernel<TArtifact> {
             : !this.screenedSet.has(node.nodeId) || !scored
               ? 'the search stopped before this node was measured'
               : !view.complete(node.nodeId)
-                ? 'it left a unit of its screen unscored, so it could not lead'
-                : 'it did not beat the leader on the units they share',
+                ? 'it left a unit unscored, so it could not lead'
+                : leaderUnits.some((unitId) => !units.has(unitId))
+                  ? 'the search stopped before it was measured on every unit the leader was'
+                  : 'it did not beat the leader on the units they share',
         }
       })
     for (const decision of decisions) await this.recorder.decideNode(decision)
