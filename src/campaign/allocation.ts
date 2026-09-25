@@ -204,17 +204,21 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
         if (decision.status === 'advanced') advancedTo = Math.max(advancedTo, decision.rung)
       }
       const rung = root ? layout.top : Math.min(advancedTo, layout.top)
-      // A rung is finished when every one of its cells exists and none can
-      // still run. Cells are counted by coordinates, which the ids digest.
+      // A rung is finished when every one of its cells exists, none can still
+      // run, and none was cancelled: a cell the deadline or the cap stopped
+      // is not a result, so the node is not ranked on that rung. Cells are
+      // counted by coordinates, which the ids digest.
       const allocated = new Set<string>()
+      let cancelled = false
       for (const cell of state.cells({ nodeId: node.nodeId })) {
         if (cell.split !== layout.split) continue
         const position = layout.position.get(cell.unitId)
         if (position !== undefined && position < layout.sizes[rung]!) {
           allocated.add(`${cell.taskId}\u0000${cell.rep}`)
+          if (cell.cancelled !== null) cancelled = true
         }
       }
-      const covered = allocated.size === layout.cellsThrough[rung]! * reps
+      const covered = !cancelled && allocated.size === layout.cellsThrough[rung]! * reps
       const finished = view.idle(node.nodeId) && covered ? rung : root ? -1 : rung - 1
       if (finished < 0) continue
       const means = new Map<string, number>()
