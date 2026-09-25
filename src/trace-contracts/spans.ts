@@ -128,19 +128,6 @@ function definitionName(entry: unknown): string | undefined {
     : undefined
 }
 
-/** JSON with object keys sorted, so equal arguments give equal text. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    return `{${Object.keys(record)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value) ?? 'null'
-}
-
 function parseJsonString(value: unknown): unknown {
   if (typeof value !== 'string') return value
   try {
