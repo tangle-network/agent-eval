@@ -15,6 +15,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - `scripts/search-sim.ts` gains `--binary` (pass/fail cells), `--minimize` (a minimized objective) and `--cost-scale X` (cells cost X times the lane's prior).
 
+## [0.193.2] — 2026-09-25
+
+### Fixed
+
+- 0.193.1's release commit bumped `package.json`, `pyproject.toml` and `__init__.py` but missed `clients/python/uv.lock`'s own `agent-eval-rpc` package entry, so `verifyVersionLock` failed the publish workflow (`uvRoot=0.193.0` against `npm=0.193.1`) before the npm publish step ran. 0.193.1 was never published to any registry — this release carries the same content, correctly locked.
+
 ## [0.193.1] — 2026-09-25
 
 ### Fixed
