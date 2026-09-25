@@ -360,14 +360,17 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           `runOptimization: ${label} is incomplete (${rootCoverage.scorableCellIds.length}/${rootCoverage.expectedCellIds.length} designed cells scorable) — ${formatCoverageFailures(rootCoverage)}. Refusing to optimize against an incomplete incumbent.`,
         )
       }
-      const history = await nodes.history(state, policy, request.expansion)
+      // A generation is a proposal that registered a candidate; a proposal
+      // lost to a crash or made only of re-proposals is not one.
+      const generations = nodes.generations(state)
+      const history = await nodes.history(state, policy)
       if (opts.analyzeGeneration) {
-        const previous = request.expansion - 1
+        const previous = generations.length - 1
         const candidates =
           previous < 0
             ? [{ nodeId: root, campaign: rootCampaign }]
             : await Promise.all(
-                nodes.expansionNodes(state, previous).map(async (nodeId) => ({
+                nodes.expansionNodes(state, generations[previous]!).map(async (nodeId) => ({
                   nodeId,
                   campaign: await nodes.campaign(state, nodeId),
                 })),
@@ -409,7 +412,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           'findings',
         ),
         populationSize: opts.populationSize,
-        generation: request.expansion,
+        generation: generations.length,
         signal: request.signal,
         baselineOutcome: immutableProposalSnapshot(await nodes.outcome(state, root), 'baseline'),
         incumbentOutcome: immutableProposalSnapshot(leaderOutcome, 'incumbent outcome'),
@@ -463,11 +466,12 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       ? undefined
       : (recorder.readBlob(firstEdge.rationale) as { text: string }).text
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
-  for (const record of await nodes.history(state, policy, state.audit.operations.started)) {
+  const expansions = nodes.generations(state)
+  for (const record of await nodes.history(state, policy)) {
     generations.push({
       record,
       surfaces: await Promise.all(
-        nodes.expansionNodes(state, record.generationIndex).map(async (nodeId) => {
+        nodes.expansionNodes(state, expansions[record.generationIndex]!).map(async (nodeId) => {
           const surface = nodes.surface(state, nodeId)
           return {
             surfaceHash: surfaceHash(surface),
@@ -543,12 +547,12 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     this.storage = input.opts.storage ?? fsCampaignStorage()
   }
 
-  /** `<runDir>/baseline` for the root; `<runDir>/gen-<k>/candidate-<i>` for
-   * the i-th candidate of proposal k. */
+  /** `<runDir>/baseline` for the root; `<runDir>/gen-<g>/candidate-<i>` for
+   * the i-th candidate of generation g. */
   nodeDir(state: SearchStateView, nodeId: string): string {
     if (nodeId === state.rootNodeId) return `${this.runDir}/baseline`
     const { expansion, index } = this.origin(state, nodeId)
-    return `${this.runDir}/gen-${expansion}/candidate-${index}`
+    return `${this.runDir}/gen-${this.generations(state).indexOf(expansion)}/candidate-${index}`
   }
 
   surface(state: SearchStateView, nodeId: string): MutableSurface {
@@ -671,7 +675,10 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       reps,
       (this.opts.judges?.length ?? 0) > 0,
     )
-    const expansion = nodeId === state.rootNodeId ? -1 : this.origin(state, nodeId).expansion
+    const expansion =
+      nodeId === state.rootNodeId
+        ? -1
+        : this.generationOf(state, this.origin(state, nodeId).expansion)
     return toScoredSurfaceOutcome(
       surfaceHash(this.surface(state, nodeId)),
       campaign,
@@ -694,7 +701,9 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
         toParetoParent(
           this.surface(state, node.nodeId),
           campaign,
-          node.nodeId === state.rootNodeId ? -1 : this.origin(state, node.nodeId).expansion,
+          node.nodeId === state.rootNodeId
+            ? -1
+            : this.generationOf(state, this.origin(state, node.nodeId).expansion),
           edge.operator === 'seed' ? undefined : edge.label || undefined,
         ),
       )
@@ -702,22 +711,27 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     return computeParetoFrontier(scored)
   }
 
-  /** One record per proposal before `upTo`, with the candidates it
-   * registered and the one that took the lead, if any. */
-  async history(
-    state: SearchStateView,
-    policy: SearchPolicy,
-    upTo: number,
-  ): Promise<GenerationRecord[]> {
+  /** Kernel expansions that registered a candidate, in order: generation g
+   * is `generations(state)[g]`. */
+  generations(state: SearchStateView): number[] {
+    const expansions: number[] = []
+    for (let expansion = 0; state.operation(`expand-${expansion}`); expansion++) {
+      if (this.expansionNodes(state, expansion).length > 0) expansions.push(expansion)
+    }
+    return expansions
+  }
+
+  /** One record per generation, with its candidates and the one that took
+   * the lead, if any. */
+  async history(state: SearchStateView, policy: SearchPolicy): Promise<GenerationRecord[]> {
     const records: GenerationRecord[] = []
     const measured = (nodeId: string) =>
       state.node(nodeId)!.status !== 'invalid' &&
       state.cells({ nodeId }).every((cell) => cell.attempts > 0 || cell.cancelled !== null)
     const screened: string[] = [state.rootNodeId!]
     let leader = policy.leader(searchPolicyView(state, { screened, screening: 0, expansions: 0 }))
-    for (let expansion = 0; expansion < upTo; expansion++) {
+    for (const [generation, expansion] of this.generations(state).entries()) {
       const nodeIds = this.expansionNodes(state, expansion)
-      if (nodeIds.length === 0) continue
       screened.push(...nodeIds.filter(measured))
       screened.sort((a, b) => state.node(a)!.ordinal - state.node(b)!.ordinal)
       const next = policy.leader(
@@ -728,7 +742,7 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
         candidates.push(await this.candidate(state, nodeId, expansion))
       }
       records.push({
-        generationIndex: expansion,
+        generationIndex: generation,
         candidates,
         promoted:
           next !== leader && nodeIds.includes(next) ? [surfaceHash(this.surface(state, next))] : [],
@@ -769,6 +783,10 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       ...(child.rationale ? { rationale: child.rationale } : {}),
       ...(child.attribution ? { attribution: child.attribution } : {}),
     }
+  }
+
+  private generationOf(state: SearchStateView, expansion: number): number {
+    return this.generations(state).indexOf(expansion)
   }
 
   private origin(state: SearchStateView, nodeId: string): { expansion: number; index: number } {
