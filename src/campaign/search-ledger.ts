@@ -23,6 +23,7 @@ import { evaluationClaimSchema } from '../experiment/claim'
 import {
   canonicalString,
   FileLedgerJournal,
+  hashCanonical,
   type LedgerJournalCodec,
   type LedgerLineContext,
   type LedgerTrustedHead,
@@ -577,6 +578,48 @@ export function replaySearchLedgerText(
   source: string,
 ): SearchStateView {
   return replayLedgerText(text, source, searchLedgerCodec(searchId))
+}
+
+/**
+ * Verify one stored ledger line in isolation: the schema tag, the entry and
+ * event schemas, canonical bytes, the entry's own hash, and its search. The
+ * chain (sequence and previous hash) and the state machine are the caller's,
+ * because they need the lines before this one. An ingest server runs this on
+ * every received line, so it hashes exactly the bytes the producer hashed.
+ */
+export function parseSearchLedgerLine(
+  line: string,
+  searchId: string,
+  context: LedgerLineContext,
+): SearchLedgerEntry {
+  let raw: unknown
+  try {
+    raw = JSON.parse(line)
+  } catch (error) {
+    throw new SearchLedgerIntegrityError(
+      `search ledger ${context.path} has invalid JSON at line ${context.line}`,
+      { cause: error },
+    )
+  }
+  const entry = parseSearchLedgerEntry(raw, context)
+  if (entry.searchId !== searchId) {
+    throw new SearchLedgerIntegrityError(
+      `search ledger ${context.path} line ${context.line} belongs to search ${entry.searchId}, expected ${searchId}`,
+    )
+  }
+  if (canonicalString(entry) !== line) {
+    throw new SearchLedgerIntegrityError(
+      `search ledger ${context.path} has non-canonical bytes at line ${context.line}`,
+    )
+  }
+  const { entryHash, ...material } = entry
+  const expected = hashCanonical(material)
+  if (entryHash !== expected) {
+    throw new SearchLedgerIntegrityError(
+      `search ledger ${context.path} line ${context.line} hash mismatch: expected ${expected}, got ${entryHash}`,
+    )
+  }
+  return entry
 }
 
 interface SearchLedgerHeader {

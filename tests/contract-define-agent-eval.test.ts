@@ -183,51 +183,6 @@ describe('defineAgentEval', () => {
     expect(result.lift).toBeGreaterThan(0)
   })
 
-  it('merges nested hosted tenant overrides without dropping credentials', async () => {
-    const requests: Array<{ url: string; headers: Headers }> = []
-    const evalKit = defineAgentEval({
-      scenarios,
-      agent,
-      model: 'deterministic-test-agent@2026-07-25',
-      judge,
-      baselineSurface: 'base',
-      hostedTenant: {
-        endpoint: 'https://old.example',
-        apiKey: 'secret-key',
-        tenantId: 'tenant-a',
-        fetchImpl: async (url, init) => {
-          requests.push({
-            url: String(url),
-            headers: new Headers(init?.headers),
-          })
-          return new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        },
-      },
-      budget: { generations: 0, holdoutFraction: 0.5 },
-      expectUsage: 'off',
-    })
-
-    await evalKit.improve({
-      hostedTenant: { endpoint: 'https://new.example' },
-    })
-
-    expect(requests.length).toBeGreaterThan(0)
-    expect(
-      requests.every((request) => request.url.startsWith('https://new.example/v1/ingest/')),
-    ).toBe(true)
-    expect(requests.some((request) => request.url.endsWith('/eval-runs'))).toBe(true)
-    expect(requests.some((request) => request.url.endsWith('/traces'))).toBe(true)
-    expect(
-      requests.every((request) => request.headers.get('authorization') === 'Bearer secret-key'),
-    ).toBe(true)
-    expect(
-      requests.every((request) => request.headers.get('x-tangle-tenant-id') === 'tenant-a'),
-    ).toBe(true)
-  })
-
   it('fails loudly when a partial hosted tenant has no defaults to complete it', async () => {
     const evalKit = defineAgentEval({
       scenarios,

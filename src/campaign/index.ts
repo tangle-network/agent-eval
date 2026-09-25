@@ -384,6 +384,7 @@ export {
   type NodeEstimate,
   type OpenSearchLedgerOptions,
   openSearchLedger,
+  parseSearchLedgerLine,
   replaySearchLedgerText,
   SEARCH_LEDGER_SCHEMA,
   type SearchArtifactKind,

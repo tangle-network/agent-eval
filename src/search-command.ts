@@ -1,0 +1,94 @@
+/**
+ * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
+ *
+ *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+ *
+ * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
+ * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
+ * head, so it finishes or resumes a ship that a loop could not complete.
+ */
+
+import { open } from 'node:fs/promises'
+import { hostedTenantFromEnv } from './hosted/client'
+import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
+import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
+
+const USAGE = `usage: agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+
+Ships the ledger's entries, and the blobs they name, to the hosted store in
+TANGLE_INGEST_URL (or TANGLE_ORCHESTRATOR_URL) as tenant TANGLE_TENANT_ID with
+TANGLE_INGEST_API_KEY (or TANGLE_API_KEY). It starts from the store's head, so
+running it again sends only what the store lacks. Prints the result as JSON.
+Exits 1 when the store holds a different chain for the search.`
+
+export async function runSearchCommand(argv: string[]): Promise<number> {
+  const [subcommand, ...rest] = argv
+  if (subcommand !== 'ship' || rest.includes('--help') || rest.includes('-h')) {
+    process.stdout.write(`${USAGE}\n`)
+    return subcommand === 'ship' ? 0 : 1
+  }
+  const { path, flags } = parseShipArgs(rest)
+  const runKind = SearchRunKindSchema.safeParse(flags['run-kind'])
+  if (!runKind.success) throw new Error(`--run-kind must be optimization or eval\n${USAGE}`)
+  const content = flags.content ?? 'full'
+  if (content !== 'full' && content !== 'digests') {
+    throw new Error(`--content must be full or digests\n${USAGE}`)
+  }
+  const tenant = hostedTenantFromEnv()
+  if (!tenant) {
+    throw new Error(
+      'set TANGLE_INGEST_URL, TANGLE_INGEST_API_KEY and TANGLE_TENANT_ID to name the store',
+    )
+  }
+  const searchId = await firstLineSearchId(path)
+  try {
+    const shipped = await shipSearchLedger({
+      tenant,
+      ledger: { path, searchId },
+      runKind: runKind.data,
+      content,
+    })
+    process.stdout.write(`${JSON.stringify(shipped, null, 2)}\n`)
+    return shipped.head.nextSequence === shipped.localLines ? 0 : 1
+  } catch (error) {
+    if (!(error instanceof SearchShipConflictError)) throw error
+    process.stderr.write(`${error.message}\n`)
+    return 1
+  }
+}
+
+function parseShipArgs(argv: string[]): { path: string; flags: Record<string, string> } {
+  const flags: Record<string, string> = {}
+  const positional: string[] = []
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (!token.startsWith('--')) {
+      positional.push(token)
+      continue
+    }
+    const [name, inline] = token.slice(2).split('=', 2) as [string, string | undefined]
+    if (name !== 'run-kind' && name !== 'content') throw new Error(`unknown flag --${name}`)
+    const value = inline ?? argv[++index]
+    if (value === undefined) throw new Error(`--${name} needs a value`)
+    flags[name] = value
+  }
+  if (positional.length !== 1) throw new Error(USAGE)
+  return { path: positional[0]!, flags }
+}
+
+/** The ledger names its search on every line; read the first. */
+async function firstLineSearchId(path: string): Promise<string> {
+  const handle = await open(path, 'r')
+  try {
+    // A line longer than one request's limit cannot ship anyway.
+    const bytes = Buffer.alloc(SEARCH_LEDGER_BATCH_MAX_BYTES + 1)
+    const { bytesRead } = await handle.read(bytes, 0, bytes.byteLength, 0)
+    const newline = bytes.subarray(0, bytesRead).indexOf(0x0a)
+    if (newline < 0) throw new Error(`${path} holds no complete ledger line`)
+    const first = JSON.parse(bytes.toString('utf8', 0, newline)) as { searchId?: unknown }
+    if (typeof first.searchId !== 'string') throw new Error(`${path} line 1 names no searchId`)
+    return first.searchId
+  } finally {
+    await handle.close()
+  }
+}

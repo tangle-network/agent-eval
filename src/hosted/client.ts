@@ -1,31 +1,41 @@
 /**
  * # Hosted-tier ingest client.
  *
- * Ships eval-run events + trace spans to any orchestrator (ours, a
- * partner's self-hosted one, or a future open implementation) that
- * speaks the wire format in `./types.ts`.
+ * Ships search ledgers and trace spans to any orchestrator (ours, a
+ * partner's self-hosted one, or a future open implementation) that speaks
+ * the wire format in `./types.ts` and `./search-ledger-wire.ts`.
  *
  * Three modes:
  *   - **Ours:** point at `https://orchestrator.tangle.tools` (the host root —
- *     the client appends the versioned `/v1/ingest/...` path itself; a trailing
- *     `/v1` on the endpoint is tolerated and normalized away). We handle ingest
- *     + storage + dashboard.
+ *     the client appends the versioned `/v1/...` path itself; a trailing
+ *     `/v1` on the endpoint is tolerated and normalized away).
  *   - **Self-hosted:** point at whatever URL runs the reference receiver
  *     from `examples/hosted-ingest-server/`.
- *   - **Off (default):** when `hostedTenant` is unset, nothing is sent.
+ *   - **Off (default):** when no tenant is configured, nothing is sent.
  *     Everything stays local.
+ *
+ * Every call retries network errors, 408, 429 and 5xx. When the server sends
+ * `Retry-After`, the client waits exactly that long before the next attempt.
  */
 
+import type { z } from 'zod'
+import { IngestResponseSchema, IngestTracesRequestSchema } from './schemas'
 import {
-  IngestEvalRunsRequestSchema,
-  IngestResponseSchema,
-  IngestTracesRequestSchema,
-} from './schemas'
+  type IngestSearchLedgerRequest,
+  IngestSearchLedgerRequestSchema,
+  SEARCH_LEDGER_INGEST_PATH,
+  type SearchBlobPutResponse,
+  SearchBlobPutResponseSchema,
+  type SearchLedgerConflict,
+  SearchLedgerConflictSchema,
+  type SearchLedgerHead,
+  SearchLedgerHeadSchema,
+  searchBlobPath,
+  searchLedgerHeadPath,
+} from './search-ledger-wire'
 import {
-  type EvalRunEvent,
   HOSTED_WIRE_VERSION,
   type HostedWireVersion,
-  type IngestEvalRunsRequest,
   type IngestResponse,
   type IngestTracesRequest,
   type TraceSpanEvent,
@@ -38,31 +48,89 @@ export interface HostedTenant {
   apiKey: string
   /** Tenant id — the orchestrator's primary key for this consumer. Required. */
   tenantId: string
-  /** Optional `fetch` override (auth wrappers, custom agent, test mocks). */
+  /** Optional `fetch` override (auth wrappers, custom agent). */
   fetchImpl?: typeof fetch
-  /** Per-call timeout in ms. Default 30s. */
+  /** Per-attempt timeout in ms. Default 30s. */
   timeoutMs?: number
-  /** Retries on 5xx / network errors. Default 2. */
+  /** Retries on network errors, 408, 429 and 5xx. Default 2. */
   retries?: number
 }
 
+/** A search-ledger batch the store accepted, or the fork or gap it refused. */
+export type SearchLedgerIngestOutcome =
+  | { status: 'accepted'; head: SearchLedgerHead }
+  | { status: 'conflict'; conflict: SearchLedgerConflict }
+
 export interface HostedClient {
-  ingestEvalRun(event: EvalRunEvent, idempotencyKey?: string): Promise<IngestResponse>
-  ingestEvalRuns(events: EvalRunEvent[], idempotencyKey?: string): Promise<IngestResponse>
   ingestTraces(spans: TraceSpanEvent[], idempotencyKey?: string): Promise<IngestResponse>
+  /** The store's head for one search; `nextSequence` 0 when it holds nothing. */
+  searchLedgerHead(searchId: string, signal?: AbortSignal): Promise<SearchLedgerHead>
+  ingestSearchLedger(
+    request: IngestSearchLedgerRequest,
+    signal?: AbortSignal,
+  ): Promise<SearchLedgerIngestOutcome>
+  putSearchBlob(
+    sha256: `sha256:${string}`,
+    bytes: Uint8Array<ArrayBuffer>,
+    contentType: string,
+    signal?: AbortSignal,
+  ): Promise<SearchBlobPutResponse>
   readonly tenant: HostedTenant
   readonly wireVersion: HostedWireVersion
 }
 
-interface RequestOptions {
+/** A request the server refused, after any retries. */
+export class HostedRequestError extends Error {
+  readonly status: number
+  readonly body: string
+  constructor(url: string, status: number, body: string) {
+    super(`hosted ${url} failed (${status}): ${body.slice(0, 500)}`)
+    this.name = 'HostedRequestError'
+    this.status = status
+    this.body = body
+  }
+}
+
+interface HostedRequest {
+  method: 'GET' | 'POST' | 'PUT'
+  path: string
+  body?: string | Uint8Array<ArrayBuffer>
+  contentType?: string
   idempotencyKey?: string
   signal?: AbortSignal
+  /** Statuses returned to the caller instead of thrown. */
+  expected?: readonly number[]
 }
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 256
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason)
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal!.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** `Retry-After` as milliseconds: delay-seconds or an HTTP date. Null when
+ * absent or unreadable, so the caller falls back to its own backoff. */
+export function retryAfterMs(value: string | null, now = Date.now()): number | null {
+  if (value === null) return null
+  const trimmed = value.trim()
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000
+  const at = Date.parse(trimmed)
+  return Number.isFinite(at) ? Math.max(0, at - now) : null
+}
+
+function backoffMs(attempt: number): number {
+  return 2 ** attempt * 200 + Math.random() * 200
 }
 
 function normalizeHostedBase(endpoint: string): string {
@@ -78,82 +146,76 @@ function resolveIdempotencyKey(key: string | undefined): string {
   return resolved
 }
 
-function responseValidationReason(error: {
-  issues: Array<{ path: PropertyKey[]; message: string }>
-}) {
-  return error.issues
-    .map(
-      (issue) =>
-        `${issue.path.length > 0 ? issue.path.map(String).join('.') : 'value'}: ${issue.message}`,
-    )
-    .join('; ')
+function isRetryable(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429
 }
 
-async function post<TReq>(
+async function send(
   tenant: HostedTenant,
-  path: string,
-  body: TReq,
-  opts: RequestOptions = {},
-): Promise<IngestResponse> {
+  request: HostedRequest,
+): Promise<{ status: number; json: unknown; url: string }> {
   const timeoutMs = tenant.timeoutMs ?? 30_000
   const maxRetries = tenant.retries ?? 2
   const f: typeof fetch = tenant.fetchImpl ?? ((...args) => fetch(...args))
-  const base = normalizeHostedBase(tenant.endpoint)
-  const url = `${base}${path}`
-  const idempotencyKey = resolveIdempotencyKey(opts.idempotencyKey)
+  const url = `${normalizeHostedBase(tenant.endpoint)}${request.path}`
   const headers: Record<string, string> = {
-    'content-type': 'application/json',
     authorization: `Bearer ${tenant.apiKey}`,
     'x-tangle-tenant-id': tenant.tenantId,
     'x-tangle-wire-version': HOSTED_WIRE_VERSION,
-    'idempotency-key': idempotencyKey,
+  }
+  if (request.method !== 'GET') {
+    headers['idempotency-key'] = resolveIdempotencyKey(request.idempotencyKey)
+    headers['content-type'] = request.contentType ?? 'application/json'
   }
 
   let lastError: unknown
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const ourTimeout = AbortSignal.timeout(timeoutMs)
-    const combinedSignal = opts.signal ? AbortSignal.any([opts.signal, ourTimeout]) : ourTimeout
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const signal = request.signal ? AbortSignal.any([request.signal, timeout]) : timeout
     let res: Response
     try {
       res = await f(url, {
-        method: 'POST',
+        method: request.method,
         headers,
-        body: JSON.stringify(body),
-        signal: combinedSignal,
+        ...(request.body === undefined ? {} : { body: request.body }),
+        signal,
       })
     } catch (err) {
-      if (opts.signal?.aborted) throw err
+      if (request.signal?.aborted) throw err
       lastError = err
       if (attempt === maxRetries) throw err
-      await sleep(2 ** attempt * 200 + Math.random() * 200)
+      await sleep(backoffMs(attempt), request.signal)
       continue
     }
 
-    if (!res.ok) {
+    if (!res.ok && !request.expected?.includes(res.status)) {
       const text = await res.text().catch(() => '')
-      const error = new Error(`hosted ingest ${url} failed (${res.status}): ${text.slice(0, 500)}`)
-      const retryable = res.status >= 500 || res.status === 408 || res.status === 429
-      if (!retryable || attempt === maxRetries) throw error
+      const error = new HostedRequestError(url, res.status, text)
+      if (!isRetryable(res.status) || attempt === maxRetries) throw error
       lastError = error
-      await sleep(2 ** attempt * 200 + Math.random() * 200)
+      await sleep(
+        retryAfterMs(res.headers.get('retry-after')) ?? backoffMs(attempt),
+        request.signal,
+      )
       continue
     }
 
-    let rawResponse: unknown
     try {
-      rawResponse = await res.json()
+      return { status: res.status, json: await res.json(), url }
     } catch (error) {
-      throw new Error(`hosted ingest ${url} returned invalid JSON`, { cause: error })
+      throw new Error(`hosted ${url} returned invalid JSON`, { cause: error })
     }
-    const parsed = IngestResponseSchema.safeParse(rawResponse)
-    if (!parsed.success) {
-      throw new Error(
-        `hosted ingest ${url} returned an invalid response: ${responseValidationReason(parsed.error)}`,
-      )
-    }
-    return parsed.data
   }
-  throw lastError ?? new Error('hosted ingest exhausted retries')
+  throw lastError ?? new Error('hosted request exhausted retries')
+}
+
+function parseResponse<T>(schema: z.ZodType<T>, value: unknown, url: string): T {
+  const parsed = schema.safeParse(value)
+  if (parsed.success) return parsed.data
+  const reason = parsed.error.issues
+    .map((issue) => `${issue.path.map(String).join('.') || 'value'}: ${issue.message}`)
+    .join('; ')
+  throw new Error(`hosted ${url} returned an invalid response: ${reason}`)
 }
 
 export function createHostedClient(tenant: HostedTenant): HostedClient {
@@ -174,57 +236,88 @@ export function createHostedClient(tenant: HostedTenant): HostedClient {
     tenant,
     wireVersion: HOSTED_WIRE_VERSION,
 
-    async ingestEvalRun(event, idempotencyKey) {
-      return this.ingestEvalRuns([event], idempotencyKey)
-    },
-
-    async ingestEvalRuns(events, idempotencyKey) {
-      const body: IngestEvalRunsRequest = IngestEvalRunsRequestSchema.parse({
-        wireVersion: HOSTED_WIRE_VERSION,
-        events,
-      })
-      return post<IngestEvalRunsRequest>(tenant, '/v1/ingest/eval-runs', body, {
-        idempotencyKey,
-      })
-    },
-
     async ingestTraces(spans, idempotencyKey) {
       const body: IngestTracesRequest = IngestTracesRequestSchema.parse({
         wireVersion: HOSTED_WIRE_VERSION,
         spans,
       })
-      return post<IngestTracesRequest>(tenant, '/v1/ingest/traces', body, {
+      const res = await send(tenant, {
+        method: 'POST',
+        path: '/v1/ingest/traces',
+        body: JSON.stringify(body),
         idempotencyKey,
       })
+      return parseResponse(IngestResponseSchema, res.json, res.url)
+    },
+
+    async searchLedgerHead(searchId, signal) {
+      const res = await send(tenant, {
+        method: 'GET',
+        path: searchLedgerHeadPath(searchId),
+        signal,
+      })
+      const head = parseResponse(SearchLedgerHeadSchema, res.json, res.url)
+      if (head.searchId !== searchId) {
+        throw new Error(`hosted ${res.url} returned the head of search ${head.searchId}`)
+      }
+      return head
+    },
+
+    async ingestSearchLedger(request, signal) {
+      const body = IngestSearchLedgerRequestSchema.parse(request)
+      const last = body.lines.at(-1)!
+      const res = await send(tenant, {
+        method: 'POST',
+        path: SEARCH_LEDGER_INGEST_PATH,
+        body: JSON.stringify(body),
+        // Equal key exactly when the batch is equal, so a cached response is
+        // always the response to these lines.
+        idempotencyKey: `search-ledger:${await sha256Hex(
+          `${body.searchId}\n${body.runKind}\n${body.fromSequence}\n${body.lines.length}\n${last}`,
+        )}`,
+        signal,
+        expected: [409],
+      })
+      if (res.status === 409) {
+        return {
+          status: 'conflict',
+          conflict: parseResponse(SearchLedgerConflictSchema, res.json, res.url),
+        }
+      }
+      return { status: 'accepted', head: parseResponse(SearchLedgerHeadSchema, res.json, res.url) }
+    },
+
+    async putSearchBlob(sha256, bytes, contentType, signal) {
+      const res = await send(tenant, {
+        method: 'PUT',
+        path: searchBlobPath(sha256),
+        body: bytes,
+        contentType,
+        idempotencyKey: `search-blob:${sha256}`,
+        signal,
+      })
+      const stored = parseResponse(SearchBlobPutResponseSchema, res.json, res.url)
+      if (stored.sha256 !== sha256) {
+        throw new Error(`hosted ${res.url} acknowledged blob ${stored.sha256}, sent ${sha256}`)
+      }
+      return stored
     },
   }
 }
 
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
 /**
- * Build a `HostedClient` from environment, or `undefined` when ingest is not
- * configured — the canonical, fail-soft wiring every product uses so eval-run +
- * trace provenance lands in the Intelligence dashboard with ONE call:
- *
- *   const hosted = hostedClientFromEnv()
- *   // ...run the loop...
- *   await emitLoopProvenance({ ..., hostedClient: hosted })  // no-op if undefined
- *
- * Returns `undefined` (NOT an error) when any of endpoint / apiKey / tenantId is
- * missing — so a product wires the ship call unconditionally and it stays a
- * no-op until the env is set. Env precedence:
+ * Build a {@link HostedTenant} from env, or `undefined` when ingest is not
+ * configured, so a product wires it unconditionally and it stays off until the
+ * env is set. Env precedence:
  *   - endpoint:  `TANGLE_INGEST_URL` → `TANGLE_ORCHESTRATOR_URL`
  *   - apiKey:    `TANGLE_INGEST_API_KEY` → `TANGLE_API_KEY`
  *   - tenantId:  `TANGLE_TENANT_ID`
- * A trailing slash on the endpoint is stripped. Pass `overrides` to supply any
- * field directly (e.g. a fixed `tenantId` per product) — overrides win over env.
- */
-/**
- * Build a {@link HostedTenant} config from env — the input `selfImprove`'s
- * `hostedTenant` and `emitLoopProvenance` take. Same env precedence + overrides
- * as {@link hostedClientFromEnv}; returns `undefined` (not an error) when any of
- * endpoint / apiKey / tenantId is missing, so a product wires
- * `hostedTenant: hostedTenantFromEnv({ tenantId: 'my-agent' })` unconditionally
- * and it stays off until the env is set.
+ * A trailing slash on the endpoint is stripped. `overrides` win over env.
  */
 export function hostedTenantFromEnv(
   overrides: Partial<HostedTenant> & { env?: Record<string, string | undefined> } = {},
@@ -245,6 +338,8 @@ export function hostedTenantFromEnv(
   return tenant
 }
 
+/** {@link createHostedClient} over {@link hostedTenantFromEnv}; `undefined`
+ * when ingest is not configured. */
 export function hostedClientFromEnv(
   overrides: Partial<HostedTenant> & { env?: Record<string, string | undefined> } = {},
 ): HostedClient | undefined {
