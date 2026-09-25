@@ -34,6 +34,10 @@ Pass `knownSecrets` to remove exact values in any form: as written, base64, base
 `apiKey`, `x-api-key`, `client.secret`, `refreshToken` and `OPENAI_API_KEY` are credentials.
 Token counts and model limits are not: `inputTokens`, `outputTokens`, `max_tokens`, `token_count`, `gen_ai.usage.input_tokens` and `next_page_token` survive.
 `author`, `auth_type`, `secret_name` and `content_type` also survive, because they name or describe a value instead of holding it.
+
+agent-interface's `looksLikeCredential` stays the candidate schemas' refusal check, and the core does not call it.
+On 629,707 strings from real sessions and VerticalBench runs, it flagged 280 strings the core passes, and all 280 were `Bearer ${token}`-style code or placeholders.
+The core flagged 39 credentials that `looksLikeCredential` passes.
 A number under a credential name survives, because it is a limit or a count.
 
 ## Share-safety verdict
