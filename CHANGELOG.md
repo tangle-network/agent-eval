@@ -6,9 +6,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.194.0] — 2026-09-25
+
 ### Fixed
 
-- `summarizeExecutionMeasurements` counted only `LLM` spans as model calls, so an `EMBEDDING` or `RERANKER` span's own tokens dropped out of the run total whenever a chat call anywhere in the same run also reported tokens — a real undercount (5100 measured as 100 on a trace with one 100-token chat call and one 5000-token embeddings call), not the aggregate-token-loss bug 0.191.0 already fixed. Classify model calls with the contract's `isModelCallKind` (`@tangle-network/agent-trace-contract@^1.3.0`; `LLM`, `EMBEDDING`, `RERANKER`) instead of `kind === 'LLM'`.
+- Trace contract rules that read TOOL or LLM spans (`never`, `atMost`, `tokensAtMost`, `retrySafe`) passed vacuously when a trace carried zero spans of that kind, unable to tell "no calls happened" from "calls were not recorded" — a real VerticalBench run made 43 tool calls but its OTLP export had 0 TOOL spans, and `forbidden`/`allowed`/`maxCalls`/`retries` all read that as a clean pass. These rules now require capture evidence (a span of that kind, or a recorded `gen_ai.tool.definitions` for TOOL) before trusting a zero-match result, and report `error` otherwise. An `attr` matcher shaped like an incomplete `{ $regex }` (no `flags`) or a bare `{ oneOf }` was accepted and then compared by reference, so it silently never matched; both are now validated as complete matcher shapes at contract-build time, and `oneOf` in `attr` is evaluated correctly instead of falling through to `!==`.
+- CREDENTIAL_DETECTORS required a leading `\b` before provider-branded prefixes (`sk-ant-`, `AIza`, `ghp_`, ...), so a token glued to preceding text by an underscore or letter passed `redact()`/`assessShareSafety()` unflagged in both keys and values.
+- `summarizeExecutionMeasurements` counted only `LLM` spans as model calls, so an `EMBEDDING` or `RERANKER` span's own tokens dropped out of the run total whenever a chat call anywhere in the same run also reported tokens — a real undercount (5100 measured as 100), not the aggregate-token-loss bug 0.191.0 already fixed. Classify model calls with the contract's `isModelCallKind` (`@tangle-network/agent-trace-contract@^1.3.0`; `LLM`, `EMBEDDING`, `RERANKER`) instead of `kind === 'LLM'`.
+- Three redaction-core findings: a personal-data-shaped object key (e.g. an email as a key) passed through unredacted under every profile; `detectCredential`'s URL-credential and secret-assignment regexes had unbounded quantifiers an adversarial string could use to block the event loop for tens of seconds; `Authorization: Basic <base64(user:key)>` survived a declared `knownSecret` because the secret's own base64 form is generally not a literal substring of the header. `REDACTION_VERSION` → 2.4.0.
+- `diagnoseSpans`'s capability table marked `loop-convergence` and `steering-chain` unavailable everywhere, contradicting `traces`' own conformance table (which implements both). The reason now names where each is actually built instead of only saying this engine lacks it.
 
 ## [0.193.0] — 2026-09-25
 
