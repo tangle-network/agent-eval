@@ -456,6 +456,104 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
   }
 }
 
+/** Where a memory journal keeps its text: an in-process store keyed by path,
+ * such as an in-memory `CampaignStorage`. */
+export interface LedgerTextStore {
+  read(path: string): string | undefined
+  write(path: string, text: string): void
+}
+
+/**
+ * A journal for runs without a filesystem. It keeps its rows as text in a
+ * store and applies the file journal's rules: the same row parse, hash chain,
+ * idempotent append by `eventId`, and projector transition before a row is
+ * kept. It has no lock, fsync or trusted head, because its rows live and die
+ * with the process that holds the store.
+ */
+export class MemoryLedgerJournal<Header extends object, Event extends LedgerEventBase, Projection> {
+  readonly path: string
+  private readonly codec: LedgerJournalCodec<Header, Event, Projection>
+  private readonly store: LedgerTextStore
+  private verified: {
+    text: string
+    journal: VerifiedJournal<LedgerEntryOf<Header, Event>, Projection>
+    entries: LedgerEntryOf<Header, Event>[]
+  } | null = null
+
+  constructor(
+    path: string,
+    codec: LedgerJournalCodec<Header, Event, Projection>,
+    store: LedgerTextStore,
+  ) {
+    this.path = path
+    this.codec = codec
+    this.store = store
+  }
+
+  async replay(): Promise<Projection> {
+    return this.guarded(() => this.sync().journal.projector.snapshot())
+  }
+
+  async append(
+    event: Event,
+  ): Promise<LedgerAppendResult<LedgerEntryOf<Header, Event>, Projection>> {
+    return this.guarded(() => {
+      const verified = this.sync()
+      const { journal, entries } = verified
+      const existingSequence = journal.sequenceByEventId.get(event.eventId)
+      if (existingSequence !== undefined) {
+        const existing = entries[existingSequence]!
+        if (canonicalString(existing.event) !== canonicalString(event)) {
+          throw this.codec.conflictError(
+            `eventId ${event.eventId} already exists with different content`,
+          )
+        }
+        return { entry: existing, appended: false, projection: journal.projector.snapshot() }
+      }
+      const sequence = entries.length
+      const material = {
+        ...this.codec.header,
+        sequence,
+        previousHash: journal.head?.entry.entryHash ?? null,
+        event,
+      }
+      const text = canonicalString({ ...material, entryHash: hashCanonical(material) })
+      const entry = parseRow(text, { path: this.path, line: sequence + 1 }, this.codec)
+      admitEntry(journal, entry, Buffer.from(`${text}\n`, 'utf8'), this.codec)
+      entries.push(entry)
+      verified.text = `${verified.text}${text}\n`
+      this.store.write(this.path, verified.text)
+      return { entry, appended: true, projection: journal.projector.snapshot() }
+    })
+  }
+
+  /** Verify the stored text again whenever it is not the text this instance wrote. */
+  private sync(): NonNullable<MemoryLedgerJournal<Header, Event, Projection>['verified']> {
+    const text = this.store.read(this.path) ?? ''
+    if (this.verified?.text === text) return this.verified
+    const journal = emptyJournal(this.codec)
+    const entries: LedgerEntryOf<Header, Event>[] = []
+    const bytes = Buffer.from(text, 'utf8')
+    for (const row of splitRows(bytes, this.path, this.codec)) {
+      const entry = parseRow(row.text, { path: this.path, line: entries.length + 1 }, this.codec)
+      admitEntry(journal, entry, Buffer.from(bytes.subarray(row.start, row.end)), this.codec)
+      entries.push(entry)
+    }
+    this.verified = { text, journal, entries }
+    return this.verified
+  }
+
+  /** A refused transition can leave the projector half applied; discard it. */
+  private async guarded<T>(run: () => T): Promise<T> {
+    try {
+      return run()
+    } catch (error) {
+      this.verified = null
+      throw error
+    }
+  }
+}
+
 /** Verify and replay resolved immutable journal bytes without filesystem I/O. */
 export function replayLedgerText<Header extends object, Event extends LedgerEventBase, Projection>(
   text: string,

@@ -204,6 +204,10 @@ export interface SearchOperation {
   operationKind: SearchOperationKind
   reservation: SearchReservation | null
   recorded: boolean
+  /** The recorded outcome; null until the operation is recorded. */
+  outcome: SearchOperationRecordedEvent['outcome']['status'] | null
+  /** Artifacts the recorded event bound, for example a proposal's output. */
+  artifacts: readonly SearchArtifactRef[]
   spentUsd: number
 }
 
@@ -415,6 +419,8 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       operationKind: event.operationKind,
       reservation: event.reservation,
       recorded: false,
+      outcome: null,
+      artifacts: [],
       spentUsd: 0,
     })
     this.audit.operations.started += 1
@@ -443,6 +449,8 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       this.audit.spend.overspendUsd += Math.max(0, cost.usd - reserved)
     }
     operation.recorded = true
+    operation.outcome = event.outcome.status
+    operation.artifacts = event.artifacts
     operation.spentUsd = cost.usd
     this.audit.operations.recorded += 1
     this.audit.operations.open -= 1
@@ -913,6 +921,20 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
 
   // ── Reads, for SearchStateView ─────────────────────────────────────────
 
+  /** @internal The largest hold a new non-claim cell or operation may take,
+   * and the claim reserve still unspent. */
+  readBudget(): { headroomUsd: number | null; claimReserveUsd: number } {
+    const { maxUsd, reservedClaimUsd } = this.header?.budget ?? {
+      maxUsd: null,
+      reservedClaimUsd: 0,
+    }
+    const claimReserveUsd = Math.max(0, reservedClaimUsd - this.claimUsedUsd)
+    if (maxUsd === null) return { headroomUsd: null, claimReserveUsd }
+    const used =
+      this.audit.spend.committedUsd + this.audit.spend.openReservationUsd + claimReserveUsd
+    return { headroomUsd: Math.max(0, maxUsd - used), claimReserveUsd }
+  }
+
   /** @internal */
   readHeader(): SearchOpenedEvent | null {
     return this.header
@@ -1023,6 +1045,13 @@ export class SearchStateView {
   readonly lastOccurredAt: string | null
   readonly audit: SearchAudit
   readonly completion: SearchCompletion
+  /**
+   * The admission rule's room: `headroomUsd` is the largest reservation a new
+   * non-claim cell or operation may hold (committed spend, open holds and the
+   * unspent claim reserve all count against the cap), or null when the search
+   * declares no cap. `claimReserveUsd` is what claim cells may still draw.
+   */
+  readonly budget: { headroomUsd: number | null; claimReserveUsd: number }
   private readonly state: SearchState
   private readonly version: number
 
@@ -1035,6 +1064,7 @@ export class SearchStateView {
     this.head = state.readHead()
     this.lastOccurredAt = state.readLastOccurredAt()
     this.audit = state.readAudit()
+    this.budget = state.readBudget()
     const reasons = state.incompleteReasons()
     if (!this.closed) reasons.unshift('search is open')
     this.completion = { complete: this.closed !== null, reasons }
