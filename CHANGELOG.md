@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.190.0] — 2026-09-25
+
 ### Added
 
 - `askTraceQuestions` (`/analyst`) asks many questions of one trace store in a bounded pool under one shared `CostLedger`, and runs an independent verifier on every admitted finding.
