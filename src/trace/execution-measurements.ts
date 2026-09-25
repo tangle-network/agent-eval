@@ -150,13 +150,23 @@ export function summarizeExecutionMeasurements(
     new Set([...aggregateIds, ...untypedRunCostIds]),
   )
 
+  // A trace whose only token-bearing span is an aggregate (a run or tool
+  // span that reports totals but has no llm_call events beneath it) has no
+  // model-call candidates, so `input`/`output`/etc. above are all undefined.
+  // Fall back to the aggregate measurement's own field before defaulting to
+  // 0, so "no model call reported this" does not read the same as "measured
+  // zero". When neither reports a field, it really is 0/unset.
+  const reasoningValue = reasoning.value ?? aggregate?.tokenUsage.reasoning
+  const cachedValue = cached.value ?? aggregate?.tokenUsage.cached
+  const cacheWriteValue = cacheWrite.value ?? aggregate?.tokenUsage.cacheWrite
+
   return {
     tokenUsage: {
-      input: input.value ?? 0,
-      output: Math.max(output.value ?? 0, reasoning.value ?? 0),
-      ...(reasoning.value !== undefined ? { reasoning: reasoning.value } : {}),
-      ...(cached.value !== undefined ? { cached: cached.value } : {}),
-      ...(cacheWrite.value !== undefined ? { cacheWrite: cacheWrite.value } : {}),
+      input: input.value ?? aggregate?.tokenUsage.input ?? 0,
+      output: Math.max(output.value ?? aggregate?.tokenUsage.output ?? 0, reasoningValue ?? 0),
+      ...(reasoningValue !== undefined ? { reasoning: reasoningValue } : {}),
+      ...(cachedValue !== undefined ? { cached: cachedValue } : {}),
+      ...(cacheWriteValue !== undefined ? { cacheWrite: cacheWriteValue } : {}),
     },
     modelCallCount: calls.length,
     callSpanIds: calls.map((span) => span.id),

@@ -514,29 +514,6 @@ describe('otlpToRunRecords', () => {
     expect(run.outcome.raw.aggregate_cost_usd).toBe(0.25)
   })
 
-  it('keeps aggregate-only orchestration usage separate from model-call totals', () => {
-    const orchestration = spanLine({
-      trace_id: 'orchestration-trace',
-      span_id: 'orchestration-trace:root',
-      parent_span_id: '',
-      name: 'orchestrator.run',
-      start_time: '2026-04-23T05:32:00.000Z',
-      end_time: '2026-04-23T05:32:04.000Z',
-      attributes: {
-        'openinference.span.kind': 'CHAIN',
-        'gen_ai.usage.input_tokens': 50,
-        'gen_ai.usage.output_tokens': 500,
-      },
-    })
-
-    const run = otlpToRunRecords(orchestration, baseOpts)[0]!
-
-    expect(run.tokenUsage).toEqual({ input: 0, output: 0 })
-    expect(run.outcome.raw.llm_span_count).toBe(0)
-    expect(run.outcome.raw.aggregate_prompt_tokens).toBe(50)
-    expect(run.outcome.raw.aggregate_completion_tokens).toBe(500)
-  })
-
   it('preserves nested provider cache and reasoning details without inflating output', () => {
     const providerDetails = spanLine({
       trace_id: 'provider-details',

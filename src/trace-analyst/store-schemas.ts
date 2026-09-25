@@ -85,7 +85,13 @@ export const traceStoreInputSchemas = {
     .strict(),
 } as const
 
-const spanKind = z.enum(SPAN_KINDS as [SpanKind, ...SpanKind[]])
+// Legacy stores (Intelligence's PostgresTraceAnalystStore, agent-builder's D1 adapter) still
+// return the pre-contract 'SPAN' fallback for an undeclared span. Normalize it to UNKNOWN here
+// instead of rejecting the whole response; the public SpanKind type never carries 'SPAN'.
+const spanKind = z.preprocess(
+  (value) => (value === 'SPAN' ? 'UNKNOWN' : value),
+  z.enum(SPAN_KINDS as [SpanKind, ...SpanKind[]]),
+)
 const spanStatus = z.enum(['OK', 'ERROR', 'UNSET'])
 
 const traceSpan = z
