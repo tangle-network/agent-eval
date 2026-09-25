@@ -96,6 +96,7 @@ The [existing-agent example](./examples/foreign-agent-quickstart/) shows how to 
 | Register evidence and decision rules | [`defineEvaluationClaim()` and `sealExperiment()`](./docs/evaluation-integrity.md) from `/experiment` | A declared population, independent unit, optional practical effect, and sealed rules. |
 | Check the evaluator | [`auditEvaluator()`](./docs/evaluation-integrity.md) and [calibration tools](./docs/outcome-validity.md) from `/meta-eval` | Error rates, admission evidence, bias diagnostics, and outcome associations. |
 | Analyze completed work | [`analyzeRuns()`](./examples/analyze-existing-runs/) from `/contract`; [trace analysts](./docs/trace-analysis.md) from `/analyst` | Comparisons and findings with links to recorded evidence. |
+| Gate on the path a run took | A [trace contract](./docs/trace-contracts.md) (`compileTraceContractSpec()` from the root), or `traces check` in CI | `pass`, `fail`, or `error` per rule, with the spans that broke it. |
 
 `defineAgentEval()` also exposes `improve()` when the same agent, cases, judge, and baseline should share configuration.
 Use direct [campaign controls](./docs/eval-surface-map.md) for scheduling, durable caches, model matrices, or custom release rules.
