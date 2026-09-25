@@ -1,28 +1,24 @@
-"""Hosted-tier ingest client — Python parity for ``@tangle-network/agent-eval/hosted``.
+"""Hosted-tier trace ingest: Python parity for ``@tangle-network/agent-eval/hosted``.
 
-Ships eval-run events + trace spans to any orchestrator that speaks the
-wire format frozen at ``HOSTED_WIRE_VERSION = '2026-07-24.v1'``. Same
-contract as the TypeScript client; pydantic models mirror the TS types in
-``src/hosted/types.ts``.
+Ships trace spans to any orchestrator that speaks the wire format pinned at
+``HOSTED_WIRE_VERSION = '2026-07-24.v1'``. Same contract as the TypeScript
+client; pydantic models mirror the TS types in ``src/hosted/types.ts``.
+Search ledgers ship from TypeScript, where they are written
+(``agent-eval search ship``).
 
 Quickstart
 ----------
 
-    from agent_eval_rpc.hosted import (
-        HostedClient,
-        EvalRunEvent,
-        EvalRunGenerationSnapshot,
-        EvalRunCellScore,
-    )
+    from agent_eval_rpc.hosted import HostedClient, make_trace_span
 
     client = HostedClient(endpoint="http://localhost:8080",
                           api_key="dev-token", tenant_id="acme")
-    res = client.ingest_eval_run(EvalRunEvent(
-        runId="run-1", runDir="/runs/run-1",
-        timestamp="2026-05-27T00:00:00Z", status="finished",
-        labels={"env": "test"}, generations=[],
-        totalCostUsd=0.0, totalDurationMs=0,
-    ))
+    res = client.ingest_traces([make_trace_span(
+        trace_id="t-1", span_id="s-1", name="dispatch",
+        start_time_unix_nano="1700000000000000000",
+        end_time_unix_nano="1700000001000000000",
+        tangle_run_id="run-1",
+    )])
     assert res.accepted == 1
 """
 
@@ -30,7 +26,7 @@ from __future__ import annotations
 
 import random
 import time
-from datetime import datetime
+from email.utils import parsedate_to_datetime
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
@@ -51,31 +47,10 @@ from .errors import TransportError
 
 HOSTED_WIRE_VERSION: Literal["2026-07-24.v1"] = "2026-07-24.v1"
 
-EvalRunStatus = Literal[
-    "started",
-    "baseline-complete",
-    "generation-complete",
-    "gate-decided",
-    "finished",
-    "errored",
-]
-
-GateDecision = Literal["ship", "hold", "need_more_work", "model_ceiling", "arch_ceiling"]
-
 
 def _not_blank(value: str) -> str:
     if not value.strip():
         raise ValueError("must not be blank")
-    return value
-
-
-def _iso_timestamp(value: str) -> str:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise ValueError("must be an ISO-8601 timestamp with an offset") from error
-    if parsed.tzinfo is None:
-        raise ValueError("must include a timezone offset")
     return value
 
 
@@ -94,18 +69,11 @@ NonEmptyString = Annotated[
     StringConstraints(strict=True, min_length=1),
     AfterValidator(_not_blank),
 ]
-IsoTimestamp = Annotated[
-    str,
-    StringConstraints(strict=True, min_length=1),
-    AfterValidator(_iso_timestamp),
-]
 UnixNanoTimestamp = Annotated[
     str,
     StringConstraints(strict=True, pattern=r"^(0|[1-9][0-9]*)$"),
     AfterValidator(_unix_nano_timestamp),
 ]
-FiniteNumber = Annotated[float, Field(allow_inf_nan=False)]
-NonNegativeNumber = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 NonNegativeInteger = Annotated[int, Field(strict=True, ge=0)]
 
 
@@ -113,59 +81,6 @@ class _WireModel(BaseModel):
     """Strict current-version wire model with camelCase aliases."""
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid", strict=True)
-
-
-class EvalRunCellScore(_WireModel):
-    """One cell within a generation snapshot."""
-
-    scenarioId: NonEmptyString
-    rep: NonNegativeInteger
-    compositeMean: FiniteNumber | None
-    dimensions: dict[str, dict[str, FiniteNumber]]
-    terminalOutcome: Literal["succeeded", "failed", "cancelled", "incomplete", "unknown"]
-    executionErrorCount: NonNegativeInteger | None
-    errorMessage: str | None = None
-
-
-class EvalRunGenerationSnapshot(_WireModel):
-    """A generation snapshot. ``index=0`` is baseline."""
-
-    index: NonNegativeInteger
-    surfaceHash: NonEmptyString
-    surface: Any = None
-    cells: list[EvalRunCellScore]
-    compositeMean: FiniteNumber | None
-    costUsd: NonNegativeNumber
-    durationMs: NonNegativeNumber
-
-
-class EvalRunEvent(_WireModel):
-    """Top-level eval-run event; one POST per logical run lifecycle stage."""
-
-    runId: NonEmptyString
-    runDir: NonEmptyString
-    timestamp: IsoTimestamp
-    status: EvalRunStatus
-    labels: dict[str, str]
-    baseline: EvalRunGenerationSnapshot | None = None
-    generations: list[EvalRunGenerationSnapshot]
-    gateDecision: GateDecision | None = None
-    holdoutLift: FiniteNumber | None = None
-    totalCostUsd: NonNegativeNumber
-    totalDurationMs: NonNegativeNumber
-    errorMessage: str | None = None
-    insightReport: dict[str, Any] | None = None
-
-    @model_validator(mode="after")
-    def _validate_lifecycle(self) -> EvalRunEvent:
-        if self.baseline is not None and self.baseline.index != 0:
-            raise ValueError("baseline index must be 0")
-        generation_indexes = [generation.index for generation in self.generations]
-        if len(set(generation_indexes)) != len(generation_indexes):
-            raise ValueError("generation indexes must be unique")
-        if self.status == "errored" and not self.errorMessage:
-            raise ValueError("errorMessage is required when status is errored")
-        return self
 
 
 class TraceSpanEventEntry(_WireModel):
@@ -275,6 +190,20 @@ class IngestResponse(_WireModel):
 # ── Client ──────────────────────────────────────────────────────────
 
 
+def _retry_after_seconds(value: str | None) -> float | None:
+    """``Retry-After`` as seconds: delay-seconds or an HTTP date; None when absent or unreadable."""
+    if value is None:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdecimal():
+        return float(value)
+    try:
+        at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, at.timestamp() - time.time())
+
+
 _RETRYABLE_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504})
 _MAX_IDEMPOTENCY_KEY_LENGTH = 256
 
@@ -290,7 +219,8 @@ class HostedClient:
     - **Off**: don't construct the client
 
     Bearer auth + ``X-Tangle-Tenant-Id`` + wire-version pin on every call.
-    Retries on 5xx / 408 / 429 with capped exponential backoff and jitter.
+    Retries on 5xx / 408 / 429; waits the server's ``Retry-After`` when it
+    sends one, otherwise capped exponential backoff with jitter.
     """
 
     def __init__(
@@ -338,23 +268,6 @@ class HostedClient:
 
     # ── Public methods ──────────────────────────────────────────────
 
-    def ingest_eval_run(
-        self,
-        event: EvalRunEvent | dict[str, Any],
-        idempotency_key: str | None = None,
-    ) -> IngestResponse:
-        return self.ingest_eval_runs([event], idempotency_key)
-
-    def ingest_eval_runs(
-        self,
-        events: list[EvalRunEvent | dict[str, Any]],
-        idempotency_key: str | None = None,
-    ) -> IngestResponse:
-        events_json = [self._to_event_json(e) for e in events]
-        body = {"wireVersion": HOSTED_WIRE_VERSION, "events": events_json}
-        raw = self._post("/v1/ingest/eval-runs", body, idempotency_key)
-        return self._validate_response(raw)
-
     def ingest_traces(
         self,
         spans: list[TraceSpanEventOuter | dict[str, Any]],
@@ -373,11 +286,6 @@ class HostedClient:
         return self._validate_response(raw)
 
     # ── Internals ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _to_event_json(event: EvalRunEvent | dict[str, Any]) -> dict[str, Any]:
-        validated = event if isinstance(event, EvalRunEvent) else EvalRunEvent.model_validate(event)
-        return validated.model_dump(mode="json", by_alias=True, exclude_none=True)
 
     @staticmethod
     def _validate_response(raw: Any) -> IngestResponse:
@@ -430,7 +338,11 @@ class HostedClient:
                 last_err = TransportError(
                     f"hosted ingest {url} retryable {resp.status_code}: {text}"
                 )
-                self._sleep_backoff(attempt)
+                retry_after = _retry_after_seconds(resp.headers.get("retry-after"))
+                if retry_after is None:
+                    self._sleep_backoff(attempt)
+                else:
+                    time.sleep(retry_after)
                 continue
             raise TransportError(f"hosted ingest {url} failed ({resp.status_code}): {text}")
 
