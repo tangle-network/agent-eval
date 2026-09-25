@@ -69,6 +69,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 
+- `/ledger-core` `FileLedgerJournal` can cache a projector snapshot at its trusted head, so opening a large journal only does its expensive work — the codec's own row parsing and the domain projector's `apply` — on the tail after the cache, not the whole file.
+  A codec opts in with `snapshotProjection: { serialize, restore }`; `projectorSnapshot: { everyEntries }` on `FileLedgerJournalOptions` refreshes the cache every that many entries past the last one, on a pinning append or an explicit `pinTrustedHead()`.
+  Opening still verifies the generic hash chain of every row up to the cached checkpoint — self-consistency and chain linkage, the two checks every row already gets — so tampering anywhere before the checkpoint is refused exactly as a full replay would refuse it; only the checkpoint row and the true tail go through the codec.
+  Measured with `scripts/ledger-snapshot-proof.ts` against real hash-chained journals: a snapshot-seeded open always matched a full replay's projection exactly, and used 6.00x less CPU at 300 entries (11.1ms vs 66.7ms, checkpoint at 250), 3.26x less at 1,200 (68.4ms vs 222.8ms, checkpoint at 1,000) and 3.49x less at 4,000 (143.3ms vs 499.5ms, checkpoint at 3,500); the ratio tracks how much of the file the checkpoint covers, since both opens still read every byte — the chain check does not skip any of them (`~/webb/_wt/_mq-notes/E12-proof/`).
+  Same-length tampering of a row before the checkpoint is refused, identically to a full replay of the same bytes; tampering after it, in the true tail, is still caught too.
+  No existing codec (`search-ledger`, `final-evidence`) opts in yet; this is the ledger-core mechanism only.
+
 ### Fixed
 
 - `run.requireCompleted` no longer treats an unknown run as completed. A root span's status is now inferred as `completed` only from a declared `run.status` attribute; a span that ended without an error but with no declared status is `unknown`, and `requireCompleted`/`allowedStatuses` fail it instead of passing it. This closed a gap where a trace reader that saw no terminal record (a killed job, a truncated stream) exported an OK-status root span that the gate read as completed.

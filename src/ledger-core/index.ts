@@ -38,6 +38,7 @@ export {
   type LedgerJournalCodec,
   type LedgerLineContext,
   type LedgerProjector,
+  type LedgerProjectorSnapshotCodec,
   replayLedgerText,
 } from './journal'
 export {
@@ -48,6 +49,11 @@ export {
   withLedgerFileLock,
   writeLedgerFileAtomically,
 } from './journal-file'
+export {
+  type LedgerProjectorSnapshot,
+  projectorSnapshotPathFor,
+  readProjectorSnapshotFile,
+} from './projector-snapshot'
 export {
   type LedgerAnchoredEntry,
   type LedgerTrustedHead,
