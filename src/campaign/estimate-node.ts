@@ -323,8 +323,8 @@ function assertDistinctCells(
   }
 }
 
-/** The first 32 bits of a `sha256:` digest, as the bootstrap's seed. */
-function seedFromDigest(digest: SearchLedgerHash): number {
+/** The first 32 bits of a `sha256:` digest, as a bootstrap's seed. */
+export function seedFromDigest(digest: SearchLedgerHash): number {
   return Number.parseInt(digest.slice('sha256:'.length, 'sha256:'.length + 8), 16) | 0
 }
 

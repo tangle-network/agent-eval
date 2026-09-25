@@ -84,6 +84,8 @@ function shortDigest(value: unknown): string {
 
 const MAX_LABEL_CHARS = 200
 const USD_TOLERANCE = 1e-9
+/** A claim tests at most this many finalists against the root. */
+const MAX_FINALISTS = 3
 const SPLITS: readonly SearchSplit[] = ['train', 'selection', 'test']
 
 export interface SearchDecisionRecord {
@@ -206,7 +208,8 @@ export interface SearchOperation {
   recorded: boolean
   /** The recorded outcome; null until the operation is recorded. */
   outcome: SearchOperationRecordedEvent['outcome']['status'] | null
-  /** Artifacts the recorded event bound, for example a proposal's output. */
+  /** Artifacts the started event bound, then those the recorded event bound,
+   * for example a claim's plan or a proposal's output. */
   artifacts: readonly SearchArtifactRef[]
   spentUsd: number
 }
@@ -260,6 +263,10 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   private readonly operations = new Map<string, OperationRecord>()
   private selectedNodeId: string | null = null
   private claimUsedUsd = 0
+  /** Nodes ever decided `finalist`. */
+  private readonly finalists = new Set<string>()
+  /** Claim cells allocated. Once one exists, the finalists are fixed. */
+  private claimCells = 0
   private readonly audit: SearchAudit
 
   constructor(searchId: string) {
@@ -413,6 +420,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (this.operations.has(event.operationId)) {
       throw integrity(`operation ${event.operationId} was started twice`)
     }
+    this.assertSearching(`operation ${event.operationId}`)
     this.admit(event.reservation, false, `operation ${event.operationId}`)
     this.operations.set(event.operationId, {
       operationId: event.operationId,
@@ -420,7 +428,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       reservation: event.reservation,
       recorded: false,
       outcome: null,
-      artifacts: [],
+      artifacts: event.artifacts,
       spentUsd: 0,
     })
     this.audit.operations.started += 1
@@ -450,7 +458,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     }
     operation.recorded = true
     operation.outcome = event.outcome.status
-    operation.artifacts = event.artifacts
+    operation.artifacts = [...operation.artifacts, ...event.artifacts]
     operation.spentUsd = cost.usd
     this.audit.operations.recorded += 1
     this.audit.operations.open -= 1
@@ -468,6 +476,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         `node ${event.nodeId} was registered twice; a re-proposal is a second edge into it`,
       )
     }
+    this.assertSearching(`node ${event.nodeId}`)
     assertUnique(
       event.surfaces.map((surface) => surface.surfaceId),
       'surfaceId',
@@ -509,6 +518,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (!child) {
       throw integrity(`edge ${event.edgeId} names unregistered child ${event.childNodeId}`)
     }
+    this.assertSearching(`edge ${event.edgeId}`)
     if (event.label.length > MAX_LABEL_CHARS) {
       throw integrity(`edge ${event.edgeId} label exceeds ${MAX_LABEL_CHARS} characters`)
     }
@@ -572,6 +582,11 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       if (record.edgeIds.length === 0) {
         throw integrity(`edge ${event.edgeId}: parent ${parent.nodeId} has no edge of its own yet`)
       }
+      if (record.decisions.at(-1)?.decision.status === 'invalid') {
+        throw integrity(
+          `edge ${event.edgeId}: parent ${parent.nodeId} was decided invalid, and an invalid node never becomes a parent`,
+        )
+      }
       inSearch.push(record)
     }
 
@@ -632,6 +647,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         `cell ${event.cellId}: the test split is sealed; only the root and finalists run on it`,
       )
     }
+    if (event.stage !== 'claim') this.assertSearching(`cell ${event.cellId}`)
     const maxCells = this.header!.budget.maxCells
     if (maxCells !== null && this.audit.cells.allocated + 1 > maxCells) {
       throw integrity(`cell ${event.cellId} exceeds the search's maxCells ${maxCells}`)
@@ -664,7 +680,10 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     this.audit.cells.allocated += 1
     this.audit.cells.open += 1
     this.audit.spend.openReservationUsd += event.reservation?.usd ?? 0
-    if (event.stage === 'claim') this.claimUsedUsd += event.reservation?.usd ?? 0
+    if (event.stage === 'claim') {
+      this.claimUsedUsd += event.reservation?.usd ?? 0
+      this.claimCells += 1
+    }
   }
 
   private settleCell(event: SearchCellSettledEvent, index: number): void {
@@ -770,6 +789,22 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       throw integrity(`decision ${event.eventId}: node ${event.nodeId} has no edge yet`)
     }
     const status = event.decision.status
+    if (status === 'finalist' && !this.finalists.has(event.nodeId)) {
+      if (node.ordinal === 0) {
+        throw integrity(`the root ${event.nodeId} is the claim's control and cannot be a finalist`)
+      }
+      if (this.claimCells > 0) {
+        throw integrity(
+          `node ${event.nodeId} was decided finalist after a claim cell ran; the finalists are fixed before the test`,
+        )
+      }
+      if (this.finalists.size >= MAX_FINALISTS) {
+        throw integrity(
+          `node ${event.nodeId} would be finalist ${this.finalists.size + 1}; at most ${MAX_FINALISTS} are allowed`,
+        )
+      }
+      this.finalists.add(event.nodeId)
+    }
     if (status === 'selected') {
       if (this.selectedNodeId !== null && this.selectedNodeId !== event.nodeId) {
         throw integrity(
@@ -812,17 +847,36 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   private checkClaim(claim: SearchClaim): void {
-    if (claim.finalists.length > 3) {
-      throw integrity(`the claim names ${claim.finalists.length} finalists; at most 3 are allowed`)
+    const named = claim.finalists.map((finalist) => finalist.nodeId)
+    assertUnique(named, 'claim finalist', 'search-closed')
+    for (const nodeId of named) {
+      if (!this.finalists.has(nodeId)) {
+        throw integrity(`claim finalist ${nodeId} was never decided finalist`)
+      }
     }
-    assertUnique(
-      claim.finalists.map((finalist) => finalist.nodeId),
-      'claim finalist',
-      'search-closed',
-    )
+    // Every finalist stays in the family the confidence is divided among, so
+    // a finalist that lost cannot be dropped to relax the correction.
+    for (const nodeId of this.finalists) {
+      if (!named.includes(nodeId)) {
+        throw integrity(`finalist ${nodeId} is missing from the claim`)
+      }
+    }
+    const root = this.nodeOrder[0] ?? null
+    const perFinalist = 1 - (1 - claim.confidence) / Math.max(1, named.length)
     for (const finalist of claim.finalists) {
-      if (!this.nodes.get(finalist.nodeId)?.finalist) {
-        throw integrity(`claim finalist ${finalist.nodeId} was never decided finalist`)
+      const { estimate, test } = finalist
+      if (estimate && (estimate.against !== root || estimate.split !== 'test')) {
+        throw integrity(
+          `claim finalist ${finalist.nodeId} is estimated against something other than the root on test`,
+        )
+      }
+      if (test && Math.abs(test.confidence - perFinalist) > 1e-12) {
+        throw integrity(
+          `claim finalist ${finalist.nodeId} is tested at confidence ${test.confidence}; ${named.length} finalists at family-wise ${claim.confidence} need ${perFinalist}`,
+        )
+      }
+      if (finalist.promote && test === null) {
+        throw integrity(`claim finalist ${finalist.nodeId} is promoted without a test`)
       }
     }
     if (claim.selected !== this.selectedNodeId) {
@@ -830,7 +884,6 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
         `the claim selects ${claim.selected ?? 'nothing'} but the selected node is ${this.selectedNodeId ?? 'none'}`,
       )
     }
-    const root = this.nodeOrder[0] ?? null
     if (claim.decision === 'ship') {
       const shipped = claim.finalists.find((finalist) => finalist.nodeId === claim.selected)
       if (claim.selected === null || claim.selected === root || !shipped?.promote) {
@@ -838,6 +891,21 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       }
       if (!this.header!.splits.heldOutUnits) {
         throw integrity('a ship claim needs test units held out from train and selection')
+      }
+      if ('unknown' in this.header!.objective.judge) {
+        throw integrity(
+          "a ship claim needs a pinned judge; with an unknown judge a resumed search could mix two judges' verdicts",
+        )
+      }
+      const testUnits = new Set(this.header!.splits.test.tasks.map((task) => task.unitId))
+      for (const nodeId of [root!, claim.selected]) {
+        const scored = new Set(this.readScoredCells(nodeId, 'test').map((cell) => cell.unitId))
+        const missing = [...testUnits].filter((unit) => !scored.has(unit))
+        if (missing.length > 0) {
+          throw integrity(
+            `a ship claim needs every test unit scored by the root and the finalist; ${nodeId} has none on ${missing.join(', ')}`,
+          )
+        }
       }
     } else if (claim.selected !== null && claim.selected !== root) {
       throw integrity(`a ${claim.decision} claim keeps the root; it cannot select another node`)
@@ -848,6 +916,16 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
           throw integrity('a test-cannot-resolve claim spends nothing on test cells')
         }
       }
+    }
+  }
+
+  /** Once the first finalist is decided, the search only runs its claim:
+   * nothing new is proposed, registered or allocated outside the test. */
+  private assertSearching(subject: string): void {
+    if (this.finalists.size > 0 || this.claimCells > 0) {
+      throw integrity(
+        `${subject} follows the start of the claim; the search stopped when its finalists were decided`,
+      )
     }
   }
 

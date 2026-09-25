@@ -19,12 +19,28 @@
  * checks it before it asks, prices an expansion (one proposal plus one screen)
  * before the proposer runs, and records spend above a reservation as
  * overspend, never refused.
+ *
+ * A search with a test split ends in its claim. When expansion stops, the
+ * kernel fixes the claim's design (`planSearchClaim`) and stores it on the
+ * ledger's `claim` operation before any test cell exists, decides the
+ * finalists, runs the root's and the finalists' test cells together, and
+ * closes with the claim `decideSearchClaim` makes from them. A node whose
+ * train mean rises while its selection interval against its parent lies below
+ * zero is decided `invalid` by the divergence rule and never becomes a parent.
  */
 
 import { hashCanonical } from '../ledger-core/canonical'
 import { redactText } from '../trace/redact'
 import type { SearchAllocator, SearchCellPlan } from './allocation'
 import { estimateNode } from './estimate-node'
+import {
+  decideSearchClaim,
+  planSearchClaim,
+  SEARCH_CLAIM_RULE,
+  SEARCH_CLAIM_RULE_NAME,
+  type SearchClaimPlan,
+  searchClaimReserveUsd,
+} from './search-claim'
 import { FileSearchLedger } from './search-ledger'
 import type {
   RegisterSearchNodeInput,
@@ -36,6 +52,7 @@ import type {
   SearchArtifactRef,
   SearchAttemptAccounting,
   SearchCellStage,
+  SearchClaim,
   SearchCloseReason,
   SearchEdgeOperator,
   SearchOperationRecordedEvent,
@@ -73,8 +90,12 @@ const KERNEL_DEFINITION = {
   resume:
     'an unrecorded operation is recorded failed at an unknown cost with floor 0; a recorded proposal is finished from its stored output; an unsettled cell is offered to adopt before it runs',
   writers: 'one kernel per ledger file on a host, by a pid lock beside the ledger',
+  divergence:
+    'a node whose train mean over shared units rises above its parent while its descriptive or bootstrap selection interval against the parent lies wholly on the worse side is decided invalid when its cells finish',
+  claim:
+    'with a test split: after expansion stops, the claim plan is stored on the claim operation, the finalists are decided, the root and finalist test cells run together, and the claim decides; the kernel refuses to start a claim without a selection split, a minimumEffect, a pinned judge, or (under a cap) a claim reserve for the root and 3 finalists plus a cap for one screening round',
   close:
-    'the policy leader is selected when it has a scored cell; every other undecided node is rejected',
+    'without a test split, the policy leader is selected when it has a scored cell; every other undecided node is rejected',
 } as const
 
 /** The kernel every `runSearch` ledger names as its search implementation. */
@@ -84,6 +105,8 @@ export const SEARCH_KERNEL_SOURCE: SearchSourceRef = {
 }
 
 const USD_TOLERANCE = 1e-9
+/** The operation that holds the claim's plan. */
+const CLAIM_OPERATION = 'claim'
 /** Settled cells a lane needs before its own cost distribution sets its estimate. */
 const ESTIMATE_FROM_CELLS = 20
 const ESTIMATE_MARGIN = 1.5
@@ -234,9 +257,12 @@ export interface RunSearchOptions<TArtifact> {
 export interface SearchRunResult {
   /** The closed search. */
   state: SearchStateView
-  /** The node the policy kept, decided `selected` when it has a scored cell. */
+  /** The node the search keeps: the claim's selection, or without a claim the
+   * policy leader; the root when nothing was selected. */
   leader: string
   reason: SearchCloseReason
+  /** The claim on the sealed test split; null for a search without one. */
+  claim: SearchClaim | null
 }
 
 /** Run a search to its close, or continue one from its ledger. */
@@ -320,6 +346,8 @@ class SearchKernel<TArtifact> {
   private readonly completed: number[] = []
   private stopReason: SearchCloseReason | null = null
   private failure: { error: unknown } | null = null
+  /** The claim's design once expansion stopped; the search then only claims. */
+  private claimPlan: SearchClaimPlan | null = null
 
   constructor(options: RunSearchOptions<TArtifact>) {
     this.options = options
@@ -393,7 +421,12 @@ class SearchKernel<TArtifact> {
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
+      if (this.claimPlan) await this.applyClaimPlan(this.claimPlan)
       await this.loop()
+      if (!this.failure && !this.claimPlan && this.state.header!.splits.test.tasks.length > 0) {
+        await this.beginClaim()
+        await this.loop()
+      }
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
@@ -429,6 +462,8 @@ class SearchKernel<TArtifact> {
     const root = this.state.rootNodeId!
     this.artifacts.set(root, this.options.root)
     this.expansionOf.set(root, -1)
+    if (this.state.audit.cells.allocated === 0) this.assertClaimReady()
+    await this.restoreClaimPlan()
 
     // Operations an earlier process started and never recorded: their spend
     // is unknown, so each is recorded failed with a floor of zero.
@@ -480,8 +515,13 @@ class SearchKernel<TArtifact> {
       }
       this.adoptable.add(cell.cellId)
       this.enqueue(cell)
-      this.pending.set(cell.nodeId, (this.pending.get(cell.nodeId) ?? 0) + 1)
+      if (cell.stage !== 'claim') {
+        this.pending.set(cell.nodeId, (this.pending.get(cell.nodeId) ?? 0) + 1)
+      }
     }
+    // Once the claim began the search only claims: nothing is proposed or
+    // allocated outside the test.
+    if (this.claimPlan) return
     // A proposal recorded before its children all were: finish it from its output.
     for (const expansion of recorded) await this.finishProposal(expansion)
     for (const node of this.state.nodes()) {
@@ -489,9 +529,68 @@ class SearchKernel<TArtifact> {
     }
     for (const nodeId of this.state.nodeIds()) {
       if (this.admitted.has(nodeId) && (this.pending.get(nodeId) ?? 0) === 0) {
-        this.markScreened(nodeId)
+        await this.screenDone(nodeId)
       }
     }
+  }
+
+  /**
+   * A search that will claim must be able to: finalists come from a selection
+   * split, the power check needs the claim's minimum effect, a ship needs a
+   * pinned judge, and under a cap the claim reserve must cover the root and 3
+   * finalists on every test task while the rest of the cap covers one
+   * screening round. Checked before the first cell, so a search that cannot
+   * claim spends nothing.
+   */
+  private assertClaimReady(): void {
+    const header = this.state.header!
+    const testTasks = header.splits.test.tasks.length
+    if (testTasks === 0) return
+    const refuse = (why: string): never => {
+      throw new Error(`runSearch: search ${this.recorder.searchId} has a test split, but ${why}`)
+    }
+    if (header.splits.selection.tasks.length === 0) {
+      refuse('no selection split to choose its finalists on')
+    }
+    if (header.objective.claim.minimumEffect === undefined) {
+      refuse('its claim declares no minimumEffect for the power check')
+    }
+    if ('unknown' in header.objective.judge) {
+      refuse(
+        'its judge is not pinned; a claim with an unknown judge cannot ship, and a resumed search could mix two judges',
+      )
+    }
+    const { maxUsd, reservedClaimUsd } = header.budget
+    if (maxUsd === null) return
+    const cellUsd = this.maxCellReservation()
+    const need = searchClaimReserveUsd({ testTasks, reps: this.options.allocation.reps, cellUsd })
+    if (reservedClaimUsd + USD_TOLERANCE < need) {
+      refuse(
+        `its claim reserve $${reservedClaimUsd} is below the $${need} the root and 3 finalists need on ${testTasks} test tasks at $${cellUsd} a cell`,
+      )
+    }
+    const rootCells = this.options.allocation.plan(this.state, this.state.rootNodeId!).length
+    const screens =
+      (this.options.proposer.childrenPerProposal ?? 1) *
+      this.options.allocation.screenSize(this.state)
+    const round = this.operationReservation().usd + (rootCells + screens) * cellUsd
+    if (maxUsd - reservedClaimUsd + USD_TOLERANCE < round) {
+      refuse(
+        `its cap $${maxUsd} less the claim reserve $${reservedClaimUsd} does not cover the root and one screening round ($${round})`,
+      )
+    }
+  }
+
+  /** A claim an earlier process began: continue it from its stored plan. */
+  private async restoreClaimPlan(): Promise<void> {
+    const operation = this.state.operation(CLAIM_OPERATION)
+    if (!operation) return
+    const ref = operation.artifacts.find((artifact) => artifact.role === 'claim-plan')
+    if (!ref) throw new Error(`runSearch: the ${CLAIM_OPERATION} operation has no stored plan`)
+    const plan = this.recorder.readBlob(ref) as SearchClaimPlan
+    if (!operation.recorded) await this.recordClaimOperation()
+    this.claimPlan = plan
+    this.stopReason = plan.stopReason
   }
 
   // ── The loop ────────────────────────────────────────────────────────
@@ -562,11 +661,17 @@ class SearchKernel<TArtifact> {
   /** Fill free lane slots with queued cells. A queued cell was admitted when
    * it was allocated, so starting it needs no further decision. */
   private dispatch(): void {
-    if (this.failure || this.options.signal?.aborted || this.pastDeadline()) return
+    if (this.failure || this.options.signal?.aborted) return
+    // Past the deadline the search stops, but its claim still runs: the
+    // claim's budget was reserved at the start.
+    const claimOnly = this.pastDeadline()
     const cap = this.state.header!.budget.maxConcurrency
     for (const lane of this.lanes.values()) {
       while (lane.inFlight < lane.capacity && (cap === null || this.inFlight.size < cap)) {
-        const cellId = lane.queues.find((queue) => queue.length > 0)?.shift()
+        const queue = claimOnly
+          ? lane.queues[STAGE_PRIORITY.claim]
+          : lane.queues.find((waiting) => waiting.length > 0)
+        const cellId = queue?.shift()
         if (cellId === undefined) break
         this.start(cellId, lane)
       }
@@ -634,14 +739,41 @@ class SearchKernel<TArtifact> {
       this.enqueue(cell)
       return
     }
+    if (cell.stage === 'claim') return
     const left = (this.pending.get(cell.nodeId) ?? 1) - 1
     this.pending.set(cell.nodeId, left)
     if (left === 0) await this.onScreenDone(cell.nodeId)
   }
 
   private async onScreenDone(nodeId: string): Promise<void> {
-    this.markScreened(nodeId)
+    if (!(await this.screenDone(nodeId))) return
     if (this.stopReason === null && !this.failure) await this.allocateFor(nodeId)
+  }
+
+  /**
+   * A node's allocated cells all finished. A node that diverges (its train
+   * mean rose over its parent's while its selection interval against the
+   * parent lies wholly on the worse side) is decided `invalid` and never
+   * becomes a parent; any other node is screened. Returns whether it was.
+   */
+  private async screenDone(nodeId: string): Promise<boolean> {
+    if (!this.claimPlan && !this.screenedSet.has(nodeId)) {
+      const divergence = searchDivergence(this.state, nodeId)
+      if (divergence) {
+        await this.recorder.decideNode({
+          nodeId,
+          decision: { status: 'invalid' },
+          basis: divergence.basis,
+          rule: 'divergence',
+          reason: divergence.reason,
+        })
+        await this.refresh()
+        this.admitted.delete(nodeId)
+        return false
+      }
+    }
+    this.markScreened(nodeId)
+    return true
   }
 
   private markScreened(nodeId: string): void {
@@ -708,9 +840,141 @@ class SearchKernel<TArtifact> {
     return count
   }
 
+  // ── Claim ───────────────────────────────────────────────────────────
+
+  /** Fix the claim's design, store it, and start its test cells. */
+  private async beginClaim(): Promise<void> {
+    await this.refresh()
+    const stopReason = this.stopReason ?? 'converged'
+    const header = this.state.header!
+    const reps = this.options.allocation.reps
+    const plan = planSearchClaim(this.state, {
+      stopReason,
+      reps,
+      affordable: (finalists) => {
+        const placed = this.claimCells(finalists, this.state.rootNodeId!)
+        const hold = placed.reduce((sum, cell) => sum + cell.reservation.usd, 0)
+        const { headroomUsd, claimReserveUsd } = this.state.budget
+        const { maxCells } = header.budget
+        return (
+          (headroomUsd === null || hold <= headroomUsd + claimReserveUsd + USD_TOLERANCE) &&
+          (maxCells === null || this.state.audit.cells.allocated + placed.length <= maxCells)
+        )
+      },
+    })
+    await this.recorder.startOperation({
+      operationId: CLAIM_OPERATION,
+      operationKind: 'selection',
+      reservation: null,
+      artifacts: [this.recorder.blob('claim-plan', plan)],
+    })
+    await this.recordClaimOperation()
+    this.claimPlan = plan
+    this.stopReason = stopReason
+    await this.applyClaimPlan(plan)
+  }
+
+  private async recordClaimOperation(): Promise<void> {
+    await this.recorder.recordOperation({
+      operationId: CLAIM_OPERATION,
+      operationKind: 'selection',
+      execution: { kind: 'deterministic', source: SEARCH_CLAIM_RULE },
+      outcome: { status: 'completed' },
+      accounting: {
+        tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+        cost: { status: 'known', usd: 0, source: 'free' },
+      },
+    })
+    await this.refresh()
+  }
+
+  /**
+   * Decide the plan's finalists and allocate the test cells of the root and
+   * the finalists, interleaved by task so the arms of one task run side by
+   * side. Allocation finishes before any claim cell starts. Idempotent.
+   */
+  private async applyClaimPlan(plan: SearchClaimPlan): Promise<void> {
+    const root = this.state.rootNodeId!
+    for (const [rank, finalist] of plan.finalists.entries()) {
+      const basis = estimateNode(this.state, finalist.nodeId, { against: root, split: 'selection' })
+      await this.recorder.decideNode({
+        nodeId: finalist.nodeId,
+        decision: { status: 'finalist' },
+        basis,
+        rule: SEARCH_CLAIM_RULE_NAME,
+        reason: `rank ${rank + 1} of ${plan.finalists.length} by selection mean (${finalist.selectionMean}); ${plan.reason}`,
+      })
+    }
+    await this.refresh()
+    if (plan.test !== 'run') return
+    const fresh: string[] = []
+    for (const cell of this.claimCells(plan.finalists.length, root, plan)) {
+      const cellId = searchCellId(
+        this.recorder.searchId,
+        cell.nodeId,
+        cell.plan.taskId,
+        'test',
+        cell.plan.rep,
+      )
+      if (this.state.cell(cellId)) continue
+      await this.recorder.allocateCell({
+        nodeId: cell.nodeId,
+        taskId: cell.plan.taskId,
+        split: 'test',
+        rep: cell.plan.rep,
+        stage: 'claim',
+        lane: cell.lane.name,
+        reservation: cell.reservation,
+      })
+      fresh.push(cellId)
+    }
+    await this.refresh()
+    for (const cellId of fresh) this.enqueue(this.state.cell(cellId)!)
+  }
+
+  /** The test cells of the root and the first `finalists` of the plan (or of
+   * the finalist count being priced), task by task, with their lanes and holds. */
+  private claimCells(
+    finalists: number,
+    root: string,
+    plan?: SearchClaimPlan,
+  ): Array<{
+    nodeId: string
+    plan: SearchCellPlan
+    lane: LaneState
+    reservation: SearchReservation
+  }> {
+    const header = this.state.header!
+    // While pricing, the arms are placeholders: placement and holds depend on
+    // the lane, never on which node runs.
+    const arms = [root, ...(plan ? plan.finalists.map((entry) => entry.nodeId) : [])]
+    while (arms.length < finalists + 1) arms.push(root)
+    const cells = []
+    for (const task of header.splits.test.tasks) {
+      for (let rep = 0; rep < this.options.allocation.reps; rep++) {
+        for (const nodeId of arms) {
+          const cellPlan: SearchCellPlan = {
+            taskId: task.taskId,
+            split: 'test',
+            rep,
+            stage: 'claim',
+          }
+          const laneName = this.options.executor.place({ ...cellPlan, nodeId })
+          const lane = this.lanes.get(laneName)
+          if (!lane) {
+            throw new Error(`runSearch: the executor placed a cell on unknown lane ${laneName}`)
+          }
+          cells.push({ nodeId, plan: cellPlan, lane, reservation: this.cellReservation(lane) })
+        }
+      }
+    }
+    return cells
+  }
+
   private async cancelQueued(reason: 'deadline' | 'budget'): Promise<void> {
     for (const lane of this.lanes.values()) {
-      for (const queue of lane.queues) {
+      for (const [priority, queue] of lane.queues.entries()) {
+        if (priority === STAGE_PRIORITY.claim) continue
         for (const cellId of queue.splice(0)) {
           const cell = this.state.cell(cellId)!
           // A cell with a settled attempt already counts as settled; only a
@@ -928,6 +1192,10 @@ class SearchKernel<TArtifact> {
 
   private async close(): Promise<void> {
     await this.refresh()
+    if (this.claimPlan) {
+      await this.closeWithClaim(this.claimPlan)
+      return
+    }
     const view = this.policyView()
     const leader = this.options.policy.leader(view)
     const { split } = view
@@ -965,12 +1233,41 @@ class SearchKernel<TArtifact> {
     await this.refresh()
   }
 
+  /** Close with the claim: the claim's decisions, then every other open node
+   * rejected with its selection estimate against the root. */
+  private async closeWithClaim(plan: SearchClaimPlan): Promise<void> {
+    const { claim, decisions } = decideSearchClaim(this.state, plan)
+    const decided = new Set(decisions.map((decision) => decision.nodeId))
+    const root = this.state.rootNodeId!
+    const rest = this.state
+      .nodes()
+      .filter((node) => !decided.has(node.nodeId) && !isTerminal(node))
+      .map((node) => {
+        const scored = this.state.scoredCells(node.nodeId, 'selection').length > 0
+        return {
+          nodeId: node.nodeId,
+          decision: { status: 'rejected' as const },
+          basis: scored
+            ? estimateNode(this.state, node.nodeId, { against: root, split: 'selection' })
+            : null,
+          rule: SEARCH_CLAIM_RULE_NAME,
+          reason: scored
+            ? 'not a finalist: the claim tests at most 3 nodes that scored every selection unit and beat the root, best selection mean first'
+            : 'the search stopped before this node was measured on the selection split',
+        }
+      })
+    for (const decision of [...decisions, ...rest]) await this.recorder.decideNode(decision)
+    await this.recorder.close({ reason: plan.stopReason, claim })
+    await this.refresh()
+  }
+
   private closedResult(): SearchRunResult {
     const state = this.state
     return {
       state,
       leader: state.audit.selectedNodeId ?? state.rootNodeId!,
       reason: state.closed!.reason,
+      claim: state.closed!.claim,
     }
   }
 
@@ -1058,6 +1355,49 @@ export function searchPolicyView(
     unitScores: (nodeId) => state.unitScores(nodeId, split),
     estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
   }
+}
+
+/**
+ * The divergence rule: a node whose train mean rose over its parent's on the
+ * train units they share while its selection interval against the parent (6
+ * or more units, not indeterminate) lies wholly on the worse side. Train is
+ * what the proposer reads; a gain there that selection contradicts is the
+ * signature of fitting the feedback instead of the task.
+ */
+export function searchDivergence(
+  state: SearchStateView,
+  nodeId: string,
+): { basis: NodeEstimate; reason: string } | null {
+  const header = state.header
+  const node = state.node(nodeId)
+  const parent = node?.primaryParentId ?? null
+  if (!header || parent === null || header.splits.selection.tasks.length === 0) return null
+  const selection = estimateNode(state, nodeId, { against: parent, split: 'selection' })
+  if (selection.interval === null) return null
+  const maximize = header.objective.direction === 'maximize'
+  const [low, high] = selection.interval
+  if (maximize ? high >= 0 : low <= 0) return null
+  const parentTrain = new Map(
+    state.unitScores(parent, 'train').map((unit) => [unit.unitId, unit.mean]),
+  )
+  let gain = 0
+  let shared = 0
+  for (const unit of state.unitScores(nodeId, 'train')) {
+    const before = parentTrain.get(unit.unitId)
+    if (before === undefined) continue
+    gain += maximize ? unit.mean - before : before - unit.mean
+    shared += 1
+  }
+  if (shared === 0 || gain <= 0) return null
+  const trainGain = Math.round((gain / shared) * 1e4) / 1e4
+  return {
+    basis: selection,
+    reason: `its train mean rose ${trainGain} over its parent's on ${shared} shared train unit${shared === 1 ? '' : 's'}, while its selection interval against the parent, [${round4(low)}, ${round4(high)}] on ${selection.pairs} units, lies wholly on the worse side`,
+  }
+}
+
+function round4(value: number): number {
+  return Math.round(value * 1e4) / 1e4
 }
 
 function isTerminal(node: SearchNode): boolean {
