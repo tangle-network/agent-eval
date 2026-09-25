@@ -18,6 +18,12 @@
  *     terminal status and duration.
  *   - `argument(p, { pointer, check, occurrence })` — a JSON Pointer check on
  *     tool-call arguments; a call without captured arguments fails.
+ *   - `toolsOffered(declared)` — the tools the harness offered the model
+ *     (`gen_ai.tool.definitions`) are recorded, every call is one of them, and
+ *     every offered tool is declared. No record fails: enforcement is unknown.
+ *   - `retrySafe({ reads, writes })` — a tool called again with the same
+ *     arguments repeats its side effect: reads may repeat, writes only under
+ *     one idempotency key, and an undeclared tool may not repeat.
  *
  * Ordering has three modes. `start-order` (the default) needs an `a` that
  * started strictly before each `b`; `finish-before-start` needs an `a` that
@@ -61,6 +67,7 @@ export {
   type LlmSpec,
   lintTraceContractSpec,
   type PathSpec,
+  type RetriesSpec,
   type ToolArgumentSpec,
   type ToolsSpec,
   type TraceContractSpec,

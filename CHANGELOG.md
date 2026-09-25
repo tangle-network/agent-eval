@@ -8,6 +8,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- Trace contracts check what the harness enforced and whether a call repeated a side effect.
+  `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
+  It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
+- `retries: { reads, writes }` (the `retrySafe` rule) treats a tool called again with the same arguments as a repeat of its side effect.
+  Reads may repeat, a write may repeat only when every call carries one idempotency key at its `idempotencyKey` pointer, and any other tool may not repeat.
+  The key is left out of the comparison, so a retry under a new key still counts as the same charge.
+
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 
 ## [0.189.0] — 2026-09-24

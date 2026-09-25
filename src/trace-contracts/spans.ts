@@ -86,6 +86,61 @@ export function spanArguments(span: ContractSpan): ArgumentEvidence {
   return { known: false, reason: 'the span carries no argument evidence' }
 }
 
+/** The OTel GenAI attribute listing the tool definitions offered to the
+ *  model: an array (or its JSON string) of `{ name }`, `{ function: { name } }`
+ *  or plain names. */
+export const TOOL_DEFINITIONS_ATTR = 'gen_ai.tool.definitions'
+
+export type OfferedTools =
+  | { recorded: false }
+  | { recorded: true; names: string[] }
+  | { recorded: true; unreadable: string }
+
+/** The tool names a span records as offered to the model. */
+export function spanOfferedTools(span: ContractSpan): OfferedTools {
+  const raw = span.attributes?.[TOOL_DEFINITIONS_ATTR]
+  if (raw === undefined || raw === null) return { recorded: false }
+  const value = parseJsonString(raw)
+  if (!Array.isArray(value)) {
+    return { recorded: true, unreadable: `${TOOL_DEFINITIONS_ATTR} is not a list` }
+  }
+  const names: string[] = []
+  for (const entry of value) {
+    const name = typeof entry === 'string' ? entry : definitionName(entry)
+    if (name === undefined) {
+      return {
+        recorded: true,
+        unreadable: `${TOOL_DEFINITIONS_ATTR} has an entry without a tool name`,
+      }
+    }
+    names.push(name)
+  }
+  return { recorded: true, names }
+}
+
+function definitionName(entry: unknown): string | undefined {
+  if (entry === null || typeof entry !== 'object') return undefined
+  const record = entry as Record<string, unknown>
+  if (typeof record.name === 'string' && record.name.length > 0) return record.name
+  const fn = record.function as Record<string, unknown> | undefined
+  return fn !== null && typeof fn === 'object' && typeof fn.name === 'string' && fn.name.length > 0
+    ? fn.name
+    : undefined
+}
+
+/** JSON with object keys sorted, so equal arguments give equal text. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
 function parseJsonString(value: unknown): unknown {
   if (typeof value !== 'string') return value
   try {

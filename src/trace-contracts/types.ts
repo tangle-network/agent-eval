@@ -106,6 +106,14 @@ export type ArgumentCheck =
   | { op: 'oneOf'; values: unknown[] }
   | { op: 'type'; type: ArgumentType }
 
+/** A tool whose calls change state outside the run. */
+export interface RetryWrite {
+  tool: string
+  /** RFC 6901 JSON Pointer to the idempotency key in the call's arguments.
+   *  Without it, a repeated call of this tool always fails. */
+  idempotencyKey?: string
+}
+
 export interface RunChecks {
   /** The run reached a terminal status (not `running`) with a recorded end. */
   requireCompleted?: boolean
@@ -137,6 +145,30 @@ export type ContractRule =
       check: ArgumentCheck
       /** Which matching calls must satisfy the check. Default `all`. */
       occurrence?: ArgumentOccurrence
+    }
+  | {
+      /**
+       * The tools the harness offered the model (the OTel GenAI
+       * `gen_ai.tool.definitions` attribute) are recorded, every tool call is
+       * one of them, and, when `declared` is set, every offered tool is
+       * declared. A trace that records no offered tools fails: what the
+       * harness enforced is unknown.
+       */
+      kind: 'toolsOffered'
+      label: string
+      declared?: string[]
+    }
+  | {
+      /**
+       * A tool called again with the same arguments repeats its side effect.
+       * A repeated `reads` call passes; a repeated `writes` call passes only
+       * when every call carries the same idempotency key; a repeated call of
+       * any other tool fails, because its side effect is unknown.
+       */
+      kind: 'retrySafe'
+      label: string
+      reads?: string[]
+      writes?: RetryWrite[]
     }
 
 export type ContractRuleKind = ContractRule['kind']
