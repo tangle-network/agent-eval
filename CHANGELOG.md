@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.194.0] — 2026-09-25
+
 ### Fixed
 
 - A capped search whose cells cost more than their holds could never close: once overspend took committed spend plus the claim reserve past `maxUsd`, the projector refused the `claim` operation, which holds nothing, and every resume failed the same way (`operation claim is not admissible: committed $3.449935 + open $0 + claim reserve $6.5 + hold $0 exceeds the cap $9.6`, with a planted better node already found). The admission rule now admits holds only: an event without a reservation is always recorded, and a claim cell within the unspent claim reserve is admitted however much earlier cells overspent. The same search now runs its 48 claim cells on the reserve, ships the planted node, and ends at $6.31 committed against the $9.60 cap plus $0.79 recorded overspend. `runSearch` also stops expanding once overspend took the search past its cap, even at a zero-dollar lane prior.
