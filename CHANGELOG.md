@@ -51,6 +51,15 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- `estimateNode(state, nodeId, { against, split })` is the one statistic of a search node ([search ledger](./docs/search-ledger.md#estimates)).
+  It averages cells inside their units, pairs the units both nodes scored, and runs `pairedDeltaTest` on the per-unit deltas: `none` below 2 pairs, `insufficient` below 6, `descriptive` (interval as spread plus the exact one-sided sign p) below 20, and `bootstrap` from 20.
+  The bootstrap is seeded from `cellSetDigest`, the digest of exactly the cells read, so equal cells give equal bits in any process and any row order; an all-equal sample is `indeterminate` and reports no interval or p.
+  `estimateNodeFromCells` is the same computation over cells a verifier read from its own store, and `SEARCH_ESTIMATOR` names the estimator by a digest of its parameters.
+  On the 38 paired rows of the 2026-08-08 prime-vs-dspy CodeTraceBench report it gives delta 0.1386, interval [0.0636, 0.2167], against the report's 0.1385.
+- `searchPosterior(state, { split })` gives every node a normal posterior on its improvement over the root: its mean per-unit improvement, and the search's pooled between-unit variance divided by its shared units.
+  It takes 295 ms CPU over 100,000 screened nodes.
+- `NodeEstimate.indeterminate`; `SearchStateView.scoredCells`, `hasNode` and `nodeIds`; `searchUnitScores`.
+  A unit's mean now sums its cells in cellId order instead of settlement order.
 - Trace contracts check what the harness enforced and whether a call repeated a side effect.
   `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
   It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
