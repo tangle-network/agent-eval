@@ -13,16 +13,26 @@
  *
  *   node --import tsx scripts/search-sim.ts run --dir DIR [options]
  *   node --import tsx scripts/search-sim.ts kill-resume --dir DIR --kills 6 [options]
+ *   node --import tsx scripts/search-sim.ts compare --seeds 100 [options]
  *
  * `run` runs or resumes the search in DIR to its close. `kill-resume` runs the
  * search in DIR/killed as a child process, SIGKILLs it at seeded random ledger
  * sequences, resumes it each time, then runs the same search uninterrupted in
- * DIR/reference and compares the two.
+ * DIR/reference and compares the two. `compare` runs the search once per seed
+ * under `uniform` and under `asha`, with in-memory ledgers, and reports the
+ * cells each spent and the node each kept.
  *
  * Options: --seed N (1), --train N (2), --selection N (6), --reps N (1),
  * --population N (3), --expansions N (6), --capacity N (4), --max-usd X
  * (none), --cell-usd X (0.05), --cost-cap hard|estimate (estimate),
- * --fault-rate X (0), --delay-ms N (5), --patience N, --deadline ISO.
+ * --fault-rate X (0), --delay-ms N (5), --patience N, --deadline ISO,
+ * --allocation uniform|asha (uniform), --plant-gap X (none): the first
+ * proposal's child `root.<--plant-child N (0)>` gets the root's quality plus X
+ * instead of a seeded step, so the search has one known best node.
+ *
+ * Every run checks its ledger: each `advanced` and `pruned` decision must be
+ * one the allocator makes again from the ledger before it, and every screened
+ * edge's pairs against its parent are counted.
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
  */
@@ -32,8 +42,13 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { uniform } from '../src/campaign/allocation'
-import { openSearchLedger } from '../src/campaign/search-ledger'
+import { asha, type SearchAllocator, uniform } from '../src/campaign/allocation'
+import { estimateNode } from '../src/campaign/estimate-node'
+import {
+  openSearchLedger,
+  parseSearchLedgerLine,
+  replaySearchLedgerText,
+} from '../src/campaign/search-ledger'
 import { developmentClaim, SearchRecorder } from '../src/campaign/search-ledger-recording'
 import {
   runSearch,
@@ -45,8 +60,8 @@ import {
 } from '../src/campaign/search-kernel'
 import { incumbent } from '../src/campaign/search-policy'
 import type { SearchSourceRef, SearchTask } from '../src/campaign/search-ledger-types'
-import type { SearchStateView } from '../src/campaign/search-state'
-import { hashCanonical } from '../src/ledger-core/canonical'
+import { SearchState, type SearchStateView } from '../src/campaign/search-state'
+import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 
 interface SimArtifact {
   name: string
@@ -69,6 +84,9 @@ interface SimOptions {
   patience: number | undefined
   /** ISO time after which the search stops expanding and cancels waiting cells. */
   deadline: string | null
+  allocation: 'uniform' | 'asha'
+  plantGap: number | null
+  plantChild: number
 }
 
 const SEARCH_ID = 'search-sim'
@@ -101,11 +119,35 @@ function tasks(prefix: string, count: number): SearchTask[] {
   }))
 }
 
-async function runSimulation(dir: string, options: SimOptions): Promise<Record<string, unknown>> {
-  mkdirSync(join(dir, 'executor'), { recursive: true })
-  const ledger = openSearchLedger({ path: join(dir, 'ledger.jsonl'), searchId: SEARCH_ID })
+const MAX_ATTEMPTS = 3
+
+function allocationOf(options: SimOptions): SearchAllocator {
+  return options.allocation === 'asha' ? asha({ reps: options.reps }) : uniform({ reps: options.reps })
+}
+
+/** In-process text for `compare`: the ledger's rules without a file. */
+function memoryStore(): { read(path: string): string | undefined; write(path: string, text: string): void } {
+  const texts = new Map<string, string>()
+  return { read: (path) => texts.get(path), write: (path, text) => void texts.set(path, text) }
+}
+
+/**
+ * Run or resume the search. With a directory the ledger and the executor's
+ * finished attempts are files, so a killed process can resume; without one the
+ * ledger is held in memory and nothing is written.
+ */
+async function runSimulation(
+  dir: string | null,
+  options: SimOptions,
+): Promise<Record<string, unknown>> {
+  const store = dir === null ? memoryStore() : null
+  if (dir !== null) mkdirSync(join(dir, 'executor'), { recursive: true })
+  const ledgerPath = dir === null ? 'memory/ledger.jsonl' : join(dir, 'ledger.jsonl')
+  const ledger = store
+    ? openSearchLedger({ path: ledgerPath, searchId: SEARCH_ID, store })
+    : openSearchLedger({ path: ledgerPath, searchId: SEARCH_ID })
   const policy = incumbent(options.patience === undefined ? {} : { patience: options.patience })
-  const allocation = uniform({ reps: options.reps })
+  const allocation = allocationOf(options)
   const recorder = await SearchRecorder.open(
     { ledger },
     {
@@ -174,9 +216,12 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
     inFlight += delta
     peak = Math.max(peak, inFlight)
   }
-  const executorDir = join(dir, 'executor')
+  const executorDir = dir === null ? null : join(dir, 'executor')
   const resultPath = (runId: string): string =>
-    join(executorDir, `${createHash('sha256').update(runId).digest('hex').slice(0, 24)}.json`)
+    join(executorDir!, `${createHash('sha256').update(runId).digest('hex').slice(0, 24)}.json`)
+  const log = (name: string, runId: string): void => {
+    if (executorDir !== null) appendFileSync(join(executorDir, name), `${runId}\n`)
+  }
   let adopted = 0
 
   const executor: SearchExecutor<SimArtifact> = {
@@ -190,21 +235,21 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
     ],
     place: () => 'sim',
     async adopt(work) {
-      if (!existsSync(resultPath(work.runId))) return null
+      if (executorDir === null || !existsSync(resultPath(work.runId))) return null
       adopted += 1
-      appendFileSync(join(executorDir, 'adopted.log'), `${work.runId}\n`)
+      log('adopted.log', work.runId)
       return JSON.parse(readFileSync(resultPath(work.runId), 'utf8')) as SearchCellResult
     },
     async run(work) {
-      appendFileSync(join(executorDir, 'started.log'), `${work.runId}\n`)
+      log('started.log', work.runId)
       track(1)
       try {
         await new Promise((done) =>
           setTimeout(done, options.delayMs * (0.5 + unit(options.seed, 'delay', work.runId))),
         )
         const result = simulateCell(work, options)
-        writeFileSync(resultPath(work.runId), JSON.stringify(result))
-        appendFileSync(join(executorDir, 'finished.log'), `${work.runId}\n`)
+        if (executorDir !== null) writeFileSync(resultPath(work.runId), JSON.stringify(result))
+        log('finished.log', work.runId)
         // The worker has finished; its response takes a while to arrive, so a
         // restart in this window finds a result to adopt.
         await new Promise((done) => setTimeout(done, options.delayMs / 2))
@@ -231,7 +276,10 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
       return {
         children: Array.from({ length: options.population }, (_, index) => {
           const name = `${parent.artifact.name}.${born + index}`
-          const step = -0.08 + 0.18 * unit(options.seed, 'step', name)
+          const step =
+            options.plantGap !== null && name === `root.${options.plantChild}`
+              ? options.plantGap
+              : -0.08 + 0.18 * unit(options.seed, 'step', name)
           return {
             artifact: { name, quality: round(parent.artifact.quality + step) },
             label: `step ${name}`,
@@ -255,13 +303,26 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
     proposer,
     executor,
     maxExpansions: options.expansions,
+    maxAttempts: MAX_ATTEMPTS,
   })
   track(0)
   const { audit } = result.state
+  const text =
+    store?.read(ledgerPath) ?? readFileSync(ledgerPath, 'utf8')
+  const kept = result.state.node(result.leader)!
+  const artifactOf = (nodeId: string): SimArtifact =>
+    (recorder.readBlob(result.state.node(nodeId)!.artifact) as { artifact: SimArtifact }).artifact
+  const planted =
+    options.plantGap === null
+      ? null
+      : (result.state.nodes().find((node) => artifactOf(node.nodeId).name === `root.${options.plantChild}`)
+          ?.nodeId ?? null)
   return {
     reason: result.reason,
     leader: result.leader,
+    kept: { ...artifactOf(kept.nodeId), status: kept.status, planted: kept.nodeId === planted },
     audit,
+    ledgerChecks: checkLedger(text, allocation),
     lanes: {
       capacity: options.capacity,
       peakInFlight: peak,
@@ -270,6 +331,78 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
       atCapacityShare: round(fullTime / Math.max(1, busyTime)),
     },
     adopted,
+  }
+}
+
+/** No cell of the node can run again, as the kernel counts it. */
+function idle(state: SearchStateView, nodeId: string): boolean {
+  const node = state.node(nodeId)
+  if (!node || node.edgeIds.length === 0 || node.status === 'invalid') return false
+  return state
+    .cells({ nodeId })
+    .every(
+      (cell) =>
+        cell.final ||
+        cell.cancelled !== null ||
+        (cell.outcome === 'errored' && cell.attempts >= MAX_ATTEMPTS),
+    )
+}
+
+/**
+ * Audit a closed ledger. Each `advanced` and `pruned` decision must be one the
+ * allocator returns again from the ledger just before it (pruning keeps the
+ * node the search selected), so every rank decision derives from recorded
+ * evidence. Each measured node's contrast with its parent is counted by the
+ * units they pair on, and cells are counted by stage.
+ */
+function checkLedger(text: string, allocation: SearchAllocator): Record<string, unknown> {
+  const final = replaySearchLedgerText(text, SEARCH_ID, 'sim-ledger')
+  const keep = final.audit.selectedNodeId ?? final.rootNodeId!
+  const state = new SearchState(SEARCH_ID)
+  const decisions = { advanced: 0, pruned: 0, unexplained: [] as string[] }
+  const lines = text.trim().split('\n')
+  for (const [index, line] of lines.entries()) {
+    const entry = parseSearchLedgerLine(line, SEARCH_ID, { path: 'sim-ledger', line: index + 1 })
+    const { event } = entry
+    if (
+      event.kind === 'node-decided' &&
+      (event.decision.status === 'advanced' || event.decision.status === 'pruned')
+    ) {
+      const before = state.snapshot()
+      const view = { state: before, idle: (nodeId: string) => idle(before, nodeId) }
+      const expected =
+        event.decision.status === 'advanced'
+          ? allocation.advance(view)
+          : allocation.prune(view, keep)
+      const decision = canonicalString(event.decision)
+      if (
+        !expected.some(
+          (made) => made.nodeId === event.nodeId && canonicalString(made.decision) === decision,
+        )
+      ) {
+        decisions.unexplained.push(`${index}:${event.nodeId}:${decision}`)
+      }
+      decisions[event.decision.status] += 1
+    }
+    state.apply(entry, index)
+  }
+  const split = final.header!.splits.selection.tasks.length > 0 ? 'selection' : 'train'
+  const edgePairs: Record<string, number> = {}
+  for (const node of final.nodes()) {
+    if (node.primaryParentId === null || final.scoredCells(node.nodeId, split).length === 0) continue
+    const { pairs } = estimateNode(final, node.nodeId, { against: node.primaryParentId, split })
+    edgePairs[pairs] = (edgePairs[pairs] ?? 0) + 1
+  }
+  const cellsByStage: Record<string, number> = {}
+  for (const cell of final.cells()) cellsByStage[cell.stage] = (cellsByStage[cell.stage] ?? 0) + 1
+  const statuses: Record<string, number> = {}
+  for (const node of final.nodes()) statuses[node.status ?? 'none'] = (statuses[node.status ?? 'none'] ?? 0) + 1
+  return {
+    ok: decisions.unexplained.length === 0,
+    decisions,
+    edgePairs,
+    cellsByStage,
+    statuses,
   }
 }
 
@@ -420,21 +553,32 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
     spend: { committedUsd: number; overspendUsd: number }
     operations: { started: number; recorded: number }
   }
-  const checks = {
+  // A uniform search's decisions do not depend on the order cells finish in,
+  // so the resumed search must equal the uninterrupted one. An asha search
+  // ranks the nodes that finished a rung when a node finishes it, so a
+  // restart that changes the finishing order may change a promotion; there
+  // the resumed ledger must hold only rank decisions its own evidence makes.
+  const reproduces = {
     sameNodes: same('nodes'),
     sameEdges: same('edges'),
     sameCells: same('cells'),
     sameScores: same('scores'),
     sameDecisions: same('decisions'),
     sameClose: same('close'),
+  }
+  const ledgerChecks = resumedSummary.ledgerChecks as { ok: boolean }
+  const invariants = {
     noDuplicateCellAllocations: actual.duplicateCellAllocations === 0,
     everyAttemptFinishedOnce: finished.length === new Set(finished).size,
+    rankDecisionsFromEvidence: ledgerChecks.ok,
     spendWithinCap:
       options.maxUsd === null ||
       audit.spend.committedUsd <= options.maxUsd + audit.spend.overspendUsd + 1e-9,
   }
+  const checks = { ...reproduces, ...invariants }
+  const required = options.allocation === 'uniform' ? checks : invariants
   return {
-    ok: Object.values(checks).every(Boolean),
+    ok: Object.values(required).every(Boolean),
     checks,
     kills: killPoints,
     referenceEntries: total,
@@ -452,6 +596,71 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
       cells: (actual.cells as unknown[]).length,
       decisions: actual.decisions,
     },
+  }
+}
+
+/**
+ * The same search under `uniform` and `asha`, once per seed from `options.seed`:
+ * cells each allocated, and whether both kept the same node. Ledgers are held
+ * in memory; every run's ledger audit must pass.
+ */
+async function compare(options: SimOptions, seeds: number) {
+  const rows: Array<Record<string, unknown>> = []
+  for (let seed = options.seed; seed < options.seed + seeds; seed++) {
+    const arms: Record<string, Record<string, unknown>> = {}
+    for (const allocation of ['uniform', 'asha'] as const) {
+      arms[allocation] = await runSimulation(null, { ...options, seed, allocation })
+    }
+    const summary = (arm: Record<string, unknown>) => {
+      const audit = arm.audit as { cells: { allocated: number }; nodes: number }
+      const kept = arm.kept as { name: string; quality: number; planted: boolean }
+      const checks = arm.ledgerChecks as { ok: boolean; edgePairs: Record<string, number> }
+      return {
+        cells: audit.cells.allocated,
+        nodes: audit.nodes,
+        kept: kept.name,
+        quality: kept.quality,
+        planted: kept.planted,
+        ledgerOk: checks.ok,
+        edgePairs: checks.edgePairs,
+      }
+    }
+    const uniformRow = summary(arms.uniform!)
+    const ashaRow = summary(arms.asha!)
+    rows.push({ seed, uniform: uniformRow, asha: ashaRow, sameKept: uniformRow.kept === ashaRow.kept })
+  }
+  type Row = { cells: number; quality: number; planted: boolean; ledgerOk: boolean; edgePairs: Record<string, number> }
+  const arm = (name: 'uniform' | 'asha') => {
+    const list = rows.map((row) => row[name] as Row)
+    const cells = list.map((row) => row.cells).sort((a, b) => a - b)
+    const pairs: Record<string, number> = {}
+    for (const row of list) {
+      for (const [count, edges] of Object.entries(row.edgePairs)) pairs[count] = (pairs[count] ?? 0) + edges
+    }
+    return {
+      cells: {
+        total: cells.reduce((sum, value) => sum + value, 0),
+        min: cells[0],
+        median: cells[Math.floor(cells.length / 2)],
+        max: cells.at(-1),
+      },
+      keptPlanted: list.filter((row) => row.planted).length,
+      meanKeptQuality: round(list.reduce((sum, row) => sum + row.quality, 0) / list.length),
+      ledgerAuditsPassed: list.filter((row) => row.ledgerOk).length,
+      edgePairs: pairs,
+    }
+  }
+  const uniformArm = arm('uniform')
+  const ashaArm = arm('asha')
+  const sameKept = rows.filter((row) => row.sameKept).length
+  return {
+    ok: uniformArm.ledgerAuditsPassed === rows.length && ashaArm.ledgerAuditsPassed === rows.length,
+    seeds: rows.length,
+    sameKept,
+    ashaCellShare: round(ashaArm.cells.total / uniformArm.cells.total),
+    uniform: uniformArm,
+    asha: ashaArm,
+    differing: rows.filter((row) => !row.sameKept),
   }
 }
 
@@ -476,9 +685,15 @@ async function main(): Promise<void> {
       patience: { type: 'string' },
       deadline: { type: 'string' },
       kills: { type: 'string', default: '6' },
+      allocation: { type: 'string', default: 'uniform' },
+      'plant-gap': { type: 'string' },
+      'plant-child': { type: 'string', default: '0' },
+      seeds: { type: 'string', default: '100' },
     },
   })
-  if (!values.dir) throw new Error('--dir is required')
+  if (values.allocation !== 'uniform' && values.allocation !== 'asha') {
+    throw new Error(`--allocation must be uniform or asha, got ${values.allocation}`)
+  }
   const options: SimOptions = {
     seed: Number(values.seed),
     train: Number(values.train),
@@ -494,7 +709,17 @@ async function main(): Promise<void> {
     delayMs: Number(values['delay-ms']),
     patience: values.patience === undefined ? undefined : Number(values.patience),
     deadline: values.deadline ?? null,
+    allocation: values.allocation,
+    plantGap: values['plant-gap'] === undefined ? null : Number(values['plant-gap']),
+    plantChild: Number(values['plant-child']),
   }
+  if (mode === 'compare') {
+    const report = await compare(options, Number(values.seeds))
+    console.log(JSON.stringify(report, null, 2))
+    if (!report.ok) process.exitCode = 1
+    return
+  }
+  if (!values.dir) throw new Error('--dir is required')
   const passthrough = argv.filter((_, index) => {
     const flag = argv[index] === '--dir' || argv[index - 1] === '--dir'
     const kills = argv[index] === '--kills' || argv[index - 1] === '--kills'

@@ -28,8 +28,9 @@ export interface SearchPolicyView {
   readonly screened: readonly string[]
   /** Admitted nodes still being screened. */
   readonly screening: number
-  /** True when the node scored every unit its screen allocated on `split`.
-   * A node that dodged a unit (an unscored cell) cannot lead. */
+  /** True when the node has a scored cell on `split` and none of its cells
+   * there ran and ended unscored. A node that dodged a unit cannot lead; cells
+   * still to run, such as a rung the allocator just opened, do not count. */
   complete(nodeId: string): boolean
   /** Per-unit means on `split`, in unitId order. */
   unitScores(nodeId: string): readonly SearchUnitScore[]
@@ -57,12 +58,14 @@ export interface SearchPolicy {
 }
 
 /**
- * The hill climb. The leader starts at the root; a screened node that scored
- * every unit of its screen takes the lead when its mean on the units it shares
- * with the leader beats the leader's mean on those units. Nodes are taken in
- * registration order, so the leader is a pure function of the ledger. The
- * policy expands the leader, and only once every earlier child is screened,
- * so each proposal sees every result before it.
+ * The hill climb. The leader starts at the root; a screened node that dodged no
+ * unit takes the lead when it scored every unit the leader scored and its mean
+ * on them beats the leader's. A node measured on fewer units than the leader,
+ * such as one an allocator has only screened, cannot take the lead on less
+ * evidence than the leader holds. Nodes are taken in registration order, so
+ * the leader is a pure function of the ledger. The policy expands the leader,
+ * and only once every earlier child is screened, so each proposal sees every
+ * result before it.
  */
 export function incumbent(options: { patience?: number } = {}): SearchPolicy {
   const { patience } = options
@@ -163,20 +166,20 @@ function hillClimb(spec: {
   }
 }
 
-/** True when `challenger` improves on `holder` over the units both scored. */
+/** True when `challenger` scored every unit `holder` scored and improves on
+ * `holder` over them. */
 function beats(view: SearchPolicyView, challenger: string, holder: string): boolean {
-  const held = new Map(view.unitScores(holder).map((unit) => [unit.unitId, unit.mean]))
+  const held = view.unitScores(holder)
+  if (held.length === 0) return false
+  const own = new Map(view.unitScores(challenger).map((unit) => [unit.unitId, unit.mean]))
   let challengerSum = 0
   let holderSum = 0
-  let shared = 0
-  for (const unit of view.unitScores(challenger)) {
-    const other = held.get(unit.unitId)
-    if (other === undefined) continue
-    challengerSum += unit.mean
-    holderSum += other
-    shared += 1
+  for (const unit of held) {
+    const mean = own.get(unit.unitId)
+    if (mean === undefined) return false
+    challengerSum += mean
+    holderSum += unit.mean
   }
-  if (shared === 0) return false
   return view.direction === 'maximize' ? challengerSum > holderSum : challengerSum < holderSum
 }
 
