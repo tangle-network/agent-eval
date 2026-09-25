@@ -48,7 +48,7 @@ export type SafetyCategory = 'credential' | 'personal-data' | 'identifier' | 'ra
  * redaction behavior (saved optimizer inputs, per-span redaction stamps) keys
  * on it, so bump it whenever a detector, key list, cap or marker changes.
  */
-export const REDACTION_VERSION = '2.1.0'
+export const REDACTION_VERSION = '2.2.0'
 
 export interface RedactionFinding {
   /** JSON Pointer (RFC 6901) to the value or key that was changed. */
@@ -444,6 +444,32 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     pattern:
       /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )[^"'\r\n]{3,}["']/i,
   },
+  {
+    // `DB_PASSWORD=CorrectHorseBatteryStaple`, `PGPASSWORD=postgres`: unlike
+    // `secret-assignment` above, the all-upper-case env-var name ending in a
+    // credential word is itself the signal, so a letters-only or short real
+    // password still matches (no digit-mixing or 12-char minimum). Requires
+    // the name to be immediately followed by `=`, so `MAX_TOKENS=16` and
+    // `TOKEN_EXPIRY=…` (the word isn't the end of the name) do not match.
+    id: 'env-secret-assignment',
+    pattern:
+      /\b[A-Z][A-Z0-9_]*?(?:PASSWORD|PASSWD|SECRET|PASSPHRASE|APIKEY|API_KEY|TOKEN|CREDENTIALS?)[ \t]*=[ \t]*(?!\$|<|\*|\{|%|encrypted:)[^\s"'`,;&|]{4,}/,
+  },
+  // Bare-key shapes not covered above. Each requires a distinctive prefix so
+  // it does not fire on ordinary identifiers.
+  { id: 'huggingface-token', pattern: /\bhf_[A-Za-z0-9]{20,}/ },
+  { id: 'npm-token', pattern: /\bnpm_[A-Za-z0-9]{20,}/ },
+  { id: 'gitlab-token', pattern: /\bglpat-[A-Za-z0-9_-]{16,}/ },
+  { id: 'groq-key', pattern: /\bgsk_[A-Za-z0-9]{20,}/ },
+  { id: 'xai-key', pattern: /\bxai-[A-Za-z0-9]{16,}/ },
+  // ElevenLabs and similar bare `sk_<hex>` shapes — underscore, unlike the
+  // hyphenated `sk-…` `provider-key` pattern above, so the two never overlap.
+  { id: 'bare-sk-key', pattern: /\bsk_[A-Za-z0-9]{32,}\b/ },
+  {
+    // `Cookie: sessionid=…; csrftoken=…` in free text or a captured header.
+    id: 'cookie-header',
+    pattern: /\bcookie\s*:\s*[A-Za-z0-9_-]+=[^;\r\n]{3,}(?:;\s*[A-Za-z0-9_-]+=[^;\r\n]{3,})*/i,
+  },
 ]
 
 /** Personal-data shapes, replaced in place so the surrounding text survives. */
@@ -623,7 +649,69 @@ function isPlaceholder(value: string): boolean {
   return value === '' || REDACTED_PLACEHOLDER.test(value)
 }
 
-const DATA_URI = /^data:[\w.+-]+\/[\w.+-]+(?:;[\w.+-]+=[\w.+-]+)*;base64,/i
+// The whole string must be the data URI — `$` at the end, not just a `^`
+// prefix check. A prefix-only check let `data:text/plain;base64,…\n` PLUS
+// arbitrary trailing text through as unread "media", when the trailing text
+// (or, for text/json mimes, the payload itself once decoded) is exactly the
+// kind of prose a credential or personal-data detector should see.
+const DATA_URI = /^data:([\w.+-]+\/[\w.+-]+)(?:;[\w.+-]+=[\w.+-]+)*;base64,([A-Za-z0-9+/=\s]*)$/i
+
+/** A data: URI's mime type and base64 payload, only when the whole string is the URI. */
+function matchDataUri(text: string): { mime: string; payload: string } | undefined {
+  const m = DATA_URI.exec(text)
+  if (!m) return undefined
+  return { mime: (m[1] ?? '').toLowerCase(), payload: m[2] ?? '' }
+}
+
+/** Decodes a data: URI's base64 payload to text, or undefined if it is not valid base64. */
+function decodeDataUriPayload(payload: string): string | undefined {
+  const cleaned = payload.replace(/\s+/g, '')
+  if (cleaned.length === 0) return ''
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned) || cleaned.length % 4 !== 0) return undefined
+  try {
+    return Buffer.from(cleaned, 'base64').toString('utf8')
+  } catch {
+    return undefined
+  }
+}
+
+const READABLE_IMAGE_MIME = /^image\//
+/** Mimes whose payload is text a detector can read once decoded. */
+const DECODABLE_TEXT_MIME = /^text\/|^application\/json$/
+
+/** Whether a decoded data: URI payload holds a credential or personal data,
+ *  by key name (for application/json) or by value shape (for any text). */
+function decodedPayloadIsUnsafe(
+  decoded: string,
+  mime: string,
+  knownSecrets: readonly string[],
+): boolean {
+  if (mime === 'application/json') {
+    try {
+      return jsonValueIsUnsafe(JSON.parse(decoded), knownSecrets)
+    } catch {
+      // Not actually valid JSON despite the mime type — fall through to plain text.
+    }
+  }
+  if (credentialIn(decoded, knownSecrets)) return true
+  return detectPersonalData(decoded).length > 0
+}
+
+function jsonValueIsUnsafe(value: unknown, knownSecrets: readonly string[]): boolean {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string')
+    return credentialIn(value, knownSecrets) !== undefined || detectPersonalData(value).length > 0
+  if (typeof value !== 'object') return false
+  if (Array.isArray(value)) return value.some((item) => jsonValueIsUnsafe(item, knownSecrets))
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const category = classifyKey(key)
+    if (category === 'credential') return true
+    if (category === 'personal-data' && (typeof item === 'string' || typeof item === 'number'))
+      return true
+    if (jsonValueIsUnsafe(item, knownSecrets)) return true
+  }
+  return false
+}
 
 // ── Redaction ────────────────────────────────────────────────────────────
 
@@ -677,7 +765,24 @@ function redactStringAt(text: string, path: string, state: WalkState): string {
     output = output.split(form).join(marker('known-secret'))
     record(state, path, 'credential', 'known-secret', 'redacted')
   }
-  if (DATA_URI.test(output)) {
+  const dataUri = matchDataUri(output)
+  if (dataUri) {
+    if (DECODABLE_TEXT_MIME.test(dataUri.mime)) {
+      const decoded = decodeDataUriPayload(dataUri.payload)
+      if (decoded === undefined) {
+        // Can't verify what an undecodable payload holds — fail closed rather
+        // than pass it through as if it were opaque, harmless media.
+        record(state, path, 'credential', 'data-uri-payload', 'redacted')
+        return marker('data-uri-payload')
+      }
+      if (decodedPayloadIsUnsafe(decoded, dataUri.mime, state.knownSecrets)) {
+        record(state, path, 'credential', 'data-uri-payload', 'redacted')
+        return marker('data-uri-payload')
+      }
+      // Decoded clean: still opaque bytes to a downstream reader once
+      // embedded, so it's subject to the ordinary media rule below, same as
+      // any other data URI.
+    }
     if (!state.rules.redactMedia) return output
     record(state, path, 'media', 'media', 'redacted')
     return marker('media')
@@ -874,8 +979,9 @@ function flag(state: ScanState, path: string, category: SafetyCategory, detector
 
 function scanString(text: string, path: string, state: ScanState): void {
   if (isPlaceholder(text)) return
-  if (DATA_URI.test(text)) {
-    flag(state, path, 'media', 'media')
+  const dataUri = matchDataUri(text)
+  if (dataUri) {
+    scanDataUri(dataUri, path, state)
     return
   }
   const credential = credentialIn(text, state.knownSecrets)
@@ -884,6 +990,44 @@ function scanString(text: string, path: string, state: ScanState): void {
     return
   }
   for (const detector of detectPersonalData(text)) flag(state, path, 'personal-data', detector)
+}
+
+function scanDataUri(
+  dataUri: { mime: string; payload: string },
+  path: string,
+  state: ScanState,
+): void {
+  if (READABLE_IMAGE_MIME.test(dataUri.mime)) {
+    flag(state, path, 'media', 'media')
+    return
+  }
+  if (DECODABLE_TEXT_MIME.test(dataUri.mime)) {
+    const decoded = decodeDataUriPayload(dataUri.payload)
+    if (decoded === undefined) {
+      state.unreadable.push(`${path || '/'}: data URI payload is not valid base64`)
+      return
+    }
+    if (dataUri.mime === 'application/json') {
+      try {
+        scan(JSON.parse(decoded), path, 0, state)
+        return
+      } catch {
+        // Not actually valid JSON despite the mime type — fall through to plain text.
+      }
+    }
+    scanString(decoded, path, state)
+    return
+  }
+  // audio/video/octet-stream/etc: bytes no text detector can read. A warning
+  // under `default` (matches the existing image rule); under `share` and
+  // `strict` — the profiles that actually gate whether something may be sent
+  // off the machine — treat it as unreadable so the verdict is UNKNOWN
+  // instead of silently allowing it through.
+  if (state.profile === 'default') {
+    flag(state, path, 'media', 'media')
+  } else {
+    state.unreadable.push(`${path || '/'}: ${dataUri.mime} data URI cannot be read`)
+  }
 }
 
 function scanKeyed(
