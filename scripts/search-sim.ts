@@ -67,6 +67,7 @@ import {
 import { incumbent } from '../src/campaign/search-policy'
 import type { SearchSourceRef, SearchTask } from '../src/campaign/search-ledger-types'
 import { SearchState, type SearchStateView } from '../src/campaign/search-state'
+import { inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 
 interface SimArtifact {
@@ -145,15 +146,6 @@ function allocationOf(options: SimOptions): SearchAllocator {
     : uniform({ reps: options.reps })
 }
 
-/** In-process text for `compare`: the ledger's rules without a file. */
-function memoryStore(): {
-  read(path: string): string | undefined
-  write(path: string, text: string): void
-} {
-  const texts = new Map<string, string>()
-  return { read: (path) => texts.get(path), write: (path, text) => void texts.set(path, text) }
-}
-
 /**
  * Run or resume the search. With a directory the ledger and the executor's
  * finished attempts are files, so a killed process can resume; without one the
@@ -163,16 +155,17 @@ async function runSimulation(
   dir: string | null,
   options: SimOptions,
 ): Promise<Record<string, unknown>> {
-  const store = dir === null ? memoryStore() : null
+  // Without a directory the ledger and its blobs live in process memory.
+  const storage = dir === null ? inMemoryCampaignStorage() : null
   if (dir !== null) mkdirSync(join(dir, 'executor'), { recursive: true })
   const ledgerPath = dir === null ? 'memory/ledger.jsonl' : join(dir, 'ledger.jsonl')
-  const ledger = store
-    ? openSearchLedger({ path: ledgerPath, searchId: SEARCH_ID, store })
+  const ledger = storage
+    ? openSearchLedger({ path: ledgerPath, searchId: SEARCH_ID, store: storage })
     : openSearchLedger({ path: ledgerPath, searchId: SEARCH_ID })
   const policy = incumbent(options.patience === undefined ? {} : { patience: options.patience })
   const allocation = allocationOf(options)
   const recorder = await SearchRecorder.open(
-    { ledger },
+    storage ? { ledger, storage } : { ledger },
     {
       subject: 'sim/objective',
       process: { name: 'search-sim', executionRef: SIM_SOURCE },
@@ -351,7 +344,7 @@ async function runSimulation(
   })
   track(0)
   const { audit } = result.state
-  const text = store?.read(ledgerPath) ?? readFileSync(ledgerPath, 'utf8')
+  const text = storage?.read(ledgerPath) ?? readFileSync(ledgerPath, 'utf8')
   const kept = result.state.node(result.leader)!
   const artifactOf = (nodeId: string): SimArtifact =>
     (recorder.readBlob(result.state.node(nodeId)!.artifact) as { artifact: SimArtifact }).artifact
