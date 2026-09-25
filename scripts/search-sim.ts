@@ -350,6 +350,12 @@ async function runSimulation(
         nodeId: finalist.nodeId,
         name: truth(finalist.nodeId).name,
         trueGain: round(truth(finalist.nodeId).quality - ROOT.quality),
+        /** The selection estimate against the root the finalist was chosen on. */
+        selectionDelta:
+          state
+            .node(finalist.nodeId)!
+            .decisions.find((decision) => decision.decision.status === 'finalist')?.basis?.delta ??
+          null,
         promote: finalist.promote,
         test: finalist.test,
       })),
@@ -455,6 +461,8 @@ async function claims(options: SimOptions, searches: number): Promise<Record<str
   let cells = 0
   const finalistCounts: Record<number, number> = {}
   const powers: number[] = []
+  /** The top finalist's selection delta minus its test delta: selection's optimism. */
+  const optimism: number[] = []
   const falseClaimSeeds: number[] = []
   for (let index = 0; index < searches; index++) {
     const seed = options.seed + index
@@ -467,12 +475,19 @@ async function claims(options: SimOptions, searches: number): Promise<Record<str
       decision: keyof typeof decisions
       selected: (SimArtifact & { nodeId: string }) | null
       power: { powerAtMinimumEffect?: number }
-      finalists: Array<{ trueGain: number; promote: boolean; test: unknown }>
+      finalists: Array<{
+        trueGain: number
+        selectionDelta: number | null
+        promote: boolean
+        test: { delta: number } | null
+      }>
     }
     decisions[claim.decision] += 1
     nodes += result.state.audit.nodes
     cells += result.state.audit.cells.allocated
     if (claim.power.powerAtMinimumEffect !== undefined) powers.push(claim.power.powerAtMinimumEffect)
+    const top = claim.finalists[0]
+    if (top?.test && top.selectionDelta !== null) optimism.push(top.selectionDelta - top.test.delta)
     const tested = claim.finalists.filter((finalist) => finalist.test !== null)
     if (tested.length > 0) {
       testRan += 1
@@ -528,6 +543,14 @@ async function claims(options: SimOptions, searches: number): Promise<Record<str
       promotedWithNoTrueGain: falsePromotions,
     },
     powerAtMinimumEffect: { min: quantile(0), median: quantile(0.5), max: quantile(1) },
+    topFinalistSelectionMinusTest: {
+      searches: optimism.length,
+      mean: optimism.length === 0 ? null : round(optimism.reduce((a, b) => a + b, 0) / optimism.length),
+      median:
+        optimism.length === 0
+          ? null
+          : round([...optimism].sort((a, b) => a - b)[Math.floor(optimism.length / 2)]!),
+    },
     meanNodes: round(nodes / searches),
     meanCells: round(cells / searches),
     seconds: round((Date.now() - startedAt) / 1000),

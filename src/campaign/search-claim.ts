@@ -36,10 +36,13 @@ import type {
   SearchNodeDecision,
   SearchSourceRef,
 } from './search-ledger-types'
-import type { SearchStateView, SearchUnitScore } from './search-state'
+import {
+  SEARCH_CLAIM_MAX_FINALISTS,
+  type SearchStateView,
+  type SearchUnitScore,
+} from './search-state'
 
 const FAMILY_CONFIDENCE = 0.95
-const MAX_FINALISTS = 3
 const TARGET_POWER = 0.8
 const POWER_SIMULATIONS = 500
 const RESAMPLES = 2000
@@ -51,7 +54,7 @@ const RESAMPLES = 2000
  */
 const CLAIM_DEFINITION = {
   name: 'tangle.search-claim.2026-09',
-  finalists: `up to ${MAX_FINALISTS} non-root nodes not decided invalid that scored every selection unit and beat the root's mean on the selection units they share, ranked by selection mean in the objective's direction, then registration order`,
+  finalists: `up to ${SEARCH_CLAIM_MAX_FINALISTS} non-root nodes not decided invalid that scored every selection unit and beat the root's mean on the selection units they share, ranked by selection mean in the objective's direction, then registration order`,
   familyConfidence: FAMILY_CONFIDENCE,
   correction: 'Bonferroni: each of k finalists against the root at 1 - (1 - familyConfidence) / k',
   finalistCount:
@@ -98,7 +101,7 @@ export function searchClaimReserveUsd(input: {
   reps: number
   cellUsd: number
 }): number {
-  return (1 + MAX_FINALISTS) * input.testTasks * input.reps * input.cellUsd
+  return (1 + SEARCH_CLAIM_MAX_FINALISTS) * input.testTasks * input.reps * input.cellUsd
 }
 
 /**
@@ -331,7 +334,7 @@ export function decideSearchClaim(
   const ship = winner !== null && blockers.length === 0
   const selected = ship ? winner.nodeId : keepRoot
   const reason = ship
-    ? `finalist ${winner.nodeId} beat the root on all ${testUnits.length} test units at confidence ${round(confidence)} (${k} finalist${k === 1 ? '' : 's'}, family-wise ${FAMILY_CONFIDENCE})`
+    ? `finalist ${winner.nodeId} beat the root on the ${testUnits.length} test units at confidence ${round(confidence)} (${k} finalist${k === 1 ? '' : 's'}, family-wise ${FAMILY_CONFIDENCE})`
     : winner !== null
       ? `finalist ${winner.nodeId} beat the root, but the claim cannot ship: ${blockers.join('; ')}`
       : `no finalist beat the root on the test split at confidence ${round(confidence)} (${k} finalist${k === 1 ? '' : 's'}, family-wise ${FAMILY_CONFIDENCE})`
@@ -396,7 +399,7 @@ function rootDecision(
   }
 }
 
-/** Nodes eligible to go to test, best first, at most `MAX_FINALISTS`. */
+/** Nodes eligible to go to test, best first, at most `SEARCH_CLAIM_MAX_FINALISTS`. */
 function rankFinalists(
   state: SearchStateView,
   selectionUnits: readonly string[],
@@ -429,7 +432,7 @@ function rankFinalists(
   }
   ranked.sort((a, b) => sign * (b.selectionMean - a.selectionMean) || a.ordinal - b.ordinal)
   return ranked
-    .slice(0, MAX_FINALISTS)
+    .slice(0, SEARCH_CLAIM_MAX_FINALISTS)
     .map(({ nodeId, selectionMean }) => ({ nodeId, selectionMean }))
 }
 

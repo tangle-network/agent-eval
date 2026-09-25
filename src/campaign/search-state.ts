@@ -85,7 +85,7 @@ function shortDigest(value: unknown): string {
 const MAX_LABEL_CHARS = 200
 const USD_TOLERANCE = 1e-9
 /** A claim tests at most this many finalists against the root. */
-const MAX_FINALISTS = 3
+export const SEARCH_CLAIM_MAX_FINALISTS = 3
 const SPLITS: readonly SearchSplit[] = ['train', 'selection', 'test']
 
 export interface SearchDecisionRecord {
@@ -798,9 +798,9 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
           `node ${event.nodeId} was decided finalist after a claim cell ran; the finalists are fixed before the test`,
         )
       }
-      if (this.finalists.size >= MAX_FINALISTS) {
+      if (this.finalists.size >= SEARCH_CLAIM_MAX_FINALISTS) {
         throw integrity(
-          `node ${event.nodeId} would be finalist ${this.finalists.size + 1}; at most ${MAX_FINALISTS} are allowed`,
+          `node ${event.nodeId} would be finalist ${this.finalists.size + 1}; at most ${SEARCH_CLAIM_MAX_FINALISTS} are allowed`,
         )
       }
       this.finalists.add(event.nodeId)
