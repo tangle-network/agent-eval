@@ -43,13 +43,5 @@ export type {
   ModelRowNote,
   ModelRunRecord,
 } from './model-pass'
-export type { SecretFilterReport, SecretRule } from './secret-filter'
-export {
-  DIAGNOSIS_SECRET_RULES,
-  holdsSecret,
-  redactSecrets,
-  redactSecretsDeep,
-  SECRET_ASSIGNMENT_PATTERN,
-} from './secret-filter'
 export type { DiagnosisSpan, IngestReport } from './spans'
 export { epochMillis, ingestSpans, isContentAttribute } from './spans'

@@ -1,0 +1,837 @@
+{
+  "about": "Must-flag and must-not-flag cases for the redaction core in src/trace/redact.ts. `pnpm redaction:corpus` runs the core over every case and exits 1 on any miss. Credential-shaped values are stored as `parts` and joined at run time, so this file holds no contiguous token a secret scanner would flag. Add a case here whenever a real trace shows a false positive or a leak.",
+  "keys": {
+    "about": "One field per case, redacted under the default profile. mustSurvive values come back unchanged; mustRedact values are replaced.",
+    "mustSurvive": [
+      {
+        "key": "inputTokens",
+        "value": 1200
+      },
+      {
+        "key": "outputTokens",
+        "value": 340
+      },
+      {
+        "key": "max_tokens",
+        "value": 4096
+      },
+      {
+        "key": "token_count",
+        "value": 1120
+      },
+      {
+        "key": "gen_ai.usage.input_tokens",
+        "value": 5210
+      },
+      {
+        "key": "cache_read_input_tokens",
+        "value": 18000
+      },
+      {
+        "key": "maxVisibleOutputTokens",
+        "value": 8000
+      },
+      {
+        "key": "reasoning-tokens",
+        "value": 256
+      },
+      {
+        "key": "x-ratelimit-remaining-tokens",
+        "value": "39000"
+      },
+      {
+        "key": "next_page_token",
+        "value": "CAESBggBEAEYAQ"
+      },
+      {
+        "key": "tokenizer",
+        "value": "o200k_base"
+      },
+      {
+        "key": "author",
+        "value": "Ada Lovelace"
+      },
+      {
+        "key": "authorName",
+        "value": "Ada Lovelace"
+      },
+      {
+        "key": "auth_type",
+        "value": "oauth"
+      },
+      {
+        "key": "secret_name",
+        "value": "OPENAI_API_KEY"
+      },
+      {
+        "key": "password_min_length",
+        "value": 12
+      },
+      {
+        "key": "content_type",
+        "value": "application/json"
+      }
+    ],
+    "mustRedact": [
+      {
+        "key": "apiKey",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "api-key",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "x-api-key",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "Authorization",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "access_token",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "refreshToken",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "client.secret",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "db_password",
+        "value": "hunter2"
+      },
+      {
+        "key": "OPENAI_API_KEY",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "GITHUB_TOKEN",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "set-cookie",
+        "value": "sid=abc; Path=/"
+      },
+      {
+        "key": "private_key",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "sessionToken",
+        "value": "opaque-value-123"
+      },
+      {
+        "key": "email",
+        "value": "ada@example.test"
+      }
+    ]
+  },
+  "values": {
+    "about": "Free text with no field name. mustFlag strings are replaced whole by the named detector (credentials) or in place (personal data); mustNotFlag strings come back unchanged under the default profile.",
+    "mustFlag": [
+      {
+        "detector": "bearer",
+        "parts": [
+          "Authorization: Bea",
+          "rer 4f9c2a7e1b",
+          "8d3f6a0c5e2b9d7f"
+        ]
+      },
+      {
+        "detector": "jwt",
+        "parts": [
+          "eyJhbGciOiJIUzI1NiJ9",
+          ".",
+          "eyJzdWIiOiIxMjMifQ",
+          ".",
+          "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c"
+        ]
+      },
+      {
+        "detector": "provider-key",
+        "parts": [
+          "OPENAI key sk",
+          "-proj-",
+          "abcdEFGH1234ijklMNOP5678qrst"
+        ]
+      },
+      {
+        "detector": "anthropic-key",
+        "parts": [
+          "sk",
+          "-ant-",
+          "api03-abcdEFGH1234ijklMNOP"
+        ]
+      },
+      {
+        "detector": "google-api-key",
+        "parts": [
+          "AIza",
+          "SyDaGmWKa4JsXZ-",
+          "HjGw7ISLn_3namBGewQe"
+        ]
+      },
+      {
+        "detector": "github-token",
+        "parts": [
+          "gh",
+          "p_",
+          "ABCDEFGHIJKLMNOPQRST",
+          "UVWXYZ0123456789"
+        ]
+      },
+      {
+        "detector": "github-token",
+        "parts": [
+          "github",
+          "_pat_",
+          "11ABCDEFG0123456789",
+          "_abcdefghij"
+        ]
+      },
+      {
+        "detector": "aws-access-key",
+        "parts": [
+          "aws_access_key_id = AK",
+          "IA",
+          "IOSFODNN7EXAMPLE"
+        ]
+      },
+      {
+        "detector": "private-key",
+        "parts": [
+          "-----BEGIN RSA ",
+          "PRIV",
+          "ATE KEY-----\nMIIEowIBAAKCAQEA1234abcd\n-----END RSA ",
+          "PRIV",
+          "ATE KEY-----"
+        ]
+      },
+      {
+        "detector": "slack-token",
+        "parts": [
+          "xo",
+          "xb-",
+          "1234567890-abcdefghijklmnop"
+        ]
+      },
+      {
+        "detector": "stripe-key",
+        "parts": [
+          "sk",
+          "_live_",
+          "51Habcdefghijklmnop"
+        ]
+      },
+      {
+        "detector": "secret-assignment",
+        "parts": [
+          "cd repo && GH_TOK",
+          "EN=x1y2z3x1y2z3",
+          "x1y2z3 gh pr list"
+        ]
+      },
+      {
+        "detector": "secret-assignment",
+        "parts": [
+          "{\"client_sec",
+          "ret\": \"a8f3k2m9",
+          "q7w1e5r4\"}"
+        ]
+      },
+      {
+        "detector": "url-credentials",
+        "parts": [
+          "postgres://app:s3cr3t",
+          "Passw0rd@db.internal:5432/app"
+        ]
+      },
+      {
+        "detector": "url-secret-param",
+        "parts": [
+          "GET https://api.example.test/v1/items?api_",
+          "key=Zx81kq0Pw7",
+          "Lm3Nb9 200"
+        ]
+      },
+      {
+        "detector": "email",
+        "parts": [
+          "Contact jane.doe@example.test about the refund"
+        ]
+      },
+      {
+        "detector": "ssn",
+        "parts": [
+          "SSN 123-45-6789 on file"
+        ]
+      },
+      {
+        "detector": "phone",
+        "parts": [
+          "call (415) 555-2671 after 5pm"
+        ]
+      },
+      {
+        "detector": "card-number",
+        "parts": [
+          "card 4111 1111 1111 1111 exp 12/29"
+        ]
+      },
+      {
+        "detector": "card-number",
+        "parts": [
+          "paid with 4111111111111111 today"
+        ]
+      },
+      {
+        "detector": "card-number",
+        "parts": [
+          "amex 3782 822463 10005 on file"
+        ]
+      },
+      {
+        "detector": "email",
+        "parts": [
+          "reply to ops@tangle.tools"
+        ]
+      }
+    ],
+    "mustNotFlag": [
+      "Send a Bearer token in the Authorization header.",
+      "token: string",
+      "export GH_TOKEN=$GH_TOKEN",
+      "OPENAI_API_KEY=encrypted:BHd8wXcNq2pLk1ZrYy0uTg==",
+      "password: <from vault>",
+      "pip install scikit-learn",
+      "git clone git@github.com:tangle-network/agent-eval.git",
+      "2026-09-24T17:56:25.592Z",
+      "550e8400-e29b-41d4-a716-446655440000",
+      "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "max_tokens=4096",
+      "@tangle-network/agent-eval",
+      "order 1700000000420 shipped",
+      "run-0001234567890",
+      "gen_ai.usage.input_tokens",
+      "Read the secret_name field, then call get_secret(secret_name).",
+      "webpack:///@scope/pkg/src/index.ts:10:5",
+      "hook toolUseID hook-66461234-5678-9012-81fb-1a9ba873ad46",
+      "dump_path /srv/backups/router-20260924101500.dump",
+      "\"id\": 653109876543210,",
+      "loop over 3600 1800 900 seconds",
+      "retina asset icon@2x.png",
+      "systemctl restart tangle-worker@3.service",
+      "include @AGENTS.md and notes@RTK.md"
+    ]
+  },
+  "knownSecrets": {
+    "about": "A caller-supplied secret with no recognizable shape is removed as written, base64-encoded and URL-encoded.",
+    "secret": "zq9 Opaque/Deploy Key 77",
+    "texts": [
+      "deploying with zq9 Opaque/Deploy Key 77 now",
+      "header: enE5IE9wYXF1ZS9EZXBsb3kgS2V5IDc3",
+      "https://hooks.example.test/x?k=zq9%20Opaque%2FDeploy%20Key%2077"
+    ]
+  },
+  "agentInspect": {
+    "about": "Share-safety cases. Each case is scanned under all three profiles (status, mustFlag and mustNotFlag categories), then redacted with redactForShare under the same profile; the redacted output must not be UNSAFE.",
+    "source": "agent-inspect fixtures/safety/corpus.json and its *.jsonl fixtures, https://github.com/rajudandigam/agent-inspect at commit 3c3cbeda",
+    "license": "MIT",
+    "notice": "MIT License\n\nCopyright (c) 2026 AgentInspect contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+    "changes": [
+      "Each case's value is the `attrs` object of its fixture's step_completed event.",
+      "Policies are renamed development -> default; share and strict keep their names.",
+      "Statuses use underscores (SAFE_WITH_WARNINGS). mayFlag lists are dropped.",
+      "Where our profile rules differ, the case carries a `deviation` note and our expected status."
+    ],
+    "cases": [
+      {
+        "id": "token-counts",
+        "stimulus": "Numeric tokenUsage fields must not be treated as raw prompts or card numbers",
+        "value": {
+          "tokenUsage": {
+            "input": 128,
+            "output": 64,
+            "total": 192
+          },
+          "usage": {
+            "input_tokens": 128,
+            "output_tokens": 64
+          }
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "raw-content",
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "raw-content",
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "raw-content",
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "uuid-identifier",
+        "stimulus": "UUIDs are identifiers, not credit cards",
+        "value": {
+          "requestId": "550e8400-e29b-41d4-a716-446655440000",
+          "spanId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          }
+        }
+      },
+      {
+        "id": "timestamps",
+        "stimulus": "Epoch timestamps must not match card detectors",
+        "value": {
+          "startedAt": 1700000000000,
+          "endedAt": 1700000000420,
+          "durationMs": 420
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "trace-ids",
+        "stimulus": "Trace/span/run ids must not match card detectors",
+        "value": {
+          "traceId": "trc_01HZX9K2M3N4P5Q6R7S8T9U0VW",
+          "runIdEcho": "run_01HZX9K2M3N4P5Q6R7S8T9U0VW",
+          "spanHex": "a1b2c3d4e5f60718"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "path-with-at",
+        "stimulus": "Local path segments containing @ are not emails",
+        "value": {
+          "filePath": "/Users/demo/Library/Caches/@agent-inspect/cache/tmp.json",
+          "cwd": "/home/demo/@local/workdir"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "scoped-npm-package",
+        "stimulus": "Scoped package names (@scope/name) are not emails",
+        "value": {
+          "packageName": "@agent-inspect/langchain",
+          "dependency": "@langchain/core"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "source-map-path",
+        "stimulus": "Source-map paths with @ are not emails",
+        "value": {
+          "sourceMap": "webpack:///@agent-inspect/core/dist/index.js",
+          "stack": "at Object.<anonymous> (webpack:///@scope/pkg/src/index.ts:10:5)"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "email-value",
+        "stimulus": "Plain email value is personal-data for share/strict",
+        "value": {
+          "contact": "pilot.user@example.test",
+          "notify": "alerts@example.test"
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "share": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
+          },
+          "strict": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
+          }
+        }
+      },
+      {
+        "id": "provider-token",
+        "stimulus": "Synthetic provider API key must flag as credential",
+        "value": {
+          "openaiKey": "sk_test_fake_not_a_real_key_abcdefghijklmnopqrst",
+          "authorization": "Bearer fake-token-synthetic-0001"
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          },
+          "share": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          },
+          "strict": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          }
+        }
+      },
+      {
+        "id": "jwt-token",
+        "stimulus": "Synthetic JWT must flag as credential",
+        "value": {
+          "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlN5bnRoZXRpYyBVc2VyIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          },
+          "share": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          },
+          "strict": {
+            "mustFlag": [
+              "credential"
+            ],
+            "status": "UNSAFE"
+          }
+        }
+      },
+      {
+        "id": "card-test-pan",
+        "stimulus": "Stripe test PAN must flag as personal-data / financial for share/strict",
+        "value": {
+          "paymentMethod": "4242424242424242",
+          "note": "Stripe test PAN only"
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "share": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
+          },
+          "strict": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
+          }
+        }
+      },
+      {
+        "id": "session-user-ids",
+        "stimulus": "Session/user ids are identifiers, not cards",
+        "value": {
+          "sessionId": "sess_01HZX9SYNTHETICUSER0001",
+          "userId": "user_01HZX9SYNTHETICUSER0001"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "personal-data",
+              "credential"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          }
+        }
+      },
+      {
+        "id": "current-task-text",
+        "stimulus": "Framework currentTask / userInput are raw-content risk fields",
+        "value": {
+          "currentTask": "Summarize the invoice for the pilot customer",
+          "userInput": "Please draft a reply to the support ticket",
+          "requestText": "What tools are available?"
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "raw-content"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "share": {
+            "mustFlag": [
+              "raw-content"
+            ],
+            "status": "SAFE_WITH_WARNINGS",
+            "deviation": "agent-inspect expects UNSAFE. Our share profile keeps content for public replays and bundles; raw text is a warning there and an error only under strict."
+          },
+          "strict": {
+            "mustFlag": [
+              "raw-content"
+            ],
+            "status": "UNSAFE"
+          }
+        }
+      },
+      {
+        "id": "already-redacted",
+        "stimulus": "Already-redacted placeholders must not re-flag as live credentials",
+        "value": {
+          "openaiKey": "[REDACTED]",
+          "authorization": "***",
+          "email": "<redacted>"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE"
+          }
+        }
+      },
+      {
+        "id": "hashed-identifier",
+        "stimulus": "Hashed identifiers are not secrets",
+        "value": {
+          "userHash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "credential"
+            ],
+            "status": "SAFE",
+            "deviation": "agent-inspect expects SAFE_WITH_WARNINGS. We do not classify hashed or fingerprint fields as identifiers."
+          }
+        }
+      },
+      {
+        "id": "ls-max-tokens-config",
+        "stimulus": "N-6: ls_max_tokens/max_tokens/token_count are model config, not credentials (desired after 6.14.2)",
+        "value": {
+          "ls_max_tokens": "undefined",
+          "max_tokens": 4096,
+          "token_count": 1120,
+          "metadata": {
+            "tokens": {
+              "input": 1000,
+              "output": 120
+            }
+          }
+        },
+        "expectations": {
+          "default": {
+            "mustNotFlag": [
+              "credential",
+              "raw-content"
+            ],
+            "status": "SAFE"
+          },
+          "share": {
+            "mustNotFlag": [
+              "credential",
+              "raw-content"
+            ],
+            "status": "SAFE"
+          },
+          "strict": {
+            "mustNotFlag": [
+              "credential",
+              "raw-content"
+            ],
+            "status": "SAFE"
+          }
+        }
+      }
+    ]
+  }
+}

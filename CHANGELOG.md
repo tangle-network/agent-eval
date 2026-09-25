@@ -22,6 +22,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Parsing is strict: an unknown key or status is an error that names the closest known word.
   `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
   See `docs/trace-contracts.md`.
+- `/traces` owns the one redaction core ([docs/redaction.md](./docs/redaction.md)): `redact(value, { profile })` with `default`, `share` and `strict` profiles and per-profile string byte caps, `redactText`, and `classifyKey`, which normalizes camel, kebab and dotted field names and keeps token counts (`inputTokens`, `max_tokens`, `token_count`) and names such as `author`.
+  A string that holds a credential (bearer, JWT, `sk-`, `sk-ant-`, `AIza`, `gh*_`, `AKIA`, PEM, `key=value` and others) is replaced whole.
+  `knownSecrets` removes exact values in plain, base64, base64url and URL-encoded form.
+- `assessShareSafety`, `redactForShare`, `combineVerdicts` and `shareAllowed` give a share verdict of `SAFE`, `SAFE_WITH_WARNINGS`, `UNSAFE` or `UNKNOWN`; `redactForShare` re-scans the redacted output, and a part the scanner cannot read makes the verdict `UNKNOWN`.
+- `pnpm redaction:corpus` runs the core over `scripts/redaction-corpus.json`, the must-flag and must-not-flag cases (including agent-inspect's safety corpus, MIT).
 
 ### Changed
 
@@ -49,6 +54,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Removed
 
+- **The rule-list redactor is replaced by the redaction core.** Removed `DEFAULT_REDACTION_RULES`, `RedactionRule`, `redactString` and `redactValue` (root and `/traces`), and `/diagnosis` `DIAGNOSIS_SECRET_RULES`, `holdsSecret`, `redactSecrets`, `redactSecretsDeep`, `SECRET_ASSIGNMENT_PATTERN` and their types. `RedactionReport` now has `byDetector` and `findings` instead of `byRule`, and `REDACTION_VERSION` is `2.0.0`. **Migration:** `redactValue(v)` becomes `redact(v).value`, `redactString(s).output` becomes `redactText(s)`, and a custom rule list becomes `knownSecrets` or a case in the corpus. `defaultProviderRedactor` now runs the core, so a credential header keeps its name with a `[REDACTED:credential-key]` value, and `redactedFields` holds JSON Pointers.
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
 - `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
 - The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
