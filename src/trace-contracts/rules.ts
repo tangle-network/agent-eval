@@ -1,8 +1,8 @@
+import { canonicalString } from '../ledger-core/canonical'
 import { describePredicate } from './explain'
 import { predicateMatches } from './predicates'
 import {
   type ArgumentEvidence,
-  canonicalJson,
   contractSpanKind,
   contractSpanToolName,
   finite,
@@ -400,7 +400,7 @@ function checkRetrySafe(
     // declared key is left out of the call's identity and checked below.
     const pointer = writes.get(name)?.idempotencyKey
     const identity = pointer === undefined ? args.value : withoutMember(args.value, pointer)
-    const key = `${name}\u0000${canonicalJson(identity)}`
+    const key = `${name}\u0000${canonicalString(identity)}`
     const list = groups.get(key) ?? []
     list.push(call)
     groups.set(key, list)
