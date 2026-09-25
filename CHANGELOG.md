@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.190.1] — 2026-09-25
+
+### Fixed
+
+- The redaction core's `data:` URI check matched on the string's prefix, so a `data:text/plain;base64,…` or `data:application/json;base64,…` value was always classified as opaque media, even when its decoded payload held a live credential. The check now requires the whole string to be the URI; `text/*` and `application/json` payloads are decoded and scanned (JSON by the same key classification as any other object), and an undecodable payload fails closed.
+- Added credential detectors for `hf_`, `npm_`, `glpat-`, `gsk_`, `xai-` and bare `sk_<hex>` (ElevenLabs-style) tokens, a `Cookie:` header, and an upper-case env-var assignment (`DB_PASSWORD=…`) that no longer requires the value to mix letters and digits or be 12+ characters.
+- `REDACTION_VERSION` → `2.2.0`.
+
 ## [0.190.0] — 2026-09-25
 
 ### Added
