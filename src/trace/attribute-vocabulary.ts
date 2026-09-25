@@ -1,12 +1,25 @@
-/** Canonical OpenInference-over-OTLP attribute names used at trace boundaries. */
+/**
+ * Canonical OpenInference-over-OTLP attribute names used at trace boundaries.
+ *
+ * `@tangle-network/agent-trace-contract` owns the reader candidate lists; the
+ * `*_ATTR_KEYS` below are its lists under the names this package exports. The
+ * single-key constants are the keys this package's own producers write.
+ */
 
 import {
-  GEN_AI_INPUT_TOKEN_KEYS,
-  GEN_AI_MODEL_KEYS,
-  GEN_AI_OUTPUT_TOKEN_KEYS,
-} from '@tangle-network/agent-core/telemetry'
+  ATTR,
+  CACHE_READ_TOKEN_ATTR_KEYS,
+  CACHE_WRITE_TOKEN_ATTR_KEYS,
+  SPAN_KIND_ATTR_KEYS as CONTRACT_SPAN_KIND_ATTR_KEYS,
+  TOOL_NAME_ATTR_KEYS as CONTRACT_TOOL_NAME_ATTR_KEYS,
+  COST_ATTR_KEYS,
+  INPUT_TOKEN_ATTR_KEYS,
+  MODEL_ATTR_KEYS,
+  OUTPUT_TOKEN_ATTR_KEYS,
+  REASONING_TOKEN_ATTR_KEYS,
+} from '@tangle-network/agent-trace-contract'
 
-export const OPENINFERENCE_SPAN_KIND = 'openinference.span.kind'
+export const OPENINFERENCE_SPAN_KIND = ATTR.spanKind
 export const LLM_MODEL_NAME = 'llm.model_name'
 export const LLM_INPUT_TOKENS = 'llm.token_count.prompt'
 export const LLM_OUTPUT_TOKENS = 'llm.token_count.completion'
@@ -22,90 +35,26 @@ export const TOOL_LATENCY_MS = 'tool.latency_ms'
 export const INPUT_VALUE = 'input.value'
 export const OUTPUT_VALUE = 'output.value'
 
-export const SPAN_KIND_ATTR_KEYS = [OPENINFERENCE_SPAN_KIND, 'inference.observation_kind'] as const
-
-export const LLM_MODEL_ATTR_KEYS = [
-  LLM_MODEL_NAME,
-  'inference.llm.model_name',
-  'llm.model',
-  ...GEN_AI_MODEL_KEYS,
-  'tangle.model',
-] as const
-
-export const LLM_INPUT_TOKEN_ATTR_KEYS = [
-  LLM_INPUT_TOKENS,
-  'inference.llm.input_tokens',
-  'llm.input_tokens',
-  ...GEN_AI_INPUT_TOKEN_KEYS,
-  'tangle.tokens.in',
-  'tokens.in',
-] as const
-
-export const LLM_OUTPUT_TOKEN_ATTR_KEYS = [
-  LLM_OUTPUT_TOKENS,
-  'inference.llm.output_tokens',
-  'llm.output_tokens',
-  ...GEN_AI_OUTPUT_TOKEN_KEYS,
-  'tangle.tokens.out',
-  'tokens.out',
-] as const
-
+export const SPAN_KIND_ATTR_KEYS: readonly string[] = CONTRACT_SPAN_KIND_ATTR_KEYS
+export const LLM_MODEL_ATTR_KEYS: readonly string[] = MODEL_ATTR_KEYS
+export const LLM_INPUT_TOKEN_ATTR_KEYS: readonly string[] = INPUT_TOKEN_ATTR_KEYS
+export const LLM_OUTPUT_TOKEN_ATTR_KEYS: readonly string[] = OUTPUT_TOKEN_ATTR_KEYS
 /** Reasoning-token subset of output, when a producer exposes it separately. */
-export const LLM_REASONING_TOKEN_ATTR_KEYS = [
-  LLM_REASONING_TOKENS,
-  'inference.llm.reasoning_tokens',
-  'llm.reasoning_tokens',
-  'gen_ai.usage.reasoning_tokens',
-  'gen_ai.usage.reasoning_output_tokens',
-  'reasoning_tokens',
-  'reasoning_output_tokens',
-  'tangle.tokens.reasoning',
-  'gen_ai.usage.output_tokens_details.reasoning_tokens',
-  'gen_ai.usage.completion_tokens_details.reasoning_tokens',
-] as const
+export const LLM_REASONING_TOKEN_ATTR_KEYS: readonly string[] = REASONING_TOKEN_ATTR_KEYS
+export const LLM_CACHED_TOKEN_ATTR_KEYS: readonly string[] = CACHE_READ_TOKEN_ATTR_KEYS
+export const LLM_CACHE_WRITE_TOKEN_ATTR_KEYS: readonly string[] = CACHE_WRITE_TOKEN_ATTR_KEYS
 
-export const LLM_CACHED_TOKEN_ATTR_KEYS = [
-  LLM_CACHED_TOKENS,
-  'inference.llm.cached_tokens',
-  'llm.cached_tokens',
-  'gen_ai.usage.cached_tokens',
-  'gen_ai.usage.prompt_tokens_details.cached_tokens',
-  'gen_ai.usage.input_tokens_details.cached_tokens',
-  'gen_ai.usage.cache_read_tokens',
-  'gen_ai.usage.cache_read_input_tokens',
-  'cache_read_tokens',
-  'cache_read_input_tokens',
-  'input_cache_read',
-  'tangle.tokens.cached',
-] as const
-
-export const LLM_CACHE_WRITE_TOKEN_ATTR_KEYS = [
-  LLM_CACHE_WRITE_TOKENS,
-  'inference.llm.cache_write_tokens',
-  'llm.cache_write_tokens',
-  'gen_ai.usage.cache_creation_tokens',
-  'gen_ai.usage.cache_creation_input_tokens',
-  'cache_creation_tokens',
-  'cache_creation_input_tokens',
-  'input_cache_creation',
-  'tangle.tokens.cache_write',
-] as const
-
-export const LLM_COST_ATTR_KEYS = [
-  LLM_COST_USD,
-  'inference.llm.cost.total',
-  'llm.cost.total',
-  'gen_ai.usage.cost',
-  'gen_ai.usage.cost_usd',
-  'tangle.cost.usd',
-  'cost.usd',
-  'cost',
-] as const
+/**
+ * The contract's cost keys plus a bare `cost`. The contract refuses `cost` because
+ * it answers "can this trace be costed" from key presence; this package reads it
+ * only as a last-resort value on a span already known to be a model call.
+ */
+export const LLM_COST_ATTR_KEYS: readonly string[] = Object.freeze([...COST_ATTR_KEYS, 'cost'])
 
 /** Explicit run-total cost keys safe to preserve on an untyped span. */
 export const RUN_COST_ATTR_KEYS = ['tangle.cost.usd', 'cost.usd'] as const
 
-export const TOOL_NAME_ATTR_KEYS = [TOOL_NAME, 'inference.tool.name'] as const
+export const TOOL_NAME_ATTR_KEYS: readonly string[] = CONTRACT_TOOL_NAME_ATTR_KEYS
 
 /** Read a numeric attribute, tolerating numeric strings; `null` if absent or invalid. */
 export function asNumber(value: unknown): number | null {

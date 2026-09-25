@@ -1,3 +1,4 @@
+import { SPAN_KINDS, type SpanKind } from '@tangle-network/agent-trace-contract'
 import { z } from 'zod'
 import { TraceAnalysisStoreContractError, TraceAnalysisValidationError } from './errors'
 import { TRACE_ANALYSIS_LIMITS } from './store-contract'
@@ -84,16 +85,7 @@ export const traceStoreInputSchemas = {
     .strict(),
 } as const
 
-const spanKind = z.enum([
-  'AGENT',
-  'LLM',
-  'TOOL',
-  'CHAIN',
-  'EVALUATOR',
-  'GUARDRAIL',
-  'SPAN',
-  'UNKNOWN',
-])
+const spanKind = z.enum(SPAN_KINDS as [SpanKind, ...SpanKind[]])
 const spanStatus = z.enum(['OK', 'ERROR', 'UNSET'])
 
 const traceSpan = z

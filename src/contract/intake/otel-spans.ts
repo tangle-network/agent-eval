@@ -27,6 +27,7 @@
  * error cannot become a task failure.
  */
 
+import { resolveSpanKind } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
 import type { TraceSpanEvent } from '../../hosted/types'
 import type {
@@ -41,12 +42,7 @@ import {
   recordAggregateMeasurements,
   summarizeExecutionMeasurements,
 } from '../../trace/execution-measurements'
-import {
-  classifyOtlpSpanRole,
-  isOtlpModelCall,
-  LLM_MODEL_ATTR_KEYS,
-  SPAN_KIND_ATTR_KEYS,
-} from '../../trace/otlp-attributes'
+import { LLM_MODEL_ATTR_KEYS, SPAN_KIND_ATTR_KEYS } from '../../trace/otlp-attributes'
 import { readTaskFailureLabels } from '../../trace/task-failure-attributes'
 
 const TASK_SCORE_ATTR_KEYS = [
@@ -209,7 +205,7 @@ function readSpanKind(span: TraceSpanEvent): string | undefined {
 }
 
 function errorRoleForSpan(span: TraceSpanEvent): TraceErrorRole {
-  return classifyOtlpSpanRole({
+  return resolveSpanKind({
     kind: readSpanKind(span),
     name: span.name,
     attributes: span.attributes,
@@ -225,11 +221,7 @@ function parentIdentity(span: TraceSpanEvent): string {
 }
 
 function isExplicitModelCall(span: TraceSpanEvent): boolean {
-  return isOtlpModelCall({
-    kind: readSpanKind(span),
-    name: span.name,
-    attributes: span.attributes,
-  })
+  return errorRoleForSpan(span) === 'LLM'
 }
 
 function isExplicitAggregate(span: TraceSpanEvent): boolean {
