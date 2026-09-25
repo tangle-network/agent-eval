@@ -36,7 +36,7 @@ Outcome association can motivate an experiment; it cannot establish that changin
 
 **Can another reader verify the evidence?**
 [Evidence receipts](./experiment.md) bind reports to declared identities and provenance.
-[Search-history receipts](./search-history-receipts.md) account for planned and attempted search slots.
+The [search ledger](./search-ledger.md) records every node, edge and cell of a search, and its receipt proves the search closed.
 [Verdict certifications](./verdicts.md) name the checker and its unverified assumptions.
 The [evidence registry](../evidence/README.md) retains published measurements and their freshness state.
 

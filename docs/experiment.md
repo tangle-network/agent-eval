@@ -273,6 +273,21 @@ The statistical machinery underneath is re-exported from its existing homes; thi
 `HypothesisManifest` stays as the lightweight single-metric registration; `sealExperiment` is the full-design registration.
 The trace-repair admission machinery (`buildDenominatorChain`, oracle determinism, control policy) keeps its repair vocabulary in `./trace-repair`; this module is the general form new experiments should register against.
 
+## Bind final measurements to execution evidence
+
+`compareOptimizationMethods` and `selfImprove({ method })` accept optional `evidence: CampaignEvidenceContext`.
+It requires the caller's pursuit, evaluator, environment, authority, and attestation provenance.
+Eval does not infer independent authority or certify those external declarations.
+
+Each measured baseline and winner receives an `EvidenceReceipt`.
+Eval derives candidate, input-set, output, and result digests from the executed surface and complete campaign.
+A missing or deferred final measurement cannot produce a receipt.
+Receipts describe measurements; they do not override the release gate or replace the method's selected winner.
+
+`createCampaignEvidenceReceipt` provides the same binding for other complete campaign consumers.
+Changing an output changes its output digest; changing a judge result changes its measurement digest.
+The final receipt retains caller authority, including `candidate-self-report`, without upgrading it.
+
 ## Where this sits
 
 The [charter](./charter.md) describes current package ownership and host responsibilities.

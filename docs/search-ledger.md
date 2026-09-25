@@ -1,0 +1,134 @@
+# Search ledger
+
+A selected prompt, profile, or patch is not a record of the search that produced it.
+The search ledger is that record: a hash-chained event log of one search's nodes, edges, and cells, where every decision carries the evidence that justified it.
+It is the search's only lineage record and its only resume checkpoint.
+
+```text
+search-ledger.jsonl          canonical JSONL, SHA-256 hash chain, trusted-head pin
+  ├── blobs/<sha256>.json    surfaces, profiles, rationales, diffs, RunRecords
+  ├── SearchState            the one projection: invariants and the read model
+  └── SearchHistoryReceipt   bounded proof envelope for compareOptimizationMethods
+```
+
+## Terms
+
+- **Node:** a content-addressed artifact, for example an AgentProfile or a prompt.
+  `nodeId` is `searchNodeId(searchId, artifactDigest)`, so identical content in one search is one node.
+- **Edge:** the proposal that derived a node from its parents.
+  It records the operator, the proposer, the redacted rationale, and one parent-to-child diff per parent.
+- **Cell:** one node on one task in one split at one repeat.
+  `cellId` is `searchCellId(searchId, nodeId, taskId, split, rep)`.
+  Each attempt at a cell has the run id `cellId:attempt`, the id its RunRecord carries.
+- **Unit:** the claim's independent unit, usually the task's source.
+  Repeats and sibling tasks of one unit average inside it before any statistic.
+- **Splits:** `train` is the proposer's feedback, `selection` is private to the policy and allocator, and `test` is sealed for the claim.
+
+## Events
+
+| Event | Records |
+|---|---|
+| `search-opened` | Subject, process, artifact kind, objective with judge and claim, the three splits with their tasks and units, policy, budget, containment, derivation, identity. First and once. |
+| `operation-started`, `operation-recorded` | A non-cell spend, such as one proposer call, with its reservation and then its outcome and accounting. |
+| `node-registered` | A node, its artifact digest and declared surfaces. |
+| `edge-recorded` | Parents (primary first), operator (`seed`, `draft`, `improve`, `debug`, `merge`, `derive`), attribution, proposer, selection rule, rationale, diffs, label. |
+| `cell-allocated` | A planned cell with its stage (`root`, `train`, `screen`, `rung`, `claim`, `external`), lane, and reservation. |
+| `cell-settled` | One attempt: outcome, accounting, time, placement, identity, surface evidence, trace reference, and optionally its RunRecord blob. |
+| `cell-cancelled` | A cell that will not run: `pruned`, `budget`, `deadline`, or `aborted`. |
+| `node-decided` | `advanced {rung}`, `pruned`, `invalid`, `finalist`, `selected`, or `rejected`, with its rule, reason, and the estimate it used. May repeat; the latest wins. |
+| `search-closed` | The stop reason and the claim: power, finalists, the selected node, and `ship`, `hold`, or `test-cannot-resolve`. Last and once. |
+
+Edge attribution says how the parents are known and is never inferred from timing or order:
+
+- `explicit`: the proposer that created the child emitted the edge.
+- `correlated`: an importer joined an optimizer's own parent record by content digest, for example GEPA's `parentIndices`.
+- `unknown`: no parent record exists, and the edge names no parent.
+
+## Invariants
+
+`SearchState` applies every entry and refuses one that breaks an invariant.
+The same code runs in the producer's journal, the kernel, and the Intelligence verifier.
+
+- **Order:** `search-opened` comes first; nothing follows `search-closed`. More work on a closed search is a derived search.
+- **Graph:** a node exists before an edge or cell names it, and a cell's node already has an edge. A parent registered before its child and already in the tree, so the graph is acyclic. A parent in another search appears only on a `derive` edge that matches `derivedFrom`.
+- **Re-proposal:** identical content is a second edge into the existing node, counted as a re-proposal.
+- **Splits:** a task belongs to one split and one unit. With `heldOutUnits`, no test unit appears in train or selection. Stages match splits: `claim` cells run on test, `screen` and `rung` on selection.
+- **Seal:** only the root (the first registered node) and nodes decided `finalist` run test cells.
+- **Attempts:** attempts count from 1 without gaps. A `passed` or `failed` outcome is final; only a retryable `errored` outcome admits another attempt.
+- **Budget:** at every `cell-allocated` and `operation-started`, committed spend plus open reservations plus the unspent claim reserve plus the new reservation stays within `maxUsd`. Spend above a reservation is recorded as overspend, never refused. An unknown cost counts as its proven floor.
+- **Completion:** `search-closed` needs every allocated cell settled or cancelled, every started operation recorded, and every node with an edge and a terminal decision. A `ship` claim needs a promoted finalist and held-out test units; any other claim keeps the root.
+
+A ledger written under another schema tag, such as the retired `tangle.search-ledger.v1` candidate-slot format, is refused with the tag named.
+It is never translated.
+
+## Reading the state
+
+`ledger.state()` and every append return a `SearchStateView`.
+Its `header`, `head`, `audit`, `completion`, and `closed` are plain values.
+Its node, edge, cell, unit-score, and lineage reads go to the live indexes, so taking a view costs the same at any search size.
+A view is valid until the ledger applies its next entry; a later read throws instead of mixing two ledger positions.
+
+```ts
+const state = await ledger.state()
+state.audit.cells // { allocated, settled, cancelled, open }
+state.unitScores(nodeId, 'selection') // [{ unitId, sum, count, mean }]
+state.lineage(record.search) // { depth, ordinal, rep, containingRunId } for mintRolloutRows
+```
+
+## Record a search
+
+`SearchRecorder` writes each fact the moment it exists.
+Ids are deterministic and every write checks the ledger's state first, so a resumed search continues its ledger instead of conflicting with its own history.
+Rationales and labels are redacted with the `share` profile before they are hashed; surfaces are stored as they ran.
+
+```ts
+import { openSearchLedger, SearchRecorder, surfaceNode } from '@tangle-network/agent-eval/campaign'
+
+const ledger = openSearchLedger({ path: `${runDir}/search-ledger.jsonl`, searchId })
+const recorder = await SearchRecorder.open({ ledger }, opening)
+const root = await recorder.registerNode(surfaceNode(recorder, baseline))
+await recorder.recordEdge({
+  childNodeId: root.nodeId, parents: [], operator: 'seed', attribution: 'explicit',
+  proposer: null, proposalKey: 'baseline', rationale: { unknown: 'the starting surface' }, diffs: [],
+})
+const cellId = await recorder.allocateCell({ nodeId: root.nodeId, taskId, split: 'selection', rep: 0, stage: 'root' })
+await recorder.settleCell({ cellId, outcome, accounting, identity, runRecord })
+```
+
+`runOptimization({ searchLedger: { ledger, identity } })` and `selfImprove` record through the recorder and return the receipt on `searchHistory`.
+The loop's scenarios are its proposer's feedback, so they are the train split; its promotions are budget decisions and it makes no claim.
+
+`gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's search when it finishes.
+`importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
+`importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
+
+## Receipts and `require-complete`
+
+`createSearchHistoryReceipt({ producerId, runId, ledger })` reads the ledger's bytes, replays them, and binds the byte digest, the audit digest, and a bounded summary.
+A receipt is complete exactly when the ledger holds `search-closed`, which the completion invariant admits only when nothing is outstanding.
+
+```ts
+const comparison = await compareOptimizationMethods({
+  // ...methods, partitions, dispatch, judges, runDir
+  searchHistoryPolicy: 'require-complete',
+  searchHistoryVerification: 'ledger',
+  storage,
+})
+```
+
+Under `require-complete`, a missing, malformed, producer-mismatched, or open search refuses the final comparison before its first test dispatch.
+`searchHistoryVerification: 'ledger'` also resolves the receipt's URI through `storage.read`, checks the bytes' SHA-256 and length, and replays them.
+`verifySearchHistoryReceipt` checks the envelope alone; `assertSearchHistoryMatchesState` checks it against a replayed state.
+
+A receipt does not prove that the optimizer searched well, that a node is correct or safe, or that a winner generalizes.
+Those claims need the sealed test split, the claim's power check, and held-out evaluation.
+
+## Files
+
+- `src/campaign/search-ledger-types.ts`: the event and audit types.
+- `src/campaign/search-ledger.ts`: schemas, canonical ordering, the codec, and `FileSearchLedger`.
+- `src/campaign/search-state.ts`: `SearchState`, the invariants and read model, and the id functions.
+- `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
+- `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
+- `src/campaign/search-history-receipt.ts`: receipts and admission.
+- `src/ledger-core/`: hashing, locking, durable appends, chain verification, and the trusted-head pin.
