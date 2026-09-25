@@ -39,6 +39,7 @@
  * rather than silently producing a half-record.
  */
 
+import { resolveSpanKind } from '@tangle-network/agent-trace-contract'
 import {
   modelHasSnapshot,
   type RunCostProvenance,
@@ -54,11 +55,7 @@ import {
   recordAggregateMeasurements,
   summarizeExecutionMeasurements,
 } from '../trace/execution-measurements'
-import {
-  classifyOtlpSpanRole,
-  isOtlpModelCall,
-  LLM_MODEL_ATTR_KEYS,
-} from '../trace/otlp-attributes'
+import { LLM_MODEL_ATTR_KEYS } from '../trace/otlp-attributes'
 import { readTaskFailureLabels } from '../trace/task-failure-attributes'
 import {
   compareSpanTime,
@@ -400,12 +397,7 @@ function aggregateTrace(
       id: span.span_id,
       ...(span.parent_span_id ? { parentId: span.parent_span_id } : {}),
       attributes: span.attributes,
-      modelCall: isOtlpModelCall({
-        kind: span.kind,
-        name: span.name,
-        attributes: span.attributes,
-      }),
-      aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
+      kind: errorRoleForProjectedSpan(span),
     })),
   )
   let toolSpanCount = 0
@@ -516,12 +508,13 @@ function isTerminalRootCandidate(span: ProjectedOtlpSpan): boolean {
   return role !== 'LLM' && role !== 'TOOL' && role !== 'EVALUATOR' && role !== 'GUARDRAIL'
 }
 
+/**
+ * The contract classifier over the span's own attributes. `span.kind` is not
+ * passed: the projection spells an undeclared span `UNKNOWN`, which the contract
+ * would read as a declaration and never infer past.
+ */
 function errorRoleForProjectedSpan(span: ProjectedOtlpSpan): TraceErrorRole {
-  return classifyOtlpSpanRole({
-    kind: span.kind,
-    name: span.name,
-    attributes: span.attributes,
-  })
+  return resolveSpanKind({ name: span.name, attributes: span.attributes })
 }
 
 function resolveScore(

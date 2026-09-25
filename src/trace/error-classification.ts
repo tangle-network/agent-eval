@@ -1,6 +1,6 @@
-import type { OtlpSpanRole } from './otlp-attributes'
+import type { SpanKind } from '@tangle-network/agent-trace-contract'
 
-export type TraceErrorRole = OtlpSpanRole
+export type TraceErrorRole = SpanKind
 
 export interface TraceErrorSignal {
   id: string
@@ -68,12 +68,7 @@ export function summarizeTraceErrors(signals: readonly TraceErrorSignal[]): Trac
       summary.process += 1
     } else if (propagated.has(signal.id)) {
       summary.propagated += 1
-    } else if (
-      signal.role === 'AGENT' ||
-      signal.role === 'CHAIN' ||
-      signal.role === 'LLM' ||
-      signal.role === 'TOOL'
-    ) {
+    } else if (signal.role !== 'UNKNOWN') {
       summary.execution += 1
     } else {
       summary.unclassified += 1

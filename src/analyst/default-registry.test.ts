@@ -10,7 +10,7 @@ function span(over: Partial<TraceAnalystSpan> & { span_id: string }): TraceAnaly
     trace_id: 't1',
     parent_span_id: 'root',
     name: over.span_id,
-    kind: 'SPAN',
+    kind: 'CHAIN',
     start_time: '2026-01-01T00:00:00.000Z',
     end_time: '2026-01-01T00:00:00.100Z',
     duration_ms: 100,
