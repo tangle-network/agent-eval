@@ -52,6 +52,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 
+### Fixed
+
+- `run.requireCompleted` no longer treats an unknown run as completed. A root span's status is now inferred as `completed` only from a declared `run.status` attribute; a span that ended without an error but with no declared status is `unknown`, and `requireCompleted`/`allowedStatuses` fail it instead of passing it. This closed a gap where a trace reader that saw no terminal record (a killed job, a truncated stream) exported an OK-status root span that the gate read as completed.
+- A `run` rule with `requireCompleted: false` and no other check, an empty `tools.maxCallsPerTool: {}`, and an empty `llm: {}` are now rejected as checking nothing, instead of compiling into a rule that always passes. The declarative form also rejects `run.requireCompleted: false` outright, matching `tools.enforced`.
+- `retries` now fails a declared write whose own call errored (a timeout included) and carries no idempotency key, independent of whether a repeat is detected by exact-argument grouping. This catches a retry the grouping missed because it re-encoded an argument's value.
+- `llm.maxTotalTokens` now counts cache-read and cache-write tokens alongside prompt and completion tokens. A cache-heavy call's `llm.token_count.prompt` attribute carries only the uncached remainder, so the ceiling used to pass runs at a small fraction of their real token spend.
+
 ### Removed
 
 - `createOtelExporter`, `createOtelTracingStore` and their types (`OtelExporter`, `OtelExportConfig`, `ExportableSpan`) are gone from `/traces`.
