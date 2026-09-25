@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.195.0] — 2026-09-25
+
 ### Added
 
 - `asha({ units, eta, trainUnits, reps })` (`/campaign`) is a `SearchAllocator` for asynchronous successive halving over one permutation of the selection units, seeded by the search's seed ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
