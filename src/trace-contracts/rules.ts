@@ -244,13 +244,13 @@ function checkRun(
   }
   const run = context.run
   const out: ContractViolation[] = []
-  if (
-    rule.requireCompleted &&
-    (run.status === undefined || run.status === 'running' || finite(run.endedAt) === undefined)
-  ) {
+  if (rule.requireCompleted && (run.status !== 'completed' || finite(run.endedAt) === undefined)) {
     out.push({
       rule: rule.label,
-      detail: `run did not reach a terminal status (status ${run.status ?? 'unknown'})`,
+      detail:
+        run.status === 'completed'
+          ? 'run status is completed but no end time was recorded'
+          : `run status is ${run.status ?? 'unknown'}, not completed`,
     })
   }
   if (

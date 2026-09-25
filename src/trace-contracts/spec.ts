@@ -702,11 +702,17 @@ function lintPath(path: PathSpec, prefix: string, out: ContractLintFinding[]): v
     )
   }
   const run = path.run
-  if (run?.requireCompleted && run.allowedStatuses?.includes('running')) {
+  if (run?.requireCompleted && run.allowedStatuses && !run.allowedStatuses.includes('completed')) {
     error(
-      'run.running-and-completed',
+      'run.completed-not-allowed',
       'run',
-      'requireCompleted contradicts allowedStatuses containing "running"',
+      'requireCompleted needs status completed, which allowedStatuses excludes',
+    )
+  } else if (run?.requireCompleted && run.allowedStatuses?.some((s) => s !== 'completed')) {
+    warn(
+      'run.statuses-beside-completed',
+      'run.allowedStatuses',
+      'requireCompleted accepts only completed, so the other allowed statuses never apply',
     )
   }
   if (
