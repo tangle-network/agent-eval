@@ -31,9 +31,6 @@ from .errors import (
 )
 from .hosted import (
     HOSTED_WIRE_VERSION,
-    EvalRunCellScore,
-    EvalRunEvent,
-    EvalRunGenerationSnapshot,
     HostedClient,
     IngestResponse,
     TraceSpanEventOuter,
@@ -53,7 +50,7 @@ from .models import (
 try:
     __version__ = version("agent-eval-rpc")
 except PackageNotFoundError:
-    __version__ = "0.189.0"
+    __version__ = "0.191.0"
 
 __all__ = [
     "Client",
@@ -75,9 +72,6 @@ __all__ = [
     # Hosted-tier ingest (mirrors @tangle-network/agent-eval/hosted)
     "HostedClient",
     "HOSTED_WIRE_VERSION",
-    "EvalRunEvent",
-    "EvalRunGenerationSnapshot",
-    "EvalRunCellScore",
     "TraceSpanEventOuter",
     "IngestResponse",
     "make_trace_span",

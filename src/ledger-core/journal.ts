@@ -26,6 +26,14 @@
  * instance cannot see is a same-length rewrite of rows before its head; a new
  * instance verifies every row and refuses one.
  *
+ * That "whole file once" is still every row, however long ago it was already
+ * proven unchanged. A codec that opts into `snapshotProjection` lets a fresh
+ * instance shortcut it: `projector-snapshot.ts`'s cache still walks the whole
+ * hash chain up to its checkpoint — nothing is exempted from tamper detection
+ * — but only the checkpoint row and the true tail after it go through the
+ * codec's own parsing and projector; the FileLedgerJournalOptions.projectorSnapshot
+ * option controls how often a pinning append refreshes it.
+ *
  * Domain vocabulary lives entirely in the consumer's codec: entry schema
  * validation, the constant header fields stamped into every entry, the error
  * taxonomy, and the state machine replayed over verified entries.
@@ -37,6 +45,13 @@ import { Mutex } from '../concurrency'
 import { canonicalString, hashCanonical, type LedgerHash } from './canonical'
 import { deepFreezeCanonicalJson } from './deep-freeze'
 import { appendLedgerLine, type LedgerFileContext, withLedgerFileLock } from './journal-file'
+import {
+  type LedgerProjectorSnapshot,
+  projectorSnapshotPathFor,
+  readProjectorSnapshotFile,
+  removeProjectorSnapshotFile,
+  writeProjectorSnapshotFile,
+} from './projector-snapshot'
 import {
   clearTrustedHeadFile,
   type LedgerTrustedHead,
@@ -86,6 +101,19 @@ export interface LedgerProjector<Entry, Projection> {
   snapshot(): Projection
 }
 
+/** Serialize a projection into JSON-safe cache data, and rebuild a projector
+ * from it whose next `apply` continues right after the entry it was taken
+ * after — as if that projector had been live since sequence 0. Supplying
+ * both opts a codec into the projector snapshot cache (`projector-snapshot.ts`):
+ * a fresh journal open can then verify the generic hash chain of the rows
+ * before a cached checkpoint without parsing or applying any of them through
+ * this codec. Omit to disable the cache for this codec; every open then
+ * fully replays through `createProjector`, exactly as before. */
+export interface LedgerProjectorSnapshotCodec<Entry, Projection> {
+  serialize(projection: Projection): unknown
+  restore(serialized: unknown): LedgerProjector<Entry, Projection>
+}
+
 export interface LedgerJournalCodec<
   Header extends object,
   Event extends LedgerEventBase,
@@ -103,6 +131,7 @@ export interface LedgerJournalCodec<
   /** Reject an entry whose constant header fields do not match this journal. */
   checkEntryHeader(entry: LedgerEntryOf<Header, Event>, index: number): void
   createProjector(): LedgerProjector<LedgerEntryOf<Header, Event>, Projection>
+  snapshotProjection?: LedgerProjectorSnapshotCodec<LedgerEntryOf<Header, Event>, Projection>
 }
 
 export interface LedgerAppendResult<Entry, Projection> {
@@ -137,6 +166,12 @@ export interface FileLedgerJournalOptions {
    * deleting the sibling pin file silently downgrades the journal back to a
    * chain that cannot detect deletion. */
   requireTrustedHead?: boolean
+  /** Cache a projector snapshot at the trusted head, refreshed once at least
+   * this many entries have appended past the last cached one, so the cost
+   * amortizes and a fresh open's tail stays bounded by this interval however
+   * large the journal grows. Requires the codec's `snapshotProjection`; a
+   * codec without it ignores this option and every open fully replays. */
+  projectorSnapshot?: { everyEntries: number }
 }
 
 /** The part of a journal file one instance has verified. It is valid only
@@ -157,6 +192,11 @@ interface VerifiedJournal<Entry, Projection> {
   projector: LedgerProjector<Entry, Projection>
   /** The pin last verified against this chain, or null when there was none. */
   pin: LedgerTrustedHead | null
+  /** Sequence of the last projector snapshot this instance wrote or seeded
+   * from, or null when it has not cached one. Tracked in memory so a run of
+   * pinning appends checks whether a refresh is due without re-reading the
+   * cache file on every one of them. */
+  snapshotSequence: number | null
 }
 
 // One async mutex per resolved journal path so concurrent appends from a single
@@ -178,9 +218,13 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
   readonly path: string
   /** Sibling file holding this journal's trusted head. */
   readonly trustedHeadPath: string
+  /** Sibling file holding this journal's cached projector snapshot, if its
+   * codec opts in. */
+  readonly projectorSnapshotPath: string
   private readonly codec: LedgerJournalCodec<Header, Event, Projection>
   private readonly mutex: Mutex
   private readonly requireTrustedHead: boolean
+  private readonly snapshotEvery: number | null
   private verified: VerifiedJournal<LedgerEntryOf<Header, Event>, Projection> | null = null
 
   constructor(
@@ -190,9 +234,14 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
   ) {
     this.path = resolve(path)
     this.trustedHeadPath = trustedHeadPathFor(this.path)
+    this.projectorSnapshotPath = projectorSnapshotPathFor(this.path)
     this.codec = codec
     this.mutex = mutexFor(this.path)
     this.requireTrustedHead = options.requireTrustedHead === true
+    this.snapshotEvery =
+      codec.snapshotProjection !== undefined && options.projectorSnapshot !== undefined
+        ? options.projectorSnapshot.everyEntries
+        : null
   }
 
   async replay(): Promise<Projection> {
@@ -242,6 +291,7 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
         const head = { sequence: entry.sequence, entryHash: entry.entryHash }
         writeTrustedHeadFile(this.trustedHeadPath, head, this.codec)
         state.pin = head
+        this.maybeWriteProjectorSnapshot(state)
       }
       return { entry, appended: true, projection: state.projector.snapshot() }
     })
@@ -275,6 +325,13 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
       }
       writeTrustedHeadFile(this.trustedHeadPath, head, this.codec)
       state.pin = head
+      // An explicit pin is already a deliberate, infrequent checkpoint call,
+      // so — when the caller opted into the cache at all — it always
+      // refreshes it rather than waiting for the interval. Gated on
+      // `snapshotEvery`, not just the codec's support, so a journal that
+      // never asked for `projectorSnapshot` never gets a cache file from
+      // this path either; caching stays one on/off decision, not two.
+      if (this.snapshotEvery !== null) this.writeProjectorSnapshotNow(state)
       return head
     })
   }
@@ -289,7 +346,18 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
   async clearTrustedHead(): Promise<LedgerTrustedHeadRemoval> {
     return this.locked(() => {
       const removal = clearTrustedHeadFile(this.trustedHeadPath, this.codec)
-      if (this.verified !== null) this.verified.pin = null
+      // A cached snapshot that survived would be pinned to a head this
+      // journal no longer vouches for, indistinguishable from a stale one a
+      // future re-pin could seed from without earning it. It is not
+      // security-critical to remove it — a reader only ever trusts a cached
+      // checkpoint the current pin can vouch for — but keeping the sidecars
+      // in agreement about what has been given up is the honest state to
+      // leave on disk.
+      removeProjectorSnapshotFile(this.projectorSnapshotPath, this.codec)
+      if (this.verified !== null) {
+        this.verified.pin = null
+        this.verified.snapshotSequence = null
+      }
       return removal
     })
   }
@@ -334,7 +402,12 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
         size < state.size ||
         !headInPlace(fd, state.size, state.head?.row ?? null)
       ) {
-        state = emptyJournal(this.codec)
+        // This is the case a full verification exists to catch — a fresh
+        // instance, or one whose retained head is no longer where it was
+        // verified — so a cached checkpoint is only ever a shortcut to the
+        // SAME conclusion a full replay would reach, never a substitute for
+        // reaching it.
+        state = (size > 0 ? this.seedFromSnapshot(fd, size) : null) ?? emptyJournal(this.codec)
       }
       state.identity = identity
       this.verified = state
@@ -404,6 +477,183 @@ export class FileLedgerJournal<Header extends object, Event extends LedgerEventB
     const head = { sequence: entry.sequence, entryHash: entry.entryHash }
     writeTrustedHeadFile(this.trustedHeadPath, head, this.codec)
     state.pin = head
+    this.maybeWriteProjectorSnapshot(state)
+  }
+
+  /** Refresh the cached projector snapshot once the current pin has moved at
+   * least `snapshotEvery` entries past the last one cached, so the write cost
+   * amortizes across many appends and a fresh open's uncached tail stays
+   * bounded by that interval no matter how large the journal grows. A no-op
+   * when the codec does not support the cache, the option is off, or the
+   * head this call just pinned is not actually new (the idempotent-append
+   * path can call this after re-acknowledging an already-durable entry). */
+  private maybeWriteProjectorSnapshot(
+    state: VerifiedJournal<LedgerEntryOf<Header, Event>, Projection>,
+  ): void {
+    if (this.codec.snapshotProjection === undefined || this.snapshotEvery === null) return
+    if (state.pin === null || state.pin.sequence !== state.head?.entry.sequence) return
+    if (
+      state.snapshotSequence !== null &&
+      state.pin.sequence - state.snapshotSequence < this.snapshotEvery
+    ) {
+      return
+    }
+    this.writeProjectorSnapshotNow(state)
+  }
+
+  /** Serialize the live projector and write it as the cache, unconditionally.
+   * Callers have already established that `state.pin` names `state.head`, so
+   * the cache and the pin agree on the checkpoint by construction. */
+  private writeProjectorSnapshotNow(
+    state: VerifiedJournal<LedgerEntryOf<Header, Event>, Projection>,
+  ): void {
+    const head = state.pin!
+    const projection = this.codec.snapshotProjection!.serialize(state.projector.snapshot())
+    const snapshot: LedgerProjectorSnapshot = { head, byteLength: state.size, projection }
+    writeProjectorSnapshotFile(this.projectorSnapshotPath, snapshot, this.codec)
+    state.snapshotSequence = head.sequence
+  }
+
+  /** Seed a fresh verified state from the cached projector snapshot, or null
+   * when there is none this reader can use — a missing or out-of-reach
+   * cache, never something this instance found actually wrong. Everything it
+   * DOES accept is checked against the real bytes: rows 0 through the
+   * checkpoint are read and chain-verified exactly as `admitEntry` would
+   * verify them (self-consistent hash, correct sequence, linked previousHash,
+   * unique eventId), just without this codec's own `parseEntry` or
+   * `apply` — the checkpoint row itself still goes through both, through the
+   * ordinary `parseRow`, so it is exactly as trustworthy as any entry a full
+   * replay would produce. Any mismatch found along the way throws the same
+   * `integrityError` a full replay of the same bytes would raise, because it
+   * is the same tampering either path would have found; this is never turned
+   * into a quiet fallback that would just re-read the same bytes differently
+   * and risk reporting a different, more confusing failure — or none. */
+  private seedFromSnapshot(
+    fd: number,
+    size: number,
+  ): VerifiedJournal<LedgerEntryOf<Header, Event>, Projection> | null {
+    const restore = this.codec.snapshotProjection
+    if (restore === undefined) return null
+    const cached = readProjectorSnapshotFile(this.projectorSnapshotPath, this.codec)
+    if (cached === null) return null
+    // Only a cache the CURRENT pin can vouch for is trusted. A pin moves
+    // forward only past history that has already chain-verified (sync
+    // verifies every appended row before a pinning append can move it), so a
+    // cache at or behind the pin names a real, already-proven checkpoint; one
+    // ahead of it — or present with no pin at all — names history nothing
+    // external currently vouches for, and is ignored rather than trusted.
+    const pin = readTrustedHeadFile(this.trustedHeadPath, this.codec)
+    if (pin === null || cached.head.sequence > pin.sequence) return null
+    if (cached.byteLength <= 0 || cached.byteLength > size) return null
+
+    const prefix = readRange(fd, 0, cached.byteLength)
+    const rows = splitRows(prefix, this.path, this.codec)
+    if (rows.length !== cached.head.sequence + 1) {
+      throw this.codec.integrityError(
+        `${this.codec.subject} ${this.path} projector snapshot ${this.projectorSnapshotPath} expects ${cached.head.sequence + 1} entries in its first ${cached.byteLength} bytes but the journal has ${rows.length}`,
+      )
+    }
+
+    const offsets: number[] = []
+    const sequenceByEventId = new Map<string, number>()
+    let previousHash: LedgerHash | null = null
+    for (let index = 0; index < rows.length - 1; index += 1) {
+      const row = rows[index]!
+      offsets.push(row.start)
+      let raw: unknown
+      try {
+        raw = JSON.parse(row.text)
+      } catch (error) {
+        throw this.codec.integrityError(
+          `${this.codec.subject} ${this.path} has invalid JSON at line ${index + 1}`,
+          { cause: error },
+        )
+      }
+      if (canonicalString(raw) !== row.text) {
+        throw this.codec.integrityError(
+          `${this.codec.subject} ${this.path} has non-canonical bytes at line ${index + 1}`,
+        )
+      }
+      const fields = raw as {
+        sequence?: unknown
+        previousHash?: unknown
+        entryHash?: unknown
+        event?: { eventId?: unknown }
+      }
+      if (fields.sequence !== index) {
+        throw this.codec.integrityError(
+          `entry at line ${index + 1} has sequence ${String(fields.sequence)}, expected ${index}`,
+        )
+      }
+      if ((fields.previousHash ?? null) !== previousHash) {
+        throw this.codec.integrityError(
+          `entry at line ${index + 1} does not extend the previous hash`,
+        )
+      }
+      const { entryHash, ...material } = raw as Record<string, unknown>
+      const expected = hashCanonical(material)
+      if (entryHash !== expected) {
+        throw this.codec.integrityError(
+          `entry at line ${index + 1} hash mismatch: expected ${expected}, got ${String(entryHash)}`,
+        )
+      }
+      const eventId = fields.event?.eventId
+      if (typeof eventId !== 'string' || eventId === '') {
+        throw this.codec.integrityError(`entry at line ${index + 1} has no eventId`)
+      }
+      if (sequenceByEventId.has(eventId)) {
+        throw this.codec.integrityError(`duplicate eventId ${eventId} in durable ledger`)
+      }
+      sequenceByEventId.set(eventId, index)
+      previousHash = entryHash as LedgerHash
+    }
+
+    // The checkpoint row itself carries this codec's own validation, exactly
+    // like any other entry — the cache never substitutes for parsing it.
+    const boundary = rows[rows.length - 1]!
+    offsets.push(boundary.start)
+    const entry = parseRow(
+      boundary.text,
+      { path: this.path, line: cached.head.sequence + 1 },
+      this.codec,
+    )
+    const { entryHash: _boundaryHash, ...boundaryMaterial } = entry
+    if (
+      entry.sequence !== cached.head.sequence ||
+      entry.previousHash !== previousHash ||
+      entry.entryHash !== cached.head.entryHash ||
+      hashCanonical(boundaryMaterial) !== cached.head.entryHash
+    ) {
+      throw this.codec.integrityError(
+        `${this.codec.subject} ${this.path} projector snapshot ${this.projectorSnapshotPath} does not match the journal at sequence ${cached.head.sequence}`,
+      )
+    }
+    this.codec.checkEntryHeader(entry, cached.head.sequence)
+    if (sequenceByEventId.has(entry.event.eventId)) {
+      throw this.codec.integrityError(`duplicate eventId ${entry.event.eventId} in durable ledger`)
+    }
+    sequenceByEventId.set(entry.event.eventId, entry.sequence)
+
+    let projector: LedgerProjector<LedgerEntryOf<Header, Event>, Projection>
+    try {
+      projector = restore.restore(cached.projection)
+    } catch (error) {
+      throw this.codec.integrityError(
+        `${this.codec.subject} ${this.path} projector snapshot ${this.projectorSnapshotPath} could not be restored`,
+        { cause: error },
+      )
+    }
+
+    return {
+      identity: null,
+      size: cached.byteLength,
+      offsets,
+      head: { entry, row: Buffer.from(`${boundary.text}\n`, 'utf8') },
+      sequenceByEventId,
+      projector,
+      pin: null,
+      snapshotSequence: cached.head.sequence,
+    }
   }
 
   /** The verified entry at `sequence`, read back from the file. The rows from
@@ -576,6 +826,7 @@ function emptyJournal<Header extends object, Event extends LedgerEventBase, Proj
     sequenceByEventId: new Map(),
     projector: codec.createProjector(),
     pin: null,
+    snapshotSequence: null,
   }
 }
 

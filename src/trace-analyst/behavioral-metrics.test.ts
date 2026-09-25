@@ -324,7 +324,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
       ...agent,
       span_id: `branch-${id}`,
       parent_span_id: 'agent',
-      kind: 'SPAN',
+      kind: 'CHAIN',
     }))
     const calls = [
       { id: 'a1', parent: 'branch-a', input: 100, output: 90, second: 1 },
@@ -362,7 +362,7 @@ describe('computeTraceMetrics — deterministic behavioral signals (no LLM)', ()
       ...agent,
       span_id: 'phase',
       parent_span_id: 'agent',
-      kind: 'SPAN',
+      kind: 'CHAIN',
       start_time: '2026-01-01T00:00:02.000Z',
       end_time: '2026-01-01T00:00:04.000Z',
       duration_ms: 2000,

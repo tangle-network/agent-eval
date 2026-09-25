@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '1f4d8421c7f2245ff9ebca6e92976bec103e3211bd5554d5394a5e03e26279e2'
+  'f02c0d075ada4e1046658d9591f00e431aefdde78779971cc568ccc23b2333ac'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
@@ -102,6 +102,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
   'src/ledger-core/index.ts',
   'src/ledger-core/journal-file.ts',
   'src/ledger-core/journal.ts',
+  'src/ledger-core/projector-snapshot.ts',
   'src/ledger-core/trusted-head.ts',
   'src/llm-client.ts',
   'src/math/normal.ts',
@@ -140,7 +141,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '99767c646612bbc67a9d52077b242930d3bc3b44a2f95cb1c96c4eb3531e1243'
+  '00002cbbc8a749281287418f0abc03e4fc6a78ef3c1b4f21e33f2452629283da'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256
