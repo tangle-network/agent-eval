@@ -172,10 +172,23 @@ The ports:
 - **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.
 - **Policy:** `expand(view)` returns parents and an operator, or null to wait; `leader(view)` names the node the search keeps.
   The view holds the policy split (selection, or train when a search has none) and no test cell.
-  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened, and a node that scored every unit of its screen leads when it beats the leader on the units they share.
+  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened.
+  A node leads when it dodged no unit (no cell ran and ended unscored), scored every unit the leader scored, and beats the leader's mean on them.
+  A node measured on fewer units than the leader, such as one an allocator has only screened, cannot take the lead on less evidence.
   `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament and keeps the incumbent's leader rule.
-- **Allocator:** `plan(state, nodeId)` lists the cells a node needs now; the kernel allocates the ones the ledger lacks.
-  `uniform({ reps })` gives the root every train and selection task as `root` cells, and every other node every train task (`train`) and selection task (`screen`).
+- **Allocator:** `plan(state, nodeId, rung)` lists the cells a node needs through its rung; the kernel allocates the ones the ledger lacks.
+  `advance(view)` names the nodes the evidence moves to a further rung, and `prune(view, keep)` names, at close, the nodes left waiting.
+  The kernel records each `advanced` decision only once the cap admits its rung's cells, then allocates them.
+  `uniform({ reps })` gives the root every train and selection task as `root` cells, and every other node every train task (`train`) and selection task (`screen`); it has one rung.
+  `asha({ units, eta, trainUnits, reps })` is asynchronous successive halving over one permutation of the selection units, seeded by the search's seed.
+  Rung k is the first `units × 2^k` units (default 6, 12, 24, ...), and the top rung is every unit.
+  The root runs every unit first; a new node screens on rung 0 plus `trainUnits` (default 2) train units, which are the proposer's feedback and never rank.
+  Every node at a rung runs the same units as its parent, the root and its siblings, so every contrast pairs.
+  A node that finished rung k advances once it ranks in the top floor(n / eta) (default eta 3) of the n nodes that finished rung k, the root included, by mean over the rung's units.
+  A node with an unscored unit ranks last and never advances.
+  There is no barrier: a node outside the top waits, and at close it is decided `pruned` with its rank.
+  These are rank decisions: they spend budget and claim nothing.
+  Without a selection split, `asha` ranks the train split, as the policy does.
 
 **Budget.**
 Every reservation passes the ledger's admission rule: committed spend plus open reservations plus the unspent claim reserve plus the new hold stays within `maxUsd`.
@@ -184,7 +197,9 @@ A hard lane holds its maximum; an estimate lane holds 1.5 times the p99 of its s
 Spend above a hold is recorded as overspend, never refused.
 Expansion stops at `maxNodes`, `maxExpansions`, the deadline, after `patience` expansions without a new leader, when the cap cannot admit one more expansion, or when the proposer stops.
 Allocated cells still run; at the deadline the ones not yet started are cancelled.
-At close the leader is decided `selected` when it has a scored cell, every other undecided node `rejected` with its estimate against the leader, and the search closes with no claim.
+A node that finishes a rung is ranked at once, so rungs keep opening after expansion stops, until the deadline.
+At close the allocator prunes the nodes left waiting on a rung, except the leader.
+The leader is decided `selected` when it has a scored cell, every other undecided node `rejected` with its estimate against the leader, and the search closes with no claim.
 
 **Resume.**
 The ledger is the only checkpoint.
@@ -196,7 +211,13 @@ Aborting the `signal` pauses the search: in-flight cells are aborted, a scored r
 One kernel runs a ledger file at a time on a host: a second one is refused by a pid lock beside the ledger, and a killed holder's lock is reclaimed.
 A closed ledger returns its result; more work on a closed search is a new search.
 
-`scripts/search-sim.ts` runs the real kernel, ledger and policies over a seeded synthetic objective, proposer and executor, and `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
+An `asha` search ranks a node when it finishes a rung, so a restart that changes the order cells finish in can change a promotion.
+Its resumed ledger holds only rank decisions that its own evidence supports.
+
+`scripts/search-sim.ts` runs the real kernel, ledger and policies over a seeded synthetic objective, proposer and executor.
+`kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
+`compare` runs one search per seed under `uniform` and under `asha` and reports the cells each spent, the node each kept, and the units each edge pairs on; `--plant-gap` swaps the hill climb for a fixed pool with one planted best candidate.
+Every run re-derives each `advanced` and `pruned` decision from the ledger before it.
 
 ## Ship a search
 
@@ -245,7 +266,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, and `searchPolicyView`.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
-- `src/campaign/allocation.ts`: `SearchAllocator` and `uniform`.
+- `src/campaign/allocation.ts`: `SearchAllocator`, `uniform` and `asha`.
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
 - `src/campaign/search-history-receipt.ts`: receipts and admission.

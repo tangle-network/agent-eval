@@ -6,6 +6,23 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `asha({ units, eta, trainUnits, reps })` (`/campaign`) is a `SearchAllocator` for asynchronous successive halving over one permutation of the selection units, seeded by the search's seed ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
+  Rung k is the first `units × 2^k` units (default 6, 12, 24, ...); the root runs every unit first, and a new node screens on rung 0 plus 2 train units that only the proposer reads.
+  Every node at a rung runs the units its parent, the root and its siblings ran, so every contrast pairs.
+  A node that finished rung k advances once it ranks in the top floor(n / 3) of the n nodes that finished rung k; there is no barrier, and a node left waiting is decided `pruned` with its rank at close.
+- The kernel records the allocator's rank decisions: an `advanced {rung}` decision is appended only once the cap admits the rung's cells, which the kernel then allocates, and rungs keep opening after expansion stops, until the deadline.
+- `scripts/search-sim.ts compare` runs one search per seed under `uniform` and `asha` and reports cells, the kept node and the units each edge pairs on; `--plant-gap` swaps the hill climb for a fixed pool with one planted best candidate.
+  Every simulated run re-derives each `advanced` and `pruned` decision from the ledger before it.
+
+### Changed
+
+- **Breaking:** `SearchAllocator.plan(state, nodeId, rung)` takes the node's rung, and an allocator implements `advance(view)` and `prune(view, keep)`; `uniform` returns no decisions.
+- `incumbent` and `crowdedFrontierParent`: a node leads only when it scored every unit the leader scored and beats the leader's mean on them, so a node an allocator has only screened cannot take the lead on less evidence than the leader holds.
+  A node dodged a unit only when a cell ran and ended unscored; a cell still to run no longer counts against it.
+- Migration: a custom allocator adds a `rung` parameter to `plan` and returns `[]` from `advance` and `prune` to keep its behavior.
+
 ## [0.192.0] — 2026-09-25
 
 ### Added
