@@ -16,6 +16,20 @@
  *     local `Dispatch` as an HTTP endpoint. Handles auth, JSON parsing,
  *     error mapping, and cancellation when the client aborts.
  *
+ * # Cost receipts cross the wire too
+ *
+ * A worker dispatch pays for its own model calls through its own
+ * `ctx.cost` (wired by `contextFactory`) — a different `CostLedger` than the
+ * coordinator's. `runDispatchServer` records every receipt that dispatch
+ * settles and returns them alongside the artifact; `httpDispatch` replays
+ * each one into the coordinator's `ctx.cost`, the same paid-call path a
+ * local dispatch uses. A remote cell's spend therefore reaches the
+ * coordinator's `CostLedger` — its summary, its cost ceiling, its
+ * `CampaignCellResult.costUsd` — exactly like an in-process cell's does.
+ * A worker with no `contextFactory` (or one that never touches `ctx.cost`)
+ * sends no receipts, and the coordinator sees the cell as free, same as
+ * today.
+ *
  * # Topology examples
  *
  * **Single-worker:** coordinator on box A, worker on box B. Set
@@ -31,7 +45,8 @@
  * HTTP services that can scale horizontally per cell.
  */
 
-import type { Dispatch, DispatchContext, Scenario } from '../contract'
+import type { CampaignCostMeter, Dispatch, DispatchContext, Scenario } from '../contract'
+import type { CostReceipt, CostReceiptInput } from '../cost-ledger'
 
 // ── Client ───────────────────────────────────────────────────────────
 
@@ -74,6 +89,14 @@ export interface HttpDispatchRequestBody<TScenario extends Scenario> {
 
 export interface HttpDispatchResponseBody<TArtifact> {
   artifact: TArtifact
+  /**
+   * Every paid-call receipt the worker's `ctx.cost` settled while producing
+   * this artifact, in settlement order. Absent or empty when the worker
+   * recorded no paid calls (no `contextFactory`, or a dispatch that pays
+   * through some other channel entirely). `httpDispatch` replays each one
+   * into the coordinator's own `ctx.cost`.
+   */
+  receipts?: CostReceipt[]
 }
 
 function resolveAuth(auth: HttpDispatchOptions<Scenario, unknown>['auth']): Promise<string | null> {
@@ -141,11 +164,19 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
           signal: combinedSignal,
         })
         if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          // A dispatch that pays for part of its work before failing (a judge
+          // call that settles, then the provider call itself errors) still
+          // owes that spend to the coordinator's ledger — read it before
+          // deciding whether this attempt retries or this cell fails. A
+          // non-JSON error body (401/404/413's plain text) carries none.
+          for (const receipt of parseErrorReceipts(text)) {
+            await replayReceipt(ctx.cost, receipt)
+          }
           // 4xx is non-retryable (caller error, auth, bad scenario shape).
           // 5xx / 408 / 429 / 502 / 503 / 504 are retryable.
           const retryable = res.status >= 500 || res.status === 408 || res.status === 429
           if (!retryable || attempt === maxRetries) {
-            const text = await res.text().catch(() => '')
             throw new Error(`httpDispatch ${url} failed (${res.status}): ${text.slice(0, 500)}`)
           }
           // exponential backoff with jitter
@@ -153,6 +184,9 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
           continue
         }
         const parsed = (await res.json()) as HttpDispatchResponseBody<TArtifact>
+        for (const receipt of parsed.receipts ?? []) {
+          await replayReceipt(ctx.cost, receipt)
+        }
         return parsed.artifact
       } catch (err) {
         // Caller-driven abort is terminal — never retry.
@@ -173,6 +207,69 @@ function sleep(ms: number): Promise<void> {
     if (typeof (t as { unref?: () => void }).unref === 'function')
       (t as { unref: () => void }).unref()
   })
+}
+
+/** Best-effort receipts from a non-2xx `runDispatchServer` body. Any shape
+ *  that isn't `{ error, receipts? }` JSON (plain-text 401/404/413 bodies,
+ *  a non-`runDispatchServer` peer) yields none — never itself a reason to
+ *  fail the request. */
+function parseErrorReceipts(text: string): CostReceipt[] {
+  try {
+    const parsed = JSON.parse(text) as { receipts?: CostReceipt[] }
+    return Array.isArray(parsed.receipts) ? parsed.receipts : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Re-enter one already-settled remote receipt through `runPaidCall` — the
+ * only path `CampaignCostMeter` admits. `execute` does no new work (the
+ * spend already happened on the worker); it only replays the worker's
+ * outcome so the coordinator's ledger records the same receipt (a settled
+ * failure included, so its `error` and cost — a failed call can still burn
+ * tokens — are never dropped on the floor). Faithfully replaying a remote
+ * failure still returns `succeeded: false` from `runPaidCall`: that's not
+ * ours to raise. Only a `receipt`-less failure is — it means `runPaidCall`
+ * refused to admit the call at all (a duplicate `callId`, an unknown-cost
+ * receipt under a capped coordinator ledger, a breached cost ceiling), so
+ * the remote spend could not be accounted for.
+ */
+async function replayReceipt(cost: CampaignCostMeter, receipt: CostReceipt): Promise<void> {
+  const knownCostUsd = receipt.costUnknown ? undefined : receipt.costUsd
+  const observed = (): CostReceiptInput => ({
+    model: receipt.model,
+    inputTokens: receipt.inputTokens,
+    outputTokens: receipt.outputTokens,
+    ...(receipt.reasoningTokens === undefined ? {} : { reasoningTokens: receipt.reasoningTokens }),
+    ...(receipt.cachedTokens === undefined ? {} : { cachedTokens: receipt.cachedTokens }),
+    ...(receipt.cacheWriteTokens === undefined
+      ? {}
+      : { cacheWriteTokens: receipt.cacheWriteTokens }),
+    ...(receipt.usageUnknown ? { usageUnknown: true as const } : {}),
+    ...(knownCostUsd === undefined
+      ? { costUnknown: true as const }
+      : { actualCostUsd: knownCostUsd }),
+  })
+  const result = await cost.runPaidCall({
+    callId: receipt.callId,
+    channel: receipt.channel,
+    actor: receipt.actor,
+    model: receipt.model,
+    maximumCharge:
+      knownCostUsd === undefined ? undefined : { externallyEnforcedMaximumUsd: knownCostUsd },
+    // No `signal`: the call already happened remotely. Aborting the replay
+    // would not undo the spend, only hide it from the ledger.
+    execute: async () => {
+      if (receipt.error) throw new Error(receipt.error)
+      return null
+    },
+    receipt: observed,
+    receiptFromError: observed,
+  })
+  if (!result.succeeded && !result.receipt) {
+    throw result.error
+  }
 }
 
 // ── Server ───────────────────────────────────────────────────────────
@@ -260,6 +357,11 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
     let cellId = 'unknown'
     let success = false
     let errCaught: unknown
+    // Hoisted so a dispatch that throws AFTER paying for some of its work
+    // still reports that spend in the error response — a partial spend is
+    // still spend, and it must reach the coordinator's ledger exactly like
+    // a locally-dispatched cell's failure accounting does.
+    const receipts: CostReceipt[] = []
 
     try {
       if (req.method !== 'POST' || req.url?.split('?')[0] !== path) {
@@ -326,8 +428,23 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
         throw new Error('runDispatchServer: contextFactory must preserve request runAttemptId')
       }
 
-      const artifact = await opts.dispatch(body.scenario, ctx)
-      const responseBody: HttpDispatchResponseBody<TArtifact> = { artifact }
+      // Record every receipt this dispatch settles on ITS OWN `ctx.cost` (the
+      // worker's ledger, not the coordinator's) so the response can carry
+      // them back. `httpDispatch` replays each one into the coordinator's
+      // ledger — see the module doc.
+      const recordingCost: CampaignCostMeter = {
+        async runPaidCall(input) {
+          const result = await ctx.cost.runPaidCall(input)
+          if (result.receipt) receipts.push(result.receipt)
+          return result
+        },
+      }
+
+      const artifact = await opts.dispatch(body.scenario, { ...ctx, cost: recordingCost })
+      const responseBody: HttpDispatchResponseBody<TArtifact> = {
+        artifact,
+        ...(receipts.length ? { receipts } : {}),
+      }
 
       res.statusCode = 200
       res.setHeader('content-type', 'application/json')
@@ -343,7 +460,12 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
       }
       res.statusCode = 500
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+      res.end(
+        JSON.stringify({
+          error: err instanceof Error ? err.message : String(err),
+          ...(receipts.length ? { receipts } : {}),
+        }),
+      )
     } finally {
       opts.onRequest?.({
         cellId,
