@@ -13,7 +13,9 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Its ports are an executor (`lanes`, `place`, `run`, `adopt`), a proposer, and an artifact codec.
   Every reservation passes the ledger's admission rule before it is asked for: a hard lane holds its enforced per-cell maximum, an estimate lane 1.5 times the p99 of its settled cells once 20 settled (else its prior), and spend above a hold is recorded as overspend.
   The ledger is the only checkpoint: rerun on an open ledger, the kernel records an interrupted proposal as failed at an unknown cost, finishes a recorded proposal from its stored output, and offers every unsettled cell to `executor.adopt` before it runs it.
-  Killed with SIGKILL 5 times at random ledger positions, a simulated search (10 nodes, 48 cells, 10 % environment faults, a $4 cap) resumed to the same nodes, edges, cells, scores, decisions and close as an uninterrupted run, with no cell allocated twice and no attempt finished twice.
+  Killed with SIGKILL 8 times at random ledger positions, a simulated search (7 nodes, 56 cells, 10 % environment faults, an $8 cap, estimate lanes) resumed to the same nodes, edges, cells, scores, decisions and close as an uninterrupted run; 10 attempts that finished before a kill were adopted, none finished twice, and committed spend ($2.55) stayed within the cap plus recorded overspend ($0.18).
+  A real `runOptimization` (runCampaign, CostLedger, cell cache, file ledger; 7 nodes, 28 cells) killed 6 times, once inside a proposal, returned the same winner and generations as an uninterrupted run and dispatched the same 28 cells to completion.
+  With 1.5 s cells on 4 slots, all 4 slots were busy for 93 % of the time any cell ran.
 - `incumbent({ patience })` and `crowdedFrontierParent({ seed })` are `SearchPolicy`s; `uniform({ reps })` is the fixed-plan `SearchAllocator`.
 - `SearchStateView.budget` gives the admission rule's room (`headroomUsd`, `claimReserveUsd`), and `SearchOperation` carries its recorded outcome and artifacts.
 - `SearchRecorder.readBlob(ref)` reads a stored blob back and checks its digest and length.
