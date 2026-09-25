@@ -369,6 +369,9 @@ export class SearchRecorder {
     operationId: string
     operationKind: SearchOperationKind
     reservation?: SearchReservation | null
+    /** Bound at the start, so a restart finds them even if the operation
+     * never records a result. */
+    artifacts?: SearchArtifactRef[]
   }): Promise<void> {
     const state = await this.ledger.state()
     if (state.operation(input.operationId)) return
@@ -376,7 +379,7 @@ export class SearchRecorder {
       kind: 'operation-started',
       eventId: `operation-started:${input.operationId}`,
       occurredAt: this.stamp(),
-      artifacts: [],
+      artifacts: input.artifacts ?? [],
       operationId: input.operationId,
       operationKind: input.operationKind,
       reservation: input.reservation ?? null,
