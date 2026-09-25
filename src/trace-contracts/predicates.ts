@@ -75,7 +75,15 @@ export function assertPredicate(value: unknown, where: string): asserts value is
     throw new ValidationError(`${where}: "attr" must be a plain object`)
   }
   for (const [key, expected] of Object.entries(p.attr ?? {})) {
-    if (isSerializedRegex(expected)) assertMatcher(expected, `${where} attr "${key}"`)
+    // Any non-primitive attr value must be a complete matcher shape (a
+    // RegExp, a `{ $regex, flags }` pair, or `{ oneOf }`) — never a partial
+    // one silently compared by reference. `expected !== actual` on an object
+    // is always true, so an incomplete `$regex` (missing `flags`) or a bare
+    // `oneOf` used to compile and then never match, making `never` rules
+    // pass vacuously and `always` rules fail vacuously.
+    if (expected !== null && typeof expected === 'object') {
+      assertMatcher(expected, `${where} attr "${key}"`)
+    }
   }
   if (p.not !== undefined) assertPredicate(p.not, `${where} "not"`)
   if (p.requiresCustom && typeof p.custom !== 'function') {
@@ -108,8 +116,9 @@ export function predicateMatches(span: ContractSpan, p: SpanPredicate): boolean 
   if (p.attr !== undefined) {
     for (const [key, expected] of Object.entries(p.attr)) {
       const actual = span.attributes?.[key]
-      if (isRegexValue(expected)) {
-        if (!matchText(typeof actual === 'string' ? actual : undefined, expected)) return false
+      if (isRegexValue(expected) || isOneOfMatcher(expected)) {
+        if (!matchText(typeof actual === 'string' ? actual : undefined, expected as TextMatcher))
+          return false
       } else if (actual !== expected) {
         return false
       }
