@@ -430,7 +430,11 @@ export interface SearchEdgeRecordedEvent extends SearchLedgerEventBase {
   edgeId: string
   childNodeId: string
   /** Primary parent first. Empty for `seed` and for `unknown` attribution; a
-   * parent in another search appears only on a `derive` edge. */
+   * parent in another search appears only on a `derive` edge. On a node's
+   * first edge every parent was registered before the child. A later edge is a
+   * re-proposal and may name the child itself or a node registered after it
+   * (a proposal that changed nothing, or a revert); such a parent is not
+   * lineage, so follow an edge for ancestry only through earlier parents. */
   parents: SearchNodeRef[]
   operator: SearchEdgeOperator
   attribution: SearchEdgeAttribution
