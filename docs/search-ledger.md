@@ -232,6 +232,7 @@ When a node's cells finish, the kernel compares it with its primary parent.
 If its train mean rose on the train units they share while its selection interval against the parent (6 or more units, not indeterminate) lies wholly on the worse side, the node is decided `invalid` with rule `divergence` and the interval as its basis.
 Train is what the proposer reads, so a gain there that selection contradicts is the signature of fitting the feedback instead of the task.
 An invalid node is never a parent and never a finalist.
+The check reads the screen once; a node an allocator advanced is not judged again on its rung cells, after a restart either.
 
 **Resume.**
 The ledger is the only checkpoint.
