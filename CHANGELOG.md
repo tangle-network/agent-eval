@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.192.0] — 2026-09-25
+
 ### Added
 
 - `runSearch` (`/campaign`) is the one search kernel: an event-driven loop with no generation barrier that separates where to expand (`SearchPolicy`), where to spend rollouts (`SearchAllocator`) and what to claim ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
