@@ -372,7 +372,8 @@ async function runWriters(): Promise<number> {
             messages.push(message)
             if ('done' in message) {
               done.add(index)
-              if (done.size === writers) for (const each of children) each.stdin!.write('verify\n')
+              // End stdin with the signal: a child holding an open stdin never exits.
+              if (done.size === writers) for (const each of children) each.stdin!.end('verify\n')
             }
             if ('verified' in message) verified.push(message)
           })
