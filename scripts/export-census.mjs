@@ -71,10 +71,13 @@ function subpathEntries() {
     buildMap.set(match[1], match[2])
   }
   const entries = new Map()
-  for (const subpath of Object.keys(packageJson.exports)) {
+  for (const [subpath, target] of Object.entries(packageJson.exports)) {
     if (subpath.endsWith('.json')) continue
-    const key = subpath === '.' ? 'index' : subpath.slice(2)
-    const source = buildMap.get(key) ?? buildMap.get(`${key}/index`)
+    // The build entry is named by the published file, which need not spell
+    // the subpath: `./jev/protocol` publishes `dist/jev-protocol.js`.
+    const published = typeof target === 'string' ? target : (target.import ?? target.default)
+    const key = published.replace(/^\.\/dist\//, '').replace(/\.js$/, '')
+    const source = buildMap.get(key)
     if (source === undefined) {
       throw new Error(`export-census: no build entry for subpath '${subpath}'`)
     }
