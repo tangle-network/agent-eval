@@ -40,11 +40,6 @@ import {
 } from '../campaign/provenance'
 import type { CampaignCellRetryPolicy } from '../campaign/run-campaign'
 import { resolveRunDir } from '../campaign/run-dir'
-import {
-  campaignCellExecutionEvidence,
-  campaignCellJudgeDimensions,
-  campaignCellTaskScore,
-} from '../campaign/run-record'
 import type { SearchHistoryReceipt } from '../campaign/search-history-receipt'
 import {
   assertSearchHistoryAdmissionOptions,
@@ -56,7 +51,6 @@ import {
   fsCampaignStorage,
   inMemoryCampaignStorage,
 } from '../campaign/storage'
-import { surfaceHash } from '../campaign/surface-identity'
 import type {
   DispatchContext,
   Gate,
@@ -69,7 +63,7 @@ import type {
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../cost-ledger'
 import type { CampaignEvidenceContext } from '../experiment/campaign-evidence'
 import { createHostedClient, type HostedTenant } from '../hosted/client'
-import type { EvalRunCellScore, EvalRunEvent, EvalRunGenerationSnapshot } from '../hosted/types'
+import { shipBestEffort, startSearchShipper } from '../hosted/search-shipper'
 import type { RunSplitTag } from '../run-record'
 import { analyzeRuns } from './analyze-runs'
 import type { InsightReport } from './insight-report'
@@ -267,23 +261,18 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
   ghRepo?: string
 
   /**
-   * Opt-in: ship eval-run events to a hosted orchestrator (ours, your
-   * self-hosted one, or any compatible implementation of the
-   * `docs/hosted-ingest-spec.md` wire format). When set, the substrate
-   * POSTs the final `EvalRunEvent` to `${endpoint}/v1/ingest/eval-runs`
-   * after the loop completes. Failures are logged but do not fail the
-   * loop — local result is always returned.
+   * Opt-in: ship this run's search ledger to a hosted store (ours, your
+   * self-hosted one, or any implementation of `docs/hosted-ingest-spec.md`).
+   * In proposer mode it requires `searchLedger`, and the ledger ships while
+   * the loop runs; in method mode the ledger the method recorded ships when
+   * the method returns. A failed ship is logged and never fails the loop: the
+   * local ledger is the source of truth, and `agent-eval search ship <ledger>`
+   * resumes from the store's head.
    *
-   * For our orchestrator: `{ endpoint: 'https://orchestrator.tangle.tools/v1', apiKey, tenantId }`.
-   *
-   * For your self-hosted: any URL serving the wire format. See
-   * `examples/hosted-ingest-server/` for the reference receiver.
+   * For our orchestrator: `{ endpoint: 'https://orchestrator.tangle.tools', apiKey, tenantId }`.
+   * For your self-hosted one: see `examples/hosted-ingest-server/`.
    */
   hostedTenant?: HostedTenant
-
-  /** Free-form labels attached to the hosted event (env, branch, model id,
-   *  etc.). Ignored when `hostedTenant` is unset. */
-  hostedLabels?: Record<string, string>
 
   /** Capture every search artifact and judge score to this store.
    *  The store is output only and is never exposed to candidate generation.
@@ -476,6 +465,11 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
   if (!opts.method) {
     if (opts.selectionScenarios !== undefined) {
       throw new Error('selfImprove: selectionScenarios requires method')
+    }
+    if (opts.hostedTenant && !opts.searchLedger) {
+      throw new Error(
+        'selfImprove: hostedTenant ships the search ledger; pass searchLedger (docs/search-ledger.md)',
+      )
     }
     return
   }
@@ -808,6 +802,14 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     opts.onProgress({ kind: 'baseline.started', scenarios: opts.scenarios.length })
   }
 
+  const shipper =
+    opts.hostedTenant && opts.searchLedger
+      ? startSearchShipper({
+          tenant: opts.hostedTenant,
+          ledger: opts.searchLedger.ledger,
+          runKind: 'optimization',
+        })
+      : undefined
   const result = await runImprovementLoop<TScenario, TArtifact>({
     scenarios: train,
     baselineSurface: opts.baselineSurface,
@@ -845,7 +847,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     selectionRankKey: opts.selectionRankKey,
     selectParent: opts.selectParent,
     searchLedger: opts.searchLedger,
-  })
+  }).finally(() => shipper && shipBestEffort(() => shipper.stop(), opts.searchLedger!.ledger.path))
 
   // Deferred holdout ran zero holdout cells, so the summary stats come from
   // the improvement-set (search) campaigns — labeled as such on the result
@@ -984,107 +986,5 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     raw: result,
   }
 
-  // Opt-in hosted ingest. Failures are logged but never fail the loop: the
-  // local result is always returned.
-  if (opts.hostedTenant) {
-    try {
-      await shipEvalRunToHosted(opts.hostedTenant, opts, summary, result, runDir)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // eslint-disable-next-line no-console -- intentional: hosted-ingest is best-effort
-      console.warn(`[agent-eval] hosted ingest failed (continuing): ${msg}`)
-    }
-  }
-
   return summary
-}
-
-async function shipEvalRunToHosted<TScenario extends Scenario, TArtifact>(
-  tenant: HostedTenant,
-  opts: SelfImproveOptions<TScenario, TArtifact>,
-  summary: SelfImproveProposerResult<TScenario, TArtifact>,
-  raw: RunImprovementLoopResult<TArtifact, TScenario>,
-  runDir: string,
-): Promise<void> {
-  const client = createHostedClient(tenant)
-
-  function snapshotFromCampaign(
-    index: number,
-    surface: MutableSurface,
-    campaign: RunImprovementLoopResult<TArtifact, TScenario>['baselineCampaign'],
-    durationMs: number,
-  ): EvalRunGenerationSnapshot {
-    const cells: EvalRunCellScore[] = campaign.cells.map((cell) => {
-      const execution = campaignCellExecutionEvidence(cell)
-      return {
-        scenarioId: cell.scenarioId,
-        rep: cell.rep,
-        compositeMean: campaignCellTaskScore(cell) ?? null,
-        dimensions: campaignCellJudgeDimensions(cell),
-        terminalOutcome: execution.terminalOutcome,
-        executionErrorCount: execution.executionErrorCount ?? null,
-        errorMessage: cell.error ?? undefined,
-      }
-    })
-    const scoredCells = cells.flatMap((cell) =>
-      cell.compositeMean === null ? [] : [cell.compositeMean],
-    )
-    const compositeMean =
-      scoredCells.length === 0
-        ? null
-        : scoredCells.reduce((sum, score) => sum + score, 0) / scoredCells.length
-    return {
-      index,
-      surfaceHash: surfaceHash(surface),
-      surface,
-      cells,
-      compositeMean,
-      costUsd: campaign.aggregates.cost.totalCostUsd,
-      durationMs,
-    }
-  }
-
-  const generations: EvalRunGenerationSnapshot[] = []
-  // Baseline as generation 0.
-  generations.push(snapshotFromCampaign(0, opts.baselineSurface, raw.baselineCampaign, 0))
-  // Improvement generations as 1..N. Substrate stores per-surface campaigns
-  // per generation — we summarize the WINNING surface per generation here.
-  for (const gen of raw.generations) {
-    const winner = gen.surfaces.reduce(
-      (best, s) =>
-        s.campaign.aggregates.cellsExecuted > 0 &&
-        (best === undefined || averageComposite(s.campaign) > averageComposite(best.campaign))
-          ? s
-          : best,
-      gen.surfaces[0],
-    )
-    if (!winner) continue
-    generations.push(
-      snapshotFromCampaign(gen.record.generationIndex + 1, winner.surface, winner.campaign, 0),
-    )
-  }
-
-  const event: EvalRunEvent = {
-    runId: `${runDir}#${Date.now()}`,
-    runDir,
-    timestamp: new Date().toISOString(),
-    status: 'finished',
-    labels: opts.hostedLabels ?? {},
-    baseline: generations[0],
-    generations,
-    gateDecision: summary.gateDecision,
-    holdoutLift: summary.lift,
-    totalCostUsd: summary.totalCostUsd,
-    totalDurationMs: summary.durationMs,
-    insightReport: summary.insight,
-  }
-
-  await client.ingestEvalRun(event)
-}
-
-function averageComposite(
-  campaign: RunImprovementLoopResult<unknown, Scenario>['baselineCampaign'],
-): number {
-  const aggs = Object.values(campaign.aggregates.byScenario)
-  return aggs.length === 0 ? 0 : aggs.reduce((s, a) => s + a.meanComposite, 0) / aggs.length
 }

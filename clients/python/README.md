@@ -125,25 +125,32 @@ client = Client(
 | `model` | Model reported by the provider |
 | `duration_ms` | Total call duration |
 
-## Hosted Event Ingestion
+## Hosted Trace Ingestion
 
-`HostedClient` sends evaluation events and trace spans to a server that implements the hosted ingest format.
+`HostedClient` sends trace spans to a server that implements the hosted ingest format.
 This is separate from `Client`, which calls the local judging API.
+Search ledgers ship from TypeScript with `agent-eval search ship`, because the TypeScript package writes them.
 
 ```python
-from agent_eval_rpc import HostedClient
+from agent_eval_rpc import HostedClient, make_trace_span
 
 with HostedClient(
     endpoint="https://your-ingest.example",
     api_key="tenant-token",
     tenant_id="acme",
 ) as client:
-    response = client.ingest_eval_run(event)
+    response = client.ingest_traces([make_trace_span(
+        trace_id="t-1", span_id="s-1", name="dispatch",
+        start_time_unix_nano="1700000000000000000",
+        end_time_unix_nano="1700000001000000000",
+        tangle_run_id="run-1",
+    )])
     assert response.accepted == 1
 ```
 
-Review [`hosted.py`](./src/agent_eval_rpc/hosted.py) for the typed event fields and retry behavior.
-The event payload can include run paths, scenario IDs, candidate values, scores, errors, costs, summaries, and trace attributes.
+Review [`hosted.py`](./src/agent_eval_rpc/hosted.py) for the typed span fields and retry behavior.
+The client waits for a server's `Retry-After` before it retries a 408, 429, or 5xx response.
+Span attributes can include run IDs, scenario IDs, and any values the producer adds.
 
 ## Official Optimizer Bridges
 

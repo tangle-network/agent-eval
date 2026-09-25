@@ -1,133 +1,121 @@
 # Hosted-ingest wire spec: `2026-07-24.v1`
 
-This is the only hosted-ingest wire format implemented by the current package.
+This is the only hosted-ingest wire format the current package implements.
 Clients and servers reject every other wire version.
 
-This is the contract between `@tangle-network/agent-eval` and any hosted
-or self-hosted orchestrator. A builder can:
+This is the contract between `@tangle-network/agent-eval` and any hosted or self-hosted store.
+A builder can use our store, self-host the reference receiver from `examples/hosted-ingest-server/`, or implement this spec.
 
-- Use our orchestrator at `https://orchestrator.tangle.tools/v1`.
-- Self-host the reference receiver from
-  `examples/hosted-ingest-server/`.
-- Implement their own orchestrator against this spec.
+The wire carries two streams:
 
-All three are wire-compatible by definition.
+- **Search ledgers.** A producer ships a search's hash-chained ledger and the blobs its entries name.
+  The ledger is the search's record: nodes, edges, cells, decisions and the claim ([search ledger](./search-ledger.md)).
+- **Trace spans.** OTLP-shaped spans with `tangle.*` pivots, so a store can join a cell to its execution.
+
+The shapes are exported from `@tangle-network/agent-eval/hosted` as zod schemas.
+A store imports them instead of copying them.
 
 ---
 
 ## Transport
 
-Two endpoints, both `POST`, both JSON. Headers on every request:
+Headers on every request:
 
 | Header | Value |
 |---|---|
-| `Authorization` | `Bearer <tenant-key>` (the orchestrator issues this) |
-| `Content-Type` | `application/json` |
-| `X-Tangle-Tenant-Id` | The tenant's stable id (the orchestrator's primary key for the tenant) |
-| `X-Tangle-Wire-Version` | `2026-07-24.v1` (this spec) |
-| `Idempotency-Key` | Non-empty request key, at most 256 characters; clients generate one per call and reuse it across retries |
+| `Authorization` | `Bearer <tenant-key>` |
+| `X-Tangle-Tenant-Id` | The tenant's stable id |
+| `X-Tangle-Wire-Version` | `2026-07-24.v1` |
+| `Idempotency-Key` | On `POST` and `PUT`: at most 256 characters, reused across retries |
 
-Responses are JSON of shape `{ accepted: number, rejected: Array<{ index, reason }> }`.
-Clients validate the complete response before returning it.
-The server can return 202 for asynchronous acceptance or 200 for synchronous acceptance.
-
-### `POST /v1/ingest/eval-runs`
-
-Body: `IngestEvalRunsRequest = { wireVersion, events: EvalRunEvent[] }`.
-
-One ingest call per logical eval-run; generations stream in
-incrementally via repeated calls with the same `runId`. The
-orchestrator deduplicates by `(tenantId, runId, generation.index)`.
-
-### `POST /v1/ingest/traces`
-
-Body: `IngestTracesRequest = { wireVersion, spans: TraceSpanEvent[] }`.
-
-Standard OTLP-shaped spans with a few additional attributes
-(`tangle.runId`, `tangle.generation`, `tangle.cellId`,
-`tangle.scenarioId`) so the orchestrator can pivot between the
-eval-run stream and the underlying execution trace.
+A client retries network errors, 408, 429 and 5xx.
+When the response carries `Retry-After` (delay-seconds or an HTTP date), the client waits exactly that long before the next attempt; otherwise it backs off exponentially.
 
 ---
 
-## `EvalRunEvent`
+## Search ledgers
+
+A producer ships in this order, so a store has an entry's content before the entry.
+
+### `PUT /v1/search-blobs/<sha256 hex>`
+
+Body: the exact bytes an artifact ref names.
+`Content-Type` is `application/json` for the JSON blobs the recorder writes, otherwise `application/octet-stream`.
+
+The store re-hashes the bytes and refuses a mismatch with 422.
+The call is idempotent by content.
+Response (`SearchBlobPutResponseSchema`): `{ sha256, byteLength, state }`, where `state` is `stored`, `masked` or `withheld`.
+A store masks or withholds bytes its redaction scan or the tenant's content posture refuses; it never rejects the entry that names them.
+
+### `GET /v1/ingest/search-ledger/<searchId>/head`
+
+Response (`SearchLedgerHeadSchema`): `{ searchId, nextSequence, headHash }`.
+`nextSequence` is the number of entries the store holds, and `headHash` is the hash of the last one, or null when it holds none.
+A restarted producer starts here.
+
+### `POST /v1/ingest/search-ledger`
+
+Body (`IngestSearchLedgerRequestSchema`):
 
 ```ts
-interface EvalRunEvent {
-  runId: string                      // stable; same id across all generations of one run
-  runDir: string                     // logical run directory (mem://... or filesystem path)
-  timestamp: string                  // ISO-8601
-  status:                            // lifecycle stage this event represents
-    | 'started'
-    | 'baseline-complete'
-    | 'generation-complete'
-    | 'gate-decided'
-    | 'finished'
-    | 'errored'
-  labels: Record<string, string>     // free-form (env, branch, model id, etc.)
-  baseline?: EvalRunGenerationSnapshot   // present when status >= baseline-complete
-  generations: EvalRunGenerationSnapshot[]
-  gateDecision?:                     // present when status >= gate-decided
-    | 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
-  holdoutLift?: number               // winner-on-holdout - baseline-on-holdout
-  totalCostUsd: number
-  totalDurationMs: number
-  errorMessage?: string              // present when status === 'errored'
-  insightReport?: InsightReport      // current report contract
+{
+  wireVersion: '2026-07-24.v1'
+  searchId: string
+  runKind: 'optimization' | 'eval'   // an eval is a one-node search
+  fromSequence: number               // the sequence of lines[0]
+  lines: string[]                    // canonical ledger lines, without newlines
 }
 ```
 
-## `EvalRunGenerationSnapshot`
+At most 1,000 lines and 1 MiB of line bytes per request.
+Each line is the producer's own ledger bytes, so producer and store hash identical input.
 
-```ts
-interface EvalRunGenerationSnapshot {
-  index: number                      // 0 is baseline; 1..N are improvement generations
-  surfaceHash: string                // stable hash of the candidate surface (pivot key)
-  surface?: MutableSurface           // OMITTED to avoid PII when consumer prefers
-  cells: EvalRunCellScore[]
-  compositeMean: number | null       // null when no cell has a task-quality label
-  costUsd: number
-  durationMs: number
-}
-```
+The store applies `admitSearchLedgerBatch` to the batch, in one transaction:
 
-## `EvalRunCellScore`
+1. `fromSequence` past the store's head: `409 sequence_gap`.
+2. Each line must verify alone with `parseSearchLedgerLine`: the schema tag, the entry and event schemas, canonical bytes, its `entryHash`, and its `searchId`. A line that does not: 422.
+3. A line below the head with the stored hash is a no-op; a different hash is `409 chain_conflict`.
+4. The first new line must extend the stored head; if it does not, `409 chain_conflict`.
+5. The new entries pass the `SearchState` state machine, or the batch returns 422 and stores nothing.
 
-```ts
-interface EvalRunCellScore {
-  scenarioId: string
-  rep: number                        // 0 for the default; > 0 when reps > 1
-  compositeMean: number | null       // null when the cell is unscored
-  dimensions: Record<                // successful scores; failed or missing judges are absent
-    string,
-    Record<string, number>
-  >
-  terminalOutcome: 'succeeded' | 'failed' | 'cancelled' | 'incomplete' | 'unknown'
-  executionErrorCount: number | null // null when the producer cannot classify errors
-  errorMessage?: string              // present for a dispatch or judge error
-}
-```
+Response (`SearchLedgerHeadSchema`): the head after the batch.
+A 409 body (`SearchLedgerConflictSchema`) is `{ error: 'sequence_gap' | 'chain_conflict', message, head }`.
 
-## `TraceSpanEvent`
+A producer resends from `head.nextSequence` after a gap.
+It stops on a fork: the store holds a different chain for the same search, and nothing is overwritten.
+
+`runKind` is fixed by the first batch; a later batch with another kind is a 422.
+
+### The shipper
+
+`shipSearchLedger({ tenant, ledger: { path, searchId }, runKind })` ships every complete line of a ledger file and returns the store's head and blob counts.
+`startSearchShipper(...)` tails the file while the search runs: the search never waits on the network, and `stop()` ships the rest.
+`agent-eval search ship <ledger> --run-kind optimization|eval` does the same from a terminal, reading the store from `TANGLE_INGEST_URL`, `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`.
+`selfImprove({ hostedTenant, searchLedger })` runs the tailing shipper for its own ledger.
+
+`content: 'digests'` ships entries without blobs, so the store holds refs and digests but no text.
+A blob whose local bytes are missing or do not match their ref is not uploaded and is reported under `blobs.missing`; the entries still ship.
+
+---
+
+## Trace spans
+
+### `POST /v1/ingest/traces`
+
+Body (`IngestTracesRequestSchema`): `{ wireVersion, spans: TraceSpanEvent[] }`.
+Response (`IngestResponseSchema`): `{ accepted, rejected: Array<{ index, reason }> }`.
 
 ```ts
 interface TraceSpanEvent {
-  // Standard OTel
   traceId: string
   spanId: string
   parentSpanId?: string
   name: string
-  startTimeUnixNano: string // canonical unsigned 64-bit integer encoded in base 10
-  endTimeUnixNano: string   // canonical unsigned 64-bit integer encoded in base 10
+  startTimeUnixNano: string // canonical unsigned 64-bit integer in base 10
+  endTimeUnixNano: string
   attributes: Record<string, string | number | boolean>
-  events?: Array<{
-    timeUnixNano: string    // canonical unsigned 64-bit integer encoded in base 10
-    name: string
-    attributes?: Record<string, string | number | boolean>
-  }>
-  status?: { code: 'OK' | 'ERROR' | 'UNSET', message? }
-
-  // Tangle additions (all optional) for pivoting
+  events?: Array<{ timeUnixNano: string; name: string; attributes?: Record<string, string | number | boolean> }>
+  status?: { code: 'OK' | 'ERROR' | 'UNSET'; message?: string }
   'tangle.runId'?: string
   'tangle.generation'?: number
   'tangle.cellId'?: string
@@ -135,59 +123,30 @@ interface TraceSpanEvent {
 }
 ```
 
+A store keeps at most one span per `(tenantId, traceId, spanId)`.
+It accepts an exact duplicate as stored and rejects a conflicting payload with the same identity.
+When an `Idempotency-Key` matches a request from the same tenant in the last 24 hours, it returns the recorded response.
+
 ---
 
 ## Server requirements
 
-Any orchestrator implementing this spec MUST:
+A store that implements this spec must:
 
-1. **Validate auth**: reject without `Authorization` header (401), with a
-   mismatched bearer token (401), or without a recognized `X-Tangle-Tenant-Id`
-   (404).
-2. **Validate wire version**: reject incompatible wire versions (400 with
-   a clear error message). The major component is the breaking-change axis.
-3. **Validate tenant isolation**: queries with `tenantId` X never return
-   data tagged with `tenantId` Y. Test this adversarially.
-4. **Honor idempotency**: require an `Idempotency-Key`; when it matches a prior request to the same endpoint from the same tenant in the last 24 hours, return the same response without processing the body again.
-5. **Deduplicate spans**: store at most one span for each `(tenantId, traceId, spanId)` identity.
-   Accept an exact duplicate as already stored and reject a conflicting payload with the same identity.
-6. **Keep run state monotonic**: accept forward lifecycle transitions, but never replace `finished` or `errored` with a late event.
-   Delayed events can add a missing generation without replacing terminal totals, labels, or status.
-7. **Persist eval-runs durably**: at least the event + cell scores must
-   survive an orchestrator restart. Trace spans MAY be best-effort.
-8. **Provide read access**: GET endpoints for the tenant to list + fetch
-   their own runs. Wire format for reads is NOT part of this spec: each
-   orchestrator can pick its own (REST + JSON, gRPC, GraphQL).
-
-Servers SHOULD also:
-
-- Provide a webhook callback per tenant for `gate-decided` events.
-- Provide a billable-events emitter (Stripe meter / equivalent) per ingest
-  call so consumption can be metered.
-- Provide a dashboard or API to view + diff per-scenario lifts over time.
+1. Reject a request without a valid bearer token (401) or with an unknown tenant (404).
+2. Reject every wire version other than `2026-07-24.v1` (400) and name the accepted one.
+3. Isolate tenants: a read for tenant X never returns tenant Y's data, and a blob, search or span of another tenant reads as absent.
+4. Apply the search-ledger batch rule above, and store a batch whole or not at all.
+5. Keep search entries, blobs and their metadata durably; trace spans may be best-effort.
 
 ---
 
 ## Reference implementation
 
-`examples/hosted-ingest-server/` is a Hono receiver for local development and contract tests.
-It validates auth, request and response shapes, versions, exact nanosecond strings, request keys, span identity, and monotonic run state.
-It is not production storage because process restart clears its in-memory data.
+`examples/hosted-ingest-server/` is an in-memory Hono receiver for local development.
+It applies `admitSearchLedgerBatch` and `SearchState` to every batch, re-hashes blobs, and serves `GET /v1/searches/<searchId>` with the replayed audit.
+A process restart clears it.
 
 ```sh
 TENANT_KEY=dev-token TENANT_ID=acme pnpm tsx examples/hosted-ingest-server/server.ts
 ```
-
-Send events with [`createHostedClient`](../src/hosted/client.ts) from `@tangle-network/agent-eval/hosted`.
-Call `client.ingestEvalRun(event)` with a valid `EvalRunEvent` after configuring the client's endpoint, tenant ID, and API key.
-For `selfImprove`, configure `hostedTenant` as shown in the [receiver example](../examples/hosted-ingest-server/).
-The receiver's authenticated `GET /v1/runs` endpoint lists ingested runs.
-
----
-
-## Version
-
-`HostedWireVersion` is `"2026-07-24.v1"`.
-The current clients emit only this value.
-Servers return 400 for every other value and list the accepted version.
-There are no compatibility readers or migration branches.

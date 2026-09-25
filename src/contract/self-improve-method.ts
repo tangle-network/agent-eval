@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { openAutoPr } from '../campaign/auto-pr'
 import { campaignSplitDigest } from '../campaign/coverage'
 import { evaluationUnitMap } from '../campaign/final-evidence'
@@ -11,11 +12,6 @@ import {
 } from '../campaign/presets/compare-optimization-methods'
 import { runFinalComparison } from '../campaign/presets/run-final-comparison'
 import { campaignMeasurementDigest, canonicalDigest } from '../campaign/provenance'
-import {
-  campaignCellExecutionEvidence,
-  campaignCellJudgeDimensions,
-  campaignCellTaskScore,
-} from '../campaign/run-record'
 import type { CampaignComparisonUnits } from '../campaign/score-utils'
 import type { SearchHistoryCoverageRow } from '../campaign/search-history-receipt'
 import type { CampaignStorage } from '../campaign/storage'
@@ -25,8 +21,7 @@ import type { CostLedgerHandle, CostLedgerSummary } from '../cost-ledger'
 import { createCampaignEvidenceReceipt } from '../experiment/campaign-evidence'
 import type { EvaluationClaim } from '../experiment/claim'
 import type { EvidenceReceipt } from '../experiment/evidence-receipt'
-import { createHostedClient } from '../hosted/client'
-import type { EvalRunGenerationSnapshot } from '../hosted/types'
+import { shipBestEffort, shipSearchLedger } from '../hosted/search-shipper'
 import { analyzeRuns } from './analyze-runs'
 import type {
   SelfImproveMethodOptions,
@@ -391,61 +386,21 @@ export async function runSelfImproveMethod<TScenario extends Scenario, TArtifact
     },
   }
   if (opts.hostedTenant) {
-    const snapshot = (
-      index: number,
-      surface: typeof baselineSurface,
-      campaign: typeof comparison.baselineOnHoldout,
-      compositeMean: number | null,
-    ): EvalRunGenerationSnapshot => ({
-      index,
-      surfaceHash: surfaceHash(surface),
-      surface,
-      cells: campaign.cells.map((cell) => {
-        const execution = campaignCellExecutionEvidence(cell)
-        return {
-          scenarioId: cell.scenarioId,
-          rep: cell.rep,
-          compositeMean: campaignCellTaskScore(cell) ?? null,
-          dimensions: campaignCellJudgeDimensions(cell),
-          terminalOutcome: execution.terminalOutcome,
-          executionErrorCount: execution.executionErrorCount ?? null,
-          ...(cell.error ? { errorMessage: cell.error } : {}),
-        }
-      }),
-      compositeMean,
-      costUsd: campaign.aggregates.cost.totalCostUsd,
-      durationMs: campaign.durationMs,
-    })
-    try {
-      await createHostedClient(opts.hostedTenant).ingestEvalRun({
-        runId: provenance.runId,
-        runDir,
-        timestamp: provenance.timestamp,
-        status: 'finished',
-        labels: { ...opts.hostedLabels, mode: 'method' },
-        baseline: snapshot(
-          0,
-          baselineSurface,
-          comparison.baselineOnHoldout,
-          baseline?.compositeMean ?? null,
-        ),
-        generations: [
-          snapshot(
-            1,
-            selected.winnerSurface,
-            comparison.winnerOnHoldout,
-            winner?.compositeMean ?? null,
-          ),
-        ],
-        gateDecision: result.gateDecision,
-        ...(lift === undefined ? {} : { holdoutLift: lift }),
-        totalCostUsd: result.totalCostUsd,
-        totalDurationMs: durationMs,
-        ...(insight ? { insightReport: insight } : {}),
-      })
-    } catch (error) {
+    const receipt = selected.searchHistory
+    if (receipt) {
+      const path = fileURLToPath(receipt.ledger.uri)
+      await shipBestEffort(
+        () =>
+          shipSearchLedger({
+            tenant: opts.hostedTenant!,
+            ledger: { path, searchId: receipt.summary.searchId },
+            runKind: 'optimization',
+          }),
+        path,
+      )
+    } else {
       console.warn(
-        `[agent-eval] hosted ingest failed (continuing): ${error instanceof Error ? error.message : String(error)}`,
+        `[agent-eval] hostedTenant: method ${opts.method.name} recorded no search ledger, so nothing was shipped`,
       )
     }
   }
