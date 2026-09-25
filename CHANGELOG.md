@@ -6,9 +6,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.193.1] — 2026-09-25
+
 ### Fixed
 
+- `CREDENTIAL_DETECTORS`' provider-branded prefixes (`sk-ant-`, `AIza`, `ghp_`, `xoxb-`, `AKIA`, `hubcap_`, `eyJ`…) required a leading `\b`, which does not fire between two word characters — a token glued to preceding text by an underscore or letter, in an attribute **key** as well as a value (`env.GITHUB_TOKEN_ghp_<token>`, `BACKUP_AKIA<key>`), passed both `redact()` and `assessShareSafety()` unflagged. Dropped the leading `\b` on the branded prefixes.
+- `walk()`/`scan()` classified an object key only for a CREDENTIAL shape, never `detectPersonalData(key)`, so a key like an email address (`{'alice@corp-example.com': 3}`) passed as SAFE under every profile. Also dropped the same leading-`\b` gap on `huggingface-token`, `npm-token`, `gitlab-token`, `groq-key`, `xai-key` and bare-`sk`-key.
+- `detectCredential` ran on the full string before the size cap applied, and `url-credentials`/`secret-assignment` had unbounded quantifiers, so adversarial text with no real credential could block the exporter/uploader's event loop for tens of seconds (measured ~59s on 256 KiB with no `://` at all). Bounded both regexes and what the value-shape detectors scan.
+- `containsKnownSecret` only matched a known secret's raw/base64/base64url/URL-encoded forms as a substring; `Authorization: Basic <base64(user:key)>` survived as SAFE even with the key passed as a `knownSecret`, because userinfo's 3-byte base64 group alignment means the secret's own base64 form is generally not a substring of the surrounding base64. It now also decodes an embedded base64 span and checks the secret against the decode.
+- `redact()`'s `data:` URI check matched by prefix instead of requiring the whole string to be the URI, so a `data:text/plain;base64,…`/`data:application/json;base64,…` value with a live credential in its decoded payload was always classified as opaque media. The check now requires the whole string to be the URI, and `text/*`/`application/json` payloads are decoded and scanned.
 - `summarizeExecutionMeasurements` counted only `LLM` spans as model calls, so an `EMBEDDING` or `RERANKER` span's own tokens dropped out of the run total whenever a chat call anywhere in the same run also reported tokens — a real undercount (5100 measured as 100 on a trace with one 100-token chat call and one 5000-token embeddings call), not the aggregate-token-loss bug 0.191.0 already fixed. Classify model calls with the contract's `isModelCallKind` (`@tangle-network/agent-trace-contract@^1.3.0`; `LLM`, `EMBEDDING`, `RERANKER`) instead of `kind === 'LLM'`.
+- `never`, `atMost`, `tokensAtMost` and `retrySafe` passed vacuously when a scoped trace had zero TOOL or LLM spans because the exporter never captured any, reading "never captured" as "none happened"; these rules now require capture evidence first and error via `CaptureIntegrityError` otherwise. A malformed `attr` matcher (an incomplete `SerializedRegex`, a bare `oneOf`) was accepted and then compared by reference, so it silently matched nothing; `assertPredicate` now validates every non-primitive `attr` value as a complete matcher shape.
+- `diagnoseSpans`' `NOT_BUILT` reasons for `loop-convergence` and `steering-chain` said only that this engine has no such analysis; they now also name where the capability is built (`@tangle-network/traces`' `loop-analysis.ts`), matching the pattern `tree-comparison`'s reason already used — traces' own conformance table marks all three built, so the two reports no longer read as contradicting each other.
+- `REDACTION_VERSION` → `2.4.0`.
 
 ## [0.193.0] — 2026-09-25
 
