@@ -2,34 +2,55 @@
  * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+ *   agent-eval search show <search-ledger.jsonl>
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
  * head, so it finishes or resumes a ship that a loop could not complete.
+ *
+ * `show` verifies the ledger and prints `renderSearchSummary`: the same
+ * compact text a proposer reads, on the search's own ranking split (the
+ * selection split when the search declares one, else train). There is no
+ * local HTML renderer; the hosted store's page is the visual view (§5 of the
+ * search-tree design).
  */
 
-import { open } from 'node:fs/promises'
+import { open, readFile } from 'node:fs/promises'
+import { replaySearchLedgerText } from './campaign/search-ledger'
+import { renderSearchSummary } from './campaign/search-summary'
 import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
 
-const USAGE = `usage: agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+const USAGE = `usage: agent-eval search <subcommand> ...
 
-Ships the ledger's entries, and the blobs they name, to the hosted store in
-TANGLE_INGEST_URL (or TANGLE_ORCHESTRATOR_URL) as tenant TANGLE_TENANT_ID with
-TANGLE_INGEST_API_KEY (or TANGLE_API_KEY). It starts from the store's head, so
-running it again sends only what the store lacks. Prints the result as JSON.
-Exits 1 when the store holds a different chain for the search.`
+  ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+        Ships the ledger's entries, and the blobs they name, to the hosted store in
+        TANGLE_INGEST_URL (or TANGLE_ORCHESTRATOR_URL) as tenant TANGLE_TENANT_ID with
+        TANGLE_INGEST_API_KEY (or TANGLE_API_KEY). It starts from the store's head, so
+        running it again sends only what the store lacks. Prints the result as JSON.
+        Exits 1 when the store holds a different chain for the search.
+
+  show <search-ledger.jsonl>
+        Verifies the ledger and prints its search summary: the leading nodes
+        against the root, the most recently discarded nodes and why, and a log
+        of recent proposals. The same text a proposer reads as context, on the
+        search's own ranking split.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
-  if ([subcommand, ...rest].some((arg) => arg === undefined || arg === '--help' || arg === '-h')) {
+  if (subcommand === undefined || subcommand === '--help' || subcommand === '-h') {
     process.stdout.write(`${USAGE}\n`)
     return 0
   }
+  if (subcommand === 'show') return await runShowCommand(rest)
   if (subcommand !== 'ship') {
     process.stderr.write(`unknown search subcommand: ${subcommand}\n${USAGE}\n`)
     return 1
+  }
+  if (rest.some((arg) => arg === undefined || arg === '--help' || arg === '-h')) {
+    process.stdout.write(`${USAGE}\n`)
+    return 0
   }
   const { path, flags } = parseShipArgs(rest)
   const runKind = SearchRunKindSchema.safeParse(flags['run-kind'])
@@ -59,6 +80,21 @@ export async function runSearchCommand(argv: string[]): Promise<number> {
     process.stderr.write(`${error.message}\n`)
     return 1
   }
+}
+
+async function runShowCommand(argv: string[]): Promise<number> {
+  if (argv.length !== 1 || argv[0] === '--help' || argv[0] === '-h') {
+    process.stdout.write(`${USAGE}\n`)
+    return argv.length === 1 ? 0 : 1
+  }
+  const path = argv[0]!
+  const searchId = await firstLineSearchId(path)
+  const text = await readFile(path, 'utf8')
+  const state = replaySearchLedgerText(text, searchId, path)
+  const split =
+    state.header && state.header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
+  process.stdout.write(`${renderSearchSummary(state, { split })}\n`)
+  return 0
 }
 
 function parseShipArgs(argv: string[]): { path: string; flags: Record<string, string> } {
