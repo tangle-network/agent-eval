@@ -979,16 +979,24 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
 
   /** The admission rule: committed spend, open holds, the unspent claim
    * reserve and the new hold stay within the cap. A claim cell draws on the
-   * claim reserve instead of adding to it. */
+   * claim reserve instead of adding to it.
+   *
+   * The rule admits holds, not records. Spend above a hold is legal
+   * overspend, so committed spend can pass the cap; an event that holds
+   * nothing (the claim operation, a cell an external optimizer already ran)
+   * and a claim cell the unspent reserve covers are then still admitted. The
+   * reserve was set aside at the start and overspend elsewhere cannot take it
+   * back; refusing them would leave a search that can never close. */
   private admit(reservation: SearchReservation | null, claim: boolean, subject: string): void {
     const { maxUsd, reservedClaimUsd } = this.header!.budget
-    if (maxUsd === null) return
     const hold = reservation?.usd ?? 0
+    if (maxUsd === null || hold === 0) return
     const remainingClaim = Math.max(0, reservedClaimUsd - this.claimUsedUsd)
+    if (claim && hold <= remainingClaim + USD_TOLERANCE) return
     const total =
       this.audit.spend.committedUsd +
       this.audit.spend.openReservationUsd +
-      (claim ? Math.max(0, remainingClaim - hold) : remainingClaim) +
+      (claim ? 0 : remainingClaim) +
       hold
     if (total > maxUsd + USD_TOLERANCE) {
       throw integrity(

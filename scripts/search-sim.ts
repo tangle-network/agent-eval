@@ -35,7 +35,12 @@
  * step is 0, so no node differs from the root), --plant-gain X (the root's
  * first child is X better), --plant-divergence (the root's second child gains
  * 0.3 on train and loses 0.2 on selection and test), --judge-revision N|none (1),
- * --allocation uniform|asha (uniform), --pool-gap X (none), --pool-plant N
+ * --binary (a cell passes with probability quality + shift + task and scores 1
+ * or 0), --minimize (the objective is minimized and a cell reports 1 minus its
+ * score, so a better artifact scores lower), --cost-scale X (1: a cell costs X
+ * times what the lane's prior assumes, so an estimate lane overspends until
+ * its own cost distribution sets the hold), --allocation uniform|asha
+ * (uniform), --pool-gap X (none), --pool-plant N
  * (seeded).
  *
  * `--pool-gap X` swaps the hill climb's steps for a planted pool: every child
@@ -118,6 +123,12 @@ interface SimOptions {
   plantDivergence: boolean
   /** Null: the judge is not pinned. */
   judgeRevision: number | null
+  /** Pass/fail cells scoring 0 or 1. */
+  binary: boolean
+  /** The objective is minimized; a cell reports 1 minus its score. */
+  minimize: boolean
+  /** A cell's actual cost relative to the lane prior. */
+  costScale: number
   allocation: 'uniform' | 'asha'
   /** The planted pool's gap; null: the hill climb's seeded steps. */
   poolGap: number | null
@@ -238,7 +249,7 @@ async function runSimulation(
       artifactKind: 'prompt',
       objective: {
         metric: 'score',
-        direction: 'maximize',
+        direction: options.minimize ? 'minimize' : 'maximize',
         judge: judge(options),
         claim:
           options.minEffect === undefined ? claim : { ...claim, minimumEffect: options.minEffect },
@@ -595,7 +606,7 @@ function simulateCell(work: SearchCellWork<SimArtifact>, options: SimOptions): S
   const usd = round(
     options.costCap === 'hard'
       ? Math.min(options.cellUsd, options.cellUsd * fraction)
-      : options.cellUsd * fraction,
+      : options.cellUsd * fraction * options.costScale,
   )
   const accounting = {
     tokens: { status: 'known' as const, inputTokens: 100, outputTokens: 50, cachedTokens: 0 },
@@ -616,8 +627,13 @@ function simulateCell(work: SearchCellWork<SimArtifact>, options: SimOptions): S
   const { artifact } = work
   const shift = work.split === 'train' ? artifact.trainShift : artifact.heldShift
   const task = -0.1 + 0.2 * unit(options.seed, 'task', work.taskId)
-  const noise = -0.15 + 0.3 * unit(options.seed, 'noise', work.cellId)
-  const score = round(Math.min(1, Math.max(0, artifact.quality + shift + task + noise)))
+  const clamp = (value: number): number => Math.min(1, Math.max(0, value))
+  const goodness = options.binary
+    ? unit(options.seed, 'pass', work.cellId) < clamp(artifact.quality + shift + task)
+      ? 1
+      : 0
+    : clamp(artifact.quality + shift + task - 0.15 + 0.3 * unit(options.seed, 'noise', work.cellId))
+  const score = round(options.minimize ? 1 - goodness : goodness)
   return {
     outcome: { status: 'passed', score, metrics: { score } },
     accounting,
@@ -708,6 +724,8 @@ async function claims(options: SimOptions, searches: number): Promise<Record<str
       test: options.test,
       reps: options.reps,
       minimumEffect: options.minEffect ?? null,
+      scores: options.binary ? 'pass/fail' : 'continuous',
+      direction: options.minimize ? 'minimize' : 'maximize',
       truth: options.nullSteps
         ? `no node differs from the root${options.plantGain === null ? '' : `, except root.0 at +${options.plantGain} and its descendants`}`
         : 'seeded steps',
@@ -1072,6 +1090,9 @@ async function main(): Promise<void> {
       'plant-gain': { type: 'string' },
       'plant-divergence': { type: 'boolean', default: false },
       'judge-revision': { type: 'string', default: '1' },
+      binary: { type: 'boolean', default: false },
+      minimize: { type: 'boolean', default: false },
+      'cost-scale': { type: 'string', default: '1' },
       kills: { type: 'string', default: '6' },
       searches: { type: 'string', default: '200' },
       allocation: { type: 'string', default: 'uniform' },
@@ -1105,6 +1126,9 @@ async function main(): Promise<void> {
     plantGain: values['plant-gain'] === undefined ? null : Number(values['plant-gain']),
     plantDivergence: values['plant-divergence'],
     judgeRevision: values['judge-revision'] === 'none' ? null : Number(values['judge-revision']),
+    binary: values.binary,
+    minimize: values.minimize,
+    costScale: Number(values['cost-scale']),
     allocation: values.allocation,
     poolGap: values['pool-gap'] === undefined ? null : Number(values['pool-gap']),
     poolPlant: values['pool-plant'] === undefined ? null : Number(values['pool-plant']),

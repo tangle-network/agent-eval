@@ -44,7 +44,9 @@ import {
   SEARCH_CLAIM_RULE,
   SEARCH_CLAIM_RULE_NAME,
   type SearchClaimPlan,
+  type SearchClaimVerification,
   searchClaimReserveUsd,
+  verifySearchClaim,
 } from './search-claim'
 import { FileSearchLedger } from './search-ledger'
 import type {
@@ -86,7 +88,7 @@ const KERNEL_DEFINITION = {
   dispatch:
     'claim, then rung and root, then screen, then train; first allocated first within a stage',
   expansion:
-    'when no cell waits, fewer than twice the lanes capacity run, and the cap admits one proposal and its expected screens',
+    'when no cell waits, fewer than twice the lanes capacity run, the cap admits one proposal and its expected screens, and overspend has not taken the search past its cap',
   reservation: {
     hard: 'the lane per-cell maximum',
     estimate: '1.5 times the p99 of the lane settled cells once 20 settled, else the lane prior',
@@ -272,6 +274,10 @@ export interface SearchRunResult {
   reason: SearchCloseReason
   /** The claim on the sealed test split; null for a search without one. */
   claim: SearchClaim | null
+  /** The claim made again from the ledger alone (`verifySearchClaim`): never
+   * `mismatch`, which `runSearch` throws; `unknown` for a claim another rule
+   * revision made; null without a claim. */
+  claimVerification: SearchClaimVerification | null
 }
 
 /** Run a search to its close, or continue one from its ledger. */
@@ -1085,7 +1091,9 @@ class SearchKernel<TArtifact> {
     const children = this.options.proposer.childrenPerProposal ?? 1
     const need = operation.usd + children * screen * this.maxCellReservation()
     const { headroomUsd } = this.state.budget
-    if (headroomUsd !== null && need > headroomUsd + USD_TOLERANCE) return 'budget'
+    if (headroomUsd !== null && (need > headroomUsd + USD_TOLERANCE || this.overCap())) {
+      return 'budget'
+    }
     if (maxCells !== null && this.state.audit.cells.allocated + children * screen > maxCells) {
       return 'budget'
     }
@@ -1330,13 +1338,23 @@ class SearchKernel<TArtifact> {
     await this.refresh()
   }
 
+  /** The closed search, with its claim made again from the ledger alone. A
+   * claim the ledger does not support throws: a tampered ledger, or a
+   * producer and verifier that disagree. */
   private closedResult(): SearchRunResult {
     const state = this.state
+    const claimVerification = verifySearchClaim(state)
+    if (claimVerification?.status === 'mismatch') {
+      throw new Error(
+        `runSearch: search ${state.searchId} closed with a claim its ledger does not support: ${claimVerification.differences.join('; ')}`,
+      )
+    }
     return {
       state,
       leader: state.audit.selectedNodeId ?? state.rootNodeId!,
       reason: state.closed!.reason,
       claim: state.closed!.claim,
+      claimVerification,
     }
   }
 
@@ -1391,6 +1409,16 @@ class SearchKernel<TArtifact> {
       kind: 'estimate',
       usd: estimate(this.operationCosts, this.options.proposer.reservationUsd ?? 0),
     }
+  }
+
+  /** Overspend took committed spend, open holds and the unspent claim reserve
+   * past the cap. Nothing new is proposed then, even at a zero-dollar prior. */
+  private overCap(): boolean {
+    const { maxUsd } = this.state.header!.budget
+    if (maxUsd === null) return false
+    const { committedUsd, openReservationUsd } = this.state.audit.spend
+    const used = committedUsd + openReservationUsd + this.state.budget.claimReserveUsd
+    return used > maxUsd + USD_TOLERANCE
   }
 
   private pastDeadline(): boolean {

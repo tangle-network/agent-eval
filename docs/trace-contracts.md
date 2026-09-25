@@ -27,8 +27,8 @@ Write the contract as JSON and compile it with `compileTraceContractSpec`:
 
 | Key | Checks |
 |---|---|
-| `run.requireCompleted` | The run status is `completed` and its end time is recorded. A failed or aborted run fails. |
-| `run.allowedStatuses` | The run status is one of `running`, `completed`, `failed`, `aborted`. |
+| `run.requireCompleted` | The run status is `completed` and its end time is recorded. A failed or aborted run fails. **A trace with no declared `run.status` fails too** — see the note below. |
+| `run.allowedStatuses` | The run status is one of `running`, `completed`, `failed`, `aborted`. Same "unknown status fails" rule as above. |
 | `run.maxDurationMs` | End minus start. An unknown duration fails. |
 | `tools.required` | Each tool is called at least once. |
 | `tools.forbidden` | No listed tool is called. |
@@ -46,6 +46,25 @@ Write the contract as JSON and compile it with `compileTraceContractSpec`:
 
 Tool keys match TOOL spans only, and model keys match LLM spans only.
 An LLM span that has a tool's name never satisfies a tool rule.
+
+**A `run` rule needs a reader that declares `run.status`.** The checker never
+infers `completed` from a span that merely ended without an error — only a
+declared `run.status` attribute or an explicit error status counts, and an
+undeclared status is `unknown`, which fails both `run.requireCompleted` and
+`run.allowedStatuses`. A saved Claude Code **session transcript** (as opposed
+to a `-p`/non-interactive stream, which the harness can mark `running` or
+`completed`) carries no run-status record at all — an ordinary finished
+interactive session and a truncated one look the same to the reader — so
+**every `run` rule fails on a session-transcript trace**, always. Write a
+contract for session transcripts with no `run` key, or run it against an
+OTLP/eval-store trace that does carry a declared status.
+
+**A `tools`/`llm` rule needs evidence its span kind was captured at all**, not
+just a matching span. `tools.forbidden`, `tools.allowed`, `tools.maxCalls*`
+and `retries` report `error` — not a silent pass — when the trace has zero
+TOOL spans and no `gen_ai.tool.definitions` record either: an exporter that
+drops a span kind must not make `forbidden` and `retries` checks pass because
+nothing was there to check.
 
 Parsing is strict.
 An unknown key or an unknown status is an error that names the closest known word, so a typo never removes a check.

@@ -15,6 +15,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - The kernel records the allocator's rank decisions: an `advanced {rung}` decision is appended only once the cap admits the rung's cells, which the kernel then allocates, and rungs keep opening after expansion stops, until the deadline or the claim.
 - `scripts/search-sim.ts compare` runs one search per seed under `uniform` and `asha` and reports cells, the kept node and the units each edge pairs on; `--pool-gap` swaps the hill climb for a fixed pool with one planted best candidate.
   Every simulated run re-derives each `advanced` and `pruned` decision from the ledger before it.
+- `scripts/search-sim.ts` gains `--binary` (pass/fail cells), `--minimize` (a minimized objective) and `--cost-scale X` (cells cost X times the lane's prior).
 
 ### Changed
 
@@ -22,6 +23,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - `incumbent` and `crowdedFrontierParent`: a node leads only when it scored every unit the leader scored and beats the leader's mean on them, so a node an allocator has only screened cannot take the lead on less evidence than the leader holds.
   A node dodged a unit only when a cell ran and ended unscored; a cell still to run no longer counts against it.
 - Migration: a custom allocator adds a `rung` parameter to `plan` and returns `[]` from `advance` and `prune` to keep its behavior.
+
+### Fixed
+
+- A capped search whose cells cost more than their holds could never close: once overspend took committed spend plus the claim reserve past `maxUsd`, the projector refused the `claim` operation, which holds nothing, and every resume failed the same way (`operation claim is not admissible: committed $3.449935 + open $0 + claim reserve $6.5 + hold $0 exceeds the cap $9.6`, with a planted better node already found). The admission rule now admits holds only: an event without a reservation is always recorded, and a claim cell within the unspent claim reserve is admitted however much earlier cells overspent. The same search now runs its 48 claim cells on the reserve, ships the planted node, and ends at $6.31 committed against the $9.60 cap plus $0.79 recorded overspend. `runSearch` also stops expanding once overspend took the search past its cap, even at a zero-dollar lane prior.
+- The shared projector accepted any claim a producer wrote: a `ship` over a finalist whose test interval includes 0, a family-wise confidence of 0.5, rewritten test intervals or estimates, and a fabricated power all replayed and closed. `verifySearchClaim(state)` (`/campaign`) makes the claim again from the closed ledger alone, with no blob, and compares it byte for byte; it detects all five. `runSearch` runs it on every close and on every rerun of a closed ledger, throws on a mismatch, and returns it as `SearchRunResult.claimVerification`. The reference receiver returns it with a closed search.
 
 ## [0.193.2] — 2026-09-25
 

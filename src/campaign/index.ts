@@ -383,7 +383,9 @@ export {
   SEARCH_CLAIM_RULE,
   type SearchClaimDecision,
   type SearchClaimPlan,
+  type SearchClaimVerification,
   searchClaimReserveUsd,
+  verifySearchClaim,
 } from './search-claim'
 // ── Compact proof over a search ledger ─────────────────────────────────
 export {
