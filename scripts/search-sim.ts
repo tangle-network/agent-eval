@@ -45,8 +45,9 @@
  * the seed and the number of proposals, so `uniform` and `asha` measure the
  * same candidates and the planted child is the one right answer.
  *
- * Every run audits its ledger: each `advanced` and `pruned` decision must be
- * one the allocator makes again from the ledger just before it.
+ * Every run audits its ledger: each `advanced` and `pruned` decision, with its
+ * rule, rank reason and estimate, must be one the allocator makes again from
+ * the ledger just before it.
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
  */
@@ -510,10 +511,9 @@ function idle(state: SearchStateView, nodeId: string): boolean {
 }
 
 /**
- * Audit a closed ledger. Each `advanced` and `pruned` decision must be one the
- * allocator returns again from the ledger just before it (pruning keeps the
- * policy's leader, which is the node selected or, under a claim, the node the
- * allocator could not prune), so every rank decision derives from recorded
+ * Audit a closed ledger. Each `advanced` and `pruned` decision, with its rule,
+ * rank reason and estimate, must be one the allocator returns again from the
+ * ledger just before it, so every rank decision derives from recorded
  * evidence. Each measured node's contrast with its parent is counted by the
  * units they pair on, and cells are counted by stage.
  */
@@ -537,13 +537,16 @@ function checkLedger(text: string, allocation: SearchAllocator): Record<string, 
         event.decision.status === 'advanced'
           ? allocation.advance(view)
           : allocation.prune(view, before.rootNodeId!)
-      const decision = canonicalString(event.decision)
+      // The decision, its rank reason and its estimate must all re-derive.
+      const recorded = canonicalString([event.decision, event.rule, event.reason, event.basis])
       if (
         !expected.some(
-          (made) => made.nodeId === event.nodeId && canonicalString(made.decision) === decision,
+          (made) =>
+            made.nodeId === event.nodeId &&
+            canonicalString([made.decision, made.rule, made.reason, made.basis]) === recorded,
         )
       ) {
-        decisions.unexplained.push(`${index}:${event.nodeId}:${decision}`)
+        decisions.unexplained.push(`${index}:${event.nodeId}:${canonicalString(event.decision)}`)
       }
       decisions[event.decision.status] += 1
     }
@@ -954,6 +957,7 @@ async function compare(options: SimOptions, seeds: number) {
     ledgerOk: boolean
     edgePairs: Record<string, number>
     advancedTo: Record<string, number>
+    statuses: Record<string, number>
   }
   const rows: Array<{ seed: number; uniform: ArmRow; asha: ArmRow }> = []
   for (let seed = options.seed; seed < options.seed + seeds; seed++) {
@@ -969,6 +973,7 @@ async function compare(options: SimOptions, seeds: number) {
         ok: boolean
         edgePairs: Record<string, number>
         advancedTo: Record<string, number>
+        statuses: Record<string, number>
       }
       arms[allocation] = {
         cells: result.state.audit.cells.allocated,
@@ -979,6 +984,7 @@ async function compare(options: SimOptions, seeds: number) {
         ledgerOk: checks.ok,
         edgePairs: checks.edgePairs,
         advancedTo: checks.advancedTo,
+        statuses: checks.statuses,
       }
     }
     rows.push({ seed, ...arms })
@@ -991,9 +997,11 @@ async function compare(options: SimOptions, seeds: number) {
     const cells = list.map((row) => row.cells).sort((a, b) => a - b)
     const edgePairs: Record<string, number> = {}
     const advancedTo: Record<string, number> = {}
+    const statuses: Record<string, number> = {}
     for (const row of list) {
       add(edgePairs, row.edgePairs)
       add(advancedTo, row.advancedTo)
+      add(statuses, row.statuses)
     }
     const pairCounts = Object.keys(edgePairs).map(Number)
     return {
@@ -1013,6 +1021,8 @@ async function compare(options: SimOptions, seeds: number) {
       minEdgePairs: pairCounts.length === 0 ? null : Math.min(...pairCounts),
       /** `advanced` decisions by the rung they opened. */
       advancedTo,
+      /** Final node statuses across the searches. */
+      statuses,
     }
   }
   const uniformArm = arm('uniform')

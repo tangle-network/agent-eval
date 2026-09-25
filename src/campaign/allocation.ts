@@ -186,15 +186,24 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
     return plan
   }
 
-  /** Per node: the deepest rung it finished and its unit means on the ranked split. */
+  /**
+   * Per node: the deepest rung it finished and its unit means on the ranked
+   * split. A later decision (finalist, selected, pruned) does not unfinish a
+   * rung, so every node but an invalid one keeps its place in the ranks; only
+   * an undecided or advanced node is `open` to a new decision.
+   */
   const standings = (view: SearchAllocationView, layout: AshaLayout): Standing[] => {
     const { state } = view
     const rootId = state.rootNodeId
     const standing: Standing[] = []
     for (const node of state.nodes()) {
-      if (node.status !== null && node.status !== 'advanced') continue
+      if (node.status === 'invalid') continue
       const root = node.nodeId === rootId
-      const rung = root ? layout.top : Math.min(node.rung ?? 0, layout.top)
+      let advancedTo = 0
+      for (const { decision } of node.decisions) {
+        if (decision.status === 'advanced') advancedTo = Math.max(advancedTo, decision.rung)
+      }
+      const rung = root ? layout.top : Math.min(advancedTo, layout.top)
       // A rung is finished when every one of its cells exists and none can
       // still run. Cells are counted by coordinates, which the ids digest.
       const allocated = new Set<string>()
@@ -212,7 +221,16 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
       for (const unit of state.unitScores(node.nodeId, layout.split)) {
         means.set(unit.unitId, unit.mean)
       }
-      standing.push({ nodeId: node.nodeId, ordinal: node.ordinal, root, rung, finished, means })
+      const open = node.status === null || node.status === 'advanced'
+      standing.push({
+        nodeId: node.nodeId,
+        ordinal: node.ordinal,
+        root,
+        open,
+        rung,
+        finished,
+        means,
+      })
     }
     return standing
   }
@@ -274,9 +292,8 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
         const top = Math.floor(ranked.length / eta)
         for (let index = 0; index < top; index++) {
           const entry = ranked[index]!
-          if (entry.root || entry.mean === null || entry.finished !== k || entry.rung !== k) {
-            continue
-          }
+          if (!entry.open || entry.root || entry.mean === null) continue
+          if (entry.finished !== k || entry.rung !== k) continue
           decisions.push({
             nodeId: entry.nodeId,
             decision: { status: 'advanced', rung: k + 1 },
@@ -299,11 +316,11 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
         const ranked = ranking(state, layout, standing, k)
         const top = Math.floor(ranked.length / eta)
         ranked.forEach((entry, index) => {
-          if (entry.root || entry.nodeId === keep) return
+          if (!entry.open || entry.root || entry.nodeId === keep) return
           if (entry.finished !== k || entry.rung !== k || entry.means.size === 0) return
           const why =
             index < top && entry.mean !== null
-              ? `it earned rung ${k + 1}, but the budget did not admit its cells`
+              ? `it earned rung ${k + 1}, but the cap, the cell limit or the deadline did not admit its cells`
               : 'it waited outside the top when the search closed'
           decisions.push({
             nodeId: entry.nodeId,
@@ -341,6 +358,8 @@ interface Standing {
   nodeId: string
   ordinal: number
   root: boolean
+  /** Undecided or advanced: a rank decision may still name it. */
+  open: boolean
   /** The rung the node is measured through (the top for the root). */
   rung: number
   /** The deepest rung it finished. */
