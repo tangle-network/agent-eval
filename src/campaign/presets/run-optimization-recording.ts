@@ -246,6 +246,8 @@ export class OptimizationSearch {
    */
   async finish(input: {
     winnerNodeId: string
+    /** Nodes that became the incumbent at some generation. */
+    promotedNodeIds: ReadonlySet<string>
     incompleteNodeIds: ReadonlySet<string>
     reason: SearchCloseReason
     runId: string
@@ -264,9 +266,11 @@ export class OptimizationSearch {
         reason:
           node.nodeId === input.winnerNodeId
             ? 'the incumbent when the loop stopped'
-            : input.incompleteNodeIds.has(node.nodeId)
-              ? 'the candidate missed a designed cell and could not be ranked'
-              : 'the candidate did not beat the incumbent',
+            : node.ordinal === 0 || input.promotedNodeIds.has(node.nodeId)
+              ? 'a later candidate replaced it as the incumbent'
+              : input.incompleteNodeIds.has(node.nodeId)
+                ? 'the candidate missed a designed cell and could not be ranked'
+                : 'the candidate did not beat the incumbent',
       })
     }
     await this.recorder.close({ reason: input.reason, claim: null })

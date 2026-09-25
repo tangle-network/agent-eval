@@ -284,6 +284,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   const nodeIdByHash = new Map<string, string>()
   if (opened) nodeIdByHash.set(surfaceHash(baselineSurface), opened.rootNodeId)
   const incompleteNodeIds = new Set<string>()
+  const promotedNodeIds = new Set<string>()
   let stopReason: SearchCloseReason = 'max-nodes'
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
@@ -563,6 +564,8 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     const promoted = top && compareRankKeys(top.rankKey, winnerRankKey) > 0 ? [top] : []
     if (promoted[0]) {
       const top = promoted[0]
+      const promotedNodeId = nodeIdByHash.get(top.surfaceHash)
+      if (promotedNodeId) promotedNodeIds.add(promotedNodeId)
       winnerSurface = top.surface
       winnerSurfaceHash = top.surfaceHash
       winnerComposite = top.composite
@@ -639,6 +642,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
 
   const searchHistory = await search?.finish({
     winnerNodeId: nodeIdByHash.get(winnerSurfaceHash)!,
+    promotedNodeIds,
     incompleteNodeIds,
     reason: stopReason,
     runId: opts.runDir,
