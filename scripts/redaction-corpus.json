@@ -300,6 +300,27 @@
         "parts": [
           "reply to ops@tangle.tools"
         ]
+      },
+      {
+        "detector": "json-secret",
+        "parts": [
+          "judge note: {\"pass",
+          "word\":\"hunter2\"} ok"
+        ]
+      },
+      {
+        "detector": "json-secret",
+        "parts": [
+          "{\"db\": {\"clientSec",
+          "ret\": \"abc def\"}}"
+        ]
+      },
+      {
+        "detector": "json-secret",
+        "parts": [
+          "cfg: {'refresh_tok",
+          "en': 'r1-xyz'}"
+        ]
       }
     ],
     "mustNotFlag": [
@@ -326,7 +347,15 @@
       "loop over 3600 1800 900 seconds",
       "retina asset icon@2x.png",
       "systemctl restart tangle-worker@3.service",
-      "include @AGENTS.md and notes@RTK.md"
+      "include @AGENTS.md and notes@RTK.md",
+      "{\"token\": \"Hello\", \"logprob\": -0.12}",
+      "{\"password\": \"[REDACTED:credential-key]\"}",
+      "{\"password\": \"$DB_PASSWORD\"}",
+      "{\"secretName\": \"OPENAI_API_KEY\"}",
+      "{\"max_tokens\": \"4096\"}",
+      "{\"password_min_length\": \"12\"}",
+      "{\"apiKey\": \"{env:TANGLE_API_KEY}\"}",
+      "{\"credentials\": \"Environment variables the provider reads at startup\"}"
     ]
   },
   "knownSecrets": {

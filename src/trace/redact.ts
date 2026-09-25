@@ -431,6 +431,17 @@ const CREDENTIAL_DETECTORS: readonly ValueDetector[] = [
     pattern:
       /(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|secret|token|password|passwd|passphrase|credentials?)["']?[ \t]*[:=][ \t]*["']?(?!encrypted:)(?![$`<[{(%])(?=[^\s"'`,;&|]*[0-9])(?=[^\s"'`,;&|]*[A-Za-z])[^\s"'`,;&|]{12,}/i,
   },
+  {
+    // `{"password": "hunter2"}` or `'client_secret': '…'` inside serialized
+    // JSON, YAML or a log line. A quoted credential field name followed by a
+    // quoted value holds a secret whatever the value's shape or length. Bare
+    // `"token"` is left out: model logprob output uses it for text tokens.
+    // Placeholders (`[REDACTED…]`, `$VAR`, `{env:VAR}`, `***`, `<value>`) and
+    // prose with two or more spaces (a field description) do not match.
+    id: 'json-secret',
+    pattern:
+      /["'][A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|private[_-]?key|client[_-]?secret|secret|password|passwd|passphrase|credentials?|(?:access|refresh|id|auth|session|bearer|api|github|gh|slack|npm)[_-]?token)["'][ \t]*:[ \t]*["'](?!\[REDACTED|[$*{<])(?![^"'\r\n]* [^"'\r\n]* )[^"'\r\n]{3,}["']/i,
+  },
 ]
 
 /** Personal-data shapes, replaced in place so the surrounding text survives. */
@@ -621,7 +632,8 @@ interface WalkState {
   maxStringBytes: number
   knownSecrets: string[]
   report: RedactionReport
-  pseudonymKey: Buffer
+  /** Created on first use: most calls pseudonymize nothing. */
+  pseudonymKey?: Buffer
   seen: WeakSet<object>
 }
 
@@ -681,6 +693,7 @@ function redactStringAt(text: string, path: string, state: WalkState): string {
 }
 
 function pseudonym(value: string | number, state: WalkState): string {
+  state.pseudonymKey ??= randomBytes(32)
   const digest = createHmac('sha256', state.pseudonymKey).update(String(value)).digest('hex')
   return `[ID:${digest.slice(0, 12)}]`
 }
@@ -792,7 +805,6 @@ function newState(options: RedactOptions, report?: RedactionReport): WalkState {
     maxStringBytes,
     knownSecrets: knownSecretForms(options.knownSecrets),
     report: report ?? newReport(profile),
-    pseudonymKey: randomBytes(32),
     seen: new WeakSet(),
   }
 }

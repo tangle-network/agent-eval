@@ -10,6 +10,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Added
 
+- The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 - `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
 - `RunRecord.traceRef` (`{ traceId, execRunId? }`) points at the run's trace and execution tree; a minted rollout line sets `artifacts.transcript_ref` to `trace:<traceId>`.
 - `RunCostProvenance` gains `{ kind: 'lower-bound', usd: null, knownLowerBoundUsd }` for a run whose receipts prove only part of its spend.
