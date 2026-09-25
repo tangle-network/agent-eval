@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.191.0] — 2026-09-25
+
 ### Changed
 
 - **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
