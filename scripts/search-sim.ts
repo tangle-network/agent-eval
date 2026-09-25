@@ -22,7 +22,7 @@
  * Options: --seed N (1), --train N (2), --selection N (6), --reps N (1),
  * --population N (3), --expansions N (6), --capacity N (4), --max-usd X
  * (none), --cell-usd X (0.05), --cost-cap hard|estimate (estimate),
- * --fault-rate X (0), --delay-ms N (5), --patience N.
+ * --fault-rate X (0), --delay-ms N (5), --patience N, --deadline ISO.
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
  */
@@ -67,6 +67,8 @@ interface SimOptions {
   faultRate: number
   delayMs: number
   patience: number | undefined
+  /** ISO time after which the search stops expanding and cancels waiting cells. */
+  deadline: string | null
 }
 
 const SEARCH_ID = 'search-sim'
@@ -127,7 +129,7 @@ async function runSimulation(dir: string, options: SimOptions): Promise<Record<s
         maxUsd: options.maxUsd,
         maxCells: null,
         maxNodes: 1 + options.population * options.expansions,
-        deadline: null,
+        deadline: options.deadline,
         maxConcurrency: null,
         reservedClaimUsd: 0,
       },
@@ -472,6 +474,7 @@ async function main(): Promise<void> {
       'fault-rate': { type: 'string', default: '0' },
       'delay-ms': { type: 'string', default: '5' },
       patience: { type: 'string' },
+      deadline: { type: 'string' },
       kills: { type: 'string', default: '6' },
     },
   })
@@ -490,6 +493,7 @@ async function main(): Promise<void> {
     faultRate: Number(values['fault-rate']),
     delayMs: Number(values['delay-ms']),
     patience: values.patience === undefined ? undefined : Number(values.patience),
+    deadline: values.deadline ?? null,
   }
   const passthrough = argv.filter((_, index) => {
     const flag = argv[index] === '--dir' || argv[index - 1] === '--dir'

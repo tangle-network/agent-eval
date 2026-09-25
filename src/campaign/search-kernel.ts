@@ -503,9 +503,10 @@ class SearchKernel<TArtifact> {
         this.failure ??= { error: this.options.signal?.reason ?? new Error('aborted') }
         return
       }
-      if (this.stopReason === null && this.pastDeadline()) {
-        this.stopReason = 'deadline'
-        await this.cancelQueued('deadline')
+      if (this.pastDeadline()) {
+        // Past the deadline nothing new starts, so what waits is cancelled.
+        this.stopReason ??= 'deadline'
+        if (this.queuedCount() > 0) await this.cancelQueued('deadline')
       }
       this.dispatch()
       const blocked =
@@ -608,13 +609,13 @@ class SearchKernel<TArtifact> {
     const before = this.state.cell(cellId)!
     const lane = this.lanes.get(before.lane!)!
     lane.inFlight -= 1
-    // The freed slot takes the next queued cell before this result is
-    // written, so no slot idles while the ledger syncs.
-    this.dispatch()
     if (!completion.result) {
       this.failure ??= { error: completion.error }
       return
     }
+    // The freed slot takes the next queued cell before this result is
+    // written, so no slot idles while the ledger syncs.
+    this.dispatch()
     if (
       (this.failure || this.options.signal?.aborted) &&
       completion.result.outcome.status === 'errored'
