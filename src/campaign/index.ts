@@ -521,6 +521,13 @@ export {
   searchTaskSetDigest,
   searchUnitScores,
 } from './search-state'
+// ── The agent's view: renderSearchSummary and the train-only proposer view ─
+export {
+  renderSearchSummary,
+  type SearchProposerView,
+  type SearchSummaryOptions,
+  searchProposerView,
+} from './search-summary'
 export {
   acquireSingleRunLock,
   type SingleRunLock,

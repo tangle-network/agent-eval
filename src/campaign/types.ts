@@ -28,6 +28,7 @@ import type {
 import type { LlmCallMetadata } from '../llm-client'
 import type { RunTokenUsage } from '../run-record'
 import type { SeriesDistribution } from '../statistics'
+import type { SearchProposerView } from './search-summary'
 
 /** Stable identifier + kind tag for any scenario. Consumers
  *  extend with their per-domain payload (persona, task, requirement, ...). */
@@ -319,12 +320,24 @@ export interface ScoredSurfaceOutcome {
  *  Final evaluation data is not represented in this contract. */
 export interface ProposeContext<TFindings = ProposalFinding> {
   /** The parent surface this proposal mutates: the node the search policy
-   *  chose (the incumbent by default). */
+   *  chose (the incumbent by default). Equal to `parents[0].artifact` when
+   *  `parents` is present. */
   readonly currentSurface: MutableSurface
   /** How the child should derive from the parent: `improve` for a hill-climb
    *  step; other policies ask for `draft`, `debug` or `merge`. Absent outside
    *  a search. */
   readonly operator?: 'draft' | 'improve' | 'debug' | 'merge'
+  /** Every parent the policy chose, primary first, with its artifact. A
+   *  `merge` proposal needs every parent; other operators name exactly one.
+   *  Absent outside a search. */
+  readonly parents?: ReadonlyArray<{ nodeId: string; artifact: MutableSurface }>
+  /** The proposer's own read of the search: its nodes' cells on the train
+   *  split only. Absent outside a search. See {@link SearchProposerView}. */
+  readonly train?: SearchProposerView
+  /** `renderSearchSummary` of the search so far, computed on the train
+   *  split: the leading nodes, recently discarded ideas and recent proposals,
+   *  as compact text. Absent outside a search. */
+  readonly summary?: string
   /** One record per earlier proposal: its candidates' measurements and the
    *  candidate that took the lead, if any. */
   readonly history: ReadonlyArray<GenerationRecord>
