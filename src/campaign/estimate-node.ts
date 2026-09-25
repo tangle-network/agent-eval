@@ -134,7 +134,7 @@ export function estimateNodeFromCells(input: EstimateNodeCellsInput): NodeEstima
   assertDistinctCells([...input.nodeCells, ...input.againstCells], nodeId, against)
   const cellSetDigest = searchCellSetDigest(input)
   const nodeUnits = searchUnitScores(input.nodeCells)
-  const { node, other } = pairUnits(nodeUnits, searchUnitScores(input.againstCells))
+  const { node, other } = pairUnits(nodeUnits, unitMeans(searchUnitScores(input.againstCells)))
   const pairs = node.length
   const method = searchEstimateMethod(pairs)
   const base = {
@@ -244,6 +244,7 @@ export function searchPosterior(
   }
   const sign = header.objective.direction === 'maximize' ? 1 : -1
   const root = searchUnitScores(state.scoredCells(rootNodeId, split))
+  const rootMeans = unitMeans(root)
   const nodes: NodePosterior[] = []
   let squares = 0
   let degreesOfFreedom = 0
@@ -258,7 +259,7 @@ export function searchPosterior(
       })
       continue
     }
-    const { node, other } = pairUnits(searchUnitScores(state.scoredCells(nodeId, split)), root)
+    const { node, other } = pairUnits(searchUnitScores(state.scoredCells(nodeId, split)), rootMeans)
     const gains = node.map((value, index) => sign * (value - other[index]!))
     const mean = gains.length > 0 ? sum(gains) / gains.length : null
     if (mean !== null && gains.length >= 2) {
@@ -283,12 +284,16 @@ export function searchPosterior(
   return { split, rootNodeId, pooledVariance, degreesOfFreedom, nodes }
 }
 
-/** Unit means of two nodes on the units both scored, aligned in unitId order. */
+function unitMeans(units: readonly SearchUnitScore[]): ReadonlyMap<string, number> {
+  return new Map(units.map((unit) => [unit.unitId, unit.mean]))
+}
+
+/** Unit means of two nodes on the units both scored, aligned in the node's
+ * unitId order. */
 function pairUnits(
   node: readonly SearchUnitScore[],
-  other: readonly SearchUnitScore[],
+  otherMeans: ReadonlyMap<string, number>,
 ): { node: number[]; other: number[] } {
-  const otherMeans = new Map(other.map((unit) => [unit.unitId, unit.mean]))
   const paired = { node: [] as number[], other: [] as number[] }
   for (const unit of node) {
     const mean = otherMeans.get(unit.unitId)
