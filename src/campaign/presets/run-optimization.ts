@@ -19,6 +19,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import { assertProposalFindings } from '../../analyst/proposal-findings'
 import type { ProposalFinding } from '../../analyst/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
@@ -27,15 +28,21 @@ import { type Objective, paretoFrontier } from '../../pareto'
 import { modelHasSnapshot } from '../../run-record'
 import { uniform } from '../allocation'
 import { computeManifestHash } from '../campaign-manifest'
-import { cellCachePath } from '../cell-schedule'
+import { computeAggregates } from '../cell-aggregates'
+import { cellCachePath, cellDirectory } from '../cell-schedule'
 import {
   assertCampaignSplitIdentity,
   type CampaignCoverage,
   campaignCoverage,
+  campaignScenarioIdentity,
   campaignSplitDigest,
   formatCoverageFailures,
 } from '../coverage'
-import { type RunCampaignOptions, runCampaign } from '../run-campaign'
+import {
+  type CampaignCellFailureReceipt,
+  type RunCampaignOptions,
+  runCampaign,
+} from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
 import { projectCampaignCellQuality } from '../run-record'
 import {
@@ -83,6 +90,7 @@ import {
   type GenerationCandidate,
   type GenerationRecord,
   isProposedCandidate,
+  type JudgeConfig,
   type MutableSurface,
   type ParetoParent,
   type ProposeContext,
@@ -155,8 +163,9 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    *  the parent from the Pareto frontier instead. */
   policy?: SearchPolicy
   /** Where the search ledger goes and the identities it records. Default: a
-   *  ledger at `<runDir>/search/ledger.jsonl` (in memory for a `mem://` run)
-   *  whose identities are the dispatch ref's and proposer's digests. */
+   *  ledger at `<runDir>/search/ledger.jsonl`, held in `storage` unless that is
+   *  the filesystem, whose identities are the dispatch ref's and proposer's
+   *  digests. */
   searchLedger?: SearchLedgerBinding
 }
 
@@ -238,7 +247,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     : undefined
 
   const splitDigest = campaignSplitDigest(opts.scenarios, reps)
-  const binding = opts.searchLedger ?? defaultBinding(opts, runDir, storage)
+  const binding = opts.searchLedger ?? (await defaultBinding(opts, runDir, storage))
   const { identity } = binding
   const execution: SearchExecutionIdentity = {
     model: identity.model,
@@ -308,8 +317,7 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     ],
     place: () => 'campaign',
     run: (work) => nodes.runCell(work, scenarioById),
-    adopt: async (work) =>
-      (await nodes.cellCached(work)) ? nodes.runCell(work, scenarioById) : null,
+    adopt: (work) => nodes.adoptCell(work),
   }
 
   const proposer = opts.proposer
@@ -515,6 +523,8 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     { cells: string; campaign: CampaignResult<TArtifact, TScenario> }
   >()
   private readonly proposals = new Map<number, SearchProposalBlob>()
+  /** Cells this process ran or adopted, by node, keyed `scenarioId:rep`. */
+  private readonly cells = new Map<string, Map<string, CampaignCellResult<TArtifact>>>()
 
   constructor(input: {
     opts: RunOptimizationOptions<TScenario, TArtifact>
@@ -558,11 +568,18 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     return ids
   }
 
-  /** True when the cell's campaign result is already cached in its node's directory. */
-  async cellCached(work: SearchCellWork<MutableSurface>): Promise<boolean> {
-    if (work.stage === 'root' && this.premeasured) return true
+  /**
+   * The finished attempt of a cell an earlier process ran, from its node's
+   * directory: the cached result of a scored cell, or the failure receipt of
+   * a failed one. Null when neither exists, so the kernel runs the cell.
+   */
+  async adoptCell(work: SearchCellWork<MutableSurface>): Promise<SearchCellResult | null> {
+    if (work.stage === 'root' && this.premeasured) return this.premeasuredCell(work)
     const dir = this.nodeDir(await this.recorder.state(), work.nodeId)
-    return this.storage.exists(cellCachePath(dir, `${work.taskId}:${work.rep}`))
+    const cell = this.storedCell(dir, work.artifact, work.taskId, work.rep)
+    if (!cell) return null
+    this.remember(work.nodeId, cell)
+    return this.cellResult(cell, work)
   }
 
   /** Run one cell as a one-cell campaign in its node's directory; a cached
@@ -571,54 +588,76 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     work: SearchCellWork<MutableSurface>,
     scenarios: ReadonlyMap<string, TScenario>,
   ): Promise<SearchCellResult> {
-    if (work.stage === 'root' && this.premeasured) {
-      const cell = this.premeasured.cells.find(
-        (candidate) => candidate.scenarioId === work.taskId && candidate.rep === work.rep,
-      )
-      if (!cell)
-        throw new Error(`runOptimization: premeasured baseline lacks ${work.taskId}:${work.rep}`)
-      return this.cellResult(cell, work)
-    }
+    if (work.stage === 'root' && this.premeasured) return this.premeasuredCell(work)
     if (!scenarios.has(work.taskId)) {
       throw new Error(`runOptimization: cell ${work.cellId} names unknown scenario ${work.taskId}`)
     }
     const dir = this.nodeDir(await this.recorder.state(), work.nodeId)
-    const campaign = await this.campaignRun(work.nodeId, dir, work.artifact, {
+    const campaign = await this.campaignRun(dir, work.artifact, {
       signal: work.signal,
       costPhase: work.stage === 'root' ? 'search.baseline' : 'search.candidate',
       cellFilter: ({ scenario, rep }) => scenario.id === work.taskId && rep === work.rep,
     })
     const cell = campaign.cells[0]
     if (!cell) throw new Error(`runOptimization: cell ${work.cellId} produced no campaign cell`)
+    this.remember(work.nodeId, cell)
     return this.cellResult(cell, work)
   }
 
-  /** The node's campaign over the cells the ledger settled, read from cache. */
+  /** The node's campaign over the cells the ledger settled: the cells this
+   * process ran, else their cached results or failure receipts. */
   async campaign(
     state: SearchStateView,
     nodeId: string,
   ): Promise<CampaignResult<TArtifact, TScenario>> {
     if (nodeId === state.rootNodeId && this.premeasured) return this.premeasured
+    const dir = this.nodeDir(state, nodeId)
     const settled = state
       .cells({ nodeId })
       .filter((cell) => cell.attempts > 0)
-      .map((cell) => `${cell.taskId}:${cell.rep}`)
+      .map((cell) => ({ taskId: cell.taskId, rep: cell.rep }))
+    const key = settled
+      .map(({ taskId, rep }) => `${taskId}:${rep}`)
       .sort()
-    const key = settled.join('\n')
-    const cached = this.campaigns.get(nodeId)
-    if (cached?.cells === key) return cached.campaign
-    const wanted = new Set(settled)
-    const campaign = await this.campaignRun(
-      nodeId,
-      this.nodeDir(state, nodeId),
-      this.surface(state, nodeId),
-      {
-        costPhase: nodeId === state.rootNodeId ? 'search.baseline' : 'search.candidate',
-        cellFilter: ({ scenario, rep }) => wanted.has(`${scenario.id}:${rep}`),
-        labeledStore: 'off',
-        dispatchGuard: true,
-      },
-    )
+      .join('\n')
+    const held = this.campaigns.get(nodeId)
+    if (held?.cells === key) return held.campaign
+    const known = this.cells.get(nodeId)
+    const surface = this.surface(state, nodeId)
+    const cells = settled.map(({ taskId, rep }) => {
+      const cell = known?.get(`${taskId}:${rep}`) ?? this.storedCell(dir, surface, taskId, rep)
+      if (!cell) {
+        throw new Error(
+          `runOptimization: cell ${taskId}:${rep} of node ${nodeId} settled, but ${dir} holds neither its cached result nor its failure receipt`,
+        )
+      }
+      return cell
+    })
+    cells.sort((a, b) => (a.cellId < b.cellId ? -1 : a.cellId > b.cellId ? 1 : 0))
+    const reps = this.opts.reps ?? 1
+    const seed = this.opts.seed ?? 42
+    const judges = this.opts.judges ?? []
+    const now = new Date().toISOString()
+    const durationMs = cells.reduce((sum, cell) => sum + cell.durationMs, 0)
+    const campaign: CampaignResult<TArtifact, TScenario> = {
+      manifestHash: this.manifestFor(surface),
+      splitDigest: campaignSplitDigest(this.opts.scenarios, reps),
+      seed,
+      reps,
+      startedAt: now,
+      endedAt: now,
+      durationMs,
+      cells,
+      aggregates: computeAggregates(
+        cells,
+        judges as unknown as JudgeConfig<TArtifact>[],
+        seed,
+        this.costLedger.summary({ tags: { runDir: dir } }),
+      ),
+      runDir: dir,
+      artifactsByPath: {},
+      scenarios: this.opts.scenarios.map(campaignScenarioIdentity),
+    }
     this.campaigns.set(nodeId, { cells: key, campaign })
     return campaign
   }
@@ -758,15 +797,12 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
   }
 
   private async campaignRun(
-    nodeId: string,
     runDir: string,
     surface: MutableSurface,
     input: {
       signal?: AbortSignal
       costPhase: string
       cellFilter: NonNullable<RunCampaignOptions<TScenario, TArtifact>['cellFilter']>
-      labeledStore?: 'off'
-      dispatchGuard?: boolean
     },
   ): Promise<CampaignResult<TArtifact, TScenario>> {
     const {
@@ -786,24 +822,67 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     } = this.opts
     return runCampaign<TScenario, TArtifact>({
       ...campaignOptions,
-      ...(input.labeledStore ? { labeledStore: input.labeledStore } : {}),
       signal: input.signal ?? this.opts.signal,
       costLedger: this.costLedger,
       costPhase: input.costPhase,
       dispatchRef: surfaceDispatchRef(surface, this.opts.dispatchRef),
-      dispatch: input.dispatchGuard
-        ? () => {
-            throw new Error(
-              `runOptimization: a settled cell of node ${nodeId} has no cached campaign result in ${runDir}`,
-            )
-          }
-        : (scenario, ctx) => dispatchWithSurface(surface, scenario, ctx),
+      dispatch: (scenario, ctx) => dispatchWithSurface(surface, scenario, ctx),
       runDir,
       cellFilter: input.cellFilter,
       resumable: true,
-      reuseFailedCells: true,
       maxConcurrency: 1,
     })
+  }
+
+  private premeasuredCell(work: SearchCellWork<MutableSurface>): SearchCellResult {
+    const cell = this.premeasured!.cells.find(
+      (candidate) => candidate.scenarioId === work.taskId && candidate.rep === work.rep,
+    )
+    if (!cell) {
+      throw new Error(`runOptimization: premeasured baseline lacks ${work.taskId}:${work.rep}`)
+    }
+    return this.cellResult(cell, work)
+  }
+
+  /** A cell's result as its campaign stored it: the cache of a scored cell,
+   * the final failure receipt of a failed one. */
+  /** A cell's result as its campaign stored it for this surface: the cache of
+   * a scored cell, the final failure receipt of a failed one. A result another
+   * surface left in the same directory does not count. */
+  private storedCell(
+    dir: string,
+    surface: MutableSurface,
+    taskId: string,
+    rep: number,
+  ): CampaignCellResult<TArtifact> | undefined {
+    const cellId = `${taskId}:${rep}`
+    const manifestHash = this.manifestFor(surface)
+    const cached = this.storage.read(cellCachePath(dir, cellId))
+    const scored =
+      cached === undefined ? undefined : (JSON.parse(cached) as CampaignCellResult<TArtifact>)
+    if (scored?.manifestHash === manifestHash) return scored
+    const receipt = this.storage.read(join(cellDirectory(dir, cellId), 'failure-receipt.json'))
+    const failed =
+      receipt === undefined
+        ? undefined
+        : (JSON.parse(receipt) as CampaignCellFailureReceipt<TArtifact>).cell
+    return failed?.manifestHash === manifestHash ? failed : undefined
+  }
+
+  private manifestFor(surface: MutableSurface): string {
+    return computeManifestHash({
+      scenarios: this.opts.scenarios,
+      judges: this.opts.judges ?? [],
+      dispatchRef: surfaceDispatchRef(surface, this.opts.dispatchRef),
+      seed: this.opts.seed ?? 42,
+      reps: this.opts.reps ?? 1,
+    })
+  }
+
+  private remember(nodeId: string, cell: CampaignCellResult<TArtifact>): void {
+    const cells = this.cells.get(nodeId) ?? new Map<string, CampaignCellResult<TArtifact>>()
+    cells.set(`${cell.scenarioId}:${cell.rep}`, cell)
+    this.cells.set(nodeId, cells)
   }
 
   private cellResult(
@@ -824,13 +903,12 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
 /** The default ledger and identities when the caller binds none. Revisions are
  * content digests of what the caller declared, and each uri names what its
  * digest covers: the dispatch ref, the proposer kind, the kernel. */
-function defaultBinding<TScenario extends Scenario, TArtifact>(
+async function defaultBinding<TScenario extends Scenario, TArtifact>(
   opts: RunOptimizationOptions<TScenario, TArtifact>,
   runDir: string,
   storage: CampaignStorage,
-): SearchLedgerBinding {
-  const path = `${runDir}/search/ledger.jsonl`
-  const searchId = `optimization-${createHash('sha256').update(runDir).digest('hex').slice(0, 16)}`
+): Promise<SearchLedgerBinding> {
+  const base = `optimization-${createHash('sha256').update(runDir).digest('hex').slice(0, 16)}`
   const dispatchRef = opts.dispatchRef ?? 'anonymous'
   const identity: SearchRunIdentity = {
     agent: { uri: `dispatch-ref:${dispatchRef}`, revision: hashCanonical({ dispatchRef }) },
@@ -848,10 +926,21 @@ function defaultBinding<TScenario extends Scenario, TArtifact>(
       unknown: 'runOptimization was not told which model the agent runs',
     },
   }
-  const ledger = runDir.startsWith('mem://')
-    ? openSearchLedger({ path, searchId, store: storage })
-    : openSearchLedger({ path, searchId })
-  return { ledger, identity }
+  // A closed search is final. The run directory's first search that is still
+  // open, or not started, is this call's: an interrupted run continues, and a
+  // run after a finished one starts the next search beside it.
+  for (let slot = 1; ; slot++) {
+    const dir = slot === 1 ? `${runDir}/search` : `${runDir}/search-${slot}`
+    const path = `${dir}/ledger.jsonl`
+    const searchId = slot === 1 ? base : `${base}-${slot}`
+    // The ledger lives where the run's storage lives: a filesystem run gets
+    // the durable file journal; any other storage holds the ledger's text.
+    const ledger =
+      storage.kind === 'filesystem'
+        ? openSearchLedger({ path, searchId })
+        : openSearchLedger({ path, searchId, store: storage })
+    if (!(await ledger.state()).closed) return { ledger, identity }
+  }
 }
 
 function artifactKindOf(surface: MutableSurface): SearchArtifactKind {

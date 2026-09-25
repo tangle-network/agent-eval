@@ -19,6 +19,10 @@ import { appendSearchLedgerLine, tryWithSearchLedgerFileLock } from './search-le
  * so the same `join(...)`-built paths work unchanged across both adapters.
  */
 export interface CampaignStorage {
+  /** `filesystem` for the Node filesystem, whose paths durable journals such
+   * as the search ledger may open directly; any other storage keeps those
+   * journals in itself. */
+  readonly kind?: 'filesystem' | 'memory'
   /** Ensure a directory exists (recursive). No-op for in-memory. */
   ensureDir(dir: string): void
   /** Does this path exist (as a written file or an ensured dir)? */
@@ -45,6 +49,7 @@ export function fsCampaignStorage(): CampaignStorage {
     'node:fs',
   ) as typeof import('node:fs')
   return {
+    kind: 'filesystem',
     ensureDir(dir) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     },
@@ -85,6 +90,7 @@ export function inMemoryCampaignStorage(): CampaignStorage {
   const files = new Map<string, string | Uint8Array>()
   const dirs = new Set<string>()
   return {
+    kind: 'memory',
     ensureDir(dir) {
       dirs.add(dir)
     },

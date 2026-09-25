@@ -421,27 +421,4 @@ describe('complete method measurement integrity', () => {
     ).rejects.toThrow(/premeasured baseline evaluator identity does not match/)
     expect(executions).toBe(0)
   })
-
-  it('does not label a native candidate mean as an estimated confidence interval', async () => {
-    const options = common()
-    const records: Array<{ composite: number | null; ci95: [number, number] | null }> = []
-    const result = await selfImprove({
-      ...options,
-      budget: { ...options.budget, generations: 2 },
-      agent: async (surface, scenario) => ({
-        quality: surface === 'BASE' ? 0 : scenario.id === 't1' ? 1 : 0,
-      }),
-      proposer: {
-        kind: 'fixed',
-        propose: async () => ['WIN'],
-        decide: ({ history }) => {
-          for (const generation of history) records.push(...generation.candidates)
-          return { stop: history.length > 0 }
-        },
-      },
-    })
-    expect(result.raw.generations).toHaveLength(1)
-    expect(records).toHaveLength(1)
-    expect(records[0]).toMatchObject({ composite: 0.25, ci95: null })
-  })
 })

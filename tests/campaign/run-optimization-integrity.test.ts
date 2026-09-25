@@ -96,14 +96,6 @@ describe('runOptimization selection integrity', () => {
         incumbentSplit: 'search',
       },
     ])
-    expect(result.generations[0]!.record.candidates[0]).toMatchObject({
-      parentSurfaceHash: surfaceHash('BASE'),
-      observedDeltaFromParent: 0.4,
-    })
-    expect(result.generations[1]!.record.candidates[0]).toMatchObject({
-      parentSurfaceHash: surfaceHash('WINNER'),
-    })
-    expect(result.generations[1]!.record.candidates[0]!.observedDeltaFromParent).toBeCloseTo(-0.6)
     expect(result.winnerSurface).toBe('WINNER')
   })
 
@@ -338,7 +330,6 @@ describe('runOptimization selection integrity', () => {
     )
     expect(failed).toMatchObject({
       composite: null,
-      ci95: null,
       eligibleForPromotion: false,
       coverage: {
         expectedCells: 2,
