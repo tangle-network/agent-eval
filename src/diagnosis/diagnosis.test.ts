@@ -1,25 +1,10 @@
 import Ajv2020 from 'ajv/dist/2020'
 import { describe, expect, it } from 'vitest'
 import type { PrimeBridgeTransportRequest } from '../analyst/prime-bridge-transport'
-import {
-  diagnoseSpans,
-  epochMillis,
-  holdsSecret,
-  ingestSpans,
-  redactSecrets,
-  validateDiagnosisFindings,
-} from './index'
+import { diagnoseSpans, epochMillis, ingestSpans, validateDiagnosisFindings } from './index'
 
 // Built at runtime so no literal credential shape sits in the source tree.
 const OPENAI = ['sk', 'proj', 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4'].join('-')
-const GITHUB = `ghp_${'a1B2c3D4e5F6g7H8i9J0'.repeat(2)}`
-const SLACK = ['xoxb', '123456789012', 'abcdefABCDEF'].join('-')
-const AWS = `AKIA${'ABCDEFGHIJKLMNOP'}`
-const JWT = [
-  'eyJhbGciOiJIUzI1NiJ9',
-  'eyJzdWIiOiIxMjM0NTY3ODkwIn0',
-  'dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
-].join('.')
 
 // Same JSON as tangle-network/traces main (ebae7c9)
 // diagnosis-kit/templates/findings.schema.json, the schema the kit validates with.
@@ -81,80 +66,6 @@ function sampleRun(traceId = 't1', prefix = ''): Record<string, unknown>[] {
   }
   return out
 }
-
-describe('secret filter', () => {
-  it('redacts the lines trace-archive holds_secret matches and keeps the key name', () => {
-    const cases = [
-      `GH_TOKEN=${'x1y2z3'.repeat(4)}`,
-      `export TANGLE_ROUTER_KEY="${'Ab12'.repeat(6)}"`,
-      `  api_key: ${'q9w8e7r6'.repeat(3)}  # prod`,
-      `DB_PASSWORD='${'Pa55word'.repeat(3)}'`,
-    ]
-    expect(redactSecrets(`cd x && GH_TOKEN=${'x1y2z3'.repeat(4)} gh pr list`)).toContain(
-      'GH_TOKEN=[REDACTED:inline-assignment] gh',
-    )
-    for (const line of cases) {
-      expect(holdsSecret(line)).toBe(true)
-      const out = redactSecrets(line)
-      expect(out).toContain('[REDACTED:secret-assignment]')
-      expect(out).toMatch(/TOKEN|KEY|key|PASSWORD/)
-    }
-  })
-
-  it('passes what holds_secret passes: variable references, dotenvx ciphertext, short or digit-free values', () => {
-    for (const line of [
-      'GH_TOKEN=$GITHUB_TOKEN',
-      'API_KEY="encrypted:BD3fQx9xZqg0aa1234567890"',
-      'token: short1',
-      'password: correcthorsebatterystaple',
-    ]) {
-      expect(redactSecrets(line)).toBe(line)
-    }
-  })
-
-  it('removes token shapes wherever they appear, including inside JSON and prose', () => {
-    const text = [
-      `run with ${OPENAI} now`,
-      `{"authToken":"${'k3y'.repeat(8)}","input_tokens":"123"}`,
-      `clone https://drew:${'s3cret'.repeat(3)}@github.com/x/y`,
-      `Authorization: Bearer ${'abc123XYZ'.repeat(3)}`,
-      GITHUB,
-      SLACK,
-      AWS,
-      JWT,
-      '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----',
-    ].join('\n')
-    const report = { redactionCount: 0, byRule: {} as Record<string, number> }
-    const out = redactSecrets(text, report)
-    for (const secret of [
-      OPENAI,
-      GITHUB,
-      SLACK,
-      AWS,
-      JWT,
-      'k3yk3y',
-      's3crets3cret',
-      'abc123XYZabc',
-      'b3BlbnNzaC1rZXk',
-    ]) {
-      expect(out).not.toContain(secret)
-    }
-    expect(out).toContain('"input_tokens":"123"')
-    expect(Object.keys(report.byRule).sort()).toEqual(
-      [
-        'aws-access-key',
-        'bearer',
-        'github-token',
-        'json-secret',
-        'jwt',
-        'openai-key',
-        'pem-block',
-        'slack-token',
-        'url-credentials',
-      ].sort(),
-    )
-  })
-})
 
 describe('ingest', () => {
   it('reads OTLP nanoseconds, epoch milliseconds and ISO times', () => {
@@ -394,7 +305,6 @@ describe('diagnoseSpans, model mode', () => {
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).not.toContain(OPENAI)
     expect(prompts[0]).not.toContain('zz9zz9')
-    expect(prompts[0]).toContain('[REDACTED:openai-key]')
     expect(prompts[0]).not.toContain('withheld at the owner')
     const inferred = result.document.findings.filter((f) => f.confidence === 'inferred')
     expect(inferred).toHaveLength(1)

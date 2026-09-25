@@ -18,6 +18,7 @@
  */
 
 import { packageVersion } from '../package-version'
+import { redact, redactText } from '../trace/redact'
 import { type DeterministicResult, groupByTrace, runDeterministicPass } from './deterministic'
 import {
   type DiagnosisFinding,
@@ -34,7 +35,6 @@ import {
   runModelPass,
   runTopologyPass,
 } from './model-pass'
-import { redactSecrets, redactSecretsDeep } from './secret-filter'
 import { type IngestReport, ingestSpans } from './spans'
 
 export interface DiagnosisContext {
@@ -112,7 +112,7 @@ export async function diagnoseSpans(
   const contentIncluded = context.contentIncluded === true
   const { spans: filtered, report: ingest } = ingestSpans(spans, { contentIncluded })
   const focus =
-    context.focus === undefined ? undefined : redactSecrets(context.focus, ingest.secrets)
+    context.focus === undefined ? undefined : redactText(context.focus, { report: ingest.secrets })
   const deterministic = runDeterministicPass(filtered)
   const skipped = [...deterministic.skipped]
   const ambiguous = new Set(ingest.ambiguousSpanIds)
@@ -182,9 +182,7 @@ export async function diagnoseSpans(
         })
     }
     if (context.subject === 'internal' && context.topology) {
-      const topology = redactSecretsDeep(context.topology, ingest.secrets) as NonNullable<
-        DiagnosisContext['topology']
-      >
+      const topology = redact(context.topology, { report: ingest.secrets }).value
       const runIds = new Set(
         (topology.runs ?? [])
           .map((run) => run.id)
@@ -215,7 +213,7 @@ export async function diagnoseSpans(
   const document: DiagnosisFindingsDocument = {
     schemaVersion: 1,
     subject: {
-      label: redactSecrets(context.label, ingest.secrets),
+      label: redactText(context.label, { report: ingest.secrets }),
       runCount: traces.size,
       window: deterministic.window,
       contentIncluded,
@@ -225,7 +223,7 @@ export async function diagnoseSpans(
       skipped,
       redaction: {
         redactionCount: ingest.secrets.redactionCount,
-        byRule: { ...ingest.secrets.byRule },
+        byRule: { ...ingest.secrets.byDetector },
         droppedAttributes: ingest.droppedAttributes,
       },
     },

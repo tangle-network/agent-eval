@@ -17,16 +17,17 @@
  * request, response, and error is recorded — including retries, with the
  * attempt index attached so a flaky call's full event chain is recoverable.
  *
- * Redaction is enforced at sink time. The default redactor strips
- * `Authorization`, `X-Api-Key`, `X-Auth-Token`, `Cookie` headers and any
- * payload field whose key matches `apiKey | api_key | bearer | password |
- * secret | token` (case-insensitive). Override via the sink constructor or
- * the per-call `redactor`. The `redactedFields` array on the persisted
- * event lets a reviewer see what was stripped without exposing the values.
+ * Redaction is enforced at sink time. The default redactor runs the redaction
+ * core (`./redact`, default profile) over headers, bodies and the error
+ * message: credential headers and fields are replaced by name, credential and
+ * personal-data values by shape. Override via the sink constructor or the
+ * per-call `redactor`. The `redactedFields` array on the persisted event lets
+ * a reviewer see what was replaced without exposing the values.
  */
 
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { redact } from './redact'
 
 export type RawProviderDirection = 'request' | 'response' | 'error'
 
@@ -61,7 +62,7 @@ export interface RawProviderEvent {
   responseBody?: unknown
   /** Set on `direction: 'error'` events. */
   errorMessage?: string
-  /** Field paths the redactor stripped from this event ('header:Authorization', 'body.apiKey', …). */
+  /** JSON Pointers of the fields the redactor replaced ('/requestHeaders/Authorization', '/requestBody/apiKey', …). */
   redactedFields: string[]
 }
 
@@ -82,65 +83,27 @@ export interface RawProviderSink {
 
 export type ProviderRedactor = (event: RawProviderEvent) => RawProviderEvent
 
-const REDACTED_HEADER_NAMES = new Set([
-  'authorization',
-  'x-api-key',
-  'x-auth-token',
-  'cookie',
-  'set-cookie',
-  'proxy-authorization',
-])
-
-const REDACTED_BODY_KEY =
-  /^(api[_-]?key|bearer|password|secret|token|access[_-]?token|refresh[_-]?token)$/i
-
 /**
- * Default redactor — strips well-known auth headers and any body field whose
- * key matches the credential pattern. Records every redacted path on
- * `event.redactedFields` so a downstream reviewer can see what was removed.
+ * The default redactor: the redaction core over the parts of an event that
+ * carry provider traffic. Every replaced path is added to `redactedFields`.
  */
 export function defaultProviderRedactor(event: RawProviderEvent): RawProviderEvent {
-  const redactedFields: string[] = [...(event.redactedFields ?? [])]
-  const requestHeaders = redactHeaders(event.requestHeaders, 'request', redactedFields)
-  const responseHeaders = redactHeaders(event.responseHeaders, 'response', redactedFields)
-  const requestBody = redactBody(event.requestBody, 'requestBody', redactedFields)
-  const responseBody = redactBody(event.responseBody, 'responseBody', redactedFields)
-  return { ...event, requestHeaders, responseHeaders, requestBody, responseBody, redactedFields }
-}
-
-function redactHeaders(
-  headers: Record<string, string> | undefined,
-  prefix: 'request' | 'response',
-  redactedFields: string[],
-): Record<string, string> | undefined {
-  if (!headers) return headers
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(headers)) {
-    if (REDACTED_HEADER_NAMES.has(k.toLowerCase())) {
-      redactedFields.push(`${prefix}Headers.${k}`)
-      continue
-    }
-    out[k] = v
+  const { requestHeaders, requestBody, responseHeaders, responseBody, errorMessage } = event
+  const { value, report } = redact({
+    requestHeaders,
+    requestBody,
+    responseHeaders,
+    responseBody,
+    errorMessage,
+  })
+  return {
+    ...event,
+    ...value,
+    redactedFields: [
+      ...(event.redactedFields ?? []),
+      ...report.findings.map((finding) => finding.path),
+    ],
   }
-  return out
-}
-
-function redactBody(value: unknown, pathStr: string, redactedFields: string[]): unknown {
-  if (value == null) return value
-  if (Array.isArray(value))
-    return value.map((v, i) => redactBody(v, `${pathStr}[${i}]`, redactedFields))
-  if (typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (REDACTED_BODY_KEY.test(k)) {
-        redactedFields.push(`${pathStr}.${k}`)
-        continue
-      }
-      out[k] = redactBody(v, `${pathStr}.${k}`, redactedFields)
-    }
-    return out
-  }
-  return value
 }
 
 // ── In-memory ────────────────────────────────────────────────────────────
