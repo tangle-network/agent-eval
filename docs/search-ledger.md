@@ -51,8 +51,8 @@ Edge attribution says how the parents are known and is never inferred from timin
 The same code runs in the producer's journal, the kernel, and the Intelligence verifier.
 
 - **Order:** `search-opened` comes first; nothing follows `search-closed`. More work on a closed search is a derived search.
-- **Graph:** a node exists before an edge or cell names it, and a cell's node already has an edge. A parent registered before its child and already in the tree, so the graph is acyclic. A parent in another search appears only on a `derive` edge that matches `derivedFrom`.
-- **Re-proposal:** identical content is a second edge into the existing node, counted as a re-proposal.
+- **Graph:** a node exists before an edge or cell names it, and a cell's node already has an edge. On a node's first edge every parent was registered before the node and already has an edge, so the lineage is acyclic. A parent in another search appears only on a `derive` edge that matches `derivedFrom`.
+- **Re-proposal:** identical content is a second edge into the existing node, counted as a re-proposal and never measured again. It may come from any node the search holds, including the node itself (a proposal that changed nothing) or a node registered after it (a revert). Such a parent is not lineage: it does not enter the node's `parents` or the parent's `children`, and ancestry follows an edge only through parents registered before the child.
 - **Splits:** a task belongs to one split and one unit. With `heldOutUnits`, no test unit appears in train or selection. Stages match splits: `claim` cells run on test, `screen` and `rung` on selection.
 - **Seal:** only the root (the first registered node) and nodes decided `finalist` run test cells. The root is never a finalist, at most 3 nodes are, and none is added once a claim cell exists.
 - **Claim start:** once a node is decided `finalist`, the search only claims: no operation, node, edge or non-claim cell follows.

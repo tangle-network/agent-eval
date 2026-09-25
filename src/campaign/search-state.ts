@@ -159,7 +159,9 @@ export interface SearchNode {
   primaryParentId: string | null
   /** Edges from the root along primary parents; null while unknown. */
   depth: number | null
-  /** Every parent named by any edge into the node, in edge order. */
+  /** Every lineage parent: each parent an edge into the node names that was
+   * registered before it, in edge order. A re-proposal from the node itself
+   * or from a later node adds none, so parents and children stay acyclic. */
   parents: readonly SearchNodeRef[]
   children: readonly string[]
   edgeIds: readonly string[]
@@ -550,7 +552,15 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     if (operationId !== null && !this.operations.has(operationId)) {
       throw integrity(`edge ${event.edgeId} names operation ${operationId}, which never started`)
     }
+    // A node's first edge fixes its lineage, so its parents were registered
+    // before it and the lineage is acyclic. A later edge is a re-proposal:
+    // the proposer produced the node's artifact again. Proposers return their
+    // parent unchanged and revert edits, so a re-proposal may come from any
+    // node the search holds, the node itself included; a parent registered at
+    // or after the node is counted but never becomes lineage.
+    const reproposal = child.edgeIds.length > 0
     const inSearch: NodeRecord[] = []
+    const later = new Set<string>()
     for (const parent of parents) {
       if (parent.searchId !== this.searchId) {
         const from = this.header!.derivedFrom
@@ -574,7 +584,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       if (!record) {
         throw integrity(`edge ${event.edgeId} names unregistered parent ${parent.nodeId}`)
       }
-      if (record.ordinal >= child.ordinal) {
+      if (record.ordinal >= child.ordinal && !reproposal) {
         throw integrity(
           `edge ${event.edgeId}: parent ${parent.nodeId} registered after child ${child.event.nodeId}`,
         )
@@ -587,10 +597,11 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
           `edge ${event.edgeId}: parent ${parent.nodeId} was decided invalid, and an invalid node never becomes a parent`,
         )
       }
-      inSearch.push(record)
+      if (record.ordinal >= child.ordinal) later.add(parent.nodeId)
+      else inSearch.push(record)
     }
 
-    if (child.edgeIds.length === 0) {
+    if (!reproposal) {
       const primary = inSearch[0]
       child.primaryParentId = primary?.event.nodeId ?? null
       child.depth =
@@ -606,7 +617,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     child.edgeIds.push(event.edgeId)
     for (const parent of parents) {
       const key = canonicalString(parent)
-      if (child.parentKeys.has(key)) continue
+      if (later.has(parent.nodeId) || child.parentKeys.has(key)) continue
       child.parentKeys.add(key)
       child.parents.push(parent)
     }

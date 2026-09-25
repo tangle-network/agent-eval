@@ -576,7 +576,8 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     const ids: string[] = []
     for (const child of blob.children) {
       const nodeId = state.nodeIdForDigest(child.node.artifactDigest)
-      if (nodeId === undefined || ids.includes(nodeId)) continue
+      // The baseline, proposed again, is a re-proposal of the seed.
+      if (nodeId === undefined || nodeId === state.rootNodeId || ids.includes(nodeId)) continue
       if (this.origin(state, nodeId).expansion === expansion) ids.push(nodeId)
     }
     return ids
