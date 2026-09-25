@@ -5,6 +5,7 @@
     "noEmit": true
   },
   "include": [
+    "scripts/ledger-journal-load.ts",
     "scripts/render-evidence-index.ts",
     "scripts/record-multishot-golden.ts",
     "scripts/redaction-corpus.ts",

@@ -48,11 +48,13 @@ export function createSearchLedgerProjector(
   const operationEvents: SearchOperationRecordedEvent[] = []
   const operationsById = new Map<string, SearchOperationRecordedEvent>()
   const decisions: SearchCandidateDecidedEvent[] = []
+  const entries: SearchLedgerEntry[] = []
   let planEvent: SearchPlannedEvent | null = null
   let completion: SearchCompletedEvent | null = null
   let previousOccurredAt = Number.NEGATIVE_INFINITY
 
   const apply = (entry: SearchLedgerEntry, index: number): void => {
+    entries.push(entry)
     const event = entry.event
     if (completion) {
       throw new SearchLedgerIntegrityError(
@@ -439,7 +441,9 @@ export function createSearchLedgerProjector(
     completion = event
   }
 
-  const finish = (entries: SearchLedgerEntry[]): SearchLedgerReplay => {
+  // Every array is copied: the journal keeps applying entries to this
+  // projector, and a returned projection must not change under its reader.
+  const snapshot = (): SearchLedgerReplay => {
     const selectedDecisions = decisions.filter(
       (decision) => decision.decision.status === 'selected',
     )
@@ -512,12 +516,12 @@ export function createSearchLedgerProjector(
     return {
       entries: [...entries],
       plan: planEvent,
-      planExtensions,
-      candidates: candidateEvents,
-      closedCandidateSlots: closedSlotEvents,
-      attempts,
-      operations: operationEvents,
-      decisions,
+      planExtensions: [...planExtensions],
+      candidates: [...candidateEvents],
+      closedCandidateSlots: [...closedSlotEvents],
+      attempts: [...attempts],
+      operations: [...operationEvents],
+      decisions: [...decisions],
       completion,
       audit: {
         campaignId,
@@ -549,7 +553,7 @@ export function createSearchLedgerProjector(
     }
   }
 
-  return { apply, finish }
+  return { apply, snapshot }
 }
 
 /** Every candidate slot must name a planned candidate-generation operation,

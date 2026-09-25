@@ -230,3 +230,4 @@ The final receipt retains caller authority, including `candidate-self-report`, w
 `search-ledger-types.ts` defines the shared data contracts, reexported through the existing facade.
 `search-ledger-ordering.ts` shares artifact identity and deterministic string ordering between normalization and replay.
 The journal in `src/ledger-core` owns hashing, locking, durable appends, and chain verification.
+An open journal verifies its whole file once, then each append checks that its verified head row is still in place and reads only the rows past it, so an append costs one entry's bytes at any ledger length.
