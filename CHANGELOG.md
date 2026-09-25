@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.195.1] — 2026-09-25
+
 ### Fixed
 
 - A search crashed when its proposer returned a surface the search already held from a node registered at or after it: the parent unchanged (a proposal that changed nothing) or an earlier surface (a revert). The projector refused the re-proposal's edge (`parent ... registered after child ...`), so `runOptimization` with a proposer that returned the baseline unchanged threw `SearchLedgerIntegrityError`, and every resume failed the same way. A re-proposal now records its edge from any node the search holds, counts as a re-proposal, and is not measured again; a parent registered at or after the node is not lineage, so `parents`, `children` and depth stay acyclic. A node's first edge keeps the old rule. Ledgers with such an edge are refused by projectors from 0.192.0 to 0.195.0, so upgrade a verifier before its producers.
