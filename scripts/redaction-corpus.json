@@ -412,6 +412,20 @@
           "webhook_",
           "xoxb-1234567890-abcdefghij"
         ]
+      },
+      {
+        "detector": "npm-token",
+        "parts": [
+          "7npm_",
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        ]
+      },
+      {
+        "detector": "anthropic-key",
+        "parts": [
+          "\u001b[32msk-ant-",
+          "abcdefghijklmnop0123"
+        ]
       }
     ],
     "mustNotFlag": [
@@ -474,6 +488,10 @@
       },
       {
         "text": "eHl6cTkgT3BhcXVlL0RlcGxveSBLZXkgNzch",
+        "expected": "[REDACTED:known-secret]"
+      },
+      {
+        "text": "Authorization: Basic dXNlcjp6cTkgT3BhcXVlL0RlcGxveSBLZXkgNzc=",
         "expected": "[REDACTED:known-secret]"
       }
     ]
@@ -969,6 +987,43 @@
               "raw-content"
             ],
             "status": "SAFE"
+          }
+        }
+      }
+    ]
+  },
+  "objectCases": {
+    "about": "Object-shaped cases with per-profile expectations, same shape as agentInspect.cases but original to this repo (not MIT-attributed).",
+    "cases": [
+      {
+        "id": "personal-data-as-key",
+        "stimulus": "An email or card number used as an object KEY, not a value, must not pass through unchanged",
+        "value": {
+          "reviewers": {
+            "alice.smith@corp-example.com": 3
+          },
+          "cards": {
+            "4111 1111 1111 1111": "visa"
+          }
+        },
+        "expectations": {
+          "default": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "SAFE_WITH_WARNINGS"
+          },
+          "share": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
+          },
+          "strict": {
+            "mustFlag": [
+              "personal-data"
+            ],
+            "status": "UNSAFE"
           }
         }
       }

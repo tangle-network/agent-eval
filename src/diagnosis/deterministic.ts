@@ -45,15 +45,29 @@ const CAPABILITY_ANALYSES: Record<string, string> = {
   'latency-analysis': 'latency distribution',
 }
 
-/** Capabilities the engine reports but does not analyze, with where to go instead. */
+/**
+ * Capabilities the engine reports but does not analyze itself, with where to
+ * go instead. All three point at `@tangle-network/traces`, which reads
+ * `links` (causal edges) that this engine's `DiagnosisSpan` does not carry —
+ * extending it is the prerequisite for building these here instead of
+ * pointing away from here.
+ */
 const NOT_BUILT = new Map([
-  ['loop-convergence', 'the engine has no round-over-round convergence analysis yet'],
+  [
+    'loop-convergence',
+    'the engine has no round-over-round convergence analysis yet; ' +
+      '@tangle-network/traces reads it from agent.loop.id/agent.loop.iteration (loopConvergence in src/loop-analysis)',
+  ],
   [
     'tree-comparison',
     'the engine does not pick which arms to compare; diff two arms with diffSteps from /pipelines ' +
       '(traces diff <file>#branch=<a> <file>#branch=<b>)',
   ],
-  ['steering-chain', 'the engine has no steering-chain analysis yet'],
+  [
+    'steering-chain',
+    'the engine has no steering-chain analysis yet; @tangle-network/traces reads it from span links ' +
+      "(steeringChain in src/loop-analysis, which this engine's DiagnosisSpan does not carry)",
+  ],
 ])
 
 export interface ExecutionFacts {
