@@ -43,8 +43,8 @@
  *
  * A built `TraceContract` is a serializable plain object (RegExp matchers are
  * normalized to `SerializedRegex`), so one definition checks recorded eval
- * traces (`store.spans({ runId })`), otel-bridge `ExportableSpan`s, and spans
- * a reader such as `traces check` maps from OTLP. `custom` predicate
+ * traces (`store.spans({ runId })`) and spans a reader such as `traces check`
+ * maps from OTLP. `custom` predicate
  * functions are the one non-serializable escape hatch: the builder stamps
  * `requiresCustom: true`, which survives JSON, so a deserialized contract that
  * lost its function is rejected instead of silently weakening.

@@ -23,9 +23,8 @@ import {
   isW3CTraceId,
   validateTraceSpans,
 } from '@tangle-network/agent-trace-contract'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { exportRunAsOtlp } from './otel'
-import { createOtelExporter } from './otel-export'
 import { InMemoryTraceStore } from './store'
 import { convertTraceStoresToOtlp } from './store-to-otlp'
 import { spanIdForWire, traceIdForWire } from './wire-ids'
@@ -49,8 +48,8 @@ function retiredFoldTo16Hex(s: string): string {
   const part = h1.toString(16).padStart(8, '0')
   return (part + part).slice(0, 16)
 }
-// (2) otel-export's strip-dashes + zero-pad family — emitted INVALID hex that
-// embedded the raw run id in the wire id.
+// (2) The strip-dashes + zero-pad family — emitted INVALID hex that embedded
+// the raw run id in the wire id.
 function retiredStripPadTraceId(id: string): string {
   const cleaned = id.replace(/-/g, '')
   return cleaned.slice(0, 32).padEnd(32, '0')
@@ -103,10 +102,9 @@ describe('one run id → ONE derivation across ALL real export paths', () => {
   })
   afterEach(() => {
     rmSync(root, { recursive: true, force: true })
-    vi.unstubAllGlobals()
   })
 
-  it('store-to-otlp, otel-export, and exportRunAsOtlp emit the SAME valid trace id; no retired output appears', async () => {
+  it('store-to-otlp and exportRunAsOtlp emit the SAME valid trace id; no retired output appears', async () => {
     // Path A — convertTraceStoresToOtlp (the retired FNV-fold site).
     const cellDir = join(root, 'cell-a')
     mkdirSync(cellDir, { recursive: true })
@@ -144,40 +142,7 @@ describe('one run id → ONE derivation across ALL real export paths', () => {
     expect(storeTraceIds.size).toBe(1)
     const [storeTraceId] = storeTraceIds
 
-    // Path B — createOtelExporter (the retired strip+pad site).
-    const bodies: Array<Record<string, unknown>> = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init: RequestInit) => {
-        bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
-        return new Response('', { status: 200 })
-      }),
-    )
-    const exporter = createOtelExporter({ endpoint: 'http://localhost:4318', batchSize: 1 })!
-    exporter.exportSpan({
-      traceId: RUN_ID,
-      spanId: `run-${RUN_ID}`,
-      name: 'run',
-      kind: 'agent',
-      startedAt: 1_700_000_000_000,
-      endedAt: 1_700_000_001_000,
-      status: 'ok',
-    })
-    await exporter.shutdown()
-    const exported = bodies.flatMap(
-      (b) =>
-        (
-          b as {
-            resourceSpans: Array<{
-              scopeSpans: Array<{ spans: Array<{ traceId: string; spanId: string }> }>
-            }>
-          }
-        ).resourceSpans[0]!.scopeSpans[0]!.spans,
-    )
-    expect(exported).toHaveLength(1)
-    const otelTraceId = exported[0]!.traceId
-
-    // Path C — exportRunAsOtlp (the retired runToTraceId strip+pad site).
+    // Path B — exportRunAsOtlp (the retired runToTraceId strip+pad site).
     const memStore = new InMemoryTraceStore()
     await memStore.appendRun({
       runId: RUN_ID,
@@ -203,15 +168,14 @@ describe('one run id → ONE derivation across ALL real export paths', () => {
     expect(runExportTraceIds.size).toBe(1)
     const [runExportTraceId] = runExportTraceIds
 
-    // ONE derivation: all three paths agree, all are the contract derivation.
+    // ONE derivation: both paths agree, both are the contract derivation.
     const canonical = deriveHexId(RUN_ID, 16)
     expect(storeTraceId).toBe(canonical)
-    expect(otelTraceId).toBe(canonical)
     expect(runExportTraceId).toBe(canonical)
     expect(isW3CTraceId(canonical)).toBe(true)
 
     // The retired derivations are no longer produced by any path.
-    for (const emitted of [storeTraceId, otelTraceId, runExportTraceId]) {
+    for (const emitted of [storeTraceId, runExportTraceId]) {
       expect(emitted).not.toBe(retiredFnvFoldTraceId(RUN_ID))
       expect(emitted).not.toBe(retiredStripPadTraceId(RUN_ID))
     }

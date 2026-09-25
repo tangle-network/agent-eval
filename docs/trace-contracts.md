@@ -4,7 +4,7 @@ A trace contract states which path an agent run must take, and checks the record
 Two runs can give the same answer while one of them calls a forbidden tool; an output check passes both, and a contract fails the wrong one.
 
 The checker is deterministic and calls no model.
-It reads any span array that has `name`, `kind` or span-kind attributes, timestamps, and attributes: agent-eval `TraceStore` spans, otel-bridge spans, or OTLP rows that `traces check` maps.
+It reads any span array that has `name`, `kind` or span-kind attributes, timestamps, and attributes: agent-eval `TraceStore` spans or OTLP rows that `traces check` maps.
 
 ## Write a contract
 

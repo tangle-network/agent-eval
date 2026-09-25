@@ -1,11 +1,16 @@
 # Composing agent-eval with your observability stack
 
-`@tangle-network/agent-eval` ships its own OpenTelemetry pipeline
-(`createOtelExporter`, from `@tangle-network/agent-eval/traces`) that
-emits spans for every cell, judge invocation, mutator proposal, and
-gate decision. **It's just OTel**: same protocol as Langfuse SDK,
-OpenLLMetry, Arize Phoenix, TraceAI, and the OpenTelemetry GenAI
-semantic conventions.
+`@tangle-network/agent-eval` records runs and spans in a `TraceStore` and
+writes them as OTLP/JSON: `exportRunAsOtlp(store, runId)` for one run and
+`convertTraceStoresToOtlp` for a directory of stores, both from
+`@tangle-network/agent-eval/traces`. **It's just OTel**: same protocol as
+Langfuse SDK, OpenLLMetry, Arize Phoenix, TraceAI, and the OpenTelemetry
+GenAI semantic conventions.
+
+To stream spans to a collector while a run executes, use
+`createOtelExporter` from `@tangle-network/agent-runtime`. It bounds its
+queue, checks every response, and counts written and dropped spans, so a
+missing trace is never mistaken for an empty run.
 
 That means: if you already instrument your agent with any OTel-native
 observability tool, the two compose **for free at the protocol layer**.
@@ -18,11 +23,10 @@ code required.
 2. Configure your observability tool (TraceAI / Langfuse / OpenLLMetry /
    Phoenix) to register its instrumentations against a tracer provider that
    points at that endpoint.
-3. Configure agent-eval's exporter (`createOtelExporter`, from
-   `@tangle-network/agent-eval/traces`) against the same endpoint. It has no
-   `@opentelemetry/*` SDK dependency of its own — it reads
-   `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` directly, so
-   pointing both sides at the same collector is usually just sharing env vars.
+3. Post agent-eval's OTLP export (`exportRunAsOtlp`) to the same endpoint's
+   `/v1/traces`, or stream with agent-runtime's `createOtelExporter`, which
+   reads `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS`.
+   Neither needs an `@opentelemetry/*` SDK dependency.
 4. Run a campaign. Both sets of spans land at your OTel collector.
 5. Filter / route / fan-out at the collector layer: Jaeger, Tempo,
    Phoenix, Langfuse cloud, your private collector, whatever.
@@ -63,8 +67,8 @@ it*. Unified at the trace level, you see both as one timeline per cell.
 - OSS auto-instrumentation library; OTel-native by design.
 - Wide framework coverage (LangChain, LlamaIndex, Haystack, OpenAI,
   Anthropic).
-- Compose: set up Traceloop's exporter; agent-eval's exporter shares
-  the same trace context per cell.
+- Compose: set up Traceloop's exporter and post agent-eval's OTLP export
+  to the same collector.
 
 ### Arize Phoenix
 
@@ -93,18 +97,18 @@ provider.register()
 //    Example for TraceAI / OpenLLMetry / Langfuse: call their init.
 //    (See each tool's docs.)
 
-// 3. agent-eval's exporter is not built on the OTel SDK provider above —
-//    it's a minimal OTLP/JSON poster with no `@opentelemetry/*` dependency
-//    of its own. It reads the same OTEL_EXPORTER_OTLP_ENDPOINT env var, so
-//    pointing it at the same collector is usually the only step needed:
-import { createOtelExporter } from '@tangle-network/agent-eval/traces'
-const exporter = createOtelExporter()  // undefined if no endpoint is configured
-// Feed it spans as your campaign's TraceEmitter closes them; call
-// `exporter?.shutdown()` when the campaign ends to flush pending spans.
-
-// 4. Run your campaign: both sets of spans land at the collector.
-import { runEval } from '@tangle-network/agent-eval/contract'
-await runEval({ /* ... */ })
+// 3. Run your campaign, then post each run's OTLP/JSON to the same collector.
+//    exportRunAsOtlp is not built on the OTel SDK provider above and needs no
+//    `@opentelemetry/*` dependency. Check the response: a collector that
+//    refuses the batch is a lost trace, not an empty one.
+import { exportRunAsOtlp } from '@tangle-network/agent-eval/traces'
+const body = await exportRunAsOtlp(store, runId)
+const res = await fetch('http://localhost:4318/v1/traces', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
+if (!res.ok) throw new Error(`collector refused the trace: HTTP ${res.status}`)
 ```
 
 That's it. No new adapter shipping required: the libs are already
@@ -132,8 +136,8 @@ works today without them.
 
 No new dependencies. No new peer deps. No `@traceai/*`, no
 `@langfuse/*`, no `@opentelemetry/*` in our manifest. You bring the
-observability stack you want; agent-eval's exporter emits the same
-OTLP wire format independently, keyed on the endpoint you point it at.
+observability stack you want; agent-eval's OTLP export is the same wire
+format, posted to the endpoint you choose.
 
 
 ## Supervisor-run resource receipts

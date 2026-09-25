@@ -26,6 +26,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 
+### Removed
+
+- `createOtelExporter`, `createOtelTracingStore` and their types (`OtelExporter`, `OtelExportConfig`, `ExportableSpan`) are gone from `/traces`.
+  The exporter never read the collector's response and dropped a failed batch in an empty `catch`, with no size limit on its queue.
+  No repository in the 2026-08-21 consumer sweep imported either function.
+  Post `exportRunAsOtlp` output yourself, or stream with `createOtelExporter` from `@tangle-network/agent-runtime`, which counts written and dropped spans.
+
 ## [0.189.0] — 2026-09-24
 
 ### Added
