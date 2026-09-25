@@ -157,6 +157,9 @@ export interface SearchProposerPort<TArtifact> {
   readonly execution: SearchOperationRecordedEvent['execution']
   /** Prior hold for one proposal until 20 proposals have settled. Default 0. */
   readonly reservationUsd?: number
+  /** Children one proposal usually returns, to price an expansion's screens
+   * before it runs. Default 1. */
+  readonly childrenPerProposal?: number
   propose(request: SearchProposalRequest<TArtifact>): Promise<SearchProposalResult<TArtifact>>
 }
 
@@ -655,10 +658,13 @@ class SearchKernel<TArtifact> {
     }
     const screen = this.options.allocation.screenSize(this.state)
     const operation = this.operationReservation()
-    const need = operation.usd + screen * this.maxCellReservation()
+    const children = this.options.proposer.childrenPerProposal ?? 1
+    const need = operation.usd + children * screen * this.maxCellReservation()
     const { headroomUsd } = this.state.budget
     if (headroomUsd !== null && need > headroomUsd + USD_TOLERANCE) return 'budget'
-    if (maxCells !== null && this.state.audit.cells.allocated + screen > maxCells) return 'budget'
+    if (maxCells !== null && this.state.audit.cells.allocated + children * screen > maxCells) {
+      return 'budget'
+    }
     const expansion = policy.expand(view)
     if (expansion === null) return 'converged'
 
@@ -824,29 +830,34 @@ class SearchKernel<TArtifact> {
     const { split } = view
     const root = this.state.rootNodeId!
     const rule = this.options.policy.name
-    for (const node of this.state.nodes()) {
-      if (isTerminal(node)) continue
-      const scored = this.state.scoredCells(node.nodeId, split).length > 0
-      const lead = node.nodeId === leader && scored
-      const against = node.nodeId === leader ? root : leader
-      const basis: NodeEstimate | null =
-        node.nodeId === against || !scored
-          ? null
-          : estimateNode(this.state, node.nodeId, { against, split })
-      await this.recorder.decideNode({
-        nodeId: node.nodeId,
-        decision: { status: lead ? 'selected' : 'rejected' },
-        basis,
-        rule,
-        reason: lead
-          ? `the leader when the search stopped (${this.stopReason}): a budget decision on the ${split} split, which claims nothing`
-          : !this.screenedSet.has(node.nodeId) || !scored
-            ? 'the search stopped before this node was measured'
-            : !view.complete(node.nodeId)
-              ? `it left a unit of its screen unscored, so it could not lead`
-              : 'it did not beat the leader on the units they share',
+    // Decide from one read of the state, then append: an append moves the
+    // ledger on and retires the view.
+    const decisions = this.state
+      .nodes()
+      .filter((node) => !isTerminal(node))
+      .map((node) => {
+        const scored = this.state.scoredCells(node.nodeId, split).length > 0
+        const lead = node.nodeId === leader && scored
+        const against = node.nodeId === leader ? root : leader
+        const basis: NodeEstimate | null =
+          node.nodeId === against || !scored
+            ? null
+            : estimateNode(this.state, node.nodeId, { against, split })
+        return {
+          nodeId: node.nodeId,
+          decision: { status: lead ? ('selected' as const) : ('rejected' as const) },
+          basis,
+          rule,
+          reason: lead
+            ? `the leader when the search stopped (${this.stopReason}): a budget decision on the ${split} split, which claims nothing`
+            : !this.screenedSet.has(node.nodeId) || !scored
+              ? 'the search stopped before this node was measured'
+              : !view.complete(node.nodeId)
+                ? 'it left a unit of its screen unscored, so it could not lead'
+                : 'it did not beat the leader on the units they share',
+        }
       })
-    }
+    for (const decision of decisions) await this.recorder.decideNode(decision)
     await this.recorder.close({ reason: this.stopReason ?? 'converged', claim: null })
     await this.refresh()
   }
