@@ -65,7 +65,7 @@ export function describeRule(rule: ContractRule): string {
       return `spans matching ${describePredicate(rule.p)} use at most ${rule.max} tokens in total`
     case 'run': {
       const parts: string[] = []
-      if (rule.requireCompleted) parts.push('the run reached a terminal status')
+      if (rule.requireCompleted) parts.push('the run completed and recorded its end')
       if (rule.allowedStatuses)
         parts.push(`its status is one of ${rule.allowedStatuses.join(', ')}`)
       if (rule.maxDurationMs !== undefined) parts.push(`it took at most ${rule.maxDurationMs} ms`)
@@ -73,6 +73,20 @@ export function describeRule(rule: ContractRule): string {
     }
     case 'argument':
       return `${rule.occurrence ?? 'all'} call(s) matching ${describePredicate(rule.p)} have argument ${rule.pointer || '(whole value)'} that ${describeCheck(rule.check)}`
+    case 'toolsOffered':
+      return `the trace records the tools offered to the model, every tool call is one of them${rule.declared ? `, and every offered tool is one of ${rule.declared.join(', ')}` : ''}`
+    case 'retrySafe': {
+      const parts = ['no tool is called twice with the same arguments']
+      if (rule.reads) parts.push(`except the reads ${rule.reads.join(', ')}`)
+      for (const w of rule.writes ?? []) {
+        parts.push(
+          w.idempotencyKey === undefined
+            ? `write ${w.tool} may never repeat`
+            : `write ${w.tool} may repeat only with one idempotency key at ${w.idempotencyKey}`,
+        )
+      }
+      return parts.join('; ')
+    }
   }
 }
 

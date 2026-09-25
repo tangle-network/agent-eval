@@ -1,6 +1,16 @@
 import { describePredicate } from './explain'
 import { predicateMatches } from './predicates'
-import { type ArgumentEvidence, finite, spanArguments, spanTotalTokens } from './spans'
+import {
+  type ArgumentEvidence,
+  canonicalJson,
+  contractSpanKind,
+  contractSpanToolName,
+  finite,
+  spanArguments,
+  spanOfferedTools,
+  spanTotalTokens,
+  TOOL_DEFINITIONS_ATTR,
+} from './spans'
 import type {
   ArgumentCheck,
   ArgumentType,
@@ -234,13 +244,13 @@ function checkRun(
   }
   const run = context.run
   const out: ContractViolation[] = []
-  if (
-    rule.requireCompleted &&
-    (run.status === undefined || run.status === 'running' || finite(run.endedAt) === undefined)
-  ) {
+  if (rule.requireCompleted && (run.status !== 'completed' || finite(run.endedAt) === undefined)) {
     out.push({
       rule: rule.label,
-      detail: `run did not reach a terminal status (status ${run.status ?? 'unknown'})`,
+      detail:
+        run.status === 'completed'
+          ? 'run status is completed but no end time was recorded'
+          : `run status is ${run.status ?? 'unknown'}, not completed`,
     })
   }
   if (
@@ -268,6 +278,211 @@ function checkRun(
     }
   }
   return out
+}
+
+const listed = (names: readonly string[], max = 6): string =>
+  names.length <= max
+    ? names.join(', ')
+    : `${names.slice(0, max).join(', ')} and ${names.length - max} more`
+
+function toolSpans(spans: readonly ContractSpan[]): Array<{ span: ContractSpan; ref: string }> {
+  const out: Array<{ span: ContractSpan; ref: string }> = []
+  spans.forEach((span, i) => {
+    if (contractSpanKind(span) === 'TOOL') out.push({ span, ref: spanRef(span, i) })
+  })
+  return out
+}
+
+/** Declared, offered and called tools agree. */
+function checkToolsOffered(
+  rule: Extract<ContractRule, { kind: 'toolsOffered' }>,
+  spans: readonly ContractSpan[],
+): ContractViolation[] {
+  const out: ContractViolation[] = []
+  const offered = new Set<string>()
+  let recorded = 0
+  const declared = rule.declared ? new Set(rule.declared) : undefined
+  spans.forEach((span, i) => {
+    const tools = spanOfferedTools(span)
+    if (!tools.recorded) return
+    recorded += 1
+    const ref = spanRef(span, i)
+    if ('unreadable' in tools) {
+      out.push({
+        rule: rule.label,
+        spanId: span.spanId,
+        detail: `span ${ref}: ${tools.unreadable}`,
+      })
+      return
+    }
+    for (const name of tools.names) offered.add(name)
+    const undeclared = declared ? [...new Set(tools.names)].filter((n) => !declared.has(n)) : []
+    if (undeclared.length > 0) {
+      out.push({
+        rule: rule.label,
+        spanId: span.spanId,
+        detail: `span ${ref} offered the model ${undeclared.length} undeclared tool(s): ${listed(undeclared)}`,
+      })
+    }
+  })
+  if (recorded === 0) {
+    return [
+      {
+        rule: rule.label,
+        detail: `no span records the tools offered to the model (${TOOL_DEFINITIONS_ATTR}), so what the harness enforced is unknown`,
+      },
+    ]
+  }
+  for (const { span, ref } of toolSpans(spans)) {
+    const name = contractSpanToolName(span)
+    if (name === undefined) {
+      out.push({
+        rule: rule.label,
+        spanId: span.spanId,
+        detail: `span ${ref} has no tool name, so it cannot be matched to an offered tool`,
+      })
+    } else if (!offered.has(name)) {
+      out.push({
+        rule: rule.label,
+        spanId: span.spanId,
+        detail: `span ${ref} called ${name}, which was never offered: the harness did not enforce its tool set`,
+      })
+    }
+  }
+  return out
+}
+
+/** The call's idempotency key, or why it has none. */
+function idempotencyKey(
+  span: ContractSpan,
+  pointer: string,
+): { key: string } | { missing: string } {
+  const evidence = spanArguments(span)
+  if (!evidence.known) return { missing: evidence.reason }
+  const resolved = resolveJsonPointer(evidence.value, pointer)
+  const value = resolved.value
+  if (resolved.found && typeof value === 'string' && value.length > 0) return { key: value }
+  if (resolved.found && typeof value === 'number' && Number.isFinite(value)) {
+    return { key: String(value) }
+  }
+  return { missing: `no idempotency key at ${pointer}` }
+}
+
+/** No call repeats a side effect that is not proven safe to repeat. */
+function checkRetrySafe(
+  rule: Extract<ContractRule, { kind: 'retrySafe' }>,
+  spans: readonly ContractSpan[],
+): ContractViolation[] {
+  const reads = new Set(rule.reads ?? [])
+  const writes = new Map((rule.writes ?? []).map((w) => [w.tool, w]))
+  const out: ContractViolation[] = []
+  const groups = new Map<string, Array<{ span: ContractSpan; ref: string }>>()
+  const unseen = new Map<string, Array<{ span: ContractSpan; ref: string }>>()
+  for (const call of toolSpans(spans)) {
+    const name = contractSpanToolName(call.span)
+    if (name === undefined) {
+      out.push({
+        rule: rule.label,
+        spanId: call.span.spanId,
+        detail: `span ${call.ref} has no tool name, so whether it repeats a call is unknown`,
+      })
+      continue
+    }
+    if (reads.has(name)) continue
+    const args = spanArguments(call.span)
+    if (!args.known) {
+      const list = unseen.get(name) ?? []
+      list.push(call)
+      unseen.set(name, list)
+      continue
+    }
+    // A write's key differs between tries that mean the same operation, so a
+    // declared key is left out of the call's identity and checked below.
+    const pointer = writes.get(name)?.idempotencyKey
+    const identity = pointer === undefined ? args.value : withoutMember(args.value, pointer)
+    const key = `${name}\u0000${canonicalJson(identity)}`
+    const list = groups.get(key) ?? []
+    list.push(call)
+    groups.set(key, list)
+  }
+  // A call without arguments may repeat any other call of its tool.
+  for (const [name, calls] of unseen) {
+    const total =
+      calls.length +
+      [...groups].reduce((n, [k, list]) => (k.startsWith(`${name}\u0000`) ? n + list.length : n), 0)
+    if (total > 1) {
+      out.push({
+        rule: rule.label,
+        spanId: calls[0]!.span.spanId,
+        detail: `${name} was called ${total} times and span ${calls[0]!.ref} has no captured arguments, so whether a call repeats another is unknown`,
+      })
+    }
+  }
+  for (const [key, calls] of groups) {
+    if (calls.length < 2) continue
+    const name = key.slice(0, key.indexOf('\u0000'))
+    const refs = listed(calls.map((c) => c.ref))
+    const write = writes.get(name)
+    if (!write) {
+      out.push({
+        rule: rule.label,
+        spanId: calls[1]!.span.spanId,
+        detail: `${name} was called ${calls.length} times with the same arguments (spans ${refs}) and its side effect is not declared, so the repeat is not proven safe`,
+      })
+      continue
+    }
+    const pointer = write.idempotencyKey
+    if (pointer === undefined) {
+      out.push({
+        rule: rule.label,
+        spanId: calls[1]!.span.spanId,
+        detail: `write ${name} was called ${calls.length} times with the same arguments (spans ${refs}) and declares no idempotency key, so it may have applied more than once`,
+      })
+      continue
+    }
+    const keyed = calls.map((c) => ({ c, k: idempotencyKey(c.span, pointer) }))
+    const missing = keyed.find((x) => 'missing' in x.k)
+    const keys = new Set(keyed.flatMap((x) => ('key' in x.k ? [x.k.key] : [])))
+    if (missing) {
+      out.push({
+        rule: rule.label,
+        spanId: missing.c.span.spanId,
+        detail: `write ${name} was called ${calls.length} times with the same arguments (spans ${refs}); span ${missing.c.ref} has ${(missing.k as { missing: string }).missing}, so it may have applied more than once`,
+      })
+    } else if (keys.size > 1) {
+      out.push({
+        rule: rule.label,
+        spanId: calls[1]!.span.spanId,
+        detail: `write ${name} was called ${calls.length} times with the same arguments (spans ${refs}) under ${keys.size} different idempotency keys, so the target cannot tell they are one operation`,
+      })
+    }
+  }
+  return out
+}
+
+/** A copy of `value` without the member `pointer` names (RFC 6901). */
+function withoutMember(value: unknown, pointer: string): unknown {
+  const tokens = pointer
+    .slice(1)
+    .split('/')
+    .map((t) => t.replace(/~1/g, '/').replace(/~0/g, '~'))
+  const strip = (node: unknown, depth: number): unknown => {
+    const token = tokens[depth]!
+    const last = depth === tokens.length - 1
+    if (Array.isArray(node)) {
+      const index = /^(?:0|[1-9]\d*)$/.test(token) ? Number(token) : -1
+      if (index < 0 || index >= node.length) return node
+      return last
+        ? node.filter((_, i) => i !== index)
+        : node.map((v, i) => (i === index ? strip(v, depth + 1) : v))
+    }
+    if (node === null || typeof node !== 'object' || !Object.hasOwn(node, token)) return node
+    const copy = { ...(node as Record<string, unknown>) }
+    if (last) delete copy[token]
+    else copy[token] = strip(copy[token], depth + 1)
+    return copy
+  }
+  return strip(value, 0)
 }
 
 function checkRule(rule: ContractRule, ctx: RuleContext): ContractViolation[] {
@@ -371,6 +586,10 @@ function checkRule(rule: ContractRule, ctx: RuleContext): ContractViolation[] {
       return checkRun(rule, ctx.run)
     case 'argument':
       return checkArgument(rule, spans)
+    case 'toolsOffered':
+      return checkToolsOffered(rule, spans)
+    case 'retrySafe':
+      return checkRetrySafe(rule, spans)
   }
 }
 

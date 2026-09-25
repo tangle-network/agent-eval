@@ -300,6 +300,7 @@ export type {
   ContractStatus,
   ContractVerdict,
   OrderMode,
+  RetryWrite,
   SpanPredicate,
   TraceContract,
   TraceContractSpec,

@@ -27,6 +27,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   `require-complete` therefore means the search closed with every cell, operation and node accounted for.
   `assertSearchHistoryMatchesState` replaces `assertSearchHistoryMatchesReplay`.
 - Migration: rebuild a search's ledger with the recorder; there is no translation from the candidate-slot format. Replace `openSearchLedger({ campaignId })` with `searchId`, `replay()` with `state()`, `recordCandidatePopulationSearch` with `importGepaPopulation`, and read counts from `state.audit`.
+- The diagnosis engine's skipped arm-vs-arm comparison now says where that comparison lives: `diffSteps` from `/pipelines`, which `traces diff <file>#branch=<a> <file>#branch=<b>` runs.
+- A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
+  It used to accept any terminal status, so a run that ended in an error passed.
+  Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
+- `REDACTION_VERSION` is `2.1.0`, because the `json-secret` detector changes what the redaction core removes.
+  Work keyed on the version, such as a traces upload's dedup identity, sees the change.
 
 ### Removed
 
@@ -34,6 +40,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - The search-ledger, search-history receipt, `runOptimization` ledger and comparison-history unit tests. The proof is the two real VerticalBench GEPA climbs imported through the recorder and the GEPA importer, replayed from bytes, and checked against every invariant.
 
 ### Added
+
+- Trace contracts check what the harness enforced and whether a call repeated a side effect.
+  `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
+  It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
+- `retries: { reads, writes }` (the `retrySafe` rule) treats a tool called again with the same arguments as a repeat of its side effect.
+  Reads may repeat, a write may repeat only when every call carries one idempotency key at its `idempotencyKey` pointer, and any other tool may not repeat.
+  The key is left out of the comparison, so a retry under a new key still counts as the same charge.
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
 

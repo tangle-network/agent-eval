@@ -36,6 +36,21 @@ function assertJsonPointer(pointer: unknown, where: string): void {
   }
 }
 
+/** A non-empty list of distinct, non-empty tool names. */
+function assertNames(names: unknown, where: string): string[] {
+  if (!Array.isArray(names) || names.length === 0) {
+    throw new ValidationError(`${where} must be a non-empty array of tool names`)
+  }
+  for (const name of names) {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new ValidationError(`${where} must hold non-empty tool names`)
+    }
+  }
+  const dup = names.find((n, i) => names.indexOf(n) !== i)
+  if (dup !== undefined) throw new ValidationError(`${where} lists "${dup}" twice`)
+  return names as string[]
+}
+
 function assertArgumentCheck(check: unknown, where: string): void {
   const c = check as ArgumentCheck
   if (c === null || typeof c !== 'object') {
@@ -130,6 +145,38 @@ export function assertRule(rule: ContractRule, where: string): void {
         )
       }
       return
+    case 'toolsOffered':
+      if (rule.declared !== undefined) assertNames(rule.declared, `${where}: declared`)
+      return
+    case 'retrySafe': {
+      const reads = rule.reads === undefined ? [] : assertNames(rule.reads, `${where}: reads`)
+      if (rule.writes === undefined && rule.reads === undefined) {
+        throw new ValidationError(`${where}: retrySafe needs reads or writes`)
+      }
+      if (rule.writes !== undefined) {
+        if (!Array.isArray(rule.writes) || rule.writes.length === 0) {
+          throw new ValidationError(`${where}: writes must be a non-empty array`)
+        }
+        const writes = assertNames(
+          rule.writes.map((w) => w?.tool),
+          `${where}: writes[].tool`,
+        )
+        for (const [i, w] of rule.writes.entries()) {
+          if (w.idempotencyKey === undefined) continue
+          assertJsonPointer(w.idempotencyKey, `${where}: writes[${i}].idempotencyKey`)
+          if (w.idempotencyKey === '') {
+            throw new ValidationError(
+              `${where}: writes[${i}].idempotencyKey must name a member, not the whole arguments`,
+            )
+          }
+        }
+        const both = writes.find((t) => reads.includes(t))
+        if (both !== undefined) {
+          throw new ValidationError(`${where}: "${both}" is both a read and a write`)
+        }
+      }
+      return
+    }
     default:
       throw new ValidationError(
         `${where}: unknown rule kind "${String((rule as { kind?: unknown }).kind)}"`,
