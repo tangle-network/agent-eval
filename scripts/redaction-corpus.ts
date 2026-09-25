@@ -37,8 +37,15 @@ interface Corpus {
   agentInspect: {
     license: string
     notice: string
-    cases: Array<{ id: string; value: unknown; expectations: Record<RedactionProfile, Expectation> }>
+    cases: ObjectCase[]
   }
+  objectCases: { about: string; cases: ObjectCase[] }
+}
+
+interface ObjectCase {
+  id: string
+  value: unknown
+  expectations: Record<RedactionProfile, Expectation>
 }
 
 const corpus = JSON.parse(
@@ -82,9 +89,8 @@ for (const { text, expected } of texts) {
   expect(verdict.status === 'UNSAFE', `known secret must make the verdict UNSAFE: ${text}`)
 }
 
-expect(corpus.agentInspect.license === 'MIT', 'agentInspect cases keep their MIT license')
-expect(corpus.agentInspect.notice.includes('AgentInspect contributors'), 'agentInspect cases keep their notice')
-for (const item of corpus.agentInspect.cases) {
+/** Checks one object-shaped case (from agentInspect or objectCases) against every profile. */
+function checkObjectCase(item: ObjectCase): void {
   for (const profile of REDACTION_PROFILES) {
     const expected = item.expectations[profile]
     const verdict = assessShareSafety(item.value, { profile })
@@ -106,6 +112,11 @@ for (const item of corpus.agentInspect.cases) {
     )
   }
 }
+
+expect(corpus.agentInspect.license === 'MIT', 'agentInspect cases keep their MIT license')
+expect(corpus.agentInspect.notice.includes('AgentInspect contributors'), 'agentInspect cases keep their notice')
+for (const item of corpus.agentInspect.cases) checkObjectCase(item)
+for (const item of corpus.objectCases.cases) checkObjectCase(item)
 
 for (const miss of misses) console.log(`MISS  ${miss}`)
 console.log(`${checks - misses.length}/${checks} checks hold`)
