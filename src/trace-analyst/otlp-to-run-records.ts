@@ -397,8 +397,7 @@ function aggregateTrace(
       id: span.span_id,
       ...(span.parent_span_id ? { parentId: span.parent_span_id } : {}),
       attributes: span.attributes,
-      modelCall: errorRoleForProjectedSpan(span) === 'LLM',
-      aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
+      kind: errorRoleForProjectedSpan(span),
     })),
   )
   let toolSpanCount = 0

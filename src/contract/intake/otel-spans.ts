@@ -82,8 +82,7 @@ export function fromOtelSpans(opts: FromOtelSpansOptions): RunRecord[] {
         id: span.spanId,
         ...(span.parentSpanId ? { parentId: span.parentSpanId } : {}),
         attributes: span.attributes,
-        modelCall: isExplicitModelCall(span),
-        aggregate: isExplicitAggregate(span),
+        kind: errorRoleForSpan(span),
       })),
     )
     const callSpanIds = new Set(measurements.callSpanIds)
@@ -218,15 +217,6 @@ function spanIdentity(span: TraceSpanEvent): string {
 
 function parentIdentity(span: TraceSpanEvent): string {
   return `${span.traceId}:${span.parentSpanId}`
-}
-
-function isExplicitModelCall(span: TraceSpanEvent): boolean {
-  return errorRoleForSpan(span) === 'LLM'
-}
-
-function isExplicitAggregate(span: TraceSpanEvent): boolean {
-  const kind = readSpanKind(span)
-  return kind !== undefined && kind !== 'LLM'
 }
 
 // ── Internal helpers ────────────────────────────────────────────────

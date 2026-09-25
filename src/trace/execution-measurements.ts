@@ -1,3 +1,4 @@
+import type { SpanKind } from '@tangle-network/agent-trace-contract'
 import type { RunTokenUsage } from '../run-record'
 import {
   LLM_CACHE_WRITE_TOKEN_ATTR_KEYS,
@@ -13,6 +14,16 @@ export interface ExecutionMeasurementSpan {
   id: string
   parentId?: string
   attributes: Record<string, unknown>
+  /**
+   * The contract kind, declared or inferred. `LLM` is a model call. Any other
+   * known kind (an agent, a workflow step, a tool) is an aggregate whose tokens
+   * total the calls beneath it. `UNKNOWN` is neither: its tokens count only
+   * when no model call beneath it reports the same field.
+   */
+  kind: SpanKind
+}
+
+interface MeasuredSpan extends ExecutionMeasurementSpan {
   modelCall: boolean
   aggregate: boolean
 }
@@ -62,9 +73,14 @@ interface RetainedCallSummary {
  * erase complementary parent fields.
  */
 export function summarizeExecutionMeasurements(
-  spans: ExecutionMeasurementSpan[],
+  source: readonly ExecutionMeasurementSpan[],
 ): ExecutionMeasurements {
-  const byId = new Map<string, ExecutionMeasurementSpan>()
+  const spans: MeasuredSpan[] = source.map((span) => ({
+    ...span,
+    modelCall: span.kind === 'LLM',
+    aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
+  }))
+  const byId = new Map<string, MeasuredSpan>()
   for (const span of spans) {
     if (byId.has(span.id)) {
       throw new Error(`summarizeExecutionMeasurements: duplicate span id "${span.id}"`)
@@ -78,7 +94,7 @@ export function summarizeExecutionMeasurements(
       (!span.aggregate && readNumber(span.attributes, tokenMeasurementKeys) !== undefined),
   )
   const candidateIds = new Set(candidates.map((span) => span.id))
-  const candidateChildren = new Map<string, ExecutionMeasurementSpan[]>()
+  const candidateChildren = new Map<string, MeasuredSpan[]>()
   for (const candidate of candidates) {
     const parentId = nearestCandidateParent(candidate, byId, candidateIds)
     if (!parentId) continue
@@ -166,8 +182,8 @@ export function recordAggregateMeasurements(
 }
 
 function summarizeAggregateMeasurements(
-  spans: ExecutionMeasurementSpan[],
-  byId: Map<string, ExecutionMeasurementSpan>,
+  spans: MeasuredSpan[],
+  byId: Map<string, MeasuredSpan>,
   aggregateIds: Set<string>,
 ): ExecutionMeasurements['aggregate'] {
   const aggregates = spans.filter((span) => span.aggregate || aggregateIds.has(span.id))
@@ -199,8 +215,8 @@ function summarizeAggregateMeasurements(
 }
 
 function reconcileTopLevelMeasurement(
-  spans: ExecutionMeasurementSpan[],
-  byId: Map<string, ExecutionMeasurementSpan>,
+  spans: MeasuredSpan[],
+  byId: Map<string, MeasuredSpan>,
   keys: readonly string[],
 ): number | undefined {
   const selected = new Map<string, number>()
@@ -221,8 +237,8 @@ function reconcileTopLevelMeasurement(
 }
 
 function reconcileMeasurement(
-  calls: ExecutionMeasurementSpan[],
-  byId: Map<string, ExecutionMeasurementSpan>,
+  calls: MeasuredSpan[],
+  byId: Map<string, MeasuredSpan>,
   aggregateSourceIds: Set<string>,
   keys: readonly string[],
   fallbackKeys?: readonly string[],
@@ -267,13 +283,13 @@ function reconcileMeasurement(
 }
 
 function nearestMeasurement(
-  call: ExecutionMeasurementSpan,
-  byId: Map<string, ExecutionMeasurementSpan>,
+  call: MeasuredSpan,
+  byId: Map<string, MeasuredSpan>,
   callIds: Set<string>,
   aggregateSourceIds: Set<string>,
   keys: readonly string[],
-): { span: ExecutionMeasurementSpan; value: number } | undefined {
-  let current: ExecutionMeasurementSpan | undefined = call
+): { span: MeasuredSpan; value: number } | undefined {
+  let current: MeasuredSpan | undefined = call
   const seen = new Set<string>()
   while (current && !seen.has(current.id)) {
     seen.add(current.id)
@@ -290,14 +306,14 @@ function nearestMeasurement(
 }
 
 function classifyAggregateSpans(
-  candidates: ExecutionMeasurementSpan[],
-  childrenById: Map<string, ExecutionMeasurementSpan[]>,
+  candidates: MeasuredSpan[],
+  childrenById: Map<string, MeasuredSpan[]>,
 ): Set<string> {
   const aggregateIds = new Set<string>()
   const summaries = new Map<string, RetainedCallSummary>()
   const visiting = new Set<string>()
 
-  const visit = (span: ExecutionMeasurementSpan): RetainedCallSummary => {
+  const visit = (span: MeasuredSpan): RetainedCallSummary => {
     const cached = summaries.get(span.id)
     if (cached) return cached
     if (visiting.has(span.id)) return emptyRetainedCallSummary()
@@ -336,7 +352,7 @@ function emptyRetainedCallSummary(): RetainedCallSummary {
   }
 }
 
-function addRetainedCall(summary: RetainedCallSummary, span: ExecutionMeasurementSpan): void {
+function addRetainedCall(summary: RetainedCallSummary, span: MeasuredSpan): void {
   summary.callCount += 1
   for (let index = 0; index < EXECUTION_MEASUREMENT_KEY_GROUPS.length; index += 1) {
     const value = readNumber(span.attributes, EXECUTION_MEASUREMENT_KEY_GROUPS[index]!)
@@ -358,7 +374,7 @@ function addRetainedCallSummary(target: RetainedCallSummary, source: RetainedCal
 }
 
 function hasCompatibleDescendantMeasurements(
-  span: ExecutionMeasurementSpan,
+  span: MeasuredSpan,
   descendants: RetainedCallSummary,
 ): boolean {
   let parentMeasurements = 0
@@ -376,10 +392,7 @@ function hasCompatibleDescendantMeasurements(
   return parentMeasurements === 0 || descendantMeasurements > 0
 }
 
-function ancestorIds(
-  span: ExecutionMeasurementSpan,
-  byId: Map<string, ExecutionMeasurementSpan>,
-): string[] {
+function ancestorIds(span: MeasuredSpan, byId: Map<string, MeasuredSpan>): string[] {
   const ids: string[] = []
   const seen = new Set<string>()
   let parentId = span.parentId
@@ -392,8 +405,8 @@ function ancestorIds(
 }
 
 function nearestCandidateParent(
-  span: ExecutionMeasurementSpan,
-  byId: Map<string, ExecutionMeasurementSpan>,
+  span: MeasuredSpan,
+  byId: Map<string, MeasuredSpan>,
   candidateIds: Set<string>,
 ): string | undefined {
   const seen = new Set<string>()
