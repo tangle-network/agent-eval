@@ -25,6 +25,7 @@ import { hashCanonical } from '../ledger-core/canonical'
 import { redactText } from '../trace/redact'
 import type { SearchAllocator, SearchCellPlan } from './allocation'
 import { estimateNode } from './estimate-node'
+import { FileSearchLedger } from './search-ledger'
 import type {
   RegisterSearchNodeInput,
   SearchRecorder,
@@ -51,6 +52,7 @@ import {
   type SearchStateView,
   searchCellId,
 } from './search-state'
+import { acquireSingleRunLock } from './single-run-lock'
 
 /**
  * Every rule the kernel's decisions depend on. Its digest is the kernel's
@@ -70,6 +72,7 @@ const KERNEL_DEFINITION = {
   retries: 'a retryable errored attempt runs again, up to maxAttempts',
   resume:
     'an unrecorded operation is recorded failed at an unknown cost with floor 0; a recorded proposal is finished from its stored output; an unsettled cell is offered to adopt before it runs',
+  writers: 'one kernel per ledger file on a host, by a pid lock beside the ledger',
   close:
     'the policy leader is selected when it has a scored cell; every other undecided node is rejected',
 } as const
@@ -348,6 +351,22 @@ class SearchKernel<TArtifact> {
   }
 
   async run(): Promise<SearchRunResult> {
+    // One writer per search on a host: a second kernel on the same ledger
+    // file is refused while the first lives; a killed holder's lock is
+    // reclaimed. Across hosts the ledger's own chain refuses a fork.
+    const { ledger } = this.recorder
+    const lock =
+      ledger instanceof FileSearchLedger
+        ? acquireSingleRunLock({ lockPath: `${ledger.path}.run.lock` })
+        : null
+    try {
+      return await this.runLocked()
+    } finally {
+      lock?.release()
+    }
+  }
+
+  private async runLocked(): Promise<SearchRunResult> {
     await this.refresh()
     const header = this.state.header
     if (!header) throw new Error(`runSearch: search ${this.recorder.searchId} has not been opened`)
@@ -361,7 +380,18 @@ class SearchKernel<TArtifact> {
     }
     if (this.state.closed) return this.closedResult()
     await this.restore()
-    await this.loop()
+    const { signal } = this.options
+    const onAbort = (): void => {
+      for (const controller of this.inFlight.values()) controller.abort(signal?.reason)
+      this.proposalController?.abort(signal?.reason)
+      this.wakeUp()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      await this.loop()
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+    }
     if (this.failure) throw this.failure.error
     await this.close()
     return this.closedResult()
@@ -484,23 +514,29 @@ class SearchKernel<TArtifact> {
     }
   }
 
-  private async next(): Promise<Completion> {
+  /** The next completion, or null when an abort woke the loop without one. */
+  private async next(): Promise<Completion | null> {
     if (this.completions.length === 0) {
       await new Promise<void>((resolve) => {
         this.wake = resolve
       })
     }
-    return this.completions.shift()!
+    return this.completions.shift() ?? null
   }
 
   private push(completion: Completion): void {
     this.completions.push(completion)
+    this.wakeUp()
+  }
+
+  private wakeUp(): void {
     const wake = this.wake
     this.wake = null
     wake?.()
   }
 
-  private async handle(completion: Completion): Promise<void> {
+  private async handle(completion: Completion | null): Promise<void> {
+    if (completion === null) return
     if (completion.kind === 'cell') await this.settle(completion)
     else await this.recordProposal(completion)
   }
@@ -516,7 +552,10 @@ class SearchKernel<TArtifact> {
 
   // ── Cells ───────────────────────────────────────────────────────────
 
+  /** Fill free lane slots with queued cells. A queued cell was admitted when
+   * it was allocated, so starting it needs no further decision. */
   private dispatch(): void {
+    if (this.failure || this.options.signal?.aborted || this.pastDeadline()) return
     const cap = this.state.header!.budget.maxConcurrency
     for (const lane of this.lanes.values()) {
       while (lane.inFlight < lane.capacity && (cap === null || this.inFlight.size < cap)) {
@@ -563,6 +602,9 @@ class SearchKernel<TArtifact> {
     const before = this.state.cell(cellId)!
     const lane = this.lanes.get(before.lane!)!
     lane.inFlight -= 1
+    // The freed slot takes the next queued cell before this result is
+    // written, so no slot idles while the ledger syncs.
+    this.dispatch()
     if (!completion.result) {
       this.failure ??= { error: completion.error }
       return
@@ -635,6 +677,7 @@ class SearchKernel<TArtifact> {
       this.enqueue(this.state.cell(cellId)!)
     }
     this.pending.set(nodeId, (this.pending.get(nodeId) ?? 0) + placed.length)
+    this.dispatch()
   }
 
   private enqueue(cell: SearchCell): void {
