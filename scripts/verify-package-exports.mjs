@@ -1071,6 +1071,10 @@ try {
           'FileSearchLedger',
           'SearchLedgerIntegrityError',
           'validateSearchLedgerEvent',
+          'SearchRecorder',
+          'SearchState',
+          'searchTaskSetDigest',
+          'importGepaPopulation',
         ]) {
           if (!(name in campaign)) throw new Error('missing campaign export ' + name)
         }
@@ -1090,40 +1094,53 @@ try {
           'runLineageLoop',
           'runLineage',
           'runSkillOpt',
+          'recordCandidatePopulationSearch',
+          'assertSearchHistoryMatchesReplay',
         ]) {
           if (removed in campaign) throw new Error('obsolete campaign export ' + removed)
         }
         const ledger = campaign.openSearchLedger({
           path: './packed-search-ledger.jsonl',
-          campaignId: 'packed-consumer',
+          searchId: 'packed-consumer',
         })
+        const packedSource = { uri: 'git://benchmark', revision: '2'.repeat(40) }
+        const packedTasks = [{ taskId: 'task-0', unitId: 'unit-0', source: { uri: 'git://task', revision: '1'.repeat(40) } }]
+        const noTasks = { taskSetDigest: campaign.searchTaskSetDigest([]), tasks: [] }
         await ledger.append({
-          kind: 'search-planned',
-          eventId: 'packed:plan',
+          kind: 'search-opened',
+          eventId: 'packed:open',
           occurredAt: '2026-07-11T00:00:00.000Z',
-          artifacts: [{
-            role: 'manifest',
-            uri: 'artifact://packed-manifest',
-            sha256: 'sha256:' + '0'.repeat(64),
-            byteLength: 1,
-          }],
-          plan: {
-            candidateSlots: [{
-              slotId: 'slot-0',
-              generationOperationId: 'proposal-0',
-            }],
-            tasks: [{
-              taskId: 'task-0',
-              source: { uri: 'git://task', revision: '1'.repeat(40) },
-              benchmark: { uri: 'git://benchmark', revision: '2'.repeat(40) },
-              maxAttempts: 1,
-            }],
-            operations: [{ operationId: 'proposal-0', kind: 'candidate-generation' }],
+          artifacts: [],
+          subject: 'packed',
+          process: { name: 'packed', executionRef: packedSource },
+          artifactKind: 'prompt',
+          objective: {
+            metric: 'score',
+            direction: 'maximize',
+            judge: { unknown: 'packed consumer' },
+            claim: {
+              use: 'development',
+              population: { id: 'packed', description: 'packed consumer' },
+              samplingFrame: 'one task',
+              independentUnit: 'unitId',
+              generalization: 'fixed-roster',
+            },
           },
+          splits: {
+            train: { taskSetDigest: campaign.searchTaskSetDigest(packedTasks), tasks: packedTasks },
+            selection: noTasks,
+            test: noTasks,
+            heldOutUnits: true,
+          },
+          policy: { expansion: 'incumbent', allocation: 'uniform', seed: 1 },
+          budget: { maxUsd: null, maxCells: null, maxNodes: null, deadline: null, maxConcurrency: null, reservedClaimUsd: 0 },
+          containment: null,
+          derivedFrom: null,
+          identity: { model: { provider: 'p', snapshot: 'm-2026-01-01' }, agent: packedSource, benchmark: packedSource },
         })
-        const replay = await ledger.replay()
-        if (replay.audit.eventCount !== 1 || replay.audit.expected.missingCandidateSlots[0] !== 'slot-0') {
-          throw new Error('packed search ledger lost its declared denominator')
+        const state = await ledger.state()
+        if (state.audit.eventCount !== 1 || state.completion.complete || state.completion.reasons[0] !== 'search is open') {
+          throw new Error('packed search ledger lost its open search')
         }
         const components = [
           { componentId: 'a', surfaceId: 'profile', bestSingleEligible: true },
