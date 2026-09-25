@@ -54,10 +54,13 @@ The same code runs in the producer's journal, the kernel, and the Intelligence v
 - **Graph:** a node exists before an edge or cell names it, and a cell's node already has an edge. A parent registered before its child and already in the tree, so the graph is acyclic. A parent in another search appears only on a `derive` edge that matches `derivedFrom`.
 - **Re-proposal:** identical content is a second edge into the existing node, counted as a re-proposal.
 - **Splits:** a task belongs to one split and one unit. With `heldOutUnits`, no test unit appears in train or selection. Stages match splits: `claim` cells run on test, `screen` and `rung` on selection.
-- **Seal:** only the root (the first registered node) and nodes decided `finalist` run test cells.
+- **Seal:** only the root (the first registered node) and nodes decided `finalist` run test cells. The root is never a finalist, at most 3 nodes are, and none is added once a claim cell exists.
+- **Claim start:** once a node is decided `finalist`, the search only claims: no operation, node, edge or non-claim cell follows.
+- **Parents:** a node decided `invalid` (by admission or by the divergence rule) never appears as a parent on a later edge.
 - **Attempts:** attempts count from 1 without gaps. A `passed` or `failed` outcome is final; only a retryable `errored` outcome admits another attempt.
 - **Budget:** at every `cell-allocated` and `operation-started`, committed spend plus open reservations plus the unspent claim reserve plus the new reservation stays within `maxUsd`. Spend above a reservation is recorded as overspend, never refused. An unknown cost counts as its proven floor.
-- **Completion:** `search-closed` needs every allocated cell settled or cancelled, every started operation recorded, and every node with an edge and a terminal decision. A `ship` claim needs a promoted finalist and held-out test units; any other claim keeps the root.
+- **Completion:** `search-closed` needs every allocated cell settled or cancelled, every started operation recorded, and every node with an edge and a terminal decision.
+- **Claim:** the claim names every node decided `finalist`, estimates each against the root on test, and tests each at `1 - (1 - confidence) / k` for its k finalists. A `ship` claim needs a promoted finalist, held-out test units, a pinned judge, and every test unit scored by the root and the shipped finalist; any other claim keeps the root.
 
 A ledger written under another schema tag, such as the retired `tangle.search-ledger.v1` candidate-slot format, is refused with the tag named.
 It is never translated.
@@ -180,7 +183,7 @@ const recorder = await SearchRecorder.open({ ledger }, {
   ...opening,
   policy: { expansion: policy.name, allocation: allocation.name, seed },
 })
-const { state, leader, reason } = await runSearch({
+const { state, leader, reason, claim } = await runSearch({
   recorder, root, codec, policy, allocation, proposer, executor, maxExpansions: 10,
 })
 ```
@@ -219,9 +222,16 @@ A hard lane holds its maximum; an estimate lane holds 1.5 times the p99 of its s
 Spend above a hold is recorded as overspend, never refused.
 Expansion stops at `maxNodes`, `maxExpansions`, the deadline, after `patience` expansions without a new leader, when the cap cannot admit one more expansion, or when the proposer stops.
 Allocated cells still run; at the deadline the ones not yet started are cancelled.
-A node that finishes a rung is ranked at once, so rungs keep opening after expansion stops, until the deadline.
-At close the allocator prunes the nodes left waiting on a rung, except the leader.
-The leader is decided `selected` when it has a scored cell, every other undecided node `rejected` with its estimate against the leader, and the search closes with no claim.
+A node that finishes a rung is ranked at once, so rungs keep opening after expansion stops, until the deadline or the claim.
+At close the allocator prunes the nodes left waiting on a rung, except the policy's leader.
+A search without a test split closes with no claim: the leader is decided `selected` when it has a scored cell, and every other undecided node `rejected` with its estimate against the leader.
+A search with a test split closes with its claim (below).
+
+**Divergence.**
+When a node's cells finish, the kernel compares it with its primary parent.
+If its train mean rose on the train units they share while its selection interval against the parent (6 or more units, not indeterminate) lies wholly on the worse side, the node is decided `invalid` with rule `divergence` and the interval as its basis.
+Train is what the proposer reads, so a gain there that selection contradicts is the signature of fitting the feedback instead of the task.
+An invalid node is never a parent and never a finalist.
 
 **Resume.**
 The ledger is the only checkpoint.
@@ -236,10 +246,41 @@ A closed ledger returns its result; more work on a closed search is a new search
 An `asha` search ranks a node when it finishes a rung, so a restart that changes the order cells finish in can change a promotion.
 Its resumed ledger holds only rank decisions that its own evidence supports.
 
-`scripts/search-sim.ts` runs the real kernel, ledger and policies over a seeded synthetic objective, proposer and executor.
+`scripts/search-sim.ts` runs the real kernel, ledger, policies and claim over a seeded synthetic objective, proposer and executor.
 `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
-`compare` runs one search per seed under `uniform` and under `asha` and reports the cells each spent, the node each kept, and the units each edge pairs on; `--plant-gap` swaps the hill climb for a fixed pool with one planted best candidate.
-Every run re-derives each `advanced` and `pruned` decision from the ledger before it.
+`claims --searches 200 --null` runs 200 searches in which no node differs from the root and reports how often the claim ships, with Wilson and Clopper-Pearson intervals; `--plant-gain X` plants a real gain to measure how often the claim finds it.
+`compare --seeds 200` runs one search per seed under `uniform` and under `asha` and reports the cells each allocated, the node each kept, and the units each edge pairs on; `--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate.
+Every simulated run re-derives each `advanced` and `pruned` decision from the ledger just before it.
+
+## The claim
+
+A search that declares a test split ends in its claim, made once, on test data no node was selected on.
+`runSearch` refuses to start such a search without a selection split, a claim `minimumEffect`, and a pinned judge.
+Under a cap it also refuses a `reservedClaimUsd` below `searchClaimReserveUsd({ testTasks, reps, cellUsd })`, the hold for the root and 3 finalists on every test task, or a cap that cannot also cover the root and one screening round.
+Size the reserve at the hold the lane will take: an estimate lane holds 1.5 times the p99 of its settled cells once 20 settled.
+
+When expansion stops, the kernel:
+
+1. **Fixes the design.** `planSearchClaim` ranks the finalists: at most 3 non-root nodes, not invalid, that scored every selection unit and beat the root's mean on them, best selection mean first.
+   Under `asha` these are nodes that finished the top rung.
+   It fixes the estimator (binary when every unit is one task at one repeat and every pre-test score is 0 or one value, else continuous).
+   It checks power: `pairedPromotionPower` simulates the claim's own `decidePairedPromotion` call at a true improvement of `minimumEffect`, with the search's pooled between-unit selection variance, on the test units, at the Bonferroni confidence.
+   It keeps the largest k whose power reaches 0.8 and whose test cells the unspent claim reserve and headroom cover.
+   The plan is stored as the `claim-plan` blob on the `claim` operation before any test cell exists.
+2. **Seals the family.** Each planned finalist is decided `finalist` with its selection estimate against the root.
+   From here the search only claims: no node advances to another rung.
+3. **Runs the test together.** The root's and the finalists' test cells are allocated task by task and dispatched before anything else, so drift over a long search cannot bias the pairs. They run past the deadline, on the reserve held since the start.
+4. **Decides.** `decideSearchClaim` tests each finalist against the root with `decidePairedPromotion` on per-unit test means at confidence `1 - 0.05 / k`, requiring every test unit.
+   The promoted finalist with the largest improvement is `selected` and the claim is `ship`; otherwise the claim is `hold` and the root is kept.
+   Every other open node is `rejected` with its selection estimate against the root.
+
+When the power check fails (a continuous claim needs at least 20 test units to be decided at all) or the reserve cannot cover one finalist, the claim closes as `test-cannot-resolve` and spends nothing on test cells.
+The claim records its rule (`SEARCH_CLAIM_RULE`, whose revision digests every parameter), the family-wise confidence, the power check, each finalist's test estimate and deciding interval, and its reason.
+A verifier recomputes it with `decideSearchClaim(state, plan)` from the stored plan and the test cells.
+A judge change is a changed `search-opened` header, which `SearchRecorder.open` refuses; it starts a derived search instead of mixing verdicts.
+
+`compareOptimizationMethods` keeps its own held-out comparison for black-box methods such as GEPA, which return one winner and never see the test split.
+A method's search ledger closes before the comparison starts, so the comparison cannot add claim cells to it.
 
 ## Ship a search
 
@@ -287,7 +328,8 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/estimate-node.ts`: `estimateNode`, `estimateNodeFromCells` and `searchPosterior`.
 - `src/campaign/search-summary.ts`: `renderSearchSummary` and `searchProposerView`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
-- `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, and `searchPolicyView`.
+- `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
+- `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim` and `searchClaimReserveUsd`.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
 - `src/campaign/allocation.ts`: `SearchAllocator`, `uniform` and `asha`.
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.

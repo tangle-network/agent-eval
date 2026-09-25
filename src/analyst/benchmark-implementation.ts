@@ -10,7 +10,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  '091c759150ea8d7d8cf77f207b6b33992d605743f1d64f42b8e8b63207dade89'
+  '0ff3eda790af1c3811ac4e084fe57c9d64254966fd0ebf53374f40e504bc28be'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
@@ -141,7 +141,7 @@ export const ANALYST_BENCHMARK_IMPLEMENTATION_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_IMPLEMENTATION_SHA256 =
-  '00002cbbc8a749281287418f0abc03e4fc6a78ef3c1b4f21e33f2452629283da'
+  '7806c6ae0e4a1c9e8eefc3beae46680a45d5bfcbd0870bca005d8788c1975f43'
 
 export function analystBenchmarkImplementationDigest() {
   return ANALYST_BENCHMARK_IMPLEMENTATION_SHA256

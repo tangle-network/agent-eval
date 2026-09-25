@@ -52,6 +52,8 @@ export interface SearchRungDecision {
 export interface SearchAllocator {
   /** Recorded as the search's `policy.allocation`. */
   readonly name: string
+  /** Repeats of each task. The claim runs its test cells at the same repeats. */
+  readonly reps: number
   /** Every cell the node needs through `rung`. The kernel allocates the ones
    * missing; a node that was never advanced is at rung 0. */
   plan(state: SearchStateView, nodeId: string, rung: number): SearchCellPlan[]
@@ -95,6 +97,7 @@ export function uniform(options: { reps?: number } = {}): SearchAllocator {
   }
   return {
     name: reps === 1 ? 'uniform' : `uniform(reps=${reps})`,
+    reps,
     plan: (state, nodeId) => cells(state, nodeId === state.rootNodeId),
     screenSize: (state) => cells(state, false).length,
     advance: () => [],
@@ -250,6 +253,7 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
 
   return {
     name,
+    reps,
     plan(state, nodeId, rung) {
       const layout = layoutOf(state)
       return layout ? cellsThrough(layout, rung, nodeId === state.rootNodeId) : []

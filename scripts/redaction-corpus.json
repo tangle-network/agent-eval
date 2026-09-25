@@ -384,6 +384,34 @@
           "Cookie: sessionid=",
           "abc123def456xyz789"
         ]
+      },
+      {
+        "detector": "github-token",
+        "parts": [
+          "env.GITHUB_TOKEN_ghp_CANARY",
+          "ghA1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+        ]
+      },
+      {
+        "detector": "aws-access-key",
+        "parts": [
+          "BACKUP_",
+          "AKIAABCDEFGHIJKLMNOP"
+        ]
+      },
+      {
+        "detector": "anthropic-key",
+        "parts": [
+          "dump_",
+          "sk-ant-abcdefghijklmnop0123"
+        ]
+      },
+      {
+        "detector": "slack-token",
+        "parts": [
+          "webhook_",
+          "xoxb-1234567890-abcdefghij"
+        ]
       }
     ],
     "mustNotFlag": [
