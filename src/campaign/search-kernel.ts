@@ -31,7 +31,12 @@
 
 import { hashCanonical } from '../ledger-core/canonical'
 import { redactText } from '../trace/redact'
-import type { SearchAllocator, SearchCellPlan } from './allocation'
+import type {
+  SearchAllocationView,
+  SearchAllocator,
+  SearchCellPlan,
+  SearchRungDecision,
+} from './allocation'
 import { estimateNode } from './estimate-node'
 import {
   decideSearchClaim,
@@ -89,6 +94,8 @@ const KERNEL_DEFINITION = {
     estimate: '1.5 times the p99 of the lane settled cells once 20 settled, else the lane prior',
   },
   retries: 'a retryable errored attempt runs again, up to maxAttempts',
+  rungs:
+    'when a node finishes its cells, the allocator names the nodes it advances, deepest rung first; each is recorded advanced and its rung allocated when the cap admits the rung',
   resume:
     'an unrecorded operation is recorded failed at an unknown cost with floor 0; a recorded proposal is finished from its stored output; an unsettled cell is offered to adopt before it runs',
   writers: 'one kernel per ledger file on a host, by a pid lock beside the ledger',
@@ -97,7 +104,9 @@ const KERNEL_DEFINITION = {
   claim:
     'with a test split: after expansion stops, the claim plan is stored on the claim operation, the finalists are decided, the root and finalist test cells run together, and the claim decides; the kernel refuses to start a claim without a selection split, a minimumEffect, a pinned judge, or (under a cap) a claim reserve for the root and 3 finalists plus a cap for one screening round',
   close:
-    'without a test split, the policy leader is selected when it has a scored cell; every other undecided node is rejected',
+    'the allocator prunes the nodes left waiting on a rung, except the policy leader; then, with a test split, the claim decides; without one, the policy leader is selected when it has a scored cell; every other undecided node is rejected',
+  complete:
+    'a node leads only when it has a scored cell on the ranked split and no cell there ended unscored: a final unscored outcome, or an error with no attempt left',
 } as const
 
 /** The kernel every `runSearch` ledger names as its search implementation. */
@@ -538,6 +547,9 @@ class SearchKernel<TArtifact> {
         await this.screenDone(nodeId)
       }
     }
+    // A node may have finished a rung before the interrupted process recorded
+    // what its rank earned.
+    await this.advance()
   }
 
   /**
@@ -575,7 +587,7 @@ class SearchKernel<TArtifact> {
         `its claim reserve $${reservedClaimUsd} is below the $${need} the root and 3 finalists need on ${testTasks} test tasks at $${cellUsd} a cell`,
       )
     }
-    const rootCells = this.options.allocation.plan(this.state, this.state.rootNodeId!).length
+    const rootCells = this.options.allocation.plan(this.state, this.state.rootNodeId!, 0).length
     const screens =
       (this.options.proposer.childrenPerProposal ?? 1) *
       this.options.allocation.screenSize(this.state)
@@ -748,12 +760,26 @@ class SearchKernel<TArtifact> {
     if (cell.stage === 'claim') return
     const left = (this.pending.get(cell.nodeId) ?? 1) - 1
     this.pending.set(cell.nodeId, left)
-    if (left === 0) await this.onScreenDone(cell.nodeId)
+    if (left === 0) await this.onNodeIdle(cell.nodeId)
   }
 
-  private async onScreenDone(nodeId: string): Promise<void> {
+  /** Every cell allocated to the node is done: its screen, or a rung. */
+  private async onNodeIdle(nodeId: string): Promise<void> {
     if (!(await this.screenDone(nodeId))) return
-    if (this.stopReason === null && !this.failure) await this.allocateFor(nodeId)
+    await this.advance()
+  }
+
+  /** Record the rank decisions the allocator now supports and allocate the
+   * rungs they open. Past the deadline, once the claim began, or once the
+   * search fails or is aborted, no rung opens; a search that stopped
+   * expanding still measures the nodes that earned it. */
+  private async advance(): Promise<void> {
+    if (this.claimPlan || this.failure || this.options.signal?.aborted || this.pastDeadline()) {
+      return
+    }
+    for (const decision of this.options.allocation.advance(this.allocationView())) {
+      await this.allocateFor(decision.nodeId, decision)
+    }
   }
 
   /**
@@ -763,7 +789,14 @@ class SearchKernel<TArtifact> {
    * becomes a parent; any other node is screened. Returns whether it was.
    */
   private async screenDone(nodeId: string): Promise<boolean> {
-    if (!this.claimPlan && !this.screenedSet.has(nodeId)) {
+    // The check reads the screen alone: a node the allocator advanced passed
+    // it when its screen finished, and a restart must not re-judge it on the
+    // rung cells it earned since.
+    if (
+      !this.claimPlan &&
+      !this.screenedSet.has(nodeId) &&
+      this.state.node(nodeId)!.status !== 'advanced'
+    ) {
       const divergence = searchDivergence(this.state, nodeId)
       if (divergence) {
         await this.recorder.decideNode({
@@ -791,17 +824,29 @@ class SearchKernel<TArtifact> {
     this.screened = [...this.screened.slice(0, index), nodeId, ...this.screened.slice(index)]
   }
 
-  /** Allocate the cells the allocator plans for a node and the ledger lacks. */
-  private async allocateFor(nodeId: string): Promise<void> {
+  /**
+   * Allocate the cells the allocator plans for a node through its rung and the
+   * ledger lacks. With a rank decision, the rung is the decision's, and the
+   * decision is recorded first, only once the cap admits the rung's cells.
+   * Returns false when the cap or `maxCells` refused them.
+   */
+  private async allocateFor(nodeId: string, decision?: SearchRungDecision): Promise<boolean> {
+    const rung =
+      decision?.decision.status === 'advanced'
+        ? decision.decision.rung
+        : (this.state.node(nodeId)!.rung ?? 0)
     const plans = this.options.allocation
-      .plan(this.state, nodeId)
+      .plan(this.state, nodeId, rung)
       .filter(
         (plan) =>
           !this.state.cell(
             searchCellId(this.recorder.searchId, nodeId, plan.taskId, plan.split, plan.rep),
           ),
       )
-    if (plans.length === 0) return
+    if (plans.length === 0) {
+      if (decision) await this.decide(decision)
+      return true
+    }
     const placed = plans.map((plan) => {
       const laneName = this.options.executor.place({ ...plan, nodeId })
       const lane = this.lanes.get(laneName)
@@ -811,9 +856,12 @@ class SearchKernel<TArtifact> {
     })
     const hold = placed.reduce((sum, { reservation }) => sum + reservation.usd, 0)
     const { headroomUsd } = this.state.budget
-    if (headroomUsd !== null && hold > headroomUsd + USD_TOLERANCE) return
+    if (headroomUsd !== null && hold > headroomUsd + USD_TOLERANCE) return false
     const { maxCells } = this.state.header!.budget
-    if (maxCells !== null && this.state.audit.cells.allocated + placed.length > maxCells) return
+    if (maxCells !== null && this.state.audit.cells.allocated + placed.length > maxCells) {
+      return false
+    }
+    if (decision) await this.decide(decision)
     for (const { plan, lane, reservation } of placed) {
       await this.recorder.allocateCell({
         nodeId,
@@ -832,6 +880,12 @@ class SearchKernel<TArtifact> {
     }
     this.pending.set(nodeId, (this.pending.get(nodeId) ?? 0) + placed.length)
     this.dispatch()
+    return true
+  }
+
+  private async decide(decision: SearchRungDecision): Promise<void> {
+    await this.recorder.decideNode(decision)
+    await this.refresh()
   }
 
   private enqueue(cell: SearchCell): void {
@@ -1205,6 +1259,12 @@ class SearchKernel<TArtifact> {
 
   private async close(): Promise<void> {
     await this.refresh()
+    // Nodes left waiting on a rung are pruned with their rank; the policy's
+    // leader is kept for the decisions below.
+    const keep = this.options.policy.leader(this.policyView())
+    for (const decision of this.options.allocation.prune(this.allocationView(), keep)) {
+      await this.decide(decision)
+    }
     if (this.claimPlan) {
       await this.closeWithClaim(this.claimPlan)
       return
@@ -1214,6 +1274,7 @@ class SearchKernel<TArtifact> {
     const { split } = view
     const root = this.state.rootNodeId!
     const rule = this.options.policy.name
+    const leaderUnits = view.unitScores(leader).map((unit) => unit.unitId)
     // Decide from one read of the state, then append: an append moves the
     // ledger on and retires the view.
     const decisions = this.state
@@ -1227,6 +1288,7 @@ class SearchKernel<TArtifact> {
           node.nodeId === against || !scored
             ? null
             : estimateNode(this.state, node.nodeId, { against, split })
+        const units = new Set(view.unitScores(node.nodeId).map((unit) => unit.unitId))
         return {
           nodeId: node.nodeId,
           decision: { status: lead ? ('selected' as const) : ('rejected' as const) },
@@ -1237,8 +1299,10 @@ class SearchKernel<TArtifact> {
             : !this.screenedSet.has(node.nodeId) || !scored
               ? 'the search stopped before this node was measured'
               : !view.complete(node.nodeId)
-                ? 'it left a unit of its screen unscored, so it could not lead'
-                : 'it did not beat the leader on the units they share',
+                ? 'it left a unit unscored, so it could not lead'
+                : leaderUnits.some((unitId) => !units.has(unitId))
+                  ? 'the search stopped before it was measured on every unit the leader was'
+                  : 'it did not beat the leader on the units they share',
         }
       })
     for (const decision of decisions) await this.recorder.decideNode(decision)
@@ -1301,7 +1365,15 @@ class SearchKernel<TArtifact> {
       screened: this.screened,
       screening: this.admitted.size - this.screenedSet.size,
       expansions: this.completed.length,
+      maxAttempts: this.maxAttempts,
     })
+  }
+
+  private allocationView(): SearchAllocationView {
+    return {
+      state: this.state,
+      idle: (nodeId) => this.admitted.has(nodeId) && (this.pending.get(nodeId) ?? 0) === 0,
+    }
   }
 
   private artifact(nodeId: string): TArtifact {
@@ -1364,11 +1436,19 @@ class SearchKernel<TArtifact> {
  * finished, in registration order; `screening` counts the admitted nodes still
  * being screened. Nodes are ranked on the selection split, or on train when
  * the search declares no selection split. The view reads no test cell.
+ * `maxAttempts` (default 3, the kernel's) says when an errored cell has no
+ * attempt left, which makes its unit a dodge.
  */
 export function searchPolicyView(
   state: SearchStateView,
-  input: { screened: readonly string[]; screening: number; expansions: number },
+  input: {
+    screened: readonly string[]
+    screening: number
+    expansions: number
+    maxAttempts?: number
+  },
 ): SearchPolicyView {
+  const maxAttempts = input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   const header = state.header
   if (!header) throw new Error(`search ${state.searchId} has not been opened`)
   const split = header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
@@ -1382,8 +1462,18 @@ export function searchPolicyView(
     screened: [...input.screened],
     screening: input.screening,
     complete: (nodeId) => {
-      const cells = state.cells({ nodeId }).filter((cell) => cell.split === split)
-      return cells.length > 0 && cells.every((cell) => cell.score !== null)
+      // A cell still to run (queued, in flight, or retrying) and a cell
+      // cancelled before it ran do not count against the node; a cell that
+      // ran and ended unscored does.
+      let scored = false
+      for (const cell of state.cells({ nodeId })) {
+        if (cell.split !== split) continue
+        if (cell.score !== null) scored = true
+        else if (cell.final || (cell.outcome === 'errored' && cell.attempts >= maxAttempts)) {
+          return false
+        }
+      }
+      return scored
     },
     unitScores: (nodeId) => state.unitScores(nodeId, split),
     estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),

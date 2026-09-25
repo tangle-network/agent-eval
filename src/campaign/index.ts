@@ -21,7 +21,15 @@ export type {
 export { createReferenceEquivalenceJudge } from '../reference-equivalence-judge'
 export type { SeriesDistribution } from '../statistics'
 // ── The search kernel: policies, allocation, executor and proposer ports ──
-export { type SearchAllocator, type SearchCellPlan, uniform } from './allocation'
+export {
+  type AshaOptions,
+  asha,
+  type SearchAllocationView,
+  type SearchAllocator,
+  type SearchCellPlan,
+  type SearchRungDecision,
+  uniform,
+} from './allocation'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
 export {
   type BuildTraceAnalystSurfaceDispatchOptions,
