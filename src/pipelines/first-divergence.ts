@@ -275,8 +275,18 @@ export function diffStepsFromSpans(spans: readonly DiagnosisSpan[]): DiffStep[] 
     if (list) list.push(span)
     else children.set(parent, [span])
   }
+  // Span ids are random per run, so two runs of the same logical trace can carry
+  // different ids for "the same" span. Siblings that share a start time (a common
+  // case: parallel steps a driver starts together) must still sort the same way
+  // in both runs, or the diff below reports a false `reordered` divergence purely
+  // from spanId noise. End time, kind and name are content, not per-run identity,
+  // so they break the tie before spanId, which is the last resort.
   const byStart = (x: DiagnosisSpan, y: DiagnosisSpan) =>
-    (x.startMs ?? 0) - (y.startMs ?? 0) || x.spanId.localeCompare(y.spanId)
+    (x.startMs ?? 0) - (y.startMs ?? 0) ||
+    (x.endMs ?? 0) - (y.endMs ?? 0) ||
+    x.kind.localeCompare(y.kind) ||
+    x.name.localeCompare(y.name) ||
+    x.spanId.localeCompare(y.spanId)
   for (const list of children.values()) list.sort(byStart)
   const ordered: DiffStep[] = []
   const visited = new Set<string>()

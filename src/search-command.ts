@@ -23,9 +23,13 @@ Exits 1 when the store holds a different chain for the search.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
-  if (subcommand !== 'ship' || rest.includes('--help') || rest.includes('-h')) {
+  if ([subcommand, ...rest].some((arg) => arg === undefined || arg === '--help' || arg === '-h')) {
     process.stdout.write(`${USAGE}\n`)
-    return subcommand === 'ship' ? 0 : 1
+    return 0
+  }
+  if (subcommand !== 'ship') {
+    process.stderr.write(`unknown search subcommand: ${subcommand}\n${USAGE}\n`)
+    return 1
   }
   const { path, flags } = parseShipArgs(rest)
   const runKind = SearchRunKindSchema.safeParse(flags['run-kind'])

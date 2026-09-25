@@ -8,6 +8,50 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
+- **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
+  A producer uploads each blob an entry names (`PUT /v1/search-blobs/<sha256>`), reads the store's head (`GET /v1/ingest/search-ledger/<searchId>/head`), and posts canonical ledger lines from there (`POST /v1/ingest/search-ledger`, at most 1,000 lines or 1 MiB).
+  A store answers `409 sequence_gap` or `409 chain_conflict` with its head; `admitSearchLedgerBatch` is that rule, and the wire's zod schemas are exported from `/hosted`.
+  The client waits for `Retry-After` on 408, 429 and 5xx responses in TypeScript and Python.
+- **Breaking:** `selfImprove({ hostedTenant })` ships the run's search ledger while the loop runs, so in proposer mode it requires `searchLedger`; in method mode it ships the ledger the method recorded.
+  It no longer posts a baseline-and-winner summary, and `hostedLabels` is gone.
+- Search blobs the recorder writes are addressed by `pathToFileURL(path).href`, which is the old `file://<path>` form for every path without spaces, `%` or `#`.
+- Migration: pass `searchLedger: { ledger: openSearchLedger({ path, searchId }), identity }` next to `hostedTenant`, or ship a ledger yourself with `shipSearchLedger` or `agent-eval search ship <ledger> --run-kind optimization|eval`. Read runs from the store's search pages instead of `/v1/runs`, and compare two nodes of a search with `estimateNode` instead of `diffRuns`.
+
+### Added
+
+- `shipSearchLedger` and `startSearchShipper` send a search ledger to a hosted store from the store's head: blobs first, batches after, a resend from the store's head after a gap, and `SearchShipConflictError` on a fork. `startSearchShipper` tails the file while the search runs.
+- `agent-eval search ship <ledger> --run-kind optimization|eval [--content full|digests]` ships or resumes a ledger to the store in `TANGLE_INGEST_URL`.
+- `parseSearchLedgerLine` verifies one stored line (schema tag, schemas, canonical bytes, entry hash, search) for a store that receives lines one batch at a time.
+- The reference receiver in `examples/hosted-ingest-server/` implements the search-ledger routes with `admitSearchLedgerBatch` and `SearchState`.
+
+### Removed
+
+- The eval-run wire: `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `EvalRunStatus`, `IngestEvalRunsRequest`, their schemas, `InsightReportSchema`, `HostedClient.ingestEvalRun` and `ingestEvalRuns`, and the Python `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `ingest_eval_run` and `ingest_eval_runs`.
+  Every shipper posted only the baseline and the winner, so a store never saw the search.
+- `diffRuns`, `diffGenerations`, `diffRunBaselineToWinner` and their types, which paired two eval-run events by generation index; the census found no caller outside this package's tests.
+- The winner-only shippers in `selfImprove`, its method mode, and `emitLoopProvenance`, which still ships its trace spans.
+- The hosted client's mocked transport, environment-mapping and eval-run round-trip tests. The proof is the shipper against the reference receiver over HTTP: a real VerticalBench climb ledger, `Retry-After`, a lost response, a kill and resume, a store restart during a live `selfImprove`, a fork, and 100,000 entries.
+
+## [0.190.1] — 2026-09-25
+
+### Fixed
+
+- The redaction core's `data:` URI check matched on the string's prefix, so a `data:text/plain;base64,…` or `data:application/json;base64,…` value was always classified as opaque media, even when its decoded payload held a live credential. The check now requires the whole string to be the URI; `text/*` and `application/json` payloads are decoded and scanned (JSON by the same key classification as any other object), and an undecodable payload fails closed.
+- Added credential detectors for `hf_`, `npm_`, `glpat-`, `gsk_`, `xai-` and bare `sk_<hex>` (ElevenLabs-style) tokens, a `Cookie:` header, and an upper-case env-var assignment (`DB_PASSWORD=…`) that no longer requires the value to mix letters and digits or be 12+ characters.
+- `REDACTION_VERSION` → `2.2.0`.
+
+## [0.190.0] — 2026-09-25
+
+### Added
+
+- `askTraceQuestions` (`/analyst`) asks many questions of one trace store in a bounded pool under one shared `CostLedger`, and runs an independent verifier on every admitted finding.
+  Each question is one `runTraceAnalyst` call, so a finding still needs its minimum distinct citations (default 2), each resolvable in the store.
+  The verifier reads the claim through `citedSpansOnly`, a store that exposes exactly the cited spans and refuses every wider read; a finding it does not support is returned with `verified: false`.
+  One failed question never stops the others; its failure is its outcome.
+  It is the question runner of the agent-runtime continuation panel (discovery `docs/38-one-loop-and-continuation.md`, section 5), and `traces ask` can call the same code.
+
+### Changed
+
 - **Breaking:** the search ledger records a search as nodes, edges and cells instead of candidate slots.
   Its schema tag is `tangle.search-ledger.2026-09`; a ledger under any other tag, including `tangle.search-ledger.v1`, is refused with the tag named and is not translated.
   Events: `search-opened`, `operation-started`, `operation-recorded`, `node-registered`, `edge-recorded`, `cell-allocated`, `cell-settled`, `cell-cancelled`, `node-decided`, `search-closed` ([search ledger](./docs/search-ledger.md)).
@@ -26,13 +70,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - **Breaking:** a `SearchHistoryReceipt` (schema `2026-09`) is built from the ledger's bytes by `createSearchHistoryReceipt({ producerId, runId, ledger })`, binds their raw SHA-256, and is complete exactly when the ledger holds `search-closed`.
   `require-complete` therefore means the search closed with every cell, operation and node accounted for.
   `assertSearchHistoryMatchesState` replaces `assertSearchHistoryMatchesReplay`.
-- **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
-  A producer uploads each blob an entry names (`PUT /v1/search-blobs/<sha256>`), reads the store's head (`GET /v1/ingest/search-ledger/<searchId>/head`), and posts canonical ledger lines from there (`POST /v1/ingest/search-ledger`, at most 1,000 lines or 1 MiB).
-  A store answers `409 sequence_gap` or `409 chain_conflict` with its head; `admitSearchLedgerBatch` is that rule, and the wire's zod schemas are exported from `/hosted`.
-  The client waits for `Retry-After` on 408, 429 and 5xx responses in TypeScript and Python.
-- **Breaking:** `selfImprove({ hostedTenant })` ships the run's search ledger while the loop runs, so in proposer mode it requires `searchLedger`; in method mode it ships the ledger the method recorded.
-  It no longer posts a baseline-and-winner summary, and `hostedLabels` is gone.
-- Migration: pass `searchLedger: { ledger: openSearchLedger({ path, searchId }), identity }` next to `hostedTenant`, or ship a ledger yourself with `shipSearchLedger` or `agent-eval search ship <ledger> --run-kind optimization|eval`. Read runs from the store's search pages instead of `/v1/runs`, and compare two nodes of a search instead of `diffRuns`.
 - Migration: rebuild a search's ledger with the recorder; there is no translation from the candidate-slot format. Replace `openSearchLedger({ campaignId })` with `searchId`, `replay()` with `state()`, `recordCandidatePopulationSearch` with `importGepaPopulation`, and read counts from `state.audit`.
 - The diagnosis engine's skipped arm-vs-arm comparison now says where that comparison lives: `diffSteps` from `/pipelines`, which `traces diff <file>#branch=<a> <file>#branch=<b>` runs.
 - A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
@@ -46,19 +83,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Removed
 
 - The candidate-slot ledger: `SearchPlan`, candidate slots, `search-planned`, `search-plan-extended`, `candidate-registered`, `candidate-slot-closed`, `task-attempted`, `candidate-decided`, `search-completed`, `lineageNodeId`, `SearchLedgerReplay`, `SearchLedgerAudit`, `search-ledger-projector.ts`, and `recordCandidatePopulationSearch`.
-- The eval-run wire: `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `EvalRunStatus`, `IngestEvalRunsRequest`, their schemas, `InsightReportSchema`, `HostedClient.ingestEvalRun` and `ingestEvalRuns`, and the Python `EvalRunEvent`, `EvalRunGenerationSnapshot`, `EvalRunCellScore`, `ingest_eval_run` and `ingest_eval_runs`.
-  Every shipper posted only the baseline and the winner, so a store never saw the search.
-- `diffRuns`, `diffGenerations`, `diffRunBaselineToWinner` and their types, which paired two eval-run events by generation index.
-- The winner-only shippers in `selfImprove`, its method mode, and `emitLoopProvenance`, which still ships its trace spans.
-- The hosted client's mocked transport, environment-mapping and eval-run round-trip tests. The proof is the shipper against the reference receiver over HTTP: a real VerticalBench climb ledger, `Retry-After`, a lost response, a kill and resume, a store restart during a live `selfImprove`, a fork, and 100,000 entries.
 - The search-ledger, search-history receipt, `runOptimization` ledger and comparison-history unit tests. The proof is the two real VerticalBench GEPA climbs imported through the recorder and the GEPA importer, replayed from bytes, and checked against every invariant.
 
 ### Added
 
-- `shipSearchLedger` and `startSearchShipper` send a search ledger to a hosted store from the store's head: blobs first, batches after, a resend from the store's head after a gap, and `SearchShipConflictError` on a fork. `startSearchShipper` tails the file while the search runs and never blocks it.
-- `agent-eval search ship <ledger> --run-kind optimization|eval [--content full|digests]` ships or resumes a ledger to the store in `TANGLE_INGEST_URL`.
-- `parseSearchLedgerLine` verifies one stored line (schema tag, schemas, canonical bytes, entry hash, search) for a store that receives lines one batch at a time.
-- The reference receiver in `examples/hosted-ingest-server/` implements the search-ledger routes with `admitSearchLedgerBatch` and `SearchState`.
+- `estimateNode(state, nodeId, { against, split })` is the one statistic of a search node ([search ledger](./docs/search-ledger.md#estimates)).
+  It averages cells inside their units, pairs the units both nodes scored, and runs `pairedDeltaTest` on the per-unit deltas: `none` below 2 pairs, `insufficient` below 6, `descriptive` (interval as spread plus the exact one-sided sign p) below 20, and `bootstrap` from 20.
+  The bootstrap is seeded from `cellSetDigest`, the digest of exactly the cells read, so equal cells give equal bits in any process and any row order; an all-equal sample is `indeterminate` and reports no interval or p.
+  `estimateNodeFromCells` is the same computation over cells a verifier read from its own store, and `SEARCH_ESTIMATOR` names the estimator by a digest of its parameters.
+  On the 38 paired rows of the 2026-08-08 prime-vs-dspy CodeTraceBench report it gives delta 0.1386, interval [0.0636, 0.2167], against the report's 0.1385.
+- `searchPosterior(state, { split })` gives every node a normal posterior on its improvement over the root: its mean per-unit improvement, and the search's pooled between-unit variance divided by its shared units.
+  It takes 295 ms CPU over 100,000 screened nodes.
+- `NodeEstimate.indeterminate`; `SearchStateView.scoredCells`, `hasNode` and `nodeIds`; `searchUnitScores`.
+  A unit's mean now sums its cells in cellId order instead of settlement order.
 - Trace contracts check what the harness enforced and whether a call repeated a side effect.
   `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
   It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
@@ -67,6 +104,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   The key is left out of the comparison, so a retry under a new key still counts as the same charge.
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
+
+- `/ledger-core` `FileLedgerJournal` can cache a projector snapshot at its trusted head, so opening a large journal only does its expensive work — the codec's own row parsing and the domain projector's `apply` — on the tail after the cache, not the whole file.
+  A codec opts in with `snapshotProjection: { serialize, restore }`; `projectorSnapshot: { everyEntries }` on `FileLedgerJournalOptions` refreshes the cache every that many entries past the last one, on a pinning append or an explicit `pinTrustedHead()`.
+  Opening still verifies the generic hash chain of every row up to the cached checkpoint — self-consistency and chain linkage, the two checks every row already gets — so tampering anywhere before the checkpoint is refused exactly as a full replay would refuse it; only the checkpoint row and the true tail go through the codec.
+  Measured with `scripts/ledger-snapshot-proof.ts` against real hash-chained journals: a snapshot-seeded open always matched a full replay's projection exactly, and used 6.00x less CPU at 300 entries (11.1ms vs 66.7ms, checkpoint at 250), 3.26x less at 1,200 (68.4ms vs 222.8ms, checkpoint at 1,000) and 3.49x less at 4,000 (143.3ms vs 499.5ms, checkpoint at 3,500); the ratio tracks how much of the file the checkpoint covers, since both opens still read every byte — the chain check does not skip any of them (`~/webb/_wt/_mq-notes/E12-proof/`).
+  Same-length tampering of a row before the checkpoint is refused, identically to a full replay of the same bytes; tampering after it, in the true tail, is still caught too.
+  No existing codec (`search-ledger`, `final-evidence`) opts in yet; this is the ledger-core mechanism only.
+
+### Fixed
+
+- `run.requireCompleted` no longer treats an unknown run as completed. A root span's status is now inferred as `completed` only from a declared `run.status` attribute; a span that ended without an error but with no declared status is `unknown`, and `requireCompleted`/`allowedStatuses` fail it instead of passing it. This closed a gap where a trace reader that saw no terminal record (a killed job, a truncated stream) exported an OK-status root span that the gate read as completed.
+- A `run` rule with `requireCompleted: false` and no other check, an empty `tools.maxCallsPerTool: {}`, and an empty `llm: {}` are now rejected as checking nothing, instead of compiling into a rule that always passes. The declarative form also rejects `run.requireCompleted: false` outright, matching `tools.enforced`.
+- `retries` now fails a declared write whose own call errored (a timeout included) and carries no idempotency key, independent of whether a repeat is detected by exact-argument grouping. This catches a retry the grouping missed because it re-encoded an argument's value.
+- `llm.maxTotalTokens` now counts cache-read and cache-write tokens alongside prompt and completion tokens. A cache-heavy call's `llm.token_count.prompt` attribute carries only the uncached remainder, so the ceiling used to pass runs at a small fraction of their real token spend.
 
 ### Removed
 

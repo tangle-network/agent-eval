@@ -72,9 +72,47 @@ A view is valid until the ledger applies its next entry; a later read throws ins
 ```ts
 const state = await ledger.state()
 state.audit.cells // { allocated, settled, cancelled, open }
+state.scoredCells(nodeId, 'selection') // [{ cellId, unitId, attempt, score }]
 state.unitScores(nodeId, 'selection') // [{ unitId, sum, count, mean }]
 state.lineage(record.search) // { depth, ordinal, rep, containingRunId } for mintRolloutRows
 ```
+
+A unit's mean sums its cells in cellId order, so it depends on the set of cells and not on the order they settled in.
+
+## Estimates
+
+`estimateNode(state, nodeId, { against, split })` is the one statistic of a node.
+It averages each node's scored cells inside their units, pairs the units both nodes scored, and runs `pairedDeltaTest` on the per-unit deltas.
+Unscored cells (errored, cancelled or in flight) are absent, never zero.
+
+| Pairs | `method` | Reported |
+|---|---|---|
+| 0 or 1 | `none` | nothing; the view shows "unknown (1 unit)" |
+| 2 to 5 | `insufficient` | `delta` only |
+| 6 to 19 | `descriptive` | `delta`, the bootstrap `interval` as spread, and `exactSignP` |
+| 20 or more | `bootstrap` | `delta` and the decision-grade `interval` |
+
+The thresholds are the library's own: `minimumPairsForPairedDeltaTest(0.95)` and `BOOTSTRAP_GATE_MIN_N`.
+`units` counts the units the node scored; `pairs` counts the units both nodes scored.
+`delta` is node minus `against` in the metric's units, so an improvement on a `minimize` objective is negative.
+`exactSignP` is one-sided toward improvement in the objective's direction.
+When every paired delta is equal, the estimate is `indeterminate`: its interval would have zero width, so it carries neither an interval nor a p-value.
+
+`cellSetDigest` digests the contrast and exactly the cells read: id, unit, attempt and score, in cellId order.
+Its first 32 bits seed the bootstrap, and `estimator` is `SEARCH_ESTIMATOR`, whose revision digests every parameter of the computation.
+Equal cells therefore give equal bits in any process and in any row order.
+A verifier that reads cells from its own store calls `estimateNodeFromCells` with them; `searchCellSetDigest` tells it whether a node's cells changed.
+
+```ts
+const estimate = estimateNode(state, childId, { against: parentId, split: 'selection' })
+await recorder.decideNode({ nodeId: childId, decision, basis: estimate, rule, reason })
+```
+
+`searchPosterior(state, { split })` gives every node a normal posterior on its improvement over the root, for sampling parents.
+Its mean is the node's mean per-unit improvement over the root, oriented so that larger is better in either direction.
+Its variance is the search's pooled between-unit variance of those improvements divided by the node's shared units, so a node measured on one unit has a wide posterior, not none.
+The root sits at exactly 0, and the pooled variance stays null until some node shares 2 units with the root.
+Posterior numbers steer spend and claim nothing; a claim comes from the sealed test split.
 
 ## Record a search
 
@@ -146,6 +184,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-ledger-types.ts`: the event and audit types.
 - `src/campaign/search-ledger.ts`: schemas, canonical ordering, the codec, and `FileSearchLedger`.
 - `src/campaign/search-state.ts`: `SearchState`, the invariants and read model, and the id functions.
+- `src/campaign/estimate-node.ts`: `estimateNode`, `estimateNodeFromCells` and `searchPosterior`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
 - `src/campaign/search-history-receipt.ts`: receipts and admission.

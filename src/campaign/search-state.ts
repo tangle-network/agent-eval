@@ -110,6 +110,41 @@ export interface SearchUnitScore {
   mean: number
 }
 
+/** A cell's scored attempt: the inputs of every per-unit statistic. */
+export interface SearchScoredCell {
+  cellId: string
+  unitId: string
+  /** The attempt that produced the score, which is the cell's last. */
+  attempt: number
+  score: number
+}
+
+/**
+ * Per-unit means of scored cells, in unitId order. Each unit sums its cells in
+ * cellId order, so the result depends on the set of cells alone, never on the
+ * order they settled in: a verifier that reads the same cells from a database
+ * gets the same bits.
+ */
+export function searchUnitScores(cells: readonly SearchScoredCell[]): SearchUnitScore[] {
+  const byUnit = new Map<string, SearchScoredCell[]>()
+  for (const cell of cells) {
+    const unit = byUnit.get(cell.unitId)
+    if (unit) unit.push(cell)
+    else byUnit.set(cell.unitId, [cell])
+  }
+  return [...byUnit.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([unitId, unitCells]) => {
+      let sum = 0
+      for (const cell of unitCells.sort((left, right) =>
+        compareCodeUnits(left.cellId, right.cellId),
+      )) {
+        sum += cell.score
+      }
+      return { unitId, sum, count: unitCells.length, mean: sum / unitCells.length }
+    })
+}
+
 export interface SearchNode {
   nodeId: string
   /** Registration order; the root is 0. */
@@ -192,7 +227,6 @@ interface NodeRecord {
   finalist: boolean
   cellIds: string[]
   scoredCells: number
-  units: Record<SearchSplit, Map<string, { sum: number; count: number }>>
   spend: SearchSpend
 }
 
@@ -450,7 +484,6 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       finalist: false,
       cellIds: [],
       scoredCells: 0,
-      units: { train: new Map(), selection: new Map(), test: new Map() },
       spend: { knownUsd: 0, floorUsd: 0, unknownCostCells: 0, boxMinutes: 0 },
     })
     this.nodeOrder.push(event.nodeId)
@@ -685,11 +718,6 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     } else {
       cell.final = true
       cell.score = event.outcome.score
-      const units = node.units[cell.split]
-      const sums = units.get(cell.unitId) ?? { sum: 0, count: 0 }
-      sums.sum += event.outcome.score
-      sums.count += 1
-      units.set(cell.unitId, sums)
       node.scoredCells += 1
     }
     const after = this.reservationParts(cell)
@@ -931,6 +959,11 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   /** @internal */
+  readHasNode(nodeId: string): boolean {
+    return this.nodes.has(nodeId)
+  }
+
+  /** @internal */
   readNodeIdForDigest(artifactDigest: string): string | undefined {
     return this.nodeByDigest.get(artifactDigest)
   }
@@ -964,12 +997,15 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
   }
 
   /** @internal */
-  readUnitScores(nodeId: string, split: SearchSplit): SearchUnitScore[] {
-    const units = this.nodes.get(nodeId)?.units[split]
-    if (!units) return []
-    return [...units.entries()]
-      .map(([unitId, { sum, count }]) => ({ unitId, sum, count, mean: sum / count }))
-      .sort((left, right) => compareCodeUnits(left.unitId, right.unitId))
+  readScoredCells(nodeId: string, split: SearchSplit): SearchScoredCell[] {
+    const scored: SearchScoredCell[] = []
+    for (const cellId of this.nodes.get(nodeId)?.cellIds ?? []) {
+      const cell = this.cells.get(cellId)!
+      if (cell.split === split && cell.score !== null) {
+        scored.push({ cellId, unitId: cell.unitId, attempt: cell.attempts, score: cell.score })
+      }
+    }
+    return scored
   }
 }
 
@@ -1013,6 +1049,15 @@ export class SearchStateView {
     return this.live().readNode(nodeId)
   }
 
+  hasNode(nodeId: string): boolean {
+    return this.live().readHasNode(nodeId)
+  }
+
+  /** Node ids in registration order. */
+  nodeIds(): string[] {
+    return [...this.live().readNodeIds()]
+  }
+
   /** Nodes in registration order. */
   nodes(): SearchNode[] {
     const state = this.live()
@@ -1047,9 +1092,15 @@ export class SearchStateView {
     return this.live().readOperation(operationId)
   }
 
-  /** Per-unit score sums of a node on one split, in unitId order. */
+  /** A node's scored cells on one split, in allocation order. Unscored cells
+   * (errored, cancelled or in flight) are absent, never zero. */
+  scoredCells(nodeId: string, split: SearchSplit): SearchScoredCell[] {
+    return this.live().readScoredCells(nodeId, split)
+  }
+
+  /** Per-unit score means of a node on one split, in unitId order. */
   unitScores(nodeId: string, split: SearchSplit): SearchUnitScore[] {
-    return this.live().readUnitScores(nodeId, split)
+    return searchUnitScores(this.scoredCells(nodeId, split))
   }
 
   /** The lineage a RunRecord mint needs for one cell attempt. */
