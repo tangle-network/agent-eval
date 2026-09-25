@@ -17,7 +17,7 @@
  * cells they read, so a verifier with the same ledger gets the same claim.
  */
 
-import { hashCanonical } from '../ledger-core/canonical'
+import { canonicalString, hashCanonical } from '../ledger-core/canonical'
 import { decidePairedPromotion, type PairedPromotionDecision } from '../paired-promotion-decision'
 import {
   type PairedPromotionAlternative,
@@ -372,6 +372,100 @@ export function decideSearchClaim(
     ),
     decisions,
   }
+}
+
+/** Whether a closed search's claim is the one its own ledger supports. */
+export type SearchClaimVerification =
+  | { status: 'verified' }
+  /** The claim differs from the one the claim rule makes from the ledger. */
+  | { status: 'mismatch'; differences: string[] }
+  /** The claim names a rule revision this code does not implement, so this
+   * code can neither confirm nor refute it. */
+  | { status: 'unknown'; reason: string }
+
+/**
+ * Make a closed search's claim again from its ledger alone and compare it with
+ * the recorded one, byte for byte: the power check, the finalists, each
+ * finalist's test estimate and deciding interval, the selection, the decision
+ * and the reason. A producer's claim is not evidence until this holds; a store
+ * keeps what this function derives, not what the producer wrote.
+ *
+ * It needs no blob, so it works on a store that keeps digests only. The
+ * finalists are the nodes the ledger decided `finalist`, in decision order.
+ * The one input the ledger cannot replay is whether the budget covered k
+ * finalists' test cells; the claim cells that ran answer it (none ran: the
+ * budget covered none). Test repeats come from the claim cells too; without
+ * test cells, the recorded estimator stands for them (binary needs one repeat,
+ * so any other count reproduces continuous).
+ *
+ * Returns null for a search that made no claim.
+ */
+export function verifySearchClaim(state: SearchStateView): SearchClaimVerification | null {
+  const closed = state.closed
+  if (!closed) {
+    throw new Error(`search ${state.searchId} is open; its claim is made when it closes`)
+  }
+  const recorded = closed.claim
+  if (recorded === null) return null
+  if (recorded.rule.revision !== SEARCH_CLAIM_RULE.revision) {
+    return {
+      status: 'unknown',
+      reason: `the claim names rule revision ${recorded.rule.revision}; this code implements ${SEARCH_CLAIM_RULE.revision}`,
+    }
+  }
+  const claimCells = state.cells().filter((cell) => cell.stage === 'claim')
+  const decided = state
+    .nodes()
+    .flatMap((node) => {
+      const first = node.decisions.find((record) => record.decision.status === 'finalist')
+      return first ? [{ nodeId: node.nodeId, sequence: first.sequence }] : []
+    })
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((entry) => entry.nodeId)
+  const reps =
+    claimCells.length > 0
+      ? 1 + Math.max(...claimCells.map((cell) => cell.rep))
+      : 'adequate' in recorded.power && recorded.power.estimator.kind === 'binary'
+        ? 1
+        : 2
+  const plan = planSearchClaim(state, {
+    stopReason: closed.reason,
+    reps,
+    affordable: (finalists) => claimCells.length > 0 && finalists <= decided.length,
+  })
+  const differences: string[] = []
+  const planned = plan.finalists.map((finalist) => finalist.nodeId)
+  if (canonicalString(planned) !== canonicalString(decided)) {
+    differences.push(
+      `finalists: the rule picks [${planned.join(', ')}], the ledger decided [${decided.join(', ')}]`,
+    )
+  }
+  if ((plan.test === 'run') !== claimCells.length > 0) {
+    differences.push(
+      `test: the plan ${plan.test === 'run' ? 'runs' : 'skips'} the test cells, and ${claimCells.length} ran`,
+    )
+  }
+  const expected = decideSearchClaim(state, plan).claim
+  for (const key of ['decision', 'selected', 'confidence', 'power', 'reason'] as const) {
+    if (canonicalString(expected[key]) !== canonicalString(recorded[key])) {
+      differences.push(
+        `${key}: the ledger supports ${canonicalString(expected[key])}, the claim records ${canonicalString(recorded[key])}`,
+      )
+    }
+  }
+  const count = Math.max(expected.finalists.length, recorded.finalists.length)
+  for (let index = 0; index < count; index++) {
+    const want = expected.finalists[index]
+    const have = recorded.finalists[index]
+    if (canonicalString(want ?? null) === canonicalString(have ?? null)) continue
+    const fields = (['nodeId', 'promote', 'test', 'estimate'] as const).filter(
+      (field) => canonicalString(want?.[field] ?? null) !== canonicalString(have?.[field] ?? null),
+    )
+    differences.push(
+      `finalist ${index + 1} (${have?.nodeId ?? want?.nodeId}): ${fields.join(', ')} differ from what the ledger supports`,
+    )
+  }
+  return differences.length === 0 ? { status: 'verified' } : { status: 'mismatch', differences }
 }
 
 /** Per-finalist confidence for `k` finalists. */
