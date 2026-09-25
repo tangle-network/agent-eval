@@ -70,7 +70,7 @@ export const SEARCH_ESTIMATOR: SearchSourceRef = {
 }
 
 /** The method a paired sample of `pairs` units supports. */
-export function searchEstimateMethod(pairs: number): SearchEstimateMethod {
+function searchEstimateMethod(pairs: number): SearchEstimateMethod {
   if (pairs < 2) return 'none'
   if (pairs < DESCRIPTIVE_FROM) return 'insufficient'
   if (pairs < BOOTSTRAP_GATE_MIN_N) return 'descriptive'
