@@ -25,7 +25,11 @@ import { assertContract } from './validate'
 /**
  * A run derived from one span: the `run.status` attribute a run-anchor span
  * carries (store-to-otlp writes it), else failed on an error status, else
- * completed once the span ended.
+ * unknown. An ended span with an OK status and no declared `run.status` is
+ * NOT inferred as completed — a span exporter can end its root span cleanly
+ * without ever learning whether the underlying run actually finished (for
+ * example, a trace reader that saw no terminal record). `requireCompleted`
+ * and `allowedStatuses` must fail closed on that gap rather than pass it.
  */
 function runOfSpan(span: ContractSpan): ContractRun {
   const declared = span.attributes?.['run.status']
@@ -35,9 +39,7 @@ function runOfSpan(span: ContractSpan): ContractRun {
         ? declared
         : isSpanError(span)
           ? 'failed'
-          : finite(span.endedAt) !== undefined
-            ? 'completed'
-            : 'running',
+          : undefined,
     ...(finite(span.startedAt) === undefined ? {} : { startedAt: span.startedAt }),
     ...(finite(span.endedAt) === undefined ? {} : { endedAt: span.endedAt }),
   }

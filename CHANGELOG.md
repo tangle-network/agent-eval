@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `askTraceQuestions` (`/analyst`) asks many questions of one trace store in a bounded pool under one shared `CostLedger`, and runs an independent verifier on every admitted finding.
+  Each question is one `runTraceAnalyst` call, so a finding still needs its minimum distinct citations (default 2), each resolvable in the store.
+  The verifier reads the claim through `citedSpansOnly`, a store that exposes exactly the cited spans and refuses every wider read; a finding it does not support is returned with `verified: false`.
+  One failed question never stops the others; its failure is its outcome.
+  It is the question runner of the agent-runtime continuation panel (discovery `docs/38-one-loop-and-continuation.md`, section 5), and `traces ask` can call the same code.
+
 ### Changed
 
 - **Breaking:** the search ledger records a search as nodes, edges and cells instead of candidate slots.
@@ -60,6 +68,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   The key is left out of the comparison, so a retry under a new key still counts as the same charge.
 
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
+
+### Fixed
+
+- `run.requireCompleted` no longer treats an unknown run as completed. A root span's status is now inferred as `completed` only from a declared `run.status` attribute; a span that ended without an error but with no declared status is `unknown`, and `requireCompleted`/`allowedStatuses` fail it instead of passing it. This closed a gap where a trace reader that saw no terminal record (a killed job, a truncated stream) exported an OK-status root span that the gate read as completed.
+- A `run` rule with `requireCompleted: false` and no other check, an empty `tools.maxCallsPerTool: {}`, and an empty `llm: {}` are now rejected as checking nothing, instead of compiling into a rule that always passes. The declarative form also rejects `run.requireCompleted: false` outright, matching `tools.enforced`.
+- `retries` now fails a declared write whose own call errored (a timeout included) and carries no idempotency key, independent of whether a repeat is detected by exact-argument grouping. This catches a retry the grouping missed because it re-encoded an argument's value.
+- `llm.maxTotalTokens` now counts cache-read and cache-write tokens alongside prompt and completion tokens. A cache-heavy call's `llm.token_count.prompt` attribute carries only the uncached remainder, so the ceiling used to pass runs at a small fraction of their real token spend.
 
 ### Removed
 
