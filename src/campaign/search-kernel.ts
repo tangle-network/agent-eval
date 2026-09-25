@@ -609,6 +609,15 @@ class SearchKernel<TArtifact> {
       this.failure ??= { error: completion.error }
       return
     }
+    if (
+      (this.failure || this.options.signal?.aborted) &&
+      completion.result.outcome.status === 'errored'
+    ) {
+      // An attempt that ends in an error while the search stops may have
+      // failed because it was interrupted. It stays unsettled, so a resumed
+      // search adopts or reruns it instead of recording the interruption.
+      return
+    }
     await this.recorder.settleCell({ ...completion.result, cellId, attempt })
     await this.refresh()
     const cell = this.state.cell(cellId)!

@@ -345,9 +345,11 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
             : proposalExecution(fresh, identity.model.provider, proposerSource),
         }
       }
-      const state = await recorder.state()
-      const root = state.rootNodeId!
-      const rootCampaign = await nodes.campaign(state, root)
+      // Every read of the ledger below happens synchronously on one state
+      // view: an await lets the kernel append, which retires the view.
+      const earlier = await recorder.state()
+      const root = earlier.rootNodeId!
+      const rootCampaign = nodes.campaign(earlier, root)
       const rootCoverage = campaignCoverage(
         rootCampaign.cells,
         opts.scenarios,
@@ -362,29 +364,28 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       }
       // A generation is a proposal that registered a candidate; a proposal
       // lost to a crash or made only of re-proposals is not one.
-      const generations = nodes.generations(state)
-      const history = await nodes.history(state, policy)
+      const generation = nodes.generations(earlier).length
       if (opts.analyzeGeneration) {
-        const previous = generations.length - 1
-        const candidates =
+        const previous = generation - 1
+        const nodeIds =
           previous < 0
-            ? [{ nodeId: root, campaign: rootCampaign }]
-            : await Promise.all(
-                nodes.expansionNodes(state, generations[previous]!).map(async (nodeId) => ({
-                  nodeId,
-                  campaign: await nodes.campaign(state, nodeId),
-                })),
-              )
-        if (previous < 0 ? rootCampaign.cells.length > 0 : candidates.length > 0) {
+            ? [root]
+            : nodes.expansionNodes(earlier, nodes.generations(earlier)[previous]!)
+        const candidates = nodeIds.map((nodeId) => {
+          const campaign = nodes.campaign(earlier, nodeId)
+          return {
+            surfaceHash: surfaceHash(nodes.surface(earlier, nodeId)),
+            campaign,
+            composite: campaignMeanCompositeOrNull(campaign),
+          }
+        })
+        const history = nodes.history(earlier, policy)
+        if (candidates.some(({ campaign }) => campaign.cells.length > 0)) {
           const fresh = await opts.analyzeGeneration({
             generation: previous,
-            runDir: previous < 0 ? rootCampaign.runDir : `${runDir}/gen-${previous}`,
-            candidates: candidates.map(({ nodeId, campaign }) => ({
-              surfaceHash: surfaceHash(nodes.surface(state, nodeId)),
-              campaign,
-              composite: campaignMeanCompositeOrNull(campaign),
-            })),
-            history: [...history],
+            runDir: previous < 0 ? rootCampaign.runDir : `${runDir}/candidates`,
+            candidates,
+            history,
             costLedger,
             costPhase: previous < 0 ? 'analysis.baseline' : 'analysis.generation',
           })
@@ -397,12 +398,9 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           )
         }
       }
-      const proposalHistory = immutableProposalSnapshot(history, 'history')
-      if (proposer.decide?.({ history: proposalHistory }).stop) {
-        return { children: [], stop: 'the proposer decided to stop', ...accounting() }
-      }
+      const state = await recorder.state()
+      const proposalHistory = immutableProposalSnapshot(nodes.history(state, policy), 'history')
       const parent = request.parents[0]!
-      const leaderOutcome = await nodes.outcome(state, request.leader)
       const context: ProposeContext<ProposalFinding> = Object.freeze({
         currentSurface: immutableProposalSnapshot(parent.artifact, 'current surface'),
         operator: request.operator,
@@ -412,19 +410,25 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           'findings',
         ),
         populationSize: opts.populationSize,
-        generation: generations.length,
+        generation,
         signal: request.signal,
-        baselineOutcome: immutableProposalSnapshot(await nodes.outcome(state, root), 'baseline'),
-        incumbentOutcome: immutableProposalSnapshot(leaderOutcome, 'incumbent outcome'),
+        baselineOutcome: immutableProposalSnapshot(nodes.outcome(state, root), 'baseline'),
+        incumbentOutcome: immutableProposalSnapshot(
+          nodes.outcome(state, request.leader),
+          'incumbent outcome',
+        ),
         parentOutcome: immutableProposalSnapshot(
-          await nodes.outcome(state, parent.nodeId),
+          nodes.outcome(state, parent.nodeId),
           'parent outcome',
         ),
         maxImprovementShots: opts.maxImprovementShots,
-        paretoParents: immutableProposalSnapshot(await nodes.frontier(state), 'Pareto parents'),
+        paretoParents: immutableProposalSnapshot(nodes.frontier(state), 'Pareto parents'),
         costLedger,
         costPhase: 'search.proposal',
       })
+      if (proposer.decide?.({ history: proposalHistory }).stop) {
+        return { children: [], stop: 'the proposer decided to stop', ...accounting() }
+      }
       const proposed = await proposer.propose(context)
       if (!Array.isArray(proposed)) {
         throw new TypeError('runOptimization: proposer must return an array')
@@ -465,23 +469,20 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     firstEdge.operator === 'seed' || !('sha256' in firstEdge.rationale)
       ? undefined
       : (recorder.readBlob(firstEdge.rationale) as { text: string }).text
-  const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const expansions = nodes.generations(state)
-  for (const record of await nodes.history(state, policy)) {
-    generations.push({
+  const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = nodes
+    .history(state, policy)
+    .map((record) => ({
       record,
-      surfaces: await Promise.all(
-        nodes.expansionNodes(state, expansions[record.generationIndex]!).map(async (nodeId) => {
-          const surface = nodes.surface(state, nodeId)
-          return {
-            surfaceHash: surfaceHash(surface),
-            surface,
-            campaign: await nodes.campaign(state, nodeId),
-          }
-        }),
-      ),
-    })
-  }
+      surfaces: nodes.expansionNodes(state, expansions[record.generationIndex]!).map((nodeId) => {
+        const surface = nodes.surface(state, nodeId)
+        return {
+          surfaceHash: surfaceHash(surface),
+          surface,
+          campaign: nodes.campaign(state, nodeId),
+        }
+      }),
+    }))
   return {
     generations,
     baselineSurface,
@@ -489,10 +490,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     winnerSurfaceHash: surfaceHash(winnerSurface),
     ...(firstEdge.operator !== 'seed' && firstEdge.label ? { winnerLabel: firstEdge.label } : {}),
     ...(winnerRationale ? { winnerRationale } : {}),
-    baselineCampaign: await nodes.campaign(state, state.rootNodeId!),
+    baselineCampaign: nodes.campaign(state, state.rootNodeId!),
     cost: costLedger.summary(),
     searchHistory: recorder.receipt({ producerId: proposer.kind, runId: runDir }),
-    paretoFrontier: await nodes.frontier(state),
+    paretoFrontier: nodes.frontier(state),
   }
 }
 
@@ -547,12 +548,11 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     this.storage = input.opts.storage ?? fsCampaignStorage()
   }
 
-  /** `<runDir>/baseline` for the root; `<runDir>/gen-<g>/candidate-<i>` for
-   * the i-th candidate of generation g. */
-  nodeDir(state: SearchStateView, nodeId: string): string {
-    if (nodeId === state.rootNodeId) return `${this.runDir}/baseline`
-    const { expansion, index } = this.origin(state, nodeId)
-    return `${this.runDir}/gen-${this.generations(state).indexOf(expansion)}/candidate-${index}`
+  /** `<runDir>/baseline` for the root, `<runDir>/candidates/<surfaceHash>`
+   * for every other node: content-addressed, so a cell's directory needs no
+   * ledger read and one surface keeps one cache across the run's searches. */
+  nodeDir(surface: MutableSurface, root: boolean): string {
+    return root ? `${this.runDir}/baseline` : `${this.runDir}/candidates/${surfaceHash(surface)}`
   }
 
   surface(state: SearchStateView, nodeId: string): MutableSurface {
@@ -573,15 +573,17 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
   }
 
   /**
-   * The finished attempt of a cell an earlier process ran, from its node's
-   * directory: the cached result of a scored cell, or the failure receipt of
-   * a failed one. Null when neither exists, so the kernel runs the cell.
+   * The scored attempt of a cell an earlier process ran, from its node's
+   * cache; null otherwise, so the kernel runs the cell. A failure is not
+   * adopted: the stop that interrupted the earlier process may have caused it.
    */
   async adoptCell(work: SearchCellWork<MutableSurface>): Promise<SearchCellResult | null> {
     if (work.stage === 'root' && this.premeasured) return this.premeasuredCell(work)
-    const dir = this.nodeDir(await this.recorder.state(), work.nodeId)
-    const cell = this.storedCell(dir, work.artifact, work.taskId, work.rep)
-    if (!cell) return null
+    const dir = this.nodeDir(work.artifact, work.stage === 'root')
+    const cached = this.storage.read(cellCachePath(dir, `${work.taskId}:${work.rep}`))
+    const cell =
+      cached === undefined ? undefined : (JSON.parse(cached) as CampaignCellResult<TArtifact>)
+    if (cell?.manifestHash !== this.manifestFor(work.artifact)) return null
     this.remember(work.nodeId, cell)
     return this.cellResult(cell, work)
   }
@@ -596,7 +598,7 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     if (!scenarios.has(work.taskId)) {
       throw new Error(`runOptimization: cell ${work.cellId} names unknown scenario ${work.taskId}`)
     }
-    const dir = this.nodeDir(await this.recorder.state(), work.nodeId)
+    const dir = this.nodeDir(work.artifact, work.stage === 'root')
     const campaign = await this.campaignRun(dir, work.artifact, {
       signal: work.signal,
       costPhase: work.stage === 'root' ? 'search.baseline' : 'search.candidate',
@@ -610,12 +612,11 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
 
   /** The node's campaign over the cells the ledger settled: the cells this
    * process ran, else their cached results or failure receipts. */
-  async campaign(
-    state: SearchStateView,
-    nodeId: string,
-  ): Promise<CampaignResult<TArtifact, TScenario>> {
-    if (nodeId === state.rootNodeId && this.premeasured) return this.premeasured
-    const dir = this.nodeDir(state, nodeId)
+  campaign(state: SearchStateView, nodeId: string): CampaignResult<TArtifact, TScenario> {
+    const root = nodeId === state.rootNodeId
+    if (root && this.premeasured) return this.premeasured
+    const surface = this.surface(state, nodeId)
+    const dir = this.nodeDir(surface, root)
     const settled = state
       .cells({ nodeId })
       .filter((cell) => cell.attempts > 0)
@@ -627,7 +628,6 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     const held = this.campaigns.get(nodeId)
     if (held?.cells === key) return held.campaign
     const known = this.cells.get(nodeId)
-    const surface = this.surface(state, nodeId)
     const cells = settled.map(({ taskId, rep }) => {
       const cell = known?.get(`${taskId}:${rep}`) ?? this.storedCell(dir, surface, taskId, rep)
       if (!cell) {
@@ -666,8 +666,8 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     return campaign
   }
 
-  async outcome(state: SearchStateView, nodeId: string): Promise<ScoredSurfaceOutcome> {
-    const campaign = await this.campaign(state, nodeId)
+  outcome(state: SearchStateView, nodeId: string): ScoredSurfaceOutcome {
+    const campaign = this.campaign(state, nodeId)
     const reps = this.opts.reps ?? 1
     const coverage = campaignCoverage(
       campaign.cells,
@@ -688,14 +688,14 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
   }
 
   /** The Pareto frontier over every measured, complete node. */
-  async frontier(state: SearchStateView): Promise<ParetoParent[]> {
+  frontier(state: SearchStateView): ParetoParent[] {
     const scored: ParetoParent[] = []
     for (const node of state.nodes()) {
       if (node.status === 'invalid' || node.cellCount === 0) continue
       const cells = state.cells({ nodeId: node.nodeId })
       if (cells.some((cell) => cell.attempts === 0 && cell.cancelled === null)) continue
       if (cells.some((cell) => cell.score === null)) continue
-      const campaign = await this.campaign(state, node.nodeId)
+      const campaign = this.campaign(state, node.nodeId)
       const edge = state.edge(node.edgeIds[0]!)!
       scored.push(
         toParetoParent(
@@ -723,7 +723,7 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
 
   /** One record per generation, with its candidates and the one that took
    * the lead, if any. */
-  async history(state: SearchStateView, policy: SearchPolicy): Promise<GenerationRecord[]> {
+  history(state: SearchStateView, policy: SearchPolicy): GenerationRecord[] {
     const records: GenerationRecord[] = []
     const measured = (nodeId: string) =>
       state.node(nodeId)!.status !== 'invalid' &&
@@ -739,7 +739,7 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
       )
       const candidates: GenerationCandidate[] = []
       for (const nodeId of nodeIds) {
-        candidates.push(await this.candidate(state, nodeId, expansion))
+        candidates.push(this.candidate(state, nodeId, expansion))
       }
       records.push({
         generationIndex: generation,
@@ -752,12 +752,12 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     return records
   }
 
-  private async candidate(
+  private candidate(
     state: SearchStateView,
     nodeId: string,
     expansion: number,
-  ): Promise<GenerationCandidate> {
-    const campaign = await this.campaign(state, nodeId)
+  ): GenerationCandidate {
+    const campaign = this.campaign(state, nodeId)
     const coverage = campaignCoverage(
       campaign.cells,
       this.opts.scenarios,
