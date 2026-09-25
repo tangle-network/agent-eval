@@ -463,7 +463,7 @@ function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSumma
   const known = provenance.observed.n + provenance.estimated.n
   const floor =
     provenance.lowerBound.n > 0
-      ? ` (${provenance.lowerBound.n} of them cost at least $${provenance.lowerBound.floorUsd} together)`
+      ? ` (${provenance.lowerBound.n} of them cost at least $${provenance.lowerBound.floorUsd.toFixed(6)} together)`
       : ''
   if (unknown === runs.length) {
     return `USD cost total unknown for all ${runs.length} runs${floor} — no observed or estimated USD values; token and wall-time metrics remain available.`

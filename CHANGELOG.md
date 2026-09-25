@@ -22,6 +22,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   Parsing is strict: an unknown key or status is an error that names the closest known word.
   `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
   See `docs/trace-contracts.md`.
+- `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
+- `RunRecord.traceRef` (`{ traceId, execRunId? }`) points at the run's trace and execution tree; a minted rollout line sets `artifacts.transcript_ref` to `trace:<traceId>`.
+- `RunCostProvenance` gains `{ kind: 'lower-bound', usd: null, knownLowerBoundUsd }` for a run whose receipts prove only part of its spend.
+  `costUsd` stays null, so no reader of the total takes a floor for a total; `runCostFloorUsd(record)` returns the proven spend.
+  A $0 floor is refused; write it as `uncaptured`.
+- `mintRolloutRows` takes `searchLineage(search) => { depth, ordinal, rep, containingRunId }` and fills `generation`, `candidate_index`, `task.rep` and `parent_rollout_id` from it.
+  A record with `search` and no `searchLineage` is refused.
+- `InsightReport.costQuality.provenance.lowerBound` (`{ n, floorUsd }`) counts lower-bound runs and sums their floors, separate from totals.
 
 ### Changed
 
@@ -46,12 +54,21 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 - Every trace analyst tool (`buildTraceAnalysisToolDescriptors`) now ends its description with `UNTRUSTED_TRACE_TEXT`, a warning that returned trace text is untrusted evidence and never instructions.
   Before, only `readSpanSource` warned.
   Each descriptor also declares `readOnly: true` and `idempotent: true`, so a transport such as an MCP server publishes them without restating them.
+- **Breaking:** `campaignToRunRecords` ids runs `${candidateId}:${cellId}`.
+  A campaign cell id is `${scenario}:${rep}`, so a baseline and a candidate over the same holdout produced the same run ids.
+- **Breaking:** `campaignCellToRunRecord` keeps a proven subtotal as a `lower-bound` cost instead of replacing it with `defaultCostUsd`; the default now applies only to a cell that proved no spend.
+  The duplicate `outcome.raw` keys `cost_observed`, `cost_estimated`, `cost_uncaptured` and `cost_known_subtotal_usd` are gone; read `costProvenance`.
+- **Breaking:** rollout `generation` is the node's search depth (the root is 0) and `candidate_index` its registration order; both are null outside a search.
+  The unused `-1 = baseline` convention is gone.
+- Migration for the lower-bound kind: a `switch` over `RunRecord.costProvenance.kind` needs a `lower-bound` branch, and a reader of the total reads `costUsd` or `costProvenance.usd`, which are null for both unknown kinds.
+- `analyzeRuns`, `HeldOutGate`'s cost ceiling and `evaluateReleaseConfidence` treat a lower-bound cost as an unknown total.
 
 ### Removed
 
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
 - `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
 - The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
+- The RunRecord, rl-adapter, run-profile-matrix and campaign cost unit tests; a real climb's records through the validator, mint and `analyzeRuns` are the proof.
 
 ## [0.187.2] — 2026-09-24
 
