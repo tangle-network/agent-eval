@@ -18,6 +18,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   The failing span's message is classified by the failure taxonomy, so its `blame` separates machine and provider failures from the agent's own.
   `diagnoseSpans` reports one per run as `facts.firstFailures`.
 - `/pipelines` `diffSteps()` diffs any two step lists, and `diffStepsFromSpans()` orders one run's flat OTLP spans for it, so trace consumers share one diff.
+- `compileTraceContractSpec()` compiles a declarative JSON contract (`run`, `tools`, `llm`, `scope`, `alternatives.anyOf`, low-level `rules`) onto these operators.
+  Parsing is strict: an unknown key or status is an error that names the closest known word.
+  `lintTraceContractSpec()` reports contradictions and likely mistakes, and `explainTraceContract()` states each rule in one line.
+  See `docs/trace-contracts.md`.
 
 ### Changed
 
@@ -33,7 +37,7 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   A span whose needed `startedAt` or `endedAt` is missing fails the rule; array position is no longer taken as time, and mixed timestamps no longer throw for rules that do not order.
 - Every rule reports `pass`, `fail`, or `error` in `ContractVerdict.ruleExecutions`.
   A rule whose predicate throws, or a scope that selects no unique subtree, is `error`; the verdict's `status` is then `error` and it is never valid.
-  Errored rules are absent from `scores` rather than scored 0, and `contractJudge` throws instead of scoring an errored contract.
+  Errored rules are absent from `scores` rather than scored 0.
 - `/pipelines` `firstDivergenceView` pairs steps by id, then by position with the same name and kind, then by name and kind anywhere, instead of by index alone.
   One inserted step no longer marks every later step as diverged.
   The report adds `diff`: paired steps with their field differences, steps only in A or only in B, and a first divergence classified as `changed`, `replaced`, `only-in-a`, `only-in-b` or `reordered`.
@@ -46,6 +50,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Removed
 
 - **`ExperimentTracker` and its git-provenance/persistence machinery are gone.** Removed `ExperimentTracker`, `fileExperimentStore`, `inMemoryExperimentStore`, `Experiment`, and `ExperimentProvenance` (root and `/experiment`). The class had no in-repo, agent-runtime, blueprint-agent, or agent-dev-container caller — a manual experiment becomes a search with `proposer.kind: 'human'` in the upcoming search-tree system. **Migration:** if you called `new ExperimentTracker({ store, provenanceReader })`, replace it with your own store (`create`/`addRep`/`list` become plain reads and writes of whatever you persist) plus `computeExperimentStats` and `improvementVerdict` directly — those two pure functions, `ExperimentRep`, `ExperimentStats`, `ImprovementThresholds`, `ImprovementVerdictResult`, and `ExperimentVerdict` are unchanged and still exported from the package root (blueprint-agent's held-out gate uses them as-is). Provenance capture (`git rev-parse HEAD`, etc.) is no longer built in; shell out yourself if you need it.
+- `contractJudge`, `matchSpan`, and `assertTraceContract`, which the package root never exported.
+- The unit tests in `tests/trace-contracts.test.ts`; `traces check` over recorded sessions is the proof.
 
 ## [0.187.2] — 2026-09-24
 
