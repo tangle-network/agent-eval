@@ -169,12 +169,12 @@ export async function analyzeRuns(opts: AnalyzeRunsOptions): Promise<InsightRepo
     runs,
     histogramBins: bins,
   })
-  const knownCostRuns = runs.filter((run) => run.costProvenance.kind !== 'uncaptured')
+  const knownCostRuns = runs.filter((run) => run.costProvenance.usd !== null)
   const costs = knownCostRuns.map((r) => r.costUsd).filter(isFiniteNumber)
   const costDist = distributionOf(costs, bins)
   const pareto = paretoChart(knownCostRuns, { split })
   const degraded: { cost?: string; pareto?: string } = {}
-  if (provenance.uncaptured.n > 0) {
+  if (provenance.uncaptured.n + provenance.lowerBound.n > 0) {
     degraded.cost = diagnoseCostCoverage(runs, provenance)
   } else if (costs.length === 0 || costs.every((c) => c === 0)) {
     degraded.cost = `all ${runs.length} explicitly observed or estimated USD values are $0`
@@ -437,6 +437,7 @@ function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
   const summary: CostProvenanceSummary = {
     observed: { n: 0, totalUsd: 0 },
     estimated: { n: 0, totalUsd: 0 },
+    lowerBound: { n: 0, floorUsd: 0 },
     uncaptured: { n: 0 },
     knownFraction: 0,
   }
@@ -444,6 +445,9 @@ function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
     const cost = run.costProvenance
     if (cost.kind === 'uncaptured') {
       summary.uncaptured.n += 1
+    } else if (cost.kind === 'lower-bound') {
+      summary.lowerBound.n += 1
+      summary.lowerBound.floorUsd += cost.knownLowerBoundUsd
     } else {
       summary[cost.kind].n += 1
       summary[cost.kind].totalUsd += cost.usd
@@ -455,12 +459,16 @@ function summarizeCostProvenance(runs: RunRecord[]): CostProvenanceSummary {
 }
 
 function diagnoseCostCoverage(runs: RunRecord[], provenance: CostProvenanceSummary): string {
-  const uncaptured = provenance.uncaptured.n
+  const unknown = provenance.uncaptured.n + provenance.lowerBound.n
   const known = provenance.observed.n + provenance.estimated.n
-  if (uncaptured === runs.length) {
-    return `USD cost uncaptured for all ${runs.length} runs — no observed or estimated USD values; token and wall-time metrics remain available.`
+  const floor =
+    provenance.lowerBound.n > 0
+      ? ` (${provenance.lowerBound.n} of them cost at least $${provenance.lowerBound.floorUsd.toFixed(6)} together)`
+      : ''
+  if (unknown === runs.length) {
+    return `USD cost total unknown for all ${runs.length} runs${floor} — no observed or estimated USD values; token and wall-time metrics remain available.`
   }
-  return `USD cost uncaptured for ${uncaptured}/${runs.length} runs; excluded those rows from cost statistics (${known}/${runs.length} retained: ${provenance.observed.n} observed, ${provenance.estimated.n} estimated).`
+  return `USD cost total unknown for ${unknown}/${runs.length} runs${floor}; excluded those rows from cost statistics (${known}/${runs.length} retained: ${provenance.observed.n} observed, ${provenance.estimated.n} estimated).`
 }
 
 /**
@@ -587,7 +595,7 @@ function computePriorPeriodComparison(
 
 function knownCostValues(runs: RunRecord[]): number[] {
   return runs
-    .filter((run) => run.costProvenance.kind !== 'uncaptured')
+    .filter((run) => run.costProvenance.usd !== null)
     .map((run) => run.costUsd)
     .filter(isFiniteNumber)
 }

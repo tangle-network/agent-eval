@@ -21,7 +21,7 @@
  *   const rec = parseRunRecordSafe(rawJson)        // { ok, value | error }
  *
  * The validator runs in pure TS — zod is intentionally NOT a
- * dependency. Round-trip tested in `tests/run-record.test.ts`.
+ * dependency.
  */
 
 import type { AgentProfileCell } from './agent-profile-cell'
@@ -64,8 +64,60 @@ export interface RunTokenUsage {
   cacheWrite?: number
 }
 
-/** How a run's USD amount was obtained. */
-export type RunCostProvenance = CostProvenance
+/**
+ * How a run's USD amount was obtained.
+ *
+ * `costUsd` is the run's total, or null when the total is unknown. A run whose
+ * receipts prove only part of its spend is a `lower-bound`: its total is
+ * unknown, so `costUsd` and `usd` stay null, and the proven part is
+ * `knownLowerBoundUsd`. A reader of the total therefore never takes a floor
+ * for a total. A floor of $0 proves nothing, so it is written `uncaptured`.
+ *
+ * Only a RunRecord needs this kind. Every other cost shape keeps a known
+ * subtotal beside `CostProvenance`, where `uncaptured` already means "at
+ * least the subtotal"; a RunRecord's nullable `costUsd` cannot hold one.
+ */
+export type RunCostProvenance =
+  | CostProvenance
+  | { kind: 'lower-bound'; usd: null; knownLowerBoundUsd: number }
+
+/**
+ * The run's place in a search: one attempt at one cell. The search ledger
+ * holds the lineage (the node's parents, depth and order); a RunRecord only
+ * points at it.
+ */
+export interface RunSearchCoordinates {
+  searchId: string
+  nodeId: string
+  /** The cell id hashes the search, node, task, split and repeat, so it is
+   *  unique across candidates. */
+  cellId: string
+  /** Attempt number within the cell, counted from 1. */
+  attempt: number
+}
+
+/** Where the run's execution record lives. */
+export interface RunTraceRef {
+  /** Trace id shared by every span of the run. */
+  traceId: string
+  /** Root run of the execution tree the run spawned, when one exists. */
+  execRunId?: string
+}
+
+/**
+ * The run id of one attempt at a search cell. It is unique across candidates
+ * and attempts, unlike a `${scenario}:${rep}` id, which every candidate that
+ * ran the same scenario shares.
+ */
+export function searchCellRunId(search: Pick<RunSearchCoordinates, 'cellId' | 'attempt'>): string {
+  return `${search.cellId}:${search.attempt}`
+}
+
+/** The run's proven spend: its total when known, its floor when only a floor is proven, else 0. */
+export function runCostFloorUsd(record: Pick<RunRecord, 'costUsd' | 'costProvenance'>): number {
+  if (record.costProvenance.kind === 'lower-bound') return record.costProvenance.knownLowerBoundUsd
+  return record.costUsd ?? 0
+}
 
 export interface RunJudgeMetadata {
   model: string
@@ -183,9 +235,10 @@ export interface RunRecord {
   wallMs: number
   /** Time spent queued before execution started, if known. */
   queueMs?: number
-  /** Total USD cost, or null when the producer could not capture one. */
+  /** Total USD cost, or null when the total is unknown. */
   costUsd: number | null
-  /** Whether `costUsd` came from billing data, a price calculation, or is unavailable. */
+  /** Whether `costUsd` came from billing data or a price calculation, is only
+   *  proven down to a floor, or is unavailable. */
   costProvenance: RunCostProvenance
   /** Token usage breakdown. */
   tokenUsage: RunTokenUsage
@@ -221,6 +274,12 @@ export interface RunRecord {
    * candidate label or opaque config hash.
    */
   agentProfile?: AgentProfileCell
+  /** The search cell this run settled. When present, `runId` is
+   *  `searchCellRunId(search)`. */
+  search?: RunSearchCoordinates
+  /** The run's trace and execution tree. Absent means the producer did not
+   *  record where they are. */
+  traceRef?: RunTraceRef
 }
 
 /**
@@ -485,6 +544,9 @@ export function validateRunRecord(input: unknown): RunRecord {
 
   expectString(obj.scenarioId, 'scenarioId')
 
+  if (obj.search !== undefined) validateSearchCoordinates(obj.search, obj.runId as string)
+  if (obj.traceRef !== undefined) validateTraceRef(obj.traceRef)
+
   // Split tag.
   if (typeof obj.splitTag !== 'string' || !SPLIT_TAGS.includes(obj.splitTag as RunSplitTag)) {
     throw new RunRecordValidationError(
@@ -501,11 +563,38 @@ function validateCost(costUsd: unknown, provenance: unknown): void {
     throw new RunRecordValidationError('costProvenance must be an object', 'costProvenance')
   }
   const value = provenance as Record<string, unknown>
-  if (value.kind !== 'observed' && value.kind !== 'estimated' && value.kind !== 'uncaptured') {
+  if (
+    value.kind !== 'observed' &&
+    value.kind !== 'estimated' &&
+    value.kind !== 'lower-bound' &&
+    value.kind !== 'uncaptured'
+  ) {
     throw new RunRecordValidationError(
-      'costProvenance.kind must be observed, estimated, or uncaptured',
+      'costProvenance.kind must be observed, estimated, lower-bound, or uncaptured',
       'costProvenance.kind',
     )
+  }
+  if (value.kind === 'lower-bound') {
+    if (value.usd !== null) {
+      throw new RunRecordValidationError(
+        'lower-bound costProvenance.usd must be null; the floor is knownLowerBoundUsd',
+        'costProvenance.usd',
+      )
+    }
+    if (costUsd !== null) {
+      throw new RunRecordValidationError(
+        'lower-bound cost requires costUsd to be null; a floor is not a total',
+        'costUsd',
+      )
+    }
+    expectFiniteNumber(value.knownLowerBoundUsd, 'costProvenance.knownLowerBoundUsd')
+    if ((value.knownLowerBoundUsd as number) <= 0) {
+      throw new RunRecordValidationError(
+        "a lower bound must be positive; write a $0 floor as { kind: 'uncaptured', usd: null }",
+        'costProvenance.knownLowerBoundUsd',
+      )
+    }
+    return
   }
   // A record must never read as a total it cannot support, so an uncaptured
   // cost carries no number at all. A matrix `CellResult` keeps its known
@@ -531,6 +620,35 @@ function validateCost(costUsd: unknown, provenance: unknown): void {
       'costProvenance.usd',
     )
   }
+}
+
+function validateSearchCoordinates(value: unknown, runId: string): void {
+  if (value === null || typeof value !== 'object') {
+    throw new RunRecordValidationError('search must be an object', 'search')
+  }
+  const search = value as Record<string, unknown>
+  expectString(search.searchId, 'search.searchId')
+  expectString(search.nodeId, 'search.nodeId')
+  expectString(search.cellId, 'search.cellId')
+  if (!Number.isSafeInteger(search.attempt) || (search.attempt as number) < 1) {
+    throw new RunRecordValidationError('expected an integer from 1', 'search.attempt')
+  }
+  const expected = searchCellRunId(search as unknown as RunSearchCoordinates)
+  if (runId !== expected) {
+    throw new RunRecordValidationError(
+      `runId "${runId}" must be "${expected}", the search cell and attempt it settled`,
+      'runId',
+    )
+  }
+}
+
+function validateTraceRef(value: unknown): void {
+  if (value === null || typeof value !== 'object') {
+    throw new RunRecordValidationError('traceRef must be an object', 'traceRef')
+  }
+  const ref = value as Record<string, unknown>
+  expectString(ref.traceId, 'traceRef.traceId')
+  if (ref.execRunId !== undefined) expectString(ref.execRunId, 'traceRef.execRunId')
 }
 
 /** Boolean validator — convenience for filtering arrays. */

@@ -1373,6 +1373,7 @@ describe('analyzeRuns — recommendations are always actionable', () => {
     expect(report.costQuality.provenance).toEqual({
       observed: { n: 1, totalUsd: 0 },
       estimated: { n: 1, totalUsd: 0.2 },
+      lowerBound: { n: 0, floorUsd: 0 },
       uncaptured: { n: 1 },
       knownFraction: 2 / 3,
     })

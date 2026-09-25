@@ -259,7 +259,8 @@ export interface RolloutCostBlock {
 export interface RolloutArtifacts {
   patch_path: string | null
   run_dir: string | null
-  /** Source-of-truth transcript pointer (session id / jsonl path) for audit. */
+  /** Source-of-truth transcript pointer (session id / jsonl path) for audit.
+   *  Minted lines point at the run's trace as `trace:<traceId>`. */
   transcript_ref: string | null
 }
 
@@ -306,16 +307,17 @@ export interface RolloutProvenance {
 export interface RolloutLine {
   schema: typeof ROLLOUT_SCHEMA
   rollout_id: string
-  /** Spawning invocation within the same episode (worker → supervisor). */
+  /** Spawning invocation within the same episode (worker → supervisor); for a
+   *  nested search run, the run of the cell that contains the search. */
   parent_rollout_id: string | null
   run_id: string
   /** Logical experiment grouping from `RunRecord.experimentId`; null = not recorded. */
   experiment_id: string | null
   /** Stable candidate identity from `RunRecord.candidateId`; null = not recorded. */
   candidate_id: string | null
-  /** Improvement-loop generation (-1 = baseline); null = not an improvement loop. */
+  /** Search depth of the run's node (0 = the search root); null = not a search run. */
   generation: number | null
-  /** Improvement-loop candidate index (-1 = baseline); null = not an improvement loop. */
+  /** Registration order of the run's node in its search (0 = the root); null = not a search run. */
   candidate_index: number | null
   role: RolloutRole
   task: RolloutTask

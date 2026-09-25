@@ -73,6 +73,7 @@ export {
   type MintRolloutResult,
   mintRolloutRows,
   type RolloutScrubber,
+  type RolloutSearchLineage,
   unmintableReasons,
 } from './mint'
 export {

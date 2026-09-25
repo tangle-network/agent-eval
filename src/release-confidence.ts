@@ -234,7 +234,7 @@ export function evaluateReleaseConfidence(
   const searchMeanScore = meanOrNull(searchScores)
   const holdoutMeanScore = meanOrNull(holdoutScores)
   const runCosts = runs.flatMap((run) =>
-    run.costProvenance.kind === 'uncaptured' ? [] : [run.costProvenance.usd],
+    run.costProvenance.usd === null ? [] : [run.costProvenance.usd],
   )
   const traceCosts = traces.map((trace) => trace.costUsd).filter(isFiniteNumber)
   const meanCostUsd =

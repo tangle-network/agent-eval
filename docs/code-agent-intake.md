@@ -24,7 +24,7 @@ const { runs, diagnostics, metrics, observations } = fromCodexSession({
 
 1. **Read the transcript.** `parseCodeAgentJsonl(text)` for a string you already hold, `parseCodeAgentJsonlFile(path)` for a file. Both return `{ entries, malformedLines }`; a line that is not JSON is counted, never dropped silently.
 2. **Convert it.** One function per harness, below. Each returns `runs`, `diagnostics`, `metrics`, and `observations`.
-3. **Read `diagnostics` before `runs`.** One `CodeAgentSessionDiagnostic` per session records what the transcript actually carried: `malformedLines`, `hasExplicitTerminalSignal`, `hasFinalOutput`, `hasQualityLabel`, `hasTokenUsage`, `hasCost`, the `costKind` that was used, and any `warnings`. A run whose diagnostic says `hasCost: false` has no cost, not a cost of zero — check the flag before you aggregate the field.
+3. **Read `diagnostics` before `runs`.** One `CodeAgentSessionDiagnostic` per session records what the transcript actually carried: `malformedLines`, `hasExplicitTerminalSignal`, `hasFinalOutput`, `hasQualityLabel`, `hasTokenUsage`, `hasCost`, the `costKind` that was used, and any `warnings`. A run whose diagnostic says `hasCost: false` has no known total cost, not a cost of zero — check the flag before you aggregate the field. A `lower-bound` cost states only a floor, in `costProvenance.knownLowerBoundUsd`.
 
 ## One function per harness
 

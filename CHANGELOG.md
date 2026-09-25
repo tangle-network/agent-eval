@@ -6,6 +6,17 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
+- `RunRecord.traceRef` (`{ traceId, execRunId? }`) points at the run's trace and execution tree; a minted rollout line sets `artifacts.transcript_ref` to `trace:<traceId>`.
+- `RunCostProvenance` gains `{ kind: 'lower-bound', usd: null, knownLowerBoundUsd }` for a run whose receipts prove only part of its spend.
+  `costUsd` stays null, so no reader of the total takes a floor for a total; `runCostFloorUsd(record)` returns the proven spend.
+  A $0 floor is refused; write it as `uncaptured`.
+- `mintRolloutRows` takes `searchLineage(search) => { depth, ordinal, rep, containingRunId }` and fills `generation`, `candidate_index`, `task.rep` and `parent_rollout_id` from it.
+  A record with `search` and no `searchLineage` is refused.
+- `InsightReport.costQuality.provenance.lowerBound` (`{ n, floorUsd }`) counts lower-bound runs and sums their floors, separate from totals.
+
 ### Changed
 
 - `/ledger-core` `FileLedgerJournal` verifies incrementally.
@@ -19,10 +30,19 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
   One projector lives across appends, so a projector keeps what it needs from `apply` and its snapshot must not alias state a later `apply` mutates.
 - **Breaking:** `FileLedgerJournal.replay()` and `replayLedgerText()` return the projection itself.
   Migration: replace `(await journal.replay()).projection` with `await journal.replay()`, and keep entries in the projector when a caller needs them.
+- **Breaking:** `campaignToRunRecords` ids runs `${candidateId}:${cellId}`.
+  A campaign cell id is `${scenario}:${rep}`, so a baseline and a candidate over the same holdout produced the same run ids.
+- **Breaking:** `campaignCellToRunRecord` keeps a proven subtotal as a `lower-bound` cost instead of replacing it with `defaultCostUsd`; the default now applies only to a cell that proved no spend.
+  The duplicate `outcome.raw` keys `cost_observed`, `cost_estimated`, `cost_uncaptured` and `cost_known_subtotal_usd` are gone; read `costProvenance`.
+- **Breaking:** rollout `generation` is the node's search depth (the root is 0) and `candidate_index` its registration order; both are null outside a search.
+  The unused `-1 = baseline` convention is gone.
+- Migration for the lower-bound kind: a `switch` over `RunRecord.costProvenance.kind` needs a `lower-bound` branch, and a reader of the total reads `costUsd` or `costProvenance.usd`, which are null for both unknown kinds.
+- `analyzeRuns`, `HeldOutGate`'s cost ceiling and `evaluateReleaseConfidence` treat a lower-bound cost as an unknown total.
 
 ### Removed
 
 - `/ledger-core` `LedgerReplayResult`; `replay()` and `replayLedgerText()` return the projection.
+- The RunRecord, rl-adapter, run-profile-matrix and campaign cost unit tests; a real climb's records through the validator, mint and `analyzeRuns` are the proof.
 
 ## [0.188.0] — 2026-09-24
 
