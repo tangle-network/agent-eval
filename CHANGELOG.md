@@ -6,6 +6,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Fixed
+
+- `summarizeExecutionMeasurements` counted only `LLM` spans as model calls, so an `EMBEDDING` or `RERANKER` span's own tokens dropped out of the run total whenever a chat call anywhere in the same run also reported tokens — a real undercount (5100 measured as 100 on a trace with one 100-token chat call and one 5000-token embeddings call), not the aggregate-token-loss bug 0.191.0 already fixed. Classify model calls with the contract's `isModelCallKind` (`@tangle-network/agent-trace-contract@^1.3.0`; `LLM`, `EMBEDDING`, `RERANKER`) instead of `kind === 'LLM'`.
+
 ## [0.193.0] — 2026-09-25
 
 ### Added
@@ -70,8 +74,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ### Changed
 
-- Span classification and the attribute key lists come from `@tangle-network/agent-trace-contract` (`resolveSpanKind`, `declaredSpanKind`, `SPAN_KINDS`); agent-eval's own copies are gone (#823).
-  The analyst shows the declared OpenInference kind, agent-eval's own spans export as `RETRIEVER` and `UNKNOWN` where they wrote `CHAIN` and `SPAN`, and a legacy `SPAN` kind is still accepted on read.
+- **Breaking:** span classification and the attribute key lists come from `@tangle-network/agent-trace-contract` (`resolveSpanKind`, `declaredSpanKind`, `SPAN_KINDS`); agent-eval's own copies are gone (#823).
+  The analyst shows the declared OpenInference kind, agent-eval's own spans export as `RETRIEVER` and `UNKNOWN` where they wrote `CHAIN` and `SPAN`, and a legacy `SPAN` kind is still accepted (and normalized to `UNKNOWN`) on read — but `TraceAnalystSpanKind` (now an alias of the contract's `SpanKind`) no longer has a `'SPAN'` member, so a consumer whose own code returns or type-checks the string `'SPAN'` against `TraceAnalystSpanKind` fails to compile on this version. `Intelligence`'s `pg-trace-analyst-store.ts` `inferKind` and `agent-builder`'s `d1-trace-analysis-store-adapter.ts` mapping both do this today; replace those with the contract's `declaredSpanKind`/`resolveSpanKind` before bumping past 0.190.1.
   Both OTLP intakes decide model calls and aggregates from one span kind, so an undeclared agent or workflow span no longer sums its children's tokens a second time.
 - **Breaking:** the hosted wire ships search ledgers, not eval-run snapshots ([hosted ingest spec](./docs/hosted-ingest-spec.md)).
   A producer uploads each blob an entry names (`PUT /v1/search-blobs/<sha256>`), reads the store's head (`GET /v1/ingest/search-ledger/<searchId>/head`), and posts canonical ledger lines from there (`POST /v1/ingest/search-ledger`, at most 1,000 lines or 1 MiB).

@@ -1,4 +1,4 @@
-import type { SpanKind } from '@tangle-network/agent-trace-contract'
+import { isModelCallKind, type SpanKind } from '@tangle-network/agent-trace-contract'
 import type { RunTokenUsage } from '../run-record'
 import {
   LLM_CACHE_WRITE_TOKEN_ATTR_KEYS,
@@ -15,10 +15,11 @@ export interface ExecutionMeasurementSpan {
   parentId?: string
   attributes: Record<string, unknown>
   /**
-   * The contract kind, declared or inferred. `LLM` is a model call. Any other
-   * known kind (an agent, a workflow step, a tool) is an aggregate whose tokens
-   * total the calls beneath it. `UNKNOWN` is neither: its tokens count only
-   * when no model call beneath it reports the same field.
+   * The contract kind, declared or inferred. `LLM`, `EMBEDDING` and `RERANKER`
+   * ({@link isModelCallKind}) are each a leaf model call. Any other known kind
+   * (an agent, a workflow step, a tool) is an aggregate whose tokens total the
+   * calls beneath it. `UNKNOWN` is neither: its tokens count only when no model
+   * call beneath it reports the same field.
    */
   kind: SpanKind
 }
@@ -77,8 +78,11 @@ export function summarizeExecutionMeasurements(
 ): ExecutionMeasurements {
   const spans: MeasuredSpan[] = source.map((span) => ({
     ...span,
-    modelCall: span.kind === 'LLM',
-    aggregate: span.kind !== 'LLM' && span.kind !== 'UNKNOWN',
+    // EMBEDDING and RERANKER are leaf model calls too, billed like LLM — only a
+    // wrapper kind (AGENT/CHAIN/TOOL/RETRIEVER/GUARDRAIL/EVALUATOR/PROMPT) is an
+    // aggregate whose totals restate a descendant's.
+    modelCall: isModelCallKind(span.kind),
+    aggregate: !isModelCallKind(span.kind) && span.kind !== 'UNKNOWN',
   }))
   const byId = new Map<string, MeasuredSpan>()
   for (const span of spans) {
