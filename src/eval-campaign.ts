@@ -655,7 +655,14 @@ export async function finalizeAbort(
   const existing = await emitter.traceStore.getRun(runId)
   if (existing === undefined) return // run never started; nothing to abort
   if (existing.status !== 'running') return // already finalized; never overwrite a real outcome
+  // The emitter never throws on a failed store write; it counts it. A failed
+  // abort write is a genuine diagnostic here, so read the count and surface it.
+  const droppedBefore = emitter.captureStats().dropped
   await emitter.abortRun(reason)
+  const after = emitter.captureStats()
+  if (after.dropped > droppedBefore) {
+    throw new Error(`finalizeAbort: run ${runId} could not be finalized: ${after.lastError}`)
+  }
 }
 
 function defaultRawSinkFactory(workDir: string | undefined) {

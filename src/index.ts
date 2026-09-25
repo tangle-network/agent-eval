@@ -239,7 +239,12 @@ export {
 } from './scorecard'
 export { OUTPUT_VALUE } from './trace/attribute-vocabulary'
 export { captureFetchToRawSink } from './trace/capture-fetch'
-export type { SpanHandle } from './trace/emitter'
+export type {
+  CaptureErrorHandler,
+  CaptureWrite,
+  SpanHandle,
+  TraceEmitterOptions,
+} from './trace/emitter'
 export { TraceEmitter } from './trace/emitter'
 export type { ExtractedUsage } from './trace/extract-usage'
 export { extractUsage, extractUsageFromSse } from './trace/extract-usage'
@@ -259,6 +264,7 @@ export type {
   BudgetSpec,
   LlmSpan,
   Run,
+  RunCaptureReport,
   Span,
   ToolSpan,
   TraceEvent,
@@ -352,8 +358,8 @@ export type {
   ExperimentStats,
   ImprovementThresholds,
   ImprovementVerdictResult,
-} from './experiment-tracker'
-export { computeExperimentStats, improvementVerdict } from './experiment-tracker'
+} from './improvement-verdict'
+export { computeExperimentStats, improvementVerdict } from './improvement-verdict'
 
 export { hashJson, manifestContentDigest } from './pre-registration'
 

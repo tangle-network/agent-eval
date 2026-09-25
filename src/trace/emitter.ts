@@ -1,14 +1,23 @@
 /**
- * TraceEmitter — hierarchical span builder that auto-parents using an
- * internal stack. One emitter per Run; emitters do NOT share state.
+ * TraceEmitter — hierarchical span builder for one Run. Emitters do NOT
+ * share state.
  *
- * Convenience methods (`llm`, `tool`, `retrieval`, `judge`, `sandbox`)
- * return a `SpanHandle` with `.end()` / `.fail()` so callers don't
- * have to thread spanIds manually. For async workflows that can't use
- * the stack (e.g. fan-out parallel calls), pass `parentSpanId`
- * explicitly.
+ * Parenting. A new span's parent is, in order: the explicit `parentSpanId`,
+ * the innermost handle still open in the current async context, then the span
+ * of the enclosing `within`. `within` runs its callback in an async context of
+ * its own, so parallel `within` calls each parent their own children with no
+ * ids passed by hand. Handles from `span`/`llm`/`tool`/`retrieval`/`sandbox`
+ * nest by call order inside one async context; open parallel work with
+ * `within`, or pass `parentSpanId`.
+ *
+ * Capture never throws into the traced run. A store write that fails is
+ * counted as dropped, handed to `onCaptureError`, and the counts are written
+ * onto the Run as `capture` when it ends, where `assertRunCaptured` reads them.
+ * A Run whose records are incomplete therefore says so instead of reading as a
+ * shorter run.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { newRecordId } from '../record-id'
 import type {
   Artifact,
@@ -18,6 +27,7 @@ import type {
   LlmSpan,
   RetrievalSpan,
   Run,
+  RunCaptureReport,
   RunOutcome,
   SandboxSpan,
   Span,
@@ -45,6 +55,24 @@ export interface RunCompleteHookContext {
 
 export type RunCompleteHook = (ctx: RunCompleteHookContext) => Promise<void> | void
 
+/** The store write that failed, for `onCaptureError`. */
+export type CaptureWrite =
+  | 'appendRun'
+  | 'updateRun'
+  | 'appendSpan'
+  | 'updateSpan'
+  | 'appendEvent'
+  | 'appendBudgetEntry'
+  | 'appendArtifact'
+
+export type CaptureErrorHandler = (error: unknown, write: CaptureWrite) => void
+
+/** Parent state for one async context: open handles, then the enclosing `within` span. */
+interface ParentFrame {
+  parentSpanId: string | undefined
+  open: string[]
+}
+
 export interface TraceEmitterOptions {
   runId?: string
   /** Inject a clock for deterministic tests. */
@@ -63,16 +91,26 @@ export interface TraceEmitterOptions {
   onRunComplete?: RunCompleteHook[]
   /** `'swallow'` (default) | `'throw'`. */
   hookErrors?: 'swallow' | 'throw'
+  /**
+   * Called once per failed store write. The write is already counted as
+   * dropped; the handler reports it. Default: one process warning per emitter
+   * (code `AGENT_EVAL_TRACE_CAPTURE`) on the first failure. A handler that
+   * throws is ignored, because reporting must not break the traced run either.
+   */
+  onCaptureError?: CaptureErrorHandler
 }
 
 export class TraceEmitter {
   private store: TraceStore
-  private stack: string[] = []
+  private readonly context = new AsyncLocalStorage<ParentFrame>()
+  private readonly rootFrame: ParentFrame = { parentSpanId: undefined, open: [] }
   private _runId: string
   private now: () => number
   private id: () => string
   private hooks: RunCompleteHook[]
   private hookErrors: 'swallow' | 'throw'
+  private onCaptureError: CaptureErrorHandler
+  private capture: RunCaptureReport = { written: 0, dropped: 0 }
 
   constructor(store: TraceStore, options: TraceEmitterOptions = {}) {
     this.store = store
@@ -81,6 +119,7 @@ export class TraceEmitter {
     this._runId = options.runId ?? this.id()
     this.hooks = options.onRunComplete ?? []
     this.hookErrors = options.hookErrors ?? 'swallow'
+    this.onCaptureError = options.onCaptureError ?? warnOnFirstCaptureError(this._runId)
   }
 
   get runId(): string {
@@ -89,6 +128,38 @@ export class TraceEmitter {
 
   get traceStore(): TraceStore {
     return this.store
+  }
+
+  /** Store writes so far: how many landed, how many were dropped, and the last failure. */
+  captureStats(): RunCaptureReport {
+    return { ...this.capture }
+  }
+
+  /** The span a new span would be parented to in the current async context. */
+  currentSpanId(): string | undefined {
+    const frame = this.frame()
+    return frame.open[frame.open.length - 1] ?? frame.parentSpanId
+  }
+
+  private frame(): ParentFrame {
+    return this.context.getStore() ?? this.rootFrame
+  }
+
+  private async write(write: CaptureWrite, fn: () => Promise<unknown>): Promise<boolean> {
+    try {
+      await fn()
+      this.capture.written += 1
+      return true
+    } catch (error) {
+      this.capture.dropped += 1
+      this.capture.lastError = `${write}: ${error instanceof Error ? error.message : String(error)}`
+      try {
+        this.onCaptureError(error, write)
+      } catch {
+        // A failing reporter must not reach the traced run.
+      }
+      return false
+    }
   }
 
   /** Append a hook after construction (e.g. attach the trace analyst). */
@@ -119,23 +190,34 @@ export class TraceEmitter {
       startedAt: this.now(),
       status: 'running',
     }
-    await this.store.appendRun(full)
+    await this.write('appendRun', () => this.store.appendRun(full))
     return full
   }
 
+  /**
+   * End the Run. The final record carries `capture`: the store writes made
+   * before it and how many were dropped.
+   */
   async endRun(outcome?: RunOutcome): Promise<void> {
     const status: 'completed' | 'failed' = outcome?.pass === false ? 'failed' : 'completed'
-    await this.store.updateRun(this._runId, { endedAt: this.now(), status, outcome })
+    const capture = this.captureStats()
+    await this.write('updateRun', () =>
+      this.store.updateRun(this._runId, { endedAt: this.now(), status, outcome, capture }),
+    )
     await this.runHooks({ runId: this._runId, emitter: this, store: this.store, outcome, status })
   }
 
   async abortRun(reason: string): Promise<void> {
     const outcome = { pass: false, notes: reason }
-    await this.store.updateRun(this._runId, {
-      endedAt: this.now(),
-      status: 'aborted',
-      outcome,
-    })
+    const capture = this.captureStats()
+    await this.write('updateRun', () =>
+      this.store.updateRun(this._runId, {
+        endedAt: this.now(),
+        status: 'aborted',
+        outcome,
+        capture,
+      }),
+    )
     await this.runHooks({
       runId: this._runId,
       emitter: this,
@@ -151,8 +233,8 @@ export class TraceEmitter {
         await hook(ctx)
       } catch (err) {
         if (this.hookErrors === 'throw') throw err
-        try {
-          await this.store.appendEvent({
+        await this.write('appendEvent', () =>
+          this.store.appendEvent({
             eventId: this.id(),
             runId: this._runId,
             kind: 'log',
@@ -161,10 +243,8 @@ export class TraceEmitter {
               source: 'run_complete_hook',
               error: err instanceof Error ? err.message : String(err),
             },
-          })
-        } catch {
-          // best-effort
-        }
+          }),
+        )
       }
     }
   }
@@ -179,49 +259,65 @@ export class TraceEmitter {
       attributes?: Record<string, unknown>
     } & Partial<Omit<S, 'spanId' | 'runId' | 'startedAt' | 'kind' | 'name'>>,
   ): Promise<SpanHandle<S>> {
+    return this.open<S>(init, this.frame())
+  }
+
+  /**
+   * Create a span parented in the current async context. `frame` is the
+   * context the handle stays open in, or null for a `within` span, which
+   * parents its children through its own context instead.
+   */
+  private async open<S extends Span>(
+    init: { kind: SpanKind; name: string; parentSpanId?: string },
+    frame: ParentFrame | null,
+  ): Promise<SpanHandle<S>> {
     const spanId = this.id()
-    const parent = init.parentSpanId ?? this.stack[this.stack.length - 1]
+    const parent = init.parentSpanId ?? this.currentSpanId()
     const span = {
       spanId,
-      parentSpanId: parent,
       runId: this._runId,
       startedAt: this.now(),
       ...init,
+      parentSpanId: parent,
     } as unknown as S
-    await this.store.appendSpan(span)
-    this.stack.push(spanId)
-    return this.handle<S>(span)
+    frame?.open.push(spanId)
+    await this.write('appendSpan', () => this.store.appendSpan(span))
+    return this.handle<S>(span, frame)
   }
 
-  private handle<S extends Span>(span: S): SpanHandle<S> {
+  private handle<S extends Span>(span: S, frame: ParentFrame | null): SpanHandle<S> {
+    const close = () => {
+      if (!frame) return
+      const idx = frame.open.lastIndexOf(span.spanId)
+      if (idx >= 0) frame.open.splice(idx, 1)
+    }
     return {
       span,
       end: async (patch?: Partial<S>) => {
         const endedAt = this.now()
-        await this.store.updateSpan(span.spanId, {
-          endedAt,
-          status: 'ok',
-          ...patch,
-        } as Partial<Span>)
-        this.pop(span.spanId)
+        close()
+        await this.write('updateSpan', () =>
+          this.store.updateSpan(span.spanId, {
+            endedAt,
+            status: 'ok',
+            ...patch,
+          } as Partial<Span>),
+        )
       },
       fail: async (error: string | Error, patch?: Partial<S>) => {
         const endedAt = this.now()
         const errStr = error instanceof Error ? error.message : error
-        await this.store.updateSpan(span.spanId, {
-          endedAt,
-          status: 'error',
-          error: errStr,
-          ...patch,
-        } as Partial<Span>)
-        this.pop(span.spanId)
+        close()
+        await this.write('updateSpan', () =>
+          this.store.updateSpan(span.spanId, {
+            endedAt,
+            status: 'error',
+            error: errStr,
+            ...patch,
+          } as Partial<Span>),
+        )
       },
     }
-  }
-
-  private pop(spanId: string): void {
-    const idx = this.stack.lastIndexOf(spanId)
-    if (idx >= 0) this.stack.splice(idx, 1)
   }
 
   // ── Typed span conveniences ────────────────────────────────────────
@@ -258,7 +354,7 @@ export class TraceEmitter {
       status: 'ok',
       ...verdict,
     }
-    await this.store.appendSpan(full)
+    await this.write('appendSpan', () => this.store.appendSpan(full))
     return full
   }
 
@@ -278,12 +374,12 @@ export class TraceEmitter {
     const full: TraceEvent = {
       eventId: this.id(),
       runId: this._runId,
-      spanId: event.spanId ?? this.stack[this.stack.length - 1],
+      spanId: event.spanId ?? this.currentSpanId(),
       kind: event.kind,
       timestamp: this.now(),
       payload: event.payload ?? {},
     }
-    await this.store.appendEvent(full)
+    await this.write('appendEvent', () => this.store.appendEvent(full))
     return full
   }
 
@@ -300,9 +396,9 @@ export class TraceEmitter {
       consumed: entry.consumed,
       remaining: entry.remaining,
       breached: entry.breached,
-      spanId: entry.spanId ?? this.stack[this.stack.length - 1],
+      spanId: entry.spanId ?? this.currentSpanId(),
     }
-    await this.store.appendBudgetEntry(full)
+    await this.write('appendBudgetEntry', () => this.store.appendBudgetEntry(full))
     if (full.breached) {
       await this.emit({
         kind: 'budget_breach',
@@ -317,7 +413,7 @@ export class TraceEmitter {
 
   async recordArtifact(artifact: Omit<Artifact, 'artifactId' | 'runId'>): Promise<Artifact> {
     const full: Artifact = { artifactId: this.id(), runId: this._runId, ...artifact }
-    await this.store.appendArtifact(full)
+    await this.write('appendArtifact', () => this.store.appendArtifact(full))
     return full
   }
 
@@ -326,14 +422,18 @@ export class TraceEmitter {
   /**
    * Runs `fn` inside a span; auto-ends on success, auto-fails on throw.
    * Returns the fn's return value. Use this for the 95% case.
+   *
+   * `fn` runs in an async context of its own, so spans it opens are parented
+   * to this span even while sibling `within` calls run in parallel.
    */
   async within<T>(
     init: Parameters<TraceEmitter['span']>[0],
     fn: (handle: SpanHandle) => Promise<T>,
   ): Promise<T> {
-    const handle = await this.span(init)
+    const handle = await this.open<Span>(init, null)
+    const frame: ParentFrame = { parentSpanId: handle.span.spanId, open: [] }
     try {
-      const result = await fn(handle)
+      const result = await this.context.run(frame, () => fn(handle))
       await handle.end()
       return result
     } catch (err) {
@@ -344,3 +444,16 @@ export class TraceEmitter {
 }
 
 // Helpers -------------------------------------------------------------
+
+function warnOnFirstCaptureError(runId: string): CaptureErrorHandler {
+  let warned = false
+  return (error, write) => {
+    if (warned) return
+    warned = true
+    const reason = error instanceof Error ? error.message : String(error)
+    globalThis.process?.emitWarning?.(
+      `TraceEmitter run ${runId}: ${write} failed (${reason}); this and later failed writes are counted in the run's capture report.`,
+      { code: 'AGENT_EVAL_TRACE_CAPTURE' },
+    )
+  }
+}

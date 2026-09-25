@@ -56,6 +56,7 @@ export type RunIntegrityIssueCode =
   | 'no_raw_sink'
   | 'orphan_llm_span'
   | 'missing_outcome'
+  | 'dropped_writes'
 
 export interface RunIntegrityIssue {
   code: RunIntegrityIssueCode
@@ -177,6 +178,16 @@ export async function assertRunCaptured(
     issues.push({
       code: 'no_raw_sink',
       message: 'Raw coverage required but no rawSink supplied to the integrity check.',
+    })
+  }
+
+  // The producer's own count of failed store writes. Every threshold above
+  // counts what reached the store; this is the record of what did not.
+  if (run.capture && run.capture.dropped > 0) {
+    issues.push({
+      code: 'dropped_writes',
+      message: `Run ${runId} dropped ${run.capture.dropped} of ${run.capture.written + run.capture.dropped} store writes; its records are incomplete.`,
+      detail: { ...run.capture },
     })
   }
 

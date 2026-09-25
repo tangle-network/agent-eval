@@ -44,7 +44,6 @@ It also documents endpoint settings, rates, execution owners, and GEPA recipes.
 |---|---|---|
 | Register the rules before the data arrives | [`sealed-experiment`](./sealed-experiment/) | Offline |
 | Certify a result that has no answer key | [`verify-without-an-answer-key`](./verify-without-an-answer-key/) | Offline |
-| Track reps, verdicts, and evidence per candidate | [`experiment-evidence`](./experiment-evidence/) | Offline |
 
 ## Read Existing Data
 
