@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.189.0] — 2026-09-24
+
 ### Added
 
 - `RunRecord.search` (`{ searchId, nodeId, cellId, attempt }`) places a run at one attempt of one search cell; the validator requires `runId` to be `searchCellRunId(search)`, which is `cellId:attempt`.
