@@ -349,6 +349,9 @@ function parsePath(path: Obj, prefix: string): void {
   if (path.run !== undefined) {
     const run = object(path.run, at('run'))
     strictKeys(run, RUN_KEYS, at('run'))
+    if (run.requireCompleted !== undefined && run.requireCompleted !== true) {
+      throw new ValidationError(`${at('run.requireCompleted')}: must be true`)
+    }
     if (Array.isArray(run.allowedStatuses)) {
       run.allowedStatuses.forEach((status, i) => {
         oneOfValues(status, RUN_STATUSES, at(`run.allowedStatuses[${i}]`))
@@ -365,6 +368,9 @@ function parsePath(path: Obj, prefix: string): void {
     if (tools.maxCalls !== undefined) count(tools.maxCalls, at('tools.maxCalls'))
     if (tools.maxCallsPerTool !== undefined) {
       const perTool = object(tools.maxCallsPerTool, at('tools.maxCallsPerTool'))
+      if (Object.keys(perTool).length === 0) {
+        throw new ValidationError(`${at('tools.maxCallsPerTool')}: must not be empty`)
+      }
       for (const [tool, max] of Object.entries(perTool)) {
         nonEmptyString(tool, at('tools.maxCallsPerTool key'))
         count(max, at(`tools.maxCallsPerTool.${tool}`))
@@ -426,6 +432,13 @@ function parsePath(path: Obj, prefix: string): void {
   if (path.llm !== undefined) {
     const llm = object(path.llm, at('llm'))
     strictKeys(llm, LLM_KEYS, at('llm'))
+    if (
+      llm.maxCalls === undefined &&
+      llm.maxTotalTokens === undefined &&
+      llm.allowedModels === undefined
+    ) {
+      throw new ValidationError(`${at('llm')}: llm rule checks nothing`)
+    }
     if (llm.maxCalls !== undefined) count(llm.maxCalls, at('llm.maxCalls'))
     if (llm.maxTotalTokens !== undefined) count(llm.maxTotalTokens, at('llm.maxTotalTokens'))
     if (llm.allowedModels !== undefined) toolNames(llm.allowedModels, at('llm.allowedModels'))

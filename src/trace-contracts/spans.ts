@@ -9,6 +9,7 @@ import {
   type SpanKind,
   TOOL_NAME_ATTR_KEYS,
 } from '@tangle-network/agent-trace-contract'
+import { LLM_CACHE_WRITE_TOKENS, LLM_CACHED_TOKENS } from '../trace/attribute-vocabulary'
 import type { ContractSpan } from './types'
 
 // ── Span readers ──────────────────────────────────────────────────────
@@ -60,12 +61,23 @@ export function spanModel(span: ContractSpan): string | undefined {
   return firstStringAttr(span.attributes ?? {}, MODEL_ATTR_KEYS)
 }
 
-/** Input plus output tokens, or `undefined` when either side is unrecorded. */
+/**
+ * Input plus output tokens, or `undefined` when either side is unrecorded.
+ * Input follows the OTel GenAI definition — prompt tokens plus any cache
+ * read and cache write tokens the span records — because a cached call's
+ * `INPUT_TOKEN_ATTR_KEYS` value (`llm.token_count.prompt` and its aliases)
+ * carries only the uncached remainder, and a cache-heavy call can spend far
+ * more on cache reads and writes than on that remainder. `llm.maxTotalTokens`
+ * would otherwise pass runs at a small fraction of what they actually cost.
+ */
 export function spanTotalTokens(span: ContractSpan): number | undefined {
   const attributes = span.attributes ?? {}
   const input = finite(span.inputTokens) ?? firstNumberAttr(attributes, INPUT_TOKEN_ATTR_KEYS)
   const output = finite(span.outputTokens) ?? firstNumberAttr(attributes, OUTPUT_TOKEN_ATTR_KEYS)
-  return input === undefined || output === undefined ? undefined : input + output
+  if (input === undefined || output === undefined) return undefined
+  const cacheRead = firstNumberAttr(attributes, [LLM_CACHED_TOKENS]) ?? 0
+  const cacheWrite = firstNumberAttr(attributes, [LLM_CACHE_WRITE_TOKENS]) ?? 0
+  return input + output + cacheRead + cacheWrite
 }
 
 const ARGUMENT_ATTR_KEYS = ['gen_ai.tool.call.arguments', 'tool.arguments', 'input.value'] as const
