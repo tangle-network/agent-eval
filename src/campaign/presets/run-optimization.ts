@@ -82,6 +82,7 @@ import type {
 } from '../search-ledger-types'
 import { incumbent, type SearchPolicy } from '../search-policy'
 import type { SearchStateView } from '../search-state'
+import { renderSearchSummary, searchProposerView } from '../search-summary'
 import { type CampaignStorage, createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceDispatchRef, surfaceHash, surfaceHashMatches } from '../surface-identity'
 import {
@@ -404,6 +405,15 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       const context: ProposeContext<ProposalFinding> = Object.freeze({
         currentSurface: immutableProposalSnapshot(parent.artifact, 'current surface'),
         operator: request.operator,
+        parents: immutableProposalSnapshot(
+          request.parents.map(({ nodeId, artifact }) => ({
+            nodeId,
+            artifact: immutableProposalSnapshot(artifact, 'parent surface'),
+          })),
+          'parents',
+        ),
+        train: searchProposerView(state),
+        summary: renderSearchSummary(state, { split: 'train' }),
         history: proposalHistory,
         findings: immutableProposalSnapshot(
           assertProposalFindings(findings, 'runOptimization proposal findings'),

@@ -114,6 +114,28 @@ Its variance is the search's pooled between-unit variance of those improvements 
 The root sits at exactly 0, and the pooled variance stays null until some node shares 2 units with the root.
 Posterior numbers steer spend and claim nothing; a claim comes from the sealed test split.
 
+## The agent's view
+
+`renderSearchSummary(state, { split, limit? })` turns a `SearchStateView` into compact text: the leading nodes against the root with their estimates, the most recently discarded nodes with the measurement that discarded them, and a log of recent proposals — as AIDE's journal summary does.
+`agent-eval search show <ledger>` verifies a ledger and prints this for a terminal, on the search's own ranking split (`selection` when the search declares one, else `train`); there is no local HTML renderer.
+
+```ts
+import { renderSearchSummary, searchProposerView } from '@tangle-network/agent-eval/campaign'
+
+renderSearchSummary(state, { split: 'train' })
+// search s1 — vb/coder — maximize composite
+//   12 nodes · 34 settled cells (2 open) · $1.42 known
+//   status: open
+//
+// Leading nodes (vs root, train split):
+//   node_… (advanced rung 2): Δ=+0.0821 [0.0340, 0.1290] dashed, sign p=0.0156 (8 units)
+// ...
+```
+
+`ProposeContext.train` (a `SearchProposerView`) and `ProposeContext.summary` (this text, always rendered on `split: 'train'`) are how `runOptimization`'s proposal step hands a proposer the search so far.
+`searchProposerView(state)` has no parameter that can select another split: its `scoredCells`/`unitScores` always read `'train'`, so a proposer built on it cannot reach the sealed selection or test split even by mistake.
+`ProposeContext.parents` carries every parent the policy chose, primary first, with its artifact — `currentSurface` is `parents[0].artifact`; a `merge` proposal needs every parent, and the built-in `incumbent`/`crowdedFrontierParent` policies always choose one.
+
 ## Record a search
 
 `SearchRecorder` writes each fact the moment it exists.
@@ -263,6 +285,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-ledger.ts`: schemas, canonical ordering, the codec, and `FileSearchLedger`.
 - `src/campaign/search-state.ts`: `SearchState`, the invariants and read model, and the id functions.
 - `src/campaign/estimate-node.ts`: `estimateNode`, `estimateNodeFromCells` and `searchPosterior`.
+- `src/campaign/search-summary.ts`: `renderSearchSummary` and `searchProposerView`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, and `searchPolicyView`.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.

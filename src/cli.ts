@@ -8,6 +8,7 @@
  *   agent-eval analyst-benchmark ... # benchmark a real-model trace analyst
  *   agent-eval supervisor-run report <runDir> [--format headline|markdown|json]
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval
+ *   agent-eval search show <search-ledger.jsonl>
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -90,6 +91,9 @@ Commands:
   search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
         Ship a search ledger and its blobs to the hosted store in TANGLE_INGEST_URL,
         starting from the store's head. Run with --help for the environment it reads.
+  search show <search-ledger.jsonl>
+        Verify a search ledger and print its summary: leading nodes, recently
+        discarded nodes and recent proposals, the same text a proposer reads.
   version
         Print server + wire-protocol version JSON.
 
