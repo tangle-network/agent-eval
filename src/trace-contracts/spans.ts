@@ -43,7 +43,7 @@ export function contractSpanKind(span: ContractSpan): SpanKind {
 /**
  * Tool name: `span.toolName` (typed ToolSpan) → the tool-name attributes
  * (`gen_ai.tool.name`, `tool.name`, ..., `toolName`) → `span.name` when the
- * span is a TOOL span (otel-bridge's `ExportableSpan` drops `toolName`).
+ * span is a TOOL span.
  */
 export function contractSpanToolName(span: ContractSpan): string | undefined {
   if (typeof span.toolName === 'string') return span.toolName

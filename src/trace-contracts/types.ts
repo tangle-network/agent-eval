@@ -6,8 +6,7 @@ import type { DefaultVerdict } from '../verdict'
 
 /**
  * Minimal structural span the checker reads. The eval-side `Span`
- * (trace/schema), the otel-bridge `ExportableSpan`, and the output of
- * {@link contractSpansFromOtlp} all satisfy it.
+ * (trace/schema) and the output of {@link contractSpansFromOtlp} satisfy it.
  */
 export interface ContractSpan {
   spanId?: string
@@ -22,7 +21,7 @@ export interface ContractSpan {
   /** Typed field on eval-side ToolSpans; OTLP flattenings drop it (see
    *  {@link contractSpanToolName}). */
   toolName?: string
-  /** Typed field on eval-side LlmSpans and ExportableSpans. */
+  /** Typed field on eval-side LlmSpans. */
   model?: string
   inputTokens?: number
   outputTokens?: number
