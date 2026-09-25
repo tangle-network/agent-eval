@@ -65,7 +65,7 @@ export function describeRule(rule: ContractRule): string {
       return `spans matching ${describePredicate(rule.p)} use at most ${rule.max} tokens in total`
     case 'run': {
       const parts: string[] = []
-      if (rule.requireCompleted) parts.push('the run reached a terminal status')
+      if (rule.requireCompleted) parts.push('the run completed and recorded its end')
       if (rule.allowedStatuses)
         parts.push(`its status is one of ${rule.allowedStatuses.join(', ')}`)
       if (rule.maxDurationMs !== undefined) parts.push(`it took at most ${rule.maxDurationMs} ms`)

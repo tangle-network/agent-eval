@@ -6,6 +6,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
+  It used to accept any terminal status, so a run that ended in an error passed.
+  Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
+
 ### Added
 
 - Trace contracts check what the harness enforced and whether a call repeated a side effect.

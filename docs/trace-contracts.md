@@ -27,7 +27,7 @@ Write the contract as JSON and compile it with `compileTraceContractSpec`:
 
 | Key | Checks |
 |---|---|
-| `run.requireCompleted` | The run reached a terminal status and recorded an end time. |
+| `run.requireCompleted` | The run status is `completed` and its end time is recorded. A failed or aborted run fails. |
 | `run.allowedStatuses` | The run status is one of `running`, `completed`, `failed`, `aborted`. |
 | `run.maxDurationMs` | End minus start. An unknown duration fails. |
 | `tools.required` | Each tool is called at least once. |

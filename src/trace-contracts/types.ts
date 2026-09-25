@@ -115,7 +115,8 @@ export interface RetryWrite {
 }
 
 export interface RunChecks {
-  /** The run reached a terminal status (not `running`) with a recorded end. */
+  /** The run's status is `completed` and its end time is recorded. A failed
+   *  or aborted run fails this check. */
   requireCompleted?: boolean
   /** The run's status must be one of these. */
   allowedStatuses?: RunStatus[]
