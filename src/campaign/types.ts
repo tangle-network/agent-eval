@@ -318,9 +318,15 @@ export interface ScoredSurfaceOutcome {
 /** Search state supplied to one candidate-generation call.
  *  Final evaluation data is not represented in this contract. */
 export interface ProposeContext<TFindings = ProposalFinding> {
-  /** The parent surface this proposal mutates: the global incumbent by
-   *  default, or the frontier parent a `selectParent` policy drew. */
+  /** The parent surface this proposal mutates: the node the search policy
+   *  chose (the incumbent by default). */
   readonly currentSurface: MutableSurface
+  /** How the child should derive from the parent: `improve` for a hill-climb
+   *  step; other policies ask for `draft`, `debug` or `merge`. Absent outside
+   *  a search. */
+  readonly operator?: 'draft' | 'improve' | 'debug' | 'merge'
+  /** One record per earlier proposal: its candidates' measurements and the
+   *  candidate that took the lead, if any. */
   readonly history: ReadonlyArray<GenerationRecord>
   readonly findings: ReadonlyArray<TFindings>
   /** BREADTH: how many candidate surfaces to return this generation. */
@@ -336,8 +342,8 @@ export interface ProposeContext<TFindings = ProposalFinding> {
    *  candidate must beat to promote. `runOptimization` always supplies it. */
   readonly incumbentOutcome?: ScoredSurfaceOutcome
   /** Measured result for `currentSurface`, the parent this proposal mutates.
-   *  Equal to `incumbentOutcome` unless the run draws parents from the Pareto
-   *  frontier through `selectParent`. `runOptimization` always supplies it. */
+   *  Equal to `incumbentOutcome` unless the policy draws parents from the Pareto
+   *  frontier. `runOptimization` always supplies it. */
   readonly parentOutcome?: ScoredSurfaceOutcome
   /** DEPTH: max iterations the agentic generator may take per candidate.
    *  1 = single-shot; >1 = it may iterate on its own change before handing it
@@ -664,17 +670,10 @@ export interface GenerationRecord {
  *  handled — the evidence a blind `Mutator` cannot see. */
 export interface GenerationCandidate {
   surfaceHash: string
-  /** Mean over complete task-quality scores, or null when none were produced. */
+  /** Mean over complete task-quality scores, or null when none were produced.
+   *  Lineage and paired contrasts live in the search ledger: read the node's
+   *  edges from its `SearchStateView` and its contrast from `estimateNode`. */
   composite: number | null
-  /** Estimated interval for `composite`, or null when uncertainty was not estimated. */
-  ci95: [number, number] | null
-  /** Exact surface this candidate mutated. */
-  parentSurfaceHash?: string
-  /** Measured search-split composite of the exact parent surface. */
-  parentComposite?: number
-  /** Candidate composite minus its parent's composite. Present only when the
-   *  candidate completed the designed denominator. */
-  observedDeltaFromParent?: number
   /** Whether this candidate had a scorable result for every designed campaign
    *  cell and was therefore eligible for ranking, promotion, and Pareto
    *  selection. */

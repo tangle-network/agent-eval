@@ -21,6 +21,7 @@
  * overspend, never refused.
  */
 
+import { hashCanonical } from '../ledger-core/canonical'
 import { redactText } from '../trace/redact'
 import type { SearchAllocator, SearchCellPlan } from './allocation'
 import { estimateNode } from './estimate-node'
@@ -50,6 +51,34 @@ import {
   type SearchStateView,
   searchCellId,
 } from './search-state'
+
+/**
+ * Every rule the kernel's decisions depend on. Its digest is the kernel's
+ * revision in a ledger's `process.executionRef`; change a value here whenever
+ * a rule changes, so the revision moves with it.
+ */
+const KERNEL_DEFINITION = {
+  name: 'tangle.search-kernel.2026-09',
+  dispatch:
+    'claim, then rung and root, then screen, then train; first allocated first within a stage',
+  expansion:
+    'when no cell waits, fewer than twice the lanes capacity run, and the cap admits one proposal and its expected screens',
+  reservation: {
+    hard: 'the lane per-cell maximum',
+    estimate: '1.5 times the p99 of the lane settled cells once 20 settled, else the lane prior',
+  },
+  retries: 'a retryable errored attempt runs again, up to maxAttempts',
+  resume:
+    'an unrecorded operation is recorded failed at an unknown cost with floor 0; a recorded proposal is finished from its stored output; an unsettled cell is offered to adopt before it runs',
+  close:
+    'the policy leader is selected when it has a scored cell; every other undecided node is rejected',
+} as const
+
+/** The kernel every `runSearch` ledger names as its search implementation. */
+export const SEARCH_KERNEL_SOURCE: SearchSourceRef = {
+  uri: 'npm:@tangle-network/agent-eval#runSearch',
+  revision: hashCanonical(KERNEL_DEFINITION),
+}
 
 const USD_TOLERANCE = 1e-9
 /** Settled cells a lane needs before its own cost distribution sets its estimate. */
@@ -140,8 +169,19 @@ export interface SearchProposalRequest<TArtifact> {
   signal: AbortSignal
 }
 
+/** One child a proposal returned. */
+export interface SearchProposedChild<TArtifact> {
+  artifact: TArtifact
+  label: string
+  /** The proposer's reason; redacted with the share profile before it is stored. */
+  rationale: string
+  /** Typed JSON the proposer attaches to the child, stored with the proposal
+   * and never interpreted by the kernel. */
+  attribution?: Readonly<Record<string, unknown>>
+}
+
 export interface SearchProposalResult<TArtifact> {
-  children: ReadonlyArray<{ artifact: TArtifact; label: string; rationale: string }>
+  children: ReadonlyArray<SearchProposedChild<TArtifact>>
   /** Set when the proposer judges the search converged; expansion stops. */
   stop?: string
   /** What generated the children; default the port's `execution`. */
@@ -229,7 +269,7 @@ type Completion =
     }
 
 /** The stored output of one proposal: enough to register its children again. */
-interface ProposalBlob {
+export interface SearchProposalBlob {
   kind: 'search-proposal'
   operator: SearchProposalRequest<unknown>['operator']
   parents: string[]
@@ -239,6 +279,7 @@ interface ProposalBlob {
     diffs: Array<SearchArtifactRef | SearchUnknown>
     label: string
     rationale: string
+    attribution: Readonly<Record<string, unknown>> | null
     invalid: string | null
   }>
 }
@@ -738,7 +779,7 @@ class SearchKernel<TArtifact> {
       nodeId: string
       artifact: TArtifact
     }>
-    const blob: ProposalBlob = {
+    const blob: SearchProposalBlob = {
       kind: 'search-proposal',
       operator: completion.request.operator,
       parents: parents.map((parent) => parent.nodeId),
@@ -748,6 +789,7 @@ class SearchKernel<TArtifact> {
         diffs: parents.map((parent) => codec.diff(this.recorder, parent.artifact, child.artifact)),
         label: redactText(child.label, { profile: 'share' }),
         rationale: redactText(child.rationale, { profile: 'share' }),
+        attribution: child.attribution ?? null,
         invalid: admit?.(child.artifact) ?? null,
       })),
     }
@@ -774,7 +816,7 @@ class SearchKernel<TArtifact> {
     const operation = this.state.operation(operationId)
     const ref = operation?.artifacts.find((artifact) => artifact.role === 'proposal')
     if (!operation?.recorded || operation.outcome !== 'completed' || !ref) return
-    const blob = this.recorder.readBlob(ref) as ProposalBlob
+    const blob = this.recorder.readBlob(ref) as SearchProposalBlob
     const { proposer } = this.options
     for (const [index, child] of blob.children.entries()) {
       const { nodeId } = await this.recorder.registerNode(child.node)
@@ -874,26 +916,11 @@ class SearchKernel<TArtifact> {
   // ── Reads ───────────────────────────────────────────────────────────
 
   private policyView(): SearchPolicyView {
-    const state = this.state
-    const header = state.header!
-    const split = header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
-    const screened = [...this.screened]
-    return {
-      searchId: state.searchId,
-      seed: header.policy.seed,
-      direction: header.objective.direction,
-      split,
-      rootNodeId: state.rootNodeId!,
-      expansions: this.expansions,
-      screened,
+    return searchPolicyView(this.state, {
+      screened: this.screened,
       screening: this.admitted.size - this.screenedSet.size,
-      complete: (nodeId) => {
-        const cells = state.cells({ nodeId }).filter((cell) => cell.split === split)
-        return cells.length > 0 && cells.every((cell) => cell.score !== null)
-      },
-      unitScores: (nodeId) => state.unitScores(nodeId, split),
-      estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
-    }
+      expansions: this.expansions,
+    })
   }
 
   private artifact(nodeId: string): TArtifact {
@@ -938,6 +965,37 @@ class SearchKernel<TArtifact> {
 
   private async refresh(): Promise<void> {
     this.state = await this.recorder.state()
+  }
+}
+
+/**
+ * A policy's read of a search: `screened` lists the admitted nodes whose screen
+ * finished, in registration order; `screening` counts the admitted nodes still
+ * being screened. Nodes are ranked on the selection split, or on train when
+ * the search declares no selection split. The view reads no test cell.
+ */
+export function searchPolicyView(
+  state: SearchStateView,
+  input: { screened: readonly string[]; screening: number; expansions: number },
+): SearchPolicyView {
+  const header = state.header
+  if (!header) throw new Error(`search ${state.searchId} has not been opened`)
+  const split = header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
+  return {
+    searchId: state.searchId,
+    seed: header.policy.seed,
+    direction: header.objective.direction,
+    split,
+    rootNodeId: state.rootNodeId!,
+    expansions: input.expansions,
+    screened: [...input.screened],
+    screening: input.screening,
+    complete: (nodeId) => {
+      const cells = state.cells({ nodeId }).filter((cell) => cell.split === split)
+      return cells.length > 0 && cells.every((cell) => cell.score !== null)
+    },
+    unitScores: (nodeId) => state.unitScores(nodeId, split),
+    estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
   }
 }
 

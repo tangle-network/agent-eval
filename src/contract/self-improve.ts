@@ -316,24 +316,14 @@ export interface SelfImproveOptions<TScenario extends Scenario, TArtifact>
    *  (a findings-grounded proposer consumes them). Default: none. */
   findings?: ProposalFinding[]
 
-  /** Override how the WINNER is selected among coverage-complete candidates.
-   *  Defaults to the scalar mean composite (historical behavior). A binary-with-
-   *  replicates consumer whose ship-gate counts an instance resolved only when
-   *  every replicate resolved passes a fail-closed lexicographic key here so that
-   *  winner-selection and the ship-gate rank on the identical metric and cannot
-   *  invert. See `RunOptimizationOptions.selectionRankKey`. */
-  selectionRankKey?: RunOptimizationOptions<TScenario, TArtifact>['selectionRankKey']
+  /** Which measured surface each proposal extends and which one the run
+   *  keeps. Default `incumbent()`: the hill climb. Pass
+   *  `crowdedFrontierParent({ seed })` to draw parents from the Pareto
+   *  frontier. Proposer mode only. See `RunOptimizationOptions.policy`. */
+  policy?: RunOptimizationOptions<TScenario, TArtifact>['policy']
 
-  /** Override which scored surface each generation MUTATES. Defaults to the
-   *  global incumbent (hill-climb; the recorded lineage is a chain). Pass
-   *  `crowdedFrontierParent({ seed })` or a custom policy to draw the parent
-   *  from the Pareto frontier; promotion still compares against the incumbent.
-   *  Proposer mode only. See `RunOptimizationOptions.selectParent`. */
-  selectParent?: RunOptimizationOptions<TScenario, TArtifact>['selectParent']
-
-  /** Record this run's candidate search into a durable `SearchLedger` and
-   *  return the bounded receipt on `searchHistory`. See
-   *  `RunOptimizationOptions.searchLedger`. */
+  /** Where the run's search ledger goes and the identities it records. The
+   *  ledger is always written; see `RunOptimizationOptions.searchLedger`. */
   searchLedger?: RunOptimizationOptions<TScenario, TArtifact>['searchLedger']
   /** Complete-method final measurement receipts; authority and environment remain caller-owned. */
   evidence?: CampaignEvidenceContext
@@ -395,8 +385,8 @@ export interface SelfImproveProposerResult<TScenario extends Scenario, TArtifact
   /** Run-wide receipts across proposal, search, holdout, judging, analysis,
    *  and promotion work, with phase and actor attribution. */
   receipts: CostReceipt[]
-  /** Bounded proof envelope over this run's canonical search ledger. Present
-   *  only when `searchLedger` was supplied. */
+  /** Bounded proof envelope over this run's search ledger: always present in
+   *  proposer mode, and in method mode when the method recorded a search. */
   searchHistory?: SearchHistoryReceipt
   /** Exact external method and source identity, when `method` was used. */
   optimization?: {
@@ -503,13 +493,12 @@ function assertSelfImproveSearchMode<TScenario extends Scenario, TArtifact>(
     budget?.maxImprovementShots !== undefined ||
     opts.analyzeGeneration !== undefined ||
     opts.findings !== undefined ||
-    opts.selectParent !== undefined ||
+    opts.policy !== undefined ||
     opts.premeasuredBaseline !== undefined ||
-    opts.selectionRankKey !== undefined ||
     opts.searchLedger !== undefined
   ) {
     throw new Error(
-      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, findings, selectParent, premeasuredBaseline, selectionRankKey, and searchLedger apply only to proposer mode',
+      'selfImprove: candidateConcurrency, maxImprovementShots, analyzeGeneration, findings, policy, premeasuredBaseline, and searchLedger apply only to proposer mode',
     )
   }
 }
@@ -842,8 +831,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     captureSource: opts.captureSource,
     analyzeGeneration: opts.analyzeGeneration,
     findings: opts.findings,
-    selectionRankKey: opts.selectionRankKey,
-    selectParent: opts.selectParent,
+    policy: opts.policy,
     searchLedger: opts.searchLedger,
   })
 
@@ -978,7 +966,7 @@ async function runSelfImprove<TScenario extends Scenario, TArtifact>(
     totalCostUsd: totalCost,
     cost,
     receipts: costLedger.list(),
-    ...(result.searchHistory ? { searchHistory: result.searchHistory } : {}),
+    searchHistory: result.searchHistory,
     insight,
     ...(power ? { power } : {}),
     raw: result,
