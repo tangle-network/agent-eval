@@ -82,8 +82,8 @@ function statusOf(outcomes: readonly RuleOutcome[]): ContractStatus {
 
 /**
  * Evaluate one contract over a span sequence. Pure and synchronous — works on
- * `Span[]` from a TraceStore, `ExportableSpan[]` from the otel-bridge
- * flattening, or any array satisfying `ContractSpan`. Throws
+ * `Span[]` from a TraceStore, `contractSpansFromOtlp` output, or any array
+ * satisfying `ContractSpan`. Throws
  * `ValidationError` for a malformed contract; a rule that cannot be evaluated
  * is reported as `error` in the verdict instead.
  */
@@ -220,6 +220,8 @@ function rulePredicates(rule: ContractRule): SpanPredicate[] {
     case 'neverUnless':
       return [rule.p, rule.prior]
     case 'run':
+    case 'toolsOffered':
+    case 'retrySafe':
       return []
     default:
       return [rule.p]

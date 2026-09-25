@@ -48,7 +48,7 @@ export type SafetyCategory = 'credential' | 'personal-data' | 'identifier' | 'ra
  * redaction behavior (saved optimizer inputs, per-span redaction stamps) keys
  * on it, so bump it whenever a detector, key list, cap or marker changes.
  */
-export const REDACTION_VERSION = '2.0.0'
+export const REDACTION_VERSION = '2.1.0'
 
 export interface RedactionFinding {
   /** JSON Pointer (RFC 6901) to the value or key that was changed. */
@@ -75,9 +75,11 @@ export interface RedactOptions {
   maxStringBytes?: number
   /**
    * Exact values the caller knows are secret (an API key the run was given, a
-   * password from the environment). A string or key that contains one, or its
-   * base64, base64url or URL-encoded form, is replaced whole with
-   * `[REDACTED:known-secret]`, whatever shape the value has.
+   * password from the environment), whatever shape they have. Each occurrence
+   * in a string, as written or base64, base64url or URL-encoded, becomes
+   * `[REDACTED:known-secret]` and the text around it is kept. A key that
+   * contains one, and a whole-string base64 payload that holds one at any byte
+   * offset, is replaced whole.
    */
   knownSecrets?: readonly string[]
   /** Add this call's findings to an existing report instead of a new one. */
@@ -667,17 +669,26 @@ function truncateUtf8(text: string, maxBytes: number): string | undefined {
 
 function redactStringAt(text: string, path: string, state: WalkState): string {
   if (isPlaceholder(text)) return text
-  if (DATA_URI.test(text)) {
-    if (!state.rules.redactMedia) return text
+  // A known secret is an exact value, so it is cut out where it stands and the
+  // text around it survives: an error message keeps its diagnosis.
+  let output = text
+  for (const form of state.knownSecrets) {
+    if (!output.includes(form)) continue
+    output = output.split(form).join(marker('known-secret'))
+    record(state, path, 'credential', 'known-secret', 'redacted')
+  }
+  if (DATA_URI.test(output)) {
+    if (!state.rules.redactMedia) return output
     record(state, path, 'media', 'media', 'redacted')
     return marker('media')
   }
-  const credential = credentialIn(text, state.knownSecrets)
+  // A value shape, or a whole-string base64 payload that holds a known secret
+  // at any byte offset, replaces the whole string.
+  const credential = credentialIn(output, state.knownSecrets)
   if (credential) {
     record(state, path, 'credential', credential, 'redacted')
     return marker(credential)
   }
-  let output = text
   for (const detector of PERSONAL_DATA_DETECTORS) {
     if (detector.requires && !output.includes(detector.requires)) continue
     output = output.replace(detector.pattern, (match) => {

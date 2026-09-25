@@ -6,9 +6,58 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Changed
+
+- **Breaking:** the search ledger records a search as nodes, edges and cells instead of candidate slots.
+  Its schema tag is `tangle.search-ledger.2026-09`; a ledger under any other tag, including `tangle.search-ledger.v1`, is refused with the tag named and is not translated.
+  Events: `search-opened`, `operation-started`, `operation-recorded`, `node-registered`, `edge-recorded`, `cell-allocated`, `cell-settled`, `cell-cancelled`, `node-decided`, `search-closed` ([search ledger](./docs/search-ledger.md)).
+  A node is content-addressed (`searchNodeId(searchId, artifactDigest)`), so a re-proposal is a second edge into it; an edge's attribution is `explicit`, `correlated` or `unknown`; a cell is one node on one task in one split at one repeat, and its attempts run `cellId:attempt`.
+  The ledger enforces the split seal (only the root and finalists run test cells), held-out test units, retries only after a retryable error, and a dollar admission rule over committed spend, open reservations and the claim reserve.
+- **Breaking:** `SearchState` replaces the replay projection.
+  `ledger.state()` and every `append` return a `SearchStateView` whose audit holds counts and sums only, and whose node, edge, cell and unit-score reads go to live indexes; a view read after the ledger moved on throws.
+  Taking a view costs the same at any search size: apply plus snapshot measured 2.6 to 5.6 µs per entry across a generated 100,000-entry search, and `FileSearchLedger.append` CPU stayed at 2.8 to 3.0 ms from the first to the 2,000th append.
+  `state.lineage(record.search)` is the `searchLineage` resolver `mintRolloutRows` takes.
+- **Breaking:** `openSearchLedger({ path, searchId })` replaces `campaignId`, and `ledger.state()` replaces `replay()`.
+- **Breaking:** `SearchRecorder` writes a search as it runs: `open`, `registerNode`, `recordEdge` (the rationale and label are redacted with the `share` profile; one diff blob per parent), `allocateCell`, `settleCell` (optionally binding the attempt's RunRecord, whose coordinates must match), `cancelCell`, `startOperation`, `recordOperation`, `decideNode`, `close`, and `receipt`.
+  Content goes to content-addressed blobs beside the ledger.
+- **Breaking:** `runOptimization({ searchLedger })` records live through the recorder: the baseline as the seeded root with its cells, one candidate-generation operation per generation, one node and `explicit` edge (with the proposer's redacted rationale and the parent-to-child surface diff) per candidate, cells allocated before each campaign and settled after it, and one decision per node.
+  Its scenarios are the train split, and it makes no claim.
+- **Breaking:** `gepaOptimizationMethod({ searchLedger })` records GEPA through `importGepaPopulation` (population entries as nodes with `correlated` edges; collapsed duplicates reported) and `importExternalEvaluations` (every callback evaluation as an `external` cell; a candidate GEPA kept out of its population gets an `unknown` edge and is decided `pruned`).
+- **Breaking:** a `SearchHistoryReceipt` (schema `2026-09`) is built from the ledger's bytes by `createSearchHistoryReceipt({ producerId, runId, ledger })`, binds their raw SHA-256, and is complete exactly when the ledger holds `search-closed`.
+  `require-complete` therefore means the search closed with every cell, operation and node accounted for.
+  `assertSearchHistoryMatchesState` replaces `assertSearchHistoryMatchesReplay`.
+- Migration: rebuild a search's ledger with the recorder; there is no translation from the candidate-slot format. Replace `openSearchLedger({ campaignId })` with `searchId`, `replay()` with `state()`, `recordCandidatePopulationSearch` with `importGepaPopulation`, and read counts from `state.audit`.
+- The diagnosis engine's skipped arm-vs-arm comparison now says where that comparison lives: `diffSteps` from `/pipelines`, which `traces diff <file>#branch=<a> <file>#branch=<b>` runs.
+- A trace contract's `run.requireCompleted` passes only for a run whose status is `completed`; a failed or aborted run now fails it.
+  It used to accept any terminal status, so a run that ended in an error passed.
+  Lint reports `run.completed-not-allowed` when `allowedStatuses` excludes `completed`.
+- `REDACTION_VERSION` is `2.1.0`, because the `json-secret` detector and in-place known-secret removal change what the redaction core removes.
+  Work keyed on the version, such as a traces upload's dedup identity, sees the change.
+- `knownSecrets` are cut out where they stand instead of replacing the whole string, so `redactText('cleanup failed: <key> was still set', { knownSecrets: [key] })` keeps `cleanup failed:` and `was still set`.
+  A whole-string base64 payload that holds a known secret at any byte offset is still replaced whole, and value shapes such as bearer tokens still replace the whole string.
+
+### Removed
+
+- The candidate-slot ledger: `SearchPlan`, candidate slots, `search-planned`, `search-plan-extended`, `candidate-registered`, `candidate-slot-closed`, `task-attempted`, `candidate-decided`, `search-completed`, `lineageNodeId`, `SearchLedgerReplay`, `SearchLedgerAudit`, `search-ledger-projector.ts`, and `recordCandidatePopulationSearch`.
+- The search-ledger, search-history receipt, `runOptimization` ledger and comparison-history unit tests. The proof is the two real VerticalBench GEPA climbs imported through the recorder and the GEPA importer, replayed from bytes, and checked against every invariant.
+
 ### Added
 
+- Trace contracts check what the harness enforced and whether a call repeated a side effect.
+  `tools.enforced: true` (the `toolsOffered` rule) reads the tools offered to the model from the OTel GenAI `gen_ai.tool.definitions` attribute.
+  It fails when no span records them, when a call names a tool that was never offered, or when the harness offered a tool that `tools.allowed` does not declare.
+- `retries: { reads, writes }` (the `retrySafe` rule) treats a tool called again with the same arguments as a repeat of its side effect.
+  Reads may repeat, a write may repeat only when every call carries one idempotency key at its `idempotencyKey` pointer, and any other tool may not repeat.
+  The key is left out of the comparison, so a retry under a new key still counts as the same charge.
+
 - The redaction core's `json-secret` detector removes a quoted credential field with a quoted value inside serialized text, such as `{"password": "hunter2"}`, whatever the value's length. Placeholders (`$VAR`, `{env:VAR}`, `[REDACTED…]`) and prose descriptions do not match.
+
+### Removed
+
+- `createOtelExporter`, `createOtelTracingStore` and their types (`OtelExporter`, `OtelExportConfig`, `ExportableSpan`) are gone from `/traces`.
+  The exporter never read the collector's response and dropped a failed batch in an empty `catch`, with no size limit on its queue.
+  No repository in the 2026-08-21 consumer sweep imported either function.
+  Post `exportRunAsOtlp` output yourself, or stream with `createOtelExporter` from `@tangle-network/agent-runtime`, which counts written and dropped spans.
 
 ## [0.189.0] — 2026-09-24
 

@@ -131,8 +131,8 @@ These controls check the evidence behind a result.
 They do not establish that an optimizer beats a direct edit or simple search.
 The [historical evidence audit](./docs/design/self-improvement-evidence-audit.md) records prior gains, failed transfer, and missing comparisons.
 
-Set `searchHistoryPolicy: 'require-complete'` when every attempted search slot must be accounted for before final evidence is exposed.
-The [search-history receipt](./docs/search-history-receipts.md) binds the planned denominator to Eval's existing search ledger.
+Set `searchHistoryPolicy: 'require-complete'` when a method's search must be closed, with every cell, operation and node accounted for, before final evidence is exposed.
+The [search ledger](./docs/search-ledger.md) records every search as nodes, edges and cells, and its receipt is the bounded proof.
 
 A `gateDecision` is `ship`, `hold`, `need_more_work`, `model_ceiling`, or `arch_ceiling`.
 Gate contributions distinguish missing evidence from measured failures and successful checks.

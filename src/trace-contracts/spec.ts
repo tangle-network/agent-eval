@@ -12,7 +12,12 @@
  *     "allowed": ["lookup_order", "issue_refund", "send_email"],
  *     "maxCalls": 20,
  *     "requiredOrder": ["lookup_order", "issue_refund"],
- *     "arguments": [{ "tool": "issue_refund", "pointer": "/amount", "type": "number" }]
+ *     "arguments": [{ "tool": "issue_refund", "pointer": "/amount", "type": "number" }],
+ *     "enforced": true
+ *   },
+ *   "retries": {
+ *     "reads": ["lookup_order"],
+ *     "writes": [{ "tool": "issue_refund", "idempotencyKey": "/idempotency_key" }]
  *   },
  *   "llm": { "maxCalls": 10, "maxTotalTokens": 50000, "allowedModels": ["claude-sonnet-4-5"] },
  *   "alternatives": { "anyOf": [{ "id": "cache-hit", "tools": { "required": ["read_cache"] } }] }
@@ -40,6 +45,7 @@ import {
   type ContractRule,
   ORDER_MODES,
   type OrderMode,
+  type RetryWrite,
   RUN_STATUSES,
   type RunChecks,
   type SpanPredicate,
@@ -76,6 +82,18 @@ export interface ToolsSpec {
   /** Default `start-order`. */
   orderMode?: OrderMode
   arguments?: ToolArgumentSpec[]
+  /** The trace records the tools the harness offered the model
+   *  (`gen_ai.tool.definitions`), every call is one of them, and, with
+   *  `allowed`, every offered tool is allowed. */
+  enforced?: true
+}
+
+export interface RetriesSpec {
+  /** Tools that change nothing outside the run: repeating a call is safe. */
+  reads?: string[]
+  /** Tools that change state outside the run: a repeated call must carry one
+   *  idempotency key. Any other tool called twice with the same arguments fails. */
+  writes?: RetryWrite[]
 }
 
 export interface LlmSpec {
@@ -91,6 +109,7 @@ export interface PathSpec {
   run?: RunChecks
   tools?: ToolsSpec
   llm?: LlmSpec
+  retries?: RetriesSpec
   /** Low-level rules in their serialized form. */
   rules?: ContractRule[]
 }
@@ -110,7 +129,7 @@ export interface TraceContractSpec extends PathSpec {
   alternatives?: { anyOf: AlternativeSpec[] }
 }
 
-const PATH_KEYS = ['run', 'tools', 'llm', 'rules'] as const
+const PATH_KEYS = ['run', 'tools', 'llm', 'retries', 'rules'] as const
 const SPEC_KEYS = ['name', 'description', 'scope', 'alternatives', ...PATH_KEYS] as const
 const ALTERNATIVE_KEYS = ['id', ...PATH_KEYS] as const
 const RUN_KEYS = ['requireCompleted', 'allowedStatuses', 'maxDurationMs'] as const
@@ -123,7 +142,10 @@ const TOOLS_KEYS = [
   'requiredOrder',
   'orderMode',
   'arguments',
+  'enforced',
 ] as const
+const RETRIES_KEYS = ['reads', 'writes'] as const
+const WRITE_KEYS = ['tool', 'idempotencyKey'] as const
 const LLM_KEYS = ['maxCalls', 'maxTotalTokens', 'allowedModels'] as const
 const ARGUMENT_KEYS = [
   'tool',
@@ -147,6 +169,8 @@ const RULE_KEYS: Record<ContractRule['kind'], readonly string[]> = {
   tokensAtMost: ['kind', 'label', 'p', 'max'],
   run: ['kind', 'label', ...RUN_KEYS],
   argument: ['kind', 'label', 'p', 'pointer', 'check', 'occurrence'],
+  toolsOffered: ['kind', 'label', 'declared'],
+  retrySafe: ['kind', 'label', 'reads', 'writes'],
 }
 
 /**
@@ -240,6 +264,23 @@ function compilePath(path: PathSpec, prefix: string): ContractRule[] {
         ...(arg.occurrence === undefined ? {} : { occurrence: arg.occurrence }),
       })
     })
+    if (tools.enforced) {
+      rules.push({
+        kind: 'toolsOffered',
+        label: at('tools.enforced'),
+        ...(tools.allowed === undefined ? {} : { declared: [...tools.allowed] }),
+      })
+    }
+  }
+  if (path.retries) {
+    rules.push({
+      kind: 'retrySafe',
+      label: at('retries'),
+      ...(path.retries.reads === undefined ? {} : { reads: [...path.retries.reads] }),
+      ...(path.retries.writes === undefined
+        ? {}
+        : { writes: path.retries.writes.map((w) => ({ ...w })) }),
+    })
   }
   const llm = path.llm
   if (llm) {
@@ -329,6 +370,9 @@ function parsePath(path: Obj, prefix: string): void {
         count(max, at(`tools.maxCallsPerTool.${tool}`))
       }
     }
+    if (tools.enforced !== undefined && tools.enforced !== true) {
+      throw new ValidationError(`${at('tools.enforced')}: must be true`)
+    }
     if (tools.orderMode !== undefined)
       oneOfValues(tools.orderMode, ORDER_MODES, at('tools.orderMode'))
     if (tools.orderMode !== undefined && tools.requiredOrder === undefined) {
@@ -365,6 +409,19 @@ function parsePath(path: Obj, prefix: string): void {
         )
       })
     }
+  }
+  if (path.retries !== undefined) {
+    const retries = object(path.retries, at('retries'))
+    strictKeys(retries, RETRIES_KEYS, at('retries'))
+    if (retries.reads !== undefined) toolNames(retries.reads, at('retries.reads'))
+    if (retries.writes !== undefined) {
+      nonEmptyArray(retries.writes, at('retries.writes')).forEach((w, i) => {
+        const where = at(`retries.writes[${i}]`)
+        strictKeys(object(w, where), WRITE_KEYS, where)
+        nonEmptyString((w as Obj).tool, `${where}.tool`)
+      })
+    }
+    assertRule({ kind: 'retrySafe', label: 'retries', ...(retries as RetriesSpec) }, at('retries'))
   }
   if (path.llm !== undefined) {
     const llm = object(path.llm, at('llm'))
@@ -612,6 +669,22 @@ function lintPath(path: PathSpec, prefix: string, out: ContractLintFinding[]): v
       )
     }
   }
+  if (t.enforced && !allowed) {
+    warn(
+      'tools.enforced-without-allowed',
+      'tools.enforced',
+      'without allowed, only calls are checked against the offered tools; add allowed to also check what the harness offered',
+    )
+  }
+  for (const [i, w] of (path.retries?.writes ?? []).entries()) {
+    if (forbidden.has(w.tool)) {
+      warn(
+        'retries.write-forbidden',
+        `retries.writes[${i}]`,
+        `"${w.tool}" is forbidden, so its retry rule never applies`,
+      )
+    }
+  }
   const order = t.requiredOrder ?? []
   const repeated = order.find((tool, i) => order.indexOf(tool) !== i)
   if (repeated !== undefined) {
@@ -629,11 +702,17 @@ function lintPath(path: PathSpec, prefix: string, out: ContractLintFinding[]): v
     )
   }
   const run = path.run
-  if (run?.requireCompleted && run.allowedStatuses?.includes('running')) {
+  if (run?.requireCompleted && run.allowedStatuses && !run.allowedStatuses.includes('completed')) {
     error(
-      'run.running-and-completed',
+      'run.completed-not-allowed',
       'run',
-      'requireCompleted contradicts allowedStatuses containing "running"',
+      'requireCompleted needs status completed, which allowedStatuses excludes',
+    )
+  } else if (run?.requireCompleted && run.allowedStatuses?.some((s) => s !== 'completed')) {
+    warn(
+      'run.statuses-beside-completed',
+      'run.allowedStatuses',
+      'requireCompleted accepts only completed, so the other allowed statuses never apply',
     )
   }
   if (

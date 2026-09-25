@@ -24,9 +24,11 @@ The report lists the JSON Pointer, category and detector of each change, never t
 | `share` | Also phone, IP and postal-address fields; pseudonymizes user, account, tenant, session and request ids | 64 KiB |
 | `strict` | Also prompt, completion, message, tool payload and other raw-content fields, and `data:` media | 4 KiB |
 
-A string that holds a credential is replaced whole with `[REDACTED:<detector>]`.
+A string that holds a credential shape is replaced whole with `[REDACTED:<detector>]`.
 Personal data inside prose is replaced in place.
 Pass `knownSecrets` to remove exact values in any form: as written, base64, base64url or URL-encoded.
+Each occurrence is cut out where it stands, so an error message that contains the key keeps the rest of its text.
+A whole-string base64 payload that holds a known secret at any byte offset is replaced whole.
 
 ## Field names
 
@@ -34,6 +36,10 @@ Pass `knownSecrets` to remove exact values in any form: as written, base64, base
 `apiKey`, `x-api-key`, `client.secret`, `refreshToken` and `OPENAI_API_KEY` are credentials.
 Token counts and model limits are not: `inputTokens`, `outputTokens`, `max_tokens`, `token_count`, `gen_ai.usage.input_tokens` and `next_page_token` survive.
 `author`, `auth_type`, `secret_name` and `content_type` also survive, because they name or describe a value instead of holding it.
+
+agent-interface's `looksLikeCredential` stays the candidate schemas' refusal check, and the core does not call it.
+On 629,707 strings from real sessions and VerticalBench runs, it flagged 280 strings the core passes, and all 280 were `Bearer ${token}`-style code or placeholders.
+The core flagged 39 credentials that `looksLikeCredential` passes.
 A number under a credential name survives, because it is a limit or a count.
 
 ## Share-safety verdict
