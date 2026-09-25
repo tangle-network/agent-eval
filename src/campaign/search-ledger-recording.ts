@@ -19,6 +19,7 @@
 
 import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { EvaluationClaim } from '../experiment/claim'
 import { canonicalString } from '../ledger-core/canonical'
 import { type RunRecord, searchCellRunId } from '../run-record'
@@ -277,7 +278,12 @@ export class SearchRecorder {
       this.storage.ensureDir(this.blobDir)
       this.storage.write(path, text)
     }
-    return { role, uri: `file://${path}`, sha256: `sha256:${hex}`, byteLength: bytes.byteLength }
+    return {
+      role,
+      uri: pathToFileURL(path).href,
+      sha256: `sha256:${hex}`,
+      byteLength: bytes.byteLength,
+    }
   }
 
   /** Register a node, or return the existing node with the same artifact digest. */

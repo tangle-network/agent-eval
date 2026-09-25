@@ -1,8 +1,8 @@
 /**
  * # InsightReport — the rigorous decision packet for any set of agent runs.
  *
- * Returned by `analyzeRuns()` and embedded in `SelfImproveResult.insight` +
- * the hosted-tier `EvalRunEvent.insightReport`. One shape across two surfaces:
+ * Returned by `analyzeRuns()` and embedded in `SelfImproveResult.insight`.
+ * One shape across two surfaces:
  *
  *   - **Customer who has a closed loop** (`selfImprove`): the report ships
  *     with the loop output. Their dashboard renders ship/hold + lift CI +

@@ -7,6 +7,7 @@
  *   agent-eval rpc-batch <method>    # JSONL stdin → JSONL stdout
  *   agent-eval analyst-benchmark ... # benchmark a real-model trace analyst
  *   agent-eval supervisor-run report <runDir> [--format headline|markdown|json]
+ *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval
  *   agent-eval openapi [--out path]  # write OpenAPI spec
  *   agent-eval version
  *
@@ -17,6 +18,7 @@ import { writeFileSync } from 'node:fs'
 import { runAnalystBenchmarkCommand } from './analyst/benchmark-command'
 import { resolveCliLlmConfig } from './cli-config'
 import { runRolloutReleaseCli } from './rollout/release/hf-dataset'
+import { runSearchCommand } from './search-command'
 import { runSupervisorRunCommand } from './supervisor-run/report-command'
 import { handleVersion } from './wire/handlers'
 import { buildOpenApi } from './wire/openapi'
@@ -85,6 +87,9 @@ Commands:
         Report one Runtime or loops supervisor run directory. The status comes
         from Runtime's own result.json / failure.json; every missing measurement
         stays named. Exits 1 when the directory cannot be read.
+  search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
+        Ship a search ledger and its blobs to the hosted store in TANGLE_INGEST_URL,
+        starting from the store's head. Run with --help for the environment it reads.
   version
         Print server + wire-protocol version JSON.
 
@@ -103,6 +108,7 @@ async function main(): Promise<number> {
   if (command === 'analyst-benchmark' && flags.help === 'true') {
     return await runAnalystBenchmarkCommand(process.argv.slice(3))
   }
+  if (command === 'search') return await runSearchCommand(process.argv.slice(3))
   if (flags.help === 'true') {
     process.stdout.write(`${HELP}\n`)
     return 0
@@ -207,7 +213,8 @@ function assertKnownFlags(command: string, flags: Record<string, string>): void 
   if (
     command === 'rollout-release' ||
     command === 'analyst-benchmark' ||
-    command === 'supervisor-run'
+    command === 'supervisor-run' ||
+    command === 'search'
   ) {
     return
   }

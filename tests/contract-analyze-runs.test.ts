@@ -26,7 +26,6 @@ import {
   type InsightReport,
   summarizeExecution,
 } from '../src/contract'
-import { InsightReportSchema } from '../src/hosted/schemas'
 import type { TraceSpanEvent } from '../src/hosted/types'
 import type { RunRecord, RunTerminalOutcome } from '../src/run-record'
 
@@ -120,7 +119,6 @@ describe('analyzeRuns — lift detection with paired bootstrap', () => {
     expect(report.recommendations.some((recommendation) => recommendation.kind === 'ship')).toBe(
       false,
     )
-    expect(InsightReportSchema.parse(report).lift).toEqual(report.lift)
   })
 
   it('infers the lower baseline from independent-unit means when family sizes differ', async () => {
@@ -1496,7 +1494,6 @@ describe('analyzeRuns — failure clustering via the analyst registry', () => {
         },
       ],
     })
-    expect(InsightReportSchema.parse(report).failureClusters).toEqual(report.failureClusters)
   })
 
   it('counts multiple same-cluster findings once per run', async () => {

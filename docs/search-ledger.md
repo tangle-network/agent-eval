@@ -141,6 +141,23 @@ The loop's scenarios are its proposer's feedback, so they are the train split; i
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
 `importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
 
+## Ship a search
+
+A hosted store (Intelligence, or the reference receiver in `examples/hosted-ingest-server/`) receives a search through the [hosted ingest wire](./hosted-ingest-spec.md).
+The shipper reads the ledger file, uploads the blobs each entry names, and posts the entries from the store's head.
+A restarted shipper, a lost response, or a store that lost data continues from the store's head; a store that holds a different chain for the same search stops it with `SearchShipConflictError`.
+
+```ts
+import { shipSearchLedger, startSearchShipper } from '@tangle-network/agent-eval/hosted'
+
+const shipper = startSearchShipper({ tenant, ledger: { path: ledger.path, searchId }, runKind: 'optimization' })
+// ...the search appends to its ledger; the shipper tails it...
+const shipped = await shipper.stop() // { head, localLines, batches, blobs: { uploaded, missing, ... } }
+```
+
+`selfImprove({ hostedTenant, searchLedger })` does this for its own ledger.
+`agent-eval search ship <ledger> --run-kind optimization|eval` finishes or resumes a ship from a terminal.
+
 ## Receipts and `require-complete`
 
 `createSearchHistoryReceipt({ producerId, runId, ledger })` reads the ledger's bytes, replays them, and binds the byte digest, the audit digest, and a bounded summary.

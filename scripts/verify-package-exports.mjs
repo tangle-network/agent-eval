@@ -234,9 +234,9 @@ try {
         type SurfaceProposer as CampaignSurfaceProposer,
       } from '@tangle-network/agent-eval/campaign'
       import {
-        EvalRunEventSchema,
         IngestResponseSchema,
-        type InsightReport as HostedInsightReport,
+        IngestSearchLedgerRequestSchema,
+        type SearchLedgerHead,
         TraceSpanEventSchema,
       } from '@tangle-network/agent-eval/hosted'
       import { stuckLoopView, type StuckLoopReport } from '@tangle-network/agent-eval/pipelines'
@@ -567,18 +567,15 @@ try {
       }
       const submittedCandidate = null as unknown as ExternalOptimizerSubmittedCandidate
       const gepaPopulation = null as unknown as GepaCandidatePopulationArtifact
-      const hostedInsight: HostedInsightReport = null as unknown as HostedInsightReport
-      const hostedEventValid = EvalRunEventSchema.safeParse({
-        runId: 'packed-run',
-        runDir: '/tmp/packed-run',
-        timestamp: '2026-07-24T00:00:00Z',
-        status: 'finished',
-        labels: {},
-        generations: [],
-        totalCostUsd: 0,
-        totalDurationMs: 0,
+      const hostedHead: SearchLedgerHead = { searchId: 'packed', nextSequence: 0, headHash: null }
+      const hostedBatchValid = IngestSearchLedgerRequestSchema.safeParse({
+        wireVersion: '2026-07-24.v1',
+        searchId: 'packed',
+        runKind: 'optimization',
+        fromSequence: 0,
+        lines: ['{}'],
       }).success
-      if (!hostedEventValid) throw new Error('packed hosted eval-run schema rejected a valid event')
+      if (!hostedBatchValid) throw new Error('packed hosted search-ledger schema rejected a valid batch')
       const hostedTraceValid = TraceSpanEventSchema.safeParse({
         traceId: 'packed-trace',
         spanId: 'packed-span',
@@ -687,8 +684,8 @@ try {
         decodeExternalTextCandidate,
         readExternalOptimizerObservationArtifact,
         readGepaCandidatePopulationArtifact,
-        hostedInsight,
-        hostedEventValid,
+        hostedHead,
+        hostedBatchValid,
         LLM_INPUT_TOKENS,
         LLM_CONTEXT_TOKENS,
         contextTokens,
@@ -1032,9 +1029,14 @@ try {
         const hosted = await import('@tangle-network/agent-eval/hosted')
         for (const name of [
           'HOSTED_WIRE_VERSION',
-          'EvalRunEventSchema',
           'IngestResponseSchema',
-          'InsightReportSchema',
+          'IngestSearchLedgerRequestSchema',
+          'SearchLedgerHeadSchema',
+          'SearchLedgerConflictSchema',
+          'SearchBlobPutResponseSchema',
+          'admitSearchLedgerBatch',
+          'shipSearchLedger',
+          'startSearchShipper',
           'TraceSpanEventSchema',
           'UnixNanoTimestampSchema',
         ]) {

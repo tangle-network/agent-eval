@@ -12,7 +12,7 @@ import type { OptimizationMethod } from '../campaign/presets/compare-optimizatio
 import { runCampaign } from '../campaign/run-campaign'
 import { inMemoryCampaignStorage } from '../campaign/storage'
 import { surfaceDispatchRef, surfaceHash } from '../campaign/surface-identity'
-import type { CodeSurface, Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
+import type { Gate, JudgeConfig, SurfaceProposer } from '../campaign/types'
 import { CostLedger, type CostLedgerHandle } from '../cost-ledger'
 import type { DispatchContext, Scenario } from './index'
 import { type SelfImproveProgressEvent, SelfImproveRunError, selfImprove } from './self-improve'
@@ -50,23 +50,6 @@ async function stubAgent(
   })
   if (!paid.succeeded) throw paid.error
   return paid.value
-}
-
-function codeSurface(worktreeRef: string, candidateDigit = '3'): CodeSurface {
-  return {
-    kind: 'code',
-    worktreeRef,
-    baseRef: 'main',
-    baseCommit: '1'.repeat(40),
-    baseTree: '2'.repeat(40),
-    candidateCommit: candidateDigit.repeat(40),
-    candidateTree: '4'.repeat(40),
-    patch: {
-      format: 'git-diff-binary',
-      sha256: `sha256:${candidateDigit.repeat(64)}`,
-      byteLength: 1,
-    },
-  }
 }
 
 describe('selfImprove — power analysis wiring', () => {
@@ -347,70 +330,6 @@ describe('selfImprove — complete optimization methods', () => {
         selectParent: ({ frontier }) => frontier[0]!,
       }),
     ).rejects.toThrow('searchLedger apply only to proposer mode')
-  })
-})
-
-describe('selfImprove — hosted code-surface identity', () => {
-  it('uses the content identity in snapshots instead of the mutable worktree path', async () => {
-    const baseline = codeSurface('/tmp/candidate-a')
-    const candidateAtPathB = codeSurface('/tmp/candidate-b', '6')
-    const sameBytesElsewhere = codeSurface('/tmp/candidate-c', '6')
-    const payloads: Array<{
-      events?: Array<{
-        baseline?: {
-          surfaceHash: string
-          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
-        }
-        generations: Array<{
-          surfaceHash: string
-          cells: Array<{ terminalOutcome: string; executionErrorCount: number | null }>
-        }>
-      }>
-    }> = []
-    const fetchImpl: typeof fetch = async (_input, init) => {
-      if (typeof init?.body === 'string') payloads.push(JSON.parse(init.body))
-      return new Response(JSON.stringify({ accepted: 1, rejected: [] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }
-    const proposer: SurfaceProposer = {
-      kind: 'code-candidate',
-      propose: async () => [candidateAtPathB],
-    }
-
-    await selfImprove({
-      agent: stubAgent,
-      scenarios,
-      judge,
-      baselineSurface: baseline,
-      proposer,
-      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
-      hostedTenant: {
-        endpoint: 'https://ingest.example',
-        apiKey: 'test-key',
-        tenantId: 'test-tenant',
-        fetchImpl,
-      },
-    })
-
-    const expected = surfaceHash(baseline)
-    const event = payloads
-      .flatMap((payload) => payload.events ?? [])
-      .find((candidate) => candidate.baseline?.surfaceHash === expected)
-    expect(event).toBeDefined()
-    expect(event?.generations[0]?.surfaceHash).toBe(expected)
-    expect(event?.generations[1]?.surfaceHash).toBe(surfaceHash(candidateAtPathB))
-    expect(event?.baseline?.cells[0]).toMatchObject({
-      terminalOutcome: 'succeeded',
-      executionErrorCount: 0,
-    })
-    expect(event?.generations[1]?.cells[0]).toMatchObject({
-      terminalOutcome: 'succeeded',
-      executionErrorCount: 0,
-    })
-    expect(surfaceHash(sameBytesElsewhere)).toBe(surfaceHash(candidateAtPathB))
-    expect(surfaceHash(candidateAtPathB)).not.toBe(expected)
   })
 })
 
