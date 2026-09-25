@@ -130,6 +130,8 @@ const result = checkTraceContracts(await store.spans({ runId }), [contract])
 
 ## Gate CI on a contract
 
+**Unreleased.** `traces check` lives on `feat/traces-check` in `/traces` (PR #128), proven against this package but not yet mergeable: it needs the traces/agent-runtime redaction-core migration first, so a `/traces` build on this package's contract API does not crash at load. Until then, call `evaluateTraceContract` / `checkTraceContracts` directly, as shown above.
+
 `traces check` runs a contract over a recorded trace and exits with a code a CI step can read:
 
 ```sh
