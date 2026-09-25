@@ -1,6 +1,13 @@
+import type { AgentProfileDiff } from '@tangle-network/agent-interface'
+import type { EvaluationClaim } from '../experiment/claim'
 import type { LedgerHash } from '../ledger-core'
 
-export const SEARCH_LEDGER_SCHEMA = 'tangle.search-ledger.v1' as const
+/**
+ * Schema tag every search-ledger entry carries. A ledger written under another
+ * tag, such as the retired `tangle.search-ledger.v1` candidate-slot format, is
+ * refused with its tag named; it is never translated.
+ */
+export const SEARCH_LEDGER_SCHEMA = 'tangle.search-ledger.2026-09' as const
 
 export type SearchLedgerHash = LedgerHash
 
@@ -14,8 +21,11 @@ export type SearchSurfaceKind =
   | 'code'
   | 'deployment'
 
+/** What a search's nodes are: a mutable agent surface, or an output artifact. */
+export type SearchArtifactKind = SearchSurfaceKind | 'output'
+
 /** Content-addressed artifact or receipt. Mutable paths are locators only; the
- * digest and byte length bind the exact bytes used by the search. */
+ * digest and byte length bind the exact bytes. */
 export interface SearchArtifactRef {
   role: string
   uri: string
@@ -30,24 +40,21 @@ export interface SearchSourceRef {
   revision: string
 }
 
-export interface SearchModelIdentity {
-  provider: string
-  snapshot: string
+/** A fact the producer does not have, with the reason. Unknown is never 0. */
+export interface SearchUnknown {
+  unknown: string
 }
+
+/** The model an attempt ran: an immutable snapshot, or a moving alias whose
+ * served snapshot the producer could not observe. */
+export type SearchModelIdentity =
+  | { provider: string; snapshot: string }
+  | { provider: string; alias: string; unknown: string }
 
 export interface SearchCandidateSurface {
   surfaceId: string
   kind: SearchSurfaceKind
   artifact: SearchArtifactRef
-}
-
-export interface SearchCandidateLineage {
-  /** Existing `LineageNode.id`; this ledger references rather than embeds it. */
-  lineageNodeId: string
-  parentCandidateIds: string[]
-  generation: number
-  proposer: string
-  proposerSource: SearchSourceRef
 }
 
 export type SearchOperationKind =
@@ -57,34 +64,82 @@ export type SearchOperationKind =
   | 'judge'
   | 'other'
 
-export interface SearchPlannedTask {
+/** train is the proposer's feedback, selection is private to the policy and
+ * allocator, and test is sealed for the claim. */
+export type SearchSplit = 'train' | 'selection' | 'test'
+
+export interface SearchTask {
   taskId: string
+  /** The claim's independent unit this task samples. Repeats and sibling
+   * tasks of one unit average inside it before any statistic. */
+  unitId: string
   source: SearchSourceRef
-  benchmark: SearchSourceRef
-  /** Maximum transport attempts for this task and candidate. Only an explicit
-   * passed/failed outcome satisfies the planned denominator. */
-  maxAttempts: number
 }
 
-export interface SearchPlannedOperation {
-  operationId: string
-  kind: SearchOperationKind
+export interface SearchSplitTasks {
+  /** `hashCanonical` of `tasks` in taskId order. */
+  taskSetDigest: SearchLedgerHash
+  tasks: SearchTask[]
 }
 
-export interface SearchCandidateSlot {
-  slotId: string
-  /** Planned candidate-generation call that must either produce this slot or
-   * fail before the slot can be closed. Several slots may share one batched call. */
-  generationOperationId: string
+export interface SearchSplits {
+  train: SearchSplitTasks
+  selection: SearchSplitTasks
+  test: SearchSplitTasks
+  /**
+   * True when no test unit is a train or selection unit. A search that ran
+   * with shared units records false, and then its claim cannot ship: a test
+   * run of a seen unit measures a fresh run of a seen task, not an
+   * improvement on unseen ones.
+   */
+  heldOutUnits: boolean
 }
 
-export interface SearchPlan {
-  /** Stable slots and their proposer calls are frozen before search begins. */
-  candidateSlots: SearchCandidateSlot[]
-  /** Every task applies to every successfully registered candidate. */
-  tasks: SearchPlannedTask[]
-  /** Non-task spend slots: proposal, analysis, selection, extra judges, etc. */
-  operations: SearchPlannedOperation[]
+export interface SearchBudget {
+  /** Hard dollar cap on committed spend plus open reservations; null = none declared. */
+  maxUsd: number | null
+  maxCells: number | null
+  maxNodes: number | null
+  /** ISO time after which the policy stops expanding. */
+  deadline: string | null
+  maxConcurrency: number | null
+  /** Held back at start for the root's and finalists' test cells. */
+  reservedClaimUsd: number
+}
+
+/** Where a cell ran relative to the search's decisions. */
+export type SearchCellStage = 'root' | 'train' | 'screen' | 'rung' | 'claim' | 'external'
+
+export type SearchEdgeOperator = 'seed' | 'draft' | 'improve' | 'debug' | 'merge' | 'derive'
+
+/**
+ * How an edge's parents are known. `explicit`: the proposer that created the
+ * child emitted the edge. `correlated`: an importer joined an optimizer's own
+ * parent record by content digest. `unknown`: no parent record exists, and the
+ * edge has no parents. Nothing is inferred from timing or order.
+ */
+export type SearchEdgeAttribution = 'explicit' | 'correlated' | 'unknown'
+
+export type SearchProposerKind = NonNullable<AgentProfileDiff['source']>['kind']
+
+export interface SearchProposer {
+  kind: SearchProposerKind
+  name: string
+  /** The candidate-generation operation that produced the child, when one was recorded. */
+  operationId: string | null
+  source: SearchSourceRef
+}
+
+export interface SearchNodeRef {
+  searchId: string
+  nodeId: string
+}
+
+/** Dollars held for a cell or operation before it runs. `hard`: the lane
+ * enforces the maximum. `estimate`: the lane cannot, and overshoot is recorded. */
+export interface SearchReservation {
+  kind: 'hard' | 'estimate'
+  usd: number
 }
 
 export type SearchTokenAccounting =
@@ -107,7 +162,7 @@ export type SearchCostAccounting =
     }
   | {
       status: 'unknown'
-      /** Known spend may still be a lower bound when one call was unpriced. */
+      /** Proven part of the spend; the total may be higher. */
       knownLowerBoundUsd: number
       reason: string
     }
@@ -122,6 +177,8 @@ export interface SearchFailureReason {
   message: string
 }
 
+/** `failed` is the agent's defect and carries a score; `errored` is the
+ * environment's fault, carries none, and may be retried. */
 export type SearchTaskOutcome =
   | {
       status: 'passed'
@@ -153,8 +210,8 @@ export type SearchSurfaceEffect =
       reason: string
     }
 
-/** Per-attempt proof that a declared candidate surface was or was not active,
- * plus measured effect when the experiment supports attribution. */
+/** Per-attempt proof that a declared node surface did or did not fire. A
+ * surface without evidence is unobserved, not fired. */
 export interface SearchSurfaceEvidence {
   surfaceId: string
   fired: boolean
@@ -163,66 +220,118 @@ export interface SearchSurfaceEvidence {
   evidence: SearchArtifactRef[]
 }
 
+export type SearchTraceRef =
+  | {
+      traceId: string
+      execRunId: string | null
+      spansWritten: number | null
+      spansDropped: number | null
+    }
+  | SearchUnknown
+
+export interface SearchExecutionIdentity {
+  model: SearchModelIdentity
+  agent: SearchSourceRef
+  benchmark: SearchSourceRef
+}
+
+export type SearchEstimateMethod = 'none' | 'insufficient' | 'descriptive' | 'bootstrap'
+
+/**
+ * A paired contrast of one node against another on shared units. `none` below
+ * 2 units, `insufficient` below 6, `descriptive` below 20, `bootstrap` from 20.
+ * `estimateNode` computes it; the ledger records the estimate a decision used.
+ */
+export interface NodeEstimate {
+  against: string
+  split: SearchSplit
+  units: number
+  pairs: number
+  delta: number | null
+  interval: [number, number] | null
+  method: SearchEstimateMethod
+  exactSignP: number | null
+  cellSetDigest: SearchLedgerHash
+  estimator: SearchSourceRef
+}
+
+export type SearchNodeDecision =
+  | { status: 'advanced'; rung: number }
+  | { status: 'pruned' }
+  | { status: 'invalid' }
+  | { status: 'finalist' }
+  | { status: 'selected' }
+  | { status: 'rejected' }
+
+export type SearchNodeStatus = SearchNodeDecision['status']
+
+export type SearchCloseReason =
+  | 'budget'
+  | 'deadline'
+  | 'max-nodes'
+  | 'patience'
+  | 'converged'
+  | 'aborted'
+
+export type SearchCancelReason = 'pruned' | 'budget' | 'deadline' | 'aborted'
+
+export type SearchClaimPower =
+  | {
+      adequate: boolean
+      minimumEffect: number
+      powerAtMinimumEffect: number
+      units: number
+    }
+  | SearchUnknown
+
+/** The claim made once, on the sealed test split. `selected` names the node the
+ * search keeps: a finalist on `ship`, the root otherwise (or null when the
+ * search keeps nothing). */
+export interface SearchClaim {
+  power: SearchClaimPower
+  finalists: Array<{ nodeId: string; estimate: NodeEstimate | null; promote: boolean }>
+  selected: string | null
+  decision: 'ship' | 'hold' | 'test-cannot-resolve'
+}
+
 interface SearchLedgerEventBase {
   eventId: string
   occurredAt: string
   artifacts: SearchArtifactRef[]
 }
 
-export interface SearchPlannedEvent extends SearchLedgerEventBase {
-  kind: 'search-planned'
-  plan: SearchPlan
-}
-
-/** Additional candidate slots and operations for a search whose length is not
- * known when it starts. The plan stays the first event and the planned task
- * denominator stays frozen: extending tasks would retroactively reopen
- * candidates that already closed theirs. */
-export interface SearchPlanExtendedEvent extends SearchLedgerEventBase {
-  kind: 'search-plan-extended'
-  extension: {
-    candidateSlots: SearchCandidateSlot[]
-    operations: SearchPlannedOperation[]
+/** First event, once: what is searched, against what, on which tasks, under which budget. */
+export interface SearchOpenedEvent extends SearchLedgerEventBase {
+  kind: 'search-opened'
+  /** What the search improves, for example `vb/coder`. */
+  subject: string
+  process: { name: string; executionRef: SearchSourceRef }
+  artifactKind: SearchArtifactKind
+  objective: {
+    metric: string
+    direction: 'maximize' | 'minimize'
+    judge: SearchSourceRef | SearchUnknown
+    claim: EvaluationClaim
   }
+  splits: SearchSplits
+  policy: { expansion: string; allocation: string; seed: number }
+  budget: SearchBudget
+  /** The cell attempt of another search whose execution runs this one. */
+  containment: { searchId: string; cellId: string; attempt: number } | null
+  /** The node of another search this one starts from. */
+  derivedFrom: { searchId: string; nodeId: string; headHash: SearchLedgerHash } | null
+  identity: SearchExecutionIdentity
 }
 
-export interface SearchCandidateRegisteredEvent extends SearchLedgerEventBase {
-  kind: 'candidate-registered'
-  slotId: string
-  generationOperationId: string
-  candidateId: string
-  lineage: SearchCandidateLineage
-  surfaces: SearchCandidateSurface[]
-}
-
-export interface SearchCandidateSlotClosedEvent extends SearchLedgerEventBase {
-  kind: 'candidate-slot-closed'
-  slotId: string
-  generationOperationId: string
-  reason: SearchFailureReason
-}
-
-export interface SearchTaskAttemptedEvent extends SearchLedgerEventBase {
-  kind: 'task-attempted'
-  candidateId: string
-  runId: string
-  attemptIndex: number
-  task: {
-    taskId: string
-    source: SearchSourceRef
-  }
-  identity: {
-    model: SearchModelIdentity
-    agent: SearchSourceRef
-    benchmark: SearchSourceRef
-  }
-  outcome: SearchTaskOutcome
-  accounting: SearchAttemptAccounting
-  surfaceEvidence: SearchSurfaceEvidence[]
+export interface SearchOperationStartedEvent extends SearchLedgerEventBase {
+  kind: 'operation-started'
+  operationId: string
+  operationKind: SearchOperationKind
+  reservation: SearchReservation | null
 }
 
 export interface SearchOperationRecordedEvent extends SearchLedgerEventBase {
-  kind: 'search-operation-recorded'
+  kind: 'operation-recorded'
   operationId: string
   operationKind: SearchOperationKind
   execution:
@@ -242,109 +351,159 @@ export interface SearchOperationRecordedEvent extends SearchLedgerEventBase {
   accounting: SearchAttemptAccounting
 }
 
-export interface SearchCandidateDecidedEvent extends SearchLedgerEventBase {
-  kind: 'candidate-decided'
-  candidateId: string
-  decision:
-    | { status: 'selected' }
-    | {
-        status: 'rejected'
-        reason: SearchFailureReason
-      }
+/** A content-addressed artifact enters the search. `nodeId` is
+ * `searchNodeId(searchId, artifactDigest)`, so a re-proposal of identical
+ * content is a second edge into this node, never a second node. */
+export interface SearchNodeRegisteredEvent extends SearchLedgerEventBase {
+  kind: 'node-registered'
+  nodeId: string
+  artifactDigest: SearchLedgerHash
+  artifact: SearchArtifactRef
+  surfaces: SearchCandidateSurface[]
 }
 
-export interface SearchCompletedEvent extends SearchLedgerEventBase {
-  kind: 'search-completed'
-  result:
-    | {
-        status: 'selected'
-        candidateId: string
-      }
-    | {
-        status: 'all-rejected'
-        reason: SearchFailureReason
-      }
+/** The proposal that derived a node from its parents. */
+export interface SearchEdgeRecordedEvent extends SearchLedgerEventBase {
+  kind: 'edge-recorded'
+  edgeId: string
+  childNodeId: string
+  /** Primary parent first. Empty for `seed` and for `unknown` attribution; a
+   * parent in another search appears only on a `derive` edge. */
+  parents: SearchNodeRef[]
+  operator: SearchEdgeOperator
+  attribution: SearchEdgeAttribution
+  /** Null only on a `seed` edge: the search's starting artifact was not proposed. */
+  proposer: SearchProposer | null
+  /** Why the policy chose these parents. */
+  selection: { rule: string; evidence: Record<string, number> } | null
+  /** The proposer's redacted rationale. */
+  rationale: SearchArtifactRef | SearchUnknown
+  /** One diff per parent, parent to child. */
+  diffs: Array<SearchArtifactRef | SearchUnknown>
+  /** At most 200 characters, redacted. */
+  label: string
+}
+
+/** One node on one task in one split at one repeat is planned. `cellId` is
+ * `searchCellId(searchId, nodeId, taskId, split, rep)`. */
+export interface SearchCellAllocatedEvent extends SearchLedgerEventBase {
+  kind: 'cell-allocated'
+  cellId: string
+  nodeId: string
+  taskId: string
+  unitId: string
+  split: SearchSplit
+  rep: number
+  stage: SearchCellStage
+  lane: string | null
+  /** Null when no reservation was made: an external optimizer dispatched the cell. */
+  reservation: SearchReservation | null
+}
+
+/** One attempt at a cell finished. Its RunRecord, when the producer minted one,
+ * is an artifact with role `run-record`. */
+export interface SearchCellSettledEvent extends SearchLedgerEventBase {
+  kind: 'cell-settled'
+  cellId: string
+  /** Counted from 1 without gaps. */
+  attempt: number
+  /** `searchCellRunId({ cellId, attempt })`. */
+  runId: string
+  outcome: SearchTaskOutcome
+  accounting: SearchAttemptAccounting
+  boxMinutes: number | null
+  wallMs: number | null
+  queueMs: number | null
+  placement: { lane: string; boxId: string | null } | null
+  identity: SearchExecutionIdentity
+  surfaceEvidence: SearchSurfaceEvidence[]
+  traceRef: SearchTraceRef
+}
+
+export interface SearchCellCancelledEvent extends SearchLedgerEventBase {
+  kind: 'cell-cancelled'
+  cellId: string
+  reason: SearchCancelReason
+}
+
+/** A policy, allocator or claim decision about a node. May repeat; the latest wins. */
+export interface SearchNodeDecidedEvent extends SearchLedgerEventBase {
+  kind: 'node-decided'
+  nodeId: string
+  decision: SearchNodeDecision
+  basis: NodeEstimate | null
+  rule: string
+  reason: string
+}
+
+/** Last event, once. More work on a closed search is a derived search. */
+export interface SearchClosedEvent extends SearchLedgerEventBase {
+  kind: 'search-closed'
+  reason: SearchCloseReason
+  claim: SearchClaim | null
 }
 
 export type SearchLedgerEvent =
-  | SearchPlannedEvent
-  | SearchPlanExtendedEvent
-  | SearchCandidateRegisteredEvent
-  | SearchCandidateSlotClosedEvent
-  | SearchTaskAttemptedEvent
+  | SearchOpenedEvent
+  | SearchOperationStartedEvent
   | SearchOperationRecordedEvent
-  | SearchCandidateDecidedEvent
-  | SearchCompletedEvent
+  | SearchNodeRegisteredEvent
+  | SearchEdgeRecordedEvent
+  | SearchCellAllocatedEvent
+  | SearchCellSettledEvent
+  | SearchCellCancelledEvent
+  | SearchNodeDecidedEvent
+  | SearchClosedEvent
 
 export interface SearchLedgerEntry {
   schema: typeof SEARCH_LEDGER_SCHEMA
-  campaignId: string
+  searchId: string
   sequence: number
   previousHash: SearchLedgerHash | null
   event: SearchLedgerEvent
   entryHash: SearchLedgerHash
 }
 
-export type SearchAccountingAudit =
-  | {
-      status: 'known'
-      inputTokens: number
-      outputTokens: number
-      cachedTokens: number
-      costUsd: number
-    }
-  | {
-      status: 'partial'
-      knownInputTokens: number
-      knownOutputTokens: number
-      knownCachedTokens: number
-      knownCostUsd: number
-      unknownTokenEventIds: string[]
-      unknownCostEventIds: string[]
-    }
-
-export interface SearchLedgerAudit {
-  campaignId: string
+/** Counts and sums over the whole search. Every field is a number or a short
+ * scalar, so reading the audit costs the same at any search size. */
+export interface SearchAudit {
+  searchId: string
   eventCount: number
-  candidateCount: number
-  closedCandidateSlotCount: number
-  attemptCount: number
-  operationCount: number
-  outcomes: { passed: number; failed: number; errored: number }
-  operationOutcomes: { completed: number; partial: number; failed: number }
-  decisions: { selected: number; rejected: number; pending: number }
-  expected: {
-    candidateSlots: number
-    taskOutcomes: number
-    operations: number
-    missingCandidateSlots: string[]
-    missingTaskOutcomes: string[]
-    missingOperations: string[]
-  }
-  status: 'in-progress' | 'selected' | 'all-rejected'
-  selectedCandidateId: string | null
-  accounting: SearchAccountingAudit
   headHash: SearchLedgerHash | null
-}
-
-export interface SearchLedgerReplay {
-  entries: SearchLedgerEntry[]
-  plan: SearchPlannedEvent | null
-  /** Appended plan extensions, in ledger order. The effective plan is the
-   *  first plan event merged with these; `audit.expected` counts the merge. */
-  planExtensions: SearchPlanExtendedEvent[]
-  candidates: SearchCandidateRegisteredEvent[]
-  closedCandidateSlots: SearchCandidateSlotClosedEvent[]
-  attempts: SearchTaskAttemptedEvent[]
-  operations: SearchOperationRecordedEvent[]
-  decisions: SearchCandidateDecidedEvent[]
-  completion: SearchCompletedEvent | null
-  audit: SearchLedgerAudit
-}
-
-export interface SearchLedgerAppendResult {
-  entry: SearchLedgerEntry
-  /** False when the exact event was already durably present. */
-  appended: boolean
-  replay: SearchLedgerReplay
+  status: 'open' | 'closed'
+  closeReason: SearchCloseReason | null
+  nodes: number
+  /** Nodes with no edge yet: not placed in the tree. */
+  nodesWithoutEdge: number
+  /** Nodes whose latest decision is missing or `advanced`. */
+  undecidedNodes: number
+  selectedNodeId: string | null
+  edges: { explicit: number; correlated: number; unknown: number; reproposals: number }
+  cells: { allocated: number; settled: number; cancelled: number; open: number }
+  attempts: number
+  outcomes: { passed: number; failed: number; errored: number }
+  operations: { started: number; recorded: number; open: number }
+  spend: {
+    /** Sum of known cell and operation costs. */
+    knownUsd: number
+    /** Sum of the proven lower bounds of unknown costs. */
+    floorUsd: number
+    unknownCostCells: number
+    unknownCostOperations: number
+    /** knownUsd + floorUsd. */
+    committedUsd: number
+    /** Reservations of unsettled cells and unrecorded operations, net of their spend so far. */
+    openReservationUsd: number
+    /** Spend above reservations. */
+    overspendUsd: number
+    /** Settled cells that ran without a reservation. */
+    unreservedCells: number
+    boxMinutes: number
+  }
+  tokens: {
+    inputTokens: number
+    outputTokens: number
+    cachedTokens: number
+    unknownTokenAttempts: number
+  }
 }

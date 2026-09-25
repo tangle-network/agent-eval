@@ -35,7 +35,8 @@ import {
   compareRankKeys,
 } from '../score-utils'
 import type { SearchHistoryReceipt } from '../search-history-receipt'
-import { type SearchLedgerBinding, SearchRecorder } from '../search-ledger-recording'
+import type { SearchLedgerBinding } from '../search-ledger-recording'
+import type { SearchCloseReason } from '../search-ledger-types'
 import { createRunCostLedger, fsCampaignStorage } from '../storage'
 import { surfaceDispatchRef, surfaceHash, surfaceHashMatches } from '../surface-identity'
 import {
@@ -50,6 +51,7 @@ import {
   type ScoredSurfaceOutcome,
   type SurfaceProposer,
 } from '../types'
+import { OptimizationSearch } from './run-optimization-recording'
 
 export interface PremeasuredOptimizationBaseline<TArtifact, TScenario extends Scenario> {
   /** Hash of the exact surface that produced `campaign`. */
@@ -144,11 +146,12 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
    */
   selectParent?: ParentSelector
   /**
-   * Record this search into a durable `SearchLedger`. The loop emits the plan,
-   * each candidate-generation operation, each candidate registration with its
-   * measured parent, one task attempt per designed cell, one decision per
-   * candidate, and the terminal event, then returns a bounded
-   * `searchHistory` receipt over the exact ledger bytes.
+   * Record this search into a search ledger as it runs: the baseline as the
+   * seeded root and its cells, each generation's candidate-generation
+   * operation, each candidate as a node with an explicit edge, rationale and
+   * diff from the parent it mutated, each designed cell when its campaign
+   * starts and settles, one decision per node, and the close. Returns a
+   * bounded `searchHistory` receipt over the exact ledger bytes.
    *
    * `identity` declares what the ledger requires and a campaign cannot infer:
    * immutable revisions for the agent, proposer, and search implementations,
@@ -260,20 +263,28 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     )
   }
 
-  const recorder = opts.searchLedger
-    ? await SearchRecorder.open<TScenario, TArtifact>({
+  const opened = opts.searchLedger
+    ? await OptimizationSearch.open({
         binding: opts.searchLedger,
         storage,
-        runDir: opts.runDir,
+        costLedger,
         scenarios: opts.scenarios,
         reps,
-        maxGenerations: opts.maxGenerations,
-        populationSize: opts.populationSize,
+        seed: opts.seed ?? 42,
         splitDigest: baselineCampaign.splitDigest,
-        proposerLabel: proposer.kind,
-        costLedger,
+        proposerName: proposer.kind,
+        expansion: opts.selectParent ? 'select-parent' : 'incumbent',
+        maxUsd: opts.costCeiling ?? null,
+        baselineSurface,
+        baselineCells: baselineCampaign.cells,
       })
     : undefined
+  const search = opened?.search
+  // Ledger node of every surface the loop registered, by loop key.
+  const nodeIdByHash = new Map<string, string>()
+  if (opened) nodeIdByHash.set(surfaceHash(baselineSurface), opened.rootNodeId)
+  const incompleteNodeIds = new Set<string>()
+  let stopReason: SearchCloseReason = 'max-nodes'
 
   const generations: RunOptimizationResult<TArtifact, TScenario>['generations'] = []
   const history: GenerationRecord[] = []
@@ -351,7 +362,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
   for (let gen = 0; gen < opts.maxGenerations; gen++) {
     const proposalHistory = immutableProposalSnapshot(history, 'history')
     // Decide: the proposer may stop early based on accumulated history.
-    if (proposer.decide?.({ history: proposalHistory }).stop) break
+    if (proposer.decide?.({ history: proposalHistory }).stop) {
+      stopReason = 'converged'
+      break
+    }
 
     // Plan: the proposer proposes N candidates from the parent surface, the
     // accumulated generation history, the Pareto frontier so far, and any
@@ -399,12 +413,17 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       costLedger,
       costPhase: 'search.proposal',
     })
+    await search?.startGeneration(gen)
     const proposed = await proposer.propose(proposalContext)
     if (!Array.isArray(proposed)) {
       throw new TypeError('runOptimization: proposer must return an array')
     }
     const proposalSnapshot = immutableProposalSnapshot(proposed, 'candidate outputs')
-    if (proposalSnapshot.length === 0) break
+    if (proposalSnapshot.length === 0) {
+      await search?.failGeneration(gen, 'the proposer returned no candidates')
+      stopReason = 'converged'
+      break
+    }
 
     // Normalize: a proposer may return bare surfaces (blind mutators) or
     // `ProposedCandidate`s carrying {label, rationale}. Keep the rationale so
@@ -427,15 +446,22 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       generationHashes.add(hash)
     }
     for (const hash of generationHashes) admittedCandidateHashes.add(hash)
-    await recorder?.recordGeneration({
-      generation: gen,
-      parentSurfaceHash,
-      candidates: candidates.map(({ surface, label }) => ({
-        surface,
-        surfaceHash: surfaceHash(surface),
-        ...(label ? { label } : {}),
-      })),
-    })
+    if (search) {
+      const nodeIds = await search.recordProposal({
+        generation: gen,
+        parent: {
+          nodeId: nodeIdByHash.get(parentSurfaceHash)!,
+          surface: parentSurface,
+          composite: parentComposite,
+        },
+        selectionRule: opts.selectParent ? 'select-parent' : 'incumbent',
+        candidates,
+      })
+      for (const [index, nodeId] of nodeIds.entries()) {
+        nodeIdByHash.set(surfaceHash(candidates[index]!.surface), nodeId)
+        await search.allocate(nodeId)
+      }
+    }
 
     // Run each candidate as its own campaign.
     type SurfaceResult = {
@@ -514,15 +540,13 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
       }
     }
 
-    await recorder?.recordResults(
-      surfaceResults.map((result) => ({
-        surface: result.surface,
-        surfaceHash: result.surfaceHash,
-        cells: result.campaign.cells,
-        runDir: result.campaign.runDir,
-        coverageComplete: result.coverage.complete,
-      })),
-    )
+    if (search) {
+      for (const result of surfaceResults) {
+        const nodeId = nodeIdByHash.get(result.surfaceHash)!
+        await search.recordCells(nodeId, 'train', result.campaign.cells)
+        if (!result.coverage.complete) incompleteNodeIds.add(nodeId)
+      }
+    }
 
     // Rank only candidates with the complete designed denominator. Incomplete
     // rows follow the eligible rows for auditability but never promote.
@@ -613,9 +637,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
     }
   }
 
-  const searchHistory = await recorder?.finish({
-    winnerSurfaceHash,
-    generationsRun: generations.length,
+  const searchHistory = await search?.finish({
+    winnerNodeId: nodeIdByHash.get(winnerSurfaceHash)!,
+    incompleteNodeIds,
+    reason: stopReason,
     runId: opts.runDir,
   })
 

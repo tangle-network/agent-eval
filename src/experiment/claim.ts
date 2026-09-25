@@ -8,7 +8,8 @@ const nonEmpty = z
   .min(1)
   .refine((value) => value.trim() === value)
 
-const claimSchema = z
+/** The claim's schema, shared by every record that binds a claim. */
+export const evaluationClaimSchema = z
   .object({
     use: z.enum(['development', 'comparison', 'certification']),
     population: z.object({ id: nonEmpty, description: nonEmpty }).strict(),
@@ -20,11 +21,11 @@ const claimSchema = z
   .strict()
 
 /** The population and independent observations a measured result can describe. */
-export type EvaluationClaim = z.infer<typeof claimSchema>
+export type EvaluationClaim = z.infer<typeof evaluationClaimSchema>
 
 /** Validate a claim before binding it to a sealed experiment or final evidence. */
 export function defineEvaluationClaim(input: EvaluationClaim): EvaluationClaim {
-  const parsed = claimSchema.safeParse(input)
+  const parsed = evaluationClaimSchema.safeParse(input)
   if (!parsed.success)
     throw new ValidationError(`invalid evaluation claim: ${parsed.error.message}`)
   return Object.freeze({ ...parsed.data, population: Object.freeze(parsed.data.population) })
