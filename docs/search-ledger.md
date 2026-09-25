@@ -58,7 +58,7 @@ The same code runs in the producer's journal, the kernel, and the Intelligence v
 - **Claim start:** once a node is decided `finalist`, the search only claims: no operation, node, edge or non-claim cell follows.
 - **Parents:** a node decided `invalid` (by admission or by the divergence rule) never appears as a parent on a later edge.
 - **Attempts:** attempts count from 1 without gaps. A `passed` or `failed` outcome is final; only a retryable `errored` outcome admits another attempt.
-- **Budget:** at every `cell-allocated` and `operation-started`, committed spend plus open reservations plus the unspent claim reserve plus the new reservation stays within `maxUsd`. Spend above a reservation is recorded as overspend, never refused. An unknown cost counts as its proven floor.
+- **Budget:** at every `cell-allocated` and `operation-started` that holds a reservation, committed spend plus open reservations plus the unspent claim reserve plus the new reservation stays within `maxUsd`. A claim cell draws on the unspent claim reserve first, and a cell the reserve covers is admitted even when overspend elsewhere took committed spend past the cap. An event without a reservation is always admitted: the rule admits holds, and refusing to record work would leave a search that can never close. Spend above a reservation is recorded as overspend, never refused. An unknown cost counts as its proven floor.
 - **Completion:** `search-closed` needs every allocated cell settled or cancelled, every started operation recorded, and every node with an edge and a terminal decision.
 - **Claim:** the claim names every node decided `finalist`, estimates each against the root on test, and tests each at `1 - (1 - confidence) / k` for its k finalists. A `ship` claim needs a promoted finalist, held-out test units, a pinned judge, and every test unit scored by the root and the shipped finalist; any other claim keeps the root.
 
@@ -204,10 +204,11 @@ The ports:
 
 **Budget.**
 Every reservation passes the ledger's admission rule: committed spend plus open reservations plus the unspent claim reserve plus the new hold stays within `maxUsd`.
+A claim cell draws on the reserve held since the start, so overspend on earlier cells cannot stop the claim.
 The kernel checks `state.budget.headroomUsd` first and prices an expansion as one proposal plus `childrenPerProposal` screens.
 A hard lane holds its maximum; an estimate lane holds 1.5 times the p99 of its settled cells once 20 settled, else its prior.
 Spend above a hold is recorded as overspend, never refused.
-Expansion stops at `maxNodes`, `maxExpansions`, the deadline, after `patience` expansions without a new leader, when the cap cannot admit one more expansion, or when the proposer stops.
+Expansion stops at `maxNodes`, `maxExpansions`, the deadline, after `patience` expansions without a new leader, when the cap cannot admit one more expansion or overspend took the search past it, or when the proposer stops.
 Allocated cells still run; at the deadline the ones not yet started are cancelled.
 A search without a test split closes with no claim: the leader is decided `selected` when it has a scored cell, and every other undecided node `rejected` with its estimate against the leader.
 A search with a test split closes with its claim (below).
@@ -255,7 +256,12 @@ When expansion stops, the kernel:
 
 When the power check fails (a continuous claim needs at least 20 test units to be decided at all) or the reserve cannot cover one finalist, the claim closes as `test-cannot-resolve` and spends nothing on test cells.
 The claim records its rule (`SEARCH_CLAIM_RULE`, whose revision digests every parameter), the family-wise confidence, the power check, each finalist's test estimate and deciding interval, and its reason.
-A verifier recomputes it with `decideSearchClaim(state, plan)` from the stored plan and the test cells.
+`verifySearchClaim(state)` makes the claim again from the closed ledger alone and compares it byte for byte: the power check, the finalists, each finalist's test estimate and interval, the selection, the decision and the reason.
+It reads no blob, so a store that keeps digests only can run it.
+The finalists are the nodes decided `finalist`, in decision order; whether the budget covered k finalists' test cells is read from the claim cells that ran.
+It returns `verified`, `mismatch` with the differences, or `unknown` for a claim another rule revision made.
+The projector checks the claim's structure (every finalist named, the Bonferroni confidence of each test, a ship's held-out units and pinned judge) but not its numbers, so a store keeps what `verifySearchClaim` derives, never the producer's claim as written.
+`runSearch` runs it on every close and on every rerun of a closed ledger, throws on `mismatch`, and returns it as `SearchRunResult.claimVerification`.
 A judge change is a changed `search-opened` header, which `SearchRecorder.open` refuses; it starts a derived search instead of mixing verdicts.
 
 `compareOptimizationMethods` keeps its own held-out comparison for black-box methods such as GEPA, which return one winner and never see the test split.
@@ -308,7 +314,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-summary.ts`: `renderSearchSummary` and `searchProposerView`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
-- `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim` and `searchClaimReserveUsd`.
+- `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim` and `searchClaimReserveUsd`.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
 - `src/campaign/allocation.ts`: `SearchAllocator` and `uniform`.
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
