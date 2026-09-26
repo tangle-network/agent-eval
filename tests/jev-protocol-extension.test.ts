@@ -3,7 +3,11 @@ import { CostLedger } from '../src/cost-ledger'
 import { jevEvaluator } from '../src/jev'
 import { type JevRequest, parseJevResult } from '../src/jev-protocol'
 
-const request: JevRequest = { model: 'fixture', state: null, questions: { q: { type: 'noul' } } }
+const request: JevRequest = {
+  model: 'fixture',
+  state: 'fixture',
+  questions: { q: { type: 'noul' } },
+}
 const response = () => ({
   model: 'fixture',
   answers: { q: { type: 'noul', noul: 0.8 } },
