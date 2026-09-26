@@ -302,6 +302,7 @@ A draft is written afresh, so the lineage distance leaves a draft's lineage unpl
 `vectorEmbedding(name, vector)` takes a caller's vectors, for example a model embedding of each profile.
 A node's score is its improvement over the root on shared units, with the standard error that `searchPosterior` gives it.
 The surface is ordinary kriging with each node's own noise; a grid cell is null where the nodes leave more than half the prior variance unexplained.
+No surface is drawn unless distance predicts score: the fitted length scale must raise the log-likelihood by 1 or more over independent node scores.
 Basins are peaks of the node scores on the 6-nearest-neighbour graph that stand above their saddle by z standard errors.
 z is the Bonferroni normal quantile at 5% over the graph's local maxima, so a flat landscape of noisy nodes counts one basin at least 95% of the time.
 The surface and the basins need 6 nodes that share 2 or more units with the root.

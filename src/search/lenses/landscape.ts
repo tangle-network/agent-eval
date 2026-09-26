@@ -302,6 +302,10 @@ export interface LandscapeGrid {
     lengthScale: number
     /** Log marginal likelihood of the chosen length scale. */
     logLikelihood: number
+    /** Log marginal likelihood of the same scores with no spatial
+     * correlation; the surface is drawn only when `logLikelihood` beats it
+     * by 1 or more. */
+    independentLogLikelihood: number
     /** Nodes the surface was fitted on (at most `surfaceNodes`). */
     fitNodes: number
   }
@@ -370,7 +374,7 @@ export interface LandscapeData {
 }
 
 const GRID_METHOD =
-  "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it"
+  "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it; no surface is drawn unless the length scale raises the log-likelihood by 1 or more over independent node scores"
 /** Scored nodes a surface or a basin count needs: the library's minimum
  * sample for anything descriptive, as for units. */
 const SURFACE_MIN_NODES = INSUFFICIENT_FROM
@@ -928,6 +932,17 @@ function krige(
   if (best === null) {
     return { grid: null, insufficient: 'the kriging covariance is not positive definite' }
   }
+  // The same scores with no spatial correlation: each node its own draw of
+  // the prior around the mean. A surface is worth drawing only when distance
+  // predicts score better than this, by more than the length scale's one
+  // extra parameter costs (Akaike: 1 log-likelihood unit).
+  const independent = independentLogLikelihood(y, noise, priorVariance)
+  if (best.logLikelihood - independent < 1) {
+    return {
+      grid: null,
+      insufficient: `node scores do not correlate with distance in this embedding (log-likelihood ${fixed(best.logLikelihood)} with a length scale against ${fixed(independent)} without one), so a surface would only interpolate noise`,
+    }
+  }
   const { lengthScale, lower, alpha, mean } = best
   const rows = columns
   const values: (number | null)[][] = []
@@ -975,12 +990,36 @@ function krige(
         priorVariance: round9(priorVariance),
         lengthScale: round9(lengthScale),
         logLikelihood: round9(best.logLikelihood),
+        independentLogLikelihood: round9(independent),
         fitNodes: n,
       },
       method: GRID_METHOD,
     },
     insufficient: null,
   }
+}
+
+/** Log likelihood of scores drawn independently around a generalized
+ * least-squares mean, each with the prior variance plus its own noise. */
+function independentLogLikelihood(
+  y: readonly number[],
+  noise: readonly number[],
+  priorVariance: number,
+): number {
+  let numerator = 0
+  let denominator = 0
+  for (let i = 0; i < y.length; i++) {
+    const variance = priorVariance + noise[i]!
+    numerator += y[i]! / variance
+    denominator += 1 / variance
+  }
+  const mean = numerator / denominator
+  let total = 0
+  for (let i = 0; i < y.length; i++) {
+    const variance = priorVariance + noise[i]!
+    total += -0.5 * ((y[i]! - mean) ** 2 / variance + Math.log(2 * Math.PI * variance))
+  }
+  return total
 }
 
 /** Solves L z = b for lower-triangular L. */

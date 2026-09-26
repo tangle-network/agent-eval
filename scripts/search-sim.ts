@@ -115,6 +115,7 @@ import { incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 import {
+  type LandscapeData,
   type LandscapeEmbedding,
   landscape,
   lineEditDistance,
@@ -1339,6 +1340,19 @@ function simTextEdits(truth: (nodeId: string) => SimArtifact): LandscapeEmbeddin
   }
 }
 
+/** Whether the landscape drew its kriged surface, and if not, why: `flat`
+ * when node scores vary no more than their noise, `uncorrelated` when they
+ * vary but distance in the embedding does not predict them. */
+function surfaceKind(
+  data: LandscapeData,
+): 'drawn' | 'flat' | 'uncorrelated' | 'insufficient' {
+  if (data.grid !== null) return 'drawn'
+  const reason = data.gridInsufficient ?? ''
+  if (reason.includes('vary no more than their noise')) return 'flat'
+  if (reason.includes('do not correlate with distance')) return 'uncorrelated'
+  return 'insufficient'
+}
+
 /**
  * The plateau trigger, paired by seed: each seed runs `incumbent` and
  * `draftOnPlateau(incumbent)` on in-memory ledgers with everything else
@@ -1361,6 +1375,7 @@ async function plateau(options: SimOptions, seeds: number) {
     plateau: number | null
     plateauInsufficient: string | null
     basins: number | null
+    surface: ReturnType<typeof surfaceKind>
     firedAt: number[]
   }
   const arms = ['incumbent', 'draft-on-plateau'] as const
@@ -1385,6 +1400,7 @@ async function plateau(options: SimOptions, seeds: number) {
         plateau: lens.signal.value,
         plateauInsufficient: lens.signal.insufficient,
         basins: lens.data.basins.count,
+        surface: surfaceKind(lens.data),
         firedAt: drafts.map((draft) => draft.evidence?.accepted ?? -1),
       }
     }
@@ -1416,6 +1432,10 @@ async function plateau(options: SimOptions, seeds: number) {
         median: plateaus.length === 0 ? null : [...plateaus].sort((a, b) => a - b)[Math.floor(plateaus.length / 2)]!,
       },
       basins,
+      surfaces: list.reduce<Record<string, number>>((counts, entry) => {
+        counts[entry.surface] = (counts[entry.surface] ?? 0) + 1
+        return counts
+      }, {}),
       ledgerAuditsPassed: list.filter((entry) => entry.ledgerOk).length,
     }
   }
@@ -1462,7 +1482,7 @@ async function plateau(options: SimOptions, seeds: number) {
 async function lensNull(options: SimOptions, seeds: number) {
   if (!options.nullSteps) throw new Error('lens-null needs --null')
   const basins: Record<string, number> = {}
-  const surfaces = { drawn: 0, flat: 0, insufficient: 0 }
+  const surfaces = { drawn: 0, flat: 0, uncorrelated: 0, insufficient: 0 }
   const plateaus: number[] = []
   let plateauInsufficient = 0
   let nodes = 0
@@ -1478,9 +1498,7 @@ async function lensNull(options: SimOptions, seeds: number) {
     const lens = landscape(result.state, simTextEdits(truth))
     const key = lens.data.basins.count === null ? 'insufficient' : String(lens.data.basins.count)
     basins[key] = (basins[key] ?? 0) + 1
-    if (lens.data.grid !== null) surfaces.drawn += 1
-    else if (lens.data.gridInsufficient?.includes('vary no more than their noise')) surfaces.flat += 1
-    else surfaces.insufficient += 1
+    surfaces[surfaceKind(lens.data)] += 1
     if (lens.signal.value === null) plateauInsufficient += 1
     else plateaus.push(lens.signal.value)
   }
