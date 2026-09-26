@@ -17,6 +17,7 @@
  *   node --import tsx scripts/search-sim.ts compare --seeds 200 [options]
  *   node --import tsx scripts/search-sim.ts plateau --seeds 40 --ceiling 0.62 [options]
  *   node --import tsx scripts/search-sim.ts adaptive --seeds 40 --skills 3 --pool-gap 0.05 [options]
+ *   node --import tsx scripts/search-sim.ts lens-null --seeds 40 --null [options]
  *
  * `run` runs or resumes the search in DIR to its close; with `--in-memory` it
  * runs without a per-append fsync and writes the ledger and blobs to DIR at
@@ -36,7 +37,10 @@
  * `adaptive` fits `skillManifold` on one `uniform` calibration search
  * (`--calibration-seed`, 1000, on the same task bank), keeps
  * its loadings with `skillCalibration`, then runs each seed under `asha` and
- * under `asha` extended by `nextUnitExtension`, paired by seed.
+ * under `asha` extended by `nextUnitExtension`, paired by seed. `lens-null`
+ * runs flat searches (`--null`) and reports the landscape lens's basin count,
+ * surface and plateau on each, which calibrates the lens against a known
+ * flat truth.
  *
  * Options: --seed N (1), --train N (2), --selection N (6), --test N (0),
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
@@ -1295,26 +1299,27 @@ async function compare(options: SimOptions, seeds: number) {
 
 /** Paired differences (arm B minus arm A, one per seed) with a mean, a
  * percentile bootstrap interval on the mean (descriptive below 20 pairs) and
- * the exact one-sided sign test that B is better, chosen before the run. */
-function pairedReport(differences: readonly number[]) {
+ * the exact one-sided sign test that B is better, chosen before the run:
+ * `higher` when a larger value is better (quality), `lower` when a smaller
+ * one is (cells). */
+function pairedReport(differences: readonly number[], better: 'higher' | 'lower' = 'higher') {
   const zeros = differences.map(() => 0)
   const bootstrap = pairedBootstrap(zeros, [...differences], {
     statistic: 'mean',
     resamples: 4000,
     seed: 1,
   })
-  const sign = pairedSignTest(differences, 'greater')
+  const sign = pairedSignTest(differences, better === 'higher' ? 'greater' : 'less')
   return {
     n: differences.length,
     mean: round(bootstrap.mean),
     bootstrap95: [round(bootstrap.low), round(bootstrap.high)],
     bootstrapGateEligible: bootstrap.gateEligible,
-    better: sign.positive,
+    better: better === 'higher' ? sign.positive : sign.negative,
     same: sign.ties,
-    worse: sign.negative,
+    worse: better === 'higher' ? sign.negative : sign.positive,
     signTestP: round(sign.pValue),
-    method:
-      'mean of per-seed differences; 95% percentile bootstrap on the mean (4000 resamples, seed 1; descriptive below 20 pairs); exact one-sided sign test (B better), ties excluded',
+    method: `mean of per-seed differences (B minus A); 95% percentile bootstrap on the mean (4000 resamples, seed 1; descriptive below 20 pairs); exact one-sided sign test that B is better (${better} is better), ties excluded`,
   }
 }
 
@@ -1429,7 +1434,10 @@ async function plateau(options: SimOptions, seeds: number) {
     /** Draft-on-plateau minus incumbent, paired by seed. */
     keptQuality: pairedReport(rows.map((row) => row['draft-on-plateau'].kept - row.incumbent.kept)),
     bestQuality: pairedReport(rows.map((row) => row['draft-on-plateau'].best - row.incumbent.best)),
-    cells: pairedReport(rows.map((row) => row['draft-on-plateau'].cells - row.incumbent.cells)),
+    cells: pairedReport(
+      rows.map((row) => row['draft-on-plateau'].cells - row.incumbent.cells),
+      'lower',
+    ),
     perSeed: rows.map((row) => ({
       seed: row.seed,
       incumbent: [row.incumbent.kept, row.incumbent.plateau, row.incumbent.basins],
@@ -1440,6 +1448,55 @@ async function plateau(options: SimOptions, seeds: number) {
         row['draft-on-plateau'].basins,
       ],
     })),
+  }
+}
+
+/**
+ * The landscape lens under the null: `--null` makes every node as good as the
+ * root, so the landscape is flat and only cell noise varies. Runs one search
+ * per seed and reports how many basins the lens counts (the method promises
+ * one on at least 95% of flat landscapes), whether it drew a surface, and
+ * the plateau score, which should read "on a plateau" when nothing improves.
+ */
+async function lensNull(options: SimOptions, seeds: number) {
+  if (!options.nullSteps) throw new Error('lens-null needs --null')
+  const basins: Record<string, number> = {}
+  const surfaces = { drawn: 0, flat: 0, insufficient: 0 }
+  const plateaus: number[] = []
+  let plateauInsufficient = 0
+  let nodes = 0
+  for (let seed = options.seed; seed < options.seed + seeds; seed++) {
+    // A ceiling of 1 is inert for scores in [0, 1]; it gives every artifact
+    // profile lines, so the lens measures line edits.
+    const { result, truth } = await runSimulation(
+      `mem://search-sim/${seed}/lens-null`,
+      { ...options, seed, ceiling: options.ceiling ?? 1 },
+      memoryStore(),
+    )
+    nodes += result.state.audit.nodes
+    const lens = landscape(result.state, simTextEdits(truth))
+    const key = lens.data.basins.count === null ? 'insufficient' : String(lens.data.basins.count)
+    basins[key] = (basins[key] ?? 0) + 1
+    if (lens.data.grid !== null) surfaces.drawn += 1
+    else if (lens.data.gridInsufficient?.includes('vary no more than their noise')) surfaces.flat += 1
+    else surfaces.insufficient += 1
+    if (lens.signal.value === null) plateauInsufficient += 1
+    else plateaus.push(lens.signal.value)
+  }
+  const oneBasin = basins['1'] ?? 0
+  const counted = seeds - (basins.insufficient ?? 0)
+  return {
+    seeds,
+    meanNodes: round(nodes / seeds),
+    basins,
+    oneBasin: { count: oneBasin, of: counted, wilson95: interval(wilson(oneBasin, counted, 0.95)) },
+    surfaces,
+    plateau: {
+      measured: plateaus.length,
+      insufficient: plateauInsufficient,
+      belowOne: plateaus.filter((value) => value < 1).length,
+      max: plateaus.length === 0 ? null : Math.max(...plateaus),
+    },
   }
 }
 
@@ -1546,7 +1603,10 @@ async function adaptive(options: SimOptions, seeds: number, calibrationSeed: num
     /** Kept quality, adaptive minus asha, paired by seed. */
     keptQuality: pairedReport(paired),
     /** Cells allocated, adaptive minus asha, paired by seed. */
-    cells: pairedReport(rows.map((row) => row.adaptive.cells - row.asha.cells)),
+    cells: pairedReport(
+      rows.map((row) => row.adaptive.cells - row.asha.cells),
+      'lower',
+    ),
     differing: rows
       .filter((row) => row.asha.kept !== row.adaptive.kept)
       .map((row) => ({
@@ -1656,6 +1716,10 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(await claims(options, Number(values.searches)), null, 2))
     return
   }
+  if (mode === 'lens-null') {
+    console.log(JSON.stringify(await lensNull(options, Number(values.seeds)), null, 2))
+    return
+  }
   if (mode === 'plateau') {
     const report = await plateau(options, Number(values.seeds))
     console.log(JSON.stringify(report, null, 2))
@@ -1710,7 +1774,7 @@ async function main(): Promise<void> {
     return
   }
   throw new Error(
-    `unknown mode ${String(mode)}; use run, kill-resume, claims, compare, plateau or adaptive`,
+    `unknown mode ${String(mode)}; use run, kill-resume, claims, compare, plateau, adaptive or lens-null`,
   )
 }
 

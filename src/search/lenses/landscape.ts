@@ -13,8 +13,9 @@
  * regression with each node's own noise) interpolates the scores over a grid
  * and leaves a cell unknown where the nodes do not constrain it. Basins are
  * the peaks of the node scores on the nearest-neighbour graph that stand
- * above their saddle by two standard errors (0-dimensional persistence of the
- * superlevel sets, ToMATo).
+ * above their saddle by more than the noise, Bonferroni-bounded over the
+ * graph's local maxima (0-dimensional persistence of the superlevel sets,
+ * ToMATo).
  *
  * The signal is `plateau`: how far the best improvement over the root rose
  * across the last `window` screened nodes, in units of that node's standard
@@ -33,6 +34,7 @@ import type { SearchNode, SearchStateView } from '../../campaign/search-state'
 import { canonicalString, compareCodeUnits } from '../../ledger-core/canonical'
 import { cholesky } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
+import { zQuantile } from '../../statistics/internal'
 import {
   estimateMethodFor,
   evenSample,
@@ -313,7 +315,7 @@ export interface LandscapeBasin {
    * met a higher one; null for the highest peak and for a component that
    * never met a higher one (a separate region of the graph). */
   persistence: number | null
-  /** The persistence this peak needed: two standard errors of the difference
+  /** The persistence this peak needed: `z` standard errors of the difference
    * between the peak's and the saddle's scores. Null for the highest peak. */
   threshold: number | null
   saddle: string | null
@@ -349,6 +351,17 @@ export interface LandscapeData {
     count: number | null
     /** Neighbours each node joins in the graph the basins are read on. */
     neighbours: number
+    /** Nodes with no higher neighbour: the peaks that could each survive. */
+    localMaxima: number
+    /** Standard errors a peak must clear its saddle by: the Bonferroni
+     * normal quantile over `localMaxima − 1` tests at 5%. */
+    z: number | null
+    /** Nodes the graph holds (at most 2000 plus the 100 best). */
+    graphNodes: number
+    /** MDS axes the graph's distances use, and their share of the positive
+     * eigenvalue mass: the neighbours are near in this space. */
+    graphAxes: number
+    graphExplained: number | null
     method: string
     insufficient: string | null
     peaks: LandscapeBasin[]
@@ -362,7 +375,10 @@ const GRID_METHOD =
  * sample for anything descriptive, as for units. */
 const SURFACE_MIN_NODES = INSUFFICIENT_FROM
 const BASIN_METHOD =
-  '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by two standard errors of their difference, sqrt(pooled variance / shared units) per node'
+  '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes, read on the leading MDS axes that hold 80% of the positive eigenvalue mass (2 to 8), joined into one component by the shortest edge between components (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by z standard errors of their difference, sqrt(pooled variance / shared units) per node, where z is the standard-normal quantile at 1 − 0.05 / (local maxima − 1), a Bonferroni bound over every peak that could survive, so a flat landscape of noisy nodes counts one basin at least 95% of the time; at most 2000 nodes, evenly spaced by registration plus the 100 best'
+/** Nodes the basin graph holds: evenly spaced by registration, plus the best. */
+const BASIN_NODES = 2000
+const BASIN_TOP = 100
 
 /**
  * The landscape of a search: every node placed by `embed`, the interpolated
@@ -442,7 +458,19 @@ export function landscape(
   )
   const variances = new Map(posterior.nodes.map((entry) => [entry.nodeId, entry.variance]))
   const gridResult = krige(records, scored, variances, columns, surfaceNodes)
-  const basins = graphBasins(records, scored, posterior.pooledVariance, posterior.degreesOfFreedom)
+  const fullOf = new Map<string, number[]>()
+  nodes.forEach((node, position) => {
+    const point = placement.full[position]
+    if (point) fullOf.set(node.nodeId, point)
+  })
+  const basins = graphBasins(
+    records,
+    scored,
+    fullOf,
+    { axes: placement.fullAxes, explained: placement.fullExplained },
+    posterior.pooledVariance,
+    posterior.degreesOfFreedom,
+  )
 
   const view = searchPolicyView(state, {
     screened: screenedNodes(state, { maxAttempts: options.maxAttempts }),
@@ -521,7 +549,18 @@ function emptyData(
     lineage: [],
     grid: null,
     gridInsufficient: reason,
-    basins: { count: null, neighbours: 0, method: BASIN_METHOD, insufficient: reason, peaks: [] },
+    basins: {
+      count: null,
+      neighbours: 0,
+      localMaxima: 0,
+      z: null,
+      graphNodes: 0,
+      graphAxes: 0,
+      graphExplained: null,
+      method: BASIN_METHOD,
+      insufficient: reason,
+      peaks: [],
+    },
     plateau,
   }
 }
@@ -530,6 +569,13 @@ function emptyData(
 
 interface Placement {
   coordinates: Array<[number, number] | undefined>
+  /** Coordinates on the leading axes that hold 80% of the positive
+   * eigenvalue mass (2 to 8 axes): the space the basin graph is read in, so
+   * neighbours are near in the distance itself, not only in the 2-D map. */
+  full: Array<number[] | undefined>
+  /** Axes `full` holds, and their share of the positive eigenvalue mass. */
+  fullAxes: number
+  fullExplained: number | null
   unplaced: Map<number, string>
   landmarks: number
   landmarkDistance: { median: number; max: number } | null
@@ -590,6 +636,9 @@ function placeNodes(
     }
     return {
       coordinates,
+      full: new Array(n).fill(undefined),
+      fullAxes: 0,
+      fullExplained: null,
       unplaced,
       landmarks: 0,
       landmarkDistance: null,
@@ -619,12 +668,25 @@ function placeNodes(
   const negativeMass = values
     .filter((value) => value < -1e-12)
     .reduce((sum, value) => sum - value, 0)
-  const axes = [0, 1].map((k) =>
+  let fullAxes = 2
+  let held = values.slice(0, 2).reduce((sum, value) => sum + Math.max(value, 0), 0)
+  while (
+    fullAxes < FULL_AXES_MAX &&
+    positiveMass > 0 &&
+    held / positiveMass < FULL_AXES_MASS &&
+    (values[fullAxes] ?? 0) > 1e-12
+  ) {
+    held += values[fullAxes]!
+    fullAxes += 1
+  }
+  const allAxes = Array.from({ length: fullAxes }, (_, k) =>
     (values[k] ?? 0) > 1e-12 ? { value: values[k]!, vector: vectors[k]! } : null,
   )
+  const axes = allAxes.slice(0, 2)
+  const full: Placement['full'] = new Array(n).fill(undefined)
   for (let j = 0; j < n; j++) {
     if (unplaced.has(j)) continue
-    const coordinate = axes.map((axis) => {
+    const coordinate = allAxes.map((axis) => {
       if (axis === null) return 0
       let sum = 0
       for (let l = 0; l < L; l++) {
@@ -634,9 +696,13 @@ function placeNodes(
       return (-0.5 * sum) / Math.sqrt(axis.value)
     })
     coordinates[j] = [coordinate[0]!, coordinate[1]!]
+    full[j] = coordinate
   }
   return {
     coordinates,
+    full,
+    fullAxes,
+    fullExplained: positiveMass > 0 ? Math.min(1, held / positiveMass) : null,
     unplaced,
     landmarks: L,
     landmarkDistance:
@@ -962,17 +1028,25 @@ function cellOf(grid: LandscapeGrid, x: number, y: number): number | null {
  */
 function graphBasins(
   records: readonly LandscapeNode[],
-  scored: readonly LandscapeNode[],
+  scoredNodes: readonly LandscapeNode[],
+  fullOf: ReadonlyMap<string, readonly number[]>,
+  space: { axes: number; explained: number | null },
   pooledVariance: number | null,
   degreesOfFreedom: number,
 ): LandscapeData['basins'] {
   const empty = (reason: string): LandscapeData['basins'] => ({
     count: null,
     neighbours: 0,
+    localMaxima: 0,
+    z: null,
+    graphNodes: 0,
+    graphAxes: 0,
+    graphExplained: null,
     method: BASIN_METHOD,
     insufficient: reason,
     peaks: [],
   })
+  let scored = scoredNodes
   if (scored.length < SURFACE_MIN_NODES) {
     return empty(
       `${plural(scored.length, 'placed node')} share 2 or more units with the root; basins need ${SURFACE_MIN_NODES}`,
@@ -981,11 +1055,16 @@ function graphBasins(
   if (pooledVariance === null || pooledVariance <= 0) {
     return empty('no pooled between-unit variance, so the noise a peak must clear is unknown')
   }
+  const sample = new Set(evenSample(scored, BASIN_NODES))
+  for (const node of [...scored]
+    .sort((left, right) => right.score! - left.score! || left.ordinal - right.ordinal)
+    .slice(0, BASIN_TOP)) {
+    sample.add(node)
+  }
+  scored = scoredNodes.filter((node) => sample.has(node))
   const k = Math.min(BASIN_NEIGHBOURS, scored.length - 1)
-  const adjacency = nearestNeighbours(
-    scored.map((node) => [node.x!, node.y!] as [number, number]),
-    k,
-  )
+  const points = scored.map((node) => fullOf.get(node.nodeId) ?? [node.x!, node.y!])
+  const adjacency = connectComponents(points, nearestNeighbours(points, k))
   const variance = (index: number) => pooledVariance / scored[index]!.pairs
   const order = scored
     .map((_, index) => index)
@@ -1010,6 +1089,12 @@ function graphBasins(
     }
     return root
   }
+  // Every local maximum could survive its saddle, so each is a test.
+  let maxima = 0
+  for (let index = 0; index < scored.length; index++) {
+    if (adjacency[index]!.every((neighbour) => rank[neighbour]! > rank[index]!)) maxima += 1
+  }
+  const z = zQuantile(1 - BASIN_ALPHA / Math.max(1, maxima - 1))
   const survived = new Map<number, { saddle: number; persistence: number; threshold: number }>()
   for (const index of order) {
     let highest = -1
@@ -1029,7 +1114,7 @@ function graphBasins(
       if (mine === theirs) continue
       const [high, low] = rank[mine]! < rank[theirs]! ? [mine, theirs] : [theirs, mine]
       const persistence = scored[low]!.score! - scored[index]!.score!
-      const threshold = 2 * Math.sqrt(variance(low) + variance(index))
+      const threshold = z * Math.sqrt(variance(low) + variance(index))
       if (persistence < threshold) {
         parent[low] = high
       } else if (!survived.has(low)) {
@@ -1050,6 +1135,11 @@ function graphBasins(
   return {
     count: peaks.length,
     neighbours: k,
+    localMaxima: maxima,
+    z: round9(z),
+    graphNodes: scored.length,
+    graphAxes: space.axes,
+    graphExplained: space.explained === null ? null : round9(space.explained),
     method: `${BASIN_METHOD}; pooled over ${degreesOfFreedom} degrees of freedom`,
     insufficient: null,
     peaks: peaks.map((peak, basin) => {
@@ -1073,61 +1163,77 @@ function graphBasins(
 }
 
 const BASIN_NEIGHBOURS = 6
+/** The basin graph's space: leading MDS axes up to this share of the positive
+ * eigenvalue mass, and at most this many. */
+const FULL_AXES_MASS = 0.8
+const FULL_AXES_MAX = 8
+/** Family-wise rate of a spurious basin on a flat landscape. */
+const BASIN_ALPHA = 0.05
 
 /**
- * The symmetric k-nearest-neighbour graph of 2-D points: each point joins its
- * k nearest (ties by index) and every edge is kept in both directions. Points
- * are bucketed on a square grid about k points per cell, and each search
- * widens ring by ring until the k-th nearest is closer than the next ring.
+ * Joins a graph's components into one (Borůvka): each round links every
+ * component to its nearest point in another component by one edge, until
+ * one component remains. Without it, two regions the k-nearest-neighbour
+ * graph leaves apart would each count as a basin with no saddle to test.
  */
-export function nearestNeighbours(
-  points: readonly (readonly [number, number])[],
-  k: number,
+function connectComponents(
+  points: readonly (readonly number[])[],
+  adjacency: number[][],
 ): number[][] {
+  const n = points.length
+  const parent = Int32Array.from({ length: n }, (_, index) => index)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root]!
+    while (parent[index] !== root) {
+      const next = parent[index]!
+      parent[index] = root
+      index = next
+    }
+    return root
+  }
+  for (let a = 0; a < n; a++) for (const b of adjacency[a]!) parent[find(a)] = find(b)
+  const edges = adjacency.map((list) => new Set(list))
+  for (;;) {
+    const component = Int32Array.from({ length: n }, (_, index) => find(index))
+    const best = new Map<number, { a: number; b: number; distance: number }>()
+    for (let a = 0; a < n; a++) {
+      const own = component[a]!
+      for (let b = 0; b < n; b++) {
+        if (component[b] === own) continue
+        const distance = euclidean(points[a]!, points[b]!)
+        const known = best.get(own)
+        if (!known || distance < known.distance) best.set(own, { a, b, distance })
+      }
+    }
+    if (best.size === 0) break
+    for (const { a, b } of best.values()) {
+      edges[a]!.add(b)
+      edges[b]!.add(a)
+      parent[find(a)] = find(b)
+    }
+  }
+  return edges.map((set) => [...set].sort((left, right) => left - right))
+}
+
+/**
+ * The symmetric k-nearest-neighbour graph of points in any dimension: each
+ * point joins its k nearest (ties by index) and every edge is kept in both
+ * directions. Brute force, so callers keep n in the low thousands.
+ */
+export function nearestNeighbours(points: readonly (readonly number[])[], k: number): number[][] {
   const n = points.length
   const adjacency: Set<number>[] = Array.from({ length: n }, () => new Set<number>())
   if (n < 2 || k < 1) return adjacency.map(() => [])
-  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity]
-  for (const [x, y] of points) {
-    x0 = Math.min(x0, x)
-    x1 = Math.max(x1, x)
-    y0 = Math.min(y0, y)
-    y1 = Math.max(y1, y)
-  }
-  const span = Math.max(x1 - x0, y1 - y0, 1e-12)
-  const side = Math.max(1, Math.floor(Math.sqrt(n / Math.max(1, k))))
-  const cell = span / side
-  const key = (cx: number, cy: number) => cx * (side + 1) + cy
-  const bucketOf = (value: number, origin: number) =>
-    Math.min(side, Math.max(0, Math.floor((value - origin) / cell)))
-  const buckets = new Map<number, number[]>()
-  points.forEach(([x, y], index) => {
-    const at = key(bucketOf(x, x0), bucketOf(y, y0))
-    const list = buckets.get(at)
-    if (list) list.push(index)
-    else buckets.set(at, [index])
-  })
   for (let index = 0; index < n; index++) {
-    const [x, y] = points[index]!
-    const cx = bucketOf(x, x0)
-    const cy = bucketOf(y, y0)
     const best: Array<{ index: number; distance: number }> = []
-    for (let ring = 0; ring <= side + 1; ring++) {
-      for (let dx = -ring; dx <= ring; dx++) {
-        for (let dy = -ring; dy <= ring; dy++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
-          const list = buckets.get(key(cx + dx, cy + dy))
-          if (!list || cx + dx < 0 || cy + dy < 0 || cx + dx > side || cy + dy > side) continue
-          for (const other of list) {
-            if (other === index) continue
-            const distance = Math.hypot(points[other]![0] - x, points[other]![1] - y)
-            best.push({ index: other, distance })
-          }
-        }
-      }
+    for (let other = 0; other < n; other++) {
+      if (other === index) continue
+      const distance = euclidean(points[index]!, points[other]!)
+      if (best.length === k && distance >= best[k - 1]!.distance) continue
+      best.push({ index: other, distance })
       best.sort((left, right) => left.distance - right.distance || left.index - right.index)
       if (best.length > k) best.length = k
-      if (best.length === k && best[k - 1]!.distance <= ring * cell) break
     }
     for (const { index: other } of best) {
       adjacency[index]!.add(other)
@@ -1135,6 +1241,12 @@ export function nearestNeighbours(
     }
   }
   return adjacency.map((set) => [...set].sort((left, right) => left - right))
+}
+
+function euclidean(left: readonly number[], right: readonly number[]): number {
+  let sum = 0
+  for (let d = 0; d < left.length; d++) sum += (left[d]! - (right[d] ?? 0)) ** 2
+  return Math.sqrt(sum)
 }
 
 // ── Text ─────────────────────────────────────────────────────────────
@@ -1183,7 +1295,7 @@ export function formatLandscape(lens: GeometryLensResult<LandscapeData>): string
     lines.push(`  basins: insufficient: ${basins.insufficient}`)
   } else {
     lines.push(
-      `  basins: ${basins.count} on the ${basins.neighbours}-nearest-neighbour graph (a lower peak counts when it stands two standard errors of the difference above its saddle)`,
+      `  basins: ${basins.count} on the ${basins.neighbours}-nearest-neighbour graph of ${plural(basins.graphNodes, 'node')} in ${basins.graphAxes} MDS axes holding ${percent(basins.graphExplained)} of the distance structure (a lower peak counts when it stands ${fixed(basins.z!)} standard errors of the difference above its saddle, Bonferroni over ${basins.localMaxima} local ${basins.localMaxima === 1 ? 'maximum' : 'maxima'} at 5%)`,
     )
     basins.peaks.forEach((basin, index) => {
       const standing =
