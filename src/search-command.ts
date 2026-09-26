@@ -3,6 +3,7 @@
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
  *   agent-eval search show <search-ledger.jsonl>
+ *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
@@ -13,6 +14,11 @@
  * selection split when the search declares one, else train). There is no
  * local HTML renderer; the hosted store's page is the visual view (§5 of the
  * search-tree design).
+ *
+ * `show --meta` prints the `metaSearch` lens over every ledger it is given:
+ * each search as one node scored by its held-out lift per known dollar, the
+ * configurations best first, and the searches arranged by derivation and
+ * containment. It is the lens JSON the hosted page draws, as text.
  */
 
 import { open, readFile } from 'node:fs/promises'
@@ -21,6 +27,7 @@ import { renderSearchSummary } from './campaign/search-summary'
 import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
+import { metaSearch, renderMetaSearchText } from './search/lenses/meta-search'
 
 const USAGE = `usage: agent-eval search <subcommand> ...
 
@@ -35,7 +42,15 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
-        search's own ranking split.`
+        search's own ranking split.
+
+  show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>]
+        Verifies every ledger and prints the meta-search lens over them: each
+        search as one node, scored by its claim's held-out lift per known
+        dollar (unscored searches say why), configurations best first with
+        their interval, method and n, and the searches arranged by derivation
+        and containment. --objective names the objective the best
+        configuration is chosen within when the searches span several.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
@@ -83,6 +98,7 @@ export async function runSearchCommand(argv: string[]): Promise<number> {
 }
 
 async function runShowCommand(argv: string[]): Promise<number> {
+  if (argv.includes('--meta')) return await runShowMetaCommand(argv)
   if (argv.length !== 1 || argv[0] === '--help' || argv[0] === '-h') {
     process.stdout.write(`${USAGE}\n`)
     return argv.length === 1 ? 0 : 1
@@ -94,6 +110,35 @@ async function runShowCommand(argv: string[]): Promise<number> {
   const split =
     state.header && state.header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
   process.stdout.write(`${renderSearchSummary(state, { split })}\n`)
+  return 0
+}
+
+async function runShowMetaCommand(argv: string[]): Promise<number> {
+  const paths: string[] = []
+  let objective: string | undefined
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (token === '--meta') continue
+    if (token === '--help' || token === '-h') {
+      process.stdout.write(`${USAGE}\n`)
+      return 0
+    }
+    if (token === '--objective') {
+      objective = argv[++index]
+      if (objective === undefined) throw new Error(`--objective needs a value\n${USAGE}`)
+      continue
+    }
+    if (token.startsWith('--')) throw new Error(`unknown flag ${token}\n${USAGE}`)
+    paths.push(token)
+  }
+  if (paths.length === 0) throw new Error(`show --meta needs at least one ledger\n${USAGE}`)
+  const states = []
+  for (const path of paths) {
+    const searchId = await firstLineSearchId(path)
+    states.push(replaySearchLedgerText(await readFile(path, 'utf8'), searchId, path))
+  }
+  const lens = metaSearch(states, objective === undefined ? {} : { objective })
+  process.stdout.write(`${renderMetaSearchText(lens)}\n`)
   return 0
 }
 
