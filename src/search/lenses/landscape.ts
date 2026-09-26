@@ -8,11 +8,13 @@
  * between two profiles along their lineage; a caller that can read the
  * surface blobs passes `surfaceTextEdits`, and a caller with a model
  * embedding passes `vectorEmbedding`. Every node's score is its improvement
- * over the root on the units both scored, in the objective's direction, and
- * a Gaussian kernel regression weighted by those shared units interpolates
- * the scores over a grid. Basins are the grid's peaks that stand above their
- * surroundings by more than the noise of one node's score (0-dimensional
- * persistence of the superlevel sets).
+ * over the root on the units both scored, in the objective's direction, with
+ * the standard error its shared units give it. Kriging (Gaussian-process
+ * regression with each node's own noise) interpolates the scores over a grid
+ * and leaves a cell unknown where the nodes do not constrain it. Basins are
+ * the peaks of the node scores on the nearest-neighbour graph that stand
+ * above their saddle by two standard errors (0-dimensional persistence of the
+ * superlevel sets, ToMATo).
  *
  * The signal is `plateau`: how far the best improvement over the root rose
  * across the last `window` screened nodes, in units of that node's standard
@@ -29,8 +31,10 @@ import type {
 } from '../../campaign/search-ledger-types'
 import type { SearchNode, SearchStateView } from '../../campaign/search-state'
 import { canonicalString, compareCodeUnits } from '../../ledger-core/canonical'
+import { cholesky } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import {
+  DESCRIPTIVE_FROM_UNITS,
   estimateMethodFor,
   evenSample,
   type GeometryLensResult,
@@ -242,6 +246,9 @@ export interface LandscapeOptions {
   landmarks?: number
   /** Grid columns and rows. Default 24. */
   grid?: number
+  /** Scored nodes the surface is fitted on, evenly spaced in registration
+   * order with the root and the best node always in. Default 400. */
+  surfaceNodes?: number
   /** Screened nodes the plateau reads. Default 6. */
   window?: number
   /** Attempts the kernel gives an errored cell. Default 3. */
@@ -262,6 +269,9 @@ export interface LandscapeNode {
   /** Improvement over the root on shared units, larger is better; null
    * without a shared unit. */
   score: number | null
+  /** Standard error of `score`: sqrt(pooled variance / pairs); 0 for the
+   * root, null when the pooled variance is unknown. */
+  standardError: number | null
   pairs: number
   method: SearchEstimateMethod
   /** Index into `basins.peaks`; null when unplaced, unscored, or when basins
@@ -274,11 +284,25 @@ export interface LandscapeGrid {
   rows: number
   x: [number, number]
   y: [number, number]
-  bandwidth: number
-  /** `values[row][column]`; row 0 is the lowest y. Null where the nodes
-   * nearby carry less than one unit of evidence. */
+  /** Posterior mean of the improvement over the root, `values[row][column]`;
+   * row 0 is the lowest y. Null where the nodes explain less than half the
+   * prior variance: the surface there is unknown, not flat. */
   values: (number | null)[][]
+  /** Posterior standard deviation at each cell, supported or not. */
+  sd: number[][]
   supportedCells: number
+  /** The kriging model: a constant mean, a squared-exponential covariance of
+   * `priorVariance` and `lengthScale` (in coordinate units), and each node's
+   * own noise variance, pooled variance over its shared units. */
+  model: {
+    mean: number
+    priorVariance: number
+    lengthScale: number
+    /** Log marginal likelihood of the chosen length scale. */
+    logLikelihood: number
+    /** Nodes the surface was fitted on (at most `surfaceNodes`). */
+    fitNodes: number
+  }
   method: string
 }
 
@@ -333,7 +357,10 @@ export interface LandscapeData {
 }
 
 const GRID_METHOD =
-  'Nadaraya-Watson regression of node scores with a Gaussian kernel whose bandwidth is the median nearest-neighbour distance (at least one grid cell), each node weighted by its units shared with the root; nodes with fewer than 2 shared units are left out; a cell is null where the kernel density is below half a node, so the surface never extends past the nodes that support it'
+  "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it"
+/** Scored nodes a surface or a basin count needs: the library's minimum
+ * sample for anything descriptive, as for units. */
+const SURFACE_MIN_NODES = DESCRIPTIVE_FROM_UNITS
 const BASIN_METHOD =
   '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by two standard errors of their difference, sqrt(pooled variance / shared units) per node'
 
@@ -349,6 +376,7 @@ export function landscape(
 ): GeometryLensResult<LandscapeData> {
   const landmarkCap = positiveInteger('landscape', 'landmarks', options.landmarks ?? 32)
   const columns = positiveInteger('landscape', 'grid', options.grid ?? 24)
+  const surfaceNodes = positiveInteger('landscape', 'surfaceNodes', options.surfaceNodes ?? 400)
   const window = options.window ?? 6
   const header = state.header
   const split = options.split ?? rankedSplit(state)
@@ -392,6 +420,7 @@ export function landscape(
       y: at ? round9(at[1]) : null,
       unplaced: at ? null : (placement.unplaced.get(position) ?? 'not placed'),
       score: entry.mean === null ? null : round9(entry.mean),
+      standardError: entry.variance === null ? null : round9(Math.sqrt(entry.variance)),
       pairs: entry.pairs,
       method: estimateMethodFor(entry.pairs),
       basin: null,
@@ -409,7 +438,8 @@ export function landscape(
   const scored = records.filter(
     (record) => record.x !== null && record.score !== null && record.pairs >= 2,
   )
-  const gridResult = interpolate(records, scored, columns)
+  const variances = new Map(posterior.nodes.map((entry) => [entry.nodeId, entry.variance]))
+  const gridResult = krige(records, scored, variances, columns, surfaceNodes)
   const basins = graphBasins(records, scored, posterior.pooledVariance, posterior.degreesOfFreedom)
 
   const view = searchPolicyView(state, {
@@ -669,15 +699,33 @@ function distanceRows(
 
 // ── Interpolation and basins ─────────────────────────────────────────
 
-function interpolate(
+/**
+ * The score surface by ordinary kriging. Each scored node is a noisy
+ * observation of the surface at its placement, with its own noise variance
+ * (the root, the reference, is exact). The prior variance is the scores'
+ * between-node variance minus their mean noise; when that is not positive the
+ * nodes do not differ beyond noise and there is no surface to draw. The length
+ * scale maximizes the marginal likelihood over a few multiples of the median
+ * nearest-neighbour distance, never below one grid cell.
+ */
+function krige(
   records: readonly LandscapeNode[],
   scored: readonly LandscapeNode[],
+  variances: ReadonlyMap<string, number | null>,
   columns: number,
+  surfaceNodes: number,
 ): { grid: LandscapeGrid | null; insufficient: string | null } {
-  if (scored.length < 3) {
+  if (scored.length < SURFACE_MIN_NODES) {
     return {
       grid: null,
-      insufficient: `${scored.length} placed node${scored.length === 1 ? '' : 's'} share 2 or more units with the root; a surface needs 3`,
+      insufficient: `${plural(scored.length, 'placed node')} share 2 or more units with the root; a surface needs ${SURFACE_MIN_NODES}`,
+    }
+  }
+  const noiseOf = (node: LandscapeNode): number | null => variances.get(node.nodeId) ?? null
+  if (scored.some((node) => noiseOf(node) === null)) {
+    return {
+      grid: null,
+      insufficient: 'no pooled between-unit variance, so the noise of a node’s score is unknown',
     }
   }
   let [x0, x1, y0, y1] = [
@@ -702,11 +750,35 @@ function interpolate(
   x1 += pad
   y0 -= pad
   y1 += pad
-  // Bandwidth: the median nearest-neighbour distance among scored
-  // nodes (at most 2000, evenly spaced by registration), and never below one
-  // grid cell, so a lone node still covers its own cell.
-  const sample = evenSample(scored, 2000)
-  const nearest = sample.map((a) => {
+  // Fit on at most `surfaceNodes`, evenly spaced by registration, with the
+  // root (the reference) and the best node always in.
+  const byScore = [...scored].sort(
+    (left, right) => right.score! - left.score! || left.ordinal - right.ordinal,
+  )
+  const keep = new Set(evenSample(scored, surfaceNodes))
+  const rootNode = scored.find((node) => noiseOf(node) === 0)
+  for (const must of [rootNode, byScore[0]]) {
+    if (!must || keep.has(must)) continue
+    const drop = [...keep].reverse().find((node) => node !== rootNode && node !== byScore[0])
+    if (drop) keep.delete(drop)
+    keep.add(must)
+  }
+  const fit = scored.filter((node) => keep.has(node))
+  const n = fit.length
+  const y = fit.map((node) => node.score!)
+  const noise = fit.map((node) => noiseOf(node)!)
+  const meanScore = y.reduce((sum, value) => sum + value, 0) / n
+  const spread = y.reduce((sum, value) => sum + (value - meanScore) ** 2, 0) / (n - 1)
+  const meanNoise = noise.reduce((sum, value) => sum + value, 0) / n
+  const priorVariance = spread - meanNoise
+  if (!(priorVariance > 0)) {
+    return {
+      grid: null,
+      insufficient: `the nodes' scores vary no more than their noise (between-node variance ${fixed(spread)}, mean noise variance ${fixed(meanNoise)}), so there is no surface beyond a flat one`,
+    }
+  }
+  const cell = Math.max(x1 - x0, y1 - y0) / columns
+  const nearest = evenSample(fit, 2000).map((a, _, sample) => {
     let best = Number.POSITIVE_INFINITY
     for (const b of sample) {
       if (a === b) continue
@@ -715,35 +787,88 @@ function interpolate(
     }
     return best
   })
-  const cell = Math.max(x1 - x0, y1 - y0) / columns
-  const typical = median(nearest.filter(Number.isFinite)) ?? cell
-  const bandwidth = Math.max(typical, cell)
+  const typical = Math.max(median(nearest.filter(Number.isFinite)) ?? cell, cell)
+  // Distances are squared once; each length scale reuses them.
+  const d2 = fit.map((a) => fit.map((b) => (a.x! - b.x!) ** 2 + (a.y! - b.y!) ** 2))
+  const jitter = priorVariance * 1e-9
+  let best: {
+    lengthScale: number
+    lower: number[][]
+    alpha: number[]
+    mean: number
+    logLikelihood: number
+  } | null = null
+  for (const multiple of [0.5, 1, 2, 4]) {
+    const lengthScale = Math.max(typical * multiple, cell)
+    const covariance = d2.map((row, i) =>
+      row.map(
+        (value, j) =>
+          priorVariance * Math.exp(-value / (2 * lengthScale * lengthScale)) +
+          (i === j ? noise[i]! + jitter : 0),
+      ),
+    )
+    const lower = cholesky(covariance)
+    if (lower === null) continue
+    // Generalized least squares for the constant mean: 1ᵀC⁻¹y / 1ᵀC⁻¹1.
+    const ones = forward(lower, new Array<number>(n).fill(1))
+    const whiteY = forward(lower, y)
+    let numerator = 0
+    let denominator = 0
+    for (let i = 0; i < n; i++) {
+      numerator += ones[i]! * whiteY[i]!
+      denominator += ones[i]! * ones[i]!
+    }
+    const mean = numerator / denominator
+    const residual = forward(
+      lower,
+      y.map((value) => value - mean),
+    )
+    let quadratic = 0
+    let logDeterminant = 0
+    for (let i = 0; i < n; i++) {
+      quadratic += residual[i]! ** 2
+      logDeterminant += 2 * Math.log(lower[i]![i]!)
+    }
+    const logLikelihood = -0.5 * (quadratic + logDeterminant + n * Math.log(2 * Math.PI))
+    if (best === null || logLikelihood > best.logLikelihood) {
+      best = { lengthScale, lower, alpha: backward(lower, residual), mean, logLikelihood }
+    }
+  }
+  if (best === null) {
+    return { grid: null, insufficient: 'the kriging covariance is not positive definite' }
+  }
+  const { lengthScale, lower, alpha, mean } = best
   const rows = columns
   const values: (number | null)[][] = []
+  const sd: number[][] = []
   let supported = 0
   for (let r = 0; r < rows; r++) {
     const row: (number | null)[] = []
-    const y = y0 + ((r + 0.5) * (y1 - y0)) / rows
+    const sdRow: number[] = []
+    const gy = y0 + ((r + 0.5) * (y1 - y0)) / rows
     for (let c = 0; c < columns; c++) {
-      const x = x0 + ((c + 0.5) * (x1 - x0)) / columns
-      let density = 0
-      let weight = 0
-      let total = 0
-      for (const node of scored) {
-        const d2 = (node.x! - x) ** 2 + (node.y! - y) ** 2
-        const kernel = Math.exp(-d2 / (2 * bandwidth * bandwidth))
-        density += kernel
-        weight += node.pairs * kernel
-        total += node.pairs * kernel * node.score!
-      }
-      if (density >= 0.5) {
-        row.push(round9(total / weight))
+      const gx = x0 + ((c + 0.5) * (x1 - x0)) / columns
+      const k = fit.map(
+        (node) =>
+          priorVariance *
+          Math.exp(-((node.x! - gx) ** 2 + (node.y! - gy) ** 2) / (2 * lengthScale * lengthScale)),
+      )
+      let value = mean
+      for (let i = 0; i < n; i++) value += k[i]! * alpha[i]!
+      const white = forward(lower, k)
+      let explained = 0
+      for (const entry of white) explained += entry * entry
+      const variance = Math.max(0, priorVariance - explained)
+      sdRow.push(round9(Math.sqrt(variance)))
+      if (variance <= priorVariance / 2) {
+        row.push(round9(value))
         supported += 1
       } else {
         row.push(null)
       }
     }
     values.push(row)
+    sd.push(sdRow)
   }
   return {
     grid: {
@@ -751,13 +876,45 @@ function interpolate(
       rows,
       x: [round9(x0), round9(x1)],
       y: [round9(y0), round9(y1)],
-      bandwidth: round9(bandwidth),
       values,
+      sd,
       supportedCells: supported,
+      model: {
+        mean: round9(mean),
+        priorVariance: round9(priorVariance),
+        lengthScale: round9(lengthScale),
+        logLikelihood: round9(best.logLikelihood),
+        fitNodes: n,
+      },
       method: GRID_METHOD,
     },
     insufficient: null,
   }
+}
+
+/** Solves L z = b for lower-triangular L. */
+function forward(lower: readonly (readonly number[])[], b: readonly number[]): number[] {
+  const n = lower.length
+  const z = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++) {
+    const row = lower[i]!
+    let value = b[i]!
+    for (let k = 0; k < i; k++) value -= row[k]! * z[k]!
+    z[i] = value / row[i]!
+  }
+  return z
+}
+
+/** Solves Lᵀ x = z for lower-triangular L. */
+function backward(lower: readonly (readonly number[])[], z: readonly number[]): number[] {
+  const n = lower.length
+  const x = new Array<number>(n).fill(0)
+  for (let i = n - 1; i >= 0; i--) {
+    let value = z[i]!
+    for (let k = i + 1; k < n; k++) value -= lower[k]![i]! * x[k]!
+    x[i] = value / lower[i]![i]!
+  }
+  return x
 }
 
 function cellOf(grid: LandscapeGrid, x: number, y: number): number | null {
@@ -796,9 +953,9 @@ function graphBasins(
     insufficient: reason,
     peaks: [],
   })
-  if (scored.length < 3) {
+  if (scored.length < SURFACE_MIN_NODES) {
     return empty(
-      `${plural(scored.length, 'placed node')} share 2 or more units with the root; basins need 3`,
+      `${plural(scored.length, 'placed node')} share 2 or more units with the root; basins need ${SURFACE_MIN_NODES}`,
     )
   }
   if (pooledVariance === null || pooledVariance <= 0) {
@@ -998,7 +1155,7 @@ export function formatLandscape(lens: GeometryLensResult<LandscapeData>): string
   } else {
     const { grid } = data
     lines.push(
-      `  surface: ${grid.columns}×${grid.rows} grid, bandwidth ${fixed(grid.bandwidth)}, ${grid.supportedCells} of ${grid.columns * grid.rows} cells supported`,
+      `  surface: ${grid.columns}×${grid.rows} grid kriged from ${plural(grid.model.fitNodes, 'node')} (mean ${signed(grid.model.mean)}, prior sd ${fixed(Math.sqrt(grid.model.priorVariance))}, length scale ${fixed(grid.model.lengthScale)}); ${grid.supportedCells} of ${grid.columns * grid.rows} cells supported (posterior variance at most half the prior)`,
     )
   }
   const { basins } = data

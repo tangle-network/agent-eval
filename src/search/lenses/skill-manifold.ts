@@ -201,9 +201,9 @@ const TOLERANCE = 1e-9
 // ── The lens ─────────────────────────────────────────────────────────
 
 /**
- * The skill manifold of a search at rank `k` (`auto`: the intrinsic
- * dimension, at least 1). Pure: it reads the state, and `calibration` when
- * given.
+ * The skill manifold of a search at rank `k` (`auto`: the cross-validated
+ * intrinsic dimension, at least 1, and 1 when too few nodes cross-validate).
+ * Pure: it reads the state, and `calibration` when given.
  */
 export function skillManifold(
   state: SearchStateView,
@@ -339,10 +339,10 @@ export function skillManifold(
     const cells = observedCells(matrix, fitRows, center, scale)
     const rankCap = Math.min(maxRank, matrix.unitIds.length - 1, fitRows.length - 1)
     intrinsic = crossValidate(matrix, cells, rankCap, folds, ridge)
-    rank =
-      k === 'auto'
-        ? Math.max(1, intrinsic.value ?? Math.min(2, rankCap))
-        : Math.min(k, Math.max(1, rankCap))
+    // Under 'auto' without a cross-validated dimension, fit one axis only: a
+    // second axis on a handful of nodes fits their noise, and its in-sample
+    // R² would read as structure.
+    rank = k === 'auto' ? Math.max(1, intrinsic.value ?? 1) : Math.min(k, Math.max(1, rankCap))
     const fits: Fit[] = []
     for (let r = 0; r <= Math.max(rank, rankCap); r++) {
       fits.push(factor(matrix.unitIds.length, cells, r, ridge))
@@ -1203,7 +1203,9 @@ export function formatSkillManifold(lens: GeometryLensResult<SkillManifoldData>)
     )
   }
   if (data.model === null) {
-    lines.push(`  model: insufficient (${data.insufficient})`)
+    if (data.insufficient !== intrinsic.insufficient) {
+      lines.push(`  model: insufficient (${data.insufficient})`)
+    }
     return lines.join('\n')
   }
   const { model } = data
