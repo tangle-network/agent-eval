@@ -45,7 +45,7 @@ describe('native SDK and execution boundaries', () => {
     expect(() =>
       parseJevRequest({
         model,
-        state: null,
+        state: 'ready',
         questions: {
           ready: { type: 'noul', criteria: { true: { evidence: 'observed' }, false: undefined } },
         },
@@ -54,7 +54,7 @@ describe('native SDK and execution boundaries', () => {
     expect(() =>
       parseJevRequest({
         model,
-        state: null,
+        state: 'ready',
         questions: {
           ready: { type: 'choice', criteria: { yes: undefined } },
         },
@@ -95,7 +95,7 @@ describe('native SDK and execution boundaries', () => {
       inputKind: 'custom',
       renderState: (_input, context) => {
         signals.push(context.signal)
-        return null
+        return 'ready'
       },
       findings: (_result, _input, context) => {
         signals.push(context.signal)
@@ -124,7 +124,7 @@ describe('native SDK and execution boundaries', () => {
       version: 'v1',
       dimensions: [{ key: 'ready', description: 'Readiness' }],
       evaluate: (_input: { artifact: string; scenario: typeof scenario }, context) =>
-        evaluate({ model, state: null, questions: { ready: { type: 'noul' } } }, context),
+        evaluate({ model, state: 'ready', questions: { ready: { type: 'noul' } } }, context),
       record,
       map,
     })

@@ -93,6 +93,7 @@ try {
     './jev/protocol': ['import', 'types'],
     './analyst': ['import', 'types'],
     './campaign': ['import', 'types'],
+    './search': ['import', 'types'],
     './contract': ['import', 'types'],
     './traces': ['import', 'types'],
     './trace-attributes': ['import', 'types'],
