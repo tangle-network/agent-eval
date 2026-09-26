@@ -464,7 +464,10 @@ export function skillManifold(
 }
 
 /** The loadings of a fitted manifold, for a later search over the same units
- * to place its nodes on. Null when the lens fitted nothing. */
+ * to place its nodes on. Null unless cross-validation found at least one skill
+ * axis (intrinsic dimension 1 or more) and measured the cell noise: loadings
+ * of an axis the held-out cells do not support would steer allocation by
+ * noise. */
 export function skillCalibration(
   lens: GeometryLensResult<SkillManifoldData>,
 ): SkillCalibration | null {
@@ -475,7 +478,9 @@ export function skillCalibration(
     model === null ||
     model.center === null ||
     model.scale === null ||
-    data.noiseVariance === null
+    data.noiseVariance === null ||
+    data.intrinsicDimension.value === null ||
+    data.intrinsicDimension.value < 1
   ) {
     return null
   }

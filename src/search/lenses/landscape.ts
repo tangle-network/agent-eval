@@ -54,9 +54,10 @@ import { PLATEAU_METHOD, type SearchPlateau, searchPlateau } from './plateau'
 /**
  * How the lens measures the distance between two nodes' profiles.
  *
- * - `lineage`: edits along the lineage graph, one per recorded edge, through
- *   every in-search parent. Nodes the root's lineage does not reach are
- *   unplaced, never guessed.
+ * - `lineage`: edits along the lineage graph, one per recorded improve,
+ *   debug or merge edge between nodes of this search. A draft edge is not an
+ *   edit (the draft is written afresh), so a draft's lineage is unreachable
+ *   by this distance and unplaced, never guessed; `surfaceTextEdits` places it.
  * - `distance`: any symmetric distance; null when it cannot be measured.
  * - `vector`: a vector per node, for example a model embedding of the
  *   profile; nodes are compared by Euclidean distance.
@@ -82,7 +83,7 @@ export function lineageEdits(): LandscapeEmbedding {
     kind: 'lineage',
     name: 'lineage-edits',
     method:
-      'edits between the two profiles along the recorded lineage: the fewest edges joining them through in-search parents',
+      'edits between the two profiles along the recorded lineage: the fewest improve, debug or merge edges joining them (a re-proposal edge counts; a draft is written afresh, so its edge is no edit of its anchor)',
   }
 }
 
@@ -404,7 +405,9 @@ export function landscape(
   const index = new Map(nodes.map((node, position) => [node.nodeId, position]))
   const posterior = searchPosterior(state, { split })
   const scoreOf = new Map(posterior.nodes.map((entry) => [entry.nodeId, entry]))
-  const placement = placeNodes(nodes, index, rootNodeId, embed, landmarkCap)
+  const placement = placeNodes(nodes, index, rootNodeId, embed, landmarkCap, () =>
+    lineageAdjacency(state, index),
+  )
 
   const records: LandscapeNode[] = nodes.map((node, position) => {
     const entry = scoreOf.get(node.nodeId)!
@@ -542,9 +545,10 @@ function placeNodes(
   rootNodeId: string,
   embed: LandscapeEmbedding,
   landmarkCap: number,
+  adjacency: () => number[][],
 ): Placement {
   const n = nodes.length
-  const distancesFrom = distanceRows(nodes, index, embed)
+  const distancesFrom = distanceRows(nodes, embed, adjacency)
   const unplaced = new Map<number, string>()
   const coordinates: Placement['coordinates'] = new Array(n).fill(undefined)
   const first = index.get(rootNodeId) ?? 0
@@ -650,23 +654,40 @@ function placeNodes(
   }
 }
 
+/**
+ * The undirected lineage graph by node index: an edge joins a child to each
+ * parent in this search when its operator edits a parent (improve, debug,
+ * merge). Every recorded edge counts, re-proposals into an existing node
+ * included, since each says the child is one edit from that parent.
+ */
+function lineageAdjacency(state: SearchStateView, index: ReadonlyMap<string, number>): number[][] {
+  const neighbours: Set<number>[] = Array.from({ length: index.size }, () => new Set<number>())
+  for (const edge of state.edges()) {
+    if (edge.operator !== 'improve' && edge.operator !== 'debug' && edge.operator !== 'merge') {
+      continue
+    }
+    const child = index.get(edge.childNodeId)
+    if (child === undefined) continue
+    for (const parent of edge.parents) {
+      if (parent.searchId !== state.searchId) continue
+      const at = index.get(parent.nodeId)
+      if (at === undefined || at === child) continue
+      neighbours[child]!.add(at)
+      neighbours[at]!.add(child)
+    }
+  }
+  return neighbours.map((set) => [...set].sort((left, right) => left - right))
+}
+
 /** Distances from one node to every node, by the embedding's kind. */
 function distanceRows(
   nodes: readonly SearchNode[],
-  index: ReadonlyMap<string, number>,
   embed: LandscapeEmbedding,
+  adjacency: () => number[][],
 ): (from: number) => Array<number | null> {
   const n = nodes.length
   if (embed.kind === 'lineage') {
-    const neighbours: number[][] = nodes.map(() => [])
-    nodes.forEach((node, child) => {
-      for (const parent of node.parents) {
-        const at = index.get(parent.nodeId)
-        if (at === undefined || at === child) continue
-        neighbours[child]!.push(at)
-        neighbours[at]!.push(child)
-      }
-    })
+    const neighbours = adjacency()
     return (from) => {
       const hops: Array<number | null> = new Array(n).fill(null)
       hops[from] = 0
