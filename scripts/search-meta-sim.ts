@@ -31,7 +31,9 @@
  * claim's minimum effect in lift per dollar), --inner-selection N (12),
  * --inner-test N (20), --inner-min-effect X (0.1), --grid JSON (the configurations
  * the outer proposer returns, each a partial configuration over the root:
- * default crowded-frontier, asha, and population 2 with expansions 2).
+ * default crowded-frontier, asha, and population 2 with expansions 2), --root
+ * JSON (the root configuration, a partial configuration over incumbent,
+ * uniform, population 3, expansions 4).
  */
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -79,32 +81,39 @@ const DEFAULT_GRID: InnerConfig[] = [
 ]
 
 /** The script as the outer proposer and process: its revision covers the
- * grid it proposes. */
-function metaSimSource(grid: readonly InnerConfig[]): SearchSourceRef {
+ * root and the grid it proposes. */
+function metaSimSource(root: InnerConfig, grid: readonly InnerConfig[]): SearchSourceRef {
   return {
     uri: 'script:scripts/search-meta-sim.ts',
-    revision: hashCanonical({ simulator: 'search-meta-sim', version: 1, root: ROOT_CONFIG, grid }),
+    revision: hashCanonical({ simulator: 'search-meta-sim', version: 1, root, grid }),
   }
 }
 
-/** `--grid`: a JSON array of configurations to propose instead of the default. */
-function parseGrid(text: string | undefined): InnerConfig[] {
+/** A configuration from JSON: a partial configuration over `base`. */
+function parseConfig(item: unknown, base: InnerConfig, flag: string): InnerConfig {
+  const config = { ...base, ...(item as Partial<InnerConfig>) }
+  const valid =
+    (config.policy === 'incumbent' || config.policy === 'crowded-frontier') &&
+    (config.allocation === 'uniform' || config.allocation === 'asha') &&
+    Number.isSafeInteger(config.population) &&
+    config.population > 0 &&
+    Number.isSafeInteger(config.expansions) &&
+    config.expansions > 0
+  if (!valid) throw new Error(`${flag} is not a configuration: ${JSON.stringify(item)}`)
+  return config
+}
+
+/** `--grid`: a JSON array of configurations, each a partial configuration
+ * over the root, to propose instead of the default grid. */
+function parseGrid(text: string | undefined, root: InnerConfig): InnerConfig[] {
   if (text === undefined) return DEFAULT_GRID
   const grid = JSON.parse(text) as unknown
-  if (!Array.isArray(grid) || grid.length === 0) throw new Error('--grid must be a non-empty JSON array')
-  return grid.map((item, index) => {
-    const config = { ...ROOT_CONFIG, ...(item as Partial<InnerConfig>) }
-    const valid =
-      (config.policy === 'incumbent' || config.policy === 'crowded-frontier') &&
-      (config.allocation === 'uniform' || config.allocation === 'asha') &&
-      Number.isSafeInteger(config.population) &&
-      config.population > 0 &&
-      Number.isSafeInteger(config.expansions) &&
-      config.expansions > 0
-    if (!valid) throw new Error(`--grid entry ${index} is not a configuration: ${JSON.stringify(item)}`)
-    return config
-  })
+  if (!Array.isArray(grid) || grid.length === 0) {
+    throw new Error('--grid must be a non-empty JSON array')
+  }
+  return grid.map((item, index) => parseConfig(item, root, `--grid entry ${index}`))
 }
+
 const OUTER_SEARCH_ID = 'meta-sim'
 const INNER_CELL_USD = 0.05
 
@@ -140,6 +149,7 @@ async function main(): Promise<void> {
       'inner-test': { type: 'string', default: '20' },
       'inner-min-effect': { type: 'string', default: '0.1' },
       grid: { type: 'string' },
+      root: { type: 'string' },
     },
   })
   if (!values.out) throw new Error('--out DIR is required')
@@ -149,8 +159,12 @@ async function main(): Promise<void> {
   const innerSelection = Number(values['inner-selection'])
   const innerTest = Number(values['inner-test'])
   const innerMinEffect = Number(values['inner-min-effect'])
-  const grid = parseGrid(values.grid)
-  const source = metaSimSource(grid)
+  const root =
+    values.root === undefined
+      ? ROOT_CONFIG
+      : parseConfig(JSON.parse(values.root), ROOT_CONFIG, '--root')
+  const grid = parseGrid(values.grid, root)
+  const source = metaSimSource(root, grid)
   rmSync(out, { recursive: true, force: true })
   mkdirSync(join(out, 'outer'), { recursive: true })
   mkdirSync(join(out, 'inner'), { recursive: true })
@@ -271,7 +285,7 @@ async function main(): Promise<void> {
   let innerRuns = 0
   const result = await runNestedSearch<InnerConfig>({
     recorder,
-    root: ROOT_CONFIG,
+    root,
     policy,
     allocation,
     proposer,

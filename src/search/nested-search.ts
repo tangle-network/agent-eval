@@ -43,7 +43,7 @@ import type {
 } from '../campaign/search-ledger-types'
 import type { SearchStateView } from '../campaign/search-state'
 import { hashCanonical } from '../ledger-core/canonical'
-import { metaSearchScore } from './lenses/meta-search'
+import { META_SEARCH_SCORE_SOURCE, metaSearchScore } from './lenses/meta-search'
 
 /** The outer cell attempt an inner search runs as. */
 export type NestedSearchContainment = NonNullable<SearchOpenedEvent['containment']>
@@ -113,7 +113,8 @@ export function searchConfigCodec<TConfig>(): SearchArtifactCodec<TConfig> {
 /**
  * Run an outer search over search configurations to its close, or continue
  * one from its ledger. The outer search must maximize (its score is lift per
- * dollar) and its nodes must be `runtime-config` artifacts.
+ * dollar), its nodes must be `runtime-config` artifacts, and its judge must be
+ * `META_SEARCH_SCORE_SOURCE`.
  */
 export async function runNestedSearch<TConfig>(
   options: RunNestedSearchOptions<TConfig>,
@@ -129,6 +130,18 @@ export async function runNestedSearch<TConfig>(
   if (header.artifactKind !== 'runtime-config') {
     throw new Error(
       `runNestedSearch: an outer search's nodes are configurations (runtime-config), not ${header.artifactKind}`,
+    )
+  }
+  // The cells are scored by metaSearchScore, so the header must name it as the
+  // judge: a ledger that declared another judge would misstate its own scores.
+  const judge = header.objective.judge
+  if (
+    !('uri' in judge) ||
+    judge.uri !== META_SEARCH_SCORE_SOURCE.uri ||
+    judge.revision !== META_SEARCH_SCORE_SOURCE.revision
+  ) {
+    throw new Error(
+      `runNestedSearch: an outer search's judge must be META_SEARCH_SCORE_SOURCE (${META_SEARCH_SCORE_SOURCE.uri}@${META_SEARCH_SCORE_SOURCE.revision}), which scores its cells`,
     )
   }
   const input = (work: SearchCellWork<TConfig>): NestedSearchRunInput<TConfig> => {
