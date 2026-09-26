@@ -14,7 +14,7 @@
  *   node --import tsx scripts/search-sim.ts run --dir DIR [options]
  *   node --import tsx scripts/search-sim.ts kill-resume --dir DIR --kills 6 [options]
  *   node --import tsx scripts/search-sim.ts claims --searches 200 [options]
- *   node --import tsx scripts/search-sim.ts compare --seeds 200 [options]
+ *   node --import tsx scripts/search-sim.ts compare --seeds 200 --arms A,B [options]
  *
  * `run` runs or resumes the search in DIR to its close. `kill-resume` runs the
  * search in DIR/killed as a child process, SIGKILLs it at seeded random ledger
@@ -23,9 +23,14 @@
  * seed..seed+N-1 on in-memory ledgers and tallies their claims: a `ship` whose
  * selected node is no better than the root in truth is a false claim, and the
  * rate is reported with its Wilson and Clopper-Pearson 95% intervals.
- * `compare` runs the search once per seed under `uniform` and under `asha` on
- * in-memory ledgers and reports the cells each allocated, the node each kept,
- * and the units each measured edge pairs on against its parent.
+ * `compare` runs the search once per seed under each arm of `--arms` (a
+ * comma-separated list of `policy+allocation`, default
+ * `incumbent+uniform,incumbent+asha`) on in-memory ledgers and reports, per
+ * arm, the cells each allocated, the node each kept, how often it kept the
+ * planted node (with its Wilson 95% interval), and the units each measured
+ * edge pairs on against its parent; every later arm is paired with the first
+ * seed by seed, with an exact sign test on the seeds where exactly one of the
+ * two kept the planted node.
  *
  * Options: --seed N (1), --train N (2), --selection N (6), --test N (0),
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
@@ -40,8 +45,10 @@
  * score, so a better artifact scores lower), --cost-scale X (1: a cell costs X
  * times what the lane's prior assumes, so an estimate lane overspends until
  * its own cost distribution sets the hold), --allocation uniform|asha
- * (uniform), --pool-gap X (none), --pool-plant N
- * (seeded).
+ * (uniform), --policy incumbent|aide|beam (incumbent), --beam-width N (3),
+ * --max-cells N (none: the search allocates at most N cells), --pool-gap X
+ * (none), --pool-plant N (seeded), --deep-gain X (none), --deep-depth N (3),
+ * --deep-ramp, --defect-rate X (0).
  *
  * `--pool-gap X` swaps the hill climb's steps for a planted pool: every child
  * is the root's quality plus a seeded step in [-0.1, 0), whatever its parent,
@@ -49,6 +56,20 @@
  * `--pool-plant` names it), which is the root plus X. The pool depends only on
  * the seed and the number of proposals, so `uniform` and `asha` measure the
  * same candidates and the planted child is the one right answer.
+ *
+ * `--deep-gain X` plants a gain at depth `--deep-depth` of one lineage: every
+ * edit off the planted path costs its node a seeded [0, 0.1) of its parent's
+ * quality, and the path (one seeded child of the first proposal from each
+ * path node, starting at the root) is neutral until its node at that depth,
+ * which is the root plus X. With `--deep-ramp` each path node gains X / depth
+ * over its parent instead of 0, so the gain is a gradient a hill climb can
+ * follow. The planted node is the best node the search can register.
+ *
+ * `--defect-rate X` makes a seeded share X of proposed children defective
+ * (planted-path nodes never are): each of a defective node's cells ends
+ * `failed` with score 0, a defect of the agent, not an environment fault. A
+ * `debug` child of a defective node fixes the defect and keeps its parent's
+ * quality.
  *
  * Every run audits its ledger: each `advanced` and `pruned` decision, with its
  * rule, rank reason and estimate, must be one the allocator makes again from
@@ -85,7 +106,7 @@ import type {
   SearchUnknown,
 } from '../src/campaign/search-ledger-types'
 import { SearchState, type SearchStateView } from '../src/campaign/search-state'
-import { incumbent } from '../src/campaign/search-policy'
+import { aide, beam, incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 import { wilson } from '../src/statistics/paired-binary'
@@ -97,6 +118,8 @@ interface SimArtifact {
   trainShift: number
   /** Added to selection and test scores. */
   heldShift: number
+  /** Every cell fails as the agent's defect (`--defect-rate`). */
+  defective?: boolean
 }
 
 interface SimOptions {
@@ -130,6 +153,17 @@ interface SimOptions {
   /** A cell's actual cost relative to the lane prior. */
   costScale: number
   allocation: 'uniform' | 'asha'
+  policy: 'incumbent' | 'aide' | 'beam'
+  beamWidth: number
+  /** The most cells the search may allocate; null: no cell cap. */
+  maxCells: number | null
+  /** The gain planted at `deepDepth` of one lineage; null: no deep plant. */
+  deepGain: number | null
+  deepDepth: number
+  /** Path nodes gain `deepGain / deepDepth` each instead of 0. */
+  deepRamp: boolean
+  /** Share of proposed children whose cells fail as defects. */
+  defectRate: number
   /** The planted pool's gap; null: the hill climb's seeded steps. */
   poolGap: number | null
   /** The planted child's registration index; null: seeded from the seed. */
@@ -186,6 +220,31 @@ function allocationOf(options: SimOptions): SearchAllocator {
     : uniform({ reps: options.reps })
 }
 
+function policyOf(options: SimOptions): SearchPolicy {
+  if (options.policy === 'aide') return aide()
+  if (options.policy === 'beam') return beam({ width: options.beamWidth })
+  return incumbent(options.patience === undefined ? {} : { patience: options.patience })
+}
+
+/** The deep plant's path: at each depth, the seeded index of the path child
+ * among the first proposal's children of the path node above it. */
+function deepPath(options: SimOptions): string[] {
+  const names = ['root']
+  for (let depth = 1; depth <= options.deepDepth; depth++) {
+    const index = Math.floor(unit(options.seed, 'deep', depth) * options.population)
+    names.push(`${names[depth - 1]}.${index}`)
+  }
+  return names
+}
+
+/** The name of the node the search should keep: the planted pool child, or
+ * the deep plant; null when nothing is planted. */
+function plantedName(options: SimOptions): string | null {
+  if (options.poolGap !== null) return `c${plantIndex(options)}`
+  if (options.deepGain !== null) return deepPath(options).at(-1)!
+  return null
+}
+
 /** The planted child's registration index: the option, or a seeded place in the pool. */
 function plantIndex(options: SimOptions): number {
   return (
@@ -238,7 +297,7 @@ async function runSimulation(
   const ledger = store.storage
     ? openSearchLedger({ path, searchId: SEARCH_ID, store: store.storage })
     : openSearchLedger({ path, searchId: SEARCH_ID })
-  const policy = incumbent(options.patience === undefined ? {} : { patience: options.patience })
+  const policy = policyOf(options)
   const allocation = allocationOf(options)
   const claim = developmentClaim('search-sim')
   const recorder = await SearchRecorder.open(
@@ -263,7 +322,7 @@ async function runSimulation(
       policy: { expansion: policy.name, allocation: allocation.name, seed: options.seed },
       budget: {
         maxUsd: options.maxUsd,
-        maxCells: null,
+        maxCells: options.maxCells,
         maxNodes: 1 + options.population * options.expansions,
         deadline: options.deadline,
         maxConcurrency: null,
@@ -377,7 +436,12 @@ async function runSimulation(
       const born = state.node(parent.nodeId)!.children.length
       return {
         children: Array.from({ length: options.population }, (_, index) =>
-          childOf(parent.artifact, `${parent.artifact.name}.${born + index}`, options),
+          childOf(
+            parent.artifact,
+            `${parent.artifact.name}.${born + index}`,
+            options,
+            request.operator,
+          ),
         ),
         accounting: {
           tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
@@ -417,6 +481,8 @@ async function runSimulation(
   const invalidIds = new Set(invalid.map((node) => node.nodeId))
   const claimed = result.claim
   const kept = truth(result.leader)
+  const planted = plantedName(options)
+  const names = new Set(state.nodes().map((node) => truth(node.nodeId).name))
   const ledgerText = store.storage?.read(path) ?? readFileSync(path, 'utf8')
   const summary = {
     reason: result.reason,
@@ -425,8 +491,10 @@ async function runSimulation(
       name: kept.name,
       quality: kept.quality,
       status: state.node(result.leader)!.status,
-      planted: options.poolGap !== null && kept.name === `c${plantIndex(options)}`,
+      planted: planted !== null && kept.name === planted,
     },
+    /** The planted node was proposed and registered. */
+    reachedPlant: planted !== null && names.has(planted),
     ledgerChecks: checkLedger(ledgerText, allocation),
     nodes: state.audit.nodes,
     claim: claimed && {
@@ -475,7 +543,17 @@ async function runSimulation(
 
 /** A proposed child: the parent's quality plus a seeded step (none under
  * `--null`), with the planted children replacing the step. */
-function childOf(parent: SimArtifact, name: string, options: SimOptions) {
+function childOf(
+  parent: SimArtifact,
+  name: string,
+  options: SimOptions,
+  operator: string,
+): { artifact: SimArtifact; label: string; rationale: string } {
+  if (operator === 'debug' && parent.defective) {
+    const artifact: SimArtifact = { ...parent, name, defective: false }
+    return { artifact, label: `debug ${name}`, rationale: `fixes the defect of ${parent.name}` }
+  }
+  if (options.deepGain !== null) return deepChild(parent, name, options)
   let artifact: SimArtifact = {
     name,
     quality: round(
@@ -483,6 +561,7 @@ function childOf(parent: SimArtifact, name: string, options: SimOptions) {
     ),
     trainShift: parent.trainShift,
     heldShift: parent.heldShift,
+    ...defect(name, options),
   }
   let label = `step ${name}`
   if (options.plantGain !== null && name === 'root.0') {
@@ -494,6 +573,41 @@ function childOf(parent: SimArtifact, name: string, options: SimOptions) {
     label = 'planted train-only gain'
   }
   return { artifact, label, rationale: `${label} from ${parent.name}` }
+}
+
+/** A child in the deep-plant landscape: on the planted path, neutral (or a
+ * ramp step) until the plant; off it, a seeded loss in [0, 0.1). */
+function deepChild(parent: SimArtifact, name: string, options: SimOptions) {
+  const path = deepPath(options)
+  const depth = path.indexOf(name)
+  const gain = options.deepGain!
+  if (depth > 0) {
+    const quality =
+      depth === options.deepDepth
+        ? ROOT.quality + gain
+        : options.deepRamp
+          ? ROOT.quality + (gain * depth) / options.deepDepth
+          : ROOT.quality
+    const label = depth === options.deepDepth ? `planted +${gain} at depth ${depth}` : `path ${name}`
+    return {
+      artifact: { ...ROOT, name, quality: round(quality) } satisfies SimArtifact,
+      label,
+      rationale: `${label}, from ${parent.name}`,
+    }
+  }
+  const artifact: SimArtifact = {
+    ...ROOT,
+    name,
+    quality: round(parent.quality - 0.1 * unit(options.seed, 'deep-step', name)),
+    ...defect(name, options),
+  }
+  return { artifact, label: `step ${name}`, rationale: `step ${name} from ${parent.name}` }
+}
+
+function defect(name: string, options: SimOptions): { defective?: true } {
+  return options.defectRate > 0 && unit(options.seed, 'defect', name) < options.defectRate
+    ? { defective: true }
+    : {}
 }
 
 /** A planted-pool child: the root plus a seeded step in [-0.1, 0), or the
@@ -582,6 +696,10 @@ function checkLedger(text: string, allocation: SearchAllocator): Record<string, 
   }
   const cellsByStage: Record<string, number> = {}
   for (const cell of final.cells()) cellsByStage[cell.stage] = (cellsByStage[cell.stage] ?? 0) + 1
+  const operators: Record<string, number> = {}
+  for (const edge of final.edges()) operators[edge.operator] = (operators[edge.operator] ?? 0) + 1
+  let maxDepth = 0
+  for (const node of final.nodes()) maxDepth = Math.max(maxDepth, node.depth ?? 0)
   const statuses: Record<string, number> = {}
   for (const node of final.nodes()) {
     statuses[node.status ?? 'none'] = (statuses[node.status ?? 'none'] ?? 0) + 1
@@ -593,6 +711,8 @@ function checkLedger(text: string, allocation: SearchAllocator): Record<string, 
     advancedTo,
     cellsByStage,
     statuses,
+    operators,
+    maxDepth,
   }
 }
 
@@ -625,6 +745,20 @@ function simulateCell(work: SearchCellWork<SimArtifact>, options: SimOptions): S
     }
   }
   const { artifact } = work
+  if (artifact.defective) {
+    const score = options.minimize ? 1 : 0
+    return {
+      outcome: {
+        status: 'failed',
+        score,
+        metrics: { score },
+        failure: { code: 'sim-defect', message: 'the simulated artifact crashed' },
+      },
+      accounting,
+      identity,
+      placement: { lane: work.lane, boxId: null },
+    }
+  }
   const shift = work.split === 'train' ? artifact.trainShift : artifact.heldShift
   const task = -0.1 + 0.2 * unit(options.seed, 'task', work.taskId)
   const clamp = (value: number): number => Math.min(1, Math.max(0, value))
@@ -960,30 +1094,35 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
 }
 
 /**
- * The same search under `uniform` and `asha`, once per seed from `options.seed`:
- * cells each allocated, the node each kept, and the units each measured edge
- * pairs on. Ledgers and blobs are held in memory; every run's ledger audit
- * must pass.
+ * The same search under each arm (`policy+allocation`), once per seed from
+ * `options.seed`: cells each allocated, the node each kept, whether it was the
+ * planted node, and the units each measured edge pairs on. Every later arm is
+ * paired with the first by seed. Ledgers and blobs are held in memory; every
+ * run's ledger audit must pass.
  */
-async function compare(options: SimOptions, seeds: number) {
+async function compare(options: SimOptions, seeds: number, arms: readonly Arm[]) {
   interface ArmRow {
     cells: number
     nodes: number
     kept: string
     quality: number
     planted: boolean
+    reached: boolean
     ledgerOk: boolean
     edgePairs: Record<string, number>
     advancedTo: Record<string, number>
     statuses: Record<string, number>
+    operators: Record<string, number>
+    maxDepth: number
   }
-  const rows: Array<{ seed: number; uniform: ArmRow; asha: ArmRow }> = []
+  const startedAt = Date.now()
+  const rows: Array<{ seed: number; arms: ArmRow[] }> = []
   for (let seed = options.seed; seed < options.seed + seeds; seed++) {
-    const arms = {} as Record<'uniform' | 'asha', ArmRow>
-    for (const allocation of ['uniform', 'asha'] as const) {
+    const runs: ArmRow[] = []
+    for (const arm of arms) {
       const { result, summary } = await runSimulation(
-        `mem://search-sim/${seed}/${allocation}`,
-        { ...options, seed, allocation },
+        `mem://search-sim/${seed}/${arm.policy}+${arm.allocation}`,
+        { ...options, seed, policy: arm.policy, allocation: arm.allocation },
         memoryStore(),
       )
       const kept = summary.kept as { name: string; quality: number; planted: boolean }
@@ -992,47 +1131,78 @@ async function compare(options: SimOptions, seeds: number) {
         edgePairs: Record<string, number>
         advancedTo: Record<string, number>
         statuses: Record<string, number>
+        operators: Record<string, number>
+        maxDepth: number
       }
-      arms[allocation] = {
+      runs.push({
         cells: result.state.audit.cells.allocated,
         nodes: result.state.audit.nodes,
         kept: kept.name,
         quality: kept.quality,
         planted: kept.planted,
+        reached: summary.reachedPlant as boolean,
         ledgerOk: checks.ok,
         edgePairs: checks.edgePairs,
         advancedTo: checks.advancedTo,
         statuses: checks.statuses,
-      }
+        operators: checks.operators,
+        maxDepth: checks.maxDepth,
+      })
     }
-    rows.push({ seed, ...arms })
+    rows.push({ seed, arms: runs })
   }
   const add = (into: Record<string, number>, from: Record<string, number>): void => {
     for (const [key, value] of Object.entries(from)) into[key] = (into[key] ?? 0) + value
   }
-  const arm = (name: 'uniform' | 'asha') => {
-    const list = rows.map((row) => row[name])
+  const planted = plantedName(options) !== null
+  const summarize = (index: number) => {
+    const list = rows.map((row) => row.arms[index]!)
     const cells = list.map((row) => row.cells).sort((a, b) => a - b)
+    const nodes = list.map((row) => row.nodes).sort((a, b) => a - b)
     const edgePairs: Record<string, number> = {}
     const advancedTo: Record<string, number> = {}
     const statuses: Record<string, number> = {}
+    const operators: Record<string, number> = {}
+    const maxDepth: Record<string, number> = {}
     for (const row of list) {
       add(edgePairs, row.edgePairs)
       add(advancedTo, row.advancedTo)
       add(statuses, row.statuses)
+      add(operators, row.operators)
+      maxDepth[row.maxDepth] = (maxDepth[row.maxDepth] ?? 0) + 1
     }
     const pairCounts = Object.keys(edgePairs).map(Number)
+    const found = list.filter((row) => row.planted).length
     return {
+      arm: `${arms[index]!.policy}+${arms[index]!.allocation}`,
       cells: {
         total: cells.reduce((sum, value) => sum + value, 0),
         min: cells[0],
         median: cells[Math.floor(cells.length / 2)],
         max: cells.at(-1),
       },
-      nodes: list.reduce((sum, row) => sum + row.nodes, 0),
-      keptPlanted: list.filter((row) => row.planted).length,
-      missedPlantedSeeds: rows.filter((row) => !row[name].planted).map((row) => row.seed),
+      nodes: {
+        total: nodes.reduce((sum, value) => sum + value, 0),
+        min: nodes[0],
+        median: nodes[Math.floor(nodes.length / 2)],
+        max: nodes.at(-1),
+      },
+      ...(planted
+        ? {
+            /** Searches that kept the planted node. */
+            findRate: {
+              count: found,
+              of: list.length,
+              rate: round(found / list.length),
+              wilson95: interval(wilson(found, list.length, 0.95)),
+            },
+            /** Searches that registered the planted node at all. */
+            reachedPlant: list.filter((row) => row.reached).length,
+            missedPlantedSeeds: rows.filter((row) => !row.arms[index]!.planted).map((row) => row.seed),
+          }
+        : {}),
       meanKeptQuality: round(list.reduce((sum, row) => sum + row.quality, 0) / list.length),
+      keptBetterThanRoot: list.filter((row) => row.quality > ROOT.quality).length,
       ledgerAuditsPassed: list.filter((row) => row.ledgerOk).length,
       /** Measured edges by the units they pair on against their parent. */
       edgePairs,
@@ -1041,26 +1211,86 @@ async function compare(options: SimOptions, seeds: number) {
       advancedTo,
       /** Final node statuses across the searches. */
       statuses,
+      /** Edges by operator across the searches. */
+      operators,
+      /** Searches by the depth of their deepest node. */
+      maxDepth,
     }
   }
-  const uniformArm = arm('uniform')
-  const ashaArm = arm('asha')
+  const summaries = arms.map((_, index) => summarize(index))
+  const versusFirst = arms.slice(1).map((_, offset) => {
+    const index = offset + 1
+    const only = rows.filter((row) => row.arms[index]!.planted && !row.arms[0]!.planted).length
+    const firstOnly = rows.filter((row) => !row.arms[index]!.planted && row.arms[0]!.planted).length
+    return {
+      arm: summaries[index]!.arm,
+      against: summaries[0]!.arm,
+      sameKept: rows.filter((row) => row.arms[index]!.kept === row.arms[0]!.kept).length,
+      fewerCells: rows.filter((row) => row.arms[index]!.cells < row.arms[0]!.cells).length,
+      cellShare: round(summaries[index]!.cells.total / summaries[0]!.cells.total),
+      ...(planted
+        ? {
+            /** Seeds where only this arm kept the planted node, and where only the first did. */
+            plantedOnlyHere: only,
+            plantedOnlyInFirst: firstOnly,
+            signTestP: round(exactSignTest(only, firstOnly)),
+          }
+        : {}),
+    }
+  })
   return {
-    ok: uniformArm.ledgerAuditsPassed === rows.length && ashaArm.ledgerAuditsPassed === rows.length,
+    ok: summaries.every((summary) => summary.ledgerAuditsPassed === rows.length),
     seeds: rows.length,
-    sameKept: rows.filter((row) => row.uniform.kept === row.asha.kept).length,
-    ashaFewerCells: rows.filter((row) => row.asha.cells < row.uniform.cells).length,
-    ashaCellShare: round(ashaArm.cells.total / uniformArm.cells.total),
-    uniform: uniformArm,
-    asha: ashaArm,
-    differing: rows
-      .filter((row) => row.uniform.kept !== row.asha.kept)
-      .map((row) => ({
-        seed: row.seed,
-        uniform: { kept: row.uniform.kept, quality: row.uniform.quality, cells: row.uniform.cells },
-        asha: { kept: row.asha.kept, quality: row.asha.quality, cells: row.asha.cells },
-      })),
+    firstSeed: options.seed,
+    design: {
+      train: options.train,
+      selection: options.selection,
+      population: options.population,
+      maxCells: options.maxCells,
+      plant:
+        options.deepGain !== null
+          ? { kind: 'deep', gain: options.deepGain, depth: options.deepDepth, ramp: options.deepRamp }
+          : options.poolGap !== null
+            ? { kind: 'pool', gain: options.poolGap }
+            : null,
+      defectRate: options.defectRate,
+      faultRate: options.faultRate,
+    },
+    arms: summaries,
+    versusFirst,
+    seconds: round((Date.now() - startedAt) / 1000),
+    perSeed: rows.map((row) => ({
+      seed: row.seed,
+      kept: row.arms.map((arm) => [arm.kept, arm.quality, arm.planted ? 1 : 0, arm.cells]),
+    })),
   }
+}
+
+interface Arm {
+  policy: SimOptions['policy']
+  allocation: SimOptions['allocation']
+}
+
+function parseArms(text: string): Arm[] {
+  return text.split(',').map((entry) => {
+    const [policy, allocation] = entry.split('+')
+    if (policy !== 'incumbent' && policy !== 'aide' && policy !== 'beam') {
+      throw new Error(`--arms: unknown policy ${String(policy)} in ${entry}`)
+    }
+    if (allocation !== 'uniform' && allocation !== 'asha') {
+      throw new Error(`--arms: unknown allocation ${String(allocation)} in ${entry}`)
+    }
+    return { policy, allocation }
+  })
+}
+
+/** Two-sided exact binomial test of `a` against `b` discordant pairs at p = 1/2. */
+function exactSignTest(a: number, b: number): number {
+  const n = a + b
+  if (n === 0) return 1
+  let tail = 0
+  for (let k = 0; k <= Math.min(a, b); k++) tail += Math.exp(logChoose(n, k) - n * Math.LN2)
+  return Math.min(1, 2 * tail)
 }
 
 async function main(): Promise<void> {
@@ -1096,6 +1326,14 @@ async function main(): Promise<void> {
       kills: { type: 'string', default: '6' },
       searches: { type: 'string', default: '200' },
       allocation: { type: 'string', default: 'uniform' },
+      policy: { type: 'string', default: 'incumbent' },
+      'beam-width': { type: 'string', default: '3' },
+      'max-cells': { type: 'string' },
+      'deep-gain': { type: 'string' },
+      'deep-depth': { type: 'string', default: '3' },
+      'deep-ramp': { type: 'boolean', default: false },
+      'defect-rate': { type: 'string', default: '0' },
+      arms: { type: 'string', default: 'incumbent+uniform,incumbent+asha' },
       'pool-gap': { type: 'string' },
       'pool-plant': { type: 'string' },
       seeds: { type: 'string', default: '100' },
@@ -1103,6 +1341,9 @@ async function main(): Promise<void> {
   })
   if (values.allocation !== 'uniform' && values.allocation !== 'asha') {
     throw new Error(`--allocation must be uniform or asha, got ${values.allocation}`)
+  }
+  if (values.policy !== 'incumbent' && values.policy !== 'aide' && values.policy !== 'beam') {
+    throw new Error(`--policy must be incumbent, aide or beam, got ${values.policy}`)
   }
   const options: SimOptions = {
     seed: Number(values.seed),
@@ -1130,6 +1371,13 @@ async function main(): Promise<void> {
     minimize: values.minimize,
     costScale: Number(values['cost-scale']),
     allocation: values.allocation,
+    policy: values.policy,
+    beamWidth: Number(values['beam-width']),
+    maxCells: values['max-cells'] === undefined ? null : Number(values['max-cells']),
+    deepGain: values['deep-gain'] === undefined ? null : Number(values['deep-gain']),
+    deepDepth: Number(values['deep-depth']),
+    deepRamp: values['deep-ramp'],
+    defectRate: Number(values['defect-rate']),
     poolGap: values['pool-gap'] === undefined ? null : Number(values['pool-gap']),
     poolPlant: values['pool-plant'] === undefined ? null : Number(values['pool-plant']),
   }
@@ -1138,7 +1386,7 @@ async function main(): Promise<void> {
     return
   }
   if (mode === 'compare') {
-    const report = await compare(options, Number(values.seeds))
+    const report = await compare(options, Number(values.seeds), parseArms(values.arms))
     console.log(JSON.stringify(report, null, 2))
     if (!report.ok) process.exitCode = 1
     return

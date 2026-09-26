@@ -509,10 +509,14 @@ export {
   surfaceNode,
 } from './search-ledger-recording'
 export {
+  type AideOptions,
+  aide,
+  beam,
   crowdedFrontierParent,
   incumbent,
   type SearchExpansion,
   type SearchPolicy,
+  type SearchPolicyNode,
   type SearchPolicyView,
 } from './search-policy'
 export {
