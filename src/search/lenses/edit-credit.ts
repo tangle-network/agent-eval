@@ -270,6 +270,8 @@ export interface EditCreditData {
     verdict: string
     interaction: string
     multiplicity: string
+    /** The known bias of a lineage contrast in a search. */
+    selectionBias: string
   }
 }
 
@@ -686,6 +688,8 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
         interaction: `per unit, a gene's clean-step contrast where both ends carry the other gene minus where neither does, averaged over both directions; ${Math.round(CONFIDENCE * 100)}% percentile bootstrap (${RESAMPLES} resamples) for spread; exact two-sided sign test, Holm-adjusted over the pairs tested, flagged at ${INTERACTION_ALPHA}`,
         multiplicity:
           'credit is not adjusted for the number of genes: it steers which edits to reuse and test next, as selection estimates steer spend, and claims nothing; interaction flags are Holm-adjusted because pairs grow with the square of the genes',
+        selectionBias:
+          'a policy chooses a parent for its scores, so a parent is high by chance on the units it was chosen on: on a step where the child gained a gene the lacking side is that parent, and credit is biased toward harmful; where the child lost it, toward reusable. Only the sealed test split is free of this, so a reusable edit still needs a held-out test before it ships',
       },
     },
   }

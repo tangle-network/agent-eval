@@ -571,6 +571,7 @@ function checkEditCredit(
     genes: lens.data.genes.length,
     counts: lens.data.counts,
     editCounts: lens.data.editCounts,
+    chance: lens.data.chance,
     unmatchedGenes: lens.data.genes.filter((gene) => !truthOf(gene.lines)).length,
     /** The lens: step credit, `pairedDeltaTest`'s decision. */
     credit: score(
@@ -591,6 +592,17 @@ function checkEditCredit(
       flagged: flaggedPairs.length,
       /** Flagged pairs other than the planted one: false flags. */
       flaggedOther: flaggedPairs.filter((pair) => pair !== planted).length,
+      /** Every flagged pair as planted gene numbers (`g0`, `g1` are the
+       * planted pair), so a false flag can be traced to its cause. */
+      flaggedPairs: flaggedPairs.map((pair) => ({
+        genes: pair.genes.map((geneId) => {
+          const gene = lens.data.genes.find((candidate) => candidate.geneId === geneId)!
+          return `${gene.kind === 'insert' ? '+' : '-'}g${truthOf(gene.lines)?.gene ?? '?'}`
+        }),
+        interaction: pair.interaction,
+        units: pair.units,
+        adjustedP: pair.adjustedP,
+      })),
       plantedPair: planted ?? null,
     },
     skillCandidates: lens.data.skillCandidates.length,
