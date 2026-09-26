@@ -7,6 +7,7 @@ import {
 import {
   openExternalOptimizerExecutionLog,
   openExternalOptimizerObservationLog,
+  readExternalOptimizerObservationArtifact,
 } from './external-optimizer-observations'
 import {
   closeExternalOptimizerResources,
@@ -37,6 +38,7 @@ import {
   describeExternalScenario,
   mapExternalScenarios,
 } from './external-text-optimization'
+import { recordSkillOptSearch } from './gepa-search-import'
 import type { OpenAICompatibleOptimizerModel } from './optimizer-model'
 import {
   combineComparisonCosts,
@@ -44,6 +46,8 @@ import {
   type OptimizationMethod,
   optimizationTokenUsageFromSummary,
 } from './presets/compare-optimization-methods'
+import type { SearchHistoryReceipt } from './search-history-receipt'
+import type { SearchRunIdentity } from './search-ledger-recording'
 import {
   assertSkillOptOptimizationConfig,
   SKILLOPT_DEFAULT_MAX_CANDIDATE_CHARS,
@@ -111,6 +115,18 @@ export interface SkillOptOptimizationMethodConfig<TScenario extends Scenario, TA
   describeArtifact?: (artifact: TArtifact, scenario: TScenario) => unknown
   resume?: ExternalOptimizerResumeMode
   runner?: SkillOptRunnerCommand
+  /**
+   * Record SkillOpt's search into a search ledger and return the bounded
+   * receipt on the method result, so a comparison under `searchHistoryPolicy:
+   * 'require-complete'` accepts this method. Every candidate the callback
+   * evaluated becomes a node with an `unknown` edge (SkillOpt reports no
+   * parents), and every evaluation becomes a cell.
+   *
+   * `identity` declares the immutable revisions and the model the ledger
+   * requires and the bridge does not report. `path` defaults to
+   * `<runDir>/search-ledger.jsonl`.
+   */
+  searchLedger?: { identity: SearchRunIdentity; path?: string }
 }
 
 /** Run Microsoft's SkillOpt trainer as a complete optimization method. */
@@ -385,8 +401,47 @@ export function skillOptOptimizationMethod<TScenario extends Scenario, TArtifact
         { label: 'evaluation', cost: evaluationCost },
         { label: 'optimizer model', cost: optimizerCost },
       ])
+      const searchHistory: SearchHistoryReceipt | undefined = config.searchLedger
+        ? await recordSkillOptSearch({
+            name,
+            path: config.searchLedger.path ?? `${runDir}/search-ledger.jsonl`,
+            searchId: runId,
+            identity: config.searchLedger.identity,
+            storage,
+            seed: input.seed,
+            baselineSurface: input.baselineSurface,
+            trainScenarios: input.trainScenarios,
+            selectionScenarios: input.selectionScenarios,
+            evaluationLimit: config.maxEvaluations,
+            observations: readExternalOptimizerObservationArtifact({
+              summary: observationLog.summary(),
+              storage,
+            }),
+            selected: result.bestCandidate,
+            // The model proxy metered every optimizer call, so its receipts are the spend.
+            generationAccounting: {
+              tokens: optimizerUsage.usageComplete
+                ? {
+                    status: 'known',
+                    inputTokens: optimizerUsage.inputTokens,
+                    outputTokens: optimizerUsage.outputTokens,
+                    cachedTokens: optimizerUsage.cachedTokens,
+                  }
+                : { status: 'unknown', reason: 'an optimizer call reported no token usage' },
+              cost: optimizerCost.accountingComplete
+                ? { status: 'known', usd: optimizerCost.totalCostUsd, source: 'provider' }
+                : {
+                    status: 'unknown',
+                    knownLowerBoundUsd: optimizerCost.totalCostUsd,
+                    reason:
+                      optimizerCost.incompleteReasons.join('; ') || 'optimizer spend incomplete',
+                  },
+            },
+          })
+        : undefined
       return {
         winnerSurface: result.bestCandidate,
+        ...(searchHistory ? { searchHistory } : {}),
         cost: combinedCost,
         durationMs: Date.now() - started,
         provenance: {
