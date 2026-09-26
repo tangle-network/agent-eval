@@ -177,7 +177,7 @@ describe('caller-owned physical evaluation identity', () => {
 describe('native and generic analyst authority use the same path', () => {
   const request = {
     model: 'jev-fixture',
-    state: null,
+    state: 'fixture',
     questions: { ready: { type: 'noul' as const } },
   }
   const value = {

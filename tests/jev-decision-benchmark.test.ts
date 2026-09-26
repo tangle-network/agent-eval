@@ -123,7 +123,7 @@ describe('decision configuration comparisons', () => {
     })
     await expect(
       compareDecisions({
-        cases: [{ id: 'case', sourceUnit: 'incident', input: null, expected: 'finish' }],
+        cases: [{ id: 'case', sourceUnit: 'incident', input: 'incident', expected: 'finish' }],
         configurations: [configs[0]!, configs[0]!],
         evaluate,
       }),
@@ -147,7 +147,7 @@ describe('decision configuration comparisons', () => {
       receipt: () => ({ model: 'fixture', actualCostUsd: 0.1, inputTokens: 10, outputTokens: 2 }),
     })
     const result = await compareDecisions({
-      cases: [{ id: 'a', sourceUnit: 'a', input: null, expected: 'finish' }],
+      cases: [{ id: 'a', sourceUnit: 'a', input: 'incident', expected: 'finish' }],
       configurations: [configs[0]!],
       evaluate,
       onObservation: () => {

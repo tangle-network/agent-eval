@@ -378,6 +378,12 @@ export {
   campaignBreakdown,
   campaignMeanComposite,
 } from './score-utils'
+export {
+  campaignCellSearchResult,
+  searchModelIdentity,
+  searchProposalExecution,
+  searchReceiptAccounting,
+} from './search-campaign-cell'
 // ── The claim: finalists, power, and the paired test on the sealed split ──
 export {
   decideSearchClaim,
