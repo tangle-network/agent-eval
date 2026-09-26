@@ -536,12 +536,10 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
           `${name}: GEPA reported ${result.totalEvaluations} evaluations but the callback received ${callback.evaluations()}`,
         )
       }
-      let searchHistory: SearchHistoryReceipt | undefined
-      if (result.candidatePopulation) {
-        const population = readGepaCandidatePopulationArtifact({
-          summary: result.candidatePopulation,
-          storage,
-        })
+      const population = result.candidatePopulation
+        ? readGepaCandidatePopulationArtifact({ summary: result.candidatePopulation, storage })
+        : null
+      if (population) {
         const selected = population.candidates[population.bestIndex]
         const selectedHash = contentHash({
           kind: 'external-text-candidate',
@@ -550,8 +548,11 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
         if (selected?.candidateHash !== selectedHash) {
           throw new Error(`${name}: GEPA candidate population identifies a different winner`)
         }
-        if (config.searchLedger) {
-          searchHistory = await recordGepaSearch({
+      }
+      // Every recipe records its search. A composed recipe reports no
+      // population, so its candidates enter with `unknown` edges, as SkillOpt's.
+      const searchHistory: SearchHistoryReceipt | undefined = config.searchLedger
+        ? await recordGepaSearch({
             name,
             path: config.searchLedger.path ?? `${runDir}/search-ledger.jsonl`,
             searchId: runId,
@@ -562,15 +563,16 @@ export function gepaOptimizationMethod<TScenario extends Scenario, TArtifact>(
             trainScenarios: input.trainScenarios,
             selectionScenarios: input.selectionScenarios,
             evaluationLimit,
-            population,
+            ...(population
+              ? { population }
+              : { population: null, selected: decodeExternalTextCandidate(result.bestCandidate) }),
             observations: readExternalOptimizerObservationArtifact({
               summary: observationLog.summary(),
               storage,
             }),
             generationAccounting: optimizerAccounting(result.tokenUsage, result.proposerCostUsd),
           })
-        }
-      }
+        : undefined
 
       const evaluationCost = costFromLedgerSummary(
         costLedger.summary({
