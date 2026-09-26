@@ -150,10 +150,13 @@ export interface DraftOnPlateauOptions {
  * plateau is the `landscape` lens's signal (`searchPlateau` on this view):
  * how many standard errors the best improvement over the root rose across the
  * last `window` accepted nodes. A draft needs a measured plateau (at least
- * `window` accepted nodes and a pooled variance), no node still screening,
- * and an expansion count that is a multiple of `window`, so `base` expands at
- * least `window − 1` times between drafts and each draft's lineage gets a
- * chance to lift the plateau. The leader and patience are `base`'s.
+ * `window` accepted nodes and a pooled variance) and an expansion count that
+ * is a multiple of `window`, so `base` expands at least `window − 1` times
+ * between drafts and each draft's lineage gets a chance to lift the plateau.
+ * Nodes still screening do not hold a draft back: the kernel expands while
+ * its screening backlog is below twice the lane capacity, so under a full
+ * pipeline some node is always screening, and the plateau reads only nodes
+ * whose screen finished. The leader and patience are `base`'s.
  *
  * This is AIDE's draft trigger driven by measured progress instead of a fixed
  * count; `draftOnPlateau(aide(...))` adds it to `aide`'s own drafts. A draft
@@ -179,7 +182,7 @@ export function draftOnPlateau(
     ...(base.patience === undefined ? {} : { patience: base.patience }),
     leader: (view) => base.leader(view),
     expand(view) {
-      if (view.screening > 0 || view.expansions % window !== 0) return base.expand(view)
+      if (view.expansions % window !== 0) return base.expand(view)
       const plateau = searchPlateau(view, { window })
       if (plateau.value === null || plateau.value >= below) return base.expand(view)
       return {
