@@ -267,6 +267,10 @@ export interface BestPolicyConfiguration {
    * per dollar: the rest are unscored or bounded, never counted as 0. */
   searches: number
   scored: number
+  /** An outer-search node whose artifact runs this configuration, when an
+   * outer search ran it: the runnable configuration a caller derives the next
+   * search from. Null for a configuration only free-standing searches ran. */
+  outerNode: { searchId: string; nodeId: string } | null
   /** Why the value is what it is, including why it is null. */
   reason: string
 }
@@ -692,6 +696,7 @@ function best(
       n: 0,
       searches: 0,
       scored: 0,
+      outerNode: null,
       reason,
     },
   })
@@ -758,6 +763,9 @@ function best(
       n: estimate.n,
       searches: top.searches.length,
       scored: top.scored,
+      outerNode: top.outerNodes[0]
+        ? { searchId: top.outerNodes[0].searchId, nodeId: top.outerNodes[0].nodeId }
+        : null,
       reason:
         runnerUp === undefined
           ? `the only configuration with a known lift per dollar (${estimate.method}, ${estimate.basis} n=${estimate.n}; ${coverage})`
