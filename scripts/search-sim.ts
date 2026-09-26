@@ -27,7 +27,8 @@
  * comma-separated list of `policy+allocation`, default
  * `incumbent+uniform,incumbent+asha`) on in-memory ledgers and reports, per
  * arm, the cells each allocated, the node each kept, how often it kept the
- * planted node (with its Wilson 95% interval), and the units each measured
+ * planted node and how often a node at least half the planted gain above the
+ * root (each with its Wilson 95% interval), and the units each measured
  * edge pairs on against its parent; every later arm is paired with the first
  * seed by seed, with an exact sign test on the seeds where exactly one of the
  * two kept the planted node.
@@ -1155,6 +1156,9 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
     for (const [key, value] of Object.entries(from)) into[key] = (into[key] ?? 0) + value
   }
   const planted = plantedName(options) !== null
+  /** Half the planted gain above the root: a kept node at or above it carries
+   * the gain, whether it is the planted node or a descendant that lost little. */
+  const halfGain = ROOT.quality + (options.deepGain ?? options.poolGap ?? 0) / 2
   const summarize = (index: number) => {
     const list = rows.map((row) => row.arms[index]!)
     const cells = list.map((row) => row.cells).sort((a, b) => a - b)
@@ -1173,6 +1177,7 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
     }
     const pairCounts = Object.keys(edgePairs).map(Number)
     const found = list.filter((row) => row.planted).length
+    const gained = list.filter((row) => row.quality >= halfGain - 1e-9).length
     return {
       arm: `${arms[index]!.policy}+${arms[index]!.allocation}`,
       cells: {
@@ -1195,6 +1200,14 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
               of: list.length,
               rate: round(found / list.length),
               wilson95: interval(wilson(found, list.length, 0.95)),
+            },
+            /** Searches that kept a node at least half the planted gain above
+             * the root: the planted node, or a descendant that kept the gain. */
+            gainRate: {
+              count: gained,
+              of: list.length,
+              rate: round(gained / list.length),
+              wilson95: interval(wilson(gained, list.length, 0.95)),
             },
             /** Searches that registered the planted node at all. */
             reachedPlant: list.filter((row) => row.reached).length,
@@ -1222,6 +1235,10 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
     const index = offset + 1
     const only = rows.filter((row) => row.arms[index]!.planted && !row.arms[0]!.planted).length
     const firstOnly = rows.filter((row) => !row.arms[index]!.planted && row.arms[0]!.planted).length
+    const gains = (row: (typeof rows)[number], at: number): boolean =>
+      row.arms[at]!.quality >= halfGain - 1e-9
+    const gainOnly = rows.filter((row) => gains(row, index) && !gains(row, 0)).length
+    const gainFirstOnly = rows.filter((row) => !gains(row, index) && gains(row, 0)).length
     return {
       arm: summaries[index]!.arm,
       against: summaries[0]!.arm,
@@ -1234,6 +1251,10 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
             plantedOnlyHere: only,
             plantedOnlyInFirst: firstOnly,
             signTestP: round(exactSignTest(only, firstOnly)),
+            /** The same pairing on keeping at least half the planted gain. */
+            gainOnlyHere: gainOnly,
+            gainOnlyInFirst: gainFirstOnly,
+            gainSignTestP: round(exactSignTest(gainOnly, gainFirstOnly)),
           }
         : {}),
     }

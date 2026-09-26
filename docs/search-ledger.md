@@ -243,6 +243,7 @@ The ports:
   Otherwise it improves a parent drawn by Thompson sampling from every screened node that is not buggy: the root at 0, every other node from a normal with its mean improvement over the root and the pooled between-unit variance divided by its shared units.
   Until some node shares 2 units with the root the variance is unknown and the draw is uniform.
   When the drawn parent's lineage (the nodes under its nearest draft, or under the root) has had `stallAfter` improve children in a row that did not raise its best posterior mean, the improve forks from the node with the best posterior mean instead.
+  A fork's children restart the run of the lineage they join, so a stalled lineage that holds the global best forks once, not on every later expansion.
   `beam({ width })` expands the top `width` nodes by posterior mean, the member with the fewest children first; a member is the root, a node an allocator advanced, or a node that scored every unit the root scored.
   Each edge records the rule and evidence that chose its parent (`aide:draft`, `aide:debug`, `aide:thompson`, `aide:uniform-draw`, `aide:stall-fork`, `beam(width=k)`).
   Pair `incumbent` and `crowdedFrontierParent` with `uniform`, and `aide` and `beam` with `asha`: a hill climb expands only the leader, and under `asha` the root keeps the lead until a child finishes the top rung, while a posterior stays honest about a node measured only on the first rung.
@@ -296,7 +297,7 @@ Its resumed ledger holds only rank decisions that its own evidence supports.
 `scripts/search-sim.ts` runs the real kernel, ledger, policies and claim over a seeded synthetic objective, proposer and executor.
 `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
 `claims --searches 200 --null` runs 200 searches in which no node differs from the root and reports how often the claim ships, with Wilson and Clopper-Pearson intervals; `--plant-gain X` plants a real gain to measure how often the claim finds it.
-`compare --seeds 200 --arms incumbent+uniform,aide+asha` runs one search per seed under each `policy+allocation` arm and reports the cells each allocated, the node each kept, how often it kept the planted node (with a Wilson interval), and the units each edge pairs on; every later arm is paired with the first by seed, with an exact sign test.
+`compare --seeds 200 --arms incumbent+uniform,aide+asha` runs one search per seed under each `policy+allocation` arm and reports the cells each allocated, the node each kept, how often it kept the planted node and how often it kept a node at least half the planted gain above the root (each with a Wilson interval), and the units each edge pairs on; every later arm is paired with the first by seed, with an exact sign test.
 `--max-cells N` caps the cells a search allocates, so arms compare at equal cells.
 `--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate; `--deep-gain X` plants a gain at depth `--deep-depth` (default 3) of one lineage, behind neutral path nodes (or a gradient with `--deep-ramp`), with every other edit a loss.
 `--defect-rate X` makes a share of children fail every cell as a defect, which `aide` debugs.

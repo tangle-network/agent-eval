@@ -59,6 +59,9 @@ export interface SearchPolicyNode {
   readonly parent: string | null
   /** The operator of the edge that placed the node: `seed` for the root. */
   readonly operator: SearchEdgeOperator
+  /** The rule that chose the node's parent (that edge's `selection.rule`);
+   * null when the edge records none. */
+  readonly rule: string | null
   /** Nodes placed from this one, in registration order. */
   readonly children: readonly string[]
   /** The node's latest decision; null while undecided. */
@@ -186,7 +189,9 @@ export interface AideOptions {
  *    draft, or under the root) has had `stallAfter` improve children in a row
  *    that did not raise the lineage's best posterior mean, the improve forks
  *    from the node with the best posterior mean instead. This is AIDE²'s
- *    inner policy.
+ *    inner policy. A fork's children restart the run of the lineage they
+ *    join, so a stalled lineage that holds the global best forks once, not
+ *    on every later expansion.
  *
  * A parent is always a node whose screen finished; a node refused at
  * admission or decided invalid never is. Draws come from a PRNG seeded by the
@@ -277,7 +282,7 @@ export function aide(options: AideOptions = {}): SearchPolicy {
           }
         }
       }
-      const stalled = stalledRun(drawn, nodes, screened, posterior)
+      const stalled = stalledRun(drawn, nodes, screened, posterior, `${name}:stall-fork`)
       if (stalled >= stallAfter) {
         let best = good[0]!
         for (const node of good) if (meanOf(node) > meanOf(best)) best = node
@@ -396,13 +401,15 @@ function debugDepth(node: SearchPolicyNode, byId: ReadonlyMap<string, SearchPoli
 /**
  * Improve children in a row, in registration order, that did not raise the
  * best posterior mean of `node`'s lineage: the nodes under its nearest draft,
- * or under the root. Only screened nodes with a posterior count.
+ * or under the root. Only screened nodes with a posterior count, and a child
+ * placed by `forkRule` restarts the run.
  */
 function stalledRun(
   node: SearchPolicyNode,
   nodes: readonly SearchPolicyNode[],
   screened: ReadonlySet<string>,
   posterior: ReadonlyMap<string, { mean: number | null }>,
+  forkRule: string,
 ): number {
   // A node's lineage head: itself when a draft, a seed or a derive placed it,
   // else its parent's head. Parents register first, so one pass in
@@ -424,7 +431,8 @@ function stalledRun(
   for (const entry of nodes) {
     const mean = posterior.get(entry.nodeId)?.mean ?? null
     if (mean === null || !screened.has(entry.nodeId) || headOf(entry) !== lineage) continue
-    if (entry.operator === 'improve') run = mean > best ? 0 : run + 1
+    if (entry.rule === forkRule) run = 0
+    else if (entry.operator === 'improve') run = mean > best ? 0 : run + 1
     best = Math.max(best, mean)
   }
   return run

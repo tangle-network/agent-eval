@@ -1523,11 +1523,13 @@ function policyNodes(state: SearchStateView): SearchPolicyNode[] {
       outcomes += 1
       if (cell.outcome === 'failed') defects += 1
     }
+    const edge = state.edge(edgeId)!
     nodes.push({
       nodeId: node.nodeId,
       ordinal: node.ordinal,
       parent: node.primaryParentId,
-      operator: state.edge(edgeId)!.operator,
+      operator: edge.operator,
+      rule: edge.selection?.rule ?? null,
       children: node.children,
       status: node.status,
       outcomes,
