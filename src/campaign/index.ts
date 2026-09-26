@@ -232,12 +232,14 @@ export {
   gepaOptimizationMethod,
 } from './gepa-optimization-method'
 export {
+  type ExternalSearchOptimizer,
   externalSurface,
   type GepaEvaluationImport,
   type GepaPopulationImport,
   importExternalEvaluations,
   importGepaPopulation,
   recordGepaSearch,
+  recordSkillOptSearch,
 } from './gepa-search-import'
 // ── Grounded reflection + run hygiene (lifted from agent-lab R357/R358) ──
 export {

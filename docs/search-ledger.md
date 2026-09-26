@@ -162,9 +162,10 @@ await recorder.settleCell({ cellId, outcome, accounting, identity, runRecord })
 `runOptimization` and `selfImprove` run on the kernel below and return the receipt on `searchHistory`.
 The loop's scenarios are its proposer's feedback, so they are the train split; its promotions are budget decisions and it makes no claim.
 
-`gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's search when it finishes.
+`gepaOptimizationMethod({ searchLedger: { identity } })` records GEPA's search when it finishes, and `skillOptOptimizationMethod({ searchLedger: { identity } })` records SkillOpt's.
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
 `importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
+SkillOpt reports no parents, so every candidate it evaluated gets an `unknown` edge; its choice is `selected` and the others are `rejected`.
 
 ## Run a search: the kernel
 

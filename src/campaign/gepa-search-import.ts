@@ -1,14 +1,15 @@
 /**
- * Import an optimizer's own record into a search ledger.
+ * Import an external optimizer's own record into a search ledger.
  *
- * GEPA searches inside its own process. Its candidate population names each
- * candidate's parents by index, and the evaluation callback's observation log
- * holds every candidate it evaluated. The importer turns both into ledger
- * events: one node per distinct candidate, one `correlated` edge per population
- * entry (joined by content digest from GEPA's own parent record), and one cell
- * per evaluation. Nothing is inferred from timing or order: a candidate GEPA
- * evaluated but kept out of its population has no parent record, so its edge
- * is `unknown` and has no parents.
+ * GEPA and SkillOpt search inside their own processes. The evaluation
+ * callback's observation log holds every candidate either one evaluated, and
+ * GEPA's candidate population also names each candidate's parents by index.
+ * The importer turns both into ledger events: one node per distinct candidate,
+ * one `correlated` edge per population entry (joined by content digest from
+ * GEPA's own parent record), and one cell per evaluation. Nothing is inferred
+ * from timing or order: a candidate with no parent record (every SkillOpt
+ * candidate, and a candidate GEPA kept out of its population) has an `unknown`
+ * edge and no parents.
  */
 
 import { hashCanonical } from '../ledger-core/canonical'
@@ -41,10 +42,16 @@ import type {
 import type { CampaignStorage } from './storage'
 import type { MutableSurface, Scenario } from './types'
 
-const NO_GEPA_RATIONALE: SearchUnknown = {
-  unknown:
-    'GEPA records no rationale per candidate; its reflection attaches to the proposer operation',
+/** The external optimizers whose searches this module records. */
+export type ExternalSearchOptimizer = 'GEPA' | 'SkillOpt'
+
+function noRationale(optimizer: ExternalSearchOptimizer): SearchUnknown {
+  return {
+    unknown: `${optimizer} records no rationale per candidate; its reflection attaches to the proposer operation`,
+  }
 }
+
+const NO_GEPA_RATIONALE = noRationale('GEPA')
 
 export interface GepaPopulationImport {
   /** Population index to node id. */
@@ -157,7 +164,8 @@ export interface GepaEvaluationImport {
 /**
  * Record every evaluation in the callback's observation log as an `external`
  * cell attempt. A candidate that is not yet a node (GEPA evaluated it on a
- * minibatch and discarded it) is registered with an `unknown` edge.
+ * minibatch and discarded it, or SkillOpt, which reports no parents, proposed
+ * it) is registered with an `unknown` edge.
  */
 export async function importExternalEvaluations(input: {
   recorder: SearchRecorder
@@ -166,8 +174,11 @@ export async function importExternalEvaluations(input: {
   identity: SearchExecutionIdentity
   /** The split each evaluated example belongs to. */
   splitOf: (exampleId: string) => SearchSplit
+  /** The optimizer that proposed the candidates. Default GEPA. */
+  optimizer?: ExternalSearchOptimizer
 }): Promise<GepaEvaluationImport> {
   const { recorder } = input
+  const optimizer = input.optimizer ?? 'GEPA'
   const reps = new Map<string, number>()
   const unrecorded: string[] = []
   let cells = 0
@@ -189,10 +200,13 @@ export async function importExternalEvaluations(input: {
         operator: 'improve',
         attribution: 'unknown',
         proposer: input.proposer,
-        proposalKey: `gepa-evaluated:${candidateHash}`,
-        rationale: NO_GEPA_RATIONALE,
+        proposalKey: `${optimizer.toLowerCase()}-evaluated:${candidateHash}`,
+        rationale: noRationale(optimizer),
         diffs: [],
-        label: 'GEPA proposal outside its population',
+        label:
+          optimizer === 'GEPA'
+            ? 'GEPA proposal outside its population'
+            : `${optimizer} proposal without a parent record`,
       })
       unrecorded.push(registered.nodeId)
     }
@@ -270,15 +284,8 @@ export function externalSurface(candidate: ExternalTextCandidate): MutableSurfac
   return typeof candidate === 'string' ? candidate : { kind: 'components', components: candidate }
 }
 
-/**
- * Write GEPA's finished search into its ledger: the baseline as the seeded
- * root, the population as nodes with `correlated` edges, every callback
- * evaluation as an `external` cell, GEPA's proposer spend as one operation,
- * GEPA's choice as the selected node, and the close. GEPA's own selection is a
- * budget decision, so the ledger carries no claim; the final comparison runs
- * outside this search.
- */
-export async function recordGepaSearch(input: {
+/** What `recordGepaSearch` and `recordSkillOptSearch` share. */
+interface ExternalSearchRecordInput {
   name: string
   path: string
   searchId: string
@@ -289,11 +296,59 @@ export async function recordGepaSearch(input: {
   trainScenarios: readonly Scenario[]
   selectionScenarios: readonly Scenario[]
   evaluationLimit: number
-  population: GepaCandidatePopulationArtifact
   observations: ExternalOptimizerObservationArtifact
   generationAccounting: SearchAttemptAccounting
-}): Promise<SearchHistoryReceipt> {
-  const { identity, population } = input
+}
+
+/**
+ * Write GEPA's finished search into its ledger: the baseline as the seeded
+ * root, the population as nodes with `correlated` edges, every callback
+ * evaluation as an `external` cell, GEPA's proposer spend as one operation,
+ * GEPA's choice as the selected node, and the close. GEPA's own selection is a
+ * budget decision, so the ledger carries no claim; the final comparison runs
+ * outside this search.
+ */
+export async function recordGepaSearch(
+  input: ExternalSearchRecordInput & { population: GepaCandidatePopulationArtifact },
+): Promise<SearchHistoryReceipt> {
+  const best = input.population.candidates.find(
+    (candidate) => candidate.index === input.population.bestIndex,
+  )
+  if (!best) {
+    throw new Error(
+      `GEPA candidate population has no bestIndex entry ${input.population.bestIndex}`,
+    )
+  }
+  return recordExternalSearch({
+    ...input,
+    optimizer: 'GEPA',
+    selected: externalSurface(best.candidate),
+  })
+}
+
+/**
+ * Write SkillOpt's finished search into its ledger: the baseline as the seeded
+ * root, every candidate SkillOpt evaluated as a node with an `unknown` edge
+ * (SkillOpt reports no parents), every callback evaluation as an `external`
+ * cell, SkillOpt's optimizer spend as one operation, SkillOpt's choice as the
+ * selected node, and the close. Like GEPA's, the ledger carries no claim.
+ */
+export async function recordSkillOptSearch(
+  input: ExternalSearchRecordInput & { selected: MutableSurface },
+): Promise<SearchHistoryReceipt> {
+  return recordExternalSearch({ ...input, optimizer: 'SkillOpt', population: null })
+}
+
+async function recordExternalSearch(
+  input: ExternalSearchRecordInput & {
+    optimizer: ExternalSearchOptimizer
+    population: GepaCandidatePopulationArtifact | null
+    /** The surface the optimizer chose. */
+    selected: MutableSurface
+  },
+): Promise<SearchHistoryReceipt> {
+  const { identity, population, optimizer } = input
+  const policyName = optimizer.toLowerCase()
   const tasks = (scenarios: readonly Scenario[]): SearchTask[] =>
     scenarios.map((scenario) => ({
       taskId: scenario.id,
@@ -322,7 +377,7 @@ export async function recordGepaSearch(input: {
         claim: identity.claim ?? developmentClaim(taskSet),
       },
       splits: { train, selection, test: [], heldOutUnits: true },
-      policy: { expansion: 'gepa', allocation: 'gepa', seed: input.seed },
+      policy: { expansion: policyName, allocation: policyName, seed: input.seed },
       budget: {
         maxUsd: null,
         maxCells: input.evaluationLimit,
@@ -352,7 +407,7 @@ export async function recordGepaSearch(input: {
     diffs: [],
     label: 'baseline',
   })
-  const operationId = 'gepa-proposals'
+  const operationId = `${policyName}-proposals`
   await recorder.startOperation({ operationId, operationKind: 'candidate-generation' })
   const proposer = {
     kind: 'optimizer' as const,
@@ -360,7 +415,7 @@ export async function recordGepaSearch(input: {
     operationId,
     source: identity.proposer.source,
   }
-  const imported = await importGepaPopulation({ recorder, population, proposer })
+  if (population) await importGepaPopulation({ recorder, population, proposer })
   const trainIds = new Set(train.map((task) => task.taskId))
   const evaluations = await importExternalEvaluations({
     recorder,
@@ -372,7 +427,23 @@ export async function recordGepaSearch(input: {
       benchmark: { uri: `optimizer://${input.name}`, revision: taskSet },
     },
     splitOf: (exampleId) => (trainIds.has(exampleId) ? 'train' : 'selection'),
+    optimizer,
   })
+  // The optimizer's choice is a node unless no evaluation ever reached it.
+  const chosen = await recorder.registerNode(surfaceNode(recorder, input.selected))
+  if (((await recorder.state()).node(chosen.nodeId)?.edgeIds.length ?? 0) === 0) {
+    await recorder.recordEdge({
+      childNodeId: chosen.nodeId,
+      parents: [],
+      operator: 'improve',
+      attribution: 'unknown',
+      proposer,
+      proposalKey: `${policyName}-selected`,
+      rationale: noRationale(optimizer),
+      diffs: [],
+      label: `${optimizer} choice without an evaluation`,
+    })
+  }
   await recorder.recordOperation({
     operationId,
     operationKind: 'candidate-generation',
@@ -380,21 +451,23 @@ export async function recordGepaSearch(input: {
     outcome: { status: 'completed' },
     accounting: input.generationAccounting,
   })
-  const best = imported.nodeIds.get(population.bestIndex)
   // Read everything the decisions need before the first decision moves the ledger.
   const state = await recorder.state()
   const nodes = state.nodes()
-  const bestScored =
-    best !== undefined && state.cells({ nodeId: best }).some((cell) => cell.score !== null)
+  const best = chosen.nodeId
+  const bestScored = state.cells({ nodeId: best }).some((cell) => cell.score !== null)
+  // GEPA chooses by its aggregate selection score; SkillOpt by its own validation.
+  const rule = population ? 'gepa-best-aggregate' : `${policyName}-choice`
+  const basis = population ? 'its aggregate selection score' : 'its own validation'
   for (const node of nodes) {
     if (node.nodeId === best && bestScored) {
       await recorder.decideNode({
         nodeId: node.nodeId,
         decision: { status: 'selected' },
-        rule: 'gepa-best-aggregate',
-        reason: 'GEPA chose this candidate by its aggregate selection score',
+        rule,
+        reason: `${optimizer} chose this candidate by ${basis}`,
       })
-    } else if (evaluations.unrecordedParentNodeIds.includes(node.nodeId)) {
+    } else if (population && evaluations.unrecordedParentNodeIds.includes(node.nodeId)) {
       await recorder.decideNode({
         nodeId: node.nodeId,
         decision: { status: 'pruned' },
@@ -405,11 +478,11 @@ export async function recordGepaSearch(input: {
       await recorder.decideNode({
         nodeId: node.nodeId,
         decision: node.nodeId === best ? { status: 'invalid' } : { status: 'rejected' },
-        rule: 'gepa-best-aggregate',
+        rule,
         reason:
           node.nodeId === best
-            ? 'GEPA chose this candidate, but no evaluation of it was scored'
-            : 'GEPA chose another candidate',
+            ? `${optimizer} chose this candidate, but no evaluation of it was scored`
+            : `${optimizer} chose another candidate`,
       })
     }
   }
