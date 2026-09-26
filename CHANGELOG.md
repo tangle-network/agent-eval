@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.196.0] — 2026-09-26
+
 ### Added
 
 - `skillOptOptimizationMethod({ searchLedger: { identity, path } })` records SkillOpt's search into a search ledger when it finishes and returns the receipt on `searchHistory`, as `gepaOptimizationMethod` does, so a comparison under `searchHistoryPolicy: 'require-complete'` accepts SkillOpt ([search ledger](./docs/search-ledger.md#record-a-search)).
