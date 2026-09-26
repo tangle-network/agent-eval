@@ -118,6 +118,37 @@ export interface AshaOptions {
   trainUnits?: number
   /** Repeats per task. Default 1. */
   reps?: number
+  /** How a rung beyond the first chooses the units it adds. Default: the
+   * next units of the seeded permutation. */
+  extend?: SearchUnitExtension
+}
+
+/**
+ * How `asha` chooses the units a rung adds beyond the rung below it, for
+ * example the units that best separate the current leaders
+ * (`nextUnitExtension` in `search/lenses`). A rung's units are chosen once,
+ * when the first `advanced` decision opens the rung, and read back from that
+ * point of the ledger afterwards, so every node at the rung runs the same
+ * units and a replayed or resumed search derives the same plan.
+ */
+export interface SearchUnitExtension {
+  /** Recorded inside the allocator's name, so the ledger names it. */
+  readonly name: string
+  /**
+   * Up to `count` units of `remaining`, best first. The chooser must read
+   * only evidence the ledger held at `asOfSequence` (the decision that opened
+   * the rung). Units it does not name are filled from the seeded order.
+   */
+  choose(input: {
+    state: SearchStateView
+    asOfSequence: number
+    split: 'selection' | 'train'
+    rung: number
+    /** Units of the rungs below, in rung order. */
+    measured: readonly string[]
+    remaining: readonly string[]
+    count: number
+  }): readonly string[]
 }
 
 /**
@@ -145,12 +176,17 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
   if (eta < 2) throw new TypeError(`asha: eta must be at least 2, got ${eta}`)
   const trainUnits = nonNegativeInteger('asha', 'trainUnits', options.trainUnits ?? 2)
   const reps = positiveInteger('asha', 'reps', options.reps ?? 1)
+  const extend = options.extend ?? null
   const name =
-    units === firstRung && eta === 3 && trainUnits === 2 && reps === 1
+    units === firstRung && eta === 3 && trainUnits === 2 && reps === 1 && extend === null
       ? 'asha'
-      : `asha(units=${units},eta=${eta},train=${trainUnits},reps=${reps})`
+      : `asha(units=${units},eta=${eta},train=${trainUnits},reps=${reps}${extend ? `,extend=${extend.name}` : ''})`
   const layouts = new WeakMap<SearchOpenedEvent, AshaLayout>()
-  const layoutOf = (state: SearchStateView): AshaLayout | null => {
+  const extensions = new WeakMap<
+    SearchOpenedEvent,
+    Map<number, { sequence: number; units: string[] }>
+  >()
+  const seededLayout = (state: SearchStateView): AshaLayout | null => {
     const header = state.header
     if (!header) return null
     let layout = layouts.get(header)
@@ -159,6 +195,77 @@ export function asha(options: AshaOptions = {}): SearchAllocator {
       layouts.set(header, layout)
     }
     return layout
+  }
+  /**
+   * With `extend`, each opened rung's added units come from the chooser at
+   * the sequence of the first decision that opened it; units of rungs not yet
+   * opened follow in the seeded order, which only the root, measured on every
+   * unit, ever reads.
+   */
+  const layoutOf = (state: SearchStateView): AshaLayout | null => {
+    const seeded = seededLayout(state)
+    if (!seeded || extend === null || seeded.top === 0) return seeded
+    const opened = new Map<number, number>()
+    for (const node of state.nodes()) {
+      for (const record of node.decisions) {
+        if (record.decision.status !== 'advanced') continue
+        const known = opened.get(record.decision.rung)
+        if (known === undefined || record.sequence < known) {
+          opened.set(record.decision.rung, record.sequence)
+        }
+      }
+    }
+    if (opened.size === 0) return seeded
+    const header = state.header!
+    let cache = extensions.get(header)
+    if (!cache) {
+      cache = new Map()
+      extensions.set(header, cache)
+    }
+    const order = seeded.order.slice(0, seeded.sizes[0])
+    const chosen = new Set(order)
+    for (let rung = 1; rung <= seeded.top; rung++) {
+      const sequence = opened.get(rung)
+      if (sequence === undefined) break
+      let entry = cache.get(rung)
+      if (!entry || entry.sequence !== sequence) {
+        const remaining = seeded.order.filter((unitId) => !chosen.has(unitId))
+        const count = seeded.sizes[rung]! - seeded.sizes[rung - 1]!
+        const allowed = new Set(remaining)
+        const picked: string[] = []
+        for (const unitId of extend.choose({
+          state,
+          asOfSequence: sequence,
+          split: seeded.split,
+          rung,
+          measured: [...order],
+          remaining,
+          count,
+        })) {
+          if (picked.length === count) break
+          if (allowed.delete(unitId)) picked.push(unitId)
+        }
+        for (const unitId of remaining) {
+          if (picked.length === count) break
+          if (allowed.delete(unitId)) picked.push(unitId)
+        }
+        entry = { sequence, units: picked }
+        cache.set(rung, entry)
+      }
+      for (const unitId of entry.units) {
+        order.push(unitId)
+        chosen.add(unitId)
+      }
+    }
+    for (const unitId of seeded.order) if (!chosen.has(unitId)) order.push(unitId)
+    return {
+      ...seeded,
+      order,
+      position: new Map(order.map((unitId, index) => [unitId, index])),
+      cellsThrough: seeded.sizes.map((size) =>
+        order.slice(0, size).reduce((sum, unitId) => sum + seeded.tasks.get(unitId)!.length, 0),
+      ),
+    }
   }
 
   const cellsThrough = (layout: AshaLayout, rung: number, root: boolean): SearchCellPlan[] => {

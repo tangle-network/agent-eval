@@ -23,13 +23,14 @@
  * once, then test adaptively.
  */
 
+import type { SearchUnitExtension } from '../../campaign/allocation'
 import type { SearchNodeStatus } from '../../campaign/search-ledger-types'
 import {
   type SearchScoredCell,
   type SearchStateView,
   searchUnitScores,
 } from '../../campaign/search-state'
-import { compareCodeUnits } from '../../ledger-core/canonical'
+import { compareCodeUnits, hashCanonical } from '../../ledger-core/canonical'
 import { cholesky, choleskyInverse, choleskySolve } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import { mulberry32 } from '../../statistics/random'
@@ -74,6 +75,10 @@ export interface SkillManifoldOptions {
   /** Unit loadings from an earlier fit over the same units. When given, the
    * lens fits no loadings: it places this search's nodes on them. */
   calibration?: SkillCalibration
+  /** Also choose `count` units greedily from `among` (default: every
+   * modelled unit), updating the leaders' posteriors after each pick, so a
+   * batch does not repeat one direction. Returned as `data.batch`. */
+  batch?: { count: number; among?: readonly string[] }
 }
 
 /** Unit loadings a later search can place its nodes on (`skillCalibration`). */
@@ -175,6 +180,9 @@ export interface SkillManifoldData {
   units: SkillManifoldUnit[]
   leaders: Array<{ nodeId: string; predictedMean: number; observed: number }>
   nextUnits: SkillManifoldNextUnit[]
+  /** The greedy batch `options.batch` asked for; null when not asked or
+   * when no unit's information is known. */
+  batch: string[] | null
   insufficient: string | null
 }
 
@@ -250,6 +258,7 @@ export function skillManifold(
       units: [],
       leaders: [],
       nextUnits: [],
+      batch: null,
       insufficient: reason,
     })
   if (!header || state.rootNodeId === null) {
@@ -393,10 +402,18 @@ export function skillManifold(
     intrinsic.value === 0
       ? {
           ranked: [],
+          batch: null,
           insufficient:
             'held-out cells fit no better with any skill axis than with unit means alone (intrinsic dimension 0): the nodes do not differ beyond noise, so no unit separates them',
         }
-      : nextUnits(matrix, fit, leaderRows, noiseVariance, calibration?.ridge ?? ridge)
+      : nextUnits(
+          matrix,
+          fit,
+          leaderRows,
+          noiseVariance,
+          calibration?.ridge ?? ridge,
+          options.batch ?? null,
+        )
   const nodes: SkillManifoldNode[] = matrix.rows.map((row, index) => ({
     nodeId: row.nodeId,
     ordinal: row.ordinal,
@@ -441,6 +458,7 @@ export function skillManifold(
       observed: matrix.rows[index]!.observed.size,
     })),
     nextUnits: next.ranked,
+    batch: options.batch ? next.batch : null,
     insufficient: next.insufficient,
   })
 }
@@ -981,21 +999,24 @@ function nextUnits(
   leaderRows: readonly number[],
   noiseVariance: number | null,
   ridge: number,
-): { ranked: SkillManifoldNextUnit[]; insufficient: string | null } {
+  batch: { count: number; among?: readonly string[] } | null,
+): { ranked: SkillManifoldNextUnit[]; batch: string[] | null; insufficient: string | null } {
   if (leaderRows.length < 2) {
     return {
       ranked: [],
+      batch: null,
       insufficient: `${plural(leaderRows.length, 'leader')} qualify (${DESCRIPTIVE_FROM_UNITS} or more modelled units); separating leaders needs 2`,
     }
   }
   if (noiseVariance === null || !(noiseVariance > 0)) {
     return {
       ranked: [],
+      batch: null,
       insufficient: 'the cell noise is unmeasured, so no unit’s information is known',
     }
   }
   if (fit.rank === 0) {
-    return { ranked: [], insufficient: 'rank 0: the nodes do not differ beyond noise' }
+    return { ranked: [], batch: null, insufficient: 'rank 0: the nodes do not differ beyond noise' }
   }
   const rank = fit.rank
   const units = matrix.unitIds.length
@@ -1018,35 +1039,91 @@ function nextUnits(
       line.map((value) => value * noiseVariance),
     )
   })
-  const toward = covariance.map((sigma) => sigma.map((line) => dot(line, meanLoading)))
-  const contrastVariance = covariance.map((_, index) => dot(meanLoading, toward[index]!))
-  const ranked: SkillManifoldNextUnit[] = []
-  for (let u = 0; u < units; u++) {
-    const q = fit.loadings[u]!
-    const reduction = covariance.map((sigma, index) => {
-      const spread = dot(
-        q,
-        sigma.map((line) => dot(line, q)),
-      )
-      return dot(toward[index]!, q) ** 2 / (noiseVariance + spread)
-    })
-    let share = 0
-    let pairs = 0
-    for (let i = 0; i < leaderRows.length; i++) {
-      for (let j = i + 1; j < leaderRows.length; j++) {
-        const variance = contrastVariance[i]! + contrastVariance[j]!
-        if (variance > 0) share += (reduction[i]! + reduction[j]!) / variance
-        pairs += 1
+  const shares = (sigmas: readonly (readonly number[])[][]): number[] => {
+    const toward = sigmas.map((sigma) => sigma.map((line) => dot(line, meanLoading)))
+    const contrast = toward.map((vector) => dot(meanLoading, vector))
+    return fit.loadings.map((q) => {
+      const reduction = sigmas.map((sigma, index) => {
+        const spread = dot(
+          q,
+          sigma.map((line) => dot(line, q)),
+        )
+        return dot(toward[index]!, q) ** 2 / (noiseVariance + spread)
+      })
+      let share = 0
+      let pairs = 0
+      for (let i = 0; i < sigmas.length; i++) {
+        for (let j = i + 1; j < sigmas.length; j++) {
+          const variance = contrast[i]! + contrast[j]!
+          if (variance > 0) share += (reduction[i]! + reduction[j]!) / variance
+          pairs += 1
+        }
       }
-    }
-    ranked.push({
-      unitId: matrix.unitIds[u]!,
-      share: round9(share / pairs),
-      measuredBy: leaderRows.filter((row) => matrix.rows[row]!.observed.has(u)).length,
+      return share / pairs
     })
   }
-  ranked.sort((left, right) => right.share - left.share || (left.unitId < right.unitId ? -1 : 1))
-  return { ranked, insufficient: null }
+  const byShare = (values: readonly number[]) => (left: number, right: number) =>
+    values[right]! - values[left]! ||
+    compareCodeUnits(matrix.unitIds[left]!, matrix.unitIds[right]!)
+  const first = shares(covariance)
+  const ranked = matrix.unitIds
+    .map((_, u) => u)
+    .sort(byShare(first))
+    .map((u) => ({
+      unitId: matrix.unitIds[u]!,
+      share: round9(first[u]!),
+      measuredBy: leaderRows.filter((row) => matrix.rows[row]!.observed.has(u)).length,
+    }))
+  if (batch === null) return { ranked, batch: null, insufficient: null }
+  // Greedy batch: pick the best unit, condition every leader on one more cell
+  // of it, and pick again, so a batch spreads over the directions it needs.
+  const among = new Set(batch.among ?? matrix.unitIds)
+  const open = new Set(matrix.unitIds.flatMap((unitId, u) => (among.has(unitId) ? [u] : [])))
+  const picked: string[] = []
+  let sigmas = covariance
+  while (picked.length < batch.count && open.size > 0) {
+    const values = shares(sigmas)
+    const best = [...open].sort(byShare(values))[0]!
+    open.delete(best)
+    picked.push(matrix.unitIds[best]!)
+    const q = fit.loadings[best]!
+    sigmas = sigmas.map((sigma) => {
+      const toward = sigma.map((line) => dot(line, q))
+      const denominator = noiseVariance + dot(q, toward)
+      return sigma.map((line, i) =>
+        line.map((value, j) => value - (toward[i]! * toward[j]!) / denominator),
+      )
+    })
+  }
+  return { ranked, batch: picked, insufficient: null }
+}
+
+/**
+ * The `asha` extension that adds, at each rung, the units that best separate
+ * the leaders: the greedy `nextUnit` batch from `calibration`'s loadings,
+ * with this search's nodes placed on them from the cells the ledger held when
+ * the rung opened. The leaders are the lens's (the top 3 by predicted mean on
+ * every calibrated unit). Where the lens cannot rank (fewer than 2 leaders,
+ * or no measured noise), `asha` fills the rung from its seeded order.
+ */
+export function nextUnitExtension(
+  calibration: SkillCalibration,
+  options: { leaders?: number } = {},
+): SearchUnitExtension {
+  const digest = hashCanonical(calibration).slice('sha256:'.length, 'sha256:'.length + 12)
+  return {
+    name: `next-unit(${digest})`,
+    choose({ state, asOfSequence, split, remaining, count }) {
+      const lens = skillManifold(state, calibration.rank, {
+        split,
+        calibration,
+        asOfSequence,
+        ...(options.leaders === undefined ? {} : { leaders: options.leaders }),
+        batch: { count, among: remaining },
+      })
+      return lens.data.batch ?? []
+    },
+  }
 }
 
 // ── Small linear algebra ─────────────────────────────────────────────

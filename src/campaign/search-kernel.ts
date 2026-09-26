@@ -1477,6 +1477,10 @@ export function searchPolicyView(
     },
     unitScores: (nodeId) => state.unitScores(nodeId, split),
     estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
+    operator: (nodeId) => {
+      const edgeId = state.node(nodeId)?.edgeIds[0]
+      return edgeId === undefined ? null : (state.edge(edgeId)?.operator ?? null)
+    },
   }
 }
 

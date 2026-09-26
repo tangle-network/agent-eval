@@ -9,6 +9,7 @@
  */
 
 import { type Objective, paretoFrontierWithCrowding } from '../pareto'
+import { searchPlateau } from '../search/lenses/plateau'
 import { mulberry32 } from '../statistics/random'
 import type { NodeEstimate, SearchEdgeOperator } from './search-ledger-types'
 import type { SearchUnitScore } from './search-state'
@@ -36,6 +37,9 @@ export interface SearchPolicyView {
   unitScores(nodeId: string): readonly SearchUnitScore[]
   /** The paired contrast of `nodeId` against `against` on `split`. */
   estimate(nodeId: string, against: string): NodeEstimate
+  /** The operator of the node's first edge, how it was proposed; null for a
+   * node without an edge. */
+  operator(nodeId: string): SearchEdgeOperator | null
 }
 
 /** One expansion: the parents a proposer derives a child from, and how. */
@@ -114,6 +118,68 @@ export function crowdedFrontierParent(options: { seed: number }): SearchPolicy {
       }
     },
   })
+}
+
+export interface DraftOnPlateauOptions {
+  /** Accepted nodes the plateau's rise is measured across. Default 6. */
+  window?: number
+  /** Draft when the plateau score is below this many standard errors.
+   * Default 1: the best improvement rose less than one standard error. */
+  below?: number
+}
+
+/**
+ * `base`, except that on a plateau it drafts: it proposes a fresh artifact
+ * (operator `draft`, anchored on the root) instead of refining one. The
+ * plateau is the `landscape` lens's signal (`searchPlateau` on this view):
+ * how many standard errors the best improvement over the root rose across the
+ * last `window` accepted nodes. A draft needs a measured plateau (at least
+ * `window` accepted nodes and a pooled variance), no node still screening,
+ * and no draft among the window's nodes, so each draft gets a full window of
+ * `base`'s expansions before the next is considered. The leader and patience
+ * are `base`'s. This is the draft trigger of AIDE's policy, driven by
+ * measured progress instead of a fixed draft count.
+ */
+export function draftOnPlateau(
+  base: SearchPolicy,
+  options: DraftOnPlateauOptions = {},
+): SearchPolicy {
+  const window = options.window ?? 6
+  const below = options.below ?? 1
+  if (!Number.isSafeInteger(window) || window < 1) {
+    throw new TypeError(`draftOnPlateau: window must be a positive integer, got ${String(window)}`)
+  }
+  if (!(below > 0) || !Number.isFinite(below)) {
+    throw new TypeError(`draftOnPlateau: below must be a positive number, got ${String(below)}`)
+  }
+  const name = `draft-on-plateau(${base.name},window=${window},below=${below})`
+  return {
+    name,
+    ...(base.patience === undefined ? {} : { patience: base.patience }),
+    leader: (view) => base.leader(view),
+    expand(view) {
+      if (view.screening > 0) return base.expand(view)
+      const plateau = searchPlateau(view, { window })
+      if (plateau.value === null || plateau.value >= below) return base.expand(view)
+      if (plateau.windowNodes.some((nodeId) => view.operator(nodeId) === 'draft')) {
+        return base.expand(view)
+      }
+      return {
+        parents: [view.rootNodeId],
+        operator: 'draft',
+        selection: {
+          rule: name,
+          evidence: {
+            plateau: plateau.value,
+            rise: plateau.rise!,
+            noise: plateau.noise!,
+            window,
+            accepted: plateau.accepted,
+          },
+        },
+      }
+    },
+  }
 }
 
 interface FrontierMember {
