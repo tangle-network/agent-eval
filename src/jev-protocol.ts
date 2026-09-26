@@ -1,18 +1,24 @@
 import { isDeepStrictEqual } from 'node:util'
 import { canonicalString } from './ledger-core/canonical'
 
-/** Structural equivalents of the native SDK types; callers can use its builders unchanged. */
+/**
+ * Structural equivalents of TypeSafe's published request schema
+ * (https://api.typesafe.ai/openapi.json); callers can use its builders unchanged.
+ */
 export type JevJson = string | number | boolean | null | JevJson[] | { [key: string]: JevJson }
-export type JevState = string | { [key: string]: JevJson } | JevJson[] | null
+/** What TypeSafe accepts as `state` and as a score level: text or JSON, never null. */
+export type JevState = string | { [key: string]: JevJson } | JevJson[]
+/** Instructions and choice or noul descriptions, which TypeSafe also accepts as null. */
+export type JevDescription = JevState | null
 export type JevScoreCriteria = readonly [JevState, JevState, ...JevState[]]
 export type JevQuestion =
   | {
       type: 'noul'
-      instructions?: JevState
-      criteria?: { true?: JevState; false?: JevState } | null
+      instructions?: JevDescription
+      criteria?: { true?: JevDescription; false?: JevDescription } | null
     }
-  | { type: 'score'; instructions?: JevState; criteria: JevScoreCriteria }
-  | { type: 'choice'; instructions?: JevState; criteria: Record<string, JevState> }
+  | { type: 'score'; instructions?: JevDescription; criteria: JevScoreCriteria }
+  | { type: 'choice'; instructions?: JevDescription; criteria: Record<string, JevDescription> }
 export type JevQuestions = Record<string, JevQuestion>
 export interface JevRequest<Q extends JevQuestions = JevQuestions> {
   model: string
@@ -62,24 +68,30 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function entry(value: unknown): void {
-  if (value === null || typeof value === 'string') return
-  if (typeof value !== 'object') throw new TypeError('Expected text, JSON object/array, or null')
+// TypeSafe answers 422 for a null state or score level. Refusing it here reports the
+// caller's mistake before a paid round trip, not as a provider failure after one.
+function textOrJson(value: unknown, name: string): void {
+  if (typeof value === 'string') return
+  if (value === null || typeof value !== 'object') {
+    throw new TypeError(`${name} must be text or a JSON object/array`)
+  }
   // Reuse the canonical JSON validator rather than accepting lossy Map/Date coercions.
   canonicalString(value)
 }
 
-export function parseJevRequest(raw: unknown): JevRequest {
-  const request = object(raw)
-  if (typeof request.model !== 'string' || !request.model.trim()) {
-    throw new TypeError('Evaluation requires a model')
-  }
-  entry(request.state)
-  const questions = object(request.questions)
+function optionalTextOrJson(value: unknown, name: string): void {
+  if (value !== null) textOrJson(value, name)
+}
+
+/** Validate named questions without a state, as a judge does before it has input. */
+export function parseJevQuestions(raw: unknown): JevQuestions {
+  const questions = object(raw)
   if (!Object.keys(questions).length) throw new TypeError('At least one question is required')
-  for (const rawQuestion of Object.values(questions)) {
+  for (const [name, rawQuestion] of Object.entries(questions)) {
     const question = object(rawQuestion)
-    if (question.instructions !== undefined) entry(question.instructions)
+    if (question.instructions !== undefined) {
+      optionalTextOrJson(question.instructions, `${name} instructions`)
+    }
     if (question.type === 'noul') {
       if (question.criteria != null) {
         const criteria = object(question.criteria)
@@ -87,22 +99,32 @@ export function parseJevRequest(raw: unknown): JevRequest {
           throw new TypeError('Noul criteria must describe true and/or false')
         }
         for (const value of Object.values(criteria)) {
-          if (value !== undefined) entry(value)
+          if (value !== undefined) optionalTextOrJson(value, `${name} criteria`)
         }
       }
     } else if (question.type === 'score') {
       if (!Array.isArray(question.criteria) || question.criteria.length < 2) {
         throw new TypeError('Score criteria require at least two ordered entries')
       }
-      for (const value of question.criteria) entry(value)
+      for (const value of question.criteria) textOrJson(value, `${name} score level`)
     } else if (question.type === 'choice') {
       const criteria = object(question.criteria)
       if (!Object.keys(criteria).length) throw new TypeError('Choice criteria cannot be empty')
-      for (const value of Object.values(criteria)) entry(value)
+      for (const value of Object.values(criteria)) optionalTextOrJson(value, `${name} choice`)
     } else {
       throw new TypeError('Unsupported native question type')
     }
   }
+  return raw as JevQuestions
+}
+
+export function parseJevRequest(raw: unknown): JevRequest {
+  const request = object(raw)
+  if (typeof request.model !== 'string' || !request.model.trim()) {
+    throw new TypeError('Evaluation requires a model')
+  }
+  textOrJson(request.state, 'Evaluation state')
+  parseJevQuestions(request.questions)
   return raw as JevRequest
 }
 
