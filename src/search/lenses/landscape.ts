@@ -27,20 +27,23 @@ import type {
   SearchEstimateMethod,
   SearchNodeStatus,
 } from '../../campaign/search-ledger-types'
-import type { SearchPolicyView } from '../../campaign/search-policy'
 import type { SearchNode, SearchStateView } from '../../campaign/search-state'
 import { canonicalString, compareCodeUnits } from '../../ledger-core/canonical'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import {
-  DESCRIPTIVE_FROM_UNITS,
   estimateMethodFor,
+  evenSample,
+  type GeometryLensResult,
+  type GeometrySignal,
   headSequence,
   median,
+  plural,
+  positiveInteger,
   rankedSplit,
   round9,
   screenedNodes,
-} from './shared'
-import type { SearchLensResult, SearchLensSignal } from './types'
+} from './geometry'
+import { PLATEAU_METHOD, type SearchPlateau, searchPlateau } from './plateau'
 
 // ── Embeddings ───────────────────────────────────────────────────────
 
@@ -230,132 +233,6 @@ export function lineEditDistance(a: readonly string[], b: readonly string[]): nu
   return max
 }
 
-// ── The plateau signal ───────────────────────────────────────────────
-
-/** What the plateau reads: a policy view, or the lens's own reading of one. */
-export type SearchPlateauView = Pick<
-  SearchPolicyView,
-  'direction' | 'rootNodeId' | 'screened' | 'complete' | 'unitScores'
->
-
-export interface SearchPlateau {
-  /** `rise / noise`; null when insufficient. */
-  value: number | null
-  window: number
-  /** Screened, complete non-root nodes with at least 2 units shared with the root. */
-  accepted: number
-  /** Best improvement over the root after the window minus before it. */
-  rise: number | null
-  /** Standard error of the best node's improvement: sqrt(pooled variance / its shared units). */
-  noise: number | null
-  best: { nodeId: string; gain: number; pairs: number } | null
-  pooledVariance: number | null
-  degreesOfFreedom: number
-  method: string
-  insufficient: string | null
-}
-
-const PLATEAU_METHOD =
-  'rise of the best improvement over the root across the last `window` screened nodes, divided by the best node’s standard error; each improvement is the mean per-unit gain over the root on shared units in the objective’s direction, and the variance is the between-unit variance of those gains pooled over every accepted node with 2 or more shared units'
-
-/**
- * The plateau score of a search: how many standard errors the best
- * improvement over the root rose across the last `window` screened nodes.
- * Nodes are taken in registration order; a node counts once its screen
- * finished, it dodged no unit, and it shares at least 2 units with the root.
- * Insufficient with fewer than `window` such nodes, with no pooled variance,
- * or when the best node shares fewer than 6 units with the root (the design's
- * `insufficient` threshold).
- */
-export function searchPlateau(
-  view: SearchPlateauView,
-  options: { window?: number } = {},
-): SearchPlateau {
-  const window = options.window ?? 6
-  if (!Number.isSafeInteger(window) || window < 1) {
-    throw new TypeError(`searchPlateau: window must be a positive integer, got ${String(window)}`)
-  }
-  const sign = view.direction === 'maximize' ? 1 : -1
-  const root = new Map(view.unitScores(view.rootNodeId).map((unit) => [unit.unitId, unit.mean]))
-  const gains: Array<{ nodeId: string; gain: number; pairs: number }> = []
-  let squares = 0
-  let degreesOfFreedom = 0
-  for (const nodeId of view.screened) {
-    if (nodeId === view.rootNodeId || !view.complete(nodeId)) continue
-    const deltas: number[] = []
-    for (const unit of view.unitScores(nodeId)) {
-      const base = root.get(unit.unitId)
-      if (base !== undefined) deltas.push(sign * (unit.mean - base))
-    }
-    if (deltas.length < 2) continue
-    const mean = deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length
-    for (const delta of deltas) squares += (delta - mean) ** 2
-    degreesOfFreedom += deltas.length - 1
-    gains.push({ nodeId, gain: mean, pairs: deltas.length })
-  }
-  const pooledVariance = degreesOfFreedom > 0 ? squares / degreesOfFreedom : null
-  const base = {
-    window,
-    accepted: gains.length,
-    pooledVariance: pooledVariance === null ? null : round9(pooledVariance),
-    degreesOfFreedom,
-    method: PLATEAU_METHOD,
-  }
-  const empty = { value: null, rise: null, noise: null }
-  // The root is the reference at exactly 0, so the best-so-far starts there.
-  let best: { nodeId: string; gain: number; pairs: number } | null = null
-  let before = 0
-  for (let index = 0; index < gains.length; index++) {
-    if (index === gains.length - window) before = best === null ? 0 : Math.max(0, best.gain)
-    const entry = gains[index]!
-    if (best === null || entry.gain > best.gain) best = entry
-  }
-  const bestOut = best === null ? null : roundBest(best)
-  if (gains.length < window) {
-    return {
-      ...base,
-      ...empty,
-      best: bestOut,
-      insufficient: `${gains.length} of ${window} screened nodes share 2 or more units with the root`,
-    }
-  }
-  const leader = best as { nodeId: string; gain: number; pairs: number }
-  if (pooledVariance === null || pooledVariance === 0) {
-    return {
-      ...base,
-      ...empty,
-      best: bestOut,
-      insufficient:
-        pooledVariance === null
-          ? 'no pooled between-unit variance'
-          : 'every shared-unit gain is identical within its node, so the noise is unmeasured',
-    }
-  }
-  if (leader.pairs < DESCRIPTIVE_FROM_UNITS) {
-    return {
-      ...base,
-      ...empty,
-      best: bestOut,
-      insufficient: `the best node shares ${leader.pairs} of ${DESCRIPTIVE_FROM_UNITS} units with the root`,
-    }
-  }
-  const after = Math.max(0, leader.gain)
-  const rise = after - before
-  const noise = Math.sqrt(pooledVariance / leader.pairs)
-  return {
-    ...base,
-    value: round9(rise / noise),
-    rise: round9(rise),
-    noise: round9(noise),
-    best: bestOut,
-    insufficient: null,
-  }
-}
-
-function roundBest(best: { nodeId: string; gain: number; pairs: number }) {
-  return { nodeId: best.nodeId, gain: round9(best.gain), pairs: best.pairs }
-}
-
 // ── The lens ─────────────────────────────────────────────────────────
 
 export interface LandscapeOptions {
@@ -387,8 +264,8 @@ export interface LandscapeNode {
   score: number | null
   pairs: number
   method: SearchEstimateMethod
-  /** Index into `basins.peaks`; null when unplaced, off the supported grid,
-   * or when basins are insufficient. */
+  /** Index into `basins.peaks`; null when unplaced, unscored, or when basins
+   * are insufficient. */
   basin: number | null
 }
 
@@ -406,13 +283,17 @@ export interface LandscapeGrid {
 }
 
 export interface LandscapeBasin {
-  peak: { x: number; y: number; value: number }
-  /** How far the peak stands above the saddle joining it to a higher peak;
-   * null for the highest peak. */
+  /** The basin's best node: the peak of its component. */
+  peak: { nodeId: string; x: number; y: number; score: number; pairs: number }
+  /** How far the peak stands above the saddle node where its component first
+   * met a higher one; null for the highest peak and for a component that
+   * never met a higher one (a separate region of the graph). */
   persistence: number | null
-  cells: number
+  /** The persistence this peak needed: two standard errors of the difference
+   * between the peak's and the saddle's scores. Null for the highest peak. */
+  threshold: number | null
+  saddle: string | null
   nodes: number
-  best: { nodeId: string; score: number; pairs: number } | null
 }
 
 export interface LandscapeData {
@@ -422,6 +303,9 @@ export interface LandscapeData {
     name: string
     method: string
     landmarks: number
+    /** Median and largest distance between two landmarks, in the embedding's
+     * own unit (for example lines edited): how far apart the profiles are. */
+    landmarkDistance: { median: number; max: number } | null
     /** Of the scaled landmark matrix, largest first. */
     eigenvalues: number[]
     /** Share of the positive eigenvalue mass the two axes hold. */
@@ -439,9 +323,8 @@ export interface LandscapeData {
   gridInsufficient: string | null
   basins: {
     count: number | null
-    /** Persistence a peak needs to count: the standard error of a node's
-     * score at the median shared units. */
-    threshold: number | null
+    /** Neighbours each node joins in the graph the basins are read on. */
+    neighbours: number
     method: string
     insufficient: string | null
     peaks: LandscapeBasin[]
@@ -450,9 +333,9 @@ export interface LandscapeData {
 }
 
 const GRID_METHOD =
-  'Nadaraya-Watson regression of node scores with a Gaussian kernel, each node weighted by its units shared with the root; nodes with fewer than 2 shared units are left out; a cell whose weight sums to less than 1 unit is null'
+  'Nadaraya-Watson regression of node scores with a Gaussian kernel whose bandwidth is the median nearest-neighbour distance (at least one grid cell), each node weighted by its units shared with the root; nodes with fewer than 2 shared units are left out; a cell is null where the kernel density is below half a node, so the surface never extends past the nodes that support it'
 const BASIN_METHOD =
-  '0-dimensional persistence of the grid’s superlevel sets over 8-neighbour cells; a peak counts when it stands above the saddle to a higher peak by at least the threshold, the standard error sqrt(pooled variance / median shared units)'
+  '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by two standard errors of their difference, sqrt(pooled variance / shared units) per node'
 
 /**
  * The landscape of a search: every node placed by `embed`, the interpolated
@@ -463,9 +346,9 @@ export function landscape(
   state: SearchStateView,
   embed: LandscapeEmbedding = lineageEdits(),
   options: LandscapeOptions = {},
-): SearchLensResult<LandscapeData> {
-  const landmarkCap = positiveInteger('landmarks', options.landmarks ?? 32)
-  const columns = positiveInteger('grid', options.grid ?? 24)
+): GeometryLensResult<LandscapeData> {
+  const landmarkCap = positiveInteger('landscape', 'landmarks', options.landmarks ?? 32)
+  const columns = positiveInteger('landscape', 'grid', options.grid ?? 24)
   const window = options.window ?? 6
   const header = state.header
   const split = options.split ?? rankedSplit(state)
@@ -474,6 +357,7 @@ export function landscape(
     value: null,
     window,
     accepted: 0,
+    windowNodes: [],
     rise: null,
     noise: null,
     best: null,
@@ -526,52 +410,7 @@ export function landscape(
     (record) => record.x !== null && record.score !== null && record.pairs >= 2,
   )
   const gridResult = interpolate(records, scored, columns)
-  const noiseUnits = median(scored.map((record) => record.pairs))
-  const pooled = posterior.pooledVariance
-  let basins: LandscapeData['basins']
-  if (gridResult.grid === null) {
-    basins = {
-      count: null,
-      threshold: null,
-      method: BASIN_METHOD,
-      insufficient: gridResult.insufficient,
-      peaks: [],
-    }
-  } else if (pooled === null || noiseUnits === null) {
-    basins = {
-      count: null,
-      threshold: null,
-      method: BASIN_METHOD,
-      insufficient: 'no pooled between-unit variance, so the noise a peak must clear is unknown',
-      peaks: [],
-    }
-  } else {
-    const threshold = Math.sqrt(pooled / noiseUnits)
-    const found = persistentPeaks(gridResult.grid, threshold)
-    for (const record of records) {
-      if (record.x === null || record.y === null) continue
-      const cell = cellOf(gridResult.grid, record.x, record.y)
-      record.basin = cell === null ? null : (found.labels[cell] ?? null)
-    }
-    const peaks = found.peaks.map((peak, basin) => {
-      const members = records.filter((record) => record.basin === basin)
-      let best: LandscapeBasin['best'] = null
-      for (const member of members) {
-        if (member.score === null || member.pairs < 2) continue
-        if (best === null || member.score > best.score) {
-          best = { nodeId: member.nodeId, score: member.score, pairs: member.pairs }
-        }
-      }
-      return { ...peak, nodes: members.length, best }
-    })
-    basins = {
-      count: peaks.length,
-      threshold: round9(threshold),
-      method: `${BASIN_METHOD}; pooled over ${posterior.degreesOfFreedom} degrees of freedom, median ${noiseUnits} shared units`,
-      insufficient: null,
-      peaks,
-    }
-  }
+  const basins = graphBasins(records, scored, posterior.pooledVariance, posterior.degreesOfFreedom)
 
   const view = searchPolicyView(state, {
     screened: screenedNodes(state, { maxAttempts: options.maxAttempts }),
@@ -579,12 +418,9 @@ export function landscape(
     expansions: 0,
     ...(options.maxAttempts === undefined ? {} : { maxAttempts: options.maxAttempts }),
   })
-  const plateau = searchPlateau(
-    split === view.split
-      ? view
-      : { ...view, unitScores: (nodeId: string) => state.unitScores(nodeId, split) },
-    { window },
-  )
+  // The plateau reads the policy's own view, so a policy that drafts on it
+  // (`draftOnPlateau`) sees this number; it ranks on the policy's split.
+  const plateau = searchPlateau(view, { window })
 
   return result(state, {
     split,
@@ -593,6 +429,7 @@ export function landscape(
       name: embed.name,
       method: embed.method,
       landmarks: placement.landmarks,
+      landmarkDistance: placement.landmarkDistance,
       eigenvalues: placement.eigenvalues.map(round9),
       explained: placement.explained === null ? null : round9(placement.explained),
       negativeMass: placement.negativeMass === null ? null : round9(placement.negativeMass),
@@ -608,11 +445,12 @@ export function landscape(
   })
 }
 
-function result(state: SearchStateView, data: LandscapeData): SearchLensResult<LandscapeData> {
+function result(state: SearchStateView, data: LandscapeData): GeometryLensResult<LandscapeData> {
   const { plateau } = data
-  const signal: SearchLensSignal = {
+  const signal: GeometrySignal = {
     name: 'plateau',
     value: plateau.value,
+    subject: plateau.best?.nodeId ?? null,
     method: plateau.method,
     n: plateau.accepted,
     insufficient: plateau.insufficient,
@@ -640,6 +478,7 @@ function emptyData(
       name: embed.name,
       method: embed.method,
       landmarks: 0,
+      landmarkDistance: null,
       eigenvalues: [],
       explained: null,
       negativeMass: null,
@@ -650,7 +489,7 @@ function emptyData(
     lineage: [],
     grid: null,
     gridInsufficient: reason,
-    basins: { count: null, threshold: null, method: BASIN_METHOD, insufficient: reason, peaks: [] },
+    basins: { count: null, neighbours: 0, method: BASIN_METHOD, insufficient: reason, peaks: [] },
     plateau,
   }
 }
@@ -661,6 +500,7 @@ interface Placement {
   coordinates: Array<[number, number] | undefined>
   unplaced: Map<number, string>
   landmarks: number
+  landmarkDistance: { median: number; max: number } | null
   eigenvalues: number[]
   explained: number | null
   negativeMass: number | null
@@ -719,6 +559,7 @@ function placeNodes(
       coordinates,
       unplaced,
       landmarks: 0,
+      landmarkDistance: null,
       eigenvalues: [],
       explained: null,
       negativeMass: null,
@@ -736,6 +577,9 @@ function placeNodes(
   const b = squared.map((row, i) =>
     row.map((value, j) => -0.5 * (value - columnMean[i]! - columnMean[j]! + grand)),
   )
+  const between: number[] = []
+  for (let i = 0; i < L; i++)
+    for (let j = i + 1; j < L; j++) between.push(Math.sqrt(squared[i]![j]!))
   const { values, vectors } = symmetricEigen(b)
   const positive = values.filter((value) => value > 1e-12)
   const positiveMass = positive.reduce((sum, value) => sum + value, 0)
@@ -762,6 +606,10 @@ function placeNodes(
     coordinates,
     unplaced,
     landmarks: L,
+    landmarkDistance:
+      between.length === 0
+        ? null
+        : { median: round9(median(between)!), max: round9(Math.max(...between)) },
     eigenvalues: values,
     explained:
       positiveMass > 0
@@ -857,10 +705,7 @@ function interpolate(
   // Bandwidth: the median nearest-neighbour distance among scored
   // nodes (at most 2000, evenly spaced by registration), and never below one
   // grid cell, so a lone node still covers its own cell.
-  const sample =
-    scored.length <= 2000
-      ? scored
-      : Array.from({ length: 2000 }, (_, i) => scored[Math.floor((i * scored.length) / 2000)]!)
+  const sample = evenSample(scored, 2000)
   const nearest = sample.map((a) => {
     let best = Number.POSITIVE_INFINITY
     for (const b of sample) {
@@ -881,15 +726,17 @@ function interpolate(
     const y = y0 + ((r + 0.5) * (y1 - y0)) / rows
     for (let c = 0; c < columns; c++) {
       const x = x0 + ((c + 0.5) * (x1 - x0)) / columns
+      let density = 0
       let weight = 0
       let total = 0
       for (const node of scored) {
         const d2 = (node.x! - x) ** 2 + (node.y! - y) ** 2
-        const w = node.pairs * Math.exp(-d2 / (2 * bandwidth * bandwidth))
-        weight += w
-        total += w * node.score!
+        const kernel = Math.exp(-d2 / (2 * bandwidth * bandwidth))
+        density += kernel
+        weight += node.pairs * kernel
+        total += node.pairs * kernel * node.score!
       }
-      if (weight >= 1) {
+      if (density >= 0.5) {
         row.push(round9(total / weight))
         supported += 1
       } else {
@@ -926,110 +773,191 @@ function cellOf(grid: LandscapeGrid, x: number, y: number): number | null {
 }
 
 /**
- * Peaks of the grid by persistence. Cells enter from highest to lowest value;
- * a cell with no entered neighbour starts a component at its peak, and when
- * two components meet the one with the lower peak dies at that saddle. A
- * component counts as a basin when its peak stands at least `threshold` above
- * its saddle; the highest never dies. Each cell is labelled by the basin its
- * component resolves to: itself when it counts, else the one it merged into.
+ * Basins on the k-nearest-neighbour graph of the scored, placed nodes, by
+ * ToMATo's sweep. Nodes enter from the highest score down (earlier
+ * registration first on a tie). A node with no entered neighbour starts a
+ * component, of which it is the peak; otherwise it joins its highest entered
+ * neighbour's component. Where it touches another component, the one with
+ * the lower peak merges into the higher unless its peak stands above this
+ * node, the saddle, by two standard errors of their difference; a component
+ * that survives its first saddle keeps that persistence. Every component left
+ * at the end is a basin, labelled by its peak.
  */
-function persistentPeaks(
-  grid: LandscapeGrid,
-  threshold: number,
-): { peaks: Omit<LandscapeBasin, 'nodes' | 'best'>[]; labels: Array<number | undefined> } {
-  const { columns, rows, values } = grid
-  const cells: number[] = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < columns; c++) if (values[r]![c] !== null) cells.push(r * columns + c)
+function graphBasins(
+  records: readonly LandscapeNode[],
+  scored: readonly LandscapeNode[],
+  pooledVariance: number | null,
+  degreesOfFreedom: number,
+): LandscapeData['basins'] {
+  const empty = (reason: string): LandscapeData['basins'] => ({
+    count: null,
+    neighbours: 0,
+    method: BASIN_METHOD,
+    insufficient: reason,
+    peaks: [],
+  })
+  if (scored.length < 3) {
+    return empty(
+      `${plural(scored.length, 'placed node')} share 2 or more units with the root; basins need 3`,
+    )
   }
-  const heightOf = (cell: number) => values[Math.floor(cell / columns)]![cell % columns]!
-  cells.sort((a, b) => heightOf(b) - heightOf(a) || a - b)
-  const parent = new Map<number, number>()
-  const find = (cell: number): number => {
-    let root = cell
-    while (parent.get(root) !== root) root = parent.get(root)!
-    let at = cell
-    while (parent.get(at) !== root) {
-      const next = parent.get(at)!
-      parent.set(at, root)
+  if (pooledVariance === null || pooledVariance <= 0) {
+    return empty('no pooled between-unit variance, so the noise a peak must clear is unknown')
+  }
+  const k = Math.min(BASIN_NEIGHBOURS, scored.length - 1)
+  const adjacency = nearestNeighbours(
+    scored.map((node) => [node.x!, node.y!] as [number, number]),
+    k,
+  )
+  const variance = (index: number) => pooledVariance / scored[index]!.pairs
+  const order = scored
+    .map((_, index) => index)
+    .sort(
+      (left, right) =>
+        scored[right]!.score! - scored[left]!.score! ||
+        scored[left]!.ordinal - scored[right]!.ordinal,
+    )
+  const rank = new Int32Array(scored.length)
+  order.forEach((index, position) => {
+    rank[index] = position
+  })
+  const parent = new Int32Array(scored.length).fill(-1)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root]!
+    let at = index
+    while (parent[at] !== root) {
+      const next = parent[at]!
+      parent[at] = root
       at = next
     }
     return root
   }
-  /** Per component (keyed by its peak cell): death saddle and merge target. */
-  const death = new Map<number, { saddle: number; into: number }>()
-  const joined = new Map<number, number>()
-  for (const cell of cells) {
-    parent.set(cell, cell)
-    const r = Math.floor(cell / columns)
-    const c = cell % columns
-    const roots = new Set<number>()
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue
-        const nr = r + dr
-        const nc = c + dc
-        if (nr < 0 || nr >= rows || nc < 0 || nc >= columns) continue
-        const neighbour = nr * columns + nc
-        if (parent.has(neighbour)) roots.add(find(neighbour))
-      }
+  const survived = new Map<number, { saddle: number; persistence: number; threshold: number }>()
+  for (const index of order) {
+    let highest = -1
+    for (const neighbour of adjacency[index]!) {
+      if (parent[neighbour] === -1) continue
+      if (highest === -1 || rank[neighbour]! < rank[highest]!) highest = neighbour
     }
-    if (roots.size === 0) {
-      joined.set(cell, cell)
+    if (highest === -1) {
+      parent[index] = index
       continue
     }
-    // Peaks are the component keys: the highest (earliest) survives.
-    const ordered = [...roots].sort((a, b) => heightOf(b) - heightOf(a) || a - b)
-    const survivor = ordered[0]!
-    for (const other of ordered.slice(1)) {
-      death.set(other, { saddle: heightOf(cell), into: survivor })
-      parent.set(other, survivor)
+    parent[index] = find(highest)
+    for (const neighbour of adjacency[index]!) {
+      if (parent[neighbour] === -1) continue
+      const mine = find(index)
+      const theirs = find(neighbour)
+      if (mine === theirs) continue
+      const [high, low] = rank[mine]! < rank[theirs]! ? [mine, theirs] : [theirs, mine]
+      const persistence = scored[low]!.score! - scored[index]!.score!
+      const threshold = 2 * Math.sqrt(variance(low) + variance(index))
+      if (persistence < threshold) {
+        parent[low] = high
+      } else if (!survived.has(low)) {
+        survived.set(low, { saddle: index, persistence, threshold })
+      }
     }
-    parent.set(cell, survivor)
-    joined.set(cell, survivor)
   }
-  const counts = (peak: number): boolean => {
-    const died = death.get(peak)
-    return died === undefined || heightOf(peak) - died.saddle >= threshold
-  }
-  const resolve = (peak: number): number => {
-    let at = peak
-    while (!counts(at)) at = death.get(at)!.into
-    return at
-  }
-  const peakCells = [...new Set(joined.values())]
-    .filter(counts)
-    .sort((a, b) => heightOf(b) - heightOf(a) || a - b)
-  const basinOf = new Map(peakCells.map((peak, basin) => [peak, basin]))
-  const labels: Array<number | undefined> = new Array(rows * columns).fill(undefined)
-  const sizes = new Array<number>(peakCells.length).fill(0)
-  for (const [cell, component] of joined) {
-    const basin = basinOf.get(resolve(component))!
-    labels[cell] = basin
-    sizes[basin]! += 1
-  }
-  const at = (cell: number) => ({
-    x: round9(grid.x[0] + ((cell % columns) + 0.5) * ((grid.x[1] - grid.x[0]) / columns)),
-    y: round9(grid.y[0] + (Math.floor(cell / columns) + 0.5) * ((grid.y[1] - grid.y[0]) / rows)),
+  const peaks = [...new Set(order.map(find))].sort((left, right) => rank[left]! - rank[right]!)
+  const basinOf = new Map(peaks.map((peak, basin) => [peak, basin]))
+  const members = new Array<number>(peaks.length).fill(0)
+  const byNode = new Map<string, number>()
+  scored.forEach((node, index) => {
+    const basin = basinOf.get(find(index))!
+    byNode.set(node.nodeId, basin)
+    members[basin]! += 1
   })
+  for (const record of records) record.basin = byNode.get(record.nodeId) ?? null
   return {
-    peaks: peakCells.map((peak, basin) => {
-      const died = death.get(peak)
+    count: peaks.length,
+    neighbours: k,
+    method: `${BASIN_METHOD}; pooled over ${degreesOfFreedom} degrees of freedom`,
+    insufficient: null,
+    peaks: peaks.map((peak, basin) => {
+      const node = scored[peak]!
+      const own = survived.get(peak) ?? null
       return {
-        peak: { ...at(peak), value: heightOf(peak) },
-        persistence: died === undefined ? null : round9(heightOf(peak) - died.saddle),
-        cells: sizes[basin]!,
+        peak: {
+          nodeId: node.nodeId,
+          x: node.x!,
+          y: node.y!,
+          score: node.score!,
+          pairs: node.pairs,
+        },
+        persistence: own === null ? null : round9(own.persistence),
+        threshold: own === null ? null : round9(own.threshold),
+        saddle: own === null ? null : scored[own.saddle]!.nodeId,
+        nodes: members[basin]!,
       }
     }),
-    labels,
   }
 }
 
-function positiveInteger(name: string, value: number): number {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new TypeError(`landscape: ${name} must be a positive integer, got ${String(value)}`)
+const BASIN_NEIGHBOURS = 6
+
+/**
+ * The symmetric k-nearest-neighbour graph of 2-D points: each point joins its
+ * k nearest (ties by index) and every edge is kept in both directions. Points
+ * are bucketed on a square grid about k points per cell, and each search
+ * widens ring by ring until the k-th nearest is closer than the next ring.
+ */
+export function nearestNeighbours(
+  points: readonly (readonly [number, number])[],
+  k: number,
+): number[][] {
+  const n = points.length
+  const adjacency: Set<number>[] = Array.from({ length: n }, () => new Set<number>())
+  if (n < 2 || k < 1) return adjacency.map(() => [])
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity]
+  for (const [x, y] of points) {
+    x0 = Math.min(x0, x)
+    x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y)
+    y1 = Math.max(y1, y)
   }
-  return value
+  const span = Math.max(x1 - x0, y1 - y0, 1e-12)
+  const side = Math.max(1, Math.floor(Math.sqrt(n / Math.max(1, k))))
+  const cell = span / side
+  const key = (cx: number, cy: number) => cx * (side + 1) + cy
+  const bucketOf = (value: number, origin: number) =>
+    Math.min(side, Math.max(0, Math.floor((value - origin) / cell)))
+  const buckets = new Map<number, number[]>()
+  points.forEach(([x, y], index) => {
+    const at = key(bucketOf(x, x0), bucketOf(y, y0))
+    const list = buckets.get(at)
+    if (list) list.push(index)
+    else buckets.set(at, [index])
+  })
+  for (let index = 0; index < n; index++) {
+    const [x, y] = points[index]!
+    const cx = bucketOf(x, x0)
+    const cy = bucketOf(y, y0)
+    const best: Array<{ index: number; distance: number }> = []
+    for (let ring = 0; ring <= side + 1; ring++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        for (let dy = -ring; dy <= ring; dy++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue
+          const list = buckets.get(key(cx + dx, cy + dy))
+          if (!list || cx + dx < 0 || cy + dy < 0 || cx + dx > side || cy + dy > side) continue
+          for (const other of list) {
+            if (other === index) continue
+            const distance = Math.hypot(points[other]![0] - x, points[other]![1] - y)
+            best.push({ index: other, distance })
+          }
+        }
+      }
+      best.sort((left, right) => left.distance - right.distance || left.index - right.index)
+      if (best.length > k) best.length = k
+      if (best.length === k && best[k - 1]!.distance <= ring * cell) break
+    }
+    for (const { index: other } of best) {
+      adjacency[index]!.add(other)
+      adjacency[other]!.add(index)
+    }
+  }
+  return adjacency.map((set) => [...set].sort((left, right) => left - right))
 }
 
 // ── Text ─────────────────────────────────────────────────────────────
@@ -1038,7 +966,7 @@ const SHADES = ' .:-=+*#%@'
 
 /** The landscape as text for a terminal or a proposer's context: the same
  * numbers the view draws, with a coarse shaded map. */
-export function formatLandscape(lens: SearchLensResult<LandscapeData>): string {
+export function formatLandscape(lens: GeometryLensResult<LandscapeData>): string {
   const { data } = lens
   const lines: string[] = []
   const { embedding } = data
@@ -1046,7 +974,7 @@ export function formatLandscape(lens: SearchLensResult<LandscapeData>): string {
     `Landscape (${data.split} split, larger is better; ${embedding.name}: ${embedding.method})`,
   )
   lines.push(
-    `  placed ${embedding.placed} of ${embedding.placed + embedding.unplaced} nodes by landmark MDS on ${embedding.landmarks} landmark${embedding.landmarks === 1 ? '' : 's'}; two axes hold ${percent(embedding.explained)} of the positive eigenvalue mass (negative mass ${percent(embedding.negativeMass)})`,
+    `  placed ${embedding.placed} of ${embedding.placed + embedding.unplaced} nodes by landmark MDS on ${plural(embedding.landmarks, 'landmark')}${embedding.landmarkDistance ? ` (landmarks lie a median ${fixed(embedding.landmarkDistance.median)} and at most ${fixed(embedding.landmarkDistance.max)} apart)` : ''}; two axes hold ${percent(embedding.explained)} of the positive eigenvalue mass (negative mass ${percent(embedding.negativeMass)})`,
   )
   const reasons = new Map<string, number>()
   for (const node of data.nodes) {
@@ -1066,7 +994,7 @@ export function formatLandscape(lens: SearchLensResult<LandscapeData>): string {
       .join(', ')}`,
   )
   if (data.grid === null) {
-    lines.push(`  surface: insufficient (${data.gridInsufficient})`)
+    lines.push(`  surface: insufficient: ${data.gridInsufficient}`)
   } else {
     const { grid } = data
     lines.push(
@@ -1075,31 +1003,30 @@ export function formatLandscape(lens: SearchLensResult<LandscapeData>): string {
   }
   const { basins } = data
   if (basins.count === null) {
-    lines.push(`  basins: insufficient (${basins.insufficient})`)
+    lines.push(`  basins: insufficient: ${basins.insufficient}`)
   } else {
     lines.push(
-      `  basins: ${basins.count} (a peak counts at persistence ≥ ${fixed(basins.threshold!)}, one node's standard error)`,
+      `  basins: ${basins.count} on the ${basins.neighbours}-nearest-neighbour graph (a lower peak counts when it stands two standard errors of the difference above its saddle)`,
     )
-    basins.peaks.forEach((peak, basin) => {
-      const persistence =
-        peak.persistence === null
-          ? 'the highest in its region'
-          : `persistence ${fixed(peak.persistence)}`
-      const best = peak.best
-        ? `; best ${peak.best.nodeId} ${signed(peak.best.score)} on ${peak.best.pairs} units`
-        : ''
+    basins.peaks.forEach((basin, index) => {
+      const standing =
+        basin.persistence === null
+          ? index === 0
+            ? 'the highest'
+            : 'a separate region of the graph'
+          : `persistence ${fixed(basin.persistence)} ≥ ${fixed(basin.threshold!)} over saddle ${basin.saddle}`
       lines.push(
-        `    ${basin + 1}. peak ${signed(peak.peak.value)} at (${fixed(peak.peak.x)}, ${fixed(peak.peak.y)}), ${persistence}; ${peak.nodes} node${peak.nodes === 1 ? '' : 's'}${best}`,
+        `    ${index + 1}. ${basin.peak.nodeId} ${signed(basin.peak.score)} on ${basin.peak.pairs} units at (${fixed(basin.peak.x)}, ${fixed(basin.peak.y)}), ${standing}; ${plural(basin.nodes, 'node')}`,
       )
     })
   }
   const { plateau } = data
   if (plateau.value === null) {
-    lines.push(`  plateau: insufficient (${plateau.insufficient})`)
+    lines.push(`  plateau: insufficient: ${plateau.insufficient}`)
   } else {
     const verdict = plateau.value < 1 ? 'on a plateau' : 'still climbing'
     lines.push(
-      `  plateau: ${fixed(plateau.value)} — the best improvement rose ${signed(plateau.rise!)} over the last ${plateau.window} screened nodes, noise ${fixed(plateau.noise!)} (best ${plateau.best!.nodeId} on ${plateau.best!.pairs} units, ${plateau.degreesOfFreedom} pooled df): ${verdict}`,
+      `  plateau: ${fixed(plateau.value)}: the best improvement over the root rose ${signed(plateau.rise!)} across the last ${plateau.window} of ${plateau.accepted} accepted nodes, one standard error ${fixed(plateau.noise!)} (best ${plateau.best!.nodeId} on ${plateau.best!.pairs} units, ${plateau.degreesOfFreedom} pooled df): ${verdict}`,
     )
   }
   if (data.grid !== null) {
@@ -1108,16 +1035,12 @@ export function formatLandscape(lens: SearchLensResult<LandscapeData>): string {
     const low = Math.min(...present)
     const high = Math.max(...present)
     const marks = new Map<number, string>()
-    for (const node of data.nodes) {
-      if (node.x === null || node.y === null || node.basin === null) continue
-      const peak = basins.peaks[node.basin]
-      if (peak?.best?.nodeId === node.nodeId) {
-        const cell = cellOf(grid, node.x, node.y)
-        if (cell !== null) marks.set(cell, String((node.basin + 1) % 10))
-      }
-    }
+    basins.peaks.forEach((basin, index) => {
+      const cell = cellOf(grid, basin.peak.x, basin.peak.y)
+      if (cell !== null) marks.set(cell, String((index + 1) % 10))
+    })
     lines.push(
-      `  map (top row is the highest y; shade ${JSON.stringify(SHADES)} runs from ${signed(low)} to ${signed(high)}; digits mark each basin's best node):`,
+      `  map (top row is the highest y; shade ${JSON.stringify(SHADES)} runs from ${signed(low)} to ${signed(high)}; digits mark each basin's peak node):`,
     )
     for (let r = grid.rows - 1; r >= 0; r--) {
       let row = ''

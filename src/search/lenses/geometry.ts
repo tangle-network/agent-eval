@@ -1,12 +1,47 @@
 /**
- * Reads the geometry lenses share: the ranked split, the estimate method a
- * number of shared units supports, and the nodes whose screen finished.
+ * What the geometry lenses (`landscape`, `skillManifold`) share: the result
+ * shape, the ranked split, the estimate method a number of shared units
+ * supports, and the nodes whose screen finished.
+ *
+ * A lens is a pure function of a `SearchStateView` (search-tree design §12).
+ * It returns JSON for a view (Intelligence renders it; `agent-eval search
+ * show` prints it as text) and one named numeric signal that a `SearchPolicy`
+ * or an allocator can read, so what a person sees is what the climber uses.
+ * A lens never renders, never reads a blob or a clock, and never imputes a
+ * score or a cost: a value the ledger cannot support is null, with the reason.
  */
 
-import type { SearchEstimateMethod, SearchSplit } from '../../campaign/search-ledger-types'
+import type { SearchEstimateMethod } from '../../campaign/search-ledger-types'
 import type { SearchStateView } from '../../campaign/search-state'
 import { minimumPairsForPairedDeltaTest } from '../../paired-delta-test'
 import { BOOTSTRAP_GATE_MIN_N } from '../../statistics'
+
+/** The one number a lens exposes to policies. */
+export interface GeometrySignal {
+  /** Stable name a policy reads, for example `plateau`. */
+  name: string
+  /** Null when the ledger cannot support a value; `insufficient` says why. */
+  value: number | null
+  /** What the value is about when it names one thing, for example the unit
+   * `nextUnit` recommends; null otherwise. */
+  subject: string | null
+  /** How the value is computed, including its noise model. */
+  method: string
+  /** The sample the value rests on, in the unit `method` names. */
+  n: number
+  /** Why `value` is null; null when it is not. */
+  insufficient: string | null
+}
+
+export interface GeometryLensResult<TData> {
+  /** The lens name, for example `landscape`. */
+  lens: string
+  searchId: string
+  /** The ledger position the lens read: the head's sequence, or -1 before any entry. */
+  sequence: number
+  data: TData
+  signal: GeometrySignal
+}
 
 /** 6 at 95 %: below this many shared units an estimate is `insufficient`
  * (search-tree design §6.4, the library's own sign-test minimum). */
@@ -69,12 +104,8 @@ export function headSequence(state: SearchStateView): number {
   return state.head?.sequence ?? -1
 }
 
-export function isSplit(value: string): value is SearchSplit {
-  return value === 'train' || value === 'selection' || value === 'test'
-}
-
-/** Rounded for JSON a person reads; 9 significant decimals keep the bits a
- * renderer needs and drop float noise. */
+/** Rounded for JSON a person reads; 9 decimals keep the bits a renderer
+ * needs and drop float noise. */
 export function round9(value: number): number {
   const rounded = Math.round(value * 1e9) / 1e9
   return rounded === 0 ? 0 : rounded
@@ -85,4 +116,22 @@ export function median(values: readonly number[]): number | null {
   const sorted = [...values].sort((left, right) => left - right)
   const middle = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
+}
+
+/** At most `cap` items, evenly spaced by position: a deterministic sample
+ * that keeps a quadratic step bounded on a large search. */
+export function evenSample<T>(items: readonly T[], cap: number): T[] {
+  if (items.length <= cap) return [...items]
+  return Array.from({ length: cap }, (_, index) => items[Math.floor((index * items.length) / cap)]!)
+}
+
+export function positiveInteger(owner: string, name: string, value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new TypeError(`${owner}: ${name} must be a positive integer, got ${String(value)}`)
+  }
+  return value
+}
+
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }

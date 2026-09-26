@@ -15,12 +15,18 @@
  * search-tree design).
  */
 
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { open, readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { replaySearchLedgerText } from './campaign/search-ledger'
+import type { SearchCandidateSurface } from './campaign/search-ledger-types'
 import { renderSearchSummary } from './campaign/search-summary'
 import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
+import { formatLandscape, landscape, surfaceTextEdits } from './search/lenses/landscape'
+import { formatSkillManifold, skillManifold } from './search/lenses/skill-manifold'
 
 const USAGE = `usage: agent-eval search <subcommand> ...
 
@@ -31,11 +37,19 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         running it again sends only what the store lacks. Prints the result as JSON.
         Exits 1 when the store holds a different chain for the search.
 
-  show <search-ledger.jsonl>
+  show <search-ledger.jsonl> [--landscape] [--skill-manifold]
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
-        search's own ranking split.`
+        search's own ranking split. Each flag adds one lens's text form
+        (search-tree design §12) below the summary: the numbers Intelligence
+        draws, as text an agent reads.
+        --landscape       nodes placed by line edits between their profile
+                          surfaces (read from blobs/ beside the ledger), the
+                          interpolated score, its basins and the plateau score
+        --skill-manifold  the node x unit score matrix factored into skill
+                          axes, its intrinsic dimension, and the unit that
+                          best separates the leaders`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
@@ -82,19 +96,57 @@ export async function runSearchCommand(argv: string[]): Promise<number> {
   }
 }
 
+const SHOW_LENS_FLAGS = ['landscape', 'skill-manifold'] as const
+type ShowLensFlag = (typeof SHOW_LENS_FLAGS)[number]
+
 async function runShowCommand(argv: string[]): Promise<number> {
-  if (argv.length !== 1 || argv[0] === '--help' || argv[0] === '-h') {
+  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
     process.stdout.write(`${USAGE}\n`)
-    return argv.length === 1 ? 0 : 1
+    return argv.length === 0 ? 1 : 0
   }
-  const path = argv[0]!
+  const [path, ...flagArgs] = argv as [string, ...string[]]
+  const lenses = new Set<ShowLensFlag>()
+  for (const arg of flagArgs) {
+    const name = arg.startsWith('--') ? arg.slice(2) : null
+    if (name === null || !(SHOW_LENS_FLAGS as readonly string[]).includes(name)) {
+      throw new Error(`unknown show flag ${arg}\n${USAGE}`)
+    }
+    lenses.add(name as ShowLensFlag)
+  }
   const searchId = await firstLineSearchId(path)
   const text = await readFile(path, 'utf8')
   const state = replaySearchLedgerText(text, searchId, path)
   const split =
     state.header && state.header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
-  process.stdout.write(`${renderSearchSummary(state, { split })}\n`)
+  const sections = [renderSearchSummary(state, { split })]
+  if (lenses.has('landscape')) {
+    sections.push(formatLandscape(landscape(state, surfaceTextEdits(blobReader(path)))))
+  }
+  if (lenses.has('skill-manifold')) sections.push(formatSkillManifold(skillManifold(state)))
+  process.stdout.write(`${sections.join('\n\n')}\n`)
   return 0
+}
+
+/**
+ * Reads a surface's content from `blobs/` beside the ledger, where
+ * `SearchRecorder` writes it by default. Bytes that do not hash to the
+ * surface's digest and length are not the surface, so they read as null and
+ * the landscape leaves that node unplaced rather than measuring other text.
+ */
+function blobReader(ledgerPath: string): (surface: SearchCandidateSurface) => unknown {
+  const directory = join(dirname(ledgerPath), 'blobs')
+  return (surface) => {
+    const hex = surface.artifact.sha256.slice('sha256:'.length)
+    let bytes: Buffer
+    try {
+      bytes = readFileSync(join(directory, `${hex}.json`))
+    } catch {
+      return null
+    }
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    if (digest !== hex || bytes.byteLength !== surface.artifact.byteLength) return null
+    return JSON.parse(bytes.toString('utf8')) as unknown
+  }
 }
 
 function parseShipArgs(argv: string[]): { path: string; flags: Record<string, string> } {
