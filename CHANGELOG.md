@@ -6,6 +6,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Fixed
+
+- `parseJevRequest` refuses a null `state` or a null score level with a `TypeError`, before any paid call ([Jev](./docs/jev.md)).
+  TypeSafe's published schema (`https://api.typesafe.ai/openapi.json`) requires both to be text, a JSON object or a JSON array; on 2026-09-26 it answered 422 for each, and the Tangle Router reported that as 503 `provider_response_invalid`.
+  `JevState` no longer includes `null`; the new `JevDescription` (`JevState | null`) types instructions and choice or noul descriptions, which TypeSafe accepts as null.
+  `parseJevQuestions` validates named questions without a state; `jevJudge` uses it instead of a placeholder null state.
+
 ## [0.196.0] — 2026-09-26
 
 ### Added

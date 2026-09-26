@@ -200,7 +200,7 @@ describe('opt-in evidence review', () => {
   it('maps Noul polarity explicitly and never interprets Score expectation as a probability', () => {
     const request: JevRequest = {
       model: 'fixture',
-      state: null,
+      state: 'fixture',
       questions: {
         binary: { type: 'noul' },
         grade: { type: 'score', criteria: ['low', 'middle', 'high'] },

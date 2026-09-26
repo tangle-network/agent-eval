@@ -4,7 +4,7 @@ import type { CostReceiptInput, CustomTokenPricing } from './cost-ledger'
 import type { EvaluationContext, EvaluationResult, EvaluatorOptions } from './evaluation'
 import { asAnalyst, asJudge, createEvaluator } from './evaluation'
 import type { JevQuestions, JevRequest, JevResult, JevState } from './jev-protocol'
-import { jevUsage, parseJevRequest, parseJevResult } from './jev-protocol'
+import { jevUsage, parseJevQuestions, parseJevRequest, parseJevResult } from './jev-protocol'
 import { jsonDocument } from './ledger-core/canonical'
 import { weightedComposite } from './statistics'
 import { contentHash } from './verdict-cache'
@@ -162,7 +162,7 @@ export function jevJudge<A, S extends Scenario = Scenario, Q extends JevQuestion
     throw new TypeError('Dynamic questions and custom mappings require stable judge dimensions')
   }
   if (!config.map && typeof source !== 'function') {
-    parseJevRequest({ model: config.model, state: null, questions: source })
+    parseJevQuestions(source)
     if (Object.values(source).some((question) => question.type === 'choice')) {
       throw new TypeError(
         'Choice scoring requires an explicit map; labels have no numeric ordering',
