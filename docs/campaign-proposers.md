@@ -611,6 +611,8 @@ Lineage lives in the ledger: read a node's parents from its edges and its paired
 `runOptimization()` runs on the search kernel with a `SearchPolicy` ([search ledger](./search-ledger.md#run-a-search-the-kernel)).
 The default, `incumbent()`, is the hill climb: each proposal extends the leader once every earlier candidate is measured, and a candidate that scored every scenario leads when it beats the leader on the scenarios they share.
 Pass `policy: crowdedFrontierParent({ seed })` to draw the parent from the Pareto frontier instead: a seeded NSGA-II crowded tournament that prefers isolated frontier members.
+`aide()` and `beam({ width })` also run here; they rank on the scenarios, because `runOptimization` has no private selection split, and it keeps the `uniform` allocator, because its proposer reads every candidate's score on every scenario.
+Under `aide`, `ctx.operator` says what to write: `draft` a whole alternative from the parent, `debug` a parent whose cells failed as defects, or `improve` it.
 The proposer receives that parent as `ctx.currentSurface` and `ctx.parentOutcome`; `ctx.incumbentOutcome` stays the leader, and only a candidate that beats the leader leads.
 `selfImprove({ policy })` forwards the same policy in proposer mode.
 

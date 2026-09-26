@@ -161,7 +161,11 @@ export interface RunOptimizationBaseOptions<TScenario extends Scenario, TArtifac
   }) => Promise<ReadonlyArray<ProposalFinding>>
   /** Which node each proposal extends, and which node the run keeps. Default
    *  `incumbent()`: the hill climb. `crowdedFrontierParent({ seed })` draws
-   *  the parent from the Pareto frontier instead. */
+   *  the parent from the Pareto frontier instead; `aide()` drafts, debugs and
+   *  improves with Thompson-sampled parents, and `beam({ width })` expands the
+   *  top nodes in turn. Every policy ranks on the scenarios, and the run keeps
+   *  the `uniform` allocator, because the proposer reads every candidate's
+   *  score on every scenario. */
   policy?: SearchPolicy
   /** Where the search ledger goes and the identities it records. Default: a
    *  ledger at `<runDir>/search/ledger.jsonl`, held in `storage` unless that is

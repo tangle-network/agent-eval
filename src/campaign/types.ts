@@ -323,9 +323,10 @@ export interface ProposeContext<TFindings = ProposalFinding> {
    *  chose (the incumbent by default). Equal to `parents[0].artifact` when
    *  `parents` is present. */
   readonly currentSurface: MutableSurface
-  /** How the child should derive from the parent: `improve` for a hill-climb
-   *  step; other policies ask for `draft`, `debug` or `merge`. Absent outside
-   *  a search. */
+  /** How the child should derive from the parent: `improve` edits it;
+   *  `draft` writes a whole alternative to it (`aide` drafts from the root);
+   *  `debug` fixes a parent whose cells failed as defects, such as a crash or
+   *  a broken build; `merge` combines every parent. Absent outside a search. */
   readonly operator?: 'draft' | 'improve' | 'debug' | 'merge'
   /** Every parent the policy chose, primary first, with its artifact. A
    *  `merge` proposal needs every parent; other operators name exactly one.

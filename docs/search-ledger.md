@@ -196,11 +196,21 @@ The ports:
   Its output is stored as a `proposal` blob on `operation-recorded` before any child is registered.
 - **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.
 - **Policy:** `expand(view)` returns parents and an operator, or null to wait; `leader(view)` names the node the search keeps.
-  The view holds the policy split (selection, or train when a search has none) and no test cell.
-  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened.
-  A node leads when it dodged no unit (no cell ran and ended unscored), scored every unit the leader scored, and beats the leader's mean on them.
+  The view holds the policy split (selection, or train when a search has none) and no test cell: per-unit scores, paired estimates, every node's lineage, status and defect count (`nodes()`), and each node's posterior on its improvement over the root (`posterior`, from `searchPosterior`, computed once per ledger state).
+  The kernel refuses an expansion without a parent or with a parent whose screen has not finished; an invalid node is never screened, so it is never a parent.
+  Every built-in policy keeps the same leader: a node leads when it dodged no unit (no cell ran and ended unscored), scored every unit the leader scored, and beats the leader's mean on them.
   A node measured on fewer units than the leader, such as one an allocator has only screened, cannot take the lead on less evidence.
-  `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament and keeps the incumbent's leader rule.
+  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened.
+  `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament.
+  `aide({ drafts, debugProbability, maxDebugDepth, stallAfter })` (defaults 5, 0.5, 3, 4) is AIDE's policy with three changes for noisy scores.
+  It drafts whole alternatives from the root until `drafts` nodes were drafted.
+  Then, with probability `debugProbability`, it debugs a buggy leaf whose chain holds fewer than `maxDebugDepth` debug edges; a node is buggy when at least half of its final cells outside the test split `failed`, and an `errored` cell never makes it buggy.
+  Otherwise it improves a parent drawn by Thompson sampling from every screened node that is not buggy: the root at 0, every other node from a normal with its mean improvement over the root and the pooled between-unit variance divided by its shared units.
+  Until some node shares 2 units with the root the variance is unknown and the draw is uniform.
+  When the drawn parent's lineage (the nodes under its nearest draft, or under the root) has had `stallAfter` improve children in a row that did not raise its best posterior mean, the improve forks from the node with the best posterior mean instead.
+  `beam({ width })` expands the top `width` nodes by posterior mean, the member with the fewest children first; a member is the root, a node an allocator advanced, or a node that scored every unit the root scored.
+  Each edge records the rule and evidence that chose its parent (`aide:draft`, `aide:debug`, `aide:thompson`, `aide:uniform-draw`, `aide:stall-fork`, `beam(width=k)`).
+  Pair `incumbent` and `crowdedFrontierParent` with `uniform`, and `aide` and `beam` with `asha`: a hill climb expands only the leader, and under `asha` the root keeps the lead until a child finishes the top rung, while a posterior stays honest about a node measured only on the first rung.
 - **Allocator:** `plan(state, nodeId, rung)` lists the cells a node needs through its rung; the kernel allocates the ones the ledger lacks.
   `advance(view)` names the nodes the evidence moves to a further rung, and `prune(view, keep)` names, at close, the nodes left waiting.
   The kernel records each `advanced` decision only once the cap admits its rung's cells, then allocates them.
@@ -251,7 +261,10 @@ Its resumed ledger holds only rank decisions that its own evidence supports.
 `scripts/search-sim.ts` runs the real kernel, ledger, policies and claim over a seeded synthetic objective, proposer and executor.
 `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
 `claims --searches 200 --null` runs 200 searches in which no node differs from the root and reports how often the claim ships, with Wilson and Clopper-Pearson intervals; `--plant-gain X` plants a real gain to measure how often the claim finds it.
-`compare --seeds 200` runs one search per seed under `uniform` and under `asha` and reports the cells each allocated, the node each kept, and the units each edge pairs on; `--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate.
+`compare --seeds 200 --arms incumbent+uniform,aide+asha` runs one search per seed under each `policy+allocation` arm and reports the cells each allocated, the node each kept, how often it kept the planted node (with a Wilson interval), and the units each edge pairs on; every later arm is paired with the first by seed, with an exact sign test.
+`--max-cells N` caps the cells a search allocates, so arms compare at equal cells.
+`--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate; `--deep-gain X` plants a gain at depth `--deep-depth` (default 3) of one lineage, behind neutral path nodes (or a gradient with `--deep-ramp`), with every other edit a loss.
+`--defect-rate X` makes a share of children fail every cell as a defect, which `aide` debugs.
 Every simulated run re-derives each `advanced` and `pruned` decision from the ledger just before it.
 
 ## The claim
@@ -337,7 +350,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
 - `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim` and `searchClaimReserveUsd`.
-- `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
+- `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent`, `crowdedFrontierParent`, `aide` and `beam`.
 - `src/campaign/allocation.ts`: `SearchAllocator`, `uniform` and `asha`.
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.

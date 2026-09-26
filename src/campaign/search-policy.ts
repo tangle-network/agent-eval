@@ -277,7 +277,7 @@ export function aide(options: AideOptions = {}): SearchPolicy {
           }
         }
       }
-      const stalled = stalledRun(drawn, nodes, byId, screened, posterior)
+      const stalled = stalledRun(drawn, nodes, screened, posterior)
       if (stalled >= stallAfter) {
         let best = good[0]!
         for (const node of good) if (meanOf(node) > meanOf(best)) best = node
@@ -401,25 +401,23 @@ function debugDepth(node: SearchPolicyNode, byId: ReadonlyMap<string, SearchPoli
 function stalledRun(
   node: SearchPolicyNode,
   nodes: readonly SearchPolicyNode[],
-  byId: ReadonlyMap<string, SearchPolicyNode>,
   screened: ReadonlySet<string>,
   posterior: ReadonlyMap<string, { mean: number | null }>,
 ): number {
+  // A node's lineage head: itself when a draft, a seed or a derive placed it,
+  // else its parent's head. Parents register first, so one pass in
+  // registration order resolves every head.
   const heads = new Map<string, string>()
-  const headOf = (entry: SearchPolicyNode): string => {
-    const known = heads.get(entry.nodeId)
-    if (known !== undefined) return known
-    const parent = entry.parent === null ? undefined : byId.get(entry.parent)
-    const head =
+  for (const entry of nodes) {
+    const parentHead = entry.parent === null ? undefined : heads.get(entry.parent)
+    const starts =
       entry.operator === 'draft' ||
       entry.operator === 'seed' ||
       entry.operator === 'derive' ||
-      !parent
-        ? entry.nodeId
-        : headOf(parent)
-    heads.set(entry.nodeId, head)
-    return head
+      parentHead === undefined
+    heads.set(entry.nodeId, starts ? entry.nodeId : parentHead)
   }
+  const headOf = (entry: SearchPolicyNode): string => heads.get(entry.nodeId)!
   const lineage = headOf(node)
   let best = Number.NEGATIVE_INFINITY
   let run = 0
