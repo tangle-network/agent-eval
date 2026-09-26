@@ -4,35 +4,7 @@
  * statistics stay in `./campaign`.
  */
 
-export {
-  type BestPolicyConfiguration,
-  META_SEARCH_SCORE_SOURCE,
-  META_SEARCH_SIGNAL,
-  type MetaSearchConfiguration,
-  type MetaSearchConfigurationEstimate,
-  type MetaSearchData,
-  type MetaSearchEntry,
-  type MetaSearchLiftPerUsd,
-  type MetaSearchOptions,
-  type MetaSearchParent,
-  type MetaSearchScore,
-  type MetaSearchSpend,
-  type MetaSearchTextOptions,
-  type MetaSearchUnscoredReason,
-  metaSearch,
-  metaSearchScore,
-  objectiveKey,
-  renderMetaSearchText,
-  type SearchPolicyGenome,
-  searchPolicyGenome,
-} from './lenses/meta-search'
-export {
-  type LensResult,
-  type LensSignal,
-  rankingSplit,
-  type SampleSummary,
-  summarizeSamples,
-} from './lenses/shared'
+export * from './lenses'
 export {
   type NestedSearchContainment,
   type NestedSearchRunInput,

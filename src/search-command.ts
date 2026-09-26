@@ -2,8 +2,8 @@
  * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
- *   agent-eval search show <search-ledger.jsonl>
- *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta
+ *   agent-eval search show <search-ledger.jsonl> [--edit-credit] [--json]
+ *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
@@ -13,20 +13,29 @@
  * compact text a proposer reads, on the search's own ranking split (the
  * selection split when the search declares one, else train). There is no
  * local HTML renderer; the hosted store's page is the visual view (§5 of the
- * search-tree design).
+ * search-tree design). A lens flag adds that lens's text form after the
+ * summary, so an agent reads what a person sees; `--json` prints the lens
+ * results as JSON instead, the shape a view renders.
  *
- * `show --meta` prints the `metaSearch` lens over every ledger it is given:
- * each search as one node scored by its held-out lift per known dollar, the
- * configurations best first, and the searches arranged by derivation and
- * containment. It is the lens JSON the hosted page draws, as text.
+ * `show --meta` reads every ledger it is given and prints the `metaSearch`
+ * lens over them instead of one search's summary: each search as one node
+ * scored by its held-out lift per known dollar, the configurations best first,
+ * and the searches arranged by derivation and containment.
  */
 
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { open, readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { replaySearchLedgerText } from './campaign/search-ledger'
+import type { SearchArtifactRef } from './campaign/search-ledger-types'
+import type { SearchStateView } from './campaign/search-state'
 import { renderSearchSummary } from './campaign/search-summary'
 import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
+import { editCredit, editCreditText } from './search/lenses/edit-credit'
 import { metaSearch, renderMetaSearchText } from './search/lenses/meta-search'
 
 const USAGE = `usage: agent-eval search <subcommand> ...
@@ -38,13 +47,18 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         running it again sends only what the store lacks. Prints the result as JSON.
         Exits 1 when the store holds a different chain for the search.
 
-  show <search-ledger.jsonl>
+  show <search-ledger.jsonl> [--edit-credit] [--json]
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
         search's own ranking split.
+        --edit-credit  adds the edit-credit lens: every edit as a gene followed
+                       down the lineage, its credit, interacting pairs, and
+                       skill candidates. It reads node artifacts from the
+                       blobs the ledger names, verified by digest.
+        --json         prints the requested lenses as JSON instead of text.
 
-  show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>]
+  show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
         Verifies every ledger and prints the meta-search lens over them: each
         search as one node, scored by its claim's held-out lift per known
         dollar (unscored searches say why), configurations best first with
@@ -98,30 +112,50 @@ export async function runSearchCommand(argv: string[]): Promise<number> {
 }
 
 async function runShowCommand(argv: string[]): Promise<number> {
-  if (argv.includes('--meta')) return await runShowMetaCommand(argv)
-  if (argv.length !== 1 || argv[0] === '--help' || argv[0] === '-h') {
+  if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(`${USAGE}\n`)
-    return argv.length === 1 ? 0 : 1
+    return 0
   }
-  const path = argv[0]!
+  if (argv.includes('--meta')) return await runShowMetaCommand(argv)
+  const positional = argv.filter((arg) => !arg.startsWith('--'))
+  const flags = new Set(argv.filter((arg) => arg.startsWith('--')))
+  const unknown = [...flags].filter((flag) => !SHOW_FLAGS.has(flag))
+  if (positional.length !== 1 || unknown.length > 0) {
+    if (unknown.length > 0) process.stderr.write(`unknown flag ${unknown.join(', ')}\n`)
+    process.stdout.write(`${USAGE}\n`)
+    return 1
+  }
+  const path = positional[0]!
   const searchId = await firstLineSearchId(path)
   const text = await readFile(path, 'utf8')
   const state = replaySearchLedgerText(text, searchId, path)
   const split =
     state.header && state.header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
-  process.stdout.write(`${renderSearchSummary(state, { split })}\n`)
+  const lenses = showLenses(state, path, flags)
+  if (flags.has('--json')) {
+    if (lenses.length === 0) {
+      process.stderr.write('--json needs a lens flag\n')
+      return 1
+    }
+    const json = Object.fromEntries(lenses.map((lens) => [lens.name, lens.result]))
+    process.stdout.write(`${JSON.stringify(json, null, 2)}\n`)
+    return 0
+  }
+  const sections = [renderSearchSummary(state, { split }), ...lenses.map((lens) => lens.text)]
+  process.stdout.write(`${sections.join('\n\n')}\n`)
   return 0
 }
 
 async function runShowMetaCommand(argv: string[]): Promise<number> {
   const paths: string[] = []
   let objective: string | undefined
+  let json = false
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index]!
     if (token === '--meta') continue
-    if (token === '--help' || token === '-h') {
-      process.stdout.write(`${USAGE}\n`)
-      return 0
+    if (token === '--json') {
+      json = true
+      continue
     }
     if (token === '--objective') {
       objective = argv[++index]
@@ -138,8 +172,55 @@ async function runShowMetaCommand(argv: string[]): Promise<number> {
     states.push(replaySearchLedgerText(await readFile(path, 'utf8'), searchId, path))
   }
   const lens = metaSearch(states, objective === undefined ? {} : { objective })
-  process.stdout.write(`${renderMetaSearchText(lens)}\n`)
+  process.stdout.write(
+    json ? `${JSON.stringify({ metaSearch: lens }, null, 2)}\n` : `${renderMetaSearchText(lens)}\n`,
+  )
   return 0
+}
+
+const SHOW_FLAGS = new Set(['--edit-credit', '--json'])
+
+function showLenses(
+  state: SearchStateView,
+  ledgerPath: string,
+  flags: ReadonlySet<string>,
+): Array<{ name: string; result: unknown; text: string }> {
+  const lenses: Array<{ name: string; result: unknown; text: string }> = []
+  if (flags.has('--edit-credit')) {
+    const result = editCredit(state, { readArtifact: ledgerBlobReader(ledgerPath) })
+    lenses.push({ name: 'editCredit', result, text: editCreditText(result) })
+  }
+  return lenses
+}
+
+/**
+ * Reads a blob a ledger names: at its `file:` URI, else under `blobs/` beside
+ * the ledger, where `SearchRecorder` writes them. Bytes that do not hash to the
+ * reference's digest and length read as unavailable, never as content.
+ */
+function ledgerBlobReader(ledgerPath: string): (ref: SearchArtifactRef) => unknown | undefined {
+  const cache = new Map<string, unknown>()
+  return (ref) => {
+    if (cache.has(ref.sha256)) return cache.get(ref.sha256)
+    const hex = ref.sha256.slice('sha256:'.length)
+    const candidates = [join(dirname(ledgerPath), 'blobs', `${hex}.json`)]
+    if (ref.uri.startsWith('file:')) candidates.unshift(fileURLToPath(ref.uri))
+    let value: unknown
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue
+      const bytes = readFileSync(candidate)
+      const digest = createHash('sha256').update(bytes).digest('hex')
+      if (digest !== hex || bytes.byteLength !== ref.byteLength) continue
+      try {
+        value = JSON.parse(bytes.toString('utf8'))
+      } catch {
+        // Verified bytes that are not JSON are not content a lens can read.
+      }
+      break
+    }
+    cache.set(ref.sha256, value)
+    return value
+  }
 }
 
 function parseShipArgs(argv: string[]): { path: string; flags: Record<string, string> } {
