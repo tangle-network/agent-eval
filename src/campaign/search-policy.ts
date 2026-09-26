@@ -92,14 +92,23 @@ export function incumbent(options: { patience?: number } = {}): SearchPolicy {
  * The hill climb (as `incumbent`), with its operator drawn from the
  * `operatorYield` lens instead of fixed at `improve` (search-tree-design
  * §12): a weighted draw, seeded from `seed` and the expansion index like
- * `crowdedFrontierParent`, over the lens's per-operator yield once every
- * expandable operator has enough measured outcomes to trust
- * (`view.operatorWeights[op] !== null` for all of them — the lens's own
- * `MIN_OUTCOMES_FOR_WEIGHT` gate). Until then every draw uses `fixedWeights`
- * (uniform by default), so a not-yet-tried operator is never starved before
- * it has been measured enough to earn a data-driven weight. A yield at or
- * below zero still gets a small positive share of the draw (never zero, so a
- * so-far-bad operator can still be re-measured) rather than being excluded.
+ * `crowdedFrontierParent`, over the lens's per-operator yield. The fallback
+ * is per operator, not all-or-nothing: an operator the lens has not yet
+ * measured `MIN_OUTCOMES_FOR_WEIGHT` outcomes for draws on `fixedWeights`
+ * (uniform by default) instead, so it is never starved while unmeasured, and
+ * an operator that does have enough outcomes draws on its own measured
+ * yield right away rather than waiting for every other operator to catch
+ * up — proved against real search-sim ledgers where a hill climb had only
+ * ever proposed `improve`: an all-or-nothing gate would keep every draw
+ * uniform forever, because `draft`/`debug`/`merge` are never measured by a
+ * policy that never chooses them. A measured operator's weight is its own
+ * `fixedWeights` prior plus its yield, not the yield alone: the two are on
+ * different scales (yield is improvement per known dollar; the prior is an
+ * arbitrary share), so using the yield by itself would let a small positive
+ * yield draw LESS than an untested operator sitting on the default prior of
+ * 1 — the same real ledgers caught exactly that before this was fixed. The
+ * sum is floored just above zero, so a so-far-bad operator can still be
+ * re-measured rather than excluded outright.
  */
 export function incumbentWithOperatorBandit(
   options: {
@@ -143,10 +152,24 @@ function chooseOperator(
   seed: number,
   expansionIndex: number,
 ): ExpansionOperator {
-  const trusted = EXPANSION_OPERATORS.every((operator) => measured[operator] !== null)
-  const weights = EXPANSION_OPERATORS.map((operator) =>
-    trusted ? Math.max(measured[operator]!, 0) + 1e-6 : fixedWeights[operator],
-  )
+  // Per operator, not all-or-nothing: an operator the lens has not yet
+  // measured 6 outcomes for (`measured[op] === null`) draws on its own fixed
+  // prior, while a measured operator draws on that same prior ADJUSTED by
+  // its yield, not on the yield alone. `operatorYield`'s units are the
+  // objective's improvement per known dollar, a scale with no fixed
+  // relationship to an arbitrary prior weight (real search-sim ledgers
+  // measured an `improve` yield of 0.127 against a default prior of 1 for
+  // every operator — using 0.127 as the raw weight would have made a
+  // positive, wanted signal draw LESS often than three never-tried
+  // operators, exactly backwards). Adding the yield to the operator's own
+  // prior keeps a neutral (zero) measurement at its prior weight, a positive
+  // one above it and a negative one below it, floored so no operator's
+  // weight reaches zero.
+  const weights = EXPANSION_OPERATORS.map((operator) => {
+    const yieldMean = measured[operator]
+    const prior = fixedWeights[operator]
+    return yieldMean === null ? prior : Math.max(prior + yieldMean, 1e-6)
+  })
   const total = weights.reduce((a, b) => a + b, 0)
   const rng = mulberry32((seed ^ Math.imul(expansionIndex + 1, 0x9e3779b1)) | 0)
   let draw = rng() * total
