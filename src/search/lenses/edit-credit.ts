@@ -50,7 +50,7 @@ import {
   holm,
   pairedSignTest,
 } from '../../statistics'
-import type { SearchLensResult } from './types'
+import { type LensResult, type LensSignal, rankingSplit } from './shared'
 
 const CONFIDENCE = 0.95
 const RESAMPLES = 2000
@@ -251,6 +251,16 @@ export interface EditCreditData {
     pairs: EditInteraction[]
   }
   skillCandidates: EditSkillCandidate[]
+  /** What the reusable count would be with no true effect anywhere: credit is
+   * not adjusted for the number of edits, so read `reusable` against this. */
+  chance: {
+    /** Independent edits measured on 6 or more units. */
+    measuredEdits: number
+    /** Sum over measured edits of the chance the verdict calls one reusable
+     * when it has no effect. */
+    expectedReusable: number
+    method: string
+  }
   /** Rows in lineage order (depth-first along primary parents): the matrix a
    * genealogy view draws, genes as columns. */
   lineage: EditLineageRow[]
@@ -263,7 +273,19 @@ export interface EditCreditData {
   }
 }
 
-export type EditCreditResult = SearchLensResult<EditCreditData>
+/** The signal: independent edits `pairedDeltaTest` finds improve the
+ * objective, null below 6 units on every gene. */
+export interface EditCreditSignal extends LensSignal<number | null> {
+  /** How the value was computed, or why it is null. */
+  basis: string
+  /** The first gene of each reusable edit, best first: the hunks a proposer
+   * reuses or a skill extraction starts from. */
+  top: string[]
+}
+
+export type EditCreditResult = LensResult<EditCreditData, number | null> & {
+  signal: EditCreditSignal
+}
 
 interface PathText {
   raw: string[]
@@ -307,7 +329,7 @@ interface Step {
 export function editCredit(state: SearchStateView, options: EditCreditOptions): EditCreditResult {
   const header = state.header
   if (!header) throw new Error(`editCredit: search ${state.searchId} has not been opened`)
-  const split = options.split ?? (header.splits.selection.tasks.length > 0 ? 'selection' : 'train')
+  const split = options.split ?? rankingSplit(state)
   const direction = header.objective.direction
   const sign = direction === 'maximize' ? 1 : -1
   const interactionGenes = options.interactionGenes ?? DEFAULT_INTERACTION_GENES
@@ -498,8 +520,9 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       }
     }
     const unitIds = [...perUnit.keys()].sort(compareCodeUnits)
+    // The contrast is the oriented steps, not the gene: linked genes read the
+    // same cells and so report the same numbers.
     const cellSetDigest = hashCanonical({
-      gene: record.geneId,
       split,
       steps: steps
         .map(({ carrierId, lackingId }) => [
@@ -604,26 +627,36 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   const skillCandidates = skills(geneList, genes, header.subject, split)
   const lineage = lineageRows(state, nodes, byId, contents, carried)
 
-  const measured = geneList.filter(
-    (gene) => gene.credit.method === 'descriptive' || gene.credit.method === 'bootstrap',
-  ).length
-  const signal =
+  const isMeasured = (gene: EditGene) =>
+    gene.credit.method === 'descriptive' || gene.credit.method === 'bootstrap'
+  const measured = geneList.filter(isMeasured).length
+  const measuredLeads = geneList.filter(
+    (gene) => isMeasured(gene) && (gene.linkage ?? gene.geneId) === gene.geneId,
+  )
+  const expectedReusable = plain(
+    Math.round(
+      measuredLeads.reduce((sum, gene) => sum + chanceReusable(gene.credit.pairs), 0) * 1e6,
+    ) / 1e6,
+  )
+  const top = geneList
+    .filter((gene) => gene.verdict === 'reusable' && (gene.linkage ?? gene.geneId) === gene.geneId)
+    .map((gene) => gene.geneId)
+  const signal: EditCreditSignal =
     measured === 0
       ? {
           name: EDIT_CREDIT_SIGNAL,
           value: null,
           basis: `insufficient: no gene has ${DESCRIPTIVE_FROM} ${split} units on clean steps (${geneList.length} genes, ${measurable.length} measurable steps)`,
+          top: [],
         }
       : {
           name: EDIT_CREDIT_SIGNAL,
-          value: counts.reusable,
-          basis: `genes pairedDeltaTest finds improve the objective on the ${split} split, of ${measured} measured on ${DESCRIPTIVE_FROM} or more units (${editCounts.reusable} independent edits)`,
+          value: editCounts.reusable,
+          basis: `independent edits pairedDeltaTest finds improve the objective on the ${split} split (${counts.reusable} genes), of ${measuredLeads.length} edits (${measured} genes) measured on ${DESCRIPTIVE_FROM} or more units; about ${expectedReusable.toFixed(2)} would be called reusable by chance with no true effect (unadjusted)`,
+          top,
         }
 
   return {
-    lens: 'editCredit',
-    searchId: state.searchId,
-    head: state.head,
     signal,
     data: {
       split,
@@ -640,6 +673,11 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       editCounts,
       interactions,
       skillCandidates,
+      chance: {
+        measuredEdits: measuredLeads.length,
+        expectedReusable,
+        method: `per measured edit, the chance with no true effect that its verdict is reusable: the exact one-sided sign test's attained size at its unit count below ${BOOTSTRAP_GATE_MIN_N} units (at most ${(1 - CONFIDENCE) / 2}; the point-estimate condition only lowers it), the nominal ${(1 - CONFIDENCE) / 2} of the percentile bootstrap from ${BOOTSTRAP_GATE_MIN_N}; summed, so it is the expected number of false reusable edits if every edit had no effect`,
+      },
       lineage,
       method: {
         estimator: EDIT_CREDIT_ESTIMATOR,
@@ -1001,6 +1039,32 @@ function pairedEstimate(input: {
   return { credit, verdict }
 }
 
+/** The chance, with no true effect, that the verdict on `pairs` units is
+ * reusable: the exact sign test's attained size (the upper tail at the
+ * smallest positive count that clears α) below the bootstrap gate, the
+ * percentile bootstrap's nominal one-sided α from it. */
+const chanceReusable = (() => {
+  const alpha = (1 - CONFIDENCE) / 2
+  const cache = new Map<number, number>()
+  return (pairs: number): number => {
+    if (pairs < DESCRIPTIVE_FROM) return 0
+    if (pairs >= BOOTSTRAP_GATE_MIN_N) return alpha
+    const cached = cache.get(pairs)
+    if (cached !== undefined) return cached
+    let size = 0
+    for (let positive = 0; positive <= pairs; positive++) {
+      const signs = Array.from({ length: pairs }, (_, index) => (index < positive ? 1 : -1))
+      const p = pairedSignTest(signs, 'greater').pValue
+      if (p <= alpha) {
+        size = p
+        break
+      }
+    }
+    cache.set(pairs, size)
+    return size
+  }
+})()
+
 function methodFor(units: number): SearchEstimateMethod {
   if (units < 2) return 'none'
   if (units < DESCRIPTIVE_FROM) return 'insufficient'
@@ -1243,7 +1307,7 @@ export function editCreditText(result: EditCreditResult, options: { limit?: numb
     `edit credit — ${data.genes.length} genes from ${data.edges.read} of ${data.edges.lineage} lineage edges, ${data.steps.total - data.steps.invalidEnd} measurable steps (${data.split} split, ${data.direction})`,
     `  genes: reusable ${data.counts.reusable} · harmful ${data.counts.harmful} · unresolved ${data.counts.unresolved} · insufficient ${data.counts.insufficient}`,
     `  edits: reusable ${data.editCounts.reusable} · harmful ${data.editCounts.harmful} · unresolved ${data.editCounts.unresolved} · insufficient ${data.editCounts.insufficient}`,
-    `  signal ${signal.name} = ${signal.value ?? 'null'} (${signal.basis})`,
+    `  signal ${signal.name} = ${signal.value ?? 'null'} (${signal.basis})${signal.top.length > 0 ? `; top: ${signal.top.slice(0, 5).join(', ')}` : ''}`,
   ]
   if (unknown.length > 0) lines.push(`  edges without content: ${unknown}`)
   if (data.nodes.invalid > 0) {
