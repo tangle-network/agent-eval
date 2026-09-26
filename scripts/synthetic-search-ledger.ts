@@ -5,9 +5,11 @@
  * Every artifact is a prompt made of paragraphs, and every paragraph a
  * proposer adds is a gene (`Rule g<N>: ...`) with a hidden effect per task
  * family: most small, some large. Selection and train units belong to task
- * families in turn. A proposal either improves one parent (adds a gene, or with
- * `--delete-rate` drops one) or merges two parents (the union of their genes,
- * sometimes plus a new one). Genes g0 and g1 interact: a node that carries
+ * families in turn. A proposal either improves one parent (adds a new gene;
+ * with `--delete-rate` drops one; with `--transplant-rate` re-adds a gene made
+ * elsewhere, favoring early genes, as a proposer repeats an edit it knows) or
+ * merges two parents (the union of their genes, sometimes plus a new one).
+ * Genes g0 and g1 interact: a node that carries
  * both gains `--interaction` on every unit. A gene whose text names the
  * grader (`--taint-rate`) is refused at admission, so its node is `invalid`.
  * A cell scores 0.45 plus the node's gene effects on the unit's family, the
@@ -30,7 +32,8 @@
  * proposal), --selection N (24), --train N (2), --families N (3), --reps N (1),
  * --allocation asha|uniform (asha), --merge-rate X (0.2), --delete-rate X
  * (0.15), --big-rate X (0.14), --interaction X (0.08), --noise X (0.03),
- * --taint-rate X (0.03), --null (every gene effect and the interaction are 0).
+ * --taint-rate X (0.03), --transplant-rate X (0.3), --null (every gene effect
+ * and the interaction are 0).
  *
  * Output is one JSON document on stdout.
  */
@@ -54,11 +57,18 @@ import {
   surfaceDiff,
   surfaceNode,
 } from '../src/campaign/search-ledger-recording'
-import type { SearchArtifactRef, SearchSourceRef, SearchTask } from '../src/campaign/search-ledger-types'
+import { estimateNodeFromCells } from '../src/campaign/estimate-node'
+import type {
+  NodeEstimate,
+  SearchArtifactRef,
+  SearchSourceRef,
+  SearchTask,
+} from '../src/campaign/search-ledger-types'
 import { incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { hashCanonical } from '../src/ledger-core/canonical'
-import { editCredit } from '../src/search/lenses/edit-credit'
+import { type EditGene, editCredit } from '../src/search/lenses/edit-credit'
+import { spearmanR } from '../src/statistics/descriptive'
 import { wilson } from '../src/statistics/paired-binary'
 
 interface Options {
@@ -77,6 +87,7 @@ interface Options {
   interaction: number
   noise: number
   taintRate: number
+  transplantRate: number
   nullEffects: boolean
   editCredit: boolean
 }
@@ -361,6 +372,16 @@ async function generate(options: Options) {
           const [gone] = genes.splice(drop, 1)
           return { artifact: { genes }, label: `drop g${gone}`, rationale: 'remove one rule' }
         }
+        if (unit(options.seed, 'transplant', ...key) < options.transplantRate) {
+          // A proposer repeating an edit it made elsewhere; earlier edits are
+          // the ones it has seen longest, so they come back most often.
+          const absent = pool.truths.filter((truth) => !genes.includes(truth.gene))
+          if (absent.length > 0) {
+            const pick = absent[Math.floor(unit(options.seed, 'transplant-pick', ...key) ** 2 * absent.length)]!
+            genes.push(pick.gene)
+            return { artifact: { genes }, label: `re-add g${pick.gene}`, rationale: 'repeat one rule' }
+          }
+        }
         const gene = pool.create()
         genes.push(gene)
         return { artifact: { genes }, label: `add g${gene}`, rationale: 'add one rule' }
@@ -428,7 +449,10 @@ function recordingStorage(): {
   }
 }
 
-/** Score the edit-credit lens against the planted truth. */
+/** Score the edit-credit lens against the planted truth, next to the
+ * descendant contrast it replaced (carriers against non-carriers anywhere in
+ * the introducing parents' subtrees), so the choice of estimator stays a
+ * measured one. */
 function checkEditCredit(
   ledgerText: string,
   pool: GenePool,
@@ -442,94 +466,139 @@ function checkEditCredit(
     const match = /^Rule g(\d+):/.exec(lines[0] ?? '')
     return match ? pool.truths[Number(match[1])] : undefined
   }
-  const measured: Array<{ estimate: number; truth: number; verdict: string; big: boolean }> = []
-  let unmatched = 0
-  for (const gene of lens.data.genes) {
-    const truth = truthOf(gene.lines)
-    if (!truth) {
-      unmatched += 1
-      continue
+  const carried = new Map(lens.data.lineage.map((row) => [row.nodeId, new Set(row.carries)]))
+  const invalid = new Set(state.nodes().filter((node) => node.status === 'invalid').map((node) => node.nodeId))
+  const subtree = (nodeId: string): string[] => {
+    const seen = new Set([nodeId])
+    const stack = [nodeId]
+    while (stack.length > 0) {
+      for (const child of state.node(stack.pop()!)!.children) {
+        if (!seen.has(child)) {
+          seen.add(child)
+          stack.push(child)
+        }
+      }
     }
-    if (gene.credit.delta === null || gene.credit.method === 'none' || gene.credit.method === 'insufficient') continue
-    const own = gene.kind === 'insert' ? truth.selectionMean : -truth.selectionMean
-    measured.push({ estimate: gene.credit.delta, truth: own, verdict: gene.verdict, big: truth.big })
+    return [...seen]
   }
-  const reusable = measured.filter((gene) => gene.verdict === 'reusable')
-  const harmful = measured.filter((gene) => gene.verdict === 'harmful')
-  const flagged = reusable.length + harmful.length
-  const wrongSign =
-    reusable.filter((gene) => gene.truth <= 0).length + harmful.filter((gene) => gene.truth >= 0).length
-  const planted = lens.data.interactions.pairs.find((pair) => {
-    const names = pair.genes.map((geneId) => {
-      const gene = lens.data.genes.find((candidate) => candidate.geneId === geneId)!
-      return gene.kind === 'insert' ? truthOf(gene.lines)?.gene : undefined
+  const descendantContrast = (gene: EditGene): NodeEstimate => {
+    const scope = new Set<string>()
+    for (const introduction of gene.introduced) {
+      if (introduction.reproposal) continue
+      for (const parentId of introduction.parents) for (const id of subtree(parentId)) scope.add(id)
+    }
+    const members = [...scope].filter((id) => !invalid.has(id) && carried.has(id))
+    const carriers = members.filter((id) => carried.get(id)!.has(gene.geneId))
+    const lacking = members.filter((id) => !carried.get(id)!.has(gene.geneId))
+    return estimateNodeFromCells({
+      nodeId: `${gene.geneId}:carriers`,
+      against: `${gene.geneId}:lacking`,
+      split: lens.data.split,
+      direction: lens.data.direction,
+      nodeCells: carriers.flatMap((id) => state.scoredCells(id, lens.data.split)),
+      againstCells: lacking.flatMap((id) => state.scoredCells(id, lens.data.split)),
     })
-    return names.includes(0) && names.includes(1)
-  })
-  const flaggedPairs = lens.data.interactions.pairs.filter((pair) => pair.interacting)
-  return {
-    lensMs,
-    signal: lens.signal,
-    edges: lens.data.edges,
-    nodes: lens.data.nodes,
-    genes: lens.data.genes.length,
-    counts: lens.data.counts,
-    unmatchedGenes: unmatched,
-    measuredGenes: measured.length,
-    spearman: spearman(
-      measured.map((gene) => gene.estimate),
-      measured.map((gene) => gene.truth),
-    ),
-    flagged: {
+  }
+  /** The verdict of an interval alone: the rule the lens used before it
+   * took `pairedDeltaTest`'s own decision. */
+  const intervalVerdict = (estimate: NodeEstimate) =>
+    estimate.interval === null || estimate.indeterminate
+      ? 'unresolved'
+      : estimate.interval[0] > 0
+        ? 'reusable'
+        : estimate.interval[1] < 0
+          ? 'harmful'
+          : 'unresolved'
+  const score = (
+    estimateOf: (gene: EditGene) => NodeEstimate,
+    verdictOf: (gene: EditGene, estimate: NodeEstimate) => string,
+  ) => {
+    const measured: Array<{ estimate: number; truth: number; verdict: string; big: boolean }> = []
+    for (const gene of lens.data.genes) {
+      const truth = truthOf(gene.lines)
+      if (!truth || truth.tainted) continue
+      const estimate = estimateOf(gene)
+      if (estimate.delta === null || estimate.method === 'none' || estimate.method === 'insufficient') continue
+      const verdict = verdictOf(gene, estimate)
+      const own = gene.kind === 'insert' ? truth.selectionMean : -truth.selectionMean
+      measured.push({ estimate: estimate.delta, truth: own, verdict, big: truth.big })
+    }
+    const reusable = measured.filter((gene) => gene.verdict === 'reusable')
+    const harmful = measured.filter((gene) => gene.verdict === 'harmful')
+    const flagged = reusable.length + harmful.length
+    const wrongSign =
+      reusable.filter((gene) => gene.truth <= 0).length + harmful.filter((gene) => gene.truth >= 0).length
+    const big = measured.filter((gene) => gene.big)
+    return {
+      measuredGenes: measured.length,
+      spearman:
+        measured.length >= 3
+          ? round(
+              spearmanR(
+                measured.map((gene) => gene.estimate),
+                measured.map((gene) => gene.truth),
+              ),
+            )
+          : null,
       reusable: reusable.length,
       harmful: harmful.length,
       /** Flags whose planted own effect has the other sign (or is zero). */
       wrongSign,
       wrongSignRate: flagged > 0 ? wilson(wrongSign, flagged) : null,
-      /** Of the measured genes, the share flagged at all. */
-      flagRate: wilson(flagged, measured.length),
-    },
+      /** Measured big-effect genes flagged in the right direction. */
+      bigFound: `${big.filter((gene) => (gene.truth > 0 ? gene.verdict === 'reusable' : gene.verdict === 'harmful')).length} of ${big.length}`,
+      meanAbsError:
+        measured.length > 0
+          ? round(measured.reduce((total, gene) => total + Math.abs(gene.estimate - gene.truth), 0) / measured.length)
+          : null,
+    }
+  }
+  const plantedGenes = new Set(
+    lens.data.genes
+      .filter((gene) => gene.kind === 'insert' && [0, 1].includes(truthOf(gene.lines)?.gene ?? -1))
+      .map((gene) => gene.geneId),
+  )
+  const planted = lens.data.interactions.pairs.find((pair) =>
+    pair.genes.every((geneId) => plantedGenes.has(geneId)),
+  )
+  const flaggedPairs = lens.data.interactions.pairs.filter((pair) => pair.interacting)
+  return {
+    lensMs,
+    signal: lens.signal,
+    edges: lens.data.edges,
+    steps: lens.data.steps,
+    nodes: lens.data.nodes,
+    genes: lens.data.genes.length,
+    counts: lens.data.counts,
+    editCounts: lens.data.editCounts,
+    unmatchedGenes: lens.data.genes.filter((gene) => !truthOf(gene.lines)).length,
+    /** The lens: step credit, `pairedDeltaTest`'s decision. */
+    credit: score(
+      (gene) => gene.credit,
+      (gene) => gene.verdict,
+    ),
+    /** Step credit, interval rule. */
+    creditIntervalRule: score(
+      (gene) => gene.credit,
+      (_gene, estimate) => intervalVerdict(estimate),
+    ),
+    /** The descendant contrast, interval rule: the lens's first estimator. */
+    descendantContrast: score(descendantContrast, (_gene, estimate) => intervalVerdict(estimate)),
     interactions: {
       genesConsidered: lens.data.interactions.genesConsidered,
-      pairsWithAllGroups: lens.data.interactions.pairsWithAllGroups,
+      pairsWithContexts: lens.data.interactions.pairsWithContexts,
       pairsTested: lens.data.interactions.pairsTested,
       flagged: flaggedPairs.length,
+      /** Flagged pairs other than the planted one: false flags. */
+      flaggedOther: flaggedPairs.filter((pair) => pair !== planted).length,
       plantedPair: planted ?? null,
     },
     skillCandidates: lens.data.skillCandidates.length,
-    reproposedGenes: lens.data.genes.filter((gene) => gene.proposals > gene.births.length).length,
+    reintroducedGenes: lens.data.genes.filter((gene) => gene.introduced.length > 1).length,
+    droppedGenes: lens.data.genes.filter((gene) => gene.dropped > 0).length,
     invalidCarrierGenes: lens.data.genes.filter((gene) => gene.invalidCarriers > 0).length,
     linkedGenes: lens.data.genes.filter((gene) => gene.linkage !== null).length,
   }
-}
-
-function spearman(x: readonly number[], y: readonly number[]): number | null {
-  if (x.length < 3) return null
-  const rank = (values: readonly number[]) => {
-    const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value)
-    const ranks = new Array<number>(values.length)
-    for (let i = 0; i < order.length; ) {
-      let j = i
-      while (j + 1 < order.length && order[j + 1]!.value === order[i]!.value) j += 1
-      for (let k = i; k <= j; k++) ranks[order[k]!.index] = (i + j) / 2
-      i = j + 1
-    }
-    return ranks
-  }
-  const rx = rank(x)
-  const ry = rank(y)
-  const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length
-  const mx = mean(rx)
-  const my = mean(ry)
-  let num = 0
-  let dx = 0
-  let dy = 0
-  for (let i = 0; i < rx.length; i++) {
-    num += (rx[i]! - mx) * (ry[i]! - my)
-    dx += (rx[i]! - mx) ** 2
-    dy += (ry[i]! - my) ** 2
-  }
-  return dx > 0 && dy > 0 ? round(num / Math.sqrt(dx * dy)) : null
 }
 
 function parseOptions(): Options {
@@ -550,6 +619,7 @@ function parseOptions(): Options {
       interaction: { type: 'string', default: '0.08' },
       noise: { type: 'string', default: '0.03' },
       'taint-rate': { type: 'string', default: '0.03' },
+      'transplant-rate': { type: 'string', default: '0.3' },
       null: { type: 'boolean', default: false },
       'edit-credit': { type: 'boolean', default: false },
     },
@@ -575,6 +645,7 @@ function parseOptions(): Options {
     interaction: Number(values.interaction),
     noise: Number(values.noise),
     taintRate: Number(values['taint-rate']),
+    transplantRate: Number(values['transplant-rate']),
     nullEffects: values.null,
     editCredit: values['edit-credit'],
   }

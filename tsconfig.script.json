@@ -10,6 +10,7 @@
     "scripts/record-multishot-golden.ts",
     "scripts/redaction-corpus.ts",
     "scripts/search-sim.ts",
+    "scripts/synthetic-search-ledger.ts",
     "scripts/tb-corpus-rows.ts",
     "scripts/tb-gated-stop-ab.ts",
     "scripts/tb-oracle-determinism.ts",

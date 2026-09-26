@@ -8,33 +8,40 @@
  * in the artifact and its normalized lines, so the same edit has the same id
  * wherever and whenever a proposer makes it. A node carries an insert gene
  * when the paragraph is present at that location, and a delete gene when it is
- * absent; carrying is read from each node's content, so it follows merges and
- * reverts without any bookkeeping in the record.
+ * absent. Carrying is read from each node's content, so it follows merges,
+ * re-proposals and reverts without any bookkeeping in the record.
  *
- * A gene's credit is `estimateNodeFromCells` of the nodes that carry it
- * against the nodes that do not, inside the subtrees of the parents it was
- * born from, paired on the units both groups scored. It is observational: a
- * carrier also carries what it inherited alongside the edit, which is why
- * genes with identical carriers are reported as linked, and why interacting
- * pairs are flagged for a factorial test rather than claimed.
+ * A step is one lineage parent and its child. A gene flips on a step when the
+ * parent and the child disagree on carrying it. The gene's credit pairs, per
+ * step, the side that carries it against the side that lacks it on the units
+ * both scored, and averages those contrasts across its steps inside each unit.
+ * Only clean steps count: steps on which nothing flips except edits introduced
+ * together with the gene. A merge that also brings in the other parent's edits
+ * is therefore not evidence for any one of them, and genes that always move
+ * together are reported as linked, because their credits are one number.
+ *
+ * Interactions compare a gene's step contrasts where another gene is present
+ * against where it is absent, in both directions, and are flagged after a Holm
+ * correction for a factorial test rather than claimed.
  *
  * The lens reads node artifacts through `readArtifact`, which the caller backs
  * with verified blob bytes. An artifact the caller cannot read, and a code
  * surface whose patch bytes are not in the ledger, leave the node's content
- * unknown: its edges yield no genes and it joins neither group.
+ * unknown: its steps yield no genes and no contrasts.
  */
 
 import { type AgentProfileResourceRef, defineInlineResource } from '@tangle-network/agent-interface'
-import { estimateNodeFromCells, seedFromDigest } from '../../campaign/estimate-node'
+import { seedFromDigest } from '../../campaign/estimate-node'
 import type {
   NodeEstimate,
   SearchArtifactRef,
   SearchEdgeOperator,
   SearchEdgeRecordedEvent,
   SearchEstimateMethod,
+  SearchSourceRef,
   SearchSplit,
 } from '../../campaign/search-ledger-types'
-import type { SearchNode, SearchScoredCell, SearchStateView } from '../../campaign/search-state'
+import type { SearchNode, SearchStateView } from '../../campaign/search-state'
 import { canonicalString, compareCodeUnits, hashCanonical } from '../../ledger-core/canonical'
 import { minimumPairsForPairedDeltaTest, pairedDeltaTest } from '../../paired-delta-test'
 import {
@@ -53,6 +60,39 @@ const DEFAULT_INTERACTION_GENES = 24
 /** Signal name a policy reads. */
 export const EDIT_CREDIT_SIGNAL = 'reusableHunks'
 
+/**
+ * Every choice a credit depends on. Its digest is the estimator revision each
+ * credit names, so two readers that report the same revision and the same
+ * `cellSetDigest` report the same numbers.
+ */
+const CREDIT_DEFINITION = {
+  name: 'tangle.edit-credit.2026-09',
+  gene: 'a paragraph of whitespace-normalized lines added (insert) or removed (delete) at one artifact location',
+  step: 'one lineage parent and its child, both with known content and neither invalid',
+  clean:
+    'the gene flips on the step and every gene that flips was introduced on one edge that introduced it',
+  unit: 'mean of a node’s scored cells in the unit; per unit, carrier-side and lacking-side means averaged over the clean steps where both sides scored it',
+  statistic: DECISION_PAIRED_DELTA_STATISTIC,
+  interval: 'percentile paired bootstrap',
+  confidence: CONFIDENCE,
+  resamples: RESAMPLES,
+  rng: 'mulberry32',
+  seed: 'the first 32 bits of cellSetDigest',
+  signTest: 'exact, one-sided toward improvement in the objective direction',
+  methods: {
+    none: 'below 2 units',
+    insufficient: `below ${DESCRIPTIVE_FROM} units`,
+    descriptive: `below ${BOOTSTRAP_GATE_MIN_N} units`,
+    bootstrap: `from ${BOOTSTRAP_GATE_MIN_N} units`,
+  },
+} as const
+
+/** The estimator every gene credit names. */
+export const EDIT_CREDIT_ESTIMATOR: SearchSourceRef = {
+  uri: 'npm:@tangle-network/agent-eval/search#editCredit',
+  revision: hashCanonical(CREDIT_DEFINITION),
+}
+
 export interface EditCreditOptions {
   /**
    * The parsed content a node's artifact reference names, or undefined when
@@ -63,12 +103,21 @@ export interface EditCreditOptions {
   /** Split credit is measured on. Default: selection when the search declares
    * one, else train. */
   split?: SearchSplit
-  /** Genes tested for pairwise interaction: those with the most paired units.
-   * Default 24, so at most 276 pairs. */
+  /** Genes tested for pairwise interaction: those with the most measured
+   * units, one per linkage group. Default 24, so at most 276 pairs. */
   interactionGenes?: number
 }
 
 export type EditGeneVerdict = 'reusable' | 'harmful' | 'unresolved' | 'insufficient'
+
+export interface EditIntroduction {
+  nodeId: string
+  edgeId: string
+  operator: SearchEdgeOperator
+  parents: string[]
+  /** The edge is a re-proposal into a node registered earlier. */
+  reproposal: boolean
+}
 
 export interface EditGene {
   geneId: string
@@ -80,44 +129,55 @@ export interface EditGene {
   lines: string[]
   /** The lines as the first proposer wrote them. */
   text: string
-  /** Nodes whose lineage edge introduced the gene, in registration order. */
-  births: Array<{
-    nodeId: string
-    edgeId: string
-    operator: SearchEdgeOperator
-    parents: string[]
-  }>
-  /** Edges that introduced it, re-proposals included: more than `births`
-   * means a proposer made the same edit again. */
-  proposals: number
-  /** Nodes of the birth parents' subtrees whose content is known and that are
-   * not `invalid`: the credit's sample. */
-  population: number
+  /** Lineage edges whose child carries the gene while none of its parents
+   * did, in ledger order. More than one means a proposer made the same edit
+   * again. */
+  introduced: EditIntroduction[]
+  /** Lineage edges whose child lost the gene that a parent carried. */
+  dropped: number
+  /** Genes introduced on the edge that first introduced this one: the edit
+   * it was born in, itself included, in artifact order. */
+  edit: string[]
+  /** Nodes with known content that carry it and are not invalid. */
   carriers: number
-  lacking: number
   /** `invalid` carriers (judge integrity or admission failures), excluded from
-   * the credit; an edit that makes nodes invalid shows here. */
+   * every contrast; an edit that makes nodes invalid shows here. */
   invalidCarriers: number
-  /** Subtree nodes whose content is unknown, excluded from both groups. */
-  unknownContent: number
-  /** Carriers against non-carriers; `delta` is carriers minus non-carriers in
-   * the metric's units. */
+  steps: {
+    /** Steps on which the gene flips. */
+    flips: number
+    /** Of those, the steps its credit reads. */
+    clean: number
+    /** Clean steps on which the child gained the gene. */
+    gained: number
+    /** Clean steps on which the child lost it. */
+    lost: number
+  }
+  /** Carrying side against lacking side on clean steps; `delta` is carrier
+   * minus non-carrier in the metric's units. */
   credit: NodeEstimate
   verdict: EditGeneVerdict
-  /** Genes with exactly this gene's carriers and sample: their credits are the
-   * same number and cannot be separated. Null when there are none. */
+  /** The first gene of this gene's linkage group: genes with the same clean
+   * steps, oriented the same way, have one credit and cannot be separated.
+   * Null when the gene has no partner. */
   linkage: string | null
 }
 
 export interface EditInteraction {
   genes: [string, string]
-  /** Nodes in each factorial group, inside both genes' samples. */
-  groups: { both: number; firstOnly: number; secondOnly: number; neither: number }
-  /** Units all four groups scored. */
+  /** Clean steps of each gene, split by whether both ends carry the other. */
+  steps: {
+    firstWithSecond: number
+    firstWithoutSecond: number
+    secondWithFirst: number
+    secondWithoutFirst: number
+  }
+  /** Units with a contrast in at least one direction. */
   units: number
   method: SearchEstimateMethod
-  /** Mean per-unit `(both - firstOnly) - (secondOnly - neither)` in the
-   * metric's units; null below 2 units. */
+  /** Mean per-unit difference of a gene's credit with the other present minus
+   * with it absent, both directions averaged, in the metric's units; null
+   * below 2 units. */
   interaction: number | null
   /** Percentile bootstrap spread from 6 units; null below 6 or when every
    * per-unit contrast is equal. */
@@ -134,11 +194,12 @@ export interface EditInteraction {
 }
 
 export interface EditSkillCandidate {
-  /** The resource to add to `profile.resources.skills`; `improve({ surface:
-   * 'skills', skills: { resourceName: resource.name }, method: officialSkillOpt(...) })`
-   * in agent-runtime then optimizes it. */
-  resource: AgentProfileResourceRef
-  /** The linked insert genes the skill holds, in their order in the artifact. */
+  /** An inline skill resource: add it to `profile.resources.skills` (with
+   * `resources.failOnError: true`) and pass `improveOptions` to agent-runtime
+   * `improve()` with `method: officialSkillOpt(...)` to optimize it. */
+  resource: Extract<AgentProfileResourceRef, { kind: 'inline' }>
+  improveOptions: { surface: 'skills'; skills: { resourceName: string } }
+  /** The linked insert genes the skill holds, in artifact order. */
   genes: string[]
   path: string
   credit: NodeEstimate
@@ -152,7 +213,7 @@ export interface EditLineageRow {
   parents: string[]
   operator: SearchEdgeOperator | null
   status: SearchNode['status']
-  /** Genes this node carries, among those whose sample it belongs to. */
+  /** Every gene this node carries. */
   carries: string[]
   contentKnown: boolean
 }
@@ -161,21 +222,26 @@ export interface EditCreditData {
   split: SearchSplit
   direction: 'maximize' | 'minimize'
   edges: {
-    /** Lineage edges with at least one parent in this search. */
+    /** Edges with at least one parent registered before the child in this search. */
     lineage: number
-    /** Of those, edges whose parent and child content were both known. */
+    /** Of those, edges whose child and every lineage parent had known content. */
     read: number
     /** Why an edge's content was unknown, with counts. */
     unknown: Record<string, number>
   }
+  /** Distinct parent-child pairs with known content; those with an invalid
+   * end are excluded from every contrast. */
+  steps: { total: number; invalidEnd: number }
   nodes: { total: number; contentUnknown: number; invalid: number }
   /** Reusable, harmful, unresolved, then insufficient; within each, by credit. */
   genes: EditGene[]
   counts: Record<EditGeneVerdict, number>
+  /** Linkage groups per verdict: independent edits, not hunks. */
+  editCounts: Record<EditGeneVerdict, number>
   interactions: {
     genesConsidered: number
-    /** Pairs whose four factorial groups each held a node. */
-    pairsWithAllGroups: number
+    /** Pairs with a with-and-without split in at least one direction. */
+    pairsWithContexts: number
     /** Pairs with 6 or more units and a non-degenerate contrast. */
     pairsTested: number
     alpha: number
@@ -188,7 +254,7 @@ export interface EditCreditData {
    * genealogy view draws, genes as columns. */
   lineage: EditLineageRow[]
   method: {
-    unit: string
+    estimator: SearchSourceRef
     credit: string
     verdict: string
     interaction: string
@@ -203,22 +269,34 @@ interface PathText {
   norm: string[]
 }
 
-type NodeContent =
-  | { known: true; paths: Map<string, PathText>; haystacks: Map<string, string> }
-  | { known: false; reason: string }
+type KnownContent = { known: true; paths: Map<string, PathText>; haystacks: Map<string, string> }
+type NodeContent = KnownContent | { known: false; reason: string }
 
-interface GeneRecord {
-  geneId: string
+interface GeneCut {
   kind: 'insert' | 'delete'
   path: string
   lines: string[]
   needle: string
   text: string
-  births: EditGene['births']
-  proposals: number
-  /** Order of the first birth, then position in the artifact. */
+  /** Position in the child's diff: artifact order. */
+  position: number
+}
+
+interface GeneRecord extends GeneCut {
+  geneId: string
+  locus: string
+  introduced: EditIntroduction[]
+  dropped: number
+  /** Ledger order of the first introduction, then position in the artifact. */
   order: [number, number]
-  birthParents: Set<string>
+}
+
+interface Step {
+  key: string
+  parentId: string
+  childId: string
+  /** Genes whose carrying differs between parent and child. */
+  flips: Set<string>
 }
 
 /**
@@ -230,6 +308,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   if (!header) throw new Error(`editCredit: search ${state.searchId} has not been opened`)
   const split = options.split ?? (header.splits.selection.tasks.length > 0 ? 'selection' : 'train')
   const direction = header.objective.direction
+  const sign = direction === 'maximize' ? 1 : -1
   const interactionGenes = options.interactionGenes ?? DEFAULT_INTERACTION_GENES
   if (!Number.isSafeInteger(interactionGenes) || interactionGenes < 0) {
     throw new Error(`editCredit: interactionGenes must be a non-negative integer`)
@@ -239,154 +318,257 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   const byId = new Map(nodes.map((node) => [node.nodeId, node]))
   const contents = new Map<string, NodeContent>()
   for (const node of nodes) contents.set(node.nodeId, nodeContent(options, node.artifact))
+  const known = (nodeId: string) => contents.get(nodeId) as KnownContent
   const invalid = new Set(nodes.filter((node) => node.status === 'invalid').map((n) => n.nodeId))
 
-  // Genes: every edge whose parents precede the child, in ledger order.
+  // Genes: every lineage edge, in ledger order. A gene is one locus (a
+  // location and its lines); an edge that re-adds a paragraph a delete gene
+  // removed drops that gene rather than creating a second one.
   const genes = new Map<string, GeneRecord>()
+  const byLocus = new Map<string, GeneRecord>()
+  const introducedOn = new Map<string, string[]>()
   const unknownEdges: Record<string, number> = {}
+  const stepList: Step[] = []
+  const stepKeys = new Set<string>()
   let lineageEdges = 0
   let readEdges = 0
+  let edgeOrdinal = 0
   for (const edge of state.edges()) {
+    edgeOrdinal += 1
     const child = byId.get(edge.childNodeId)!
     const parents = lineageParents(state, edge, child, byId)
     if (parents.length === 0) continue
     lineageEdges += 1
-    const childContent = contents.get(child.nodeId)!
-    const unknownParent = parents
-      .map((parentId) => contents.get(parentId)!)
+    const missing = [child.nodeId, ...parents]
+      .map((nodeId) => contents.get(nodeId)!)
       .find((content) => !content.known)
-    const missing = !childContent.known ? childContent : unknownParent
     if (missing && !missing.known) {
       unknownEdges[missing.reason] = (unknownEdges[missing.reason] ?? 0) + 1
       continue
     }
-    if (!childContent.known) continue
     readEdges += 1
-    const isBirth = child.edgeIds[0] === edge.edgeId
-    const proposed = new Map<string, Omit<GeneRecord, 'births' | 'proposals' | 'birthParents'>>()
+    const childContent = known(child.nodeId)
+    const reproposal = child.edgeIds[0] !== edge.edgeId
+    // A parent registered after the child (a re-proposal from a later node) or
+    // in another search is not in the lineage, so whether it carried a gene is
+    // not known here: the edge's steps still count, its introductions do not.
+    const wholeLineage = edge.parents.every(
+      (parent) => parent.searchId === state.searchId && parents.includes(parent.nodeId),
+    )
+    const cuts = new Map<string, GeneCut>()
     for (const parentId of parents) {
-      const parentContent = contents.get(parentId)!
-      if (!parentContent.known) continue
-      for (const gene of edgeGenes(parentContent, childContent, child.ordinal)) {
-        if (!proposed.has(gene.geneId)) proposed.set(gene.geneId, gene)
+      const key = `${parentId}>${child.nodeId}`
+      if (!stepKeys.has(key)) {
+        stepKeys.add(key)
+        stepList.push({ key, parentId, childId: child.nodeId, flips: new Set() })
+      }
+      for (const cut of edgeCuts(known(parentId), childContent)) {
+        const locus = locusOf(cut)
+        if (!cuts.has(locus)) cuts.set(locus, cut)
       }
     }
-    for (const gene of proposed.values()) {
+    if (!wholeLineage) continue
+    const introducedHere: string[] = []
+    for (const [locus, cut] of cuts) {
+      const existing = byLocus.get(locus)
+      const gene = existing ?? cut
+      const childCarries = carries(childContent, gene)
+      const parentCarries = parents.filter((parentId) => carries(known(parentId), gene))
+      if (existing && !childCarries && parentCarries.length > 0) {
+        existing.dropped += 1
+        continue
+      }
       // A merge child that took the edit from another parent inherited it; a
       // deletion of one copy of a repeated block leaves the child without it.
-      if (!carries(childContent, gene)) continue
-      if (parents.some((parentId) => carries(contents.get(parentId)!, gene))) continue
-      let record = genes.get(gene.geneId)
+      if (!childCarries || parentCarries.length > 0) continue
+      let record = existing
       if (!record) {
-        record = { ...gene, births: [], proposals: 0, birthParents: new Set() }
-        genes.set(gene.geneId, record)
+        const geneId = `gene_${hashCanonical({ kind: cut.kind, path: cut.path, lines: cut.lines })
+          .slice('sha256:'.length)
+          .slice(0, 24)}`
+        record = {
+          ...cut,
+          geneId,
+          locus,
+          introduced: [],
+          dropped: 0,
+          order: [edgeOrdinal, cut.position],
+        }
+        genes.set(geneId, record)
+        byLocus.set(locus, record)
       }
-      record.proposals += 1
-      if (isBirth && !record.births.some((birth) => birth.nodeId === child.nodeId)) {
-        record.births.push({
-          nodeId: child.nodeId,
-          edgeId: edge.edgeId,
-          operator: edge.operator,
-          parents,
-        })
-        for (const parentId of parents) record.birthParents.add(parentId)
-      }
+      record.introduced.push({
+        nodeId: child.nodeId,
+        edgeId: edge.edgeId,
+        operator: edge.operator,
+        parents,
+        reproposal,
+      })
+      introducedHere.push(record.geneId)
     }
+    introducedOn.set(edge.edgeId, introducedHere)
   }
-  // A gene seen only on re-proposal edges was never born into the lineage.
-  for (const [geneId, record] of genes) if (record.births.length === 0) genes.delete(geneId)
 
-  // Samples and carriers.
-  const cellsOf = memo((nodeId: string) => state.scoredCells(nodeId, split))
-  const subtreeOf = memo((nodeId: string) => subtree(nodeId, byId))
-  const carried = new Map<string, Set<string>>()
-  const analyzed: Array<{
-    record: GeneRecord
-    sample: string[]
-    carrierIds: string[]
-    lackingIds: string[]
-    invalidCarriers: number
-    unknownContent: number
-    credit: NodeEstimate
-  }> = []
+  // Carrying: every gene against every node whose content is known.
+  const carriersOf = new Map<string, Set<string>>()
+  const carried = new Map<string, string[]>()
   for (const record of genes.values()) {
-    const scope = new Set<string>()
-    for (const parentId of record.birthParents) for (const id of subtreeOf(parentId)) scope.add(id)
-    const sample: string[] = []
-    const carrierIds: string[] = []
-    const lackingIds: string[] = []
-    let invalidCarriers = 0
-    let unknownContent = 0
-    for (const nodeId of [...scope].sort(byOrdinal(byId))) {
-      const content = contents.get(nodeId)!
-      if (!content.known) {
-        unknownContent += 1
-        continue
+    const set = new Set<string>()
+    for (const node of nodes) {
+      const content = contents.get(node.nodeId)!
+      if (content.known && carries(content, record)) {
+        set.add(node.nodeId)
+        carried.set(node.nodeId, [...(carried.get(node.nodeId) ?? []), record.geneId])
       }
-      const has = carries(content, record)
-      if (has) {
-        const set = carried.get(nodeId) ?? new Set<string>()
-        set.add(record.geneId)
-        carried.set(nodeId, set)
-      }
-      if (invalid.has(nodeId)) {
-        if (has) invalidCarriers += 1
-        continue
-      }
-      sample.push(nodeId)
-      if (has) carrierIds.push(nodeId)
-      else lackingIds.push(nodeId)
     }
-    const credit = estimateNodeFromCells({
-      nodeId: `${record.geneId}:carriers`,
-      against: `${record.geneId}:lacking`,
+    carriersOf.set(record.geneId, set)
+  }
+  for (const step of stepList) {
+    for (const [geneId, set] of carriersOf) {
+      if (set.has(step.parentId) !== set.has(step.childId)) step.flips.add(geneId)
+    }
+  }
+  const measurable = stepList.filter(
+    (step) => !invalid.has(step.parentId) && !invalid.has(step.childId),
+  )
+
+  // The edits each gene was introduced in: per introducing edge, the genes
+  // that edge introduced. The first is the edit the gene was born in.
+  const editsOf = new Map<string, Array<ReadonlySet<string>>>()
+  for (const record of genes.values()) {
+    editsOf.set(
+      record.geneId,
+      record.introduced.map((introduction) => new Set(introducedOn.get(introduction.edgeId)!)),
+    )
+  }
+
+  const unitMeansOf = memo((nodeId: string) => {
+    const means = new Map<string, number>()
+    for (const unit of state.unitScores(nodeId, split)) means.set(unit.unitId, unit.mean)
+    return means
+  })
+  const cellsDigestOf = memo((nodeId: string) =>
+    state
+      .scoredCells(nodeId, split)
+      .map((cell) => [cell.cellId, cell.unitId, cell.attempt, cell.score] as const)
+      .sort((left, right) => compareCodeUnits(left[0], right[0])),
+  )
+
+  interface Oriented {
+    step: Step
+    carrierId: string
+    lackingId: string
+  }
+  const cleanOf = new Map<string, Oriented[]>()
+  const flipCount = new Map<string, number>()
+  for (const step of measurable) {
+    for (const geneId of step.flips) {
+      flipCount.set(geneId, (flipCount.get(geneId) ?? 0) + 1)
+      // Clean: every change on the step belongs to one edit that introduced
+      // the gene, so the contrast is that edit's, not a mixture.
+      const inOneEdit = editsOf
+        .get(geneId)!
+        .some((edit) => [...step.flips].every((other) => edit.has(other)))
+      if (!inOneEdit) continue
+      const childCarries = carriersOf.get(geneId)!.has(step.childId)
+      const oriented = {
+        step,
+        carrierId: childCarries ? step.childId : step.parentId,
+        lackingId: childCarries ? step.parentId : step.childId,
+      }
+      cleanOf.set(geneId, [...(cleanOf.get(geneId) ?? []), oriented])
+    }
+  }
+
+  const credits = new Map<string, { credit: NodeEstimate; verdict: EditGeneVerdict }>()
+  for (const record of genes.values()) {
+    const steps = cleanOf.get(record.geneId) ?? []
+    const perUnit = new Map<string, { carrier: number; lacking: number; count: number }>()
+    for (const { carrierId, lackingId } of steps) {
+      const lacking = unitMeansOf(lackingId)
+      for (const [unitId, carrierMean] of unitMeansOf(carrierId)) {
+        const lackingMean = lacking.get(unitId)
+        if (lackingMean === undefined) continue
+        const entry = perUnit.get(unitId) ?? { carrier: 0, lacking: 0, count: 0 }
+        entry.carrier += carrierMean
+        entry.lacking += lackingMean
+        entry.count += 1
+        perUnit.set(unitId, entry)
+      }
+    }
+    const unitIds = [...perUnit.keys()].sort(compareCodeUnits)
+    const cellSetDigest = hashCanonical({
+      gene: record.geneId,
       split,
-      direction,
-      nodeCells: carrierIds.flatMap(cellsOf),
-      againstCells: lackingIds.flatMap(cellsOf),
+      steps: steps
+        .map(({ carrierId, lackingId }) => [
+          carrierId,
+          lackingId,
+          cellsDigestOf(carrierId),
+          cellsDigestOf(lackingId),
+        ])
+        .sort((left, right) => compareCodeUnits(canonicalString(left), canonicalString(right))),
     })
-    analyzed.push({
-      record,
-      sample,
-      carrierIds,
-      lackingIds,
-      invalidCarriers,
-      unknownContent,
-      credit,
-    })
+    const carrierUnits = new Set<string>()
+    for (const { carrierId } of steps)
+      for (const unitId of unitMeansOf(carrierId).keys()) carrierUnits.add(unitId)
+    credits.set(
+      record.geneId,
+      pairedEstimate({
+        against: `${record.geneId}:lacking`,
+        split,
+        direction,
+        units: carrierUnits.size,
+        lacking: unitIds.map((unitId) => perUnit.get(unitId)!.lacking / perUnit.get(unitId)!.count),
+        carrier: unitIds.map((unitId) => perUnit.get(unitId)!.carrier / perUnit.get(unitId)!.count),
+        cellSetDigest,
+      }),
+    )
   }
 
-  // Linkage: identical carriers inside an identical sample.
-  const linkageKey = (entry: (typeof analyzed)[number]) =>
-    canonicalString([entry.sample, entry.carrierIds])
+  // Linkage: the same clean steps, oriented the same way.
+  const linkageKey = (geneId: string) =>
+    canonicalString(
+      (cleanOf.get(geneId) ?? [])
+        .map(({ step, carrierId }) => `${step.key}:${carrierId === step.childId ? '+' : '-'}`)
+        .sort(compareCodeUnits),
+    )
   const linkGroups = new Map<string, string[]>()
-  for (const entry of analyzed) {
-    const key = linkageKey(entry)
-    linkGroups.set(key, [...(linkGroups.get(key) ?? []), entry.record.geneId])
+  for (const record of [...genes.values()].sort((a, b) => compareOrder(a.order, b.order))) {
+    if (!cleanOf.has(record.geneId)) continue
+    const key = linkageKey(record.geneId)
+    linkGroups.set(key, [...(linkGroups.get(key) ?? []), record.geneId])
   }
 
-  const sign = direction === 'maximize' ? 1 : -1
-  const geneList: EditGene[] = analyzed.map((entry) => {
-    const group = linkGroups.get(linkageKey(entry))!
+  const geneList: EditGene[] = [...genes.values()].map((record) => {
+    const clean = cleanOf.get(record.geneId) ?? []
+    const group = clean.length > 0 ? linkGroups.get(linkageKey(record.geneId))! : []
+    const carriers = carriersOf.get(record.geneId)!
+    const { credit, verdict } = credits.get(record.geneId)!
     return {
-      geneId: entry.record.geneId,
-      kind: entry.record.kind,
-      path: entry.record.path,
-      lines: entry.record.lines,
-      text: entry.record.text,
-      births: entry.record.births,
-      proposals: entry.record.proposals,
-      population: entry.sample.length,
-      carriers: entry.carrierIds.length,
-      lacking: entry.lackingIds.length,
-      invalidCarriers: entry.invalidCarriers,
-      unknownContent: entry.unknownContent,
-      credit: entry.credit,
-      verdict: verdictOf(entry.credit, sign),
+      geneId: record.geneId,
+      kind: record.kind,
+      path: record.path,
+      lines: record.lines,
+      text: record.text,
+      introduced: record.introduced,
+      dropped: record.dropped,
+      edit: [...editsOf.get(record.geneId)![0]!].sort((a, b) =>
+        compareOrder(genes.get(a)!.order, genes.get(b)!.order),
+      ),
+      carriers: [...carriers].filter((nodeId) => !invalid.has(nodeId)).length,
+      invalidCarriers: [...carriers].filter((nodeId) => invalid.has(nodeId)).length,
+      steps: {
+        flips: flipCount.get(record.geneId) ?? 0,
+        clean: clean.length,
+        gained: clean.filter(({ step, carrierId }) => carrierId === step.childId).length,
+        lost: clean.filter(({ step, carrierId }) => carrierId === step.parentId).length,
+      },
+      credit,
+      verdict,
       linkage: group.length > 1 ? group[0]! : null,
     }
   })
-  const recordOf = new Map(analyzed.map((entry) => [entry.record.geneId, entry]))
   const verdictRank: Record<EditGeneVerdict, number> = {
     reusable: 0,
     harmful: 1,
@@ -398,24 +580,24 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       verdictRank[a.verdict] - verdictRank[b.verdict] ||
       improvementLow(b.credit, sign) - improvementLow(a.credit, sign) ||
       gain(b.credit, sign) - gain(a.credit, sign) ||
-      compareOrder(recordOf.get(a.geneId)!.record.order, recordOf.get(b.geneId)!.record.order),
+      compareOrder(genes.get(a.geneId)!.order, genes.get(b.geneId)!.order),
   )
-  const counts: Record<EditGeneVerdict, number> = {
-    reusable: 0,
-    harmful: 0,
-    unresolved: 0,
-    insufficient: 0,
+  const counts = emptyCounts()
+  const editCounts = emptyCounts()
+  for (const gene of geneList) {
+    counts[gene.verdict] += 1
+    if (gene.linkage === null || gene.linkage === gene.geneId) editCounts[gene.verdict] += 1
   }
-  for (const gene of geneList) counts[gene.verdict] += 1
 
   const interactions = interactionPairs({
     genes: geneList,
-    entries: recordOf,
-    cellsOf,
+    cleanOf,
+    carriersOf,
+    unitMeansOf,
     limit: interactionGenes,
     sign,
   })
-  const skillCandidates = skills(geneList, recordOf, header.subject, split)
+  const skillCandidates = skills(geneList, genes, header.subject, split)
   const lineage = lineageRows(state, nodes, byId, contents, carried)
 
   const measured = geneList.filter(
@@ -426,12 +608,12 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       ? {
           name: EDIT_CREDIT_SIGNAL,
           value: null,
-          basis: `insufficient: no gene has ${DESCRIPTIVE_FROM} ${split} units scored by both carriers and non-carriers (${geneList.length} genes)`,
+          basis: `insufficient: no gene has ${DESCRIPTIVE_FROM} ${split} units on clean steps (${geneList.length} genes, ${measurable.length} measurable steps)`,
         }
       : {
           name: EDIT_CREDIT_SIGNAL,
           value: counts.reusable,
-          basis: `genes whose credit interval on the ${split} split lies above zero, of ${measured} with ${DESCRIPTIVE_FROM} or more units`,
+          basis: `genes whose credit interval on the ${split} split lies wholly on the better side of zero, of ${measured} measured on ${DESCRIPTIVE_FROM} or more units (${editCounts.reusable} independent edits)`,
         }
 
   return {
@@ -443,6 +625,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       split,
       direction,
       edges: { lineage: lineageEdges, read: readEdges, unknown: unknownEdges },
+      steps: { total: stepList.length, invalidEnd: stepList.length - measurable.length },
       nodes: {
         total: nodes.length,
         contentUnknown: [...contents.values()].filter((content) => !content.known).length,
@@ -450,17 +633,17 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       },
       genes: geneList,
       counts,
+      editCounts,
       interactions,
       skillCandidates,
       lineage,
       method: {
-        unit: "a group's mean on a unit pools the scored cells of its nodes there, so a node with more repeats weighs more; unscored cells are absent, never zero",
-        credit: `estimateNodeFromCells of carriers against non-carriers inside the birth parents' subtrees, paired on the units both scored: none below 2 units, insufficient below ${DESCRIPTIVE_FROM}, a descriptive bootstrap interval below ${BOOTSTRAP_GATE_MIN_N}, a decision-grade bootstrap from ${BOOTSTRAP_GATE_MIN_N}; observational, because carriers also share what they inherited`,
-        verdict:
-          'reusable: the credit interval lies wholly on the better side of zero; harmful: wholly on the worse side; unresolved: an interval that spans zero or an indeterminate sample; insufficient: fewer than 6 units',
-        interaction: `per unit all four groups scored, (both - firstOnly) - (secondOnly - neither); ${Math.round(CONFIDENCE * 100)}% percentile bootstrap (${RESAMPLES} resamples) for spread; exact two-sided sign test, Holm-adjusted over the pairs tested, flagged at ${INTERACTION_ALPHA}`,
+        estimator: EDIT_CREDIT_ESTIMATOR,
+        credit: `per clean step (a parent and its child on which every change belongs to one edit that introduced the gene), the carrying side against the lacking side on each unit both scored; per unit, both sides averaged over those steps; ${DECISION_PAIRED_DELTA_STATISTIC} paired delta with a ${Math.round(CONFIDENCE * 100)}% percentile bootstrap (${RESAMPLES} resamples, seeded from cellSetDigest): none below 2 units, insufficient below ${DESCRIPTIVE_FROM}, a descriptive interval and exact one-sided sign p below ${BOOTSTRAP_GATE_MIN_N}, a decision-grade interval from ${BOOTSTRAP_GATE_MIN_N}; unscored cells are absent, never zero`,
+        verdict: `pairedDeltaTest's own decision in each direction: reusable when it finds an improvement (below ${BOOTSTRAP_GATE_MIN_N} units an exact one-sided sign test at ${(1 - CONFIDENCE) / 2} with the point estimate on the better side; from ${BOOTSTRAP_GATE_MIN_N} the bootstrap interval above zero), harmful when it finds one in the other direction, unresolved otherwise, insufficient below ${DESCRIPTIVE_FROM} units`,
+        interaction: `per unit, a gene's clean-step contrast where both ends carry the other gene minus where neither does, averaged over both directions; ${Math.round(CONFIDENCE * 100)}% percentile bootstrap (${RESAMPLES} resamples) for spread; exact two-sided sign test, Holm-adjusted over the pairs tested, flagged at ${INTERACTION_ALPHA}`,
         multiplicity:
-          'credit is not adjusted for the number of genes: it steers which edits to test next, as selection estimates steer spend; interaction flags are Holm-adjusted because pairs grow with the square of the genes',
+          'credit is not adjusted for the number of genes: it steers which edits to reuse and test next, as selection estimates steer spend, and claims nothing; interaction flags are Holm-adjusted because pairs grow with the square of the genes',
       },
     },
   }
@@ -530,23 +713,22 @@ function addText(paths: Map<string, PathText>, path: string, text: string): void
 }
 
 function carries(
-  content: NodeContent,
+  content: KnownContent,
   gene: { kind: 'insert' | 'delete'; path: string; needle: string },
 ): boolean {
-  if (!content.known) return false
   const present = content.haystacks.get(gene.path)?.includes(gene.needle) ?? false
   return gene.kind === 'insert' ? present : !present
+}
+
+function locusOf(cut: { path: string; lines: readonly string[] }): string {
+  return canonicalString([cut.path, cut.lines])
 }
 
 // ---------------------------------------------------------------------------
 // Genes
 
-function edgeGenes(
-  parent: Extract<NodeContent, { known: true }>,
-  child: Extract<NodeContent, { known: true }>,
-  childOrdinal: number,
-): Array<Omit<GeneRecord, 'births' | 'proposals' | 'birthParents'>> {
-  const genes: Array<Omit<GeneRecord, 'births' | 'proposals' | 'birthParents'>> = []
+function edgeCuts(parent: KnownContent, child: KnownContent): GeneCut[] {
+  const cuts: GeneCut[] = []
   const paths = new Set([...parent.paths.keys(), ...child.paths.keys()])
   let position = 0
   for (const path of [...paths].sort(compareCodeUnits)) {
@@ -560,21 +742,19 @@ function edgeGenes(
         for (const [from, to] of paragraphs(side.norm, start, end)) {
           const lines = side.norm.slice(from, to).filter((line) => line.length > 0)
           if (lines.length === 0) continue
-          const digest = hashCanonical({ kind, path, lines })
-          genes.push({
-            geneId: `gene_${digest.slice('sha256:'.length, 'sha256:'.length + 24)}`,
+          cuts.push({
             kind,
             path,
             lines,
             needle: `\n${lines.join('\n')}\n`,
             text: side.raw.slice(from, to).join('\n').trim(),
-            order: [childOrdinal, position++],
+            position: position++,
           })
         }
       }
     }
   }
-  return genes
+  return cuts
 }
 
 /** Paragraph ranges of `lines[start, end)`, split at blank lines. */
@@ -602,7 +782,7 @@ interface ChangeRun {
 
 /** Maximal runs where `a[aStart, aEnd)` became `b[bStart, bEnd)`, from a
  * shortest edit script (Myers, 1986). */
-export function changeRuns(a: readonly string[], b: readonly string[]): ChangeRun[] {
+function changeRuns(a: readonly string[], b: readonly string[]): ChangeRun[] {
   let prefix = 0
   while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix += 1
   let suffix = 0
@@ -705,26 +885,12 @@ function lineageParents(
   return parents
 }
 
-function subtree(nodeId: string, byId: ReadonlyMap<string, SearchNode>): string[] {
-  const seen = new Set<string>([nodeId])
-  const stack = [nodeId]
-  while (stack.length > 0) {
-    for (const child of byId.get(stack.pop()!)?.children ?? []) {
-      if (!seen.has(child)) {
-        seen.add(child)
-        stack.push(child)
-      }
-    }
-  }
-  return [...seen]
-}
-
 function lineageRows(
   state: SearchStateView,
   nodes: readonly SearchNode[],
   byId: ReadonlyMap<string, SearchNode>,
   contents: ReadonlyMap<string, NodeContent>,
-  carried: ReadonlyMap<string, Set<string>>,
+  carried: ReadonlyMap<string, string[]>,
 ): EditLineageRow[] {
   const rows: EditLineageRow[] = []
   const placed = new Set<string>()
@@ -763,13 +929,79 @@ function lineageRows(
 // ---------------------------------------------------------------------------
 // Statistics
 
-function verdictOf(credit: NodeEstimate, sign: number): EditGeneVerdict {
-  if (credit.method === 'none' || credit.method === 'insufficient') return 'insufficient'
-  if (credit.indeterminate || credit.interval === null) return 'unresolved'
-  const [low, high] = credit.interval
-  const better = sign > 0 ? low > 0 : high < 0
-  const worse = sign > 0 ? high < 0 : low > 0
-  return better ? 'reusable' : worse ? 'harmful' : 'unresolved'
+/**
+ * The paired contrast of per-unit carrier means against per-unit lacking
+ * means, staged and oriented exactly as `estimateNodeFromCells` stages and
+ * orients a node against another, with the verdict `pairedDeltaTest` itself
+ * would reach in each direction: below 20 units the exact one-sided sign test
+ * at α = 0.025 and a point estimate on the same side, from 20 the bootstrap
+ * interval clear of zero.
+ */
+function pairedEstimate(input: {
+  against: string
+  split: SearchSplit
+  direction: 'maximize' | 'minimize'
+  units: number
+  carrier: number[]
+  lacking: number[]
+  cellSetDigest: NodeEstimate['cellSetDigest']
+}): { credit: NodeEstimate; verdict: EditGeneVerdict } {
+  const pairs = input.carrier.length
+  const method = methodFor(pairs)
+  const base = {
+    against: input.against,
+    split: input.split,
+    units: input.units,
+    pairs,
+    method,
+    cellSetDigest: input.cellSetDigest,
+    estimator: EDIT_CREDIT_ESTIMATOR,
+  }
+  if (method === 'none') {
+    return {
+      credit: { ...base, delta: null, interval: null, exactSignP: null, indeterminate: false },
+      verdict: 'insufficient',
+    }
+  }
+  // The test's `after - before` is the improvement: carrier minus lacking
+  // when larger is better, lacking minus carrier when smaller is.
+  const maximize = input.direction === 'maximize'
+  const before = maximize ? input.lacking : input.carrier
+  const after = maximize ? input.carrier : input.lacking
+  const options = {
+    statistic: DECISION_PAIRED_DELTA_STATISTIC,
+    confidence: CONFIDENCE,
+    resamples: RESAMPLES,
+    seed: seedFromDigest(input.cellSetDigest),
+  }
+  const better = pairedDeltaTest(before, after, options)
+  const worse = pairedDeltaTest(after, before, options)
+  const { mean, low, high } = better.bootstrap
+  const indeterminate = better.indeterminate
+  const spread = (method === 'descriptive' || method === 'bootstrap') && !indeterminate
+  const credit: NodeEstimate = {
+    ...base,
+    delta: plain(maximize ? mean : -mean),
+    interval: spread ? (maximize ? [plain(low), plain(high)] : [plain(-high), plain(-low)]) : null,
+    exactSignP: method === 'descriptive' && !indeterminate ? better.pValue : null,
+    indeterminate,
+  }
+  const verdict: EditGeneVerdict =
+    method === 'insufficient'
+      ? 'insufficient'
+      : better.significant
+        ? 'reusable'
+        : worse.significant
+          ? 'harmful'
+          : 'unresolved'
+  return { credit, verdict }
+}
+
+function methodFor(units: number): SearchEstimateMethod {
+  if (units < 2) return 'none'
+  if (units < DESCRIPTIVE_FROM) return 'insufficient'
+  if (units < BOOTSTRAP_GATE_MIN_N) return 'descriptive'
+  return 'bootstrap'
 }
 
 /** The worse end of the interval, as an improvement; -Infinity without one. */
@@ -784,15 +1016,13 @@ function gain(credit: NodeEstimate, sign: number): number {
 
 function interactionPairs(input: {
   genes: readonly EditGene[]
-  entries: ReadonlyMap<
-    string,
-    { record: GeneRecord; sample: string[]; carrierIds: string[]; lackingIds: string[] }
-  >
-  cellsOf: (nodeId: string) => SearchScoredCell[]
+  cleanOf: ReadonlyMap<string, ReadonlyArray<{ step: Step; carrierId: string; lackingId: string }>>
+  carriersOf: ReadonlyMap<string, ReadonlySet<string>>
+  unitMeansOf: (nodeId: string) => ReadonlyMap<string, number>
   limit: number
   sign: number
 }): EditCreditData['interactions'] {
-  // One member per linkage group: linked genes have the same carriers, so
+  // One member per linkage group: linked genes have the same clean steps, so
   // every pair across two groups repeats one contrast.
   const seenGroups = new Set<string>()
   const considered = [...input.genes]
@@ -804,85 +1034,73 @@ function interactionPairs(input: {
     })
     .sort((a, b) => b.credit.pairs - a.credit.pairs || compareCodeUnits(a.geneId, b.geneId))
     .slice(0, input.limit)
-  const unitSums = new Map<string, Map<string, { sum: number; count: number }>>()
-  const unitsOf = (nodeId: string) => {
-    let units = unitSums.get(nodeId)
-    if (!units) {
-      units = new Map()
-      for (const cell of input.cellsOf(nodeId)) {
-        const unit = units.get(cell.unitId) ?? { sum: 0, count: 0 }
-        unit.sum += cell.score
-        unit.count += 1
-        units.set(cell.unitId, unit)
+
+  /** Per unit, the mean clean-step contrast of `geneId` over `steps`. */
+  const contrasts = (
+    steps: ReadonlyArray<{ carrierId: string; lackingId: string }>,
+  ): Map<string, number> => {
+    const sums = new Map<string, { sum: number; count: number }>()
+    for (const { carrierId, lackingId } of steps) {
+      const lacking = input.unitMeansOf(lackingId)
+      for (const [unitId, carrierMean] of input.unitMeansOf(carrierId)) {
+        const lackingMean = lacking.get(unitId)
+        if (lackingMean === undefined) continue
+        const entry = sums.get(unitId) ?? { sum: 0, count: 0 }
+        entry.sum += carrierMean - lackingMean
+        entry.count += 1
+        sums.set(unitId, entry)
       }
-      unitSums.set(nodeId, units)
     }
-    return units
+    return new Map([...sums].map(([unitId, entry]) => [unitId, entry.sum / entry.count]))
   }
-  const groupMeans = (nodeIds: readonly string[]) => {
-    const pooled = new Map<string, { sum: number; count: number }>()
-    for (const nodeId of [...nodeIds].sort(compareCodeUnits)) {
-      for (const [unitId, unit] of unitsOf(nodeId)) {
-        const entry = pooled.get(unitId) ?? { sum: 0, count: 0 }
-        entry.sum += unit.sum
-        entry.count += unit.count
-        pooled.set(unitId, entry)
-      }
-    }
-    return new Map([...pooled].map(([unitId, entry]) => [unitId, entry.sum / entry.count]))
+  /** `geneId`'s clean steps split by whether both ends carry `other`. */
+  const split = (geneId: string, other: string) => {
+    const carriers = input.carriersOf.get(other)!
+    const steps = input.cleanOf.get(geneId) ?? []
+    const withOther = steps.filter(
+      ({ step }) => carriers.has(step.parentId) && carriers.has(step.childId),
+    )
+    const withoutOther = steps.filter(
+      ({ step }) => !carriers.has(step.parentId) && !carriers.has(step.childId),
+    )
+    return { withOther, withoutOther }
   }
 
   const pairs: EditInteraction[] = []
   for (let i = 0; i < considered.length; i++) {
     for (let j = i + 1; j < considered.length; j++) {
-      const first = input.entries.get(considered[i]!.geneId)!
-      const second = input.entries.get(considered[j]!.geneId)!
-      const inSecond = new Set(second.sample)
-      const shared = first.sample.filter((nodeId) => inSecond.has(nodeId))
-      const firstCarriers = new Set(first.carrierIds)
-      const secondCarriers = new Set(second.carrierIds)
-      const groups = {
-        both: [] as string[],
-        firstOnly: [] as string[],
-        secondOnly: [] as string[],
-        neither: [] as string[],
+      const first = considered[i]!
+      const second = considered[j]!
+      if (first.edit.includes(second.geneId) || second.edit.includes(first.geneId)) continue
+      const firstSplit = split(first.geneId, second.geneId)
+      const secondSplit = split(second.geneId, first.geneId)
+      const steps = {
+        firstWithSecond: firstSplit.withOther.length,
+        firstWithoutSecond: firstSplit.withoutOther.length,
+        secondWithFirst: secondSplit.withOther.length,
+        secondWithoutFirst: secondSplit.withoutOther.length,
       }
-      for (const nodeId of shared) {
-        const a = firstCarriers.has(nodeId)
-        const b = secondCarriers.has(nodeId)
-        groups[a && b ? 'both' : a ? 'firstOnly' : b ? 'secondOnly' : 'neither'].push(nodeId)
-      }
-      if (Object.values(groups).some((group) => group.length === 0)) continue
-      const means = {
-        both: groupMeans(groups.both),
-        firstOnly: groupMeans(groups.firstOnly),
-        secondOnly: groupMeans(groups.secondOnly),
-        neither: groupMeans(groups.neither),
-      }
-      const before: number[] = []
-      const after: number[] = []
-      for (const unitId of [...means.both.keys()].sort(compareCodeUnits)) {
-        const f = means.firstOnly.get(unitId)
-        const s = means.secondOnly.get(unitId)
-        const n = means.neither.get(unitId)
-        if (f === undefined || s === undefined || n === undefined) continue
-        before.push(f + s)
-        after.push(means.both.get(unitId)! + n)
-      }
-      pairs.push(
-        interactionEstimate(
-          [first.record.geneId, second.record.geneId],
-          {
-            both: groups.both.length,
-            firstOnly: groups.firstOnly.length,
-            secondOnly: groups.secondOnly.length,
-            neither: groups.neither.length,
-          },
-          before,
-          after,
-          input.sign,
-        ),
+      const directions = [firstSplit, secondSplit].filter(
+        (direction) => direction.withOther.length > 0 && direction.withoutOther.length > 0,
       )
+      if (directions.length === 0) continue
+      const perUnit = new Map<string, { sum: number; count: number }>()
+      for (const direction of directions) {
+        const withMeans = contrasts(direction.withOther)
+        const withoutMeans = contrasts(direction.withoutOther)
+        for (const [unitId, withMean] of withMeans) {
+          const withoutMean = withoutMeans.get(unitId)
+          if (withoutMean === undefined) continue
+          const entry = perUnit.get(unitId) ?? { sum: 0, count: 0 }
+          entry.sum += withMean - withoutMean
+          entry.count += 1
+          perUnit.set(unitId, entry)
+        }
+      }
+      const values = [...perUnit.keys()]
+        .sort(compareCodeUnits)
+        .map((unitId) => perUnit.get(unitId)!.sum / perUnit.get(unitId)!.count)
+      pairs.push(interactionEstimate([first.geneId, second.geneId], steps, values, input.sign))
     }
   }
   const tested = pairs.filter((pair) => pair.signP !== null)
@@ -903,7 +1121,7 @@ function interactionPairs(input: {
   )
   return {
     genesConsidered: considered.length,
-    pairsWithAllGroups: pairs.length,
+    pairsWithContexts: pairs.length,
     pairsTested: tested.length,
     alpha: INTERACTION_ALPHA,
     correction: 'holm',
@@ -913,22 +1131,13 @@ function interactionPairs(input: {
 
 function interactionEstimate(
   genes: [string, string],
-  groups: EditInteraction['groups'],
-  before: number[],
-  after: number[],
+  steps: EditInteraction['steps'],
+  values: number[],
   sign: number,
 ): EditInteraction {
-  const units = before.length
-  const method: SearchEstimateMethod =
-    units < 2
-      ? 'none'
-      : units < DESCRIPTIVE_FROM
-        ? 'insufficient'
-        : units < BOOTSTRAP_GATE_MIN_N
-          ? 'descriptive'
-          : 'bootstrap'
-  const contrasts = after.map((value, index) => value - before[index]!)
-  const base = { genes, groups, units, method, adjustedP: null, interacting: false }
+  const units = values.length
+  const method = methodFor(units)
+  const base = { genes, steps, units, method, adjustedP: null, interacting: false }
   if (method === 'none') {
     return {
       ...base,
@@ -939,7 +1148,7 @@ function interactionEstimate(
       synergy: null,
     }
   }
-  const interaction = plain(contrasts.reduce((sum, value) => sum + value, 0) / units)
+  const interaction = plain(values.reduce((sum, value) => sum + value, 0) / units)
   if (method === 'insufficient') {
     return {
       ...base,
@@ -950,15 +1159,16 @@ function interactionEstimate(
       synergy: sign * interaction > 0,
     }
   }
-  const test = pairedDeltaTest(before, after, {
+  const zeros = values.map(() => 0)
+  const test = pairedDeltaTest(zeros, values, {
     statistic: DECISION_PAIRED_DELTA_STATISTIC,
     confidence: CONFIDENCE,
     resamples: RESAMPLES,
-    seed: seedFromDigest(hashCanonical({ genes, before, after })),
+    seed: seedFromDigest(hashCanonical({ genes, values })),
   })
   const indeterminate = test.indeterminate
-  const greater = pairedSignTest(contrasts, 'greater').pValue
-  const less = pairedSignTest(contrasts, 'less').pValue
+  const greater = pairedSignTest(values, 'greater').pValue
+  const less = pairedSignTest(values, 'less').pValue
   return {
     ...base,
     interaction,
@@ -974,7 +1184,7 @@ function interactionEstimate(
 
 function skills(
   genes: readonly EditGene[],
-  entries: ReadonlyMap<string, { record: GeneRecord }>,
+  records: ReadonlyMap<string, GeneRecord>,
   subject: string,
   split: SearchSplit,
 ): EditSkillCandidate[] {
@@ -986,16 +1196,14 @@ function skills(
   }
   const candidates: EditSkillCandidate[] = []
   for (const members of byGroup.values()) {
-    members.sort((a, b) =>
-      compareOrder(entries.get(a.geneId)!.record.order, entries.get(b.geneId)!.record.order),
-    )
+    members.sort((a, b) => compareOrder(records.get(a.geneId)!.order, records.get(b.geneId)!.order))
     const lead = members[0]!
     const name = `edit-${lead.geneId.slice('gene_'.length, 'gene_'.length + 12)}`
     const content = [
       '---',
       `name: ${name}`,
       `description: ${JSON.stringify(
-        `Instructions a ${subject} search kept: the edit to ${lead.path} that its carriers scored better with on the ${split} split.`,
+        `Instructions a ${subject} search kept: the edit to ${lead.path} whose carriers scored better than the nodes without it on the ${split} split.`,
       )}`,
       '---',
       '',
@@ -1003,7 +1211,11 @@ function skills(
       '',
     ].join('\n')
     candidates.push({
-      resource: defineInlineResource(name, content),
+      resource: defineInlineResource(name, content) as Extract<
+        AgentProfileResourceRef,
+        { kind: 'inline' }
+      >,
+      improveOptions: { surface: 'skills', skills: { resourceName: name } },
       genes: members.map((gene) => gene.geneId),
       path: lead.path,
       credit: lead.credit,
@@ -1024,31 +1236,35 @@ export function editCreditText(result: EditCreditResult, options: { limit?: numb
     .map(([reason, count]) => `${count} ${reason}`)
     .join(', ')
   const lines = [
-    `edit credit — ${data.genes.length} genes from ${data.edges.read} of ${data.edges.lineage} lineage edges (${data.split} split, ${data.direction})`,
-    `  reusable ${data.counts.reusable} · harmful ${data.counts.harmful} · unresolved ${data.counts.unresolved} · insufficient ${data.counts.insufficient}`,
+    `edit credit — ${data.genes.length} genes from ${data.edges.read} of ${data.edges.lineage} lineage edges, ${data.steps.total - data.steps.invalidEnd} measurable steps (${data.split} split, ${data.direction})`,
+    `  genes: reusable ${data.counts.reusable} · harmful ${data.counts.harmful} · unresolved ${data.counts.unresolved} · insufficient ${data.counts.insufficient}`,
+    `  edits: reusable ${data.editCounts.reusable} · harmful ${data.editCounts.harmful} · unresolved ${data.editCounts.unresolved} · insufficient ${data.editCounts.insufficient}`,
     `  signal ${signal.name} = ${signal.value ?? 'null'} (${signal.basis})`,
   ]
   if (unknown.length > 0) lines.push(`  edges without content: ${unknown}`)
   if (data.nodes.invalid > 0) {
-    lines.push(`  ${data.nodes.invalid} invalid node(s) excluded from every credit`)
+    lines.push(
+      `  ${data.nodes.invalid} invalid node(s): ${data.steps.invalidEnd} step(s) excluded from every contrast`,
+    )
   }
-  lines.push('', 'Genes (carriers vs non-carriers in the birth parents’ subtrees):')
+  lines.push('', 'Genes (carrying vs lacking side of each clean lineage step):')
   if (data.genes.length === 0) lines.push('  none')
   for (const gene of data.genes.slice(0, limit)) {
-    const reproposed = gene.proposals > gene.births.length ? ` · proposed ${gene.proposals}×` : ''
+    const reproposed = gene.introduced.length > 1 ? ` · introduced ${gene.introduced.length}×` : ''
+    const dropped = gene.dropped > 0 ? ` · dropped ${gene.dropped}×` : ''
     const linked =
       gene.linkage && gene.linkage !== gene.geneId ? ` · linked to ${gene.linkage}` : ''
     const invalid = gene.invalidCarriers > 0 ? ` · ${gene.invalidCarriers} invalid carrier(s)` : ''
     lines.push(
       `  ${gene.geneId} ${gene.verdict} ${gene.kind} ${gene.path} "${excerpt(gene.lines)}"`,
-      `    ${gene.carriers} carriers / ${gene.lacking} not · ${formatEstimate(gene.credit)}${reproposed}${linked}${invalid}`,
+      `    ${gene.steps.clean} clean of ${gene.steps.flips} step(s) (+${gene.steps.gained}/−${gene.steps.lost}) · ${formatEstimate(gene.credit)}${reproposed}${dropped}${linked}${invalid}`,
     )
   }
   if (data.genes.length > limit) lines.push(`  … ${data.genes.length - limit} more`)
   const { interactions } = data
   lines.push(
     '',
-    `Interactions: ${interactions.pairsTested} pair(s) tested of ${interactions.pairsWithAllGroups} with all four groups, among ${interactions.genesConsidered} genes (Holm, α=${interactions.alpha}):`,
+    `Interactions: ${interactions.pairsTested} pair(s) tested of ${interactions.pairsWithContexts} with both contexts, among ${interactions.genesConsidered} genes (Holm, α=${interactions.alpha}):`,
   )
   const shown = interactions.pairs.filter((pair) => pair.signP !== null).slice(0, limit)
   if (shown.length === 0) lines.push('  none testable')
@@ -1064,7 +1280,7 @@ export function editCreditText(result: EditCreditResult, options: { limit?: numb
   if (data.skillCandidates.length === 0) lines.push('  none')
   for (const candidate of data.skillCandidates.slice(0, limit)) {
     lines.push(
-      `  ${candidate.resource.name ?? '(unnamed)'}: ${candidate.genes.length} gene(s) at ${candidate.path} · ${formatEstimate(candidate.credit)}`,
+      `  ${candidate.resource.name}: ${candidate.genes.length} gene(s) at ${candidate.path} · ${formatEstimate(candidate.credit)}`,
     )
   }
   return lines.join('\n')
@@ -1100,6 +1316,10 @@ function formatEstimate(estimate: NodeEstimate): string {
 
 // ---------------------------------------------------------------------------
 
+function emptyCounts(): Record<EditGeneVerdict, number> {
+  return { reusable: 0, harmful: 0, unresolved: 0, insufficient: 0 }
+}
+
 function memo<T>(compute: (key: string) => T): (key: string) => T {
   const cache = new Map<string, T>()
   return (key) => {
@@ -1110,10 +1330,6 @@ function memo<T>(compute: (key: string) => T): (key: string) => T {
     }
     return value
   }
-}
-
-function byOrdinal(byId: ReadonlyMap<string, SearchNode>) {
-  return (left: string, right: string) => byId.get(left)!.ordinal - byId.get(right)!.ordinal
 }
 
 function compareOrder(left: [number, number], right: [number, number]): number {

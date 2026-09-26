@@ -4,6 +4,7 @@
  */
 
 export {
+  EDIT_CREDIT_ESTIMATOR,
   EDIT_CREDIT_SIGNAL,
   type EditCreditData,
   type EditCreditOptions,
@@ -11,6 +12,7 @@ export {
   type EditGene,
   type EditGeneVerdict,
   type EditInteraction,
+  type EditIntroduction,
   type EditLineageRow,
   type EditSkillCandidate,
   editCredit,
