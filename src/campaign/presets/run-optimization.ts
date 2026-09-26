@@ -25,7 +25,6 @@ import type { ProposalFinding } from '../../analyst/types'
 import type { CostLedgerHandle, CostLedgerSummary, CostReceipt } from '../../cost-ledger'
 import { hashCanonical } from '../../ledger-core/canonical'
 import { type Objective, paretoFrontier } from '../../pareto'
-import { modelHasSnapshot } from '../../run-record'
 import { uniform } from '../allocation'
 import { computeManifestHash } from '../campaign-manifest'
 import { computeAggregates } from '../cell-aggregates'
@@ -44,12 +43,16 @@ import {
   runCampaign,
 } from '../run-campaign'
 import { resolveRunDir } from '../run-dir'
-import { projectCampaignCellQuality } from '../run-record'
 import {
   campaignBreakdown,
   campaignMeanComposite,
   campaignMeanCompositeOrNull,
 } from '../score-utils'
+import {
+  campaignCellSearchResult,
+  searchProposalExecution,
+  searchReceiptAccounting,
+} from '../search-campaign-cell'
 import type { SearchHistoryReceipt } from '../search-history-receipt'
 import {
   runSearch,
@@ -76,9 +79,7 @@ import type {
   SearchArtifactKind,
   SearchAttemptAccounting,
   SearchExecutionIdentity,
-  SearchModelIdentity,
   SearchOperationRecordedEvent,
-  SearchTaskOutcome,
 } from '../search-ledger-types'
 import { incumbent, type SearchPolicy } from '../search-policy'
 import type { SearchStateView } from '../search-state'
@@ -340,10 +341,10 @@ export async function runOptimization<TScenario extends Scenario, TArtifact>(
           .flatMap((phase) => costLedger.list({ phase }))
           .filter((receipt) => !before.has(receiptKey(receipt)))
         return {
-          accounting: receiptAccounting(fresh),
+          accounting: searchReceiptAccounting(fresh),
           execution: opts.searchLedger
             ? identity.proposer
-            : proposalExecution(fresh, identity.model.provider, proposerSource),
+            : searchProposalExecution(fresh, identity.model.provider, proposerSource),
         }
       }
       // Every read of the ledger below happens synchronously on one state
@@ -918,14 +919,7 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     cell: CampaignCellResult<TArtifact>,
     work: SearchCellWork<MutableSurface>,
   ): SearchCellResult {
-    return {
-      outcome: cellOutcome(cell),
-      accounting: cellAccounting(cell),
-      identity: { ...this.execution, model: cellModel(cell, this.execution.model) },
-      wallMs: cell.durationMs,
-      placement: { lane: work.lane, boxId: null },
-      traceRef: { unknown: 'runCampaign reports no trace id per cell' },
-    }
+    return campaignCellSearchResult(cell, { execution: this.execution, lane: work.lane })
   }
 }
 
@@ -978,108 +972,6 @@ function artifactKindOf(surface: MutableSurface): SearchArtifactKind {
 
 function receiptKey(receipt: CostReceipt): string {
   return receipt.callId
-}
-
-/** A proposal that made a paid call ran a model; one that made none ran code. */
-function proposalExecution(
-  receipts: ReadonlyArray<CostReceipt>,
-  provider: string,
-  source: SearchOperationRecordedEvent['execution']['source'],
-): SearchOperationRecordedEvent['execution'] {
-  const model = receipts.find((receipt) => receipt.channel !== 'judge')?.model
-  if (model === undefined) return { kind: 'deterministic', source }
-  return { kind: 'model', model: modelIdentity(model, provider), source }
-}
-
-function modelIdentity(model: string, provider: string): SearchModelIdentity {
-  return modelHasSnapshot(model)
-    ? { provider, snapshot: model }
-    : { provider, alias: model, unknown: 'the provider reported a moving alias, not a snapshot' }
-}
-
-function cellModel<TArtifact>(
-  cell: CampaignCellResult<TArtifact>,
-  fallback: SearchModelIdentity,
-): SearchModelIdentity {
-  return cell.resolvedModel === undefined
-    ? fallback
-    : modelIdentity(cell.resolvedModel, fallback.provider)
-}
-
-function cellOutcome<TArtifact>(cell: CampaignCellResult<TArtifact>): SearchTaskOutcome {
-  const quality = projectCampaignCellQuality(cell)
-  if (quality.score === undefined) {
-    return {
-      status: 'errored',
-      metrics: {},
-      error: {
-        code: cell.errorStage ?? 'unscored',
-        message: cell.error ?? 'the cell produced no complete judge score',
-        retryable: false,
-      },
-    }
-  }
-  const metrics: Record<string, number> = { composite: quality.score }
-  for (const [judge, score] of Object.entries(quality.successfulJudgeScores)) {
-    metrics[`judge.${judge}`] = score.composite
-  }
-  return { status: 'passed', score: quality.score, metrics }
-}
-
-function cellAccounting<TArtifact>(cell: CampaignCellResult<TArtifact>): SearchAttemptAccounting {
-  const usage = cell.tokenUsage
-  return {
-    tokens:
-      usage.tokensKnown === false
-        ? { status: 'unknown', reason: 'a paid call in this cell reported no token usage' }
-        : {
-            status: 'known',
-            inputTokens: usage.input,
-            outputTokens: usage.output,
-            cachedTokens: 0,
-          },
-    cost:
-      cell.costProvenance.kind === 'uncaptured'
-        ? {
-            status: 'unknown',
-            knownLowerBoundUsd: cell.costUsd,
-            reason: 'the cell recorded spend without a provider receipt',
-          }
-        : {
-            status: 'known',
-            usd: cell.costUsd,
-            source: cell.costProvenance.kind === 'observed' ? 'provider' : 'pricing-table',
-          },
-  }
-}
-
-function receiptAccounting(receipts: ReadonlyArray<CostReceipt>): SearchAttemptAccounting {
-  let inputTokens = 0
-  let outputTokens = 0
-  let cachedTokens = 0
-  let usd = 0
-  let tokensKnown = true
-  let costKnown = true
-  for (const receipt of receipts) {
-    if (receipt.usageUnknown === true) tokensKnown = false
-    inputTokens += receipt.inputTokens
-    outputTokens += receipt.outputTokens
-    cachedTokens += receipt.cachedTokens ?? 0
-    if (receipt.costUnknown) costKnown = false
-    else usd += receipt.costUsd
-  }
-  return {
-    tokens: tokensKnown
-      ? { status: 'known', inputTokens, outputTokens, cachedTokens }
-      : { status: 'unknown', reason: 'a candidate-generation call reported no token usage' },
-    cost: costKnown
-      ? { status: 'known', usd, source: usd === 0 ? 'free' : 'provider' }
-      : {
-          status: 'unknown',
-          knownLowerBoundUsd: usd,
-          reason: 'a candidate-generation call recorded no provider cost',
-        },
-  }
 }
 
 function immutableProposalSnapshot<T>(value: T, label: string): T {

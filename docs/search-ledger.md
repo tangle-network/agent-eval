@@ -166,6 +166,7 @@ The loop's scenarios are its proposer's feedback, so they are the train split; i
 `importGepaPopulation` turns the population into nodes and `correlated` edges and reports collapsed duplicates.
 `importExternalEvaluations` turns every callback evaluation into an `external` cell; a candidate GEPA evaluated but kept out of its population gets an `unknown` edge and is decided `pruned`.
 SkillOpt reports no parents, so every candidate it evaluated gets an `unknown` edge; its choice is `selected` and the others are `rejected`.
+A composed GEPA recipe reports no population either, so its candidates are recorded the same way; every GEPA recipe writes a ledger.
 
 ## Run a search: the kernel
 
@@ -193,6 +194,7 @@ The ports:
 
 - **Executor:** `lanes()` declares pools of slots, each `hard` (it enforces `cellUsd` per cell) or `estimate` (it cannot); `place(cell)` picks a cell's lane; `run(work)` runs one attempt and returns its outcome, accounting and identity; `adopt(work)` returns an attempt an earlier process finished, or null.
   An environment fault is an `errored` outcome; a rejection stops the search.
+  An executor that measures a cell with a one-cell `runCampaign` maps the campaign cell with `campaignCellSearchResult(cell, { execution, lane })`, as `runOptimization` does.
 - **Proposer:** `propose({ parents, operator, leader })` returns children with a label, a rationale and optional typed `attribution`, plus the operation's accounting.
   Its output is stored as a `proposal` blob on `operation-recorded` before any child is registered.
 - **Codec:** `node(recorder, artifact)` content-addresses an artifact, `diff` stores the parent-to-child diff, and `load` reads a node's artifact back.
