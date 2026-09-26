@@ -1261,7 +1261,15 @@ async function compare(options: SimOptions, seeds: number, arms: readonly Arm[])
     seconds: round((Date.now() - startedAt) / 1000),
     perSeed: rows.map((row) => ({
       seed: row.seed,
-      kept: row.arms.map((arm) => [arm.kept, arm.quality, arm.planted ? 1 : 0, arm.cells]),
+      /** Per arm: kept node, its true quality, kept the plant, reached the plant, cells, nodes. */
+      arms: row.arms.map((arm) => [
+        arm.kept,
+        arm.quality,
+        arm.planted ? 1 : 0,
+        arm.reached ? 1 : 0,
+        arm.cells,
+        arm.nodes,
+      ]),
     })),
   }
 }
