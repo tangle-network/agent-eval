@@ -289,6 +289,31 @@ A judge change is a changed `search-opened` header, which `SearchRecorder.open` 
 `compareOptimizationMethods` keeps its own held-out comparison for black-box methods such as GEPA, which return one winner and never see the test split.
 A method's search ledger closes before the comparison starts, so the comparison cannot add claim cells to it.
 
+## A search of searches: `metaSearch` and nested searches
+
+`metaSearch(searches, { objective? })` (`@tangle-network/agent-eval/search`) treats each search as one node.
+Its genome is the configuration its ledger records: expansion policy, allocator, budget, proposer and the proposer's model.
+A policy parameter equal to the search's own seed reads `seed=<search>`, so one configuration run on different seeds is one genome.
+Its score is `metaSearchScore(state)`: the claim's held-out lift per known dollar of the whole search.
+The lift is `estimateNode` of the shipped node, or on `hold` of the first finalist the claim fixed before test, against the root on the test split.
+A search that is open, has no claim, cannot resolve its test, held with no finalist tested, pairs fewer than 2 test units, or has a claim its ledger contradicts is unscored with that reason, never 0.
+A search with an unknown-cost cell has only a floor, so its lift per dollar is a bound that enters no estimate.
+
+Searches form a forest by derivation (`derivedFrom`) and containment (`containment`).
+Configurations group searches of one genome within one objective.
+A configuration's estimate is the mean over its scored searches with a percentile bootstrap interval, staged like `NodeEstimate.method` by the number of searches; one scored search carries its own paired interval over its test units.
+Every configuration reports how many of its searches were scored.
+The signal `metaSearch.bestPolicyConfiguration` names the configuration with the largest estimate within one objective, with its interval, method, n and coverage; it is a point ranking, not a test.
+`agent-eval search show <ledger> [<ledger> ...] --meta [--objective <key>]` prints the lens as text.
+
+`runNestedSearch` runs an outer search whose cells are inner searches, on the same kernel.
+An outer node is a configuration (`runtime-config`), an outer task is a problem, and each outer cell runs one inner search of its node's configuration on its task's problem.
+The inner search records the outer cell attempt as its `containment`, and its id is a digest of that attempt, so a rerun resumes the inner ledger instead of starting again.
+The outer cell scores `metaSearchScore` of the closed inner search, costs what the inner search spent, and binds the inner head hash.
+An inner search without a known lift per dollar settles its cell `errored` and not retryable, so its configuration cannot lead on missing evidence.
+The outer search's judge is `META_SEARCH_SCORE_SOURCE`, and with a test split it claims once, on held-out problems, whether a configuration beats the root configuration.
+`scripts/search-meta-sim.ts` runs one over simulator configurations with no model spend.
+
 ## Ship a search
 
 A hosted store (Intelligence, or the reference receiver in `examples/hosted-ingest-server/`) receives a search through the [hosted ingest wire](./hosted-ingest-spec.md).
@@ -342,4 +367,6 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
 - `src/campaign/search-history-receipt.ts`: receipts and admission.
+- `src/search/lenses/meta-search.ts`: `metaSearch`, `metaSearchScore`, `searchPolicyGenome` and `renderMetaSearchText`.
+- `src/search/nested-search.ts`: `runNestedSearch`, `nestedSearchId` and `searchConfigCodec`.
 - `src/ledger-core/`: hashing, locking, durable appends, chain verification, and the trusted-head pin.

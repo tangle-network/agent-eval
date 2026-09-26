@@ -885,7 +885,7 @@ export function renderMetaSearchText(
       )
       for (const child of shown) walk(child.searchId, depth + 2)
       if (group.length > shown.length) {
-        lines.push(`${pad}      … ${group.length - shown.length} more`)
+        lines.push(`${'  '.repeat(depth + 3)}… ${group.length - shown.length} more`)
       }
     }
   }

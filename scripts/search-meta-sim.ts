@@ -29,7 +29,9 @@
  * --selection-problems N (6), --test-problems N (20), --problem-seed N (1000),
  * --capacity N (2, inner searches at once), --min-effect X (0.005, the outer
  * claim's minimum effect in lift per dollar), --inner-selection N (12),
- * --inner-test N (20), --inner-min-effect X (0.1).
+ * --inner-test N (20), --inner-min-effect X (0.1), --grid JSON (the configurations
+ * the outer proposer returns, each a partial configuration over the root:
+ * default crowded-frontier, asha, and population 2 with expansions 2).
  */
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -70,15 +72,38 @@ const ROOT_CONFIG: InnerConfig = {
 }
 
 /** The other configurations, each one change from the root. */
-const GRID: InnerConfig[] = [
+const DEFAULT_GRID: InnerConfig[] = [
   { ...ROOT_CONFIG, policy: 'crowded-frontier' },
   { ...ROOT_CONFIG, allocation: 'asha' },
   { ...ROOT_CONFIG, population: 2, expansions: 2 },
 ]
 
-const META_SIM_SOURCE: SearchSourceRef = {
-  uri: 'script:scripts/search-meta-sim.ts',
-  revision: hashCanonical({ simulator: 'search-meta-sim', version: 1, root: ROOT_CONFIG, GRID }),
+/** The script as the outer proposer and process: its revision covers the
+ * grid it proposes. */
+function metaSimSource(grid: readonly InnerConfig[]): SearchSourceRef {
+  return {
+    uri: 'script:scripts/search-meta-sim.ts',
+    revision: hashCanonical({ simulator: 'search-meta-sim', version: 1, root: ROOT_CONFIG, grid }),
+  }
+}
+
+/** `--grid`: a JSON array of configurations to propose instead of the default. */
+function parseGrid(text: string | undefined): InnerConfig[] {
+  if (text === undefined) return DEFAULT_GRID
+  const grid = JSON.parse(text) as unknown
+  if (!Array.isArray(grid) || grid.length === 0) throw new Error('--grid must be a non-empty JSON array')
+  return grid.map((item, index) => {
+    const config = { ...ROOT_CONFIG, ...(item as Partial<InnerConfig>) }
+    const valid =
+      (config.policy === 'incumbent' || config.policy === 'crowded-frontier') &&
+      (config.allocation === 'uniform' || config.allocation === 'asha') &&
+      Number.isSafeInteger(config.population) &&
+      config.population > 0 &&
+      Number.isSafeInteger(config.expansions) &&
+      config.expansions > 0
+    if (!valid) throw new Error(`--grid entry ${index} is not a configuration: ${JSON.stringify(item)}`)
+    return config
+  })
 }
 const OUTER_SEARCH_ID = 'meta-sim'
 const INNER_CELL_USD = 0.05
@@ -114,6 +139,7 @@ async function main(): Promise<void> {
       'inner-selection': { type: 'string', default: '12' },
       'inner-test': { type: 'string', default: '20' },
       'inner-min-effect': { type: 'string', default: '0.1' },
+      grid: { type: 'string' },
     },
   })
   if (!values.out) throw new Error('--out DIR is required')
@@ -123,6 +149,8 @@ async function main(): Promise<void> {
   const innerSelection = Number(values['inner-selection'])
   const innerTest = Number(values['inner-test'])
   const innerMinEffect = Number(values['inner-min-effect'])
+  const grid = parseGrid(values.grid)
+  const source = metaSimSource(grid)
   rmSync(out, { recursive: true, force: true })
   mkdirSync(join(out, 'outer'), { recursive: true })
   mkdirSync(join(out, 'inner'), { recursive: true })
@@ -181,7 +209,7 @@ async function main(): Promise<void> {
     { ledger },
     {
       subject: 'meta/search-sim',
-      process: { name: 'search-meta-sim', executionRef: META_SIM_SOURCE },
+      process: { name: 'search-meta-sim', executionRef: source },
       artifactKind: 'runtime-config',
       objective: {
         metric: 'held-out-lift-per-usd',
@@ -199,7 +227,7 @@ async function main(): Promise<void> {
       budget: {
         maxUsd: null,
         maxCells: null,
-        maxNodes: 1 + GRID.length,
+        maxNodes: 1 + grid.length,
         deadline: null,
         maxConcurrency: null,
         reservedClaimUsd: 0,
@@ -208,7 +236,7 @@ async function main(): Promise<void> {
       derivedFrom: null,
       identity: {
         model: { provider: 'sim', alias: 'sim', unknown: 'the simulator runs no model' },
-        agent: META_SIM_SOURCE,
+        agent: source,
         benchmark: {
           uri: 'sim://problems',
           revision: hashCanonical({ baseSeed, innerSelection, innerTest, innerMinEffect }),
@@ -220,13 +248,13 @@ async function main(): Promise<void> {
   const proposer: SearchProposerPort<InnerConfig> = {
     name: 'config-grid',
     kind: 'optimizer',
-    source: META_SIM_SOURCE,
-    execution: { kind: 'deterministic', source: META_SIM_SOURCE },
+    source: source,
+    execution: { kind: 'deterministic', source: source },
     reservationUsd: 0,
-    childrenPerProposal: GRID.length,
+    childrenPerProposal: grid.length,
     async propose() {
       return {
-        children: GRID.map((config) => ({
+        children: grid.map((config) => ({
           artifact: config,
           label: describe(config),
           rationale: `grid point ${describe(config)}, one change from the root configuration`,
