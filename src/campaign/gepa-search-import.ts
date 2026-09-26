@@ -307,20 +307,27 @@ interface ExternalSearchRecordInput {
  * GEPA's choice as the selected node, and the close. GEPA's own selection is a
  * budget decision, so the ledger carries no claim; the final comparison runs
  * outside this search.
+ *
+ * A composed recipe reports no population: pass `population: null` and GEPA's
+ * returned best as `selected`, and every evaluated candidate enters with an
+ * `unknown` edge, as SkillOpt's do.
  */
 export async function recordGepaSearch(
-  input: ExternalSearchRecordInput & { population: GepaCandidatePopulationArtifact },
+  input: ExternalSearchRecordInput &
+    (
+      | { population: GepaCandidatePopulationArtifact }
+      | { population: null; selected: MutableSurface }
+    ),
 ): Promise<SearchHistoryReceipt> {
-  const best = input.population.candidates.find(
-    (candidate) => candidate.index === input.population.bestIndex,
-  )
+  if (input.population === null) return recordExternalSearch({ ...input, optimizer: 'GEPA' })
+  const { population } = input
+  const best = population.candidates.find((candidate) => candidate.index === population.bestIndex)
   if (!best) {
-    throw new Error(
-      `GEPA candidate population has no bestIndex entry ${input.population.bestIndex}`,
-    )
+    throw new Error(`GEPA candidate population has no bestIndex entry ${population.bestIndex}`)
   }
   return recordExternalSearch({
     ...input,
+    population,
     optimizer: 'GEPA',
     selected: externalSurface(best.candidate),
   })
