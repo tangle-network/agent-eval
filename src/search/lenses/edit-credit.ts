@@ -443,7 +443,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       const content = contents.get(node.nodeId)!
       if (content.known && carries(content, record)) {
         set.add(node.nodeId)
-        carried.set(node.nodeId, [...(carried.get(node.nodeId) ?? []), record.geneId])
+        appendTo(carried, node.nodeId, record.geneId)
       }
     }
     carriersOf.set(record.geneId, set)
@@ -501,7 +501,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
         carrierId: childCarries ? step.childId : step.parentId,
         lackingId: childCarries ? step.parentId : step.childId,
       }
-      cleanOf.set(geneId, [...(cleanOf.get(geneId) ?? []), oriented])
+      appendTo(cleanOf, geneId, oriented)
     }
   }
 
@@ -563,7 +563,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   for (const record of [...genes.values()].sort((a, b) => compareOrder(a.order, b.order))) {
     if (!cleanOf.has(record.geneId)) continue
     const key = linkageKey(record.geneId)
-    linkGroups.set(key, [...(linkGroups.get(key) ?? []), record.geneId])
+    appendTo(linkGroups, key, record.geneId)
   }
 
   const geneList: EditGene[] = [...genes.values()].map((record) => {
@@ -1264,7 +1264,7 @@ function skills(
   for (const gene of genes) {
     if (gene.verdict !== 'reusable' || gene.kind !== 'insert') continue
     const group = gene.linkage ?? gene.geneId
-    byGroup.set(group, [...(byGroup.get(group) ?? []), gene])
+    appendTo(byGroup, group, gene)
   }
   const candidates: EditSkillCandidate[] = []
   for (const members of byGroup.values()) {
@@ -1390,6 +1390,12 @@ function formatEstimate(estimate: NodeEstimate): string {
 
 function emptyCounts(): Record<EditGeneVerdict, number> {
   return { reusable: 0, harmful: 0, unresolved: 0, insufficient: 0 }
+}
+
+function appendTo<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const list = map.get(key)
+  if (list) list.push(value)
+  else map.set(key, [value])
 }
 
 function memo<T>(compute: (key: string) => T): (key: string) => T {
