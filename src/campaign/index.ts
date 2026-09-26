@@ -519,6 +519,7 @@ export {
 export {
   crowdedFrontierParent,
   incumbent,
+  incumbentWithOperatorBandit,
   type SearchExpansion,
   type SearchPolicy,
   type SearchPolicyView,
