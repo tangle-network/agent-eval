@@ -16,13 +16,18 @@
  * (`debug`, 4 children by default) is kept under the lens's
  * `MIN_OUTCOMES_FOR_WEIGHT` (6) on purpose, so a run over this ledger always
  * exercises the `insufficient` path alongside `descriptive`/`bootstrap`.
- * Every 7th cell gets an unknown cost, so `operatorYield` and `front` always
- * have real exclusions to report, not just a happy path.
+ * One proposal in 7 gets one unknown-cost cell (never every cell of a node:
+ * `SearchSpend.unknownCostCells` is per node, so spreading it over every
+ * cell would exclude every node from `operatorYield`'s yield sample and
+ * `front`'s frontier, defeating the point of a scale fixture), so
+ * `operatorYield` and `front` always have real exclusions to report
+ * alongside a mostly fully-costed happy path.
  *
  * Usage:
  *   tsx scripts/generate-synthetic-search-ledger.ts --seed 1 --out <path> \
  *     [--per-operator 8] [--debug-count 4]
  */
+import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { mulberry32 } from '../src/statistics/random'
@@ -35,6 +40,14 @@ import {
   type SearchTask,
 } from '../src/campaign/index'
 import { readFileSync } from 'node:fs'
+
+/** A deterministic stand-in for an immutable revision (the ledger's schema
+ * requires a git-shaped or content hash, never a bare label): every source
+ * this generator writes is synthetic, so its "revision" is the hash of the
+ * seed that produced it, not a real commit. */
+function seedRevision(seed: number): string {
+  return createHash('sha256').update(`lens-basic-generator-seed-${seed}`).digest('hex')
+}
 
 interface Args {
   seed: number
@@ -103,7 +116,7 @@ async function main(): Promise<void> {
   const task = (unitId: string, split: 'train' | 'selection'): SearchTask => ({
     taskId: `${unitId}.${split}`,
     unitId,
-    source: { uri: `synthetic://${unitId}`, revision: `seed-${args.seed}` },
+    source: { uri: `synthetic://${unitId}`, revision: seedRevision(args.seed) },
   })
   const searchId = `synthetic:seed-${args.seed}`
   const ledger = openSearchLedger({ path: args.out, searchId })
@@ -111,7 +124,7 @@ async function main(): Promise<void> {
     { ledger },
     {
       subject: 'synthetic/lens-proof',
-      process: { name: 'generate-synthetic-search-ledger', executionRef: { uri: 'tool://lens-basic', revision: `seed-${args.seed}` } },
+      process: { name: 'generate-synthetic-search-ledger', executionRef: { uri: 'tool://lens-basic', revision: seedRevision(args.seed) } },
       artifactKind: 'prompt',
       objective: {
         metric: 'synthetic-score',
@@ -130,21 +143,27 @@ async function main(): Promise<void> {
       containment: null,
       derivedFrom: null,
       identity: {
-        model: { provider: 'synthetic', snapshot: 'generator-v1' },
-        agent: { uri: 'tool://lens-basic-generator', revision: `seed-${args.seed}` },
-        benchmark: { uri: 'tool://lens-basic-generator', revision: `seed-${args.seed}` },
+        model: { provider: 'synthetic', snapshot: `generator-v1@${args.seed}` },
+        agent: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) },
+        benchmark: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) },
       },
     },
   )
 
   let cellSequence = 0
   const identity = {
-    model: { provider: 'synthetic', snapshot: 'generator-v1' },
-    agent: { uri: 'tool://lens-basic-generator', revision: `seed-${args.seed}` },
-    benchmark: { uri: 'tool://lens-basic-generator', revision: `seed-${args.seed}` },
+    model: { provider: 'synthetic', snapshot: `generator-v1@${args.seed}` },
+    agent: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) },
+    benchmark: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) },
   }
 
-  async function scoreNode(nodeId: string, opBias: Record<keyof typeof FAMILIES, number>): Promise<void> {
+  async function scoreNode(
+    nodeId: string,
+    opBias: Record<keyof typeof FAMILIES, number>,
+    costUsd: number,
+    unknownCostNode: boolean,
+  ): Promise<void> {
+    let unknownCostCellRemaining = unknownCostNode ? 1 : 0
     for (const split of ['train', 'selection'] as const) {
       for (const unitId of UNITS) {
         const family = familyOf(unitId)
@@ -159,15 +178,24 @@ async function main(): Promise<void> {
           lane: 'synthetic',
         })
         cellSequence += 1
-        const unknownCost = cellSequence % 7 === 0
+        // One node in 7 (`unknownCostNode`) gets exactly one unknown-cost
+        // cell (its first), so `operatorYield`/`front` see real exclusions
+        // without excluding every node: `unknownCostCells` is per-node
+        // (search-state.ts), so spreading unknown cost across every cell of
+        // every node (the per-cell version this replaced) left ~100% of
+        // nodes with at least one unknown-cost cell at 18 cells/node,
+        // excluding the whole ledger from both lenses' yield/front sample —
+        // caught by the real-run proof, not a unit test.
+        const unknownCost = unknownCostCellRemaining > 0
+        if (unknownCost) unknownCostCellRemaining -= 1
         await recorder.settleCell({
           cellId,
           outcome: { status: 'passed', score, metrics: { score } },
           accounting: {
             tokens: { status: 'unknown', reason: 'synthetic generator records no tokens' },
             cost: unknownCost
-              ? { status: 'unknown', knownLowerBoundUsd: 0, reason: 'synthetic: every 7th cell is priced unknown on purpose' }
-              : { status: 'known', usd: COST_USD.draft, source: 'free' },
+              ? { status: 'unknown', knownLowerBoundUsd: 0, reason: 'synthetic: one node in 7 has one cell priced unknown on purpose' }
+              : { status: 'known', usd: costUsd, source: 'pricing-table' },
           },
           identity,
           wallMs: 1,
@@ -196,9 +224,15 @@ async function main(): Promise<void> {
     diffs: [],
     label: 'synthetic root',
   })
-  await scoreNode(root.nodeId, { a: 0, b: 0, c: 0 })
+  await scoreNode(root.nodeId, { a: 0, b: 0, c: 0 }, 0, false)
 
-  const nodeIds: string[] = [root.nodeId]
+  // Only nodes not (yet) decided `invalid` are eligible parents: the
+  // projector refuses an edge from an invalid parent (search-ledger's own
+  // rule, matching §6.2's "a node that failed admission never becomes a
+  // parent"). At small `--per-operator` counts this never came up by chance;
+  // the real-run proof at `--per-operator 20` hit it on the first larger
+  // run.
+  const validParentIds: string[] = [root.nodeId]
   const counts: Record<Exclude<SearchEdgeOperator, 'seed' | 'derive'>, number> = {
     draft: args.perOperator,
     improve: args.perOperator,
@@ -210,11 +244,14 @@ async function main(): Promise<void> {
   for (const operator of ['draft', 'improve', 'debug', 'merge'] as const) {
     for (let i = 0; i < counts[operator]; i++) {
       proposalIndex += 1
-      const parentIndex = Math.floor(rng() * nodeIds.length)
-      const parentId = nodeIds[parentIndex]!
+      const parentIndex = Math.floor(rng() * validParentIds.length)
+      const parentId = validParentIds[parentIndex]!
       const secondParentId =
-        operator === 'merge' && nodeIds.length > 1
-          ? nodeIds[(parentIndex + 1 + Math.floor(rng() * (nodeIds.length - 1))) % nodeIds.length]!
+        operator === 'merge' && validParentIds.length > 1
+          ? validParentIds[
+              (parentIndex + 1 + Math.floor(rng() * (validParentIds.length - 1))) %
+                validParentIds.length
+            ]!
           : null
       const digest = `sha256:${proposalIndex.toString(16).padStart(4, '0')}${'0'.repeat(60)}` as const
       const artifact = recorder.blob('prompt', { seed: args.seed, proposalIndex, operator, parentId, secondParentId })
@@ -230,14 +267,13 @@ async function main(): Promise<void> {
         parents,
         operator,
         attribution: 'explicit',
-        proposer: { kind: 'model', name: 'synthetic-proposer', operationId: null, source: { uri: 'tool://lens-basic-generator', revision: `seed-${args.seed}` } },
+        proposer: { kind: 'trace', name: 'synthetic-proposer', operationId: null, source: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) } },
         proposalKey: `proposal-${proposalIndex}`,
         rationale: `synthetic ${operator} #${proposalIndex}`,
         diffs: parents.map(() => diff),
         label: `${operator} #${proposalIndex}`,
       })
-      await scoreNode(nodeId, UPLIFT[operator])
-      nodeIds.push(nodeId)
+      await scoreNode(nodeId, UPLIFT[operator], COST_USD[operator], proposalIndex % 7 === 0)
 
       const state = await recorder.state()
       const node = state.node(nodeId)!
@@ -250,10 +286,17 @@ async function main(): Promise<void> {
       if (invalid) {
         await recorder.decideNode({ nodeId, decision: { status: 'invalid' }, rule: 'synthetic', reason: 'synthetic: every 17th proposal is marked invalid for outcome-count coverage' })
       } else if (meanNode > meanRoot) {
-        await recorder.decideNode({ nodeId, decision: { status: 'advanced', rung: 1 }, rule: 'synthetic', reason: `${meanNode.toFixed(4)} > root ${meanRoot.toFixed(4)}` })
+        // `advanced` is not a terminal decision (it stays undecided until a
+        // later rung or prune, per `SearchState`'s completion check) and
+        // `finalist` seals the search against further nodes and cells — both
+        // wrong for this flat, allocator-less generator. `pruned` is the
+        // terminal status closest to "beat the root, kept no further budget",
+        // and carries no seal.
+        await recorder.decideNode({ nodeId, decision: { status: 'pruned' }, rule: 'synthetic', reason: `${meanNode.toFixed(4)} > root ${meanRoot.toFixed(4)}` })
       } else {
         await recorder.decideNode({ nodeId, decision: { status: 'rejected' }, rule: 'synthetic', reason: `${meanNode.toFixed(4)} <= root ${meanRoot.toFixed(4)}` })
       }
+      if (!invalid) validParentIds.push(nodeId)
       void node
     }
   }
