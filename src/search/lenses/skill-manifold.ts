@@ -241,7 +241,8 @@ const LOGIT_BIAS_PRECISION = 0.01
 const NEWTON_STEP_CAP = 4
 
 const MAX_ITERATIONS = 300
-const TOLERANCE = 1e-9
+/** Relative change of the objective that ends a fit. */
+const TOLERANCE = 1e-7
 
 // ── The lens ─────────────────────────────────────────────────────────
 
@@ -873,7 +874,7 @@ function seededLoadings(units: number, rank: number): number[][] {
 /**
  * Alternating ridge least squares over `cells`: rows' coordinates given the
  * loadings, then each unit's loading and (unpenalized) bias given the
- * coordinates, until the objective moves by less than 1e-9 of itself.
+ * coordinates, until the objective moves by less than 1e-7 of itself.
  */
 function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
   const { byUnit, byRow: rowIds } = groupCells(units, cells)
@@ -910,10 +911,12 @@ function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge
       )
       const rhs = new Array<number>(size).fill(0)
       for (const cell of list) {
-        const x = [...coordinates.get(cell.row)!, 1]
+        const point = coordinates.get(cell.row)!
         for (let i = 0; i < size; i++) {
-          rhs[i]! += x[i]! * cell.z
-          for (let j = 0; j < size; j++) system[i]![j]! += x[i]! * x[j]!
+          const xi = i < rank ? point[i]! : 1
+          rhs[i]! += xi * cell.z
+          const line = system[i]!
+          for (let j = 0; j < size; j++) line[j]! += xi * (j < rank ? point[j]! : 1)
         }
       }
       const lower = cholesky(system)
@@ -943,7 +946,7 @@ function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge
  * The item-response fit: alternating Newton steps on the penalized binomial
  * likelihood, each row's coordinates given the loadings, then each unit's
  * loading and intercept given the coordinates, until the objective moves by
- * less than 1e-9 of itself. Priors: standard normal on coordinates and
+ * less than 1e-7 of itself. Priors: standard normal on coordinates and
  * loadings (scaled by `ridge`), N(0, 10²) on each intercept, which keeps a
  * unit every node passed finite. A step moves no parameter by more than 4.
  */
@@ -995,12 +998,14 @@ function factorLogistic(units: number, cells: readonly Cell[], rank: number, rid
       )
       const gradient = theta.map((value, i) => -precision(i) * value)
       for (const cell of list) {
-        const x = [...coordinates.get(cell.row)!, 1]
-        const p = logistic(dot(theta, x))
+        const point = coordinates.get(cell.row)!
+        const p = logistic(theta[rank]! + dot(point, theta))
         const weight = cell.n * p * (1 - p)
         for (let i = 0; i < size; i++) {
-          gradient[i]! += (cell.k - cell.n * p) * x[i]!
-          for (let j = 0; j < size; j++) hessian[i]![j]! += weight * x[i]! * x[j]!
+          const xi = i < rank ? point[i]! : 1
+          gradient[i]! += (cell.k - cell.n * p) * xi
+          const line = hessian[i]!
+          for (let j = 0; j < size; j++) line[j]! += weight * xi * (j < rank ? point[j]! : 1)
         }
       }
       const lower = cholesky(hessian)
