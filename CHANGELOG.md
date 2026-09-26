@@ -9,11 +9,18 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Added
 
 - `campaignCellSearchResult(cell, { execution, lane })` (`/campaign`) maps one `runCampaign` cell to the result `cell-settled` records: `passed` with the composite and each judge's score, else a non-retryable `errored` outcome; its tokens and cost, an uncaptured cost kept as a lower bound; the model the cell resolved. `runOptimization` uses it, and so can an executor outside this package, such as agent-runtime's `searchMethod`.
-  `searchModelIdentity(model, provider)` is the snapshot-or-alias rule it applies.
+  `searchModelIdentity(model, provider)` is the snapshot-or-alias rule it applies; `searchReceiptAccounting(receipts)` and `searchProposalExecution(receipts, provider, source)` are what `operation-recorded` records for a proposal's cost receipts.
 
 ### Changed
 
 - `gepaOptimizationMethod({ searchLedger })` records every recipe's search. A composed recipe reports no candidate population, so its evaluated candidates enter with `unknown` edges and GEPA's returned best is `selected`, as SkillOpt's are; before, such a recipe returned no `searchHistory`, and a comparison under `searchHistoryPolicy: 'require-complete'` refused it. `recordGepaSearch` takes `population: null` with `selected` for this case.
+
+### Fixed
+
+- `parseJevRequest` refuses a null `state` or a null score level with a `TypeError`, before any paid call ([Jev](./docs/jev.md)).
+  TypeSafe's published schema (`https://api.typesafe.ai/openapi.json`) requires both to be text, a JSON object or a JSON array; on 2026-09-26 it answered 422 for each, and the Tangle Router reported that as 503 `provider_response_invalid`.
+  `JevState` no longer includes `null`; the new `JevDescription` (`JevState | null`) types instructions and choice or noul descriptions, which TypeSafe accepts as null.
+  `parseJevQuestions` validates named questions without a state; `jevJudge` uses it instead of a placeholder null state.
 
 ## [0.196.0] — 2026-09-26
 

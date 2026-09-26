@@ -39,8 +39,9 @@ result.receipt // Existing CostLedger receipt, separate from native answers.
 ```
 
 The named configuration and evidence values belong to the application. Plain JSON
-questions work too; SDK builders are optional. Structured criteria, null entries,
-and omitted optional fields are supported. Static TypeScript questions preserve
+questions work too; SDK builders are optional. Structured criteria, null instructions and choice or noul
+descriptions, and omitted optional fields are supported. `state` and each score
+level must be text or JSON; TypeSafe rejects null there, so the parser does too. Static TypeScript questions preserve
 exact answer names and choice-label unions. Runtime JSON must be validated; its
 labels cannot become compile-time literals automatically.
 
