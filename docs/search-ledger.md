@@ -139,6 +139,24 @@ renderSearchSummary(state, { split: 'train' })
 `searchProposerView(state)` has no parameter that can select another split: its `scoredCells`/`unitScores` always read `'train'`, so a proposer built on it cannot reach the sealed selection or test split even by mistake.
 `ProposeContext.parents` carries every parent the policy chose, primary first, with its artifact — `currentSurface` is `parents[0].artifact`; a `merge` proposal needs every parent, and the built-in `incumbent`/`crowdedFrontierParent` policies always choose one.
 
+## Lenses
+
+A lens (`@tangle-network/agent-eval/search/lenses`, search-tree-design §12) is a pure function of a `SearchStateView`: it reads no other record type and does no I/O.
+Each returns `{ data, signal }` — `data` is JSON a view or `agent-eval search show` renders, and `signal` is exactly one named, quantitative value a `SearchPolicy` can read, so what a person sees and what the climber uses come from the same computation.
+No lens imputes a value below the design's honesty thresholds: an unknown cost or an unpaired sample stays excluded, reported as `insufficient` or `no measured children` rather than folded into a number.
+
+| Lens | Reports | Signal |
+|---|---|---|
+| `tree(state)` | a tidy tree of nodes and edges — the base view every other lens sits beside | `tree.nodeCount` (drives no policy) |
+| `operatorYield(state, { split? })` | each edge operator's outcome counts and improvement-per-known-dollar yield, from `searchPosterior` (`estimateNode`'s tree-wide contrast); a node is excluded from yield when any of its cells has an unknown cost | `operatorYield.weights`: an operator's yield mean once it has 6 or more yield-eligible outcomes (`MIN_OUTCOMES_FOR_WEIGHT`), else `null` |
+| `front(state, { split?, axes? })` | the Pareto frontier over per-unit mean score and known cost (reusing `paretoFrontier`), with room for caller-declared extra axes; a node with an unknown cost or a non-finite extra axis is excluded from every frontier pass | `front.membership`: 1 for a node on the frontier, 0 otherwise (including an excluded node) |
+| `taskMatrix(state, { split? })` | nodes and units, each single-linkage clustered on Euclidean distance over their shared scores, cutoff at the data's own median pairwise distance | `taskMatrix.specialistGain`: per unit cluster, the best node's mean minus the cluster's mean, among nodes contributing (`null`, omitted from the signal, below 2 contributing nodes) |
+
+`agent-eval search show <ledger> [--tree] [--operator-yield] [--front] [--task-matrix]` prints each lens's text form below the search summary, so an agent reading the CLI sees the same numbers Intelligence, discovery lab, VerticalBench and agent-runtime `improve()` would render from the same JSON.
+
+`incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is the one built-in policy that reads a lens signal: a hill climb, like `incumbent`, whose expansion operator is a weighted draw over `operatorYield`'s weights.
+An operator without 6 measured outcomes yet draws on `fixedWeights` (uniform by default) instead of being starved until every operator clears the gate; a measured operator's weight is `fixedWeights[operator] + yield`, floored just above zero, because yield (dollars) and the fixed prior (an arbitrary share) are not on the same scale and a small positive yield should not draw less than an untested operator's default prior.
+
 ## Record a search
 
 `SearchRecorder` writes each fact the moment it exists.
