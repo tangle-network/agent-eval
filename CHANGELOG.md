@@ -6,6 +6,8 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.197.0] — 2026-09-26
+
 ### Added
 
 - `campaignCellSearchResult(cell, { execution, lane })` (`/campaign`) maps one `runCampaign` cell to the result `cell-settled` records: `passed` with the composite and each judge's score, else a non-retryable `errored` outcome; its tokens and cost, an uncaptured cost kept as a lower bound; the model the cell resolved. `runOptimization` uses it, and so can an executor outside this package, such as agent-runtime's `searchMethod`.
