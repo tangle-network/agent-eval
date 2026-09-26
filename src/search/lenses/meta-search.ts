@@ -583,7 +583,7 @@ function configure(
 ): MetaSearchConfiguration[] {
   const groups = new Map<string, MetaSearchEntry[]>()
   for (const item of entries) {
-    const key = `${item.objectiveKey}\u0000${item.genomeDigest}`
+    const key = configurationKey(item.objectiveKey, item.genomeDigest)
     const group = groups.get(key)
     if (group) group.push(item)
     else groups.set(key, [item])
@@ -850,7 +850,14 @@ export function renderMetaSearchText(
       ? `${signal.name}: unknown — ${value.reason}`
       : `${signal.name}: ${value.genomeDigest!.slice(0, 19)} lift per known $ ${formatNumber(value.liftPerUsd)} ${formatInterval(value.interval, value.intervalMethod)} (${value.method}, ${value.basis} n=${value.n}); ${value.reason}`,
   )
-  const index = new Map(data.configurations.map((item, position) => [item.genomeDigest, position]))
+  // One genome can run under several objectives, so a configuration is keyed
+  // by both.
+  const index = new Map(
+    data.configurations.map((item, position) => [
+      configurationKey(item.objectiveKey, item.genomeDigest),
+      position,
+    ]),
+  )
   for (const objective of data.objectives) {
     lines.push('', `configurations of ${objective}, best first:`)
     for (const configuration of data.configurations) {
@@ -910,13 +917,15 @@ function configurationLines(
       ? 'lift per known $: unknown'
       : `lift per known $ ${formatNumber(estimate.value)} ${formatInterval(estimate.interval, estimate.intervalMethod)} (${estimate.method}, ${estimate.basis} n=${estimate.n})`
   const lines = [
-    `  #${index.get(configuration.genomeDigest)! + 1} ${configuration.genomeDigest.slice(0, 19)} ${genomeLine(genome)}`,
+    `  #${index.get(configurationKey(configuration.objectiveKey, configuration.genomeDigest))! + 1} ${configuration.genomeDigest.slice(0, 19)} ${genomeLine(genome)}`,
     `     ${plural(configuration.searches.length, 'search', 'searches')}: ${decisions}; scored ${configuration.scored}${configuration.bounded > 0 ? `, spend floor only ${configuration.bounded}` : ''}${unscored ? `, unscored: ${unscored}` : ''}; ${value}`,
   ]
   for (const outer of configuration.outerNodes) {
     const against = outer.againstParent
     const parentIndex =
-      outer.parentGenomeDigest === null ? undefined : index.get(outer.parentGenomeDigest)
+      outer.parentGenomeDigest === null
+        ? undefined
+        : index.get(configurationKey(configuration.objectiveKey, outer.parentGenomeDigest))
     lines.push(
       against === null
         ? `     outer node ${outer.nodeId} in ${outer.searchId}: the outer root`
@@ -930,7 +939,7 @@ function searchLine(item: MetaSearchEntry, index: ReadonlyMap<string, number>): 
   const claim = item.claim
     ? `claim ${item.claim.decision} (${item.claim.verification})`
     : 'no claim'
-  const configuration = index.get(item.genomeDigest)
+  const configuration = index.get(configurationKey(item.objectiveKey, item.genomeDigest))
   const score = item.score
   const scoreText =
     score.status === 'unscored'
@@ -1038,6 +1047,10 @@ function sortedValues<T>(map: ReadonlyMap<string, T>): T[] {
   return [...map.entries()]
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([, value]) => value)
+}
+
+function configurationKey(objective: string, genomeDigest: string): string {
+  return `${objective}\u0000${genomeDigest}`
 }
 
 function rankValue(value: number | null): number {
