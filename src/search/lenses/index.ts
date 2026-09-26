@@ -21,5 +21,27 @@ export {
   editCredit,
   editCreditText,
 } from './edit-credit'
+export {
+  type BestPolicyConfiguration,
+  META_SEARCH_SCORE_SOURCE,
+  META_SEARCH_SIGNAL,
+  type MetaSearchConfiguration,
+  type MetaSearchConfigurationEstimate,
+  type MetaSearchData,
+  type MetaSearchEntry,
+  type MetaSearchLiftPerUsd,
+  type MetaSearchOptions,
+  type MetaSearchParent,
+  type MetaSearchScore,
+  type MetaSearchSpend,
+  type MetaSearchTextOptions,
+  type MetaSearchUnscoredReason,
+  metaSearch,
+  metaSearchScore,
+  objectiveKey,
+  renderMetaSearchText,
+  type SearchPolicyGenome,
+  searchPolicyGenome,
+} from './meta-search'
 export type { LensResult, LensSignal, SampleSummary } from './shared'
 export { rankingSplit, summarizeSamples } from './shared'

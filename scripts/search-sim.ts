@@ -61,6 +61,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { asha, type SearchAllocator, uniform } from '../src/campaign/allocation'
 import { estimateNode } from '../src/campaign/estimate-node'
@@ -80,17 +81,18 @@ import {
 } from '../src/campaign/search-ledger'
 import { developmentClaim, SearchRecorder } from '../src/campaign/search-ledger-recording'
 import type {
+  SearchOpenedEvent,
   SearchSourceRef,
   SearchTask,
   SearchUnknown,
 } from '../src/campaign/search-ledger-types'
 import { SearchState, type SearchStateView } from '../src/campaign/search-state'
-import { incumbent } from '../src/campaign/search-policy'
+import { crowdedFrontierParent, incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 import { wilson } from '../src/statistics/paired-binary'
 
-interface SimArtifact {
+export interface SimArtifact {
   name: string
   quality: number
   /** Added to train scores only. */
@@ -99,7 +101,13 @@ interface SimArtifact {
   heldShift: number
 }
 
-interface SimOptions {
+export interface SimOptions {
+  /** The search's id. Default `search-sim`. */
+  searchId?: string
+  /** The cell attempt of an outer search whose execution runs this search. */
+  containment?: SearchOpenedEvent['containment']
+  /** The expansion policy. Default `incumbent`. */
+  policy?: 'incumbent' | 'crowded-frontier'
   seed: number
   train: number
   selection: number
@@ -180,6 +188,11 @@ function tasks(prefix: string, count: number): SearchTask[] {
 
 const MAX_ATTEMPTS = 3
 
+function policyOf(options: SimOptions): SearchPolicy {
+  if (options.policy === 'crowded-frontier') return crowdedFrontierParent({ seed: options.seed })
+  return incumbent(options.patience === undefined ? {} : { patience: options.patience })
+}
+
 function allocationOf(options: SimOptions): SearchAllocator {
   return options.allocation === 'asha'
     ? asha({ reps: options.reps })
@@ -196,7 +209,7 @@ function plantIndex(options: SimOptions): number {
 
 /** Where a simulation keeps its ledger, blobs and executor results: a
  * directory, or process memory for the many searches of `claims`. */
-interface SimStore {
+export interface SimStore {
   storage: CampaignStorage | null
   has(runId: string): boolean
   read(runId: string): SearchCellResult
@@ -204,7 +217,7 @@ interface SimStore {
   log(kind: 'started' | 'finished' | 'adopted', runId: string): void
 }
 
-function diskStore(dir: string): SimStore {
+export function diskStore(dir: string): SimStore {
   const executorDir = join(dir, 'executor')
   mkdirSync(executorDir, { recursive: true })
   const resultPath = (runId: string): string =>
@@ -218,7 +231,7 @@ function diskStore(dir: string): SimStore {
   }
 }
 
-function memoryStore(): SimStore {
+export function memoryStore(): SimStore {
   const results = new Map<string, SearchCellResult>()
   return {
     storage: inMemoryCampaignStorage(),
@@ -229,16 +242,17 @@ function memoryStore(): SimStore {
   }
 }
 
-async function runSimulation(
+export async function runSimulation(
   dir: string,
   options: SimOptions,
   store: SimStore,
 ): Promise<{ result: SearchRunResult; summary: Record<string, unknown> }> {
   const path = join(dir, 'ledger.jsonl')
+  const searchId = options.searchId ?? SEARCH_ID
   const ledger = store.storage
-    ? openSearchLedger({ path, searchId: SEARCH_ID, store: store.storage })
-    : openSearchLedger({ path, searchId: SEARCH_ID })
-  const policy = incumbent(options.patience === undefined ? {} : { patience: options.patience })
+    ? openSearchLedger({ path, searchId, store: store.storage })
+    : openSearchLedger({ path, searchId })
+  const policy = policyOf(options)
   const allocation = allocationOf(options)
   const claim = developmentClaim('search-sim')
   const recorder = await SearchRecorder.open(
@@ -269,7 +283,7 @@ async function runSimulation(
         maxConcurrency: null,
         reservedClaimUsd: options.claimUsd,
       },
-      containment: null,
+      containment: options.containment ?? null,
       derivedFrom: null,
       identity: {
         model: { provider: 'sim', alias: 'sim', unknown: 'the simulator runs no model' },
@@ -427,7 +441,7 @@ async function runSimulation(
       status: state.node(result.leader)!.status,
       planted: options.poolGap !== null && kept.name === `c${plantIndex(options)}`,
     },
-    ledgerChecks: checkLedger(ledgerText, allocation),
+    ledgerChecks: checkLedger(ledgerText, searchId, allocation),
     nodes: state.audit.nodes,
     claim: claimed && {
       decision: claimed.decision,
@@ -528,13 +542,17 @@ function idle(state: SearchStateView, nodeId: string): boolean {
  * evidence. Each measured node's contrast with its parent is counted by the
  * units they pair on, and cells are counted by stage.
  */
-function checkLedger(text: string, allocation: SearchAllocator): Record<string, unknown> {
-  const final = replaySearchLedgerText(text, SEARCH_ID, 'sim-ledger')
-  const state = new SearchState(SEARCH_ID)
+function checkLedger(
+  text: string,
+  searchId: string,
+  allocation: SearchAllocator,
+): Record<string, unknown> {
+  const final = replaySearchLedgerText(text, searchId, 'sim-ledger')
+  const state = new SearchState(searchId)
   const decisions = { advanced: 0, pruned: 0, unexplained: [] as string[] }
   const lines = text.trim().split('\n')
   for (const [index, line] of lines.entries()) {
-    const entry = parseSearchLedgerLine(line, SEARCH_ID, { path: 'sim-ledger', line: index + 1 })
+    const entry = parseSearchLedgerLine(line, searchId, { path: 'sim-ledger', line: index + 1 })
     const { event } = entry
     if (
       event.kind === 'node-decided' &&
@@ -1164,4 +1182,6 @@ async function main(): Promise<void> {
   throw new Error(`unknown mode ${String(mode)}; use run, kill-resume, claims or compare`)
 }
 
-await main()
+// Run only as a command; another script imports `runSimulation` to run
+// simulated searches of its own, for example as the cells of an outer search.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main()
