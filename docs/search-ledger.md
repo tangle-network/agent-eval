@@ -339,7 +339,7 @@ Configurations group searches of one genome within one objective.
 A configuration's estimate is the mean over its scored searches with a percentile bootstrap interval, staged like `NodeEstimate.method` by the number of searches; one scored search carries its own paired interval over its test units.
 Every configuration reports how many of its searches were scored.
 The signal `metaSearch.bestPolicyConfiguration` names the configuration with the largest estimate within one objective, with its interval, method, n and coverage; it is a point ranking, not a test.
-`agent-eval search show <ledger> [<ledger> ...] --meta [--objective <key>]` prints the lens as text.
+`agent-eval search show <ledger> [<ledger> ...] --meta [--objective <key>] [--json]` prints the lens as text, or as JSON with `--json`.
 
 `runNestedSearch` runs an outer search whose cells are inner searches, on the same kernel.
 An outer node is a configuration (`runtime-config`), an outer task is a problem, and each outer cell runs one inner search of its node's configuration on its task's problem.
