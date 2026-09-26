@@ -163,7 +163,11 @@ function ledgerBlobReader(ledgerPath: string): (ref: SearchArtifactRef) => unkno
       const bytes = readFileSync(candidate)
       const digest = createHash('sha256').update(bytes).digest('hex')
       if (digest !== hex || bytes.byteLength !== ref.byteLength) continue
-      value = JSON.parse(bytes.toString('utf8'))
+      try {
+        value = JSON.parse(bytes.toString('utf8'))
+      } catch {
+        // Verified bytes that are not JSON are not content a lens can read.
+      }
       break
     }
     cache.set(ref.sha256, value)

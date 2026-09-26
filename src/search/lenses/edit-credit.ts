@@ -236,7 +236,8 @@ export interface EditCreditData {
   /** Reusable, harmful, unresolved, then insufficient; within each, by credit. */
   genes: EditGene[]
   counts: Record<EditGeneVerdict, number>
-  /** Linkage groups per verdict: independent edits, not hunks. */
+  /** Independent edits per verdict: linkage groups, and for genes without a
+   * clean step the edit they were born in. */
   editCounts: Record<EditGeneVerdict, number>
   interactions: {
     genesConsidered: number
@@ -586,7 +587,10 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
   const editCounts = emptyCounts()
   for (const gene of geneList) {
     counts[gene.verdict] += 1
-    if (gene.linkage === null || gene.linkage === gene.geneId) editCounts[gene.verdict] += 1
+    // An edit is a linkage group; a gene with no clean step belongs to the
+    // edit it was born in.
+    const lead = gene.linkage ?? (gene.steps.clean === 0 ? gene.edit[0]! : gene.geneId)
+    if (lead === gene.geneId) editCounts[gene.verdict] += 1
   }
 
   const interactions = interactionPairs({
@@ -613,7 +617,7 @@ export function editCredit(state: SearchStateView, options: EditCreditOptions): 
       : {
           name: EDIT_CREDIT_SIGNAL,
           value: counts.reusable,
-          basis: `genes whose credit interval on the ${split} split lies wholly on the better side of zero, of ${measured} measured on ${DESCRIPTIVE_FROM} or more units (${editCounts.reusable} independent edits)`,
+          basis: `genes pairedDeltaTest finds improve the objective on the ${split} split, of ${measured} measured on ${DESCRIPTIVE_FROM} or more units (${editCounts.reusable} independent edits)`,
         }
 
   return {
