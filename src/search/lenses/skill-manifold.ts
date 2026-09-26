@@ -35,16 +35,15 @@ import { cholesky, choleskyInverse, choleskySolve } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import { mulberry32 } from '../../statistics/random'
 import {
-  DESCRIPTIVE_FROM_UNITS,
   evenSample,
   type GeometryLensResult,
   type GeometrySignal,
   headSequence,
   plural,
   positiveInteger,
-  rankedSplit,
   round9,
 } from './geometry'
+import { INSUFFICIENT_FROM, rankingSplit } from './shared'
 
 // ── Options and output ───────────────────────────────────────────────
 
@@ -222,7 +221,7 @@ export function skillManifold(
   if (k !== 'auto') positiveInteger('skillManifold', 'k', k)
 
   const header = state.header
-  const split = options.split ?? rankedSplit(state)
+  const split = options.split ?? rankingSplit(state)
   const direction = header?.objective.direction ?? 'maximize'
   const sign = direction === 'maximize' ? 1 : -1
   const calibration = options.calibration ?? null
@@ -317,9 +316,9 @@ export function skillManifold(
       insufficient: `loadings come from ${calibration.source}; its fit decided the rank (${rank})`,
     }
   } else {
-    if (matrix.rows.length < 3 || matrix.unitIds.length < DESCRIPTIVE_FROM_UNITS) {
+    if (matrix.rows.length < 3 || matrix.unitIds.length < INSUFFICIENT_FROM) {
       return empty(
-        `${plural(matrix.rows.length, 'node')} and ${plural(matrix.unitIds.length, 'unit')} qualify (a unit counts when 2 or more nodes scored it, a node when it scored 2 or more such units); a manifold needs 3 nodes and ${DESCRIPTIVE_FROM_UNITS} units`,
+        `${plural(matrix.rows.length, 'node')} and ${plural(matrix.unitIds.length, 'unit')} qualify (a unit counts when 2 or more nodes scored it, a node when it scored 2 or more such units); a manifold needs 3 nodes and ${INSUFFICIENT_FROM} units`,
         shape,
       )
     }
@@ -377,7 +376,7 @@ export function skillManifold(
   const predicted = (coordinates: readonly number[]) =>
     center + scale * (meanBias + dot(coordinates, meanLoading))
 
-  const leaderFloor = Math.min(DESCRIPTIVE_FROM_UNITS, unitCount)
+  const leaderFloor = Math.min(INSUFFICIENT_FROM, unitCount)
   let leaderRows: number[]
   if (options.candidates) {
     const wanted = new Set(options.candidates)
@@ -927,14 +926,14 @@ function crossValidate(
   ridge: number,
 ): SkillManifoldData['intrinsicDimension'] {
   const rows = new Set(cells.map((cell) => cell.row)).size
-  if (rows < DESCRIPTIVE_FROM_UNITS || matrix.unitIds.length < DESCRIPTIVE_FROM_UNITS) {
+  if (rows < INSUFFICIENT_FROM || matrix.unitIds.length < INSUFFICIENT_FROM) {
     return {
       value: null,
       method: INTRINSIC_METHOD,
       n: 0,
       folds,
       curve: [],
-      insufficient: `cross-validation needs ${DESCRIPTIVE_FROM_UNITS} nodes and ${DESCRIPTIVE_FROM_UNITS} units; ${plural(rows, 'node')} and ${plural(matrix.unitIds.length, 'unit')} qualify`,
+      insufficient: `cross-validation needs ${INSUFFICIENT_FROM} nodes and ${INSUFFICIENT_FROM} units; ${plural(rows, 'node')} and ${plural(matrix.unitIds.length, 'unit')} qualify`,
     }
   }
   const curve: Array<{ rank: number; error: number; standardError: number }> = []
@@ -1010,7 +1009,7 @@ function nextUnits(
     return {
       ranked: [],
       batch: null,
-      insufficient: `${plural(leaderRows.length, 'leader')} qualify (${DESCRIPTIVE_FROM_UNITS} or more modelled units); separating leaders needs 2`,
+      insufficient: `${plural(leaderRows.length, 'leader')} qualify (${INSUFFICIENT_FROM} or more modelled units); separating leaders needs 2`,
     }
   }
   if (noiseVariance === null || !(noiseVariance > 0)) {

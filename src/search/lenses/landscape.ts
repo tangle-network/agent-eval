@@ -34,7 +34,6 @@ import { canonicalString, compareCodeUnits } from '../../ledger-core/canonical'
 import { cholesky } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import {
-  DESCRIPTIVE_FROM_UNITS,
   estimateMethodFor,
   evenSample,
   type GeometryLensResult,
@@ -43,11 +42,11 @@ import {
   median,
   plural,
   positiveInteger,
-  rankedSplit,
   round9,
   screenedNodes,
 } from './geometry'
 import { PLATEAU_METHOD, type SearchPlateau, searchPlateau } from './plateau'
+import { INSUFFICIENT_FROM, rankingSplit } from './shared'
 
 // ── Embeddings ───────────────────────────────────────────────────────
 
@@ -361,7 +360,7 @@ const GRID_METHOD =
   "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it"
 /** Scored nodes a surface or a basin count needs: the library's minimum
  * sample for anything descriptive, as for units. */
-const SURFACE_MIN_NODES = DESCRIPTIVE_FROM_UNITS
+const SURFACE_MIN_NODES = INSUFFICIENT_FROM
 const BASIN_METHOD =
   '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by two standard errors of their difference, sqrt(pooled variance / shared units) per node'
 
@@ -380,7 +379,7 @@ export function landscape(
   const surfaceNodes = positiveInteger('landscape', 'surfaceNodes', options.surfaceNodes ?? 400)
   const window = options.window ?? 6
   const header = state.header
-  const split = options.split ?? rankedSplit(state)
+  const split = options.split ?? rankingSplit(state)
   const direction = header?.objective.direction ?? 'maximize'
   const plateauEmpty = (reason: string): SearchPlateau => ({
     value: null,

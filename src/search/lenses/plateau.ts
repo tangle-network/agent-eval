@@ -7,7 +7,8 @@
  */
 
 import type { SearchPolicyView } from '../../campaign/search-policy'
-import { DESCRIPTIVE_FROM_UNITS, round9 } from './geometry'
+import { round9 } from './geometry'
+import { INSUFFICIENT_FROM } from './shared'
 
 /** What the plateau reads: a policy view, or the lens's own reading of one. */
 export type SearchPlateauView = Pick<
@@ -46,7 +47,7 @@ export interface SearchPlateau {
   insufficient: string | null
 }
 
-export const PLATEAU_METHOD = `rise of the best improvement over the root across the last \`window\` accepted nodes (screened, no dodged unit, ${DESCRIPTIVE_FROM_UNITS} or more units shared with the root), divided by the best node's standard error sqrt(pooled variance / its shared units); an improvement is the mean per-unit gain over the root on shared units in the objective's direction, and the variance is the between-unit variance of those gains pooled over screened nodes with 2 or more shared units`
+export const PLATEAU_METHOD = `rise of the best improvement over the root across the last \`window\` accepted nodes (screened, no dodged unit, ${INSUFFICIENT_FROM} or more units shared with the root), divided by the best node's standard error sqrt(pooled variance / its shared units); an improvement is the mean per-unit gain over the root on shared units in the objective's direction, and the variance is the between-unit variance of those gains pooled over screened nodes with 2 or more shared units`
 
 /**
  * The plateau score of a search. Nodes are taken in the view's screened
@@ -79,7 +80,7 @@ export function searchPlateau(
     const mean = total / deltas.length
     for (const delta of deltas) squares += (delta - mean) ** 2
     degreesOfFreedom += deltas.length - 1
-    if (deltas.length >= DESCRIPTIVE_FROM_UNITS) {
+    if (deltas.length >= INSUFFICIENT_FROM) {
       accepted.push({ nodeId, gain: mean, pairs: deltas.length })
     }
   }
@@ -111,7 +112,7 @@ export function searchPlateau(
   })
   if (accepted.length < window) {
     return insufficient(
-      `${accepted.length} of ${window} accepted nodes (screened, no dodged unit, ${DESCRIPTIVE_FROM_UNITS} or more units shared with the root)`,
+      `${accepted.length} of ${window} accepted nodes (screened, no dodged unit, ${INSUFFICIENT_FROM} or more units shared with the root)`,
     )
   }
   if (pooledVariance === null || pooledVariance === 0) {

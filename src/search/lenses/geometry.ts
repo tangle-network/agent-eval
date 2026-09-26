@@ -1,7 +1,7 @@
 /**
- * What the geometry lenses (`landscape`, `skillManifold`) share: the result
- * shape, the ranked split, the estimate method a number of shared units
- * supports, and the nodes whose screen finished.
+ * What the geometry lenses (`landscape`, `skillManifold`) share beyond
+ * `./shared`: a signal that states its method and sample, the estimate method
+ * a number of shared units supports, and the nodes whose screen finished.
  *
  * A lens is a pure function of a `SearchStateView` (search-tree design §12).
  * It returns JSON for a view (Intelligence renders it; `agent-eval search
@@ -13,15 +13,12 @@
 
 import type { SearchEstimateMethod } from '../../campaign/search-ledger-types'
 import type { SearchStateView } from '../../campaign/search-state'
-import { minimumPairsForPairedDeltaTest } from '../../paired-delta-test'
 import { BOOTSTRAP_GATE_MIN_N } from '../../statistics'
+import { INSUFFICIENT_FROM, type LensResult, type LensSignal } from './shared'
 
-/** The one number a lens exposes to policies. */
-export interface GeometrySignal {
-  /** Stable name a policy reads, for example `plateau`. */
-  name: string
-  /** Null when the ledger cannot support a value; `insufficient` says why. */
-  value: number | null
+/** The one number a geometry lens exposes to policies: the shared
+ * `LensSignal`, with the noise model and sample it rests on. */
+export interface GeometrySignal extends LensSignal<number | null> {
   /** What the value is about when it names one thing, for example the unit
    * `nextUnit` recommends; null otherwise. */
   subject: string | null
@@ -33,34 +30,22 @@ export interface GeometrySignal {
   insufficient: string | null
 }
 
-export interface GeometryLensResult<TData> {
+export interface GeometryLensResult<TData> extends LensResult<TData, number | null> {
   /** The lens name, for example `landscape`. */
   lens: string
   searchId: string
   /** The ledger position the lens read: the head's sequence, or -1 before any entry. */
   sequence: number
-  data: TData
   signal: GeometrySignal
 }
-
-/** 6 at 95 %: below this many shared units an estimate is `insufficient`
- * (search-tree design §6.4, the library's own sign-test minimum). */
-export const DESCRIPTIVE_FROM_UNITS = minimumPairsForPairedDeltaTest(0.95)
 
 /** Attempts the kernel gives a retryable errored cell by default. */
 export const DEFAULT_MAX_ATTEMPTS = 3
 
-/** The split a search ranks nodes on: selection when it declares one, else
- * train, as the kernel's policy view and `search show` choose it. */
-export function rankedSplit(state: SearchStateView): 'selection' | 'train' {
-  const header = state.header
-  return header && header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
-}
-
 /** The method `estimateNode` reports for a paired sample of `pairs` units. */
 export function estimateMethodFor(pairs: number): SearchEstimateMethod {
   if (pairs < 2) return 'none'
-  if (pairs < DESCRIPTIVE_FROM_UNITS) return 'insufficient'
+  if (pairs < INSUFFICIENT_FROM) return 'insufficient'
   if (pairs < BOOTSTRAP_GATE_MIN_N) return 'descriptive'
   return 'bootstrap'
 }

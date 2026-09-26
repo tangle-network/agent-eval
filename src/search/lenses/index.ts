@@ -34,6 +34,8 @@ export {
 } from './landscape'
 export type { SearchPlateau, SearchPlateauOptions, SearchPlateauView } from './plateau'
 export { searchPlateau } from './plateau'
+export type { LensResult, LensSignal, SampleSummary } from './shared'
+export { rankingSplit, summarizeSamples } from './shared'
 export type {
   SkillCalibration,
   SkillManifoldData,

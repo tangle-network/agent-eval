@@ -19,7 +19,7 @@ export const buildEntries = {
   'multishot/index': 'src/multishot/index.ts',
   'multishot/golden/index': 'src/multishot/golden/index.ts',
   'campaign/index': 'src/campaign/index.ts',
-  'search/lenses/index': 'src/search/lenses/index.ts',
+  'search/index': 'src/search/index.ts',
   'ledger-core/index': 'src/ledger-core/index.ts',
   'authenticity/index': 'src/authenticity/index.ts',
   'contract/index': 'src/contract/index.ts',
