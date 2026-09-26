@@ -8,9 +8,9 @@
  * extra code.
  *
  * This module carries lenses from every group: `tree`, `operatorYield`,
- * `front`, `taskMatrix` (basic) and `editCredit` (credit), against the same
- * contract. `metaSearch`, `landscape` and `skillManifold` land from their
- * own sibling groups.
+ * `front`, `taskMatrix` (basic), `editCredit` (credit) and `metaSearch`
+ * (meta), against the same contract. `landscape` and `skillManifold` land
+ * from their own sibling group.
  */
 
 export {
@@ -31,6 +31,29 @@ export {
 } from './edit-credit'
 export type { FrontData, FrontExtraAxis, FrontOptions, FrontRow, FrontSignal } from './front'
 export { front } from './front'
+
+export {
+  type BestPolicyConfiguration,
+  META_SEARCH_SCORE_SOURCE,
+  META_SEARCH_SIGNAL,
+  type MetaSearchConfiguration,
+  type MetaSearchConfigurationEstimate,
+  type MetaSearchData,
+  type MetaSearchEntry,
+  type MetaSearchLiftPerUsd,
+  type MetaSearchOptions,
+  type MetaSearchParent,
+  type MetaSearchScore,
+  type MetaSearchSpend,
+  type MetaSearchTextOptions,
+  type MetaSearchUnscoredReason,
+  metaSearch,
+  metaSearchScore,
+  objectiveKey,
+  renderMetaSearchText,
+  type SearchPolicyGenome,
+  searchPolicyGenome,
+} from './meta-search'
 
 export type {
   ExpansionOperator,
