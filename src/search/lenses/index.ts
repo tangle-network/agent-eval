@@ -7,11 +7,28 @@
  * lab, VerticalBench and agent-runtime `improve()` read the same JSON with no
  * extra code.
  *
- * This module carries the `basic` group: `tree`, `operatorYield`, `front`,
- * `taskMatrix`. `metaSearch`, `editCredit`, `landscape` and `skillManifold`
- * are built in sibling groups against the same contract.
+ * This module carries lenses from every group: `tree`, `operatorYield`,
+ * `front`, `taskMatrix` (basic) and `editCredit` (credit), against the same
+ * contract. `metaSearch`, `landscape` and `skillManifold` land from their
+ * own sibling groups.
  */
 
+export {
+  EDIT_CREDIT_ESTIMATOR,
+  EDIT_CREDIT_SIGNAL,
+  type EditCreditData,
+  type EditCreditOptions,
+  type EditCreditResult,
+  type EditCreditSignal,
+  type EditGene,
+  type EditGeneVerdict,
+  type EditInteraction,
+  type EditIntroduction,
+  type EditLineageRow,
+  type EditSkillCandidate,
+  editCredit,
+  editCreditText,
+} from './edit-credit'
 export type { FrontData, FrontExtraAxis, FrontOptions, FrontRow, FrontSignal } from './front'
 export { front } from './front'
 

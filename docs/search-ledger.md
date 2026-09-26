@@ -141,7 +141,7 @@ renderSearchSummary(state, { split: 'train' })
 
 ## Lenses
 
-A lens (`@tangle-network/agent-eval/search/lenses`, search-tree-design §12) is a pure function of a `SearchStateView`: it reads no other record type and does no I/O.
+A lens (`@tangle-network/agent-eval/search`, search-tree-design §12) is a pure function of a `SearchStateView`: it reads no other record type and does no I/O.
 Each returns `{ data, signal }` — `data` is JSON a view or `agent-eval search show` renders, and `signal` is exactly one named, quantitative value a `SearchPolicy` can read, so what a person sees and what the climber uses come from the same computation.
 No lens imputes a value below the design's honesty thresholds: an unknown cost or an unpaired sample stays excluded, reported as `insufficient` or `no measured children` rather than folded into a number.
 
@@ -156,6 +156,38 @@ No lens imputes a value below the design's honesty thresholds: an unknown cost o
 
 `incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is the one built-in policy that reads a lens signal: a hill climb, like `incumbent`, whose expansion operator is a weighted draw over `operatorYield`'s weights.
 An operator without 6 measured outcomes yet draws on `fixedWeights` (uniform by default) instead of being starved until every operator clears the gate; a measured operator's weight is `fixedWeights[operator] + yield`, floored just above zero, because yield (dollars) and the fixed prior (an arbitrary share) are not on the same scale and a small positive yield should not draw less than an untested operator's default prior.
+
+## Edit credit: which edits earned their score
+
+`editCredit(state, { readArtifact })` (`@tangle-network/agent-eval/search`) treats the edits of a search as genes and follows them down its lineage.
+It diffs each lineage parent and child line by line, with whitespace normalized, and cuts every changed run into paragraphs.
+An added paragraph is an `insert` gene and a removed paragraph is a `delete` gene.
+A gene's id hashes its kind, its location in the artifact and its normalized lines, so the same edit has the same id wherever a proposer makes it.
+The lens computes these ids; the ledger records no hunk ids.
+A node carries a gene when its content holds the paragraph (or, for a delete, lacks it), so carrying follows merges, re-proposals and reverts.
+`readArtifact` returns a node's parsed artifact, and the caller verifies its bytes against the reference's digest.
+A node whose artifact is unreadable, or a code surface whose patch is not in the ledger, has unknown content, and its steps yield no genes.
+
+Credit pairs, on each clean lineage step, the side that carries the gene against the side that lacks it, on the units both scored.
+A step is clean for a gene when every change on it belongs to one edit that introduced the gene, so a merge that also brings in other edits credits none of them.
+Per unit, both sides average over the gene's clean steps, and `pairedDeltaTest` decides on the per-unit contrasts, staged like `NodeEstimate.method`: `none` below 2 units, `insufficient` below 6, `descriptive` below 20, `bootstrap` from 20.
+The verdict is `pairedDeltaTest`'s own decision in each direction: `reusable`, `harmful`, `unresolved`, or `insufficient` below 6 units.
+Genes with the same clean steps are linked: they have one credit, and they count as one edit.
+Credit is not adjusted for the number of edits, because it steers what to reuse and test next and claims nothing.
+`data.chance.expectedReusable` states how many reusable edits the verdict would call if no edit had an effect, so read the count against it.
+A policy chooses a parent for its scores, so a parent is high by chance on the units it was chosen on.
+On a step where the child gained a gene, that parent is the lacking side, and credit is biased toward `harmful`; where the child lost the gene, credit is biased toward `reusable`.
+With no true effect, the generator below measured `harmful` on 4.3 % of measured edits under `uniform` (103 of 2,396, 40 searches) and 1.3 % under `asha` (31 of 2,412), and `reusable` on 0.8 % and 1.0 %.
+Only the sealed test split is free of this bias, so a reusable edit still needs a held-out test before it ships.
+
+Interactions compare a gene's step contrasts where another gene is present on both ends against where it is absent on both ends, in both directions.
+The pairs with 6 or more units are tested with an exact two-sided sign test and flagged after a Holm correction; a flag is a reason for a factorial test, not a claim.
+A flag says that a gene's credit depends on its context; the named partner can be a gene that travels with the true partner.
+
+The signal `reusableHunks` counts the reusable edits, and `signal.top` names the first gene of each, best first; it is null until some gene has 6 units on clean steps.
+`data.skillCandidates` turns each reusable insert edit into an inline skill resource with the `improve()` options that select it, for agent-runtime's SkillOpt (`surface: 'skills'`).
+`agent-eval search show <ledger> --edit-credit [--json]` prints the lens, reading artifacts from the blobs the ledger names.
+`scripts/synthetic-search-ledger.ts` writes a seeded search with planted edit effects through the real kernel and scores the lens against the planted truth.
 
 ## Record a search
 
@@ -355,6 +387,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-state.ts`: `SearchState`, the invariants and read model, and the id functions.
 - `src/campaign/estimate-node.ts`: `estimateNode`, `estimateNodeFromCells` and `searchPosterior`.
 - `src/campaign/search-summary.ts`: `renderSearchSummary` and `searchProposerView`.
+- `src/search/lenses/edit-credit.ts`: `editCredit` and `editCreditText`.
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
 - `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim` and `searchClaimReserveUsd`.

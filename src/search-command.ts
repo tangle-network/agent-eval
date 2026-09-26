@@ -2,7 +2,7 @@
  * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
- *   agent-eval search show <search-ledger.jsonl>
+ *   agent-eval search show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix] [--edit-credit] [--json]
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
@@ -12,15 +12,24 @@
  * compact text a proposer reads, on the search's own ranking split (the
  * selection split when the search declares one, else train). There is no
  * local HTML renderer; the hosted store's page is the visual view (§5 of the
- * search-tree design).
+ * search-tree design). A lens flag adds that lens's text form after the
+ * summary, so an agent reads what a person sees; `--json` prints the lens
+ * results as JSON instead, the shape a view renders.
  */
 
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import { open, readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { replaySearchLedgerText } from './campaign/search-ledger'
+import type { SearchArtifactRef } from './campaign/search-ledger-types'
+import type { SearchStateView } from './campaign/search-state'
 import { renderSearchSummary } from './campaign/search-summary'
 import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
+import { editCredit, editCreditText } from './search/lenses/edit-credit'
 import { type FrontData, front } from './search/lenses/front'
 import { type OperatorYieldData, operatorYield } from './search/lenses/operator-yield'
 import { INSUFFICIENT_FROM } from './search/lenses/shared'
@@ -37,13 +46,22 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         Exits 1 when the store holds a different chain for the search.
 
   show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix]
+                              [--edit-credit] [--json]
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
-        search's own ranking split. Each flag adds one lens's text form
+        search's own ranking split. Each lens flag adds that lens's text form
         (search-tree-design §12) below the summary — the same JSON
-        Intelligence, discovery lab, VerticalBench and agent-runtime read,
-        rendered as text so an agent reads what a person sees.`
+        Intelligence, discovery lab, VerticalBench and agent-runtime read.
+        --tree           the tidy tree of nodes and edges.
+        --operator-yield outcome counts and yield per known dollar, by edge operator.
+        --front          the Pareto front over score and known cost.
+        --task-matrix    nodes × units, clustered, with specialist gain per cluster.
+        --edit-credit    every edit as a gene followed down the lineage, its
+                         credit, interacting pairs, and skill candidates. It
+                         reads node artifacts from the blobs the ledger names,
+                         verified by digest.
+        --json           prints the requested lenses as JSON instead of text.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
@@ -90,36 +108,106 @@ export async function runSearchCommand(argv: string[]): Promise<number> {
   }
 }
 
-const SHOW_LENS_FLAGS = ['tree', 'operator-yield', 'front', 'task-matrix'] as const
-type ShowLensFlag = (typeof SHOW_LENS_FLAGS)[number]
-
 async function runShowCommand(argv: string[]): Promise<number> {
-  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
+  if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(`${USAGE}\n`)
-    return argv.length === 0 ? 1 : 0
+    return 0
   }
-  const [path, ...flagArgs] = argv
-  const lenses = new Set<ShowLensFlag>()
-  for (const arg of flagArgs) {
-    const name = arg.startsWith('--') ? arg.slice(2) : null
-    if (name === null || !(SHOW_LENS_FLAGS as readonly string[]).includes(name)) {
-      throw new Error(`unknown show flag ${arg}\n${USAGE}`)
-    }
-    lenses.add(name as ShowLensFlag)
+  const positional = argv.filter((arg) => !arg.startsWith('--'))
+  const flags = new Set(argv.filter((arg) => arg.startsWith('--')))
+  const unknown = [...flags].filter((flag) => !SHOW_FLAGS.has(flag))
+  if (positional.length !== 1 || unknown.length > 0) {
+    if (unknown.length > 0) process.stderr.write(`unknown flag ${unknown.join(', ')}\n`)
+    process.stdout.write(`${USAGE}\n`)
+    return 1
   }
-  const searchId = await firstLineSearchId(path!)
-  const text = await readFile(path!, 'utf8')
-  const state = replaySearchLedgerText(text, searchId, path!)
+  const path = positional[0]!
+  const searchId = await firstLineSearchId(path)
+  const text = await readFile(path, 'utf8')
+  const state = replaySearchLedgerText(text, searchId, path)
   const split =
     state.header && state.header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
-  const sections = [renderSearchSummary(state, { split })]
-  if (lenses.has('tree')) sections.push(renderTreeText(tree(state).data))
-  if (lenses.has('operator-yield'))
-    sections.push(renderOperatorYieldText(operatorYield(state).data))
-  if (lenses.has('front')) sections.push(renderFrontText(front(state).data))
-  if (lenses.has('task-matrix')) sections.push(renderTaskMatrixText(taskMatrix(state).data))
+  const lenses = showLenses(state, path, flags)
+  if (flags.has('--json')) {
+    if (lenses.length === 0) {
+      process.stderr.write('--json needs a lens flag\n')
+      return 1
+    }
+    const json = Object.fromEntries(lenses.map((lens) => [lens.name, lens.result]))
+    process.stdout.write(`${JSON.stringify(json, null, 2)}\n`)
+    return 0
+  }
+  const sections = [renderSearchSummary(state, { split }), ...lenses.map((lens) => lens.text)]
   process.stdout.write(`${sections.join('\n\n')}\n`)
   return 0
+}
+
+const SHOW_FLAGS = new Set([
+  '--edit-credit',
+  '--json',
+  '--tree',
+  '--operator-yield',
+  '--front',
+  '--task-matrix',
+])
+
+function showLenses(
+  state: SearchStateView,
+  ledgerPath: string,
+  flags: ReadonlySet<string>,
+): Array<{ name: string; result: unknown; text: string }> {
+  const lenses: Array<{ name: string; result: unknown; text: string }> = []
+  if (flags.has('--tree')) {
+    const result = tree(state)
+    lenses.push({ name: 'tree', result, text: renderTreeText(result.data) })
+  }
+  if (flags.has('--operator-yield')) {
+    const result = operatorYield(state)
+    lenses.push({ name: 'operatorYield', result, text: renderOperatorYieldText(result.data) })
+  }
+  if (flags.has('--front')) {
+    const result = front(state)
+    lenses.push({ name: 'front', result, text: renderFrontText(result.data) })
+  }
+  if (flags.has('--task-matrix')) {
+    const result = taskMatrix(state)
+    lenses.push({ name: 'taskMatrix', result, text: renderTaskMatrixText(result.data) })
+  }
+  if (flags.has('--edit-credit')) {
+    const result = editCredit(state, { readArtifact: ledgerBlobReader(ledgerPath) })
+    lenses.push({ name: 'editCredit', result, text: editCreditText(result) })
+  }
+  return lenses
+}
+
+/**
+ * Reads a blob a ledger names: at its `file:` URI, else under `blobs/` beside
+ * the ledger, where `SearchRecorder` writes them. Bytes that do not hash to the
+ * reference's digest and length read as unavailable, never as content.
+ */
+function ledgerBlobReader(ledgerPath: string): (ref: SearchArtifactRef) => unknown | undefined {
+  const cache = new Map<string, unknown>()
+  return (ref) => {
+    if (cache.has(ref.sha256)) return cache.get(ref.sha256)
+    const hex = ref.sha256.slice('sha256:'.length)
+    const candidates = [join(dirname(ledgerPath), 'blobs', `${hex}.json`)]
+    if (ref.uri.startsWith('file:')) candidates.unshift(fileURLToPath(ref.uri))
+    let value: unknown
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue
+      const bytes = readFileSync(candidate)
+      const digest = createHash('sha256').update(bytes).digest('hex')
+      if (digest !== hex || bytes.byteLength !== ref.byteLength) continue
+      try {
+        value = JSON.parse(bytes.toString('utf8'))
+      } catch {
+        // Verified bytes that are not JSON are not content a lens can read.
+      }
+      break
+    }
+    cache.set(ref.sha256, value)
+    return value
+  }
 }
 
 function renderTreeText(data: TreeData): string {
