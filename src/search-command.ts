@@ -3,6 +3,7 @@
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
  *   agent-eval search show <search-ledger.jsonl> [--edit-credit] [--landscape] [--skill-manifold] [--json]
+ *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
@@ -15,6 +16,11 @@
  * search-tree design). A lens flag adds that lens's text form after the
  * summary, so an agent reads what a person sees; `--json` prints the lens
  * results as JSON instead, the shape a view renders.
+ *
+ * `show --meta` reads every ledger it is given and prints the `metaSearch`
+ * lens over them instead of one search's summary: each search as one node
+ * scored by its held-out lift per known dollar, the configurations best first,
+ * and the searches arranged by derivation and containment.
  */
 
 import { createHash } from 'node:crypto'
@@ -31,6 +37,7 @@ import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/sea
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
 import { editCredit, editCreditText } from './search/lenses/edit-credit'
 import { formatLandscape, landscape, surfaceTextEdits } from './search/lenses/landscape'
+import { metaSearch, renderMetaSearchText } from './search/lenses/meta-search'
 import { formatSkillManifold, skillManifold } from './search/lenses/skill-manifold'
 
 const USAGE = `usage: agent-eval search <subcommand> ...
@@ -60,7 +67,15 @@ const USAGE = `usage: agent-eval search <subcommand> ...
                        matrix factored into skill axes, its cross-validated
                        intrinsic dimension, and the unit that best separates
                        the leaders.
-        --json         prints the requested lenses as JSON instead of text.`
+        --json         prints the requested lenses as JSON instead of text.
+
+  show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
+        Verifies every ledger and prints the meta-search lens over them: each
+        search as one node, scored by its claim's held-out lift per known
+        dollar (unscored searches say why), configurations best first with
+        their interval, method and n, and the searches arranged by derivation
+        and containment. --objective names the objective the best
+        configuration is chosen within when the searches span several.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
@@ -112,6 +127,7 @@ async function runShowCommand(argv: string[]): Promise<number> {
     process.stdout.write(`${USAGE}\n`)
     return 0
   }
+  if (argv.includes('--meta')) return await runShowMetaCommand(argv)
   const positional = argv.filter((arg) => !arg.startsWith('--'))
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')))
   const unknown = [...flags].filter((flag) => !SHOW_FLAGS.has(flag))
@@ -138,6 +154,38 @@ async function runShowCommand(argv: string[]): Promise<number> {
   }
   const sections = [renderSearchSummary(state, { split }), ...lenses.map((lens) => lens.text)]
   process.stdout.write(`${sections.join('\n\n')}\n`)
+  return 0
+}
+
+async function runShowMetaCommand(argv: string[]): Promise<number> {
+  const paths: string[] = []
+  let objective: string | undefined
+  let json = false
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (token === '--meta') continue
+    if (token === '--json') {
+      json = true
+      continue
+    }
+    if (token === '--objective') {
+      objective = argv[++index]
+      if (objective === undefined) throw new Error(`--objective needs a value\n${USAGE}`)
+      continue
+    }
+    if (token.startsWith('--')) throw new Error(`unknown flag ${token}\n${USAGE}`)
+    paths.push(token)
+  }
+  if (paths.length === 0) throw new Error(`show --meta needs at least one ledger\n${USAGE}`)
+  const states = []
+  for (const path of paths) {
+    const searchId = await firstLineSearchId(path)
+    states.push(replaySearchLedgerText(await readFile(path, 'utf8'), searchId, path))
+  }
+  const lens = metaSearch(states, objective === undefined ? {} : { objective })
+  process.stdout.write(
+    json ? `${JSON.stringify({ metaSearch: lens }, null, 2)}\n` : `${renderMetaSearchText(lens)}\n`,
+  )
   return 0
 }
 

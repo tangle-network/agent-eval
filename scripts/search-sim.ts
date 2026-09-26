@@ -87,6 +87,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { asha, type SearchAllocator, uniform } from '../src/campaign/allocation'
 import { estimateNode } from '../src/campaign/estimate-node'
@@ -106,12 +107,13 @@ import {
 } from '../src/campaign/search-ledger'
 import { developmentClaim, SearchRecorder } from '../src/campaign/search-ledger-recording'
 import type {
+  SearchOpenedEvent,
   SearchSourceRef,
   SearchTask,
   SearchUnknown,
 } from '../src/campaign/search-ledger-types'
 import { SearchState, type SearchStateView } from '../src/campaign/search-state'
-import { incumbent, type SearchPolicy } from '../src/campaign/search-policy'
+import { crowdedFrontierParent, incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 import {
@@ -130,7 +132,7 @@ import {
 import { wilson } from '../src/statistics/paired-binary'
 import { pairedBootstrap, pairedSignTest } from '../src/statistics/paired-tests'
 
-interface SimArtifact {
+export interface SimArtifact {
   name: string
   quality: number
   /** Added to train scores only. */
@@ -149,7 +151,14 @@ interface SimArtifact {
   lines?: string[]
 }
 
-interface SimOptions {
+export interface SimOptions {
+  /** The search's id. Default `search-sim`. */
+  searchId?: string
+  /** The cell attempt of an outer search whose execution runs this search. */
+  containment?: SearchOpenedEvent['containment']
+  /** The expansion policy. Default `incumbent`; `draft-on-plateau` wraps
+   * `incumbent` in `draftOnPlateau`. */
+  policy?: 'incumbent' | 'crowded-frontier' | 'draft-on-plateau'
   seed: number
   train: number
   selection: number
@@ -196,7 +205,6 @@ interface SimOptions {
   /** Under the additive objective, the quality a root-lineage child cannot
    * pass; a draft's lineage can climb 0.25 higher. Null: no ceiling. */
   ceiling: number | null
-  policy: 'incumbent' | 'draft-on-plateau'
   /** Unit loadings `asha-adaptive` extends rungs with. */
   calibration: SkillCalibration | null
 }
@@ -256,6 +264,7 @@ function allocationOf(options: SimOptions): SearchAllocator {
 }
 
 function policyOf(options: SimOptions): SearchPolicy {
+  if (options.policy === 'crowded-frontier') return crowdedFrontierParent({ seed: options.seed })
   const base = incumbent(options.patience === undefined ? {} : { patience: options.patience })
   return options.policy === 'draft-on-plateau' ? draftOnPlateau(base) : base
 }
@@ -319,7 +328,7 @@ function plantIndex(options: SimOptions): number {
 
 /** Where a simulation keeps its ledger, blobs and executor results: a
  * directory, or process memory for the many searches of `claims`. */
-interface SimStore {
+export interface SimStore {
   storage: CampaignStorage | null
   has(runId: string): boolean
   read(runId: string): SearchCellResult
@@ -327,7 +336,7 @@ interface SimStore {
   log(kind: 'started' | 'finished' | 'adopted', runId: string): void
 }
 
-function diskStore(dir: string): SimStore {
+export function diskStore(dir: string): SimStore {
   const executorDir = join(dir, 'executor')
   mkdirSync(executorDir, { recursive: true })
   const resultPath = (runId: string): string =>
@@ -341,7 +350,7 @@ function diskStore(dir: string): SimStore {
   }
 }
 
-function memoryStore(): SimStore & { files(): Map<string, string> } {
+export function memoryStore(): SimStore & { files(): Map<string, string> } {
   const results = new Map<string, SearchCellResult>()
   const inner = inMemoryCampaignStorage()
   const paths = new Set<string>()
@@ -367,7 +376,7 @@ function memoryStore(): SimStore & { files(): Map<string, string> } {
   }
 }
 
-async function runSimulation(
+export async function runSimulation(
   dir: string,
   options: SimOptions,
   store: SimStore,
@@ -378,9 +387,10 @@ async function runSimulation(
   truth: (nodeId: string) => SimArtifact
 }> {
   const path = join(dir, 'ledger.jsonl')
+  const searchId = options.searchId ?? SEARCH_ID
   const ledger = store.storage
-    ? openSearchLedger({ path, searchId: SEARCH_ID, store: store.storage })
-    : openSearchLedger({ path, searchId: SEARCH_ID })
+    ? openSearchLedger({ path, searchId, store: store.storage })
+    : openSearchLedger({ path, searchId })
   const policy = policyOf(options)
   const allocation = allocationOf(options)
   const root = rootOf(options)
@@ -413,7 +423,7 @@ async function runSimulation(
         maxConcurrency: null,
         reservedClaimUsd: options.claimUsd,
       },
-      containment: null,
+      containment: options.containment ?? null,
       derivedFrom: null,
       identity: {
         model: { provider: 'sim', alias: 'sim', unknown: 'the simulator runs no model' },
@@ -596,7 +606,7 @@ async function runSimulation(
       status: state.node(result.leader)!.status,
       planted: options.poolGap !== null && kept.name === `c${plantIndex(options)}`,
     },
-    ledgerChecks: checkLedger(ledgerText, allocation),
+    ledgerChecks: checkLedger(ledgerText, searchId, allocation),
     nodes: state.audit.nodes,
     claim: claimed && {
       decision: claimed.decision,
@@ -758,13 +768,17 @@ function idle(state: SearchStateView, nodeId: string): boolean {
  * evidence. Each measured node's contrast with its parent is counted by the
  * units they pair on, and cells are counted by stage.
  */
-function checkLedger(text: string, allocation: SearchAllocator): Record<string, unknown> {
-  const final = replaySearchLedgerText(text, SEARCH_ID, 'sim-ledger')
-  const state = new SearchState(SEARCH_ID)
+function checkLedger(
+  text: string,
+  searchId: string,
+  allocation: SearchAllocator,
+): Record<string, unknown> {
+  const final = replaySearchLedgerText(text, searchId, 'sim-ledger')
+  const state = new SearchState(searchId)
   const decisions = { advanced: 0, pruned: 0, unexplained: [] as string[] }
   const lines = text.trim().split('\n')
   for (const [index, line] of lines.entries()) {
-    const entry = parseSearchLedgerLine(line, SEARCH_ID, { path: 'sim-ledger', line: index + 1 })
+    const entry = parseSearchLedgerLine(line, searchId, { path: 'sim-ledger', line: index + 1 })
     const { event } = entry
     if (
       event.kind === 'node-decided' &&
@@ -1690,8 +1704,14 @@ async function main(): Promise<void> {
   ) {
     throw new Error(`--allocation must be uniform, asha or asha-adaptive, got ${values.allocation}`)
   }
-  if (values.policy !== 'incumbent' && values.policy !== 'draft-on-plateau') {
-    throw new Error(`--policy must be incumbent or draft-on-plateau, got ${values.policy}`)
+  if (
+    values.policy !== 'incumbent' &&
+    values.policy !== 'crowded-frontier' &&
+    values.policy !== 'draft-on-plateau'
+  ) {
+    throw new Error(
+      `--policy must be incumbent, crowded-frontier or draft-on-plateau, got ${values.policy}`,
+    )
   }
   const options: SimOptions = {
     seed: Number(values.seed),
@@ -1797,4 +1817,6 @@ async function main(): Promise<void> {
   )
 }
 
-await main()
+// Run only as a command; another script imports `runSimulation` to run
+// simulated searches of its own, for example as the cells of an outer search.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main()
