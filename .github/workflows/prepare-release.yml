@@ -1,0 +1,57 @@
+name: Prepare Release
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Semver bump
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare release metadata
+        id: release
+        env:
+          TYPE: ${{ inputs.release_type }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+          version=$(CURRENT="$current" TYPE="$TYPE" node -e "const [a,b,c]=process.env.CURRENT.split('.').map(Number);const t=process.env.TYPE;console.log(t==='major'?(a+1)+'.0.0':t==='minor'?a+'.'+(b+1)+'.0':a+'.'+b+'.'+(c+1))")
+          node scripts/prepare-release.mjs "$version"
+          (cd clients/python && uv lock)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          branch="release/v$VERSION"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout -b "$branch"
+          git add package.json CHANGELOG.md clients/python/pyproject.toml clients/python/src/agent_eval_rpc/__init__.py clients/python/uv.lock
+          git commit -m "chore(release): $VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "chore(release): $VERSION" --body "Release-time preparation from merged main. Feature PRs do not carry version or changelog edits."
