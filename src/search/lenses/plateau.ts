@@ -1,12 +1,13 @@
 /**
  * The plateau score: how far a search's best improvement over the root rose
- * across its last few measured nodes, in units of noise.
+ * across its last few measured nodes, in units of noise; and `draftOnPlateau`,
+ * the policy that drafts when it is low.
  *
  * It reads only what a `SearchPolicyView` holds, so the `landscape` lens and
- * a policy (`draftOnPlateau`) compute the same number from the same ledger.
+ * the policy compute the same number from the same ledger.
  */
 
-import type { SearchPolicyView } from '../../campaign/search-policy'
+import type { SearchPolicy, SearchPolicyView } from '../../campaign/search-policy'
 import { round9 } from './geometry'
 import { INSUFFICIENT_FROM } from './shared'
 
@@ -131,5 +132,71 @@ export function searchPlateau(
     rise: round9(rise),
     noise: round9(noise),
     insufficient: null,
+  }
+}
+
+export interface DraftOnPlateauOptions {
+  /** Accepted nodes the plateau's rise is measured across, and expansions
+   * between two drafts. Default 6. */
+  window?: number
+  /** Draft when the plateau score is below this many standard errors.
+   * Default 1: the best improvement rose less than one standard error. */
+  below?: number
+}
+
+/**
+ * `base`, except that on a plateau it drafts: it proposes a fresh artifact
+ * (operator `draft`, anchored on the root) instead of refining one. The
+ * plateau is the `landscape` lens's signal (`searchPlateau` on this view):
+ * how many standard errors the best improvement over the root rose across the
+ * last `window` accepted nodes. A draft needs a measured plateau (at least
+ * `window` accepted nodes and a pooled variance), no node still screening,
+ * and an expansion count that is a multiple of `window`, so `base` expands at
+ * least `window − 1` times between drafts and each draft's lineage gets a
+ * chance to lift the plateau. The leader and patience are `base`'s.
+ *
+ * This is AIDE's draft trigger driven by measured progress instead of a fixed
+ * count; `draftOnPlateau(aide(...))` adds it to `aide`'s own drafts. A draft
+ * pays off only when `base` then expands drafts that trail the leader:
+ * `incumbent` expands only its leader, so a draft that starts below it is
+ * never refined.
+ */
+export function draftOnPlateau(
+  base: SearchPolicy,
+  options: DraftOnPlateauOptions = {},
+): SearchPolicy {
+  const window = options.window ?? 6
+  const below = options.below ?? 1
+  if (!Number.isSafeInteger(window) || window < 1) {
+    throw new TypeError(`draftOnPlateau: window must be a positive integer, got ${String(window)}`)
+  }
+  if (!(below > 0) || !Number.isFinite(below)) {
+    throw new TypeError(`draftOnPlateau: below must be a positive number, got ${String(below)}`)
+  }
+  const name = `draft-on-plateau(${base.name},window=${window},below=${below})`
+  return {
+    name,
+    ...(base.patience === undefined ? {} : { patience: base.patience }),
+    leader: (view) => base.leader(view),
+    expand(view) {
+      if (view.screening > 0 || view.expansions % window !== 0) return base.expand(view)
+      const plateau = searchPlateau(view, { window })
+      if (plateau.value === null || plateau.value >= below) return base.expand(view)
+      return {
+        parents: [view.rootNodeId],
+        operator: 'draft',
+        selection: {
+          rule: name,
+          evidence: {
+            plateau: plateau.value,
+            rise: plateau.rise!,
+            noise: plateau.noise!,
+            window,
+            accepted: plateau.accepted,
+            expansions: view.expansions,
+          },
+        },
+      }
+    },
   }
 }

@@ -519,8 +519,6 @@ export {
 } from './search-ledger-recording'
 export {
   crowdedFrontierParent,
-  type DraftOnPlateauOptions,
-  draftOnPlateau,
   incumbent,
   type SearchExpansion,
   type SearchPolicy,

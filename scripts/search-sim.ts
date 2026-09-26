@@ -111,7 +111,7 @@ import type {
   SearchUnknown,
 } from '../src/campaign/search-ledger-types'
 import { SearchState, type SearchStateView } from '../src/campaign/search-state'
-import { draftOnPlateau, incumbent, type SearchPolicy } from '../src/campaign/search-policy'
+import { incumbent, type SearchPolicy } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
 import {
@@ -119,6 +119,7 @@ import {
   landscape,
   lineEditDistance,
 } from '../src/search/lenses/landscape'
+import { draftOnPlateau } from '../src/search/lenses/plateau'
 import {
   nextUnitExtension,
   type SkillCalibration,

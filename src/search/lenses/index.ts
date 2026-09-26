@@ -46,8 +46,13 @@ export {
   surfaceTextEdits,
   vectorEmbedding,
 } from './landscape'
-export type { SearchPlateau, SearchPlateauOptions, SearchPlateauView } from './plateau'
-export { searchPlateau } from './plateau'
+export type {
+  DraftOnPlateauOptions,
+  SearchPlateau,
+  SearchPlateauOptions,
+  SearchPlateauView,
+} from './plateau'
+export { draftOnPlateau, searchPlateau } from './plateau'
 export type { LensResult, LensSignal, SampleSummary } from './shared'
 export { rankingSplit, summarizeSamples } from './shared'
 export type {

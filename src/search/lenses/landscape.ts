@@ -437,7 +437,12 @@ export function landscape(
       x: at ? round9(at[0]) : null,
       y: at ? round9(at[1]) : null,
       unplaced: at ? null : (placement.unplaced.get(position) ?? 'not placed'),
-      score: entry.mean === null ? null : round9(entry.mean),
+      // One shared unit is no estimate (§6.4: unknown below 2 units); the
+      // root is the reference, exactly 0.
+      score:
+        entry.mean === null || (entry.pairs < 2 && node.nodeId !== rootNodeId)
+          ? null
+          : round9(entry.mean),
       standardError: entry.variance === null ? null : round9(Math.sqrt(entry.variance)),
       pairs: entry.pairs,
       method: estimateMethodFor(entry.pairs),

@@ -307,7 +307,8 @@ z is the Bonferroni normal quantile at 5% over the graph's local maxima, so a fl
 The surface and the basins need 6 nodes that share 2 or more units with the root.
 The signal `plateau` is the rise of the best improvement over the root across the last 6 accepted nodes, divided by that node's standard error.
 An accepted node is screened, dodged no unit, and shares 6 or more units with the root.
-`draftOnPlateau(base, { window, below })` wraps any policy: when `plateau` is below `below` (default 1) and no draft is among the window's nodes, it drafts from the root; otherwise `base` expands.
+`draftOnPlateau(base, { window, below })` wraps any policy: on every `window`-th expansion, when `plateau` is below `below` (default 1), it drafts from the root; otherwise `base` expands.
+A draft pays off only when `base` expands drafts that trail its leader, as `aide` does; `incumbent` expands only its leader.
 
 `skillManifold(state, k?, options?)` factors the node × unit matrix of per-unit means as `b_u + P_i · Q_u` on standardized scores.
 Alternating ridge least squares reads only observed cells; a missing cell is masked, never filled.
