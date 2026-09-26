@@ -255,6 +255,38 @@ Its resumed ledger holds only rank decisions that its own evidence supports.
 `compare --seeds 200` runs one search per seed under `uniform` and under `asha` and reports the cells each allocated, the node each kept, and the units each edge pairs on; `--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate.
 Every simulated run re-derives each `advanced` and `pruned` decision from the ledger just before it.
 
+## Geometry lenses: `landscape` and `skillManifold`
+
+A lens is a pure function of a `SearchStateView` from `@tangle-network/agent-eval/search`.
+It returns `data` for a view and one `signal` that a policy or an allocator reads, so a person and the climber read the same number.
+A geometry lens signal states its `method`, its sample `n`, and, when its value is null, the reason in `insufficient`.
+A lens never imputes a score or a cost.
+
+`landscape(state, embed?, options?)` places every node in two dimensions by landmark classical multidimensional scaling of a distance between profiles.
+The default distance, `lineageEdits()`, counts the improve, debug and merge edges between two nodes.
+A draft is written afresh, so the lineage distance leaves a draft's lineage unplaced; `surfaceTextEdits(read)` places it by line edits between the surface texts.
+`vectorEmbedding(name, vector)` takes a caller's vectors, for example a model embedding of each profile.
+A node's score is its improvement over the root on shared units, with the standard error that `searchPosterior` gives it.
+The surface is ordinary kriging with each node's own noise; a grid cell is null where the nodes leave more than half the prior variance unexplained.
+Basins are peaks of the node scores on the 6-nearest-neighbour graph that stand two standard errors above their saddle.
+The surface and the basins need 6 nodes that share 2 or more units with the root.
+The signal `plateau` is the rise of the best improvement over the root across the last 6 accepted nodes, divided by that node's standard error.
+An accepted node is screened, dodged no unit, and shares 6 or more units with the root.
+`draftOnPlateau(base, { window, below })` wraps any policy: when `plateau` is below `below` (default 1) and no draft is among the window's nodes, it drafts from the root; otherwise `base` expands.
+
+`skillManifold(state, k?, options?)` factors the node × unit matrix of per-unit means as `b_u + P_i · Q_u` on standardized scores.
+Alternating ridge least squares reads only observed cells; a missing cell is masked, never filled.
+Five-fold cross-validation over held-out cells picks the intrinsic dimension by the one-standard-error rule.
+With fewer than 6 nodes and 6 units the dimension is insufficient, and `k: 'auto'` fits one descriptive axis.
+The signal `nextUnit` names the unit whose next cell removes the largest expected share of the variance of the leaders' contrasts.
+It needs 2 leaders with 6 or more modelled units and a cross-validated cell noise.
+`skillCalibration(lens)` keeps the unit loadings of a fit whose cross-validation found an axis.
+`asha({ extend: nextUnitExtension(calibration) })` fills each rung it opens with the units that best separate the leaders, read from the ledger at the decision that opened the rung.
+The extension is off by default.
+
+`agent-eval search show <ledger> --landscape --skill-manifold` prints both lenses as text; `--landscape` reads surface texts from `blobs/` beside the ledger and checks each digest.
+`scripts/search-sim.ts plateau` compares `incumbent` with `draftOnPlateau(incumbent)` by seed, and `scripts/search-sim.ts adaptive` compares `asha` with the extension.
+
 ## The claim
 
 A search that declares a test split ends in its claim, made once, on test data no node was selected on.
@@ -338,6 +370,7 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/search-ledger-recording.ts`: `SearchRecorder` and the surface helpers.
 - `src/campaign/search-kernel.ts`: `runSearch`, the executor, proposer and codec ports, `searchPolicyView` and `searchDivergence`.
 - `src/campaign/search-claim.ts`: `planSearchClaim`, `decideSearchClaim`, `verifySearchClaim` and `searchClaimReserveUsd`.
+- `src/search/lenses/landscape.ts`, `plateau.ts` and `skill-manifold.ts`: the geometry lenses, the plateau score and the unit extension.
 - `src/campaign/search-policy.ts`: `SearchPolicy`, `incumbent` and `crowdedFrontierParent`.
 - `src/campaign/allocation.ts`: `SearchAllocator`, `uniform` and `asha`.
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.

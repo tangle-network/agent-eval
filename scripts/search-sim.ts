@@ -15,6 +15,8 @@
  *   node --import tsx scripts/search-sim.ts kill-resume --dir DIR --kills 6 [options]
  *   node --import tsx scripts/search-sim.ts claims --searches 200 [options]
  *   node --import tsx scripts/search-sim.ts compare --seeds 200 [options]
+ *   node --import tsx scripts/search-sim.ts plateau --seeds 40 --ceiling 0.62 [options]
+ *   node --import tsx scripts/search-sim.ts adaptive --seeds 40 --skills 3 --pool-gap 0.05 [options]
  *
  * `run` runs or resumes the search in DIR to its close. `kill-resume` runs the
  * search in DIR/killed as a child process, SIGKILLs it at seeded random ledger
@@ -25,7 +27,14 @@
  * rate is reported with its Wilson and Clopper-Pearson 95% intervals.
  * `compare` runs the search once per seed under `uniform` and under `asha` on
  * in-memory ledgers and reports the cells each allocated, the node each kept,
- * and the units each measured edge pairs on against its parent.
+ * and the units each measured edge pairs on against its parent. `plateau`
+ * runs each seed under `incumbent` and under `draftOnPlateau(incumbent)` and
+ * reports, paired by seed, the kept and best true quality, the drafts, and
+ * the `landscape` lens (plateau score, basins) on each closed ledger.
+ * `adaptive` fits `skillManifold` on one `uniform` calibration search
+ * (`--calibration-seed`, 1000, on the same task bank), keeps
+ * its loadings with `skillCalibration`, then runs each seed under `asha` and
+ * under `asha` extended by `nextUnitExtension`, paired by seed.
  *
  * Options: --seed N (1), --train N (2), --selection N (6), --test N (0),
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
@@ -39,9 +48,20 @@
  * or 0), --minimize (the objective is minimized and a cell reports 1 minus its
  * score, so a better artifact scores lower), --cost-scale X (1: a cell costs X
  * times what the lane's prior assumes, so an estimate lane overspends until
- * its own cost distribution sets the hold), --allocation uniform|asha
- * (uniform), --pool-gap X (none), --pool-plant N
+ * its own cost distribution sets the hold), --allocation
+ * uniform|asha|asha-adaptive (uniform), --pool-gap X (none), --pool-plant N
  * (seeded).
+ *
+ * Geometry options: `--skills K` gives artifacts K latent skills (axis 0
+ * general, every task loads it; each task also loads one specialist axis),
+ * and a cell scores 0.5 plus the skills on its task's demand; `--skill-spread
+ * X` (0.12) spreads pool candidates on each specialist axis over [-X, 0);
+ * `--bank-seed N` (the seed) fixes the task bank across searches;
+ * `--ceiling X` caps the root's lineage at X while a draft's lineage can climb
+ * 0.25 higher; `--policy incumbent|draft-on-plateau`; `--allocation
+ * asha-adaptive --calibration FILE` extends asha with a saved calibration.
+ * Under these options every artifact carries profile lines that each child
+ * edits, so the landscape lens measures line edits between surfaces.
  *
  * `--pool-gap X` swaps the hill climb's steps for a planted pool: every child
  * is the root's quality plus a seeded step in [-0.1, 0), whatever its parent,
