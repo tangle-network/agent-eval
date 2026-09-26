@@ -18,7 +18,9 @@
  *   node --import tsx scripts/search-sim.ts plateau --seeds 40 --ceiling 0.62 [options]
  *   node --import tsx scripts/search-sim.ts adaptive --seeds 40 --skills 3 --pool-gap 0.05 [options]
  *
- * `run` runs or resumes the search in DIR to its close. `kill-resume` runs the
+ * `run` runs or resumes the search in DIR to its close; with `--in-memory` it
+ * runs without a per-append fsync and writes the ledger and blobs to DIR at
+ * the end, for scale ledgers. `kill-resume` runs the
  * search in DIR/killed as a child process, SIGKILLs it at seeded random ledger
  * sequences, resumes it each time, then runs the same search uninterrupted in
  * DIR/reference and compares the two. `claims` runs N searches with seeds
@@ -80,7 +82,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { asha, type SearchAllocator, uniform } from '../src/campaign/allocation'
 import { estimateNode } from '../src/campaign/estimate-node'
@@ -333,10 +335,25 @@ function diskStore(dir: string): SimStore {
   }
 }
 
-function memoryStore(): SimStore {
+function memoryStore(): SimStore & { files(): Map<string, string> } {
   const results = new Map<string, SearchCellResult>()
+  const inner = inMemoryCampaignStorage()
+  const paths = new Set<string>()
+  const storage: CampaignStorage = {
+    ...inner,
+    write(path, content) {
+      paths.add(path)
+      inner.write(path, content)
+    },
+    append(path, content, expectedBytes) {
+      paths.add(path)
+      return inner.append(path, content, expectedBytes)
+    },
+  }
   return {
-    storage: inMemoryCampaignStorage(),
+    /** Every file the search wrote, by path: the ledger and its blobs. */
+    files: () => new Map([...paths].map((path) => [path, inner.read(path) ?? ''])),
+    storage,
     has: (runId) => results.has(runId),
     read: (runId) => results.get(runId)!,
     write: (runId, result) => results.set(runId, result),
@@ -1584,6 +1601,7 @@ async function main(): Promise<void> {
       policy: { type: 'string', default: 'incumbent' },
       calibration: { type: 'string' },
       'calibration-seed': { type: 'string', default: '1000' },
+      'in-memory': { type: 'boolean', default: false },
     },
   })
   if (
@@ -1668,6 +1686,19 @@ async function main(): Promise<void> {
   })
   if (mode === 'run') {
     const dir = resolve(values.dir)
+    if (values['in-memory']) {
+      // The ledger and its blobs live in memory while the search runs (no
+      // fsync per append), then land in DIR as `run` would have written them.
+      // A killed run leaves nothing to resume.
+      const store = memoryStore()
+      const { summary } = await runSimulation(dir, options, store)
+      for (const [path, content] of store.files()) {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, content)
+      }
+      console.log(JSON.stringify(summary))
+      return
+    }
     const { summary } = await runSimulation(dir, options, diskStore(dir))
     console.log(JSON.stringify(summary))
     return

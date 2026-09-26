@@ -6,7 +6,12 @@
  * difficulty `b_u`, the node's coordinates `P_i` and the unit's loading `Q_u`,
  * fitted by alternating ridge least squares over the observed cells only
  * (missing cells are masked, never filled). Scores are standardized first,
- * so coordinates and loadings are unitless. The rank that generalizes is
+ * so coordinates and loadings are unitless. Where every cell scores 0 or 1,
+ * the data supports an item-response model instead: a unit's passes on a
+ * node are binomial with logit `b_u + P_i · Q_u` (a multidimensional
+ * two-parameter logistic model: `Q_u` is the unit's discrimination and `b_u`
+ * its easiness), fitted by alternating Newton steps on the penalized
+ * likelihood. The rank that generalizes is
  * chosen by cross-validation over held-out cells with the one-standard-error
  * rule (Hastie, Tibshirani and Friedman, Elements of Statistical Learning,
  * §7.10): the intrinsic dimension. Rank 0 means the nodes do not differ
@@ -74,6 +79,10 @@ export interface SkillManifoldOptions {
   /** Unit loadings from an earlier fit over the same units. When given, the
    * lens fits no loadings: it places this search's nodes on them. */
   calibration?: SkillCalibration
+  /** `linear` factors standardized per-unit means; `logistic` fits the
+   * two-parameter item-response model to pass counts and needs every cell to
+   * score 0 or 1. Default `auto`: logistic when every cell scores 0 or 1. */
+  model?: 'auto' | 'linear' | 'logistic'
   /** Also choose `count` units greedily from `among` (default: every
    * modelled unit), updating the leaders' posteriors after each pick, so a
    * batch does not repeat one direction. Returned as `data.batch`. */
@@ -84,15 +93,23 @@ export interface SkillManifoldOptions {
 export interface SkillCalibration {
   /** Where the loadings were fitted, for example `searchId@sequence`. */
   source: string
-  /** Standardization: z = (score − center) / scale. */
+  /** `identity`: the linear model on standardized means; `logit`: the
+   * item-response model on pass counts. */
+  link: SkillLink
+  /** Standardization of the linear model: z = (score − center) / scale; 0
+   * and 1 under the logit link. */
   center: number
   scale: number
   rank: number
   ridge: number
-  /** Cross-validated squared error of one cell, on the standardized scale. */
-  noiseVariance: number
+  /** Cross-validated squared error of one cell, on the standardized scale;
+   * null under the logit link, whose noise is the binomial's. */
+  noiseVariance: number | null
+  /** Each unit's intercept on the model's scale and its loading. */
   units: Array<{ unitId: string; bias: number; loading: number[] }>
 }
+
+export type SkillLink = 'identity' | 'logit'
 
 export interface SkillManifoldNode {
   nodeId: string
@@ -112,9 +129,14 @@ export interface SkillManifoldUnit {
   unitId: string
   /** Nodes that scored the unit (0 for a calibrated unit this search has not run). */
   observedBy: number
-  /** The unit's mean for a node at the origin, in the metric's units. */
+  /** The unit's mean for a node at the origin, in the metric's units (a pass
+   * rate under the logit link). */
   bias: number
-  /** The unit's direction in skill space (standardized). */
+  /** The same intercept on the model's own scale: standardized under the
+   * identity link, log-odds under the logit link. */
+  intercept: number
+  /** The unit's direction in skill space (standardized, or log-odds per
+   * unit of coordinate under the logit link). */
   loading: number[]
   /** Length of `loading`: how strongly the unit separates nodes. */
   strength: number
@@ -149,6 +171,7 @@ export interface SkillManifoldData {
   }
   model: {
     method: string
+    link: SkillLink
     rank: number
     ridge: number
     center: number | null
@@ -185,14 +208,37 @@ export interface SkillManifoldData {
   insufficient: string | null
 }
 
-const MODEL_METHOD =
-  'masked matrix factorization: each observed per-unit mean is b_u + P_i·Q_u on standardized scores, fitted by alternating ridge least squares over observed cells only; missing cells are masked, never filled'
-const INTRINSIC_METHOD =
-  'k-fold cross-validation over observed cells (folds by a hash of node and unit), mean squared error of held-out cells by rank; the intrinsic dimension is the smallest rank within one standard error (across folds) of the best'
-const NEXT_UNIT_METHOD =
-  'expected share of the variance of each leader pair’s contrast on the whole split that one more cell on the unit, run on both leaders, removes; each leader’s coordinates have the linear-Gaussian ridge posterior with loadings held fixed and noise equal to the cross-validated cell error; averaged over leader pairs'
-const EXPLAINED_METHOD =
-  'in-sample R² of each rank over the rank-0 model (unit means only), on the fitted rows; it always grows with rank, which is why the intrinsic dimension is cross-validated'
+const METHODS: Record<
+  SkillLink,
+  { model: string; intrinsic: string; nextUnit: string; explained: string }
+> = {
+  identity: {
+    model:
+      'masked matrix factorization: each observed per-unit mean is b_u + P_i·Q_u on standardized scores, fitted by alternating ridge least squares over observed cells only; missing cells are masked, never filled',
+    intrinsic:
+      'k-fold cross-validation over observed cells (folds by a hash of node and unit), mean squared error of held-out cells by rank; the intrinsic dimension is the smallest rank within one standard error (across folds) of the best',
+    nextUnit:
+      'expected share of the variance of each leader pair’s contrast on the whole split that one more cell on the unit, run on both leaders, removes; each leader’s coordinates have the linear-Gaussian ridge posterior with loadings held fixed and noise equal to the cross-validated cell error; averaged over leader pairs',
+    explained:
+      'in-sample R² of each rank over the rank-0 model (unit means only), on the fitted rows; it always grows with rank, which is why the intrinsic dimension is cross-validated',
+  },
+  logit: {
+    model:
+      'multidimensional two-parameter item-response model: a node passes a unit with probability logistic(b_u + P_i·Q_u), its passes on the unit binomial over its cells; fitted by alternating Newton steps on the likelihood with standard-normal priors on P and Q (ridge) and a N(0, 10²) prior on b; missing cells are masked, never filled',
+    intrinsic:
+      'k-fold cross-validation over observed node-unit pass counts (folds by a hash of node and unit), binomial log loss per held-out cell by rank; the intrinsic dimension is the smallest rank within one standard error (across folds) of the best',
+    nextUnit:
+      'expected share of the variance of each leader pair’s contrast (predicted pass rate on the whole split) that one more cell on the unit, run on both leaders, removes; each leader’s coordinates have the Laplace posterior of the item-response model with loadings held fixed, and a cell’s information is its binomial variance at the leader’s predicted pass rate; averaged over leader pairs',
+    explained:
+      'in-sample McFadden pseudo-R² of each rank over the rank-0 model (unit easiness only), on the fitted rows; it always grows with rank, which is why the intrinsic dimension is cross-validated',
+  },
+}
+/** The prior precision on a unit's log-odds intercept: N(0, 10²), weak
+ * enough to leave any observed pass rate alone and strong enough to keep a
+ * unit every node passed (or failed) finite. */
+const LOGIT_BIAS_PRECISION = 0.01
+/** The largest move one Newton step makes in any coordinate, in log-odds. */
+const NEWTON_STEP_CAP = 4
 
 const MAX_ITERATIONS = 300
 const TOLERANCE = 1e-9
@@ -219,6 +265,12 @@ export function skillManifold(
   }
   const sampleRows = positiveInteger('skillManifold', 'sampleRows', options.sampleRows ?? 1000)
   if (k !== 'auto') positiveInteger('skillManifold', 'k', k)
+  const requested = options.model ?? 'auto'
+  if (requested !== 'auto' && requested !== 'linear' && requested !== 'logistic') {
+    throw new TypeError(
+      `skillManifold: model must be auto, linear or logistic, got ${String(requested)}`,
+    )
+  }
 
   const header = state.header
   const split = options.split ?? rankingSplit(state)
@@ -226,8 +278,9 @@ export function skillManifold(
   const sign = direction === 'maximize' ? 1 : -1
   const calibration = options.calibration ?? null
   const source = calibration?.source ?? `${state.searchId}@${headSequence(state)}`
+  let link: SkillLink = calibration?.link ?? (requested === 'logistic' ? 'logit' : 'identity')
   const empty = (reason: string, matrix?: SkillManifoldData['matrix']) =>
-    result(state, {
+    result(state, link, {
       split,
       direction,
       mode: calibration ? 'calibrated' : 'fitted',
@@ -245,7 +298,7 @@ export function skillManifold(
       explained: null,
       intrinsicDimension: {
         value: null,
-        method: INTRINSIC_METHOD,
+        method: METHODS[link].intrinsic,
         n: 0,
         folds,
         curve: [],
@@ -277,6 +330,19 @@ export function skillManifold(
     excludedUnits: matrix.excludedUnits,
     fitRows: 0,
   }
+  if (!calibration) {
+    if (requested === 'logistic' && !matrix.binary) {
+      throw new TypeError(
+        'skillManifold: model logistic needs every modelled cell to score 0 or 1; use auto or linear',
+      )
+    }
+    link = requested === 'linear' || !matrix.binary ? 'identity' : 'logit'
+  } else if (link === 'logit' && !matrix.binary) {
+    return empty(
+      `the calibration from ${calibration.source} is an item-response model, and this search has cells that score other than 0 or 1`,
+      shape,
+    )
+  }
 
   let center: number
   let scale: number
@@ -305,11 +371,11 @@ export function skillManifold(
       iterations: 0,
       converged: true,
     }
-    placeRows(matrix, fit, center, scale, calibration.ridge)
+    placeRows(matrix, fit, center, scale, calibration.ridge, link)
     noiseVariance = calibration.noiseVariance
     intrinsic = {
       value: null,
-      method: INTRINSIC_METHOD,
+      method: METHODS[link].intrinsic,
       n: 0,
       folds,
       curve: [],
@@ -329,7 +395,7 @@ export function skillManifold(
         shape,
       )
     }
-    ;({ center, scale } = standard)
+    ;({ center, scale } = link === 'logit' ? { center: 0, scale: 1 } : standard)
     const fitRows = evenSample(
       matrix.rows.map((_, index) => index),
       sampleRows,
@@ -337,33 +403,33 @@ export function skillManifold(
     shape.fitRows = fitRows.length
     const cells = observedCells(matrix, fitRows, center, scale)
     const rankCap = Math.min(maxRank, matrix.unitIds.length - 1, fitRows.length - 1)
-    intrinsic = crossValidate(matrix, cells, rankCap, folds, ridge)
+    intrinsic = crossValidate(matrix, cells, rankCap, folds, ridge, link)
     // Under 'auto' without a cross-validated dimension, fit one axis only: a
     // second axis on a handful of nodes fits their noise, and its in-sample
     // R² would read as structure.
     rank = k === 'auto' ? Math.max(1, intrinsic.value ?? 1) : Math.min(k, Math.max(1, rankCap))
     const fits: Fit[] = []
     for (let r = 0; r <= Math.max(rank, rankCap); r++) {
-      fits.push(factor(matrix.unitIds.length, cells, r, ridge))
+      fits.push(factor(matrix.unitIds.length, cells, r, ridge, link))
     }
-    const base = sse(fits[0]!, cells)
+    const base = loss(fits[0]!, cells, link)
     explained = {
       byRank: fits.slice(1).map((entry) => ({
         rank: entry.rank,
-        r2: round9(base > 0 ? 1 - sse(entry, cells) / base : 0),
+        r2: round9(base > 0 ? 1 - loss(entry, cells, link) / base : 0),
       })),
       axisShare: [],
-      method: EXPLAINED_METHOD,
+      method: METHODS[link].explained,
     }
     fit = fits[rank]!
     iterations = fit.iterations
     converged = fit.converged
     const cv = intrinsic.curve.find((point) => point.rank === rank)
-    noiseVariance = cv && Number.isFinite(cv.error) ? cv.error : null
+    noiseVariance = link === 'identity' && cv && Number.isFinite(cv.error) ? cv.error : null
     const shares = principalAxes(fit, fitRows)
     explained.axisShare = shares.map(round9)
     fit.coordinates = []
-    placeRows(matrix, fit, center, scale, ridge)
+    placeRows(matrix, fit, center, scale, ridge, link)
   }
   orientAxes(fit, sign)
 
@@ -373,8 +439,14 @@ export function skillManifold(
     for (let d = 0; d < rank; d++) meanLoading[d]! += loading[d]! / unitCount
   }
   const meanBias = fit.bias.reduce((sum, value) => sum + value, 0) / unitCount
-  const predicted = (coordinates: readonly number[]) =>
-    center + scale * (meanBias + dot(coordinates, meanLoading))
+  const predicted = (coordinates: readonly number[]): number => {
+    if (link === 'identity') return center + scale * (meanBias + dot(coordinates, meanLoading))
+    let total = 0
+    for (let u = 0; u < unitCount; u++) {
+      total += logistic(fit.bias[u]! + dot(coordinates, fit.loadings[u]!))
+    }
+    return total / unitCount
+  }
 
   const leaderFloor = Math.min(INSUFFICIENT_FROM, unitCount)
   let leaderRows: number[]
@@ -405,14 +477,22 @@ export function skillManifold(
           insufficient:
             'held-out cells fit no better with any skill axis than with unit means alone (intrinsic dimension 0): the nodes do not differ beyond noise, so no unit separates them',
         }
-      : nextUnits(
-          matrix,
-          fit,
-          leaderRows,
-          noiseVariance,
-          calibration?.ridge ?? ridge,
-          options.batch ?? null,
-        )
+      : !calibration && intrinsic.value === null
+        ? {
+            ranked: [],
+            batch: null,
+            insufficient:
+              'the skill axes are not cross-validated (see the intrinsic dimension), so no unit’s information is known',
+          }
+        : nextUnits(
+            matrix,
+            fit,
+            leaderRows,
+            noiseVariance,
+            calibration?.ridge ?? ridge,
+            options.batch ?? null,
+            link,
+          )
   const nodes: SkillManifoldNode[] = matrix.rows.map((row, index) => ({
     nodeId: row.nodeId,
     ordinal: row.ordinal,
@@ -425,19 +505,21 @@ export function skillManifold(
   const units: SkillManifoldUnit[] = matrix.unitIds.map((unitId, u) => ({
     unitId,
     observedBy: matrix.observedBy[u]!,
-    bias: round9(center + scale * fit.bias[u]!),
+    bias: round9(link === 'identity' ? center + scale * fit.bias[u]! : logistic(fit.bias[u]!)),
+    intercept: round9(fit.bias[u]!),
     loading: fit.loadings[u]!.map(round9),
     strength: round9(Math.hypot(...fit.loadings[u]!)),
   }))
 
-  return result(state, {
+  return result(state, link, {
     split,
     direction,
     mode: calibration ? 'calibrated' : 'fitted',
     source,
     matrix: shape,
     model: {
-      method: MODEL_METHOD,
+      method: METHODS[link].model,
+      link,
       rank,
       ridge: calibration?.ridge ?? ridge,
       center: round9(center),
@@ -464,9 +546,9 @@ export function skillManifold(
 
 /** The loadings of a fitted manifold, for a later search over the same units
  * to place its nodes on. Null unless cross-validation found at least one skill
- * axis (intrinsic dimension 1 or more) and measured the cell noise: loadings
- * of an axis the held-out cells do not support would steer allocation by
- * noise. */
+ * axis (intrinsic dimension 1 or more), and, for the linear model, measured
+ * the cell noise: loadings of an axis the held-out cells do not support would
+ * steer allocation by noise. */
 export function skillCalibration(
   lens: GeometryLensResult<SkillManifoldData>,
 ): SkillCalibration | null {
@@ -477,23 +559,23 @@ export function skillCalibration(
     model === null ||
     model.center === null ||
     model.scale === null ||
-    data.noiseVariance === null ||
+    (model.link === 'identity' && data.noiseVariance === null) ||
     data.intrinsicDimension.value === null ||
     data.intrinsicDimension.value < 1
   ) {
     return null
   }
-  const { center, scale } = model
   return {
     source: data.source,
-    center,
-    scale,
+    link: model.link,
+    center: model.center,
+    scale: model.scale,
     rank: model.rank,
     ridge: model.ridge,
     noiseVariance: data.noiseVariance,
     units: data.units.map((unit) => ({
       unitId: unit.unitId,
-      bias: (unit.bias - center) / scale,
+      bias: unit.intercept,
       loading: [...unit.loading],
     })),
   }
@@ -501,6 +583,7 @@ export function skillCalibration(
 
 function result(
   state: SearchStateView,
+  link: SkillLink,
   data: SkillManifoldData,
 ): GeometryLensResult<SkillManifoldData> {
   const pending = data.nextUnits.filter((unit) => unit.measuredBy < data.leaders.length)
@@ -509,7 +592,7 @@ function result(
     name: 'nextUnit',
     value: best === null ? null : best.share,
     subject: best?.unitId ?? null,
-    method: NEXT_UNIT_METHOD,
+    method: METHODS[link].nextUnit,
     n: data.leaders.reduce((sum, leader) => sum + leader.observed, 0),
     insufficient: best === null ? (data.insufficient ?? 'no unit to rank') : null,
   }
@@ -536,6 +619,9 @@ interface Row {
   status: SearchNodeStatus | null
   /** Modelled unit index → per-unit mean. */
   observed: Map<number, number>
+  /** Modelled unit index → the unit's summed score and scored cells: passes
+   * and trials when every cell scores 0 or 1. */
+  counts: Map<number, { sum: number; count: number }>
 }
 
 interface ScoreMatrix {
@@ -545,6 +631,8 @@ interface ScoreMatrix {
   observed: number
   excludedNodes: number
   excludedUnits: number
+  /** Every scored cell of the modelled rows scores exactly 0 or 1. */
+  binary: boolean
 }
 
 /**
@@ -564,16 +652,29 @@ function scoreMatrix(
     ordinal: number
     status: SearchNodeStatus | null
     units: Map<string, number>
+    counts: Map<string, { sum: number; count: number }>
+    binary: boolean
   }> = []
   const allUnits = new Set<string>()
   for (const node of state.nodes()) {
-    const scores =
+    const cells =
       asOf === undefined
-        ? state.unitScores(node.nodeId, split)
-        : searchUnitScores(scoredAsOf(state, node.nodeId, split, asOf))
+        ? state.scoredCells(node.nodeId, split)
+        : scoredAsOf(state, node.nodeId, split, asOf)
+    const scores = searchUnitScores(cells)
     const units = new Map(scores.map((unit) => [unit.unitId, unit.mean]))
+    const counts = new Map(
+      scores.map((unit) => [unit.unitId, { sum: unit.sum, count: unit.count }]),
+    )
     for (const unitId of units.keys()) allUnits.add(unitId)
-    raw.push({ nodeId: node.nodeId, ordinal: node.ordinal, status: node.status, units })
+    raw.push({
+      nodeId: node.nodeId,
+      ordinal: node.ordinal,
+      status: node.status,
+      units,
+      counts,
+      binary: cells.every((cell) => cell.score === 0 || cell.score === 1),
+    })
   }
   let unitIds: string[]
   let keep: typeof raw
@@ -607,20 +708,23 @@ function scoreMatrix(
   let observed = 0
   const rows = keep.map((row) => {
     const map = new Map<number, number>()
+    const counts = new Map<number, { sum: number; count: number }>()
     for (const [unitId, mean] of row.units) {
       const index = unitIndex.get(unitId)
       if (index === undefined) continue
       map.set(index, mean)
+      counts.set(index, row.counts.get(unitId)!)
       observedBy[index]! += 1
       observed += 1
     }
-    return { nodeId: row.nodeId, ordinal: row.ordinal, status: row.status, observed: map }
+    return { nodeId: row.nodeId, ordinal: row.ordinal, status: row.status, observed: map, counts }
   })
   return {
     rows,
     unitIds,
     observedBy,
     observed,
+    binary: keep.length > 0 && keep.every((row) => row.binary),
     excludedNodes: raw.length - rows.length,
     excludedUnits: calibration
       ? [...allUnits].filter((unitId) => !unitIndex.has(unitId)).length
@@ -672,7 +776,11 @@ function standardization(matrix: ScoreMatrix): { center: number; scale: number }
 interface Cell {
   row: number
   unit: number
+  /** The standardized per-unit mean (identity link). */
   z: number
+  /** Passes and trials (logit link): the unit's summed score and its cells. */
+  k: number
+  n: number
   fold: number
 }
 
@@ -684,12 +792,15 @@ function observedCells(
 ): Cell[] {
   const cells: Cell[] = []
   for (const row of rows) {
-    const { nodeId, observed } = matrix.rows[row]!
+    const { nodeId, observed, counts } = matrix.rows[row]!
     for (const [unit, value] of [...observed].sort(([left], [right]) => left - right)) {
+      const { sum, count } = counts.get(unit)!
       cells.push({
         row,
         unit,
         z: (value - center) / scale,
+        k: sum,
+        n: count,
         fold: fnv1a(`${nodeId}\u0000${matrix.unitIds[unit]!}`),
       })
     }
@@ -723,28 +834,53 @@ interface Fit {
   converged: boolean
 }
 
+/** The fit of `rank` axes under `link`. */
+function factor(
+  units: number,
+  cells: readonly Cell[],
+  rank: number,
+  ridge: number,
+  link: SkillLink,
+): Fit {
+  return link === 'identity'
+    ? factorLinear(units, cells, rank, ridge)
+    : factorLogistic(units, cells, rank, ridge)
+}
+
+function groupCells(
+  units: number,
+  cells: readonly Cell[],
+): { byUnit: Cell[][]; byRow: Map<number, Cell[]> } {
+  const byUnit: Cell[][] = Array.from({ length: units }, () => [])
+  const byRow = new Map<number, Cell[]>()
+  for (const cell of cells) {
+    byUnit[cell.unit]!.push(cell)
+    const list = byRow.get(cell.row)
+    if (list) list.push(cell)
+    else byRow.set(cell.row, [cell])
+  }
+  return { byUnit, byRow }
+}
+
+/** Loadings start from a fixed seeded draw, so a fit is deterministic. */
+function seededLoadings(units: number, rank: number): number[][] {
+  const random = mulberry32(0x5eed + rank)
+  return Array.from({ length: units }, () =>
+    Array.from({ length: rank }, () => (random() - 0.5) * 0.2),
+  )
+}
+
 /**
  * Alternating ridge least squares over `cells`: rows' coordinates given the
  * loadings, then each unit's loading and (unpenalized) bias given the
  * coordinates, until the objective moves by less than 1e-9 of itself.
- * Loadings start from a fixed seeded draw, so a fit is deterministic.
  */
-function factor(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
-  const byUnit: Cell[][] = Array.from({ length: units }, () => [])
-  const rowIds = new Map<number, Cell[]>()
-  for (const cell of cells) {
-    byUnit[cell.unit]!.push(cell)
-    const list = rowIds.get(cell.row)
-    if (list) list.push(cell)
-    else rowIds.set(cell.row, [cell])
-  }
+function factorLinear(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
+  const { byUnit, byRow: rowIds } = groupCells(units, cells)
   const bias = byUnit.map((list) =>
     list.length === 0 ? 0 : list.reduce((sum, cell) => sum + cell.z, 0) / list.length,
   )
-  const random = mulberry32(0x5eed + rank)
-  const loadings = Array.from({ length: units }, () =>
-    Array.from({ length: rank }, () => (random() - 0.5) * 0.2),
-  )
+  const loadings = seededLoadings(units, rank)
   const coordinates = new Map<number, number[]>()
   for (const row of rowIds.keys()) coordinates.set(row, new Array<number>(rank).fill(0))
   if (rank === 0) {
@@ -763,7 +899,7 @@ function factor(units: number, cells: readonly Cell[], rank: number, ridge: numb
   let converged = false
   for (; iterations < MAX_ITERATIONS; iterations++) {
     for (const [row, list] of rowIds) {
-      coordinates.set(row, solveRow(list, loadings, bias, rank, ridge))
+      coordinates.set(row, solveRow(list, loadings, bias, rank, ridge, 'identity'))
     }
     for (let u = 0; u < units; u++) {
       const list = byUnit[u]!
@@ -803,13 +939,153 @@ function factor(units: number, cells: readonly Cell[], rank: number, ridge: numb
   return { rank, bias, loadings, byRow: coordinates, coordinates: [], iterations, converged }
 }
 
+/**
+ * The item-response fit: alternating Newton steps on the penalized binomial
+ * likelihood, each row's coordinates given the loadings, then each unit's
+ * loading and intercept given the coordinates, until the objective moves by
+ * less than 1e-9 of itself. Priors: standard normal on coordinates and
+ * loadings (scaled by `ridge`), N(0, 10²) on each intercept, which keeps a
+ * unit every node passed finite. A step moves no parameter by more than 4.
+ */
+function factorLogistic(units: number, cells: readonly Cell[], rank: number, ridge: number): Fit {
+  const { byUnit, byRow: rowIds } = groupCells(units, cells)
+  const bias = byUnit.map((list) => {
+    let k = 0
+    let n = 0
+    for (const cell of list) {
+      k += cell.k
+      n += cell.n
+    }
+    return Math.log((k + 0.5) / (n - k + 0.5))
+  })
+  const loadings = seededLoadings(units, rank)
+  const coordinates = new Map<number, number[]>()
+  for (const row of rowIds.keys()) coordinates.set(row, new Array<number>(rank).fill(0))
+  const objectiveOf = (): number => {
+    let total = 0
+    for (const cell of cells) {
+      total += binomialLoss(
+        cell,
+        bias[cell.unit]! + dot(coordinates.get(cell.row)!, loadings[cell.unit]!),
+      )
+    }
+    for (const point of coordinates.values()) total += (ridge / 2) * dot(point, point)
+    for (const loading of loadings) total += (ridge / 2) * dot(loading, loading)
+    for (const value of bias) total += (LOGIT_BIAS_PRECISION / 2) * value * value
+    return total
+  }
+  let previous = Number.POSITIVE_INFINITY
+  let iterations = 0
+  let converged = false
+  for (; iterations < MAX_ITERATIONS; iterations++) {
+    if (rank > 0) {
+      for (const [row, list] of rowIds) {
+        const point = coordinates.get(row)!
+        coordinates.set(row, newtonStep(point, list, loadings, bias, ridge))
+      }
+    }
+    for (let u = 0; u < units; u++) {
+      const list = byUnit[u]!
+      if (list.length === 0) continue
+      const size = rank + 1
+      const theta = [...loadings[u]!, bias[u]!]
+      const precision = (i: number): number => (i < rank ? ridge : LOGIT_BIAS_PRECISION)
+      const hessian = Array.from({ length: size }, (_, i) =>
+        Array.from({ length: size }, (_, j) => (i === j ? precision(i) : 0)),
+      )
+      const gradient = theta.map((value, i) => -precision(i) * value)
+      for (const cell of list) {
+        const x = [...coordinates.get(cell.row)!, 1]
+        const p = logistic(dot(theta, x))
+        const weight = cell.n * p * (1 - p)
+        for (let i = 0; i < size; i++) {
+          gradient[i]! += (cell.k - cell.n * p) * x[i]!
+          for (let j = 0; j < size; j++) hessian[i]![j]! += weight * x[i]! * x[j]!
+        }
+      }
+      const lower = cholesky(hessian)
+      if (lower === null) continue
+      const step = capped(choleskySolve(lower, gradient))
+      loadings[u] = theta.slice(0, rank).map((value, i) => value + step[i]!)
+      bias[u] = theta[rank]! + step[rank]!
+    }
+    const objective = objectiveOf()
+    if (Math.abs(previous - objective) <= TOLERANCE * Math.max(objective, 1e-12)) {
+      converged = true
+      iterations += 1
+      break
+    }
+    previous = objective
+  }
+  return { rank, bias, loadings, byRow: coordinates, coordinates: [], iterations, converged }
+}
+
+/** One Newton step on a row's coordinates under the item-response model. */
+function newtonStep(
+  point: readonly number[],
+  list: readonly Pick<Cell, 'unit' | 'k' | 'n'>[],
+  loadings: readonly (readonly number[])[],
+  bias: readonly number[],
+  ridge: number,
+): number[] {
+  const rank = point.length
+  const hessian = Array.from({ length: rank }, (_, i) =>
+    Array.from({ length: rank }, (_, j) => (i === j ? ridge : 0)),
+  )
+  const gradient = point.map((value) => -ridge * value)
+  for (const cell of list) {
+    const q = loadings[cell.unit]!
+    const p = logistic(bias[cell.unit]! + dot(point, q))
+    const weight = cell.n * p * (1 - p)
+    for (let i = 0; i < rank; i++) {
+      gradient[i]! += (cell.k - cell.n * p) * q[i]!
+      for (let j = 0; j < rank; j++) hessian[i]![j]! += weight * q[i]! * q[j]!
+    }
+  }
+  const step = capped(choleskySolve(cholesky(hessian)!, gradient))
+  return point.map((value, i) => value + step[i]!)
+}
+
+function capped(step: readonly number[]): number[] {
+  const largest = Math.max(0, ...step.map(Math.abs))
+  return largest > NEWTON_STEP_CAP
+    ? step.map((value) => (value * NEWTON_STEP_CAP) / largest)
+    : [...step]
+}
+
+/** −log of the binomial likelihood of `k` passes in `n` at log-odds `eta`,
+ * without the binomial coefficient: n·log(1 + e^η) − k·η, computed stably. */
+function binomialLoss(cell: Pick<Cell, 'k' | 'n'>, eta: number): number {
+  const softplus = Math.max(eta, 0) + Math.log1p(Math.exp(-Math.abs(eta)))
+  return cell.n * softplus - cell.k * eta
+}
+
+function logistic(eta: number): number {
+  if (eta >= 0) return 1 / (1 + Math.exp(-eta))
+  const e = Math.exp(eta)
+  return e / (1 + e)
+}
+
+/** A row's coordinates given the loadings: one ridge solve (identity), or
+ * Newton steps to convergence (logit). */
 function solveRow(
-  list: readonly Pick<Cell, 'unit' | 'z'>[],
+  list: readonly Pick<Cell, 'unit' | 'z' | 'k' | 'n'>[],
   loadings: readonly (readonly number[])[],
   bias: readonly number[],
   rank: number,
   ridge: number,
+  link: SkillLink,
 ): number[] {
+  if (link === 'logit') {
+    let point = new Array<number>(rank).fill(0)
+    for (let iteration = 0; iteration < 50; iteration++) {
+      const next = newtonStep(point, list, loadings, bias, ridge)
+      const moved = Math.max(0, ...next.map((value, i) => Math.abs(value - point[i]!)))
+      point = next
+      if (moved < 1e-10) break
+    }
+    return point
+  }
   const system = Array.from({ length: rank }, (_, i) =>
     Array.from({ length: rank }, (_, j) => (i === j ? ridge : 0)),
   )
@@ -825,29 +1101,41 @@ function solveRow(
   return choleskySolve(cholesky(system)!, rhs)
 }
 
+/** The model's linear predictor: standardized mean (identity) or log-odds (logit). */
 function predict(fit: Fit, point: readonly number[] | undefined, unit: number): number {
   return fit.bias[unit]! + (point ? dot(point, fit.loadings[unit]!) : 0)
 }
 
-function sse(fit: Fit, cells: readonly Cell[]): number {
+/** Squared error (identity) or binomial log loss (logit) of the fit on `cells`. */
+function loss(fit: Fit, cells: readonly Cell[], link: SkillLink): number {
   let total = 0
   for (const cell of cells)
-    total += (cell.z - predict(fit, fit.byRow.get(cell.row), cell.unit)) ** 2
+    total += cellLoss(cell, predict(fit, fit.byRow.get(cell.row), cell.unit), link)
   return total
 }
 
-/** Every matrix row placed on the fitted loadings by one ridge solve. */
+function cellLoss(cell: Cell, eta: number, link: SkillLink): number {
+  return link === 'identity' ? (cell.z - eta) ** 2 : binomialLoss(cell, eta)
+}
+
+/** Every matrix row placed on the fitted loadings. */
 function placeRows(
   matrix: ScoreMatrix,
   fit: Fit,
   center: number,
   scale: number,
   ridge: number,
+  link: SkillLink,
 ): void {
   fit.coordinates = matrix.rows.map((row) => {
     if (fit.rank === 0) return []
-    const list = [...row.observed].map(([unit, value]) => ({ unit, z: (value - center) / scale }))
-    return solveRow(list, fit.loadings, fit.bias, fit.rank, ridge)
+    const list = [...row.observed].map(([unit, value]) => ({
+      unit,
+      z: (value - center) / scale,
+      k: row.counts.get(unit)!.sum,
+      n: row.counts.get(unit)!.count,
+    }))
+    return solveRow(list, fit.loadings, fit.bias, fit.rank, ridge, link)
   })
 }
 
@@ -924,12 +1212,13 @@ function crossValidate(
   rankCap: number,
   folds: number,
   ridge: number,
+  link: SkillLink,
 ): SkillManifoldData['intrinsicDimension'] {
   const rows = new Set(cells.map((cell) => cell.row)).size
   if (rows < INSUFFICIENT_FROM || matrix.unitIds.length < INSUFFICIENT_FROM) {
     return {
       value: null,
-      method: INTRINSIC_METHOD,
+      method: METHODS[link].intrinsic,
       n: 0,
       folds,
       curve: [],
@@ -945,14 +1234,13 @@ function crossValidate(
     for (let fold = 0; fold < folds; fold++) {
       const train = cells.filter((cell) => cell.fold % folds !== fold)
       const test = cells.filter((cell) => cell.fold % folds === fold)
-      const fit = factor(matrix.unitIds.length, train, rank, ridge)
+      const fit = factor(matrix.unitIds.length, train, rank, ridge, link)
       const trained = new Set(train.map((cell) => cell.unit))
       let foldSquares = 0
       let foldCount = 0
       for (const cell of test) {
         if (!trained.has(cell.unit)) continue
-        const error = (cell.z - predict(fit, fit.byRow.get(cell.row), cell.unit)) ** 2
-        foldSquares += error
+        foldSquares += cellLoss(cell, predict(fit, fit.byRow.get(cell.row), cell.unit), link)
         foldCount += 1
       }
       if (foldCount > 0) foldErrors.push(foldSquares / foldCount)
@@ -975,7 +1263,7 @@ function crossValidate(
   if (finite.length === 0) {
     return {
       value: null,
-      method: INTRINSIC_METHOD,
+      method: METHODS[link].intrinsic,
       n: held,
       folds,
       curve,
@@ -987,7 +1275,7 @@ function crossValidate(
   const chosen = finite.find((point) => point.error <= bar)!
   return {
     value: chosen.rank,
-    method: INTRINSIC_METHOD,
+    method: METHODS[link].intrinsic,
     n: held,
     folds,
     curve,
@@ -1004,6 +1292,7 @@ function nextUnits(
   noiseVariance: number | null,
   ridge: number,
   batch: { count: number; among?: readonly string[] } | null,
+  link: SkillLink,
 ): { ranked: SkillManifoldNextUnit[]; batch: string[] | null; insufficient: string | null } {
   if (leaderRows.length < 2) {
     return {
@@ -1012,7 +1301,7 @@ function nextUnits(
       insufficient: `${plural(leaderRows.length, 'leader')} qualify (${INSUFFICIENT_FROM} or more modelled units); separating leaders needs 2`,
     }
   }
-  if (noiseVariance === null || !(noiseVariance > 0)) {
+  if (link === 'identity' && (noiseVariance === null || !(noiseVariance > 0))) {
     return {
       ranked: [],
       batch: null,
@@ -1024,35 +1313,60 @@ function nextUnits(
   }
   const rank = fit.rank
   const units = matrix.unitIds.length
+  // Per leader: the noise of one more cell on each unit, the posterior
+  // covariance of its coordinates, and the gradient of its predicted split
+  // mean. Identity link: noise σ² on every cell, covariance σ²(λI + Σ Q_uQ_uᵀ)⁻¹
+  // over its observed units, gradient the mean loading. Logit link (Laplace):
+  // a cell at pass rate p carries information p(1−p), covariance
+  // (λI + Σ n_u p_u(1−p_u) Q_uQ_uᵀ)⁻¹, gradient the mean of p_u(1−p_u) Q_u.
   const meanLoading = new Array<number>(rank).fill(0)
   for (const loading of fit.loadings) {
     for (let d = 0; d < rank; d++) meanLoading[d]! += loading[d]! / units
   }
-  // Posterior covariance of each leader's coordinates: σ² (λI + Σ Q_u Q_uᵀ)⁻¹.
-  const covariance = leaderRows.map((row) => {
+  const leaders = leaderRows.map((row) => {
+    const point = fit.coordinates[row]!
+    const information = fit.loadings.map((q, u) => {
+      if (link === 'identity') return 1 / noiseVariance!
+      const p = logistic(fit.bias[u]! + dot(point, q))
+      return p * (1 - p)
+    })
+    const gradient =
+      link === 'identity'
+        ? meanLoading
+        : Array.from({ length: rank }, (_, d) => {
+            let total = 0
+            for (let u = 0; u < units; u++)
+              total += (information[u]! * fit.loadings[u]![d]!) / units
+            return total
+          })
+    const prior = link === 'identity' ? ridge / noiseVariance! : ridge
     const system = Array.from({ length: rank }, (_, i) =>
-      Array.from({ length: rank }, (_, j) => (i === j ? ridge : 0)),
+      Array.from({ length: rank }, (_, j) => (i === j ? prior : 0)),
     )
+    const counts = matrix.rows[row]!.counts
     for (const unit of matrix.rows[row]!.observed.keys()) {
       const q = fit.loadings[unit]!
+      const weight = information[unit]! * (link === 'identity' ? 1 : counts.get(unit)!.count)
       for (let i = 0; i < rank; i++) {
-        for (let j = 0; j < rank; j++) system[i]![j]! += q[i]! * q[j]!
+        for (let j = 0; j < rank; j++) system[i]![j]! += weight * q[i]! * q[j]!
       }
     }
-    return choleskyInverse(cholesky(system)!).map((line) =>
-      line.map((value) => value * noiseVariance),
-    )
+    return { information, gradient, covariance: choleskyInverse(cholesky(system)!) }
   })
-  const shares = (sigmas: readonly (readonly number[])[][]): number[] => {
-    const toward = sigmas.map((sigma) => sigma.map((line) => dot(line, meanLoading)))
-    const contrast = toward.map((vector) => dot(meanLoading, vector))
-    return fit.loadings.map((q) => {
+  const shares = (sigmas: readonly (readonly (readonly number[])[])[]): number[] => {
+    const toward = sigmas.map((sigma, index) =>
+      sigma.map((line) => dot(line, leaders[index]!.gradient)),
+    )
+    const contrast = toward.map((vector, index) => dot(leaders[index]!.gradient, vector))
+    return fit.loadings.map((q, u) => {
       const reduction = sigmas.map((sigma, index) => {
+        const information = leaders[index]!.information[u]!
+        if (!(information > 0)) return 0
         const spread = dot(
           q,
           sigma.map((line) => dot(line, q)),
         )
-        return dot(toward[index]!, q) ** 2 / (noiseVariance + spread)
+        return dot(toward[index]!, q) ** 2 / (1 / information + spread)
       })
       let share = 0
       let pairs = 0
@@ -1069,6 +1383,7 @@ function nextUnits(
   const byShare = (values: readonly number[]) => (left: number, right: number) =>
     values[right]! - values[left]! ||
     compareCodeUnits(matrix.unitIds[left]!, matrix.unitIds[right]!)
+  const covariance = leaders.map((leader) => leader.covariance)
   const first = shares(covariance)
   const ranked = matrix.unitIds
     .map((_, u) => u)
@@ -1084,16 +1399,18 @@ function nextUnits(
   const among = new Set(batch.among ?? matrix.unitIds)
   const open = new Set(matrix.unitIds.flatMap((unitId, u) => (among.has(unitId) ? [u] : [])))
   const picked: string[] = []
-  let sigmas = covariance
+  let sigmas: number[][][] = covariance
   while (picked.length < batch.count && open.size > 0) {
     const values = shares(sigmas)
     const best = [...open].sort(byShare(values))[0]!
     open.delete(best)
     picked.push(matrix.unitIds[best]!)
     const q = fit.loadings[best]!
-    sigmas = sigmas.map((sigma) => {
+    sigmas = sigmas.map((sigma, index) => {
+      const information = leaders[index]!.information[best]!
+      if (!(information > 0)) return sigma
       const toward = sigma.map((line) => dot(line, q))
-      const denominator = noiseVariance + dot(q, toward)
+      const denominator = 1 / information + dot(q, toward)
       return sigma.map((line, i) =>
         line.map((value, j) => value - (toward[i]! * toward[j]!) / denominator),
       )
@@ -1203,7 +1520,7 @@ export function formatSkillManifold(lens: GeometryLensResult<SkillManifoldData>)
       )
       .join(', ')
     lines.push(
-      `  intrinsic dimension: ${intrinsic.value} (${intrinsic.folds}-fold held-out squared error on the standardized scale, one-SE rule, ${intrinsic.n} held-out cells per rank: ${curve})`,
+      `  intrinsic dimension: ${intrinsic.value} (${intrinsic.folds}-fold held-out ${data.model?.link === 'logit' ? 'binomial log loss' : 'squared error on the standardized scale'}, one-SE rule, ${intrinsic.n} held-out cells per rank: ${curve})`,
     )
   }
   if (data.model === null) {
@@ -1215,8 +1532,9 @@ export function formatSkillManifold(lens: GeometryLensResult<SkillManifoldData>)
   const { model } = data
   const explained = data.explained
   const r2 = explained?.byRank.find((entry) => entry.rank === model.rank)?.r2
+  const logit = model.link === 'logit'
   lines.push(
-    `  model: rank ${model.rank}, ridge ${model.ridge}, ${model.iterations} ALS sweeps${model.converged ? '' : ' (not converged)'}${r2 === undefined ? '' : `, in-sample R² ${r2.toFixed(3)} over unit means`}${explained && explained.axisShare.length > 0 ? `; axis shares ${explained.axisShare.map((share) => `${Math.round(share * 1000) / 10}%`).join(', ')}` : ''}; cell noise ${data.noiseVariance === null ? 'unknown' : data.noiseVariance.toFixed(3)} (standardized)`,
+    `  model: ${logit ? 'item-response (two-parameter logistic, every cell 0 or 1)' : 'linear on standardized means'}, rank ${model.rank}, ridge ${model.ridge}, ${model.iterations} ${logit ? 'Newton' : 'ALS'} sweeps${model.converged ? '' : ' (not converged)'}${r2 === undefined ? '' : `, in-sample ${logit ? 'pseudo-R²' : 'R²'} ${r2.toFixed(3)} over unit ${logit ? 'easiness' : 'means'}`}${explained && explained.axisShare.length > 0 ? `; axis shares ${explained.axisShare.map((share) => `${Math.round(share * 1000) / 10}%`).join(', ')}` : ''}; ${logit ? 'cell noise binomial' : `cell noise ${data.noiseVariance === null ? 'unknown' : data.noiseVariance.toFixed(3)} (standardized)`}`,
   )
   const strongest = [...data.units]
     .sort((left, right) => right.strength - left.strength)
