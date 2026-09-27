@@ -255,7 +255,9 @@ The ports:
   The kernel refuses an expansion without a parent or with a parent whose screen has not finished; an invalid node is never screened, so it is never a parent.
   Every built-in policy keeps the same leader: a node leads when it dodged no unit (no cell ran and ended unscored), scored every unit the leader scored, and beats the leader's mean on them.
   A node measured on fewer units than the leader, such as one an allocator has only screened, cannot take the lead on less evidence.
-  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened.
+  A leader with no scored unit, such as a root whose every cell ended unscored, holds no evidence, and the first node that dodged no unit takes the lead from it.
+  `incumbent({ patience, minImprovement })` is the hill climb: it expands the leader once every earlier child is screened.
+  With `minImprovement`, a node takes the lead only when its mean beats the leader's by more than that margin, in the metric's units.
   `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament.
   `aide({ drafts, debugProbability, maxDebugDepth, stallAfter })` (defaults 5, 0.5, 3, 4) is AIDE's policy with three changes for noisy scores.
   It drafts whole alternatives from the root until `drafts` nodes were drafted.

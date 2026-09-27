@@ -52,6 +52,7 @@
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
  * --max-usd X (none), --claim-usd X (0), --cell-usd X (0.05), --cost-cap
  * hard|estimate (estimate), --fault-rate X (0), --delay-ms N (5), --patience N,
+ * --min-improvement X (`incumbent`'s lead margin),
  * --deadline ISO, --min-effect X (the claim's minimum effect), --null (every
  * step is 0, so no node differs from the root), --plant-gain X (the root's
  * first child is X better), --plant-divergence (the root's second child gains
@@ -212,6 +213,8 @@ export interface SimOptions {
   faultRate: number
   delayMs: number
   patience: number | undefined
+  /** `incumbent`'s lead margin, in the score's units. */
+  minImprovement: number | undefined
   /** ISO time after which the search stops expanding and cancels waiting cells. */
   deadline: string | null
   minEffect: number | undefined
@@ -322,7 +325,10 @@ function policyOf(options: SimOptions): SearchPolicy {
   if (options.policy === 'crowded-frontier') return crowdedFrontierParent({ seed: options.seed })
   if (options.policy === 'aide') return aide()
   if (options.policy === 'beam') return beam({ width: options.beamWidth })
-  const base = incumbent(options.patience === undefined ? {} : { patience: options.patience })
+  const base = incumbent({
+    ...(options.patience === undefined ? {} : { patience: options.patience }),
+    ...(options.minImprovement === undefined ? {} : { minImprovement: options.minImprovement }),
+  })
   return options.policy === 'draft-on-plateau' ? draftOnPlateau(base) : base
 }
 
@@ -2010,6 +2016,7 @@ async function main(): Promise<void> {
       'fault-rate': { type: 'string', default: '0' },
       'delay-ms': { type: 'string', default: '5' },
       patience: { type: 'string' },
+      'min-improvement': { type: 'string' },
       deadline: { type: 'string' },
       'min-effect': { type: 'string' },
       null: { type: 'boolean', default: false },
@@ -2068,6 +2075,8 @@ async function main(): Promise<void> {
     faultRate: Number(values['fault-rate']),
     delayMs: Number(values['delay-ms']),
     patience: values.patience === undefined ? undefined : Number(values.patience),
+    minImprovement:
+      values['min-improvement'] === undefined ? undefined : Number(values['min-improvement']),
     deadline: values.deadline ?? null,
     minEffect: values['min-effect'] === undefined ? undefined : Number(values['min-effect']),
     nullSteps: values.null,

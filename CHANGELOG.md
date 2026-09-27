@@ -6,6 +6,14 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `incumbent({ patience, minImprovement })` (`/campaign`): a node takes the hill climb's lead only when its mean beats the leader's by more than `minImprovement`, in the metric's units (default 0). The policy name records it, for example `incumbent(patience=2,minImprovement=1)`, so a resumed search with another margin is refused. Runtime's pursuit version chain runs on the kernel with it.
+
+### Fixed
+
+- A leader with no scored unit kept the lead forever: a root whose every cell ended unscored could not be displaced, so the search expanded it until patience and selected nothing. The first node that dodged no unit now takes the lead from it, under every built-in policy.
+
 ## [0.198.1] — 2026-09-27
 
 ### Fixed

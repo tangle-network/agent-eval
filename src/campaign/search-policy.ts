@@ -106,21 +106,38 @@ export interface SearchPolicy {
 /**
  * The hill climb. The leader starts at the root; a screened node that dodged no
  * unit takes the lead when it scored every unit the leader scored and its mean
- * on them beats the leader's. A node measured on fewer units than the leader,
- * such as one an allocator has only screened, cannot take the lead on less
- * evidence than the leader holds. Nodes are taken in registration order, so
- * the leader is a pure function of the ledger. The policy expands the leader,
- * and only once every earlier child is screened, so each proposal sees every
- * result before it.
+ * on them beats the leader's by more than `minImprovement` (default 0, in the
+ * metric's units). A node measured on fewer units than the leader, such as one
+ * an allocator has only screened, cannot take the lead on less evidence than
+ * the leader holds. Nodes are taken in registration order, so the leader is a
+ * pure function of the ledger. The policy expands the leader, and only once
+ * every earlier child is screened, so each proposal sees every result before
+ * it. `patience` stops the search after that many expansions without a new
+ * leader.
  */
-export function incumbent(options: { patience?: number } = {}): SearchPolicy {
-  const { patience } = options
+export function incumbent(
+  options: { patience?: number; minImprovement?: number } = {},
+): SearchPolicy {
+  const { patience, minImprovement } = options
   if (patience !== undefined && (!Number.isSafeInteger(patience) || patience < 1)) {
     throw new TypeError(`incumbent: patience must be a positive integer, got ${String(patience)}`)
   }
+  if (
+    minImprovement !== undefined &&
+    (typeof minImprovement !== 'number' || !Number.isFinite(minImprovement) || minImprovement < 0)
+  ) {
+    throw new TypeError(
+      `incumbent: minImprovement must be a finite number of at least 0, got ${String(minImprovement)}`,
+    )
+  }
+  const settings = [
+    ...(patience === undefined ? [] : [`patience=${patience}`]),
+    ...(minImprovement === undefined ? [] : [`minImprovement=${minImprovement}`]),
+  ]
   return hillClimb({
-    name: patience === undefined ? 'incumbent' : `incumbent(patience=${patience})`,
+    name: settings.length === 0 ? 'incumbent' : `incumbent(${settings.join(',')})`,
     patience,
+    minImprovement: minImprovement ?? 0,
     parent: (_view, leader) => ({ nodeId: leader, evidence: {} }),
   })
 }
@@ -579,6 +596,8 @@ interface FrontierMember {
 function hillClimb(spec: {
   name: string
   patience?: number
+  /** A challenger leads only when its mean beats the leader's by more than this. Default 0. */
+  minImprovement?: number
   parent(
     view: SearchPolicyView,
     leader: string,
@@ -590,10 +609,10 @@ function hillClimb(spec: {
   return {
     name: spec.name,
     ...(spec.patience === undefined ? {} : { patience: spec.patience }),
-    leader: leaderOf,
+    leader: (view) => leaderOf(view, spec.minImprovement ?? 0),
     expand(view) {
       if (view.screening > 0) return null
-      const kept = leaderOf(view)
+      const kept = leaderOf(view, spec.minImprovement ?? 0)
       const chosen = spec.parent(view, kept)
       const units = view.unitScores(chosen.nodeId)
       return {
@@ -616,25 +635,33 @@ function hillClimb(spec: {
 /**
  * The leader every built-in policy keeps: it starts at the root, and a
  * screened node that dodged no unit takes the lead when it scored every unit
- * the leader scored and its mean on them beats the leader's. Nodes are taken
- * in registration order, so the leader is a pure function of the ledger. A
- * node an allocator has only screened cannot take the lead from one measured
- * on more units.
+ * the leader scored and its mean on them beats the leader's by more than
+ * `minImprovement`. A leader with no scored unit, such as a root whose every
+ * cell ended unscored, holds no evidence, so the first such node takes the
+ * lead from it. Nodes are taken in registration order, so the leader is a pure
+ * function of the ledger. A node an allocator has only screened cannot take
+ * the lead from one measured on more units.
  */
-function leaderOf(view: SearchPolicyView): string {
+function leaderOf(view: SearchPolicyView, minImprovement = 0): string {
   let current = view.rootNodeId
   for (const nodeId of view.screened) {
     if (nodeId === current || !view.complete(nodeId)) continue
-    if (beats(view, nodeId, current)) current = nodeId
+    if (beats(view, nodeId, current, minImprovement)) current = nodeId
   }
   return current
 }
 
-/** True when `challenger` scored every unit `holder` scored and improves on
- * `holder` over them. */
-function beats(view: SearchPolicyView, challenger: string, holder: string): boolean {
+/** True when `challenger` scored every unit `holder` scored and its mean over
+ * them improves on `holder`'s by more than `minImprovement`, or when `holder`
+ * scored no unit. */
+function beats(
+  view: SearchPolicyView,
+  challenger: string,
+  holder: string,
+  minImprovement: number,
+): boolean {
   const held = view.unitScores(holder)
-  if (held.length === 0) return false
+  if (held.length === 0) return true
   const own = new Map(view.unitScores(challenger).map((unit) => [unit.unitId, unit.mean]))
   let challengerSum = 0
   let holderSum = 0
@@ -644,7 +671,8 @@ function beats(view: SearchPolicyView, challenger: string, holder: string): bool
     challengerSum += mean
     holderSum += unit.mean
   }
-  return view.direction === 'maximize' ? challengerSum > holderSum : challengerSum < holderSum
+  const gain = (challengerSum - holderSum) / held.length
+  return (view.direction === 'maximize' ? gain : -gain) > minImprovement
 }
 
 /** Non-dominated complete screened nodes over the root's units, with crowding. */
