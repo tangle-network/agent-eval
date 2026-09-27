@@ -91,6 +91,8 @@ import { estimateNode } from '../src/campaign/estimate-node'
 import {
   runSearch,
   type SearchArtifactCodec,
+  searchExpansionIndex,
+  searchPolicyView,
   type SearchCellResult,
   type SearchCellWork,
   type SearchExecutor,
@@ -116,6 +118,7 @@ import {
   crowdedFrontierParent,
   incumbent,
   type SearchPolicy,
+  type SearchPolicyView,
 } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
@@ -519,7 +522,7 @@ export async function runSimulation(
     },
     /** The planted node was proposed and registered. */
     reachedPlant: planted !== null && names.has(planted),
-    ledgerChecks: checkLedger(ledgerText, searchId, allocation),
+    ledgerChecks: checkLedger(ledgerText, searchId, allocation, policy),
     nodes: state.audit.nodes,
     claim: claimed && {
       decision: claimed.decision,
@@ -660,9 +663,37 @@ function idle(state: SearchStateView, nodeId: string): boolean {
 }
 
 /**
+ * The view the kernel hands the policy, rebuilt from the ledger alone: the
+ * admitted nodes (an edge, not invalid), the screened ones (every cell done,
+ * or advanced by the allocator, in registration order) and the proposals that
+ * completed.
+ */
+function policyViewAt(state: SearchStateView): SearchPolicyView {
+  const admitted = state.nodes().filter((node) => node.edgeIds.length > 0 && node.status !== 'invalid')
+  const screened = admitted
+    .filter((node) => node.status === 'advanced' || idle(state, node.nodeId))
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map((node) => node.nodeId)
+  let expansions = 0
+  for (let index = 0; ; index++) {
+    const operation = state.operation(`expand-${index}`)
+    if (!operation) break
+    if (operation.outcome === 'completed') expansions += 1
+  }
+  return searchPolicyView(state, {
+    screened,
+    screening: admitted.length - screened.length,
+    expansions,
+    maxAttempts: MAX_ATTEMPTS,
+  })
+}
+
+/**
  * Audit a closed ledger. Each `advanced` and `pruned` decision, with its rule,
  * rank reason and estimate, must be one the allocator returns again from the
- * ledger just before it, so every rank decision derives from recorded
+ * ledger just before it, and each proposal's parents, operator and selection
+ * evidence must be the expansion the policy returns again from the ledger
+ * just before the proposal started, so every decision derives from recorded
  * evidence. Each measured node's contrast with its parent is counted by the
  * units they pair on, and cells are counted by stage.
  */
@@ -670,14 +701,37 @@ function checkLedger(
   text: string,
   searchId: string,
   allocation: SearchAllocator,
+  policy: SearchPolicy,
 ): Record<string, unknown> {
   const final = replaySearchLedgerText(text, searchId, 'sim-ledger')
   const state = new SearchState(searchId)
   const decisions = { advanced: 0, pruned: 0, unexplained: [] as string[] }
+  // A proposal's expansion is recorded on each edge it produced.
+  const proposed = new Map<string, string>()
+  for (const edge of final.edges()) {
+    const operationId = edge.proposer?.operationId
+    if (!operationId || proposed.has(operationId)) continue
+    const parents = edge.parents.map((parent) => parent.nodeId)
+    proposed.set(operationId, canonicalString([parents, edge.operator, edge.selection]))
+  }
+  const expansions = { rederived: 0, withoutEdge: 0, unexplained: [] as string[] }
   const lines = text.trim().split('\n')
   for (const [index, line] of lines.entries()) {
     const entry = parseSearchLedgerLine(line, searchId, { path: 'sim-ledger', line: index + 1 })
     const { event } = entry
+    if (event.kind === 'operation-started' && searchExpansionIndex(event.operationId) !== null) {
+      const recorded = proposed.get(event.operationId)
+      if (recorded === undefined) {
+        expansions.withoutEdge += 1
+      } else {
+        const made = policy.expand(policyViewAt(state.snapshot()))
+        if (made && canonicalString([made.parents, made.operator, made.selection]) === recorded) {
+          expansions.rederived += 1
+        } else {
+          expansions.unexplained.push(`${index}:${event.operationId}`)
+        }
+      }
+    }
     if (
       event.kind === 'node-decided' &&
       (event.decision.status === 'advanced' || event.decision.status === 'pruned')
@@ -733,8 +787,9 @@ function checkLedger(
     statuses[node.status ?? 'none'] = (statuses[node.status ?? 'none'] ?? 0) + 1
   }
   return {
-    ok: decisions.unexplained.length === 0,
+    ok: decisions.unexplained.length === 0 && expansions.unexplained.length === 0,
     decisions,
+    expansions,
     edgePairs,
     advancedTo,
     cellsByStage,
@@ -1076,11 +1131,14 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
     spend: { committedUsd: number; overspendUsd: number }
     operations: { started: number; recorded: number }
   }
-  // A uniform search's decisions do not depend on the order cells finish in,
-  // so the resumed search must equal the uninterrupted one. An asha search
+  // A hill climb (incumbent, crowded-frontier) expands only once every
+  // earlier child is screened, so under uniform its decisions do not depend
+  // on the order cells finish in, and the resumed search must equal the
+  // uninterrupted one. aide and beam expand while other screens run, and asha
   // ranks the nodes that finished a rung when a node finishes it, so a
-  // restart that changes the finishing order may change a promotion; there
-  // the resumed ledger must hold only rank decisions its own evidence makes.
+  // restart that changes the finishing order may change a parent or a
+  // promotion; there the resumed ledger must hold only decisions its own
+  // evidence makes.
   const reproduces = {
     sameNodes: same('nodes'),
     sameEdges: same('edges'),
@@ -1092,13 +1150,14 @@ async function killResume(dir: string, options: SimOptions, argv: string[], kill
   const invariants = {
     noDuplicateCellAllocations: actual.duplicateCellAllocations === 0,
     everyAttemptFinishedOnce: finished.length === new Set(finished).size,
-    rankDecisionsFromEvidence: (resumedSummary.ledgerChecks as { ok: boolean }).ok,
+    decisionsFromEvidence: (resumedSummary.ledgerChecks as { ok: boolean }).ok,
     spendWithinCap:
       options.maxUsd === null ||
       audit.spend.committedUsd <= options.maxUsd + audit.spend.overspendUsd + 1e-9,
   }
   const checks = { ...reproduces, ...invariants }
-  const required = options.allocation === 'uniform' ? checks : invariants
+  const barrier = options.policy === undefined || options.policy === 'incumbent' || options.policy === 'crowded-frontier'
+  const required = options.allocation === 'uniform' && barrier ? checks : invariants
   return {
     ok: Object.values(required).every(Boolean),
     checks,

@@ -545,9 +545,12 @@ class SearchKernel<TArtifact> {
       if (this.admitted.has(node.nodeId) && !isTerminal(node)) await this.allocateFor(node.nodeId)
     }
     for (const nodeId of this.state.nodeIds()) {
-      if (this.admitted.has(nodeId) && (this.pending.get(nodeId) ?? 0) === 0) {
-        await this.screenDone(nodeId)
-      }
+      if (!this.admitted.has(nodeId)) continue
+      // An advanced node finished its screen before its rung cells were
+      // allocated, so it stays a parent while they run, as it was before the
+      // restart.
+      if (this.state.node(nodeId)!.status === 'advanced') this.markScreened(nodeId)
+      else if ((this.pending.get(nodeId) ?? 0) === 0) await this.screenDone(nodeId)
     }
     // A node may have finished a rung before the interrupted process recorded
     // what its rank earned.
