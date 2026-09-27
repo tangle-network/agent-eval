@@ -4,7 +4,12 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
-## Unreleased
+## [0.199.1] — 2026-09-27
+
+- fix(release): keep the analyst dependency pin stable across version bumps (#883)
+- fix(search-lenses): charge an operator only for producing and screening its node (#881)
+- build(release): move version and changelog prep to release time (#860)
+- fix(search): preserve complete matrix output and bound clustering work (#880)
 
 ## [0.199.0] — 2026-09-27
 
