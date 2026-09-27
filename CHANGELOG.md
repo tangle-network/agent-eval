@@ -6,8 +6,20 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.198.0] — 2026-09-27
+
 ### Added
 
+- Search lenses (`/search`, search-tree-design §12): `tree`, `operatorYield`, `front` and `taskMatrix`, each a pure function of `SearchState` returning JSON for a view plus one named signal a `SearchPolicy` can read. `agent-eval search show` gains `--tree`/`--operator-yield`/`--front`/`--task-matrix` to print each lens's text form.
+  `operatorYield` groups edges by operator and reports outcome counts and improvement-per-known-dollar yield (via `searchPosterior`, excluding any node with an unknown-cost cell rather than flooring it). `front` is the Pareto frontier over score and known cost, reusing the existing `paretoFrontier` primitive, with room for caller-declared extra axes. `taskMatrix` clusters nodes and units by single-linkage clustering with a data-derived cutoff and reports each unit cluster's specialist gain (best node's mean minus the cluster mean).
+  `incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is a hill-climb `SearchPolicy` that draws its expansion operator from `operatorYield`'s signal once an operator has 6 or more measured outcomes (falling back to a fixed prior per operator until then, and adding a measured yield to that same prior rather than replacing it, so the two stay on comparable scales); `incumbent` itself is unchanged.
+  `scripts/generate-synthetic-search-ledger.ts` and `scripts/import-vb-climb.ts` (the latter through the GEPA importer) produce real ledgers these lenses are proved against; `scripts/prove-operator-bandit.mts` is a real-run (no-mock) proof of the bandit's draw distribution against the lens's own signal.
+- `metaSearch(searches)` (`/search`) treats each search as a node whose genome is its policy configuration and whose score is its claim's held-out lift per known dollar; an unscored search carries its reason, never 0. Searches form a forest by derivation and containment.
+  `runNestedSearch` runs an outer search whose cells are inner searches on the same kernel; `scripts/search-meta-sim.ts` runs one on the simulator, and `agent-eval search show --meta [--json]` prints the lens.
+- `editCredit(state, { readArtifact })` (`/search`) cuts each lineage edge's parent-to-child diff into paragraph edits with stable ids and credits an edit on the clean lineage steps where it alone changed, pairing the carrying side against the lacking side on shared units through `pairedDeltaTest`. It reports linked edits, interacting pairs and inline skill candidates, with the signal `reusableHunks`; `agent-eval search show --edit-credit [--json]` prints it.
+- `landscape(state, embedding)` (`/search`) places nodes by landmark classical MDS of a pluggable distance, kriges the improvement over the root with each node's own noise, counts basins by persistence on the 6-nearest-neighbour graph, and signals `plateau`. `draftOnPlateau(base, { window, below })` drafts from the root when the plateau score is below one standard error.
+  `skillManifold(state, k?, options?)` (`/search`) factors the node x unit score matrix (a two-parameter item-response model when every cell is 0 or 1) and signals the unit whose next cell best separates the leaders; `skillCalibration` keeps its loadings and `asha({ extend: nextUnitExtension(calibration) })` fills each opened rung with them (off by default).
+  `agent-eval search show --landscape --skill-manifold` prints both; `scripts/search-sim.ts plateau|adaptive|lens-null` measures them.
 - `aide({ drafts, debugProbability, maxDebugDepth, stallAfter })` (`/campaign`) is AIDE's search policy with three changes for noisy scores ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
   It drafts whole alternatives from the root until `drafts` nodes (default 5) were drafted.
   Then, with probability `debugProbability` (0.5), it debugs a buggy leaf: a node whose final cells outside the test split `failed` at least half the time, so a defect such as a crash or a broken build, never an `errored` environment fault or a low score.
@@ -60,11 +72,6 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ## [0.196.0] — 2026-09-26
 
 ### Added
-
-- Search lenses (`/search/lenses`, search-tree-design §12): `tree`, `operatorYield`, `front` and `taskMatrix`, each a pure function of `SearchState` returning JSON for a view plus one named signal a `SearchPolicy` can read. `agent-eval search show` gains `--tree`/`--operator-yield`/`--front`/`--task-matrix` to print each lens's text form.
-  `operatorYield` groups edges by operator and reports outcome counts and improvement-per-known-dollar yield (via `searchPosterior`, excluding any node with an unknown-cost cell rather than flooring it). `front` is the Pareto frontier over score and known cost, reusing the existing `paretoFrontier` primitive, with room for caller-declared extra axes. `taskMatrix` clusters nodes and units by single-linkage clustering with a data-derived cutoff and reports each unit cluster's specialist gain (best node's mean minus the cluster mean).
-  `incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is a hill-climb `SearchPolicy` that draws its expansion operator from `operatorYield`'s signal once an operator has 6 or more measured outcomes (falling back to a fixed prior per operator until then, and adding a measured yield to that same prior rather than replacing it, so the two stay on comparable scales); `incumbent` itself is unchanged.
-  `scripts/generate-synthetic-search-ledger.ts` and `scripts/import-vb-climb.ts` (the latter through the GEPA importer) produce real ledgers these lenses are proved against; `scripts/prove-operator-bandit.mts` is a real-run (no-mock) proof of the bandit's draw distribution against the lens's own signal.
 
 - `skillOptOptimizationMethod({ searchLedger: { identity, path } })` records SkillOpt's search into a search ledger when it finishes and returns the receipt on `searchHistory`, as `gepaOptimizationMethod` does, so a comparison under `searchHistoryPolicy: 'require-complete'` accepts SkillOpt ([search ledger](./docs/search-ledger.md#record-a-search)).
   The baseline is the seeded root; every candidate the evaluation callback scored is a node with an `unknown` edge, because SkillOpt reports no parents; every evaluation is an `external` cell; the optimizer-model spend the model proxy metered is one operation; SkillOpt's choice is `selected` and every other node `rejected`.
