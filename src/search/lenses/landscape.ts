@@ -467,7 +467,10 @@ export function landscape(
   // shapes neither the surface nor a basin.
   const scored = records.filter(
     (record) =>
-      record.x !== null && record.score !== null && record.pairs >= 2 && record.status !== 'invalid',
+      record.x !== null &&
+      record.score !== null &&
+      record.pairs >= 2 &&
+      record.status !== 'invalid',
   )
   const variances = new Map(posterior.nodes.map((entry) => [entry.nodeId, entry.variance]))
   const gridResult = krige(records, scored, variances, columns, surfaceNodes)

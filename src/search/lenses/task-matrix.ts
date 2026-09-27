@@ -137,7 +137,8 @@ export function taskMatrix(
       if (complete) contributing.push({ nodeId, oriented: (sign * total) / cluster.members.length })
     }
     let best: { nodeId: string; oriented: number } | null = null
-    for (const entry of contributing) if (best === null || entry.oriented > best.oriented) best = entry
+    for (const entry of contributing)
+      if (best === null || entry.oriented > best.oriented) best = entry
     const row = {
       clusterId: cluster.id,
       unitIds: cluster.members,
