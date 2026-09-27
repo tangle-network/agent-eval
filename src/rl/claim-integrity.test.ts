@@ -228,6 +228,13 @@ describe('referee', () => {
       quote: 'easy',
       reason: 'c = 0',
     })
+    expect(
+      parseSourceScopeReferee('{"verdict": "excluded", "quote": "c in GF(2^m)\\{1\\}"}').quote,
+    ).toBe('c in GF(2^m)\\{1\\}')
+    // The reply holds `\(` (not a JSON escape) beside `\\` (an escaped backslash).
+    expect(
+      parseSourceScopeReferee(String.raw`{"verdict": "excluded", "reason": "\(c\\in GF\)"}`).reason,
+    ).toBe(String.raw`\(c\in GF\)`)
     expect(() => parseSourceScopeReferee('{"verdict": "fine"}')).toThrow(TypeError)
     expect(() => parseSourceScopeReferee('no json')).toThrow(TypeError)
   })
