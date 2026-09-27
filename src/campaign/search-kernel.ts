@@ -1264,7 +1264,9 @@ class SearchKernel<TArtifact> {
         await this.refresh()
         continue
       }
-      if (this.admitted.has(nodeId)) continue
+      // On resume, a child the divergence rule already decided invalid stays
+      // out: it is never screened, so it is never a parent.
+      if (this.admitted.has(nodeId) || node.status === 'invalid') continue
       this.admitted.add(nodeId)
       await this.allocateFor(nodeId)
       if ((this.pending.get(nodeId) ?? 0) === 0) this.markScreened(nodeId)
