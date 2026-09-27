@@ -1,12 +1,18 @@
 /**
  * Search lenses (search-tree-design §12): pure functions of `SearchState`.
- * Each returns JSON for a view and one named signal a `SearchPolicy` or an
- * allocator can read. No lens renders anything or reads a record type beyond
- * `SearchStateView`. `agent-eval search show` prints each lens's text form.
+ * Each returns JSON for a view and exactly one named signal a `SearchPolicy`
+ * or an allocator can read. No lens renders anything and none reads a record
+ * type beyond `SearchState`/`SearchStateView`. `agent-eval search show` prints
+ * each lens's text form (see `../../search-command.ts`); Intelligence,
+ * discovery lab, VerticalBench and agent-runtime `improve()` read the same
+ * JSON with no extra code.
  *
- * `editCredit` (signal `reusableHunks`); `landscape` (signal `plateau`, which
- * `draftOnPlateau` reads); `metaSearch` (signal: the best policy
- * configuration); `skillManifold` (signal `nextUnit`, which
+ * Lenses and the signal each exposes: `tree` (none, the base view),
+ * `operatorYield` (operator weights, which the operator bandit reads),
+ * `front` (front membership), `taskMatrix` (specialist gain per task family),
+ * `editCredit` (reusable hunks), `metaSearch` (the best policy
+ * configuration), `landscape` (`plateau`, which `draftOnPlateau` reads) and
+ * `skillManifold` (`nextUnit`, which
  * `asha({ extend: nextUnitExtension(calibration) })` reads).
  */
 
@@ -26,6 +32,8 @@ export {
   editCredit,
   editCreditText,
 } from './edit-credit'
+export type { FrontData, FrontExtraAxis, FrontOptions, FrontRow, FrontSignal } from './front'
+export { front } from './front'
 export type { GeometryLensResult, GeometrySignal } from './geometry'
 export { screenedNodes } from './geometry'
 export type {
@@ -70,6 +78,15 @@ export {
   searchPolicyGenome,
 } from './meta-search'
 export type {
+  ExpansionOperator,
+  OperatorOutcomeCounts,
+  OperatorYieldData,
+  OperatorYieldOptions,
+  OperatorYieldRow,
+  OperatorYieldSignal,
+} from './operator-yield'
+export { EXPANSION_OPERATORS, MIN_OUTCOMES_FOR_WEIGHT, operatorYield } from './operator-yield'
+export type {
   DraftOnPlateauOptions,
   SearchPlateau,
   SearchPlateauOptions,
@@ -92,3 +109,14 @@ export {
   skillCalibration,
   skillManifold,
 } from './skill-manifold'
+export type {
+  TaskMatrixCell,
+  TaskMatrixCluster,
+  TaskMatrixData,
+  TaskMatrixOptions,
+  TaskMatrixSignal,
+  TaskMatrixSpecialistRow,
+} from './task-matrix'
+export { taskMatrix } from './task-matrix'
+export type { TreeData, TreeNode } from './tree'
+export { tree } from './tree'

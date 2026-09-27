@@ -30,6 +30,7 @@
  */
 
 import { hashCanonical } from '../ledger-core/canonical'
+import { operatorYield } from '../search/lenses/operator-yield'
 import { redactText } from '../trace/redact'
 import type {
   SearchAllocationView,
@@ -1477,6 +1478,7 @@ export function searchPolicyView(
     },
     unitScores: (nodeId) => state.unitScores(nodeId, split),
     estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
+    operatorWeights: operatorYield(state, { split }).signal.value,
   }
 }
 
