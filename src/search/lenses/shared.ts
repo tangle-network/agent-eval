@@ -49,13 +49,20 @@ export interface SampleSummary {
   mean: number | null
   method: 'none' | 'insufficient' | 'descriptive' | 'bootstrap'
   interval: [number, number] | null
+  /** How `interval` was computed; null without one. The samples are
+   * independent (unpaired), so it is a percentile bootstrap of their mean:
+   * 1000 resamples at 95%, seeded by the caller or else by a hash of the data,
+   * so a fixed sample always gives the same interval. */
+  intervalMethod: 'percentile-bootstrap-of-mean' | null
 }
 
 export function summarizeSamples(samples: readonly number[], seed?: number): SampleSummary {
   const n = samples.length
-  if (n === 0) return { n, mean: null, method: 'none', interval: null }
+  if (n === 0) return { n, mean: null, method: 'none', interval: null, intervalMethod: null }
   const mean = samples.reduce((a, b) => a + b, 0) / n
-  if (n < INSUFFICIENT_FROM) return { n, mean, method: 'insufficient', interval: null }
+  if (n < INSUFFICIENT_FROM) {
+    return { n, mean, method: 'insufficient', interval: null, intervalMethod: null }
+  }
   const { lower, upper } = confidenceInterval(
     [...samples],
     0.95,
@@ -66,5 +73,6 @@ export function summarizeSamples(samples: readonly number[], seed?: number): Sam
     mean,
     method: n < BOOTSTRAP_GATE_MIN_N ? 'descriptive' : 'bootstrap',
     interval: [lower, upper],
+    intervalMethod: 'percentile-bootstrap-of-mean',
   }
 }

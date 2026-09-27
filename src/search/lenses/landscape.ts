@@ -374,12 +374,12 @@ export interface LandscapeData {
 }
 
 const GRID_METHOD =
-  "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it; no surface is drawn unless the length scale raises the log-likelihood by 1 or more over independent node scores"
+  "Gaussian-process regression (ordinary kriging) of node scores: a constant mean (generalized least squares), a squared-exponential covariance whose prior variance is the between-node variance of the scores minus their mean noise and whose length scale maximizes the marginal likelihood over 0.5, 1, 2 and 4 times the median nearest-neighbour distance, and each node's own noise variance (the pooled between-unit variance over its units shared with the root; the root is the reference at exactly 0); nodes with fewer than 2 shared units, and nodes decided invalid, are left out; a cell is null where the posterior variance exceeds half the prior variance, so the surface never extends past the nodes that support it; no surface is drawn unless the length scale raises the log-likelihood by 1 or more over independent node scores"
 /** Scored nodes a surface or a basin count needs: the library's minimum
  * sample for anything descriptive, as for units. */
 const SURFACE_MIN_NODES = INSUFFICIENT_FROM
 const BASIN_METHOD =
-  '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes, read on the leading MDS axes that hold 80% of the positive eigenvalue mass (2 to 8), joined into one component by the shortest edge between components (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by z standard errors of their difference, sqrt(pooled variance / shared units) per node, where z is the standard-normal quantile at 1 − 0.05 / (local maxima − 1), a Bonferroni bound over every peak that could survive, so a flat landscape of noisy nodes counts one basin at least 95% of the time; at most 2000 nodes, evenly spaced by registration plus the 100 best'
+  '0-dimensional persistence of node scores on the symmetric k-nearest-neighbour graph of placed nodes (not decided invalid, 2 or more units shared with the root), read on the leading MDS axes that hold 80% of the positive eigenvalue mass (2 to 8), joined into one component by the shortest edge between components (ToMATo, Chazal et al. 2013): nodes enter from the highest score down, and where two components meet, the lower peak merges into the higher unless it stands above that saddle node by z standard errors of their difference, sqrt(pooled variance / shared units) per node, where z is the standard-normal quantile at 1 − 0.05 / (local maxima − 1), a Bonferroni bound over every peak that could survive, so a flat landscape of noisy nodes counts one basin at least 95% of the time; at most 2000 nodes, evenly spaced by registration plus the 100 best'
 /** Nodes the basin graph holds: evenly spaced by registration, plus the best. */
 const BASIN_NODES = 2000
 const BASIN_TOP = 100
@@ -462,8 +462,12 @@ export function landscape(
     }
   }
 
+  // A node decided invalid keeps its place and score on the map, but its
+  // score (a judge integrity or admission failure, possibly a reward hack)
+  // shapes neither the surface nor a basin.
   const scored = records.filter(
-    (record) => record.x !== null && record.score !== null && record.pairs >= 2,
+    (record) =>
+      record.x !== null && record.score !== null && record.pairs >= 2 && record.status !== 'invalid',
   )
   const variances = new Map(posterior.nodes.map((entry) => [entry.nodeId, entry.variance]))
   const gridResult = krige(records, scored, variances, columns, surfaceNodes)
@@ -813,7 +817,7 @@ function krige(
   if (scored.length < SURFACE_MIN_NODES) {
     return {
       grid: null,
-      insufficient: `${plural(scored.length, 'placed node')} share 2 or more units with the root; a surface needs ${SURFACE_MIN_NODES}`,
+      insufficient: `${plural(scored.length, 'placed node')} not decided invalid share 2 or more units with the root; a surface needs ${SURFACE_MIN_NODES}`,
     }
   }
   const noiseOf = (node: LandscapeNode): number | null => variances.get(node.nodeId) ?? null
@@ -1093,7 +1097,7 @@ function graphBasins(
   let scored = scoredNodes
   if (scored.length < SURFACE_MIN_NODES) {
     return empty(
-      `${plural(scored.length, 'placed node')} share 2 or more units with the root; basins need ${SURFACE_MIN_NODES}`,
+      `${plural(scored.length, 'placed node')} not decided invalid share 2 or more units with the root; basins need ${SURFACE_MIN_NODES}`,
     )
   }
   if (pooledVariance === null || pooledVariance <= 0) {

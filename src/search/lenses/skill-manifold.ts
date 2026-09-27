@@ -455,9 +455,12 @@ export function skillManifold(
     const wanted = new Set(options.candidates)
     leaderRows = matrix.rows.flatMap((row, index) => (wanted.has(row.nodeId) ? [index] : []))
   } else {
+    // A node decided invalid (a judge integrity or admission failure) never
+    // leads: its score may be a reward hack, and cells spent separating it
+    // from the real leaders would be wasted (§6.6).
     const eligible = matrix.rows
       .map((row, index) => ({ row, index }))
-      .filter(({ row }) => row.observed.size >= leaderFloor)
+      .filter(({ row }) => row.observed.size >= leaderFloor && row.status !== 'invalid')
     leaderRows = eligible
       .sort(
         (left, right) =>

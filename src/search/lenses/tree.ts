@@ -19,7 +19,11 @@ export interface TreeNode {
    * parents are unknown (an `unknown`-attribution edge, or a derived root). */
   depth: number | null
   cellCount: number
+  /** The node's known spend. A partial when `unknownCostCells` is above 0:
+   * those cells add at least `floorUsd` more, and their true cost is unknown. */
   knownCostUsd: number
+  floorUsd: number
+  unknownCostCells: number
   /** The operator of the edge that registered this node's primary parent;
    * null for the root and for a node whose parents are unknown. */
   operator: SearchEdgeOperator | null
@@ -74,6 +78,8 @@ export function tree(state: SearchStateView): {
       depth: node.depth,
       cellCount: node.cellCount,
       knownCostUsd: node.spend.knownUsd,
+      floorUsd: node.spend.floorUsd,
+      unknownCostCells: node.spend.unknownCostCells,
       operator: primaryOperator.get(node.nodeId) ?? null,
       children: (childrenOf.get(nodeId) ?? []).map((childId) => build(childId)),
     }

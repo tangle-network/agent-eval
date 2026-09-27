@@ -65,7 +65,7 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         Intelligence, discovery lab, VerticalBench and agent-runtime read.
         --tree           the tidy tree of nodes and edges.
         --operator-yield outcome counts and yield per known dollar, by edge operator.
-        --front          the Pareto front over score and known cost.
+        --front          the Pareto front over score and known cost per cell.
         --task-matrix    nodes × units, clustered, with specialist gain per cluster.
         --edit-credit    every edit as a gene followed down the lineage, its
                          credit, interacting pairs, and skill candidates. It
@@ -291,8 +291,12 @@ function renderTreeText(data: TreeData): string {
     const op = node.operator ? `${node.operator} → ` : ''
     const rung = node.rung === null ? '' : ` rung ${node.rung}`
     const depth = node.depth === null ? ' depth unknown' : ''
+    const cost =
+      node.unknownCostCells === 0
+        ? `$${node.knownCostUsd.toFixed(2)}`
+        : `$${node.knownCostUsd.toFixed(2)} known + at least $${node.floorUsd.toFixed(2)} over ${node.unknownCostCells} unknown-cost cell${node.unknownCostCells === 1 ? '' : 's'}`
     lines.push(
-      `${prefix}${branch}${op}${node.nodeId} (${node.status ?? 'undecided'}${rung}${depth}) $${node.knownCostUsd.toFixed(2)}`,
+      `${prefix}${branch}${op}${node.nodeId} (${node.status ?? 'undecided'}${rung}${depth}) ${cost}`,
     )
     const childPrefix = prefix + (prefix === '' ? '' : isLast ? '   ' : '│  ')
     node.children.forEach((child, index) => {
@@ -319,9 +323,11 @@ function renderOperatorYieldText(data: OperatorYieldData): string {
         ? 'yield: no measured children'
         : y.method === 'insufficient'
           ? `yield≈${y.mean!.toFixed(4)}/$ (${y.n} of ${INSUFFICIENT_FROM}, insufficient)`
-          : `yield≈${y.mean!.toFixed(4)}/$ [${y.interval![0].toFixed(4)}, ${y.interval![1].toFixed(4)}] (${y.method}, n=${y.n})`
+          : `yield≈${y.mean!.toFixed(4)}/$ [${y.interval![0].toFixed(4)}, ${y.interval![1].toFixed(4)}] (${y.method}, ${y.intervalMethod}, n=${y.n})`
+    const nodes = Object.values(row.outcomes).reduce((sum, count) => sum + count, 0)
+    const reproposals = row.reproposals > 0 ? `, ${row.reproposals} re-proposals` : ''
     lines.push(
-      `  ${row.operator}: ${row.proposals} proposals (${outcomes || 'no decisions yet'}); ${yieldText}; ${row.excluded} excluded`,
+      `  ${row.operator}: ${row.proposals} proposals${reproposals} → ${nodes} node${nodes === 1 ? '' : 's'} (${outcomes || 'no decisions yet'}); ${yieldText}; ${row.excluded} excluded`,
     )
   }
   return lines.join('\n')
@@ -329,12 +335,16 @@ function renderOperatorYieldText(data: OperatorYieldData): string {
 
 function renderFrontText(data: FrontData): string {
   const onFront = data.rows.filter((row) => row.onFront)
+  const reasons = Object.entries(data.exclusions)
+    .filter(([, count]) => count > 0)
+    .map(([reason, count]) => `${reason} ${count}`)
+    .join(', ')
   const lines = [
-    `front (${data.split} split, axes: ${data.axes.join(', ')}): ${data.frontierSize} of ${data.rows.length} node(s) on the frontier, ${data.excludedCount} excluded`,
+    `front (${data.split} split, axes: ${data.axes.join(', ')}): ${data.frontierSize} of ${data.rows.length} node(s) on the frontier, ${data.excludedCount} excluded${reasons ? ` (${reasons})` : ''}`,
   ]
   for (const row of onFront) {
     lines.push(
-      `  ${row.nodeId}: score=${row.score!.toFixed(4)} knownCost=$${row.knownCostUsd.toFixed(2)}`,
+      `  ${row.nodeId}: score=${row.score!.toFixed(4)} on ${row.units} units (${row.method}) costPerCell=$${row.costPerCellUsd!.toFixed(4)}`,
     )
   }
   return lines.join('\n')
@@ -342,13 +352,13 @@ function renderFrontText(data: FrontData): string {
 
 function renderTaskMatrixText(data: TaskMatrixData): string {
   const lines = [
-    `task matrix (${data.split} split): ${data.nodeIds.length} node(s) × ${data.unitIds.length} unit(s), ${data.nodeClusters.length} node cluster(s), ${data.unitClusters.length} unit cluster(s)`,
+    `task matrix (${data.split} split, ${data.direction}): ${data.nodeIds.length} node(s) × ${data.unitIds.length} unit(s), ${data.nodeClusters.length} node cluster(s), ${data.unitClusters.length} unit cluster(s)`,
   ]
   for (const row of data.specialistGain) {
     const gain =
       row.gain === null
-        ? `insufficient (${row.nodesContributing} node${row.nodesContributing === 1 ? '' : 's'})`
-        : `${row.gain.toFixed(4)} (n=${row.nodesContributing})`
+        ? `insufficient (${row.insufficient})`
+        : `${row.gain.toFixed(4)} (best ${row.bestNodeId}, ${row.nodesContributing} nodes on ${row.unitIds.length} units)`
     lines.push(`  cluster ${row.clusterId} [${row.unitIds.join(', ')}]: specialist gain ${gain}`)
   }
   return lines.join('\n')
