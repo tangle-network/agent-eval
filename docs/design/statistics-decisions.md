@@ -299,7 +299,7 @@ That is why the option stays optional — a required seed would push the caller 
 | `summary-report.ts` `bayesianBootstrapMeanSamples` | Dirichlet-weight bootstrap | reported posterior and gain histogram | `makeRng(seed, deltas)` |
 | `meta-eval/rubric-predictive-validity.ts` `bootstrapCi` | percentile bootstrap of Pearson r | rubric verdict (`load_bearing` / `informative`) | `makeRng(input.seed, xs, ys)` |
 | `meta-eval/correlation-study.ts` `bootstrapPearsonCi` | percentile bootstrap of Pearson r | reported correlation CI | `makeRng(options.seed, xs, ys)` |
-| `rl/active-curriculum.ts` `thompsonCurriculum` | Beta posterior sampling | sample-budget allocation | `makeRng(opts.seed, scores)` |
+| `campaign/search-policy.ts` `aide` | Thompson draw over node posteriors, the debug coin, the debug and uniform draws | the parent an expansion extends (spends budget, claims nothing) | `mulberry32(seed ^ imul(completed expansions + 1, 0x9e3779b1) ^ salt)`, a pure function of the ledger |
 | `rl/adaptation-eval.ts` `compareAdaptationCurves` | bootstrap of per-k mean deltas | per-k CI and AUC delta | `makeRng(opts.seed, a-means, b-means)` |
 | `campaign/gates/sequential.ts` | seeded Fisher-Yates over paired deltas | exchangeability guard before the e-process | `shuffleSeed`, default 1337, data-independent by construction |
 
