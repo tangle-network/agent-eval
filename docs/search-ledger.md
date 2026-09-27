@@ -309,8 +309,11 @@ Aborting the `signal` pauses the search: in-flight cells are aborted, a scored r
 One kernel runs a ledger file at a time on a host: a second one is refused by a pid lock beside the ledger, and a killed holder's lock is reclaimed.
 A closed ledger returns its result; more work on a closed search is a new search.
 
-An `asha` search ranks a node when it finishes a rung, so a restart that changes the order cells finish in can change a promotion.
-Its resumed ledger holds only rank decisions that its own evidence supports.
+A node an allocator advanced stays a possible parent while its rung cells run, after a restart too.
+An `asha` search ranks a node when it finishes a rung, and `aide` and `beam` expand while other screens run.
+A restart that changes the order cells finish in can therefore change a promotion or a parent.
+The resumed ledger holds only decisions that its own evidence supports.
+A hill climb under `uniform` waits for every screen, so its resumed search equals the uninterrupted one.
 
 `scripts/search-sim.ts` runs the real kernel, ledger, policies and claim over a seeded synthetic objective, proposer and executor.
 `kill-resume` SIGKILLs it at random ledger positions and compares the resumed search with an uninterrupted one.
@@ -320,6 +323,7 @@ Its resumed ledger holds only rank decisions that its own evidence supports.
 `--pool-gap X` swaps the hill climb for a fixed pool with one planted best candidate; `--deep-gain X` plants a gain at depth `--deep-depth` (default 3) of one lineage, behind neutral path nodes (or a gradient with `--deep-ramp`), with every other edit a loss.
 `--defect-rate X` makes a share of children fail every cell as a defect, which `aide` debugs.
 Every simulated run re-derives each `advanced` and `pruned` decision from the ledger just before it.
+It also rebuilds the policy's view from the ledger just before each proposal started and checks that the policy returns the recorded parents, operator and selection evidence.
 
 ## The claim
 

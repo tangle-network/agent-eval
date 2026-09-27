@@ -23,6 +23,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Changed
 
 - The kernel refuses an expansion without a parent, or with a parent whose screen has not finished.
+- `SearchPolicyView.operatorWeights` is computed when a policy first reads it, not for every view.
+
+### Fixed
+
+- A restarted kernel keeps a node an allocator advanced among the screened nodes while its rung cells run; before, `aide` and `beam` could not choose it as a parent until those cells finished, where the uninterrupted search could.
 
 ### Removed
 
