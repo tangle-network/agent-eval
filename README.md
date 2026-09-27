@@ -133,6 +133,7 @@ The [historical evidence audit](./docs/design/self-improvement-evidence-audit.md
 
 Set `searchHistoryPolicy: 'require-complete'` when a method's search must be closed, with every cell, operation and node accounted for, before final evidence is exposed.
 The [search ledger](./docs/search-ledger.md) records every search as nodes, edges and cells, and its receipt is the bounded proof.
+Eight [lenses](./docs/search-ledger.md#all-eight-lenses-one-page) read that ledger and each expose one named signal a `SearchPolicy` can read — `operatorYield` for operator choice, `landscape` for a plateau-triggered draft, `skillManifold` for adaptive unit selection, `metaSearch` for tuning the climber itself — so `agent-eval search show <ledger> --operator-yield` prints the same numbers a policy or Intelligence would use.
 
 A `gateDecision` is `ship`, `hold`, `need_more_work`, `model_ceiling`, or `arch_ceiling`.
 Gate contributions distinguish missing evidence from measured failures and successful checks.
