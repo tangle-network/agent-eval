@@ -156,6 +156,24 @@ Every order a lens reports, such as a cluster id, sorts by UTF-16 code unit, so 
 
 `agent-eval search show <ledger> [--tree] [--operator-yield] [--front] [--task-matrix]` prints each lens's text form below the search summary, so an agent reading the CLI sees the same numbers Intelligence, discovery lab, VerticalBench and agent-runtime `improve()` would render from the same JSON.
 
+The task matrix evaluates each node pair and each unit pair at most twice.
+Clustering preserves the median cutoff, missing-score rules, deterministic ordering, and specialist gains.
+Piped CLI output includes the complete JSON before the process exits.
+
+Run the proof against retained search ledgers:
+
+```sh
+pnpm build
+pnpm exec tsx scripts/prove-task-matrix.mts /path/to/search-ledger.jsonl
+```
+
+The proof compares piped CLI JSON with the library result and enforces the distance-call bound using V8 counters.
+It reports ledger hashes, dimensions, complete output size, and elapsed library time.
+Wall time is descriptive; the operation count is the performance guard.
+On a retained 501-node, 24-unit scale ledger, node-distance calls fell from 44,650,773 to 250,500.
+The complete 1,668,617-byte CLI output stayed identical.
+This scale ledger is generated data; it does not establish research quality or a live deployment speedup.
+
 `incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is the one built-in policy that reads a lens signal: a hill climb, like `incumbent`, whose expansion operator is a weighted draw over `operatorYield`'s weights.
 An operator without 6 measured outcomes yet draws on `fixedWeights` (uniform by default) instead of being starved until every operator clears the gate; a measured operator's weight is `fixedWeights[operator] + yield`, floored just above zero, because yield (dollars) and the fixed prior (an arbitrary share) are not on the same scale and a small positive yield should not draw less than an untested operator's default prior.
 

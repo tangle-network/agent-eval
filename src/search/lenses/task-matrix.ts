@@ -3,10 +3,10 @@
  * method (search-tree-design §12). No numeric-matrix clustering primitive
  * exists elsewhere in agent-eval (`pipelines/failure-cluster.ts` groups by an
  * exact categorical key, not by distance over a score matrix), so this lens
- * adds one: single-linkage agglomerative clustering with a data-derived
+ * adds one: single-linkage clustering with a data-derived
  * cutoff (the median of the finite pairwise distances), so nothing is a fixed
- * magic constant and two items with no shared observation never merge — they
- * have no finite distance to compare. A distance is the root mean square
+ * magic constant. Pairs without a shared observation have no direct link,
+ * but can share a component through other items. A distance is the root mean square
  * difference over the observations both items share, so a pair measured on
  * 24 shared units is not farther apart than a pair on 6 only because it has
  * more terms.
@@ -213,21 +213,21 @@ function unitDistance(
 }
 
 /**
- * Single-linkage agglomerative clustering. The cutoff is the median of the
+ * Single-linkage connected components. The cutoff is the median of the
  * finite pairwise distances measured before any merge — a threshold the data
- * itself sets, not a constant this lens chooses. Two items with no finite
- * distance (no shared observation) can never merge. Stopped at a cutoff,
+ * itself sets, not a constant this lens chooses. Only finite distances
+ * connect a pair directly. Stopped at a cutoff,
  * single linkage yields the connected components of the graph whose edges
  * are the pairs at most the cutoff apart, so the merge order cannot change
- * the result. The clusters and their members are sorted by UTF-16 code unit,
+ * the result. Each pair is measured at most twice, without rescanning merged
+ * clusters. The clusters and their members are sorted by UTF-16 code unit,
  * never by the host's locale, so a cluster id is the same on every machine.
  */
 function clusterBy(
   ids: readonly string[],
   distance: (a: string, b: string) => number,
 ): TaskMatrixCluster[] {
-  let clusters: string[][] = ids.map((id) => [id])
-  if (clusters.length <= 1) return clusters.map(toCluster)
+  if (ids.length <= 1) return ids.map((id) => toCluster([id]))
 
   const finite: number[] = []
   for (let i = 0; i < ids.length; i++) {
@@ -236,27 +236,32 @@ function clusterBy(
       if (Number.isFinite(d)) finite.push(d)
     }
   }
-  if (finite.length === 0) return clusters.map(toCluster)
+  if (finite.length === 0) return ids.map((id) => toCluster([id]))
   finite.sort((a, b) => a - b)
   const cutoff = finite[Math.floor(finite.length / 2)]!
 
-  for (;;) {
-    let best: { i: number; j: number; d: number } | null = null
-    for (let i = 0; i < clusters.length; i++) {
-      for (let j = i + 1; j < clusters.length; j++) {
-        let d = Number.POSITIVE_INFINITY
-        for (const a of clusters[i]!) for (const b of clusters[j]!) d = Math.min(d, distance(a, b))
-        if (d > cutoff) continue
-        if (best === null || d < best.d) best = { i, j, d }
-      }
+  const parents = ids.map((_, index) => index)
+  function root(index: number): number {
+    while (parents[index] !== index) {
+      parents[index] = parents[parents[index]!]!
+      index = parents[index]!
     }
-    if (!best) break
-    const merged = [...clusters[best.i]!, ...clusters[best.j]!]
-    clusters = clusters.filter((_, index) => index !== best!.i && index !== best!.j)
-    clusters.push(merged)
+    return index
+  }
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      if (distance(ids[i]!, ids[j]!) <= cutoff) parents[root(j)] = root(i)
+    }
   }
 
-  return clusters.map(toCluster).sort((a, b) => compareCodeUnits(a.id, b.id))
+  const clusters = new Map<number, string[]>()
+  for (let i = 0; i < ids.length; i++) {
+    const representative = root(i)
+    const members = clusters.get(representative) ?? []
+    members.push(ids[i]!)
+    clusters.set(representative, members)
+  }
+  return [...clusters.values()].map(toCluster).sort((a, b) => compareCodeUnits(a.id, b.id))
 }
 
 function toCluster(members: string[]): TaskMatrixCluster {
