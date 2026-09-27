@@ -522,6 +522,7 @@ export {
   beam,
   crowdedFrontierParent,
   incumbent,
+  incumbentWithOperatorBandit,
   type SearchExpansion,
   type SearchPolicy,
   type SearchPolicyNode,

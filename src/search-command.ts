@@ -2,7 +2,8 @@
  * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
- *   agent-eval search show <search-ledger.jsonl> [--edit-credit] [--json]
+ *   agent-eval search show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix] [--edit-credit] [--json]
+ *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
  * `TANGLE_INGEST_API_KEY` and `TANGLE_TENANT_ID`, starting from the store's
@@ -15,6 +16,11 @@
  * search-tree design). A lens flag adds that lens's text form after the
  * summary, so an agent reads what a person sees; `--json` prints the lens
  * results as JSON instead, the shape a view renders.
+ *
+ * `show --meta` reads every ledger it is given and prints the `metaSearch`
+ * lens over them instead of one search's summary: each search as one node
+ * scored by its held-out lift per known dollar, the configurations best first,
+ * and the searches arranged by derivation and containment.
  */
 
 import { createHash } from 'node:crypto'
@@ -30,6 +36,12 @@ import { hostedTenantFromEnv } from './hosted/client'
 import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/search-ledger-wire'
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
 import { editCredit, editCreditText } from './search/lenses/edit-credit'
+import { type FrontData, front } from './search/lenses/front'
+import { metaSearch, renderMetaSearchText } from './search/lenses/meta-search'
+import { type OperatorYieldData, operatorYield } from './search/lenses/operator-yield'
+import { INSUFFICIENT_FROM } from './search/lenses/shared'
+import { type TaskMatrixData, taskMatrix } from './search/lenses/task-matrix'
+import { type TreeData, type TreeNode, tree } from './search/lenses/tree'
 
 const USAGE = `usage: agent-eval search <subcommand> ...
 
@@ -40,16 +52,31 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         running it again sends only what the store lacks. Prints the result as JSON.
         Exits 1 when the store holds a different chain for the search.
 
-  show <search-ledger.jsonl> [--edit-credit] [--json]
+  show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix]
+                              [--edit-credit] [--json]
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
-        search's own ranking split.
-        --edit-credit  adds the edit-credit lens: every edit as a gene followed
-                       down the lineage, its credit, interacting pairs, and
-                       skill candidates. It reads node artifacts from the
-                       blobs the ledger names, verified by digest.
-        --json         prints the requested lenses as JSON instead of text.`
+        search's own ranking split. Each lens flag adds that lens's text form
+        (search-tree-design §12) below the summary — the same JSON
+        Intelligence, discovery lab, VerticalBench and agent-runtime read.
+        --tree           the tidy tree of nodes and edges.
+        --operator-yield outcome counts and yield per known dollar, by edge operator.
+        --front          the Pareto front over score and known cost.
+        --task-matrix    nodes × units, clustered, with specialist gain per cluster.
+        --edit-credit    every edit as a gene followed down the lineage, its
+                         credit, interacting pairs, and skill candidates. It
+                         reads node artifacts from the blobs the ledger names,
+                         verified by digest.
+        --json           prints the requested lenses as JSON instead of text.
+
+  show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
+        Verifies every ledger and prints the meta-search lens over them: each
+        search as one node, scored by its claim's held-out lift per known
+        dollar (unscored searches say why), configurations best first with
+        their interval, method and n, and the searches arranged by derivation
+        and containment. --objective names the objective the best
+        configuration is chosen within when the searches span several.`
 
 export async function runSearchCommand(argv: string[]): Promise<number> {
   const [subcommand, ...rest] = argv
@@ -101,6 +128,7 @@ async function runShowCommand(argv: string[]): Promise<number> {
     process.stdout.write(`${USAGE}\n`)
     return 0
   }
+  if (argv.includes('--meta')) return await runShowMetaCommand(argv)
   const positional = argv.filter((arg) => !arg.startsWith('--'))
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')))
   const unknown = [...flags].filter((flag) => !SHOW_FLAGS.has(flag))
@@ -130,7 +158,46 @@ async function runShowCommand(argv: string[]): Promise<number> {
   return 0
 }
 
-const SHOW_FLAGS = new Set(['--edit-credit', '--json'])
+async function runShowMetaCommand(argv: string[]): Promise<number> {
+  const paths: string[] = []
+  let objective: string | undefined
+  let json = false
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index]!
+    if (token === '--meta') continue
+    if (token === '--json') {
+      json = true
+      continue
+    }
+    if (token === '--objective') {
+      objective = argv[++index]
+      if (objective === undefined) throw new Error(`--objective needs a value\n${USAGE}`)
+      continue
+    }
+    if (token.startsWith('--')) throw new Error(`unknown flag ${token}\n${USAGE}`)
+    paths.push(token)
+  }
+  if (paths.length === 0) throw new Error(`show --meta needs at least one ledger\n${USAGE}`)
+  const states = []
+  for (const path of paths) {
+    const searchId = await firstLineSearchId(path)
+    states.push(replaySearchLedgerText(await readFile(path, 'utf8'), searchId, path))
+  }
+  const lens = metaSearch(states, objective === undefined ? {} : { objective })
+  process.stdout.write(
+    json ? `${JSON.stringify({ metaSearch: lens }, null, 2)}\n` : `${renderMetaSearchText(lens)}\n`,
+  )
+  return 0
+}
+
+const SHOW_FLAGS = new Set([
+  '--edit-credit',
+  '--json',
+  '--tree',
+  '--operator-yield',
+  '--front',
+  '--task-matrix',
+])
 
 function showLenses(
   state: SearchStateView,
@@ -138,6 +205,22 @@ function showLenses(
   flags: ReadonlySet<string>,
 ): Array<{ name: string; result: unknown; text: string }> {
   const lenses: Array<{ name: string; result: unknown; text: string }> = []
+  if (flags.has('--tree')) {
+    const result = tree(state)
+    lenses.push({ name: 'tree', result, text: renderTreeText(result.data) })
+  }
+  if (flags.has('--operator-yield')) {
+    const result = operatorYield(state)
+    lenses.push({ name: 'operatorYield', result, text: renderOperatorYieldText(result.data) })
+  }
+  if (flags.has('--front')) {
+    const result = front(state)
+    lenses.push({ name: 'front', result, text: renderFrontText(result.data) })
+  }
+  if (flags.has('--task-matrix')) {
+    const result = taskMatrix(state)
+    lenses.push({ name: 'taskMatrix', result, text: renderTaskMatrixText(result.data) })
+  }
   if (flags.has('--edit-credit')) {
     const result = editCredit(state, { readArtifact: ledgerBlobReader(ledgerPath) })
     lenses.push({ name: 'editCredit', result, text: editCreditText(result) })
@@ -173,6 +256,78 @@ function ledgerBlobReader(ledgerPath: string): (ref: SearchArtifactRef) => unkno
     cache.set(ref.sha256, value)
     return value
   }
+}
+
+function renderTreeText(data: TreeData): string {
+  const lines = [
+    `tree: ${data.nodeCount} node${data.nodeCount === 1 ? '' : 's'}, ${data.edgeCount} edge${data.edgeCount === 1 ? '' : 's'}`,
+  ]
+  const walk = (node: TreeNode, prefix: string, isLast: boolean): void => {
+    const branch = prefix === '' ? '' : isLast ? '└─ ' : '├─ '
+    const op = node.operator ? `${node.operator} → ` : ''
+    const rung = node.rung === null ? '' : ` rung ${node.rung}`
+    const depth = node.depth === null ? ' depth unknown' : ''
+    lines.push(
+      `${prefix}${branch}${op}${node.nodeId} (${node.status ?? 'undecided'}${rung}${depth}) $${node.knownCostUsd.toFixed(2)}`,
+    )
+    const childPrefix = prefix + (prefix === '' ? '' : isLast ? '   ' : '│  ')
+    node.children.forEach((child, index) => {
+      walk(child, childPrefix, index === node.children.length - 1)
+    })
+  }
+  data.roots.forEach((root, index) => {
+    walk(root, '', index === data.roots.length - 1)
+  })
+  return lines.join('\n')
+}
+
+function renderOperatorYieldText(data: OperatorYieldData): string {
+  const lines = [`operator yield (${data.split} split):`]
+  if (data.rows.length === 0) lines.push('  no edges yet')
+  for (const row of data.rows) {
+    const y = row.yield
+    const outcomes = Object.entries(row.outcomes)
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => `${status}=${count}`)
+      .join(' ')
+    const yieldText =
+      y.method === 'none'
+        ? 'yield: no measured children'
+        : y.method === 'insufficient'
+          ? `yield≈${y.mean!.toFixed(4)}/$ (${y.n} of ${INSUFFICIENT_FROM}, insufficient)`
+          : `yield≈${y.mean!.toFixed(4)}/$ [${y.interval![0].toFixed(4)}, ${y.interval![1].toFixed(4)}] (${y.method}, n=${y.n})`
+    lines.push(
+      `  ${row.operator}: ${row.proposals} proposals (${outcomes || 'no decisions yet'}); ${yieldText}; ${row.excluded} excluded`,
+    )
+  }
+  return lines.join('\n')
+}
+
+function renderFrontText(data: FrontData): string {
+  const onFront = data.rows.filter((row) => row.onFront)
+  const lines = [
+    `front (${data.split} split, axes: ${data.axes.join(', ')}): ${data.frontierSize} of ${data.rows.length} node(s) on the frontier, ${data.excludedCount} excluded`,
+  ]
+  for (const row of onFront) {
+    lines.push(
+      `  ${row.nodeId}: score=${row.score!.toFixed(4)} knownCost=$${row.knownCostUsd.toFixed(2)}`,
+    )
+  }
+  return lines.join('\n')
+}
+
+function renderTaskMatrixText(data: TaskMatrixData): string {
+  const lines = [
+    `task matrix (${data.split} split): ${data.nodeIds.length} node(s) × ${data.unitIds.length} unit(s), ${data.nodeClusters.length} node cluster(s), ${data.unitClusters.length} unit cluster(s)`,
+  ]
+  for (const row of data.specialistGain) {
+    const gain =
+      row.gain === null
+        ? `insufficient (${row.nodesContributing} node${row.nodesContributing === 1 ? '' : 's'})`
+        : `${row.gain.toFixed(4)} (n=${row.nodesContributing})`
+    lines.push(`  cluster ${row.clusterId} [${row.unitIds.join(', ')}]: specialist gain ${gain}`)
+  }
+  return lines.join('\n')
 }
 
 function parseShipArgs(argv: string[]): { path: string; flags: Record<string, string> } {

@@ -139,6 +139,24 @@ renderSearchSummary(state, { split: 'train' })
 `searchProposerView(state)` has no parameter that can select another split: its `scoredCells`/`unitScores` always read `'train'`, so a proposer built on it cannot reach the sealed selection or test split even by mistake.
 `ProposeContext.parents` carries every parent the policy chose, primary first, with its artifact — `currentSurface` is `parents[0].artifact`; a `merge` proposal needs every parent, and the built-in `incumbent`/`crowdedFrontierParent` policies always choose one.
 
+## Lenses
+
+A lens (`@tangle-network/agent-eval/search`, search-tree-design §12) is a pure function of a `SearchStateView`: it reads no other record type and does no I/O.
+Each returns `{ data, signal }` — `data` is JSON a view or `agent-eval search show` renders, and `signal` is exactly one named, quantitative value a `SearchPolicy` can read, so what a person sees and what the climber uses come from the same computation.
+No lens imputes a value below the design's honesty thresholds: an unknown cost or an unpaired sample stays excluded, reported as `insufficient` or `no measured children` rather than folded into a number.
+
+| Lens | Reports | Signal |
+|---|---|---|
+| `tree(state)` | a tidy tree of nodes and edges — the base view every other lens sits beside | `tree.nodeCount` (drives no policy) |
+| `operatorYield(state, { split? })` | each edge operator's outcome counts and improvement-per-known-dollar yield, from `searchPosterior` (`estimateNode`'s tree-wide contrast); a node is excluded from yield when any of its cells has an unknown cost | `operatorYield.weights`: an operator's yield mean once it has 6 or more yield-eligible outcomes (`MIN_OUTCOMES_FOR_WEIGHT`), else `null` |
+| `front(state, { split?, axes? })` | the Pareto frontier over per-unit mean score and known cost (reusing `paretoFrontier`), with room for caller-declared extra axes; a node with an unknown cost or a non-finite extra axis is excluded from every frontier pass | `front.membership`: 1 for a node on the frontier, 0 otherwise (including an excluded node) |
+| `taskMatrix(state, { split? })` | nodes and units, each single-linkage clustered on Euclidean distance over their shared scores, cutoff at the data's own median pairwise distance | `taskMatrix.specialistGain`: per unit cluster, the best node's mean minus the cluster's mean, among nodes contributing (`null`, omitted from the signal, below 2 contributing nodes) |
+
+`agent-eval search show <ledger> [--tree] [--operator-yield] [--front] [--task-matrix]` prints each lens's text form below the search summary, so an agent reading the CLI sees the same numbers Intelligence, discovery lab, VerticalBench and agent-runtime `improve()` would render from the same JSON.
+
+`incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is the one built-in policy that reads a lens signal: a hill climb, like `incumbent`, whose expansion operator is a weighted draw over `operatorYield`'s weights.
+An operator without 6 measured outcomes yet draws on `fixedWeights` (uniform by default) instead of being starved until every operator clears the gate; a measured operator's weight is `fixedWeights[operator] + yield`, floored just above zero, because yield (dollars) and the fixed prior (an arbitrary share) are not on the same scale and a small positive yield should not draw less than an untested operator's default prior.
+
 ## Edit credit: which edits earned their score
 
 `editCredit(state, { readArtifact })` (`@tangle-network/agent-eval/search`) treats the edits of a search as genes and follows them down its lineage.
@@ -338,6 +356,31 @@ A judge change is a changed `search-opened` header, which `SearchRecorder.open` 
 `compareOptimizationMethods` keeps its own held-out comparison for black-box methods such as GEPA, which return one winner and never see the test split.
 A method's search ledger closes before the comparison starts, so the comparison cannot add claim cells to it.
 
+## A search of searches: `metaSearch` and nested searches
+
+`metaSearch(searches, { objective? })` (`@tangle-network/agent-eval/search`) treats each search as one node.
+Its genome is the configuration its ledger records: expansion policy, allocator, budget, proposer and the proposer's model.
+A policy parameter equal to the search's own seed reads `seed=<search>`, so one configuration run on different seeds is one genome.
+Its score is `metaSearchScore(state)`: the claim's held-out lift per known dollar of the whole search.
+The lift is `estimateNode` of the shipped node, or on `hold` of the first finalist the claim fixed before test, against the root on the test split.
+A search that is open, has no claim, cannot resolve its test, held with no finalist tested, pairs fewer than 2 test units, or has a claim its ledger contradicts is unscored with that reason, never 0.
+A search with an unknown-cost cell has only a floor, so its lift per dollar is a bound that enters no estimate.
+
+Searches form a forest by derivation (`derivedFrom`) and containment (`containment`).
+Configurations group searches of one genome within one objective.
+A configuration's estimate is the mean over its scored searches with a percentile bootstrap interval, staged like `NodeEstimate.method` by the number of searches; one scored search carries its own paired interval over its test units.
+Every configuration reports how many of its searches were scored.
+The signal `metaSearch.bestPolicyConfiguration` names the configuration with the largest estimate within one objective, with its interval, method, n and coverage; it is a point ranking, not a test.
+`agent-eval search show <ledger> [<ledger> ...] --meta [--objective <key>] [--json]` prints the lens as text, or as JSON with `--json`.
+
+`runNestedSearch` runs an outer search whose cells are inner searches, on the same kernel.
+An outer node is a configuration (`runtime-config`), an outer task is a problem, and each outer cell runs one inner search of its node's configuration on its task's problem.
+The inner search records the outer cell attempt as its `containment`, and its id is a digest of that attempt, so a rerun resumes the inner ledger instead of starting again.
+The outer cell scores `metaSearchScore` of the closed inner search, costs what the inner search spent, and binds the inner head hash.
+An inner search without a known lift per dollar settles its cell `errored` and not retryable, so its configuration cannot lead on missing evidence.
+The outer search's judge is `META_SEARCH_SCORE_SOURCE`, and with a test split it claims once, on held-out problems, whether a configuration beats the root configuration.
+`scripts/search-meta-sim.ts` runs one over simulator configurations with no model spend.
+
 ## Ship a search
 
 A hosted store (Intelligence, or the reference receiver in `examples/hosted-ingest-server/`) receives a search through the [hosted ingest wire](./hosted-ingest-spec.md).
@@ -392,4 +435,6 @@ Those claims need the sealed test split, the claim's power check, and held-out e
 - `src/campaign/presets/run-optimization.ts`: `runOptimization` as a search on the kernel.
 - `src/campaign/gepa-search-import.ts`: the GEPA population and evaluation importers.
 - `src/campaign/search-history-receipt.ts`: receipts and admission.
+- `src/search/lenses/meta-search.ts`: `metaSearch`, `metaSearchScore`, `searchPolicyGenome` and `renderMetaSearchText`.
+- `src/search/nested-search.ts`: `runNestedSearch`, `nestedSearchId` and `searchConfigCodec`.
 - `src/ledger-core/`: hashing, locking, durable appends, chain verification, and the trusted-head pin.

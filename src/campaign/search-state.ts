@@ -210,6 +210,9 @@ export interface SearchOperation {
   recorded: boolean
   /** The recorded outcome; null until the operation is recorded. */
   outcome: SearchOperationRecordedEvent['outcome']['status'] | null
+  /** What ran the operation, for example a proposer's model; null until the
+   * operation is recorded. */
+  execution: SearchOperationRecordedEvent['execution'] | null
   /** Artifacts the started event bound, then those the recorded event bound,
    * for example a claim's plan or a proposal's output. */
   artifacts: readonly SearchArtifactRef[]
@@ -430,6 +433,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       reservation: event.reservation,
       recorded: false,
       outcome: null,
+      execution: null,
       artifacts: event.artifacts,
       spentUsd: 0,
     })
@@ -460,6 +464,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     }
     operation.recorded = true
     operation.outcome = event.outcome.status
+    operation.execution = event.execution
     operation.artifacts = [...operation.artifacts, ...event.artifacts]
     operation.spentUsd = cost.usd
     this.audit.operations.recorded += 1

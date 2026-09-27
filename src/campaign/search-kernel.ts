@@ -30,6 +30,7 @@
  */
 
 import { hashCanonical } from '../ledger-core/canonical'
+import { type OperatorYieldSignal, operatorYield } from '../search/lenses/operator-yield'
 import { redactText } from '../trace/redact'
 import type {
   SearchAllocationView,
@@ -1465,6 +1466,7 @@ export function searchPolicyView(
   if (!header) throw new Error(`search ${state.searchId} has not been opened`)
   const split = header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
   let nodes: SearchPolicyNode[] | undefined
+  let operatorWeights: OperatorYieldSignal | undefined
   return {
     searchId: state.searchId,
     seed: header.policy.seed,
@@ -1501,6 +1503,10 @@ export function searchPolicyView(
         POSTERIORS.set(state, posterior)
       }
       return posterior
+    },
+    get operatorWeights() {
+      operatorWeights ??= operatorYield(state, { split }).signal.value
+      return operatorWeights
     },
   }
 }
