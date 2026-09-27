@@ -216,7 +216,10 @@ export interface SearchOperation {
   /** Artifacts the started event bound, then those the recorded event bound,
    * for example a claim's plan or a proposal's output. */
   artifacts: readonly SearchArtifactRef[]
+  /** Known cost, or the proven floor when `costKnown` is false. */
   spentUsd: number
+  /** The recorded cost is known; false until the operation is recorded. */
+  costKnown: boolean
 }
 
 export interface SearchCompletion {
@@ -436,6 +439,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
       execution: null,
       artifacts: event.artifacts,
       spentUsd: 0,
+      costKnown: false,
     })
     this.audit.operations.started += 1
     this.audit.operations.open += 1
@@ -467,6 +471,7 @@ export class SearchState implements LedgerProjector<SearchLedgerEntry, SearchSta
     operation.execution = event.execution
     operation.artifacts = [...operation.artifacts, ...event.artifacts]
     operation.spentUsd = cost.usd
+    operation.costKnown = !cost.unknown
     this.audit.operations.recorded += 1
     this.audit.operations.open -= 1
   }

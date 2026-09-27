@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
@@ -26,6 +28,15 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: clients/python/uv.lock
+
+      - name: Verify release preparation guard
+        run: node --test scripts/check-feature-release-files.node-test.mjs
+
+      - name: Keep release prep out of feature PRs
+        if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
+        run: node scripts/check-feature-release-files.mjs
 
       - name: Install JS deps
         run: pnpm install --frozen-lockfile

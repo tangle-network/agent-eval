@@ -147,14 +147,88 @@ No lens imputes a value below the design's honesty thresholds: an unknown cost o
 Every sample a lens summarizes is staged by `estimateNode`'s own `searchEstimateMethod`: `none` below 2 (no mean; one observation is no estimate), `insufficient` below 6 (a mean, no interval), `descriptive` below 20 and `bootstrap` from 20, each interval naming its method and n.
 Every order a lens reports, such as a cluster id, sorts by UTF-16 code unit, so a fixed ledger gives the same JSON on every host.
 
+### All eight lenses, one page
+
+`src/search/lenses/` holds eight lenses total; the table below is every one of them, the signal a `SearchPolicy` can read from it, and the one-line methodology it motivates (search-tree-design §12).
+Five of the eight feed a shipped consumer today: four (`operatorYield`, `landscape`, `skillManifold`, `metaSearch`) into a `SearchPolicy` or allocator, one (`editCredit`) into agent-runtime SkillOpt rather than a `SearchPolicy`. `tree`, `front` and `taskMatrix` expose their signal to `agent-eval search show`, Intelligence, discovery lab and VerticalBench with no built-in policy consumer yet — the design names their intended use, and the Wiring column says which are still only that.
+
+| Lens | `search show` flag | Signal | Motivates | Wiring |
+|---|---|---|---|---|
+| `tree` | `--tree` | `tree.nodeCount` | the base page every other lens sits beside | none (base view) |
+| `operatorYield` | `--operator-yield` | `operatorYield.weights` | operator choice as a bandit | **wired** — `incumbentWithOperatorBandit` draws its expansion operator from this once an operator has 6 measured outcomes |
+| `front` | `--front` | `front.membership` | multi-objective selection: which nodes earn their cost, on score vs. known spend | not wired — a view signal today (Intelligence's frontier, cost-per-solved reporting) |
+| `taskMatrix` | `--task-matrix` | `taskMatrix.specialistGain` | ship a portfolio and route by task family; conditional skills | not wired — no `SearchPolicy` reads it yet (recorded open issue on PR #866) |
+| `editCredit` | `--edit-credit` | `reusableHunks` | extract reusable edits as inline skills; stop re-proposing dead ones | **wired to SkillOpt, not a `SearchPolicy`** — `data.skillCandidates` feeds agent-runtime `improve({ surface: 'skills' })` directly (PR #868) |
+| `landscape` | `--landscape` | `plateau` | draft fresh from the root when the climb has plateaued | **wired, opt-in** — `draftOnPlateau(base)` wraps any policy (e.g. `draftOnPlateau(aide())`); off by default, no quality gain detected in simulation yet (PR #869) |
+| `skillManifold` | `--skill-manifold` | `nextUnit` | adaptive testing: measure the cell that best separates the leaders next | **wired, opt-in** — `asha({ extend: nextUnitExtension(skillCalibration(lens)) })`; off by default, saved ~9 of ~600 cells per search with no quality loss in simulation (PR #869) |
+| `metaSearch` | `--meta` | `metaSearch.bestPolicyConfiguration` | tune the climber itself: an outer search whose cells are inner searches, ranked by held-out lift per known dollar | **wired** — `runNestedSearch` scores each outer cell with this signal (PR #867) |
+
+Every lens is a pure function of `SearchStateView` — no clock, no `Math.random`, no record type but the ledger's own (`editCredit` also reads content blobs, and the caller verifies them against their digest).
+`agent-eval search show <ledger>` takes any combination of the first seven flags in one call; `--meta` takes one or more ledger paths in place of a single lens flag, because a meta-search score compares searches, not nodes within one.
+
+**Verified on a real ledger** (`scripts/import-vb-climb.ts` import of `climb-gen1-20260924T151217Z`, a real VerticalBench GEPA climb — 2 nodes, 4 settled cells, every cell's cost unknown because the GEPA callback path meters per batch, not per cell):
+
+```
+$ agent-eval search show search-ledger.jsonl --tree --operator-yield --front --task-matrix --edit-credit --landscape --skill-manifold
+
+tree: 2 nodes, 2 edges
+seed → node_8b6e8e11c5a430aa900f210c8e5162d7 (rejected) $0.00 known + at least $0.00 over 2 unknown-cost cells
+improve → node_9d74773e7ecfd982307a8285845e7fad (selected) $0.00 known + at least $0.00 over 2 unknown-cost cells
+
+operator yield (selection split, gain per known $ of proposal + screen):
+  improve: 1 proposals → 1 node (selected=1); yield: no measured children; 1 excluded
+  seed: 1 proposals → 1 node (rejected=1); yield: no measured children; 1 excluded
+
+front (selection split, axes: score, costPerCellUsd): 0 of 2 node(s) on the frontier, 2 excluded (one-unit 2)
+
+task matrix (selection split, maximize): 2 node(s) × 1 unit(s), 1 node cluster(s), 1 unit cluster(s)
+  cluster base-pay-usdc-checkout.selection.1 [...]: specialist gain insufficient (1 of 6 units)
+
+edit credit — 10 genes from 1 of 1 lineage edges, 1 measurable steps (selection split, maximize)
+  signal reusableHunks = null (insufficient: no gene has 6 selection units on clean steps (10 genes, 1 measurable steps))
+
+Landscape (selection split, ...): placed 2 of 2 nodes by landmark MDS on 2 landmarks
+  plateau: insufficient: 0 of 6 accepted nodes (screened, no dodged unit, 6 or more units shared with the root)
+
+Skill manifold (selection split, loadings fitted here)
+  intrinsic dimension: insufficient (0 nodes and 0 units qualify; a manifold needs 3 nodes and 6 units)
+
+$ agent-eval search show climb-141516Z/search-ledger.jsonl climb-151217Z/search-ledger.jsonl --meta
+
+meta-search: 2 searches (0 contained, 0 derived) in 1 objective, 2 configurations
+metaSearch.bestPolicyConfiguration: unknown — no configuration of vb/coder · score (maximize) has a known lift per dollar: 2 unscored searches and 0 with only a spend floor
+```
+
+Every signal reports honestly rather than guessing: at 2 nodes and 1 shared unit, this real climb is below every lens's `insufficient`/`none` threshold, so `operatorYield`, `front`, `taskMatrix`, `editCredit`, `landscape` and `skillManifold` all say so instead of printing a number.
+The two `--wired` behaviors above (`incumbentWithOperatorBandit`, `draftOnPlateau`, `nextUnitExtension`) fall back to their base policy's own behavior on exactly this "insufficient" case — the same code path a synthetic ledger with real signal values exercises, proved in each lens's own PR.
+
+
 | Lens | Reports | Signal |
 |---|---|---|
 | `tree(state)` | a tidy tree of nodes and edges — the base view every other lens sits beside; a node with unknown-cost cells shows its known spend, its proven floor and how many cells are unknown, never a total | `tree.nodeCount` (drives no policy) |
-| `operatorYield(state, { split? })` | each edge operator's proposals, re-proposals, outcome counts and improvement-per-known-dollar yield, from `searchPosterior` (`estimateNode`'s tree-wide contrast); a node counts once, under the operator of the edge that registered it, and a re-proposal adds a proposal but no outcome or sample; a node is excluded from yield when it was decided invalid, shares fewer than 2 units with the root, or any of its cells has an unknown cost | `operatorYield.weights`: an operator's yield mean once it has 6 or more yield-eligible nodes (`MIN_OUTCOMES_FOR_WEIGHT`), else `null` |
+| `operatorYield(state, { split? })` | each edge operator's proposals, re-proposals, outcome counts and yield: a node's gain over the root from `searchPosterior` (`estimateNode`'s tree-wide contrast) divided by the known cost of producing and screening it — its even share of the proposal operation's cost over that operation's child edges, plus its cells allocated before its first decision (the first rung and the train feedback); cells of later rungs and the claim are the allocator's and the claim's choice, so they are not charged to the operator; a node counts once, under the operator of the edge that registered it, and a re-proposal adds a proposal but no outcome or sample; a node is excluded from yield when it was decided invalid, shares fewer than 2 units with the root, or its proposal or a screen cell has an unknown, unrecorded or zero cost | `operatorYield.weights`: an operator's yield mean once it has 6 or more yield-eligible nodes (`MIN_OUTCOMES_FOR_WEIGHT`), else `null` |
 | `front(state, { split?, axes? })` | the Pareto frontier over per-unit mean score and known cost per attempted cell on the split (reusing `paretoFrontier`), with room for caller-declared extra axes; a node's total spend depends on how far the allocator measured it, so it is shown but is not an axis; a node decided invalid, scored on fewer than 2 units, with an unknown-cost cell on the split, or with a non-finite extra axis is excluded from every frontier pass, with the reason | `front.membership`: 1 for a node on the frontier, 0 otherwise (including an excluded node) |
 | `taskMatrix(state, { split? })` | nodes and units, each single-linkage clustered on the root-mean-square difference over their shared scores, cutoff at the data's own median pairwise distance | `taskMatrix.specialistGain`: per unit cluster, the best node's mean minus the mean of node means, in the objective's direction, among nodes not decided invalid that scored every unit of the cluster; `null` with the reason, and omitted from the signal, below 2 such nodes or 6 units |
 
 `agent-eval search show <ledger> [--tree] [--operator-yield] [--front] [--task-matrix]` prints each lens's text form below the search summary, so an agent reading the CLI sees the same numbers Intelligence, discovery lab, VerticalBench and agent-runtime `improve()` would render from the same JSON.
+
+The task matrix evaluates each node pair and each unit pair at most twice.
+Clustering preserves the median cutoff, missing-score rules, deterministic ordering, and specialist gains.
+Piped CLI output includes the complete JSON before the process exits.
+
+Run the proof against retained search ledgers:
+
+```sh
+pnpm build
+pnpm exec tsx scripts/prove-task-matrix.mts /path/to/search-ledger.jsonl
+```
+
+The proof compares piped CLI JSON with the library result and enforces the distance-call bound using V8 counters.
+It reports ledger hashes, dimensions, complete output size, and elapsed library time.
+Wall time is descriptive; the operation count is the performance guard.
+On a retained 501-node, 24-unit scale ledger, node-distance calls fell from 44,650,773 to 250,500.
+The complete 1,668,617-byte CLI output stayed identical.
+This scale ledger is generated data; it does not establish research quality or a live deployment speedup.
 
 `incumbentWithOperatorBandit({ seed, fixedWeights? })` (`/campaign`) is the one built-in policy that reads a lens signal: a hill climb, like `incumbent`, whose expansion operator is a weighted draw over `operatorYield`'s weights.
 An operator without 6 measured outcomes yet draws on `fixedWeights` (uniform by default) instead of being starved until every operator clears the gate; a measured operator's weight is `fixedWeights[operator] + yield`, floored just above zero, because yield (dollars) and the fixed prior (an arbitrary share) are not on the same scale and a small positive yield should not draw less than an untested operator's default prior.
@@ -255,7 +329,9 @@ The ports:
   The kernel refuses an expansion without a parent or with a parent whose screen has not finished; an invalid node is never screened, so it is never a parent.
   Every built-in policy keeps the same leader: a node leads when it dodged no unit (no cell ran and ended unscored), scored every unit the leader scored, and beats the leader's mean on them.
   A node measured on fewer units than the leader, such as one an allocator has only screened, cannot take the lead on less evidence.
-  `incumbent({ patience })` is the hill climb: it expands the leader once every earlier child is screened.
+  A leader with no scored unit, such as a root whose every cell ended unscored, holds no evidence, and the first node that dodged no unit takes the lead from it.
+  `incumbent({ patience, minImprovement })` is the hill climb: it expands the leader once every earlier child is screened.
+  With `minImprovement`, a node takes the lead only when its mean beats the leader's by more than that margin, in the metric's units.
   `crowdedFrontierParent({ seed })` draws the parent from the Pareto frontier by a seeded crowded tournament.
   `aide({ drafts, debugProbability, maxDebugDepth, stallAfter })` (defaults 5, 0.5, 3, 4) is AIDE's policy with three changes for noisy scores.
   It drafts whole alternatives from the root until `drafts` nodes were drafted.
