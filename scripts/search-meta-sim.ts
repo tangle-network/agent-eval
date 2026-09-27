@@ -210,6 +210,11 @@ async function main(): Promise<void> {
     allocation: config.allocation,
     poolGap: null,
     poolPlant: null,
+    skills: 0,
+    skillSpread: 0.12,
+    bankSeed: problem,
+    ceiling: null,
+    calibration: null,
   })
 
   const policy = incumbent()

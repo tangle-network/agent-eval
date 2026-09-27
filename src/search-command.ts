@@ -2,7 +2,8 @@
  * `agent-eval search <subcommand>`: work with a search ledger from a terminal.
  *
  *   agent-eval search ship <search-ledger.jsonl> --run-kind optimization|eval [--content full|digests]
- *   agent-eval search show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix] [--edit-credit] [--json]
+ *   agent-eval search show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix]
+ *                          [--edit-credit] [--landscape] [--skill-manifold] [--json]
  *   agent-eval search show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
  *
  * `ship` sends the ledger to the hosted store named by `TANGLE_INGEST_URL`,
@@ -37,9 +38,11 @@ import { SEARCH_LEDGER_BATCH_MAX_BYTES, SearchRunKindSchema } from './hosted/sea
 import { SearchShipConflictError, shipSearchLedger } from './hosted/search-shipper'
 import { editCredit, editCreditText } from './search/lenses/edit-credit'
 import { type FrontData, front } from './search/lenses/front'
+import { formatLandscape, landscape, surfaceTextEdits } from './search/lenses/landscape'
 import { metaSearch, renderMetaSearchText } from './search/lenses/meta-search'
 import { type OperatorYieldData, operatorYield } from './search/lenses/operator-yield'
 import { INSUFFICIENT_FROM } from './search/lenses/shared'
+import { formatSkillManifold, skillManifold } from './search/lenses/skill-manifold'
 import { type TaskMatrixData, taskMatrix } from './search/lenses/task-matrix'
 import { type TreeData, type TreeNode, tree } from './search/lenses/tree'
 
@@ -53,7 +56,7 @@ const USAGE = `usage: agent-eval search <subcommand> ...
         Exits 1 when the store holds a different chain for the search.
 
   show <search-ledger.jsonl> [--tree] [--operator-yield] [--front] [--task-matrix]
-                              [--edit-credit] [--json]
+                              [--edit-credit] [--landscape] [--skill-manifold] [--json]
         Verifies the ledger and prints its search summary: the leading nodes
         against the root, the most recently discarded nodes and why, and a log
         of recent proposals. The same text a proposer reads as context, on the
@@ -68,6 +71,13 @@ const USAGE = `usage: agent-eval search <subcommand> ...
                          credit, interacting pairs, and skill candidates. It
                          reads node artifacts from the blobs the ledger names,
                          verified by digest.
+        --landscape      nodes placed by line edits between their profile
+                         surfaces (read from the blobs, verified by digest), the
+                         kriged score surface, its basins, and the plateau score
+                         a policy drafts on.
+        --skill-manifold the node × unit score matrix factored into skill axes,
+                         its cross-validated intrinsic dimension, and the unit
+                         that best separates the leaders.
         --json           prints the requested lenses as JSON instead of text.
 
   show <search-ledger.jsonl> [<search-ledger.jsonl> ...] --meta [--objective <key>] [--json]
@@ -197,6 +207,8 @@ const SHOW_FLAGS = new Set([
   '--operator-yield',
   '--front',
   '--task-matrix',
+  '--landscape',
+  '--skill-manifold',
 ])
 
 function showLenses(
@@ -224,6 +236,18 @@ function showLenses(
   if (flags.has('--edit-credit')) {
     const result = editCredit(state, { readArtifact: ledgerBlobReader(ledgerPath) })
     lenses.push({ name: 'editCredit', result, text: editCreditText(result) })
+  }
+  if (flags.has('--landscape')) {
+    const read = ledgerBlobReader(ledgerPath)
+    const result = landscape(
+      state,
+      surfaceTextEdits((surface) => read(surface.artifact) ?? null),
+    )
+    lenses.push({ name: 'landscape', result, text: formatLandscape(result) })
+  }
+  if (flags.has('--skill-manifold')) {
+    const result = skillManifold(state)
+    lenses.push({ name: 'skillManifold', result, text: formatSkillManifold(result) })
   }
   return lenses
 }

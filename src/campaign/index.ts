@@ -28,6 +28,7 @@ export {
   type SearchAllocator,
   type SearchCellPlan,
   type SearchRungDecision,
+  type SearchUnitExtension,
   uniform,
 } from './allocation'
 // ── Meta-loop: optimize the analyst's OWN prompt as a surface ─────────
