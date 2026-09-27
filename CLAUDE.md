@@ -7,6 +7,10 @@ This package owns evaluation data, scoring, experiment decisions, and release ev
 - For orientation, read [concepts.md](docs/concepts.md), [README.md](README.md), and the [charter](docs/charter.md).
 - For maintenance, read the repository's [agent-eval skill](.claude/skills/agent-eval/SKILL.md).
   It defines the workflow and points to current source.
+- For gating a run on the path it took, read [trace-contracts.md](docs/trace-contracts.md).
+  This package owns the one trajectory-contract checker; `traces check` in `/traces` calls it.
+- For redacting or share-safety-checking a trace, read [redaction.md](docs/redaction.md).
+  This package owns the one redaction core (`./traces` export); agent-runtime, traces and run-capsule import it instead of keeping their own patterns.
 - For registered experiments, read [experiment.md](docs/experiment.md).
 - For checks without an answer key, read [verification-strategies.md](docs/verification-strategies.md).
 - For result vocabulary and certification, read [verdicts.md](docs/verdicts.md).
