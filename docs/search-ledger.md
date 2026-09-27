@@ -328,6 +328,9 @@ The signal `plateau` is the rise of the best improvement over the root across th
 An accepted node is screened, dodged no unit, and shares 6 or more units with the root.
 `draftOnPlateau(base, { window, below })` wraps any policy: on every `window`-th expansion, when `plateau` is below `below` (default 1), it drafts from the root; otherwise `base` expands.
 A draft pays off only when `base` expands drafts that trail its leader, as `aide` does; `incumbent` expands only its leader.
+The trigger adds drafts to `aide`'s own; it does not replace them.
+In `scripts/search-sim.ts plateau` (30 seeds, 24 expansions, root lineage capped at 0.62), `draftOnPlateau(aide({ drafts: 0 }))` kept 0.198 less true quality than `aide()` (95% paired bootstrap [−0.230, −0.163]; 25 of 30 seeds worse).
+With the cap removed, the difference was not detectable (−0.012 [−0.049, +0.026]).
 
 `skillManifold(state, k?, options?)` factors the node × unit matrix of per-unit means as `b_u + P_i · Q_u` on standardized scores.
 Alternating ridge least squares reads only observed cells; a missing cell is masked, never filled.
