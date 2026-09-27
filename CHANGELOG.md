@@ -28,6 +28,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 ### Fixed
 
 - A restarted kernel keeps a node an allocator advanced among the screened nodes while its rung cells run; before, `aide` and `beam` could not choose it as a parent until those cells finished, where the uninterrupted search could.
+- A restarted kernel no longer re-admits a child the divergence rule decided `invalid` when it finishes that child's recorded proposal.
+  It had marked the child screened, so after a restart an invalid node counted among `aide`'s Thompson candidates and on `crowdedFrontierParent`'s frontier, and `incumbent` could keep it as leader.
+- `scripts/search-sim.ts`: a draft honors `--null`, so a null search stays null, and is defective at `--defect-rate`; under `--deep-gain` a draft is one more child of the root, whose tree holds the plant.
+  Every simulated run also re-derives each proposal's parents, operator and selection evidence from the ledger before it, and `kill-resume` requires the resumed search to equal the uninterrupted one only for a hill climb under `uniform`.
 
 ### Removed
 
