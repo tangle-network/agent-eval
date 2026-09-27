@@ -185,6 +185,13 @@ describe('farming', () => {
     const { parameters: _declared, ...undeclared } = scope
     expect(farmingSignal(sweep[0]!, sweep, undeclared).fired).toBeNull()
   })
+
+  it('refuses options in the place of the scope', () => {
+    expect(() => farmingSignal(sweep[0]!, sweep, { minimumRepeats: 2 } as never)).toThrow(TypeError)
+    expect(farmingSignal(sweep[0]!, sweep.slice(0, 2), scope, { minimumRepeats: 2 }).fired).toBe(
+      true,
+    )
+  })
 })
 
 describe('grader reference', () => {

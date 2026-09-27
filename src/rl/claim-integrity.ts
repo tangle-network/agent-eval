@@ -289,6 +289,10 @@ export function farmingSignal(
   scope: SourceScope | undefined,
   options: FarmingOptions = {},
 ): IntegritySignal {
+  // 0.200.0 took options third; refuse that call rather than read its options as a scope.
+  if (scope !== undefined && typeof (scope as { statement?: unknown }).statement !== 'string') {
+    throw new TypeError('farmingSignal takes the SourceScope third and its options fourth')
+  }
   const minimum = options.minimumRepeats ?? 3
   if (claim.novelty !== 'new') {
     return {
