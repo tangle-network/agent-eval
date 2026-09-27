@@ -239,9 +239,11 @@ function parsePort(raw: string): number {
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    process.exitCode = code
+  })
   .catch((err) => {
     // eslint-disable-next-line no-console
     console.error('[agent-eval] cli error:', err)
-    process.exit(1)
+    process.exitCode = 1
   })
