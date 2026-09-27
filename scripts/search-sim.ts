@@ -15,8 +15,13 @@
  *   node --import tsx scripts/search-sim.ts kill-resume --dir DIR --kills 6 [options]
  *   node --import tsx scripts/search-sim.ts claims --searches 200 [options]
  *   node --import tsx scripts/search-sim.ts compare --seeds 200 --arms A,B [options]
+ *   node --import tsx scripts/search-sim.ts plateau --seeds 40 --ceiling 0.62 [options]
+ *   node --import tsx scripts/search-sim.ts adaptive --seeds 40 --skills 3 --pool-gap 0.05 [options]
+ *   node --import tsx scripts/search-sim.ts lens-null --seeds 40 --null [options]
  *
- * `run` runs or resumes the search in DIR to its close. `kill-resume` runs the
+ * `run` runs or resumes the search in DIR to its close; with `--in-memory` it
+ * runs without a per-append fsync and writes the ledger and blobs to DIR at
+ * the end, for scale ledgers. `kill-resume` runs the
  * search in DIR/killed as a child process, SIGKILLs it at seeded random ledger
  * sequences, resumes it each time, then runs the same search uninterrupted in
  * DIR/reference and compares the two. `claims` runs N searches with seeds
@@ -31,7 +36,17 @@
  * root (each with its Wilson 95% interval), and the units each measured
  * edge pairs on against its parent; every later arm is paired with the first
  * seed by seed, with an exact sign test on the seeds where exactly one of the
- * two kept the planted node.
+ * two kept the planted node. `plateau`
+ * runs each seed under `incumbent` and under `draftOnPlateau(incumbent)` and
+ * reports, paired by seed, the kept and best true quality, the drafts, and
+ * the `landscape` lens (plateau score, basins) on each closed ledger.
+ * `adaptive` fits `skillManifold` on one `uniform` calibration search
+ * (`--calibration-seed`, 1000, on the same task bank), keeps
+ * its loadings with `skillCalibration`, then runs each seed under `asha` and
+ * under `asha` extended by `nextUnitExtension`, paired by seed. `lens-null`
+ * runs flat searches (`--null`) and reports the landscape lens's basin count,
+ * surface and plateau on each, which calibrates the lens against a known
+ * flat truth.
  *
  * Options: --seed N (1), --train N (2), --selection N (6), --test N (0),
  * --reps N (1), --population N (3), --expansions N (6), --capacity N (4),
@@ -45,12 +60,23 @@
  * or 0), --minimize (the objective is minimized and a cell reports 1 minus its
  * score, so a better artifact scores lower), --cost-scale X (1: a cell costs X
  * times what the lane's prior assumes, so an estimate lane overspends until
- * its own cost distribution sets the hold), --allocation uniform|asha
- * (uniform), --policy incumbent|crowded-frontier|aide|beam (incumbent),
- * --beam-width N (3),
- * --max-cells N (none: the search allocates at most N cells), --pool-gap X
- * (none), --pool-plant N (seeded), --deep-gain X (none), --deep-depth N (3),
- * --deep-ramp, --defect-rate X (0).
+ * its own cost distribution sets the hold), --allocation
+ * uniform|asha|asha-adaptive (uniform), --policy
+ * incumbent|crowded-frontier|draft-on-plateau|aide|beam (incumbent),
+ * --beam-width N (3), --max-cells N (none: the search allocates at most N
+ * cells), --pool-gap X (none), --pool-plant N (seeded), --deep-gain X (none),
+ * --deep-depth N (3), --deep-ramp, --defect-rate X (0).
+ *
+ * Geometry options: `--skills K` gives artifacts K latent skills (axis 0
+ * general, every task loads it; each task also loads one specialist axis),
+ * and a cell scores 0.5 plus the skills on its task's demand; `--skill-spread
+ * X` (0.12) spreads pool candidates on each specialist axis over [-X, 0);
+ * `--bank-seed N` (the seed) fixes the task bank across searches;
+ * `--ceiling X` caps the root's lineage at X while a draft's lineage can climb
+ * 0.25 higher; `--policy incumbent|draft-on-plateau`; `--allocation
+ * asha-adaptive --calibration FILE` extends asha with a saved calibration.
+ * Under these options every artifact carries profile lines that each child
+ * edits, so the landscape lens measures line edits between surfaces.
  *
  * `--pool-gap X` swaps the hill climb's steps for a planted pool: every child
  * is the root's quality plus a seeded step in [-0.1, 0), whatever its parent,
@@ -65,7 +91,9 @@
  * path node, starting at the root) is neutral until its node at that depth,
  * which is the root plus X. With `--deep-ramp` each path node gains X / depth
  * over its parent instead of 0, so the gain is a gradient a hill climb can
- * follow. The planted node is the best node the search can register.
+ * follow. The planted node is the best node the search can register. The
+ * landscape is the root's tree, so a `draft` there is one more child of the
+ * root; elsewhere a draft is a fresh artifact (`d<N>`).
  *
  * `--defect-rate X` makes a seeded share X of proposed children defective
  * (planted-path nodes never are): each of a defective node's cells ends
@@ -75,7 +103,9 @@
  *
  * Every run audits its ledger: each `advanced` and `pruned` decision, with its
  * rule, rank reason and estimate, must be one the allocator makes again from
- * the ledger just before it.
+ * the ledger just before it, and each proposal's parents, operator and
+ * selection evidence must be the expansion the policy makes again from the
+ * ledger just before the proposal started.
  *
  * Output is one JSON document on stdout. Exit 1 when a check fails.
  */
@@ -83,7 +113,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { asha, type SearchAllocator, uniform } from '../src/campaign/allocation'
@@ -122,7 +152,21 @@ import {
 } from '../src/campaign/search-policy'
 import { type CampaignStorage, inMemoryCampaignStorage } from '../src/campaign/storage'
 import { canonicalString, hashCanonical } from '../src/ledger-core/canonical'
+import {
+  type LandscapeData,
+  type LandscapeEmbedding,
+  landscape,
+  lineEditDistance,
+} from '../src/search/lenses/landscape'
+import { draftOnPlateau } from '../src/search/lenses/plateau'
+import {
+  nextUnitExtension,
+  type SkillCalibration,
+  skillCalibration,
+  skillManifold,
+} from '../src/search/lenses/skill-manifold'
 import { wilson } from '../src/statistics/paired-binary'
+import { pairedBootstrap, pairedSignTest } from '../src/statistics/paired-tests'
 
 export interface SimArtifact {
   name: string
@@ -133,6 +177,16 @@ export interface SimArtifact {
   heldShift: number
   /** Every cell fails as the agent's defect (`--defect-rate`). */
   defective?: boolean
+  /** Latent skills under `--skills K`: a cell's expected score is 0.5 plus
+   * these loaded on its task's demand. Absent otherwise. */
+  skill?: number[]
+  /** The lineage's basin under `--ceiling`: 0 is the root's, and each draft
+   * starts its own. Absent otherwise. */
+  basin?: number
+  /** Profile text under the geometry options: each child edits a line of
+   * its parent's and a draft writes its own, so the landscape lens measures
+   * line edits between surfaces. Absent otherwise. */
+  lines?: string[]
 }
 
 export interface SimOptions {
@@ -140,7 +194,8 @@ export interface SimOptions {
   searchId?: string
   /** The cell attempt of an outer search whose execution runs this search. */
   containment?: SearchOpenedEvent['containment']
-  /** The expansion policy. Default `incumbent`. */
+  /** The expansion policy. Default `incumbent`; `draft-on-plateau` wraps
+   * `incumbent` in `draftOnPlateau`. */
   policy?: SimPolicy
   seed: number
   train: number
@@ -171,7 +226,7 @@ export interface SimOptions {
   minimize: boolean
   /** A cell's actual cost relative to the lane prior. */
   costScale: number
-  allocation: 'uniform' | 'asha'
+  allocation: 'uniform' | 'asha' | 'asha-adaptive'
   beamWidth: number
   /** The most cells the search may allocate; null: no cell cap. */
   maxCells: number | null
@@ -186,6 +241,20 @@ export interface SimOptions {
   poolGap: number | null
   /** The planted child's registration index; null: seeded from the seed. */
   poolPlant: number | null
+  /** Latent skill axes (0: the additive objective). Axis 0 is general, every
+   * task loads it; each task also loads one specialist axis. */
+  skills: number
+  /** Under `--skills`, how far pool candidates spread on each specialist
+   * axis: a seeded value in [-spread, 0). Default 0.12. */
+  skillSpread: number
+  /** Seeds the task bank (demands and task terms) under `--skills`, so
+   * searches with different seeds share one bank. */
+  bankSeed: number
+  /** Under the additive objective, the quality a root-lineage child cannot
+   * pass; a draft's lineage can climb 0.25 higher. Null: no ceiling. */
+  ceiling: number | null
+  /** Unit loadings `asha-adaptive` extends rungs with. */
+  calibration: SkillCalibration | null
 }
 
 const SEARCH_ID = 'search-sim'
@@ -233,12 +302,16 @@ function tasks(prefix: string, count: number): SearchTask[] {
 const MAX_ATTEMPTS = 3
 
 function allocationOf(options: SimOptions): SearchAllocator {
+  if (options.allocation === 'asha-adaptive') {
+    if (options.calibration === null) throw new Error('asha-adaptive needs --calibration FILE')
+    return asha({ reps: options.reps, extend: nextUnitExtension(options.calibration) })
+  }
   return options.allocation === 'asha'
     ? asha({ reps: options.reps })
     : uniform({ reps: options.reps })
 }
 
-const SIM_POLICIES = ['incumbent', 'crowded-frontier', 'aide', 'beam'] as const
+const SIM_POLICIES = ['incumbent', 'crowded-frontier', 'draft-on-plateau', 'aide', 'beam'] as const
 export type SimPolicy = (typeof SIM_POLICIES)[number]
 
 function isSimPolicy(value: unknown): value is SimPolicy {
@@ -249,7 +322,8 @@ function policyOf(options: SimOptions): SearchPolicy {
   if (options.policy === 'crowded-frontier') return crowdedFrontierParent({ seed: options.seed })
   if (options.policy === 'aide') return aide()
   if (options.policy === 'beam') return beam({ width: options.beamWidth })
-  return incumbent(options.patience === undefined ? {} : { patience: options.patience })
+  const base = incumbent(options.patience === undefined ? {} : { patience: options.patience })
+  return options.policy === 'draft-on-plateau' ? draftOnPlateau(base) : base
 }
 
 /** The deep plant's path: at each depth, the seeded index of the path child
@@ -269,6 +343,55 @@ function plantedName(options: SimOptions): string | null {
   if (options.poolGap !== null) return `c${plantIndex(options)}`
   if (options.deepGain !== null) return deepPath(options).at(-1)!
   return null
+}
+
+/** The geometry options give artifacts profile text. */
+function geometric(options: SimOptions): boolean {
+  return options.skills > 0 || options.ceiling !== null || options.policy === 'draft-on-plateau'
+}
+
+/** The root artifact: the additive default, plus text, skills and a basin
+ * under the geometry options. */
+function rootOf(options: SimOptions): SimArtifact {
+  if (!geometric(options)) return ROOT
+  return {
+    ...ROOT,
+    lines: Array.from({ length: 8 }, (_, index) => `root line ${index}`),
+    ...(options.skills > 0 ? { skill: new Array<number>(options.skills).fill(0) } : {}),
+    ...(options.ceiling !== null ? { basin: 0 } : {}),
+  }
+}
+
+/** A task's demand on each skill axis under `--skills`: axis 0 in [0.6, 1),
+ * one specialist axis in [0.8, 1.2), the others 0. Seeded by the bank. */
+function demand(options: SimOptions, taskId: string): number[] {
+  const vector = new Array<number>(options.skills).fill(0)
+  vector[0] = 0.6 + 0.4 * unit(options.bankSeed, 'demand', taskId)
+  if (options.skills > 1) {
+    const family = 1 + Math.floor(unit(options.bankSeed, 'family', taskId) * (options.skills - 1))
+    vector[family] = 0.8 + 0.4 * unit(options.bankSeed, 'load', taskId)
+  }
+  return vector
+}
+
+/** Under `--skills`, an artifact's true quality: 0.5 plus its skills loaded
+ * on the mean demand of the selection split, the objective it is ranked on. */
+function skillQuality(skill: readonly number[], options: SimOptions): number {
+  const selection = tasks('s', options.selection)
+  let total = 0
+  for (const task of selection) {
+    const d = demand(options, task.taskId)
+    for (let k = 0; k < skill.length; k++) total += skill[k]! * d[k]!
+  }
+  return round(0.5 + total / selection.length)
+}
+
+/** One line of the parent's text replaced, and sometimes one appended. */
+function editLines(parent: readonly string[], name: string, options: SimOptions): string[] {
+  const lines = [...parent]
+  lines[Math.floor(unit(options.seed, 'edit', name) * lines.length)] = `${name} edit`
+  if (unit(options.seed, 'grow', name) < 0.5) lines.push(`${name} addition`)
+  return lines
 }
 
 /** The planted child's registration index: the option, or a seeded place in the pool. */
@@ -303,10 +426,25 @@ export function diskStore(dir: string): SimStore {
   }
 }
 
-export function memoryStore(): SimStore {
+export function memoryStore(): SimStore & { files(): Map<string, string> } {
   const results = new Map<string, SearchCellResult>()
+  const inner = inMemoryCampaignStorage()
+  const paths = new Set<string>()
+  const storage: CampaignStorage = {
+    ...inner,
+    write(path, content) {
+      paths.add(path)
+      inner.write(path, content)
+    },
+    append(path, content, expectedBytes) {
+      paths.add(path)
+      return inner.append(path, content, expectedBytes)
+    },
+  }
   return {
-    storage: inMemoryCampaignStorage(),
+    /** Every file the search wrote, by path: the ledger and its blobs. */
+    files: () => new Map([...paths].map((path) => [path, inner.read(path) ?? ''])),
+    storage,
     has: (runId) => results.has(runId),
     read: (runId) => results.get(runId)!,
     write: (runId, result) => results.set(runId, result),
@@ -318,7 +456,12 @@ export async function runSimulation(
   dir: string,
   options: SimOptions,
   store: SimStore,
-): Promise<{ result: SearchRunResult; summary: Record<string, unknown> }> {
+): Promise<{
+  result: SearchRunResult
+  summary: Record<string, unknown>
+  /** The hidden artifact behind a node, read back through the codec. */
+  truth: (nodeId: string) => SimArtifact
+}> {
   const path = join(dir, 'ledger.jsonl')
   const searchId = options.searchId ?? SEARCH_ID
   const ledger = store.storage
@@ -326,6 +469,7 @@ export async function runSimulation(
     : openSearchLedger({ path, searchId })
   const policy = policyOf(options)
   const allocation = allocationOf(options)
+  const root = rootOf(options)
   const claim = developmentClaim('search-sim')
   const recorder = await SearchRecorder.open(
     { ledger, ...(store.storage ? { storage: store.storage } : {}) },
@@ -446,6 +590,21 @@ export async function runSimulation(
       // Children are numbered after the parent's existing children, so a
       // proposal lost to a crash is proposed again identically.
       const state: SearchStateView = await recorder.state()
+      if (request.operator === 'draft' && options.deepGain === null) {
+        // A fresh artifact, numbered by the nodes the search holds. The deep
+        // plant's landscape is the root's tree, so there a draft is one more
+        // child of the root.
+        const registered = state.audit.nodes
+        return {
+          children: Array.from({ length: options.population }, (_, index) =>
+            draftChild(registered + index, options),
+          ),
+          accounting: {
+            tokens: { status: 'known', inputTokens: 0, outputTokens: 0, cachedTokens: 0 },
+            cost: { status: 'known', usd: PROPOSAL_USD, source: 'pricing-table' },
+          },
+        }
+      }
       if (options.poolGap !== null) {
         // The planted pool: numbered by the nodes the search holds, so a lost
         // proposal is proposed again identically, and independent of the parent.
@@ -480,7 +639,7 @@ export async function runSimulation(
 
   const result = await runSearch({
     recorder,
-    root: ROOT,
+    root,
     codec,
     policy,
     allocation,
@@ -511,9 +670,21 @@ export async function runSimulation(
   const planted = plantedName(options)
   const names = new Set(state.nodes().map((node) => truth(node.nodeId).name))
   const ledgerText = store.storage?.read(path) ?? readFileSync(path, 'utf8')
+  const best = state
+    .nodes()
+    .reduce(
+      (top, node) => Math.max(top, truth(node.nodeId).quality),
+      Number.NEGATIVE_INFINITY,
+    )
+  const drafts = state.edges().filter((edge) => edge.operator === 'draft')
   const summary = {
     reason: result.reason,
     leader: result.leader,
+    bestQuality: best,
+    drafts: drafts.map((edge) => ({
+      child: truth(edge.childNodeId).name,
+      evidence: edge.selection?.evidence ?? null,
+    })),
     kept: {
       name: kept.name,
       quality: kept.quality,
@@ -565,7 +736,7 @@ export async function runSimulation(
     },
     adopted,
   }
-  return { result, summary }
+  return { result, summary, truth }
 }
 
 /** A proposed child: the parent's quality plus a seeded step (none under
@@ -589,6 +760,19 @@ function childOf(
     trainShift: parent.trainShift,
     heldShift: parent.heldShift,
     ...defect(name, options),
+  }
+  if (parent.skill !== undefined) {
+    const skill = parent.skill.map((value, axis) =>
+      round(value + (options.nullSteps ? 0 : -0.05 + 0.1 * unit(options.seed, 'skill', name, axis))),
+    )
+    artifact = { ...artifact, skill, quality: skillQuality(skill, options) }
+  }
+  if (parent.basin !== undefined && options.ceiling !== null) {
+    const cap = options.ceiling + (parent.basin === 0 ? 0 : 0.25)
+    artifact = { ...artifact, basin: parent.basin, quality: Math.min(cap, artifact.quality) }
+  }
+  if (parent.lines !== undefined) {
+    artifact = { ...artifact, lines: editLines(parent.lines, name, options) }
   }
   let label = `step ${name}`
   if (options.plantGain !== null && name === 'root.0') {
@@ -642,10 +826,63 @@ function defect(name: string, options: SimOptions): { defective?: true } {
 function poolChild(index: number, options: SimOptions) {
   const name = `c${index}`
   const planted = index === plantIndex(options)
+  if (options.skills > 1) {
+    // Pool candidates differ mostly on the specialist axes; the planted one
+    // is +gap on one specialist axis's share of the split, so only that
+    // family's units separate it.
+    const skill = Array.from({ length: options.skills }, (_, axis) =>
+      axis === 0
+        ? round(-0.02 * unit(options.seed, 'pool', name, axis))
+        : round(options.skillSpread * (unit(options.seed, 'pool', name, axis) - 1)),
+    )
+    if (planted) {
+      const family = 1 + Math.floor(unit(options.seed, 'plant-family') * (options.skills - 1))
+      const selection = tasks('s', options.selection)
+      const load =
+        selection.reduce((sum, task) => sum + demand(options, task.taskId)[family]!, 0) /
+        selection.length
+      skill[family] = round(options.poolGap! / Math.max(load, 1e-9))
+    }
+    const artifact: SimArtifact = {
+      ...rootOf(options),
+      name,
+      skill,
+      quality: skillQuality(skill, options),
+      lines: editLines(rootOf(options).lines!, name, options),
+    }
+    const label = planted ? `planted pool child +${options.poolGap}` : `pool child ${name}`
+    return { artifact, label, rationale: `${label}, independent of its parent` }
+  }
   const step = planted ? options.poolGap! : -0.1 * unit(options.seed, 'pool', name)
   const artifact: SimArtifact = { ...ROOT, name, quality: round(ROOT.quality + step) }
   const label = planted ? `planted pool child +${options.poolGap}` : `pool child ${name}`
   return { artifact, label, rationale: `${label}, independent of its parent` }
+}
+
+/** A draft: a fresh artifact written from the task, not from a parent, within
+ * 0.05 of the root (equal to it under `--null`, so a null search stays null)
+ * and defective at `--defect-rate`. Under `--ceiling` it starts its own
+ * basin, which can climb 0.25 higher than the root's; under `--skills` its
+ * skills are drawn afresh. */
+function draftChild(index: number, options: SimOptions) {
+  const name = `d${index}`
+  let artifact: SimArtifact = {
+    ...rootOf(options),
+    name,
+    quality: round(
+      ROOT.quality + (options.nullSteps ? 0 : -0.05 + 0.1 * unit(options.seed, 'draft', name)),
+    ),
+    lines: Array.from({ length: 8 }, (_, line) => `${name} line ${line}`),
+    ...defect(name, options),
+  }
+  if (options.skills > 0) {
+    const skill = Array.from({ length: options.skills }, (_, axis) =>
+      round(options.nullSteps ? 0 : -0.1 + 0.2 * unit(options.seed, 'draft-skill', name, axis)),
+    )
+    artifact = { ...artifact, skill, quality: skillQuality(skill, options) }
+  }
+  if (options.ceiling !== null) artifact = { ...artifact, basin: index }
+  return { artifact, label: `draft ${name}`, rationale: `draft ${name}, written afresh` }
 }
 
 /** No cell of the node can run again, as the kernel counts it. */
@@ -843,13 +1080,19 @@ function simulateCell(work: SearchCellWork<SimArtifact>, options: SimOptions): S
     }
   }
   const shift = work.split === 'train' ? artifact.trainShift : artifact.heldShift
-  const task = -0.1 + 0.2 * unit(options.seed, 'task', work.taskId)
+  const task =
+    -0.1 +
+    0.2 * unit(artifact.skill ? options.bankSeed : options.seed, 'task', work.taskId)
+  const base = artifact.skill
+    ? 0.5 +
+      demand(options, work.taskId).reduce((sum, load, axis) => sum + load * artifact.skill![axis]!, 0)
+    : artifact.quality
   const clamp = (value: number): number => Math.min(1, Math.max(0, value))
   const goodness = options.binary
-    ? unit(options.seed, 'pass', work.cellId) < clamp(artifact.quality + shift + task)
+    ? unit(options.seed, 'pass', work.cellId) < clamp(base + shift + task)
       ? 1
       : 0
-    : clamp(artifact.quality + shift + task - 0.15 + 0.3 * unit(options.seed, 'noise', work.cellId))
+    : clamp(base + shift + task - 0.15 + 0.3 * unit(options.seed, 'noise', work.cellId))
   const score = round(options.minimize ? 1 - goodness : goodness)
   return {
     outcome: { status: 'passed', score, metrics: { score } },
@@ -1408,6 +1651,344 @@ function exactSignTest(a: number, b: number): number {
   return Math.min(1, 2 * tail)
 }
 
+/** Paired differences (arm B minus arm A, one per seed) with a mean, a
+ * percentile bootstrap interval on the mean (descriptive below 20 pairs) and
+ * the exact one-sided sign test that B is better, chosen before the run:
+ * `higher` when a larger value is better (quality), `lower` when a smaller
+ * one is (cells). */
+function pairedReport(differences: readonly number[], better: 'higher' | 'lower' = 'higher') {
+  const zeros = differences.map(() => 0)
+  const bootstrap = pairedBootstrap(zeros, [...differences], {
+    statistic: 'mean',
+    resamples: 4000,
+    seed: 1,
+  })
+  const sign = pairedSignTest(differences, better === 'higher' ? 'greater' : 'less')
+  return {
+    n: differences.length,
+    mean: round(bootstrap.mean),
+    bootstrap95: [round(bootstrap.low), round(bootstrap.high)],
+    bootstrapGateEligible: bootstrap.gateEligible,
+    better: better === 'higher' ? sign.positive : sign.negative,
+    same: sign.ties,
+    worse: better === 'higher' ? sign.negative : sign.positive,
+    signTestP: round(sign.pValue),
+    method: `mean of per-seed differences (B minus A); 95% percentile bootstrap on the mean (4000 resamples, seed 1; descriptive below 20 pairs); exact one-sided sign test that B is better (${better} is better), ties excluded`,
+  }
+}
+
+/** Line edits between two sim artifacts' profile texts: the distance the
+ * `landscape` lens reads from blobs in `search show`. */
+function simTextEdits(truth: (nodeId: string) => SimArtifact): LandscapeEmbedding {
+  return {
+    kind: 'distance',
+    name: 'sim-text-edits',
+    method: 'line insertions plus deletions between the sim artifacts’ profile lines (Myers diff)',
+    distance(a, b) {
+      const left = truth(a.nodeId).lines
+      const right = truth(b.nodeId).lines
+      return left && right ? lineEditDistance(left, right) : null
+    },
+  }
+}
+
+/** Whether the landscape drew its kriged surface, and if not, why: `flat`
+ * when node scores vary no more than their noise, `uncorrelated` when they
+ * vary but distance in the embedding does not predict them. */
+function surfaceKind(
+  data: LandscapeData,
+): 'drawn' | 'flat' | 'uncorrelated' | 'insufficient' {
+  if (data.grid !== null) return 'drawn'
+  const reason = data.gridInsufficient ?? ''
+  if (reason.includes('vary no more than their noise')) return 'flat'
+  if (reason.includes('do not correlate with distance')) return 'uncorrelated'
+  return 'insufficient'
+}
+
+/**
+ * The plateau trigger, paired by seed: each seed runs `incumbent` and
+ * `draftOnPlateau(incumbent)` on in-memory ledgers with everything else
+ * equal. Reports, per arm, the kept node's true quality, the best true
+ * quality registered, drafts, cells, and the landscape lens on the closed
+ * ledger (plateau score and basin count on profile line edits); then the
+ * paired differences, draft-on-plateau minus incumbent. Run it with and
+ * without `--ceiling`: with a ceiling the root's lineage cannot pass it and a
+ * draft's can climb 0.25 higher, so drafting is the only way up; without one
+ * a draft is no better than the root's lineage, so the trigger's cost shows.
+ */
+async function plateau(options: SimOptions, seeds: number) {
+  interface ArmRow {
+    kept: number
+    best: number
+    drafts: number
+    cells: number
+    nodes: number
+    ledgerOk: boolean
+    plateau: number | null
+    plateauInsufficient: string | null
+    basins: number | null
+    surface: ReturnType<typeof surfaceKind>
+    firedAt: number[]
+  }
+  const arms = ['incumbent', 'draft-on-plateau'] as const
+  const rows: Array<{ seed: number } & Record<(typeof arms)[number], ArmRow>> = []
+  for (let seed = options.seed; seed < options.seed + seeds; seed++) {
+    const row = { seed } as { seed: number } & Record<(typeof arms)[number], ArmRow>
+    for (const policy of arms) {
+      const { result, summary, truth } = await runSimulation(
+        `mem://search-sim/${seed}/${policy}`,
+        { ...options, seed, policy },
+        memoryStore(),
+      )
+      const lens = landscape(result.state, simTextEdits(truth))
+      const drafts = summary.drafts as Array<{ evidence: Record<string, number> | null }>
+      row[policy] = {
+        kept: (summary.kept as { quality: number }).quality,
+        best: summary.bestQuality as number,
+        drafts: drafts.length,
+        cells: result.state.audit.cells.allocated,
+        nodes: result.state.audit.nodes,
+        ledgerOk: (summary.ledgerChecks as { ok: boolean }).ok,
+        plateau: lens.signal.value,
+        plateauInsufficient: lens.signal.insufficient,
+        basins: lens.data.basins.count,
+        surface: surfaceKind(lens.data),
+        firedAt: drafts.map((draft) => draft.evidence?.accepted ?? -1),
+      }
+    }
+    rows.push(row)
+  }
+  const arm = (name: (typeof arms)[number]) => {
+    const list = rows.map((row) => row[name])
+    const mean = (values: readonly number[]) =>
+      values.length === 0 ? null : round(values.reduce((sum, value) => sum + value, 0) / values.length)
+    const basins: Record<string, number> = {}
+    for (const entry of list) {
+      const key = entry.basins === null ? 'insufficient' : String(entry.basins)
+      basins[key] = (basins[key] ?? 0) + 1
+    }
+    const plateaus = list.flatMap((entry) => (entry.plateau === null ? [] : [entry.plateau]))
+    return {
+      meanKept: mean(list.map((entry) => entry.kept)),
+      meanBest: mean(list.map((entry) => entry.best)),
+      meanCells: mean(list.map((entry) => entry.cells)),
+      meanNodes: mean(list.map((entry) => entry.nodes)),
+      drafts: {
+        total: list.reduce((sum, entry) => sum + entry.drafts, 0),
+        searchesWithDraft: list.filter((entry) => entry.drafts > 0).length,
+      },
+      /** The landscape lens on each closed ledger. */
+      finalPlateau: {
+        measured: plateaus.length,
+        belowOne: plateaus.filter((value) => value < 1).length,
+        median: plateaus.length === 0 ? null : [...plateaus].sort((a, b) => a - b)[Math.floor(plateaus.length / 2)]!,
+      },
+      basins,
+      surfaces: list.reduce<Record<string, number>>((counts, entry) => {
+        counts[entry.surface] = (counts[entry.surface] ?? 0) + 1
+        return counts
+      }, {}),
+      ledgerAuditsPassed: list.filter((entry) => entry.ledgerOk).length,
+    }
+  }
+  return {
+    ok: rows.every((row) => arms.every((name) => row[name].ledgerOk)),
+    seeds: rows.length,
+    design: {
+      ceiling: options.ceiling,
+      selection: options.selection,
+      train: options.train,
+      population: options.population,
+      expansions: options.expansions,
+      allocation: options.allocation,
+    },
+    incumbent: arm('incumbent'),
+    draftOnPlateau: arm('draft-on-plateau'),
+    /** Draft-on-plateau minus incumbent, paired by seed. */
+    keptQuality: pairedReport(rows.map((row) => row['draft-on-plateau'].kept - row.incumbent.kept)),
+    bestQuality: pairedReport(rows.map((row) => row['draft-on-plateau'].best - row.incumbent.best)),
+    cells: pairedReport(
+      rows.map((row) => row['draft-on-plateau'].cells - row.incumbent.cells),
+      'lower',
+    ),
+    perSeed: rows.map((row) => ({
+      seed: row.seed,
+      incumbent: [row.incumbent.kept, row.incumbent.plateau, row.incumbent.basins],
+      draftOnPlateau: [
+        row['draft-on-plateau'].kept,
+        row['draft-on-plateau'].drafts,
+        row['draft-on-plateau'].firedAt,
+        row['draft-on-plateau'].basins,
+      ],
+    })),
+  }
+}
+
+/**
+ * The landscape lens under the null: `--null` makes every node as good as the
+ * root, so the landscape is flat and only cell noise varies. Runs one search
+ * per seed and reports how many basins the lens counts (the method promises
+ * one on at least 95% of flat landscapes), whether it drew a surface, and
+ * the plateau score, which should read "on a plateau" when nothing improves.
+ */
+async function lensNull(options: SimOptions, seeds: number) {
+  if (!options.nullSteps) throw new Error('lens-null needs --null')
+  const basins: Record<string, number> = {}
+  const surfaces = { drawn: 0, flat: 0, uncorrelated: 0, insufficient: 0 }
+  const plateaus: number[] = []
+  let plateauInsufficient = 0
+  let nodes = 0
+  for (let seed = options.seed; seed < options.seed + seeds; seed++) {
+    // A ceiling of 1 is inert for scores in [0, 1]; it gives every artifact
+    // profile lines, so the lens measures line edits.
+    const { result, truth } = await runSimulation(
+      `mem://search-sim/${seed}/lens-null`,
+      { ...options, seed, ceiling: options.ceiling ?? 1 },
+      memoryStore(),
+    )
+    nodes += result.state.audit.nodes
+    const lens = landscape(result.state, simTextEdits(truth))
+    const key = lens.data.basins.count === null ? 'insufficient' : String(lens.data.basins.count)
+    basins[key] = (basins[key] ?? 0) + 1
+    surfaces[surfaceKind(lens.data)] += 1
+    if (lens.signal.value === null) plateauInsufficient += 1
+    else plateaus.push(lens.signal.value)
+  }
+  const oneBasin = basins['1'] ?? 0
+  const counted = seeds - (basins.insufficient ?? 0)
+  return {
+    seeds,
+    meanNodes: round(nodes / seeds),
+    basins,
+    oneBasin: { count: oneBasin, of: counted, wilson95: interval(wilson(oneBasin, counted, 0.95)) },
+    surfaces,
+    plateau: {
+      measured: plateaus.length,
+      insufficient: plateauInsufficient,
+      belowOne: plateaus.filter((value) => value < 1).length,
+      max: plateaus.length === 0 ? null : Math.max(...plateaus),
+    },
+  }
+}
+
+/**
+ * Calibrate, then test adaptively. One `uniform` search over a pool
+ * (`calibrationSeed`, the same task bank) measures every node on every unit;
+ * `skillManifold` fits its unit loadings and `skillCalibration` keeps them.
+ * Then, once per seed, the same pool search runs under `asha` and under
+ * `asha-adaptive`, whose rungs add the units that best separate the leaders
+ * on those loadings. Reports cells, the kept node's true quality, the regret
+ * against the best node each search registered, and the ledger audits.
+ */
+async function adaptive(options: SimOptions, seeds: number, calibrationSeed: number) {
+  if (options.skills < 2 || options.poolGap === null) {
+    throw new Error('adaptive needs --skills 2 or more and --pool-gap')
+  }
+  const calibrationRun = await runSimulation(
+    `mem://search-sim/calibration/${calibrationSeed}`,
+    { ...options, seed: calibrationSeed, allocation: 'uniform', policy: 'incumbent' },
+    memoryStore(),
+  )
+  const lens = skillManifold(calibrationRun.result.state, 'auto')
+  const calibration = skillCalibration(lens)
+  const calibrationReport = {
+    seed: calibrationSeed,
+    nodes: lens.data.matrix.rows,
+    units: lens.data.matrix.units,
+    intrinsicDimension: lens.data.intrinsicDimension.value,
+    curve: lens.data.intrinsicDimension.curve,
+    rank: lens.data.model?.rank ?? null,
+    noiseVariance: lens.data.noiseVariance,
+  }
+  if (calibration === null) {
+    return { ok: false, calibration: calibrationReport, reason: lens.data.insufficient }
+  }
+  interface ArmRow {
+    cells: number
+    kept: string
+    quality: number
+    best: number
+    planted: boolean
+    ledgerOk: boolean
+  }
+  const rows: Array<{ seed: number; asha: ArmRow; adaptive: ArmRow }> = []
+  for (let seed = options.seed; seed < options.seed + seeds; seed++) {
+    const arms = {} as Record<'asha' | 'adaptive', ArmRow>
+    for (const arm of ['asha', 'adaptive'] as const) {
+      const { result, summary } = await runSimulation(
+        `mem://search-sim/${seed}/${arm}`,
+        {
+          ...options,
+          seed,
+          allocation: arm === 'asha' ? 'asha' : 'asha-adaptive',
+          calibration,
+        },
+        memoryStore(),
+      )
+      const kept = summary.kept as { name: string; quality: number; planted: boolean }
+      arms[arm] = {
+        cells: result.state.audit.cells.allocated,
+        kept: kept.name,
+        quality: kept.quality,
+        best: summary.bestQuality as number,
+        planted: kept.planted,
+        ledgerOk: (summary.ledgerChecks as { ok: boolean }).ok,
+      }
+    }
+    rows.push({ seed, ...arms })
+  }
+  const arm = (name: 'asha' | 'adaptive') => {
+    const list = rows.map((row) => row[name])
+    const keptBest = list.filter((row) => row.quality >= row.best - 1e-12).length
+    return {
+      cells: list.reduce((sum, row) => sum + row.cells, 0),
+      keptBest: {
+        count: keptBest,
+        of: list.length,
+        wilson95: interval(wilson(keptBest, list.length, 0.95)),
+      },
+      keptPlanted: list.filter((row) => row.planted).length,
+      meanRegret: round(list.reduce((sum, row) => sum + (row.best - row.quality), 0) / list.length),
+      meanKeptQuality: round(list.reduce((sum, row) => sum + row.quality, 0) / list.length),
+      ledgerAuditsPassed: list.filter((row) => row.ledgerOk).length,
+    }
+  }
+  const ashaArm = arm('asha')
+  const adaptiveArm = arm('adaptive')
+  const paired = rows.map((row) => row.adaptive.quality - row.asha.quality)
+  return {
+    ok: ashaArm.ledgerAuditsPassed === rows.length && adaptiveArm.ledgerAuditsPassed === rows.length,
+    seeds: rows.length,
+    design: {
+      skills: options.skills,
+      bankSeed: options.bankSeed,
+      selection: options.selection,
+      population: options.population,
+      expansions: options.expansions,
+      poolGap: options.poolGap,
+      binary: options.binary,
+    },
+    calibration: { ...calibrationReport, source: calibration.source },
+    asha: ashaArm,
+    adaptive: adaptiveArm,
+    /** Kept quality, adaptive minus asha, paired by seed. */
+    keptQuality: pairedReport(paired),
+    /** Cells allocated, adaptive minus asha, paired by seed. */
+    cells: pairedReport(
+      rows.map((row) => row.adaptive.cells - row.asha.cells),
+      'lower',
+    ),
+    differing: rows
+      .filter((row) => row.asha.kept !== row.adaptive.kept)
+      .map((row) => ({
+        seed: row.seed,
+        best: row.asha.best,
+        asha: { kept: row.asha.kept, quality: row.asha.quality, cells: row.asha.cells },
+        adaptive: { kept: row.adaptive.kept, quality: row.adaptive.quality, cells: row.adaptive.cells },
+      })),
+  }
+}
+
 async function main(): Promise<void> {
   const [mode, ...argv] = process.argv.slice(2)
   const { values } = parseArgs({
@@ -1452,10 +2033,21 @@ async function main(): Promise<void> {
       'pool-gap': { type: 'string' },
       'pool-plant': { type: 'string' },
       seeds: { type: 'string', default: '100' },
+      skills: { type: 'string', default: '0' },
+      'bank-seed': { type: 'string' },
+      'skill-spread': { type: 'string', default: '0.12' },
+      ceiling: { type: 'string' },
+      calibration: { type: 'string' },
+      'calibration-seed': { type: 'string', default: '1000' },
+      'in-memory': { type: 'boolean', default: false },
     },
   })
-  if (values.allocation !== 'uniform' && values.allocation !== 'asha') {
-    throw new Error(`--allocation must be uniform or asha, got ${values.allocation}`)
+  if (
+    values.allocation !== 'uniform' &&
+    values.allocation !== 'asha' &&
+    values.allocation !== 'asha-adaptive'
+  ) {
+    throw new Error(`--allocation must be uniform, asha or asha-adaptive, got ${values.allocation}`)
   }
   if (!isSimPolicy(values.policy)) {
     throw new Error(`--policy must be ${SIM_POLICIES.join(', ')}, got ${values.policy}`)
@@ -1495,9 +2087,37 @@ async function main(): Promise<void> {
     defectRate: Number(values['defect-rate']),
     poolGap: values['pool-gap'] === undefined ? null : Number(values['pool-gap']),
     poolPlant: values['pool-plant'] === undefined ? null : Number(values['pool-plant']),
+    skills: Number(values.skills),
+    skillSpread: Number(values['skill-spread']),
+    bankSeed: Number(values['bank-seed'] ?? values.seed),
+    ceiling: values.ceiling === undefined ? null : Number(values.ceiling),
+    calibration:
+      values.calibration === undefined
+        ? null
+        : (JSON.parse(readFileSync(values.calibration, 'utf8')) as SkillCalibration),
   }
   if (mode === 'claims') {
     console.log(JSON.stringify(await claims(options, Number(values.searches)), null, 2))
+    return
+  }
+  if (mode === 'lens-null') {
+    console.log(JSON.stringify(await lensNull(options, Number(values.seeds)), null, 2))
+    return
+  }
+  if (mode === 'plateau') {
+    const report = await plateau(options, Number(values.seeds))
+    console.log(JSON.stringify(report, null, 2))
+    if (!report.ok) process.exitCode = 1
+    return
+  }
+  if (mode === 'adaptive') {
+    const report = await adaptive(
+      options,
+      Number(values.seeds),
+      Number(values['calibration-seed']),
+    )
+    console.log(JSON.stringify(report, null, 2))
+    if (!report.ok) process.exitCode = 1
     return
   }
   if (mode === 'compare') {
@@ -1514,6 +2134,19 @@ async function main(): Promise<void> {
   })
   if (mode === 'run') {
     const dir = resolve(values.dir)
+    if (values['in-memory']) {
+      // The ledger and its blobs live in memory while the search runs (no
+      // fsync per append), then land in DIR as `run` would have written them.
+      // A killed run leaves nothing to resume.
+      const store = memoryStore()
+      const { summary } = await runSimulation(dir, options, store)
+      for (const [path, content] of store.files()) {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, content)
+      }
+      console.log(JSON.stringify(summary))
+      return
+    }
     const { summary } = await runSimulation(dir, options, diskStore(dir))
     console.log(JSON.stringify(summary))
     return
@@ -1524,7 +2157,9 @@ async function main(): Promise<void> {
     if (!report.ok) process.exitCode = 1
     return
   }
-  throw new Error(`unknown mode ${String(mode)}; use run, kill-resume, claims or compare`)
+  throw new Error(
+    `unknown mode ${String(mode)}; use run, kill-resume, claims, compare, plateau, adaptive or lens-null`,
+  )
 }
 
 // Run only as a command; another script imports `runSimulation` to run

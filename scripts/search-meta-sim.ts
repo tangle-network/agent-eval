@@ -216,6 +216,11 @@ async function main(): Promise<void> {
     defectRate: 0,
     poolGap: null,
     poolPlant: null,
+    skills: 0,
+    skillSpread: 0.12,
+    bankSeed: problem,
+    ceiling: null,
+    calibration: null,
   })
 
   const policy = incumbent()
