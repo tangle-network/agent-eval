@@ -147,6 +147,62 @@ No lens imputes a value below the design's honesty thresholds: an unknown cost o
 Every sample a lens summarizes is staged by `estimateNode`'s own `searchEstimateMethod`: `none` below 2 (no mean; one observation is no estimate), `insufficient` below 6 (a mean, no interval), `descriptive` below 20 and `bootstrap` from 20, each interval naming its method and n.
 Every order a lens reports, such as a cluster id, sorts by UTF-16 code unit, so a fixed ledger gives the same JSON on every host.
 
+### All eight lenses, one page
+
+`src/search/lenses/` holds eight lenses total; the table below is every one of them, the signal a `SearchPolicy` can read from it, and the one-line methodology it motivates (search-tree-design §12).
+Five of the eight feed a shipped consumer today: four (`operatorYield`, `landscape`, `skillManifold`, `metaSearch`) into a `SearchPolicy` or allocator, one (`editCredit`) into agent-runtime SkillOpt rather than a `SearchPolicy`. `tree`, `front` and `taskMatrix` expose their signal to `agent-eval search show`, Intelligence, discovery lab and VerticalBench with no built-in policy consumer yet — the design names their intended use, and the Wiring column says which are still only that.
+
+| Lens | `search show` flag | Signal | Motivates | Wiring |
+|---|---|---|---|---|
+| `tree` | `--tree` | `tree.nodeCount` | the base page every other lens sits beside | none (base view) |
+| `operatorYield` | `--operator-yield` | `operatorYield.weights` | operator choice as a bandit | **wired** — `incumbentWithOperatorBandit` draws its expansion operator from this once an operator has 6 measured outcomes |
+| `front` | `--front` | `front.membership` | multi-objective selection: which nodes earn their cost, on score vs. known spend | not wired — a view signal today (Intelligence's frontier, cost-per-solved reporting) |
+| `taskMatrix` | `--task-matrix` | `taskMatrix.specialistGain` | ship a portfolio and route by task family; conditional skills | not wired — no `SearchPolicy` reads it yet (recorded open issue on PR #866) |
+| `editCredit` | `--edit-credit` | `reusableHunks` | extract reusable edits as inline skills; stop re-proposing dead ones | **wired to SkillOpt, not a `SearchPolicy`** — `data.skillCandidates` feeds agent-runtime `improve({ surface: 'skills' })` directly (PR #868) |
+| `landscape` | `--landscape` | `plateau` | draft fresh from the root when the climb has plateaued | **wired, opt-in** — `draftOnPlateau(base)` wraps any policy (e.g. `draftOnPlateau(aide())`); off by default, no quality gain detected in simulation yet (PR #869) |
+| `skillManifold` | `--skill-manifold` | `nextUnit` | adaptive testing: measure the cell that best separates the leaders next | **wired, opt-in** — `asha({ extend: nextUnitExtension(skillCalibration(lens)) })`; off by default, saved ~9 of ~600 cells per search with no quality loss in simulation (PR #869) |
+| `metaSearch` | `--meta` | `metaSearch.bestPolicyConfiguration` | tune the climber itself: an outer search whose cells are inner searches, ranked by held-out lift per known dollar | **wired** — `runNestedSearch` scores each outer cell with this signal (PR #867) |
+
+Every lens is a pure function of `SearchStateView` — no clock, no `Math.random`, no record type but the ledger's own (`editCredit` also reads content blobs, and the caller verifies them against their digest).
+`agent-eval search show <ledger>` takes any combination of the first seven flags in one call; `--meta` takes one or more ledger paths in place of a single lens flag, because a meta-search score compares searches, not nodes within one.
+
+**Verified on a real ledger** (`scripts/import-vb-climb.ts` import of `climb-gen1-20260924T151217Z`, a real VerticalBench GEPA climb — 2 nodes, 4 settled cells, every cell's cost unknown because the GEPA callback path meters per batch, not per cell):
+
+```
+$ agent-eval search show search-ledger.jsonl --tree --operator-yield --front --task-matrix --edit-credit --landscape --skill-manifold
+
+tree: 2 nodes, 2 edges
+seed → node_8b6e8e11c5a430aa900f210c8e5162d7 (rejected) $0.00 known + at least $0.00 over 2 unknown-cost cells
+improve → node_9d74773e7ecfd982307a8285845e7fad (selected) $0.00 known + at least $0.00 over 2 unknown-cost cells
+
+operator yield (selection split):
+  improve: 1 proposals → 1 node (selected=1); yield: no measured children; 1 excluded
+  seed: 1 proposals → 1 node (rejected=1); yield: no measured children; 1 excluded
+
+front (selection split, axes: score, costPerCellUsd): 0 of 2 node(s) on the frontier, 2 excluded (one-unit 2)
+
+task matrix (selection split, maximize): 2 node(s) × 1 unit(s), 1 node cluster(s), 1 unit cluster(s)
+  cluster base-pay-usdc-checkout.selection.1 [...]: specialist gain insufficient (1 of 6 units)
+
+edit credit — 10 genes from 1 of 1 lineage edges, 1 measurable steps (selection split, maximize)
+  signal reusableHunks = null (insufficient: no gene has 6 selection units on clean steps (10 genes, 1 measurable steps))
+
+Landscape (selection split, ...): placed 2 of 2 nodes by landmark MDS on 2 landmarks
+  plateau: insufficient: 0 of 6 accepted nodes (screened, no dodged unit, 6 or more units shared with the root)
+
+Skill manifold (selection split, loadings fitted here)
+  intrinsic dimension: insufficient (0 nodes and 0 units qualify; a manifold needs 3 nodes and 6 units)
+
+$ agent-eval search show climb-141516Z/search-ledger.jsonl climb-151217Z/search-ledger.jsonl --meta
+
+meta-search: 2 searches (0 contained, 0 derived) in 1 objective, 2 configurations
+metaSearch.bestPolicyConfiguration: unknown — no configuration of vb/coder · score (maximize) has a known lift per dollar: 2 unscored searches and 0 with only a spend floor
+```
+
+Every signal reports honestly rather than guessing: at 2 nodes and 1 shared unit, this real climb is below every lens's `insufficient`/`none` threshold, so `operatorYield`, `front`, `taskMatrix`, `editCredit`, `landscape` and `skillManifold` all say so instead of printing a number.
+The two `--wired` behaviors above (`incumbentWithOperatorBandit`, `draftOnPlateau`, `nextUnitExtension`) fall back to their base policy's own behavior on exactly this "insufficient" case — the same code path a synthetic ledger with real signal values exercises, proved in each lens's own PR.
+
+
 | Lens | Reports | Signal |
 |---|---|---|
 | `tree(state)` | a tidy tree of nodes and edges — the base view every other lens sits beside; a node with unknown-cost cells shows its known spend, its proven floor and how many cells are unknown, never a total | `tree.nodeCount` (drives no policy) |
