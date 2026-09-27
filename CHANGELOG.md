@@ -6,6 +6,16 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+## [0.198.1] — 2026-09-27
+
+### Fixed
+
+- `operatorYield` counted a node once per incoming edge instead of once; on a ledger with re-proposals, invalid nodes and nodes sharing only one unit with the root inflated an operator’s measured-outcome count. Those nodes now give no sample.
+- `taskMatrix` ignored whether the objective is maximized or minimized, and reported a specialist gain from as little as one shared unit while comparing nodes measured on different units. It now reports ‘insufficient’ below 2 nodes or 6 units, and sorts cluster ids with the same code-unit order every other lens uses (not `localeCompare`, which is locale-dependent).
+- `front` could place an invalid node on the frontier, and measured its cost axis by how far the allocator had run a node rather than by known spend. It now excludes invalid nodes and uses known cost per attempted cell.
+- `tree` showed a node with only unknown-cost cells as `$0.00` instead of the known spend plus the minimum over those cells.
+- `summarizeSamples` kept its own copy of the sample-size thresholds instead of using `searchEstimateMethod`, so it called a single sample ‘insufficient’ and printed a root’s yield against itself as `0.0000/$` instead of `unknown`.
+
 ## [0.198.0] — 2026-09-27
 
 ### Added
