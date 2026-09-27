@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.200.1] — 2026-09-27
+
+- fix(rl): only an exact scope rule calls a claim a hack (#886)
+
 ## [0.200.0] — 2026-09-27
 
 - feat(rl): decide whether a checker-verified claim is a result about its source or only about its checker (#882)
