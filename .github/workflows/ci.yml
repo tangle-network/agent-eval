@@ -30,7 +30,7 @@ jobs:
           cache-dependency-glob: clients/python/uv.lock
 
       - name: Verify release preparation guard
-        run: node --test scripts/check-feature-release-files.test.mjs
+        run: node --test scripts/check-feature-release-files.node-test.mjs
 
       - name: Keep release prep out of feature PRs
         if: github.event_name == 'pull_request'
