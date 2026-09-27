@@ -21,7 +21,10 @@
  * cell would exclude every node from `operatorYield`'s yield sample and
  * `front`'s frontier, defeating the point of a scale fixture), so
  * `operatorYield` and `front` always have real exclusions to report
- * alongside a mostly fully-costed happy path.
+ * alongside a mostly fully-costed happy path. Each proposal records its own
+ * known-cost candidate-generation operation, as the kernel does, because
+ * `operatorYield` charges a node its share of the proposal and gives no
+ * sample when the proposal's cost was never recorded.
  *
  * Usage:
  *   tsx scripts/generate-synthetic-search-ledger.ts --seed 1 --out <path> \
@@ -262,12 +265,27 @@ async function main(): Promise<void> {
       })
       const parents = secondParentId ? [parentId, secondParentId] : [parentId]
       const diff = recorder.blob('diff', { operator, proposalIndex })
+      const operationId = `proposal-${proposalIndex}`
+      await recorder.startOperation({ operationId, operationKind: 'candidate-generation' })
+      await recorder.recordOperation({
+        operationId,
+        operationKind: 'candidate-generation',
+        execution: {
+          kind: 'deterministic',
+          source: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) },
+        },
+        outcome: { status: 'completed' },
+        accounting: {
+          tokens: { status: 'unknown', reason: 'synthetic generator records no tokens' },
+          cost: { status: 'known', usd: COST_USD[operator], source: 'pricing-table' },
+        },
+      })
       await recorder.recordEdge({
         childNodeId: nodeId,
         parents,
         operator,
         attribution: 'explicit',
-        proposer: { kind: 'trace', name: 'synthetic-proposer', operationId: null, source: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) } },
+        proposer: { kind: 'trace', name: 'synthetic-proposer', operationId, source: { uri: 'tool://lens-basic-generator', revision: seedRevision(args.seed) } },
         proposalKey: `proposal-${proposalIndex}`,
         rationale: `synthetic ${operator} #${proposalIndex}`,
         diffs: parents.map(() => diff),

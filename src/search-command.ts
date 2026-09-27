@@ -310,7 +310,7 @@ function renderTreeText(data: TreeData): string {
 }
 
 function renderOperatorYieldText(data: OperatorYieldData): string {
-  const lines = [`operator yield (${data.split} split):`]
+  const lines = [`operator yield (${data.split} split, gain per known $ of proposal + screen):`]
   if (data.rows.length === 0) lines.push('  no edges yet')
   for (const row of data.rows) {
     const y = row.yield
