@@ -54,4 +54,4 @@ jobs:
           git add package.json CHANGELOG.md clients/python/pyproject.toml clients/python/src/agent_eval_rpc/__init__.py clients/python/uv.lock
           git commit -m "chore(release): $VERSION"
           git push origin "$branch"
-          gh pr create --base main --head "$branch" --title "chore(release): $VERSION" --body "Release-time preparation from merged main. Feature PRs do not carry version or changelog edits."
+          gh pr create --base main --head "$branch" --title "chore(release): $VERSION" --body "Release-time preparation from merged main. Feature PRs do not carry version or changelog edits. A maintainer must approve the bot-created Actions workflow run before its checks can run."

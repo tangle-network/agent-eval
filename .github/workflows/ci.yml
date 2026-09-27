@@ -29,8 +29,13 @@ jobs:
           enable-cache: true
           cache-dependency-glob: clients/python/uv.lock
 
+      - name: Verify release preparation guard
+        run: node --test scripts/check-feature-release-files.test.mjs
+
       - name: Keep release prep out of feature PRs
         if: github.event_name == 'pull_request'
+        env:
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: node scripts/check-feature-release-files.mjs
 
       - name: Install JS deps
