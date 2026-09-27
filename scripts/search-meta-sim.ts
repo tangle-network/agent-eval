@@ -198,6 +198,7 @@ async function main(): Promise<void> {
     faultRate: 0,
     delayMs: 0,
     patience: undefined,
+    minImprovement: undefined,
     deadline: null,
     minEffect: innerMinEffect,
     nullSteps: false,
