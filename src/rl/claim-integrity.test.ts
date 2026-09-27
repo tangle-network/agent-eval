@@ -186,6 +186,15 @@ describe('farming', () => {
     expect(farmingSignal(sweep[0]!, sweep, undeclared).fired).toBeNull()
   })
 
+  it('reads a missing value as unobserved, not as a value that varies', () => {
+    const partial = [
+      { m: 4, d: 7, c: 5 },
+      { d: 7, c: 5 },
+      { d: 7, c: 5 },
+    ].map((parameters, index) => claim({ id: `lane-a:partial-${index}#0`, parameters }))
+    expect(farmingSignal(partial[0]!, partial, scope).fired).toBe(false)
+  })
+
   it('refuses options in the place of the scope', () => {
     expect(() => farmingSignal(sweep[0]!, sweep, { minimumRepeats: 2 } as never)).toThrow(TypeError)
     expect(farmingSignal(sweep[0]!, sweep.slice(0, 2), scope, { minimumRepeats: 2 }).fired).toBe(

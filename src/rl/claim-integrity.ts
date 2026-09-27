@@ -332,10 +332,15 @@ export function farmingSignal(
     if (!scalar(value)) continue
     const same = peers.filter((peer) => peer.parameters[name] === value)
     if (same.length < minimum) continue
+    // A value a peer does not carry is unobserved; it never counts as a second value.
     const varying = declared.filter(
       (other) =>
         other !== name &&
-        new Set(same.map((peer) => JSON.stringify(peer.parameters[other] ?? null))).size > 1,
+        new Set(
+          same
+            .filter((peer) => Object.hasOwn(peer.parameters, other))
+            .map((peer) => JSON.stringify(peer.parameters[other])),
+        ).size > 1,
     )
     if (varying.length === 0) continue
     return {
