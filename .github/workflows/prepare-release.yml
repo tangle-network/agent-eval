@@ -40,7 +40,8 @@ jobs:
           current=$(node -p "require('./package.json').version")
           version=$(CURRENT="$current" TYPE="$TYPE" node -e "const [a,b,c]=process.env.CURRENT.split('.').map(Number);const t=process.env.TYPE;console.log(t==='major'?(a+1)+'.0.0':t==='minor'?a+'.'+(b+1)+'.0':a+'.'+b+'.'+(c+1))")
           node scripts/prepare-release.mjs "$version"
-          (cd clients/python && uv lock)
+          # prepare-release.mjs set the version in uv.lock; this only checks it.
+          (cd clients/python && uv lock --check)
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Open release PR
         env:

@@ -32,7 +32,7 @@ describe('public analyst benchmark implementation digest', () => {
     expect(analystBenchmarkImplementationDigest()).toBe(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256)
     expect(ANALYST_BENCHMARK_IMPLEMENTATION_SHA256).toMatch(/^[a-f0-9]{64}$/)
     expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM).toBe(
-      'sha256-canonical-file-manifest',
+      'sha256-canonical-file-manifest-without-own-version',
     )
     expect(ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES).toEqual([
       'clients/python/pyproject.toml',

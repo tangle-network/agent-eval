@@ -1,6 +1,9 @@
 export const ANALYST_BENCHMARK_IMPLEMENTATION_DIGEST_ALGORITHM = 'sha256-canonical-source-manifest'
 
-export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-canonical-file-manifest'
+/** The dependency files' manifest digest with the package's own version
+ * fields blanked, so a release that only bumps the version keeps the pin. */
+export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM =
+  'sha256-canonical-file-manifest-without-own-version'
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
   'clients/python/pyproject.toml',
@@ -10,7 +13,7 @@ export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES = Object.freeze([
 ])
 
 export const ANALYST_BENCHMARK_DEPENDENCY_LOCK_SHA256 =
-  'ff82a54b5a6a00b28b428d38b991bbda1eb00277791567c6e63dde7fdc87330c'
+  '007041f0de3b376aa3def1d3efe8221a724030a22ac0a7988921db12c4624c09'
 
 /** The published benchmark evidence was produced at this package version, by
  * the retired one-shot direct runner, before trace analysts moved to the
