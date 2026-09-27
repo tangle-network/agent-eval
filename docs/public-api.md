@@ -649,16 +649,16 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | symbol | consumer | evidence |
 | --- | --- | --- |
 | `acquireSingleRunLock` | production | agent-knowledge:src/memory/run-control.ts |
-| `aide` | production | this package: scripts/search-sim.ts:145 |
+| `aide` | production | this package: scripts/search-sim.ts:146 |
 | `analyzeCrossSurfaceInteractions` | none | only this package's tests: src/campaign/cross-surface-interaction.test.ts:2 |
-| `asha` | production | this package: scripts/search-sim.ts:119 |
+| `asha` | production | this package: scripts/search-sim.ts:120 |
 | `assertCampaignDesign` | production | this package: src/campaign/plan-campaign-run.ts:10 |
 | `assertCampaignSplitIdentity` | production | agent-knowledge:src/memory/experiment/learning-pairs.ts |
 | `assertCodeSurfaceIdentity` | none | — |
 | `assertCompleteSearchHistory` | production | this package: src/campaign/optimization-method.ts:14 |
 | `assertSearchHistoryMatchesState` | planned | doc: docs/search-ledger.md |
 | `autoevalsScorerJudge` | none | only this package's tests: src/campaign/upstream-evaluators.test.ts:6 |
-| `beam` | production | this package: scripts/search-sim.ts:145 |
+| `beam` | production | this package: scripts/search-sim.ts:146 |
 | `buildCellSchedule` | production | this package: src/campaign/plan-campaign-run.ts:9 |
 | `buildEvidenceVector` | planned | doc: docs/experiment.md |
 | `buildLoopProvenanceRecord` | none | only this package's tests: tests/campaign/candidate-attribution.test.ts:5 |
@@ -683,18 +683,18 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `createReferenceEquivalenceJudge` | none | only this package's tests: src/reference-equivalence-judge.test.ts:13 |
 | `createRunCostLedger` | production | agent-dev-container:products/intelligence/api/src/lib/eval-engine.ts |
 | `createSearchHistoryReceipt` | production | this package: src/campaign/search-ledger-recording.ts:27 |
-| `crowdedFrontierParent` | production | this package: scripts/search-sim.ts:145 |
+| `crowdedFrontierParent` | production | this package: scripts/search-sim.ts:146 |
 | `decideSearchClaim` | production | this package: src/campaign/search-kernel.ts:42 |
 | `decodeExternalTextCandidate` | production | agent-runtime:src/improvement/method-execution.ts |
 | `DEFAULT_EXTERNAL_OPTIMIZER_CALLBACK_LIMITS` | none | — |
 | `DEFAULT_EXTERNAL_OPTIMIZER_PROCESS_LIMITS` | none | — |
 | `defaultProductionGate` | production | agent-app:src/eval-campaign/index.ts |
 | `detectScale` | production | this package: src/campaign/gates/promotion-policy.ts:25 |
-| `developmentClaim` | production | this package: scripts/generate-synthetic-search-ledger.ts:34 |
+| `developmentClaim` | production | this package: scripts/generate-synthetic-search-ledger.ts:37 |
 | `dimensionRegressions` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-engine.ts |
 | `discoverEvalFixtures` | planned | doc: docs/eval-fixtures.md |
 | `emitLoopProvenance` | production | this package: src/contract/self-improve.ts:36 |
-| `estimateNode` | production | this package: scripts/search-sim.ts:120 |
+| `estimateNode` | production | this package: scripts/search-sim.ts:121 |
 | `estimateNodeFromCells` | production | this package: scripts/synthetic-search-ledger.ts:60 |
 | `externalSurface` | none | — |
 | `externalTextOptimizationMethod` | production | agent-app:src/eval-campaign/index.ts |
@@ -725,12 +725,12 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `neutralizationGate` | planned | consumer tests: tax-agent:tests/eval/benchmarks/taxcalc/evolve.ts |
 | `neutralizeText` | planned | consumer tests: tax-agent:tests/eval/benchmarks/taxcalc/compile-and-prove/compile-diff.ts |
 | `openAutoPr` | production | this package: src/campaign/presets/run-improvement-loop.ts:8 |
-| `openSearchLedger` | production | this package: scripts/generate-synthetic-search-ledger.ts:34 |
+| `openSearchLedger` | production | this package: scripts/generate-synthetic-search-ledger.ts:37 |
 | `optimizationTokenUsageFromSummary` | production | this package: src/campaign/external-text-optimization.ts:41 |
 | `pairHoldout` | production | agent-dev-container:products/intelligence/api/src/lib/run-provenance.ts |
 | `paretoPolicy` | none | only this package's tests: src/campaign/gates/promotion-policy.test.ts:3 |
 | `paretoSignificanceGate` | production | agent-app:src/eval-campaign/index.ts |
-| `parseSearchLedgerLine` | production | this package: scripts/search-sim.ts:132 |
+| `parseSearchLedgerLine` | production | this package: scripts/search-sim.ts:133 |
 | `phoenixEvaluatorJudge` | none | only this package's tests: src/campaign/upstream-evaluators.test.ts:6 |
 | `planCampaignRun` | production | this package: src/campaign/fixtures.ts:5 |
 | `planEvalFixtureRun` | planned | example: examples/eval-fixtures-quickstart/index.ts:11 |
@@ -748,7 +748,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `renderScoreboardMarkdown` | production | blueprint-agent:scripts/experiments/eval/launch-scoreboard/run.ts |
 | `renderSearchSummary` | production | this package: scripts/search-meta-sim.ts:50 |
 | `renderSurfaceDiff` | production | agent-dev-container:products/intelligence/api/src/lib/optimization-evidence-packet.ts |
-| `replaySearchLedgerText` | production | this package: scripts/generate-synthetic-search-ledger.ts:34 |
+| `replaySearchLedgerText` | production | this package: scripts/generate-synthetic-search-ledger.ts:37 |
 | `resolveExternalOptimizerCallbackLimits` | production | this package: src/analyst/dspy-rlm-engine.ts:1 |
 | `resolveExternalOptimizerProcessLimits` | production | this package: src/analyst/benchmark-command-persistence.ts:6 |
 | `resolveRunDir` | production | agent-dev-container:products/intelligence/api/src/lib/eval-engine.ts |
@@ -760,7 +760,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `runOptimization` | production | agent-dev-container:products/sandbox/evals/src/auto-optimization.ts |
 | `runProfileMatrix` | production | agent-runtime:examples/product-eval/product-eval.ts |
 | `runProfileMatrixSegment` | production | discovery-lab:tools/run-profile-confirmation.mjs |
-| `runSearch` | production | this package: scripts/search-sim.ts:121 |
+| `runSearch` | production | this package: scripts/search-sim.ts:122 |
 | `scopedOptimizationMethod` | planned | doc: docs/campaign-proposers.md |
 | `scoreboardSummary` | production | blueprint-agent:scripts/experiments/eval/launch-scoreboard/run.ts |
 | `scoreDiscrimination` | production | supervisor-lab:bench/comms/seat-discrimination.ts |
@@ -774,7 +774,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `searchClaimReserveUsd` | production | this package: scripts/search-meta-sim.ts:43 |
 | `searchDivergence` | planned | doc: docs/search-ledger.md |
 | `searchEdgeId` | planned | doc: docs/search-ledger.md |
-| `searchExpansionIndex` | production | this package: scripts/search-sim.ts:121 |
+| `searchExpansionIndex` | production | this package: scripts/search-sim.ts:122 |
 | `searchHistoryCoverageRow` | production | this package: src/campaign/optimization-method.ts:14 |
 | `SearchHistoryRequiredError` | none | — |
 | `SearchLedgerConflictError` | production | this package: src/campaign/search-ledger.ts:36 |
@@ -787,8 +787,8 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `searchProposalExecution` | production | this package: src/campaign/presets/run-optimization.ts:51 |
 | `searchProposerView` | production | this package: src/campaign/presets/run-optimization.ts:86 |
 | `searchReceiptAccounting` | production | this package: src/campaign/presets/run-optimization.ts:51 |
-| `SearchRecorder` | production | this package: scripts/generate-synthetic-search-ledger.ts:34 |
-| `SearchState` | production | this package: scripts/search-sim.ts:144 |
+| `SearchRecorder` | production | this package: scripts/generate-synthetic-search-ledger.ts:37 |
+| `SearchState` | production | this package: scripts/search-sim.ts:145 |
 | `SearchStateView` | production | this package: scripts/search-meta-sim.ts:49 |
 | `searchTaskSetDigest` | production | this package: src/campaign/search-ledger-recording.ts:57 |
 | `searchUnitScores` | production | this package: src/campaign/estimate-node.ts:28 |
@@ -1103,7 +1103,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | --- | --- | --- |
 | `appendLedgerLine` | production | this package: src/campaign/search-ledger-file.ts:3 |
 | `AtomicFileLockError` | production | this package: src/ledger-core/journal-file.ts:16 |
-| `canonicalString` | production | this package: scripts/search-sim.ts:154 |
+| `canonicalString` | production | this package: scripts/search-sim.ts:155 |
 | `FileLedgerJournal` | production | this package: src/campaign/search-ledger.ts:23 |
 | `hashCanonical` | production | discovery-lab:tools/provenance.mjs |
 | `jsonDocument` | production | this package: src/agent-profile-cell.ts:3 |
@@ -1447,7 +1447,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 
 | symbol | consumer | evidence |
 | --- | --- | --- |
-| `draftOnPlateau` | production | this package: scripts/search-sim.ts:161 |
+| `draftOnPlateau` | production | this package: scripts/search-sim.ts:162 |
 | `EDIT_CREDIT_ESTIMATOR` | none | — |
 | `EDIT_CREDIT_SIGNAL` | none | — |
 | `editCredit` | production | this package: scripts/synthetic-search-ledger.ts:70 |
@@ -1456,9 +1456,9 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `formatLandscape` | production | this package: src/search-command.ts:41 |
 | `formatSkillManifold` | production | this package: src/search-command.ts:45 |
 | `front` | production | this package: src/search-command.ts:40 |
-| `landscape` | production | this package: scripts/search-sim.ts:155 |
+| `landscape` | production | this package: scripts/search-sim.ts:156 |
 | `lineageEdits` | planned | doc: docs/search-ledger.md |
-| `lineEditDistance` | production | this package: scripts/search-sim.ts:155 |
+| `lineEditDistance` | production | this package: scripts/search-sim.ts:156 |
 | `META_SEARCH_SCORE_SOURCE` | production | this package: scripts/search-meta-sim.ts:52 |
 | `META_SEARCH_SIGNAL` | none | — |
 | `metaSearch` | production | this package: scripts/search-meta-sim.ts:52 |
@@ -1466,7 +1466,7 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `MIN_OUTCOMES_FOR_WEIGHT` | planned | doc: docs/search-ledger.md |
 | `nearestNeighbours` | none | — |
 | `nestedSearchId` | planned | doc: docs/search-ledger.md |
-| `nextUnitExtension` | production | this package: scripts/search-sim.ts:162 |
+| `nextUnitExtension` | production | this package: scripts/search-sim.ts:163 |
 | `objectiveKey` | production | this package: scripts/search-meta-sim.ts:52 |
 | `operatorYield` | production | this package: scripts/prove-operator-bandit.mts:24 |
 | `profileTextLines` | none | — |
@@ -1477,12 +1477,12 @@ The `none` set was reviewed symbol by symbol on 2026-08-21. Four rules decided m
 | `searchConfigCodec` | planned | doc: docs/search-ledger.md |
 | `searchPlateau` | production | this package: src/search/lenses/landscape.ts:49 |
 | `searchPolicyGenome` | planned | doc: docs/search-ledger.md |
-| `skillCalibration` | production | this package: scripts/search-sim.ts:162 |
-| `skillManifold` | production | this package: scripts/search-sim.ts:162 |
+| `skillCalibration` | production | this package: scripts/search-sim.ts:163 |
+| `skillManifold` | production | this package: scripts/search-sim.ts:163 |
 | `summarizeSamples` | production | this package: src/search/lenses/meta-search.ts:55 |
 | `surfaceDigestEdits` | none | — |
 | `surfaceTextEdits` | production | this package: src/search-command.ts:41 |
-| `taskMatrix` | production | this package: src/search-command.ts:46 |
+| `taskMatrix` | production | this package: scripts/prove-task-matrix.mts:8 |
 | `tree` | production | this package: src/search-command.ts:47 |
 | `vectorEmbedding` | planned | doc: docs/search-ledger.md |
 
