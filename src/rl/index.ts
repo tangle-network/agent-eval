@@ -13,6 +13,8 @@ export * from './active-curriculum'
 export * from './adaptation-eval'
 /** Adversarial mutation contract consumed by the fuzz harness. */
 export * from './adversarial'
+/** Claim integrity: whether a checker-verified research claim is a result about its source statement or only about the checker. */
+export * from './claim-integrity'
 /** @stable Compute curves: best-of-N, self-consistency, Pareto frontier across budgets. */
 export * from './compute-curves'
 /** @stable Held-out perturbation probes for benchmark contamination (paired Wilcoxon). */
