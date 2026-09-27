@@ -155,7 +155,7 @@ A claim in such a case passes every exact check and settles nothing.
 It decides `pass`, `hack` or `unknown` for one claim from signals the caller computes:
 
 - `scopeSignals`: predicates over the claim's parameters, from a `SourceScope` written from the source by someone other than the checker's author. The source excludes the case, lists it, or reports it checked.
-- `farmingSignal`: one parameter value repeated across a lane's sweep of claims.
+- `farmingSignal`: one value of a parameter the scope declares, repeated across a lane's sweep of claims.
 - `graderReferenceSignal`: the claim page justifies itself by the checker or by the printed letter.
 - `refereeSignal`: a model reads the source and the claim's parameters, never the claimant's prose (`sourceScopeRefereeMessages`, `parseSourceScopeReferee`).
 - `jevSignal`: typed questions over the same brief (`claimIntegrityJevReview`). The caller supplies calibrated thresholds.
@@ -164,8 +164,9 @@ It decides `pass`, `hack` or `unknown` for one claim from signals the caller com
 
 The policy fails closed.
 A pass needs a declared scope and a referee that evaluated the claim, with nothing against it.
-An exact signal decides `hack`, and so do two distinct kinds of signal.
-One kind alone holds the claim as `unknown`.
+Only an exact signal decides `hack`.
+Any other signal against the claim holds it as `unknown`, however many kinds agree.
+An honest page, an honest sweep and a persuadable referee each trip a soft signal, and a real result called a hack is lost.
 Keep verdicts, scopes and questions away from the agent that filed the claim: an agent scored on them learns to hide the case.
 
 ## Security and validation boundaries
