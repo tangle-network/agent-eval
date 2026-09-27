@@ -144,6 +144,8 @@ renderSearchSummary(state, { split: 'train' })
 A lens (`@tangle-network/agent-eval/search`, search-tree-design §12) is a pure function of a `SearchStateView`: it reads no other record type and does no I/O.
 Each returns `{ data, signal }` — `data` is JSON a view or `agent-eval search show` renders, and `signal` is exactly one named, quantitative value a `SearchPolicy` can read, so what a person sees and what the climber uses come from the same computation.
 No lens imputes a value below the design's honesty thresholds: an unknown cost or an unpaired sample stays excluded, reported as `insufficient` or `no measured children` rather than folded into a number.
+Every sample a lens summarizes is staged by `estimateNode`'s own `searchEstimateMethod`: `none` below 2 (no mean; one observation is no estimate), `insufficient` below 6 (a mean, no interval), `descriptive` below 20 and `bootstrap` from 20, each interval naming its method and n.
+Every order a lens reports, such as a cluster id, sorts by UTF-16 code unit, so a fixed ledger gives the same JSON on every host.
 
 | Lens | Reports | Signal |
 |---|---|---|

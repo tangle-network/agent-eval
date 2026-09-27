@@ -22,6 +22,7 @@
  */
 
 import type { SearchStateView } from '../../campaign/search-state'
+import { compareCodeUnits } from '../../ledger-core/canonical'
 import { INSUFFICIENT_FROM, rankingSplit } from './shared'
 
 const SPECIALIST_GAIN_METHOD = `per unit cluster, the best node's mean over the cluster's units minus the mean of the node means, in the objective's direction and the metric's units, among nodes not decided invalid that scored every unit of the cluster; reported from 2 such nodes and ${INSUFFICIENT_FROM} units; a point value with no interval: the largest of several noisy means exceeds their mean even when no node specializes, so read it against the spread of the node means`
@@ -102,7 +103,7 @@ export function taskMatrix(
     }
     byNodeUnit.set(nodeId, units)
   }
-  const unitIds = [...unitSet].sort((a, b) => a.localeCompare(b))
+  const unitIds = [...unitSet].sort(compareCodeUnits)
 
   const nodeClusters = clusterBy(nodeIds, (a, b) => nodeDistance(byNodeUnit, a, b))
   const unitClusters = clusterBy(unitIds, (a, b) => unitDistance(byNodeUnit, nodeIds, a, b))
@@ -215,9 +216,11 @@ function unitDistance(
  * Single-linkage agglomerative clustering. The cutoff is the median of the
  * finite pairwise distances measured before any merge — a threshold the data
  * itself sets, not a constant this lens chooses. Two items with no finite
- * distance (no shared observation) can never merge. Deterministic: ties in
- * the merge order break on the lexicographically smaller pair, and the
- * returned clusters and their members are both sorted.
+ * distance (no shared observation) can never merge. Stopped at a cutoff,
+ * single linkage yields the connected components of the graph whose edges
+ * are the pairs at most the cutoff apart, so the merge order cannot change
+ * the result. The clusters and their members are sorted by UTF-16 code unit,
+ * never by the host's locale, so a cluster id is the same on every machine.
  */
 function clusterBy(
   ids: readonly string[],
@@ -253,10 +256,10 @@ function clusterBy(
     clusters.push(merged)
   }
 
-  return clusters.map(toCluster).sort((a, b) => a.id.localeCompare(b.id))
+  return clusters.map(toCluster).sort((a, b) => compareCodeUnits(a.id, b.id))
 }
 
 function toCluster(members: string[]): TaskMatrixCluster {
-  const sorted = [...members].sort((a, b) => a.localeCompare(b))
+  const sorted = [...members].sort(compareCodeUnits)
   return { id: sorted[0]!, members: sorted }
 }

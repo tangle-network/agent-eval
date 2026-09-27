@@ -320,7 +320,9 @@ function renderOperatorYieldText(data: OperatorYieldData): string {
       .join(' ')
     const yieldText =
       y.method === 'none'
-        ? 'yield: no measured children'
+        ? y.n === 0
+          ? 'yield: no measured children'
+          : `yield unknown (${y.n} of ${INSUFFICIENT_FROM}, none)`
         : y.method === 'insufficient'
           ? `yield≈${y.mean!.toFixed(4)}/$ (${y.n} of ${INSUFFICIENT_FROM}, insufficient)`
           : `yield≈${y.mean!.toFixed(4)}/$ [${y.interval![0].toFixed(4)}, ${y.interval![1].toFixed(4)}] (${y.method}, ${y.intervalMethod}, n=${y.n})`

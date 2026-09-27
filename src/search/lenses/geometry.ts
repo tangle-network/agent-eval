@@ -12,6 +12,7 @@
  */
 
 import type { SearchStateView } from '../../campaign/search-state'
+import { medianInPlace } from '../../statistics/internal'
 import type { LensResult, LensSignal } from './shared'
 
 /** The one number a geometry lens exposes to policies: the shared
@@ -87,10 +88,7 @@ export function round9(value: number): number {
 }
 
 export function median(values: readonly number[]): number | null {
-  if (values.length === 0) return null
-  const sorted = [...values].sort((left, right) => left - right)
-  const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2
+  return values.length === 0 ? null : medianInPlace([...values])
 }
 
 /** At most `cap` items, evenly spaced by position: a deterministic sample
