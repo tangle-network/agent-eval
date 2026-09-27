@@ -6,15 +6,26 @@
  * adds one: single-linkage agglomerative clustering with a data-derived
  * cutoff (the median of the finite pairwise distances), so nothing is a fixed
  * magic constant and two items with no shared observation never merge — they
- * have no finite distance to compare.
+ * have no finite distance to compare. A distance is the root mean square
+ * difference over the observations both items share, so a pair measured on
+ * 24 shared units is not farther apart than a pair on 6 only because it has
+ * more terms.
  *
  * The signal, specialist gain per unit cluster, is the spread between a
- * cluster's best-scoring node and its mean: a large gap says some node
- * specializes on that task family rather than the field being uniform.
+ * cluster's best node and the mean of its nodes, in the objective's
+ * direction: a large gap says some node specializes on that task family
+ * rather than the field being uniform. Node means compare on shared units
+ * only (a node contributes when it scored every unit of the cluster), a node
+ * decided invalid never contributes, and a gain needs 2 contributing nodes
+ * and 6 units (§6.4's `descriptive` threshold); below that it is null with
+ * the reason, never 0.
  */
 
 import type { SearchStateView } from '../../campaign/search-state'
-import { rankingSplit } from './shared'
+import { compareCodeUnits } from '../../ledger-core/canonical'
+import { INSUFFICIENT_FROM, rankingSplit } from './shared'
+
+const SPECIALIST_GAIN_METHOD = `per unit cluster, the best node's mean over the cluster's units minus the mean of the node means, in the objective's direction and the metric's units, among nodes not decided invalid that scored every unit of the cluster; reported from 2 such nodes and ${INSUFFICIENT_FROM} units; a point value with no interval: the largest of several noisy means exceeds their mean even when no node specializes, so read it against the spread of the node means`
 
 export interface TaskMatrixCell {
   nodeId: string
@@ -34,14 +45,23 @@ export interface TaskMatrixSpecialistRow {
   clusterId: string
   unitIds: string[]
   /** Best node mean minus the mean of node means over the cluster's units,
-   * among nodes that scored at least one of them. Null with fewer than 2
-   * contributing nodes: no spread to measure, never reported as 0. */
+   * oriented so a larger gain is a larger advantage in the objective's
+   * direction. Null below 2 contributing nodes or below 6 units, with the
+   * reason in `insufficient`: never reported as 0. */
   gain: number | null
+  /** The contributing node with the best mean; null without one. */
+  bestNodeId: string | null
+  /** Nodes not decided invalid that scored every unit of the cluster. */
   nodesContributing: number
+  /** Why `gain` is null; null when it is not. */
+  insufficient: string | null
 }
 
 export interface TaskMatrixData {
   split: 'train' | 'selection'
+  direction: 'maximize' | 'minimize'
+  /** How `specialistGain` is computed. */
+  method: string
   nodeIds: string[]
   unitIds: string[]
   nodeClusters: TaskMatrixCluster[]
@@ -54,8 +74,8 @@ export interface TaskMatrixOptions {
   split?: 'train' | 'selection'
 }
 
-/** unitClusterId → specialist gain; null clusters (fewer than 2 contributing
- * nodes) are omitted, not zeroed. */
+/** unitClusterId → specialist gain; a cluster whose gain is null (fewer than
+ * 2 contributing nodes or 6 units) is omitted, not zeroed. */
 export type TaskMatrixSignal = Record<string, number>
 
 export function taskMatrix(
@@ -63,7 +83,15 @@ export function taskMatrix(
   options: TaskMatrixOptions = {},
 ): { data: TaskMatrixData; signal: { name: string; value: TaskMatrixSignal } } {
   const split = options.split ?? rankingSplit(state)
+  const direction = state.header?.objective.direction ?? 'maximize'
+  const sign = direction === 'maximize' ? 1 : -1
   const nodeIds = state.nodeIds()
+  const invalid = new Set(
+    state
+      .nodes()
+      .filter((node) => node.status === 'invalid')
+      .map((node) => node.nodeId),
+  )
 
   const byNodeUnit = new Map<string, Map<string, number>>()
   const unitSet = new Set<string>()
@@ -75,7 +103,7 @@ export function taskMatrix(
     }
     byNodeUnit.set(nodeId, units)
   }
-  const unitIds = [...unitSet].sort((a, b) => a.localeCompare(b))
+  const unitIds = [...unitSet].sort(compareCodeUnits)
 
   const nodeClusters = clusterBy(nodeIds, (a, b) => nodeDistance(byNodeUnit, a, b))
   const unitClusters = clusterBy(unitIds, (a, b) => unitDistance(byNodeUnit, nodeIds, a, b))
@@ -91,30 +119,45 @@ export function taskMatrix(
   }
 
   const specialistGain: TaskMatrixSpecialistRow[] = unitClusters.map((cluster) => {
-    const nodeMeans: number[] = []
+    // Oriented node means over the whole cluster, from nodes that scored
+    // every unit of it, so every mean is over the same units.
+    const contributing: Array<{ nodeId: string; oriented: number }> = []
     for (const nodeId of nodeIds) {
+      if (invalid.has(nodeId)) continue
       const units = byNodeUnit.get(nodeId)!
-      const scored = cluster.members
-        .map((unitId) => units.get(unitId))
-        .filter((v): v is number => v !== undefined)
-      if (scored.length > 0) nodeMeans.push(scored.reduce((a, b) => a + b, 0) / scored.length)
-    }
-    if (nodeMeans.length < 2) {
-      return {
-        clusterId: cluster.id,
-        unitIds: cluster.members,
-        gain: null,
-        nodesContributing: nodeMeans.length,
+      let total = 0
+      let complete = true
+      for (const unitId of cluster.members) {
+        const value = units.get(unitId)
+        if (value === undefined) {
+          complete = false
+          break
+        }
+        total += value
       }
+      if (complete) contributing.push({ nodeId, oriented: (sign * total) / cluster.members.length })
     }
-    const mean = nodeMeans.reduce((a, b) => a + b, 0) / nodeMeans.length
-    const gain = Math.max(...nodeMeans) - mean
-    return {
+    let best: { nodeId: string; oriented: number } | null = null
+    for (const entry of contributing)
+      if (best === null || entry.oriented > best.oriented) best = entry
+    const row = {
       clusterId: cluster.id,
       unitIds: cluster.members,
-      gain,
-      nodesContributing: nodeMeans.length,
+      bestNodeId: best?.nodeId ?? null,
+      nodesContributing: contributing.length,
     }
+    if (contributing.length < 2 || cluster.members.length < INSUFFICIENT_FROM) {
+      return {
+        ...row,
+        gain: null,
+        insufficient:
+          contributing.length < 2
+            ? `${contributing.length} node${contributing.length === 1 ? '' : 's'} scored every unit of the cluster; a gain needs 2`
+            : `${cluster.members.length} of ${INSUFFICIENT_FROM} units`,
+      }
+    }
+    const mean = contributing.reduce((sum, entry) => sum + entry.oriented, 0) / contributing.length
+    return { ...row, gain: best!.oriented - mean, insufficient: null }
   })
 
   const signalValue: TaskMatrixSignal = {}
@@ -123,6 +166,8 @@ export function taskMatrix(
   return {
     data: {
       split,
+      direction,
+      method: SPECIALIST_GAIN_METHOD,
       nodeIds: orderedNodeIds,
       unitIds: orderedUnitIds,
       nodeClusters,
@@ -145,7 +190,7 @@ function nodeDistance(byNodeUnit: Map<string, Map<string, number>>, a: string, b
     sumSquares += (valueA - valueB) ** 2
     shared += 1
   }
-  return shared === 0 ? Number.POSITIVE_INFINITY : Math.sqrt(sumSquares)
+  return shared === 0 ? Number.POSITIVE_INFINITY : Math.sqrt(sumSquares / shared)
 }
 
 function unitDistance(
@@ -164,16 +209,18 @@ function unitDistance(
     sumSquares += (valueA - valueB) ** 2
     shared += 1
   }
-  return shared === 0 ? Number.POSITIVE_INFINITY : Math.sqrt(sumSquares)
+  return shared === 0 ? Number.POSITIVE_INFINITY : Math.sqrt(sumSquares / shared)
 }
 
 /**
  * Single-linkage agglomerative clustering. The cutoff is the median of the
  * finite pairwise distances measured before any merge — a threshold the data
  * itself sets, not a constant this lens chooses. Two items with no finite
- * distance (no shared observation) can never merge. Deterministic: ties in
- * the merge order break on the lexicographically smaller pair, and the
- * returned clusters and their members are both sorted.
+ * distance (no shared observation) can never merge. Stopped at a cutoff,
+ * single linkage yields the connected components of the graph whose edges
+ * are the pairs at most the cutoff apart, so the merge order cannot change
+ * the result. The clusters and their members are sorted by UTF-16 code unit,
+ * never by the host's locale, so a cluster id is the same on every machine.
  */
 function clusterBy(
   ids: readonly string[],
@@ -209,10 +256,10 @@ function clusterBy(
     clusters.push(merged)
   }
 
-  return clusters.map(toCluster).sort((a, b) => a.id.localeCompare(b.id))
+  return clusters.map(toCluster).sort((a, b) => compareCodeUnits(a.id, b.id))
 }
 
 function toCluster(members: string[]): TaskMatrixCluster {
-  const sorted = [...members].sort((a, b) => a.localeCompare(b))
+  const sorted = [...members].sort(compareCodeUnits)
   return { id: sorted[0]!, members: sorted }
 }

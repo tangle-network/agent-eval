@@ -8,9 +8,10 @@
  * inventing new ones.
  */
 
+import { searchEstimateMethod } from '../../campaign/estimate-node'
 import type { SearchStateView } from '../../campaign/search-state'
 import { minimumPairsForPairedDeltaTest } from '../../paired-delta-test'
-import { BOOTSTRAP_GATE_MIN_N, confidenceInterval } from '../../statistics'
+import { confidenceInterval } from '../../statistics'
 
 /** The search's own ranking split: selection when the search declares one,
  * else train. Matches `searchPolicyView` and `agent-eval search show`, so a
@@ -38,7 +39,8 @@ export interface LensResult<TData, TSignal> {
 }
 
 /** A descriptive summary of an independent (unpaired) numeric sample, staged
- * exactly like `NodeEstimate.method`: `none` below 2 observations,
+ * by `NodeEstimate.method`'s own function (`searchEstimateMethod`): `none`
+ * below 2 observations, with no mean (one observation is no estimate, §6.4),
  * `insufficient` below {@link INSUFFICIENT_FROM}, `descriptive` (bootstrap
  * interval, spread only) below `BOOTSTRAP_GATE_MIN_N`, `bootstrap`
  * (decision-grade interval) from there. Unlike `estimateNode`, these samples
@@ -49,13 +51,21 @@ export interface SampleSummary {
   mean: number | null
   method: 'none' | 'insufficient' | 'descriptive' | 'bootstrap'
   interval: [number, number] | null
+  /** How `interval` was computed; null without one. The samples are
+   * independent (unpaired), so it is a percentile bootstrap of their mean:
+   * 1000 resamples at 95%, seeded by the caller or else by a hash of the data,
+   * so a fixed sample always gives the same interval. */
+  intervalMethod: 'percentile-bootstrap-of-mean' | null
 }
 
 export function summarizeSamples(samples: readonly number[], seed?: number): SampleSummary {
   const n = samples.length
-  if (n === 0) return { n, mean: null, method: 'none', interval: null }
+  const method = searchEstimateMethod(n)
+  if (method === 'none') return { n, mean: null, method, interval: null, intervalMethod: null }
   const mean = samples.reduce((a, b) => a + b, 0) / n
-  if (n < INSUFFICIENT_FROM) return { n, mean, method: 'insufficient', interval: null }
+  if (method === 'insufficient') {
+    return { n, mean, method, interval: null, intervalMethod: null }
+  }
   const { lower, upper } = confidenceInterval(
     [...samples],
     0.95,
@@ -64,7 +74,8 @@ export function summarizeSamples(samples: readonly number[], seed?: number): Sam
   return {
     n,
     mean,
-    method: n < BOOTSTRAP_GATE_MIN_N ? 'descriptive' : 'bootstrap',
+    method,
     interval: [lower, upper],
+    intervalMethod: 'percentile-bootstrap-of-mean',
   }
 }
