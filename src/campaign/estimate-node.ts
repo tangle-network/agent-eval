@@ -69,8 +69,9 @@ export const SEARCH_ESTIMATOR: SearchSourceRef = {
   revision: hashCanonical(ESTIMATOR_DEFINITION),
 }
 
-/** The method a paired sample of `pairs` units supports. */
-function searchEstimateMethod(pairs: number): SearchEstimateMethod {
+/** The method a paired sample of `pairs` units supports: the one staging
+ * every `NodeEstimate` and every search lens uses. */
+export function searchEstimateMethod(pairs: number): SearchEstimateMethod {
   if (pairs < 2) return 'none'
   if (pairs < DESCRIPTIVE_FROM) return 'insufficient'
   if (pairs < BOOTSTRAP_GATE_MIN_N) return 'descriptive'

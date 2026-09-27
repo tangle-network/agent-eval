@@ -23,7 +23,7 @@
  * it is (`draftOnPlateau`) reads the same function on its own view.
  */
 
-import { searchPosterior } from '../../campaign/estimate-node'
+import { searchEstimateMethod, searchPosterior } from '../../campaign/estimate-node'
 import { searchPolicyView } from '../../campaign/search-kernel'
 import type {
   SearchCandidateSurface,
@@ -36,7 +36,6 @@ import { cholesky } from '../../math/cholesky'
 import { symmetricEigen } from '../../math/symmetric-eigen'
 import { zQuantile } from '../../statistics/internal'
 import {
-  estimateMethodFor,
   evenSample,
   type GeometryLensResult,
   type GeometrySignal,
@@ -449,7 +448,7 @@ export function landscape(
           : round9(entry.mean),
       standardError: entry.variance === null ? null : round9(Math.sqrt(entry.variance)),
       pairs: entry.pairs,
-      method: estimateMethodFor(entry.pairs),
+      method: searchEstimateMethod(entry.pairs),
       basin: null,
     }
   })

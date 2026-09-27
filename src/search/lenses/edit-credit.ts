@@ -31,7 +31,7 @@
  */
 
 import { type AgentProfileResourceRef, defineInlineResource } from '@tangle-network/agent-interface'
-import { seedFromDigest } from '../../campaign/estimate-node'
+import { searchEstimateMethod, seedFromDigest } from '../../campaign/estimate-node'
 import type {
   NodeEstimate,
   SearchArtifactRef,
@@ -993,7 +993,7 @@ function pairedEstimate(input: {
   cellSetDigest: NodeEstimate['cellSetDigest']
 }): { credit: NodeEstimate; verdict: EditGeneVerdict } {
   const pairs = input.carrier.length
-  const method = methodFor(pairs)
+  const method = searchEstimateMethod(pairs)
   const base = {
     against: input.against,
     split: input.split,
@@ -1068,13 +1068,6 @@ const chanceReusable = (() => {
     return size
   }
 })()
-
-function methodFor(units: number): SearchEstimateMethod {
-  if (units < 2) return 'none'
-  if (units < DESCRIPTIVE_FROM) return 'insufficient'
-  if (units < BOOTSTRAP_GATE_MIN_N) return 'descriptive'
-  return 'bootstrap'
-}
 
 /** The worse end of the interval, as an improvement; -Infinity without one. */
 function improvementLow(credit: NodeEstimate, sign: number): number {
@@ -1208,7 +1201,7 @@ function interactionEstimate(
   sign: number,
 ): EditInteraction {
   const units = values.length
-  const method = methodFor(units)
+  const method = searchEstimateMethod(units)
   const base = { genes, steps, units, method, adjustedP: null, interacting: false }
   if (method === 'none') {
     return {

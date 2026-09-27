@@ -18,10 +18,10 @@
  * §6.6).
  */
 
+import { searchEstimateMethod } from '../../campaign/estimate-node'
 import type { SearchEstimateMethod } from '../../campaign/search-ledger-types'
 import type { SearchStateView } from '../../campaign/search-state'
 import { type Objective, paretoFrontier } from '../../pareto'
-import { estimateMethodFor } from './geometry'
 import { rankingSplit } from './shared'
 
 export interface FrontExtraAxis {
@@ -118,7 +118,7 @@ export function front(
       nodeId: node.nodeId,
       score,
       units: units.length,
-      method: estimateMethodFor(units.length),
+      method: searchEstimateMethod(units.length),
       costPerCellUsd,
       knownCostUsd: node.spend.knownUsd,
       costKnown: node.spend.unknownCostCells === 0,
