@@ -4,6 +4,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { withOwnVersion } from './release-version-fields.mjs'
 
 const CHECKER_PATH = fileURLToPath(import.meta.url)
 const REPOSITORY_ROOT = resolve(dirname(CHECKER_PATH), '..')
@@ -13,6 +14,7 @@ const IMPLEMENTATION_MODULE_PATH = resolve(
 )
 const DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/implementation'
 const DEPENDENCY_LOCK_DIGEST_DOMAIN = 'agent-eval/public-analyst-benchmark/dependency-lock'
+const DEPENDENCY_LOCK_DIGEST_ALGORITHM = 'sha256-canonical-file-manifest-without-own-version'
 const NON_TYPESCRIPT_IMPLEMENTATION_FILES = [
   'clients/python/src/agent_eval_rpc/dspy_rlm_bridge.py',
   'clients/python/src/agent_eval_rpc/optimizer_bridge_common.py',
@@ -35,10 +37,13 @@ try {
       ),
       implementation.ANALYST_BENCHMARK_IMPLEMENTATION_FILES)
   const actual = await computeDigest(options.sourceRoot, manifest, DIGEST_DOMAIN)
+  // The package's own version is not a dependency: blanking it keeps a
+  // release that only bumps it from changing the pin.
   const actualDependencyLock = await computeDigest(
     options.sourceRoot,
     implementation.ANALYST_BENCHMARK_DEPENDENCY_LOCK_FILES,
     DEPENDENCY_LOCK_DIGEST_DOMAIN,
+    (path, source) => withOwnVersion(path, source, ''),
   )
   if (options.printOnly) {
     console.log(actual)
@@ -196,8 +201,7 @@ function assertImplementationModule(value) {
     throw new Error('public analyst benchmark implementation digest must be a lowercase SHA-256')
   }
   if (
-    value.ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM !==
-    'sha256-canonical-file-manifest'
+    value.ANALYST_BENCHMARK_DEPENDENCY_LOCK_DIGEST_ALGORITHM !== DEPENDENCY_LOCK_DIGEST_ALGORITHM
   ) {
     throw new Error('unsupported public analyst benchmark dependency lock digest algorithm')
   }
@@ -221,7 +225,7 @@ function assertFileManifest(files, expected) {
   }
 }
 
-async function computeDigest(root, files, domain) {
+async function computeDigest(root, files, domain, transform = (_path, source) => source) {
   const entries = []
   for (const path of files) {
     const absolutePath = resolve(root, path)
@@ -230,7 +234,7 @@ async function computeDigest(root, files, domain) {
     if (!metadata.isFile()) {
       throw new Error(`public analyst benchmark implementation source is not a file: ${path}`)
     }
-    const source = normalizeLineEndings(UTF8.decode(await readFile(absolutePath)))
+    const source = transform(path, normalizeLineEndings(UTF8.decode(await readFile(absolutePath))))
     entries.push({
       path,
       sha256: createHash('sha256').update(source, 'utf8').digest('hex'),

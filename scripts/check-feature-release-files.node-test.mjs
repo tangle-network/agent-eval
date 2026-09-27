@@ -52,7 +52,10 @@ function fixture(t) {
   git('init', '-q', '--initial-branch=main')
   versions('1.2.3')
   write('CHANGELOG.md', '# Changelog\n\n---\n\n## Unreleased\n')
-  write('clients/python/uv.lock', 'version = 1\n')
+  write(
+    'clients/python/uv.lock',
+    'version = 1\n\n[[package]]\nname = "agent-eval-rpc"\nversion = "1.2.3"\n',
+  )
   commit('chore(release): 1.2.3')
   git('tag', 'v1.2.3')
   write('source.txt', 'feature\n')
