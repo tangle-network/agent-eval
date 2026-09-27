@@ -30,7 +30,7 @@
  */
 
 import { hashCanonical } from '../ledger-core/canonical'
-import { operatorYield } from '../search/lenses/operator-yield'
+import { type OperatorYieldSignal, operatorYield } from '../search/lenses/operator-yield'
 import { redactText } from '../trace/redact'
 import type {
   SearchAllocationView,
@@ -38,7 +38,7 @@ import type {
   SearchCellPlan,
   SearchRungDecision,
 } from './allocation'
-import { estimateNode } from './estimate-node'
+import { estimateNode, type SearchPosterior, searchPosterior } from './estimate-node'
 import {
   decideSearchClaim,
   planSearchClaim,
@@ -70,7 +70,7 @@ import type {
   SearchSplit,
   SearchUnknown,
 } from './search-ledger-types'
-import type { SearchPolicy, SearchPolicyView } from './search-policy'
+import type { SearchPolicy, SearchPolicyNode, SearchPolicyView } from './search-policy'
 import {
   type SearchCell,
   type SearchNode,
@@ -90,6 +90,7 @@ const KERNEL_DEFINITION = {
     'claim, then rung and root, then screen, then train; first allocated first within a stage',
   expansion:
     'when no cell waits, fewer than twice the lanes capacity run, the cap admits one proposal and its expected screens, and overspend has not taken the search past its cap',
+  parents: 'a policy names at least one parent, and every parent finished its screen',
   reservation: {
     hard: 'the lane per-cell maximum',
     estimate: '1.5 times the p99 of the lane settled cells once 20 settled, else the lane prior',
@@ -544,9 +545,12 @@ class SearchKernel<TArtifact> {
       if (this.admitted.has(node.nodeId) && !isTerminal(node)) await this.allocateFor(node.nodeId)
     }
     for (const nodeId of this.state.nodeIds()) {
-      if (this.admitted.has(nodeId) && (this.pending.get(nodeId) ?? 0) === 0) {
-        await this.screenDone(nodeId)
-      }
+      if (!this.admitted.has(nodeId)) continue
+      // An advanced node finished its screen before its rung cells were
+      // allocated, so it stays a parent while they run, as it was before the
+      // restart.
+      if (this.state.node(nodeId)!.status === 'advanced') this.markScreened(nodeId)
+      else if ((this.pending.get(nodeId) ?? 0) === 0) await this.screenDone(nodeId)
     }
     // A node may have finished a rung before the interrupted process recorded
     // what its rank earned.
@@ -1100,6 +1104,17 @@ class SearchKernel<TArtifact> {
     }
     const expansion = policy.expand(view)
     if (expansion === null) return 'converged'
+    const screened = new Set(view.screened)
+    if (expansion.parents.length === 0) {
+      throw new Error(`runSearch: policy ${policy.name} proposed an expansion without a parent`)
+    }
+    for (const parent of expansion.parents) {
+      if (!screened.has(parent)) {
+        throw new Error(
+          `runSearch: policy ${policy.name} named parent ${parent}, which has not finished its screen; a node becomes a parent only after its screen completes`,
+        )
+      }
+    }
 
     const index = this.expansions++
     const operationId = `expand-${index}`
@@ -1249,7 +1264,9 @@ class SearchKernel<TArtifact> {
         await this.refresh()
         continue
       }
-      if (this.admitted.has(nodeId)) continue
+      // On resume, a child the divergence rule already decided invalid stays
+      // out: it is never screened, so it is never a parent.
+      if (this.admitted.has(nodeId) || node.status === 'invalid') continue
       this.admitted.add(nodeId)
       await this.allocateFor(nodeId)
       if ((this.pending.get(nodeId) ?? 0) === 0) this.markScreened(nodeId)
@@ -1453,6 +1470,8 @@ export function searchPolicyView(
   const header = state.header
   if (!header) throw new Error(`search ${state.searchId} has not been opened`)
   const split = header.splits.selection.tasks.length > 0 ? 'selection' : 'train'
+  let nodes: SearchPolicyNode[] | undefined
+  let operatorWeights: OperatorYieldSignal | undefined
   return {
     searchId: state.searchId,
     seed: header.policy.seed,
@@ -1478,8 +1497,57 @@ export function searchPolicyView(
     },
     unitScores: (nodeId) => state.unitScores(nodeId, split),
     estimate: (nodeId, against) => estimateNode(state, nodeId, { against, split }),
-    operatorWeights: operatorYield(state, { split }).signal.value,
+    nodes: () => {
+      nodes ??= policyNodes(state)
+      return nodes
+    },
+    get posterior() {
+      let posterior = POSTERIORS.get(state)
+      if (!posterior) {
+        posterior = searchPosterior(state, { split })
+        POSTERIORS.set(state, posterior)
+      }
+      return posterior
+    },
+    get operatorWeights() {
+      operatorWeights ??= operatorYield(state, { split }).signal.value
+      return operatorWeights
+    },
   }
+}
+
+/** One posterior per ledger state: a state view is retired when the ledger
+ * moves on, so the view it was computed from names the sequence. */
+const POSTERIORS = new WeakMap<SearchStateView, SearchPosterior>()
+
+/** Every node whose edge is recorded, with its lineage and its defects outside
+ * the test split. */
+function policyNodes(state: SearchStateView): SearchPolicyNode[] {
+  const nodes: SearchPolicyNode[] = []
+  for (const node of state.nodes()) {
+    const edgeId = node.edgeIds[0]
+    if (edgeId === undefined) continue
+    let outcomes = 0
+    let defects = 0
+    for (const cell of state.cells({ nodeId: node.nodeId })) {
+      if (cell.split === 'test' || !cell.final) continue
+      outcomes += 1
+      if (cell.outcome === 'failed') defects += 1
+    }
+    const edge = state.edge(edgeId)!
+    nodes.push({
+      nodeId: node.nodeId,
+      ordinal: node.ordinal,
+      parent: node.primaryParentId,
+      operator: edge.operator,
+      rule: edge.selection?.rule ?? null,
+      children: node.children,
+      status: node.status,
+      outcomes,
+      defects,
+    })
+  }
+  return nodes
 }
 
 /**

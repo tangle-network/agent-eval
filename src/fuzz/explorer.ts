@@ -143,7 +143,6 @@ export class BehaviorExplorer<S> {
         variantId: r.cell.id,
         scenarioId: '*',
         score: r.ev.score,
-        pass: r.ev.valid && r.ev.score >= 0.5,
       })),
       this.cells.map((c) => ({ variantId: c.id, scenarioId: '*' })),
       { budget, floorPerCell: this.floorPerCell },

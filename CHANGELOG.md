@@ -6,6 +6,39 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ## Unreleased
 
+### Added
+
+- `aide({ drafts, debugProbability, maxDebugDepth, stallAfter })` (`/campaign`) is AIDE's search policy with three changes for noisy scores ([search ledger](./docs/search-ledger.md#run-a-search-the-kernel)).
+  It drafts whole alternatives from the root until `drafts` nodes (default 5) were drafted.
+  Then, with probability `debugProbability` (0.5), it debugs a buggy leaf: a node whose final cells outside the test split `failed` at least half the time, so a defect such as a crash or a broken build, never an `errored` environment fault or a low score.
+  Otherwise it improves a parent drawn by Thompson sampling over each node's posterior from `searchPosterior`, not AIDE's argmax, so a node measured on few units draws from a wide posterior.
+  After `stallAfter` (4) improve children in a row leave a lineage's best posterior mean unraised, the next improve forks from the node with the best posterior mean.
+- `beam({ width })` (`/campaign`) expands the top `width` nodes by posterior mean in turn; a node an allocator has only screened waits for its rank before it enters the beam.
+- `SearchPolicyView` gains `nodes()`, every node's lineage, status and defect count, and `posterior`, the search's `searchPosterior` on the policy split, computed once per ledger state.
+  Each edge records the rule and evidence that chose its parent (`aide:draft`, `aide:debug`, `aide:thompson`, `aide:uniform-draw`, `aide:stall-fork`, `beam(width=k)`).
+- `scripts/search-sim.ts compare --arms incumbent+uniform,aide+asha,...` runs one search per seed under each `policy+allocation` arm, at equal cells with `--max-cells`, and pairs every arm with the first by seed.
+  `--deep-gain X` plants a gain at depth 3 of one lineage behind neutral path nodes, and `--defect-rate X` makes a share of children fail every cell as a defect.
+  Over 200 seeded searches at 600 cells with a +0.10 gain planted at depth 3 of 24 selection units, `aide` + `asha` kept the planted node in 34 (17.0 %, Wilson 95 % [12.4 %, 22.8 %]) and `incumbent` + `uniform` in 11 (5.5 % [3.1 %, 9.6 %]); 27 seeds found it only under `aide` + `asha` and 4 only under `incumbent` + `uniform` (sign test p = 3.4e-5).
+
+### Changed
+
+- The kernel refuses an expansion without a parent, or with a parent whose screen has not finished.
+- `SearchPolicyView.operatorWeights` is computed when a policy first reads it, not for every view.
+
+### Fixed
+
+- A restarted kernel keeps a node an allocator advanced among the screened nodes while its rung cells run; before, `aide` and `beam` could not choose it as a parent until those cells finished, where the uninterrupted search could.
+- A restarted kernel no longer re-admits a child the divergence rule decided `invalid` when it finishes that child's recorded proposal.
+  It had marked the child screened, so after a restart an invalid node counted among `aide`'s Thompson candidates and on `crowdedFrontierParent`'s frontier, and `incumbent` could keep it as leader.
+- `scripts/search-sim.ts`: a draft honors `--null`, so a null search stays null, and is defective at `--defect-rate`; under `--deep-gain` a draft is one more child of the root, whose tree holds the plant.
+  Every simulated run also re-derives each proposal's parents, operator and selection evidence from the ledger before it, and `kill-resume` requires the resumed search to equal the uninterrupted one only for a hill climb under `uniform`.
+
+### Removed
+
+- **Breaking:** `thompsonCurriculum`, `ThompsonCurriculumOptions`, `observationsFromRunRecords` and `CellObservation.pass` (`/rl`).
+  `thompsonCurriculum` sharpened pass rates near a fixed 0.5 threshold, and only its own test called it.
+  Migration: choose which search node to expand with `aide`, which draws parents by Thompson sampling over node posteriors; allocate scenario samples with `varianceBasedCurriculum`, which reads only `variantId`, `scenarioId` and `score`.
+
 ## [0.197.0] — 2026-09-26
 
 ### Added
