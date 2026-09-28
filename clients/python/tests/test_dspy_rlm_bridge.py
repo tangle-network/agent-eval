@@ -27,8 +27,8 @@ RUNTIME = {
     "engine": "dspy-rlm",
     "packages": {
         "agent-eval-rpc": "0.137.0",
-        "dspy": "3.2.1",
-        "deno": "2.7.14",
+        "dspy": "3.4.0",
+        "deno": "2.9.7",
     },
     "python": {"implementation": "cpython", "version": "3.13.0"},
     "bridge": {"sourceSha256": "a" * 64},
@@ -70,8 +70,8 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
         "_package_version",
         lambda name: {
             "agent-eval-rpc": "0.137.0",
-            "dspy": "3.2.1",
-            "deno": "2.7.14",
+            "dspy": "3.4.0",
+            "deno": "2.9.7",
         }[name],
     )
     monkeypatch.setattr(dspy_rlm_bridge.platform, "python_version", lambda: "3.13.0")
@@ -92,8 +92,8 @@ def test_inspect_reports_pinned_runtime_and_private_atomic_output(
             "engine": "dspy-rlm",
             "packages": {
                 "agent-eval-rpc": "0.137.0",
-                "dspy": "3.2.1",
-                "deno": "2.7.14",
+                "dspy": "3.4.0",
+                "deno": "2.9.7",
                 "pyodide": dspy_rlm_bridge._PYODIDE_VERSION,
             },
             "python": {"implementation": "cpython", "version": "3.13.0"},

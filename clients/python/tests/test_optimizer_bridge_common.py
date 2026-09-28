@@ -44,7 +44,7 @@ def test_pinned_upstream_packages_report_exact_sources() -> None:
         "package": "gepa",
         "version": "0.1.4",
         "sourceUrl": "https://github.com/gepa-ai/gepa.git",
-        "revision": "f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+        "revision": "d771eb21b5dd3228bc3f567293d2ccfc423fc900",
     }
 
     skillopt = package_provenance("skillopt")
@@ -52,7 +52,7 @@ def test_pinned_upstream_packages_report_exact_sources() -> None:
         "package": "skillopt",
         "version": "0.2.0",
         "sourceUrl": "https://github.com/microsoft/SkillOpt.git",
-        "revision": "61735e3922efc2b90c6d6cab561e62e98452ca90",
+        "revision": "79124b37e9a6371e13b753f8bcd7adb1e493ade1",
     }
 
 

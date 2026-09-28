@@ -1,0 +1,10 @@
+# Hold third-party releases for three days before installing them.
+# First-party releases install as soon as they publish.
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  - "@tangle-network/*"
+allowBuilds:
+  # The esbuild postinstall checks its platform binary.
+  esbuild: true
+  # The autoevals preinstall only guards the package manager of its own repository.
+  autoevals: false

@@ -22,7 +22,7 @@ DENO_COMMAND = [
 ]
 RUNTIME = {
     "engine": "dspy-rlm",
-    "packages": {"agent-eval-rpc": "0.139.0", "dspy": "3.2.1", "deno": "2.7.14"},
+    "packages": {"agent-eval-rpc": "0.139.0", "dspy": "3.4.0", "deno": "2.9.7"},
     "python": {"implementation": "cpython", "version": "3.13.0"},
     "bridge": {"sourceSha256": "a" * 64},
     "sandbox": {"probeOutput": "2", "runtime": "deno-pyodide"},

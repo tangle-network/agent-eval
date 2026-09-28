@@ -165,7 +165,7 @@ Install the client and published GEPA package for the standard engine:
 python -m pip install agent-eval-rpc
 python -m pip install \
   "gepa==0.1.4" \
-  "litellm>=1.83.0,<1.92" \
+  "litellm>=1.83.0" \
   "tqdm>=4.66.1" \
   "cloudpickle>=3.0.0" \
   "datasets>=2.14.6" \
@@ -179,8 +179,8 @@ Sequential, adaptive, best-of, vote, Omni, AutoResearch, Meta Harness, and Best-
 
 ```sh
 python -m pip install \
-  "gepa @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f" \
-  "litellm>=1.83.0,<1.92" \
+  "gepa @ git+https://github.com/gepa-ai/gepa.git@d771eb21b5dd3228bc3f567293d2ccfc423fc900" \
+  "litellm>=1.83.0" \
   "tqdm>=4.66.1" \
   "cloudpickle>=3.0.0" \
   "datasets>=2.14.6" \
@@ -221,7 +221,7 @@ Install the client and the exact SkillOpt source revision tested by Agent Eval:
 ```sh
 python -m pip install agent-eval-rpc
 python -m pip install \
-  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
+  "skillopt @ git+https://github.com/microsoft/SkillOpt.git@79124b37e9a6371e13b753f8bcd7adb1e493ade1"
 ```
 
 From `clients/python` in an Agent Eval source checkout, install the locked package with:
@@ -251,7 +251,7 @@ Missing provider usage fails the run instead of assuming zero cost.
 
 ### DSPy
 
-Install DSPy 3.2.1 and the Agent Eval adapters with:
+Install DSPy 3.4.0 and the Agent Eval adapters with:
 
 ```sh
 python -m pip install "agent-eval-rpc[dspy]"

@@ -25,7 +25,7 @@ Install the Python bridge and the published GEPA package:
 python -m pip install agent-eval-rpc
 python -m pip install \
   "gepa==0.1.4" \
-  "litellm>=1.83.0,<1.92" \
+  "litellm>=1.83.0" \
   "tqdm>=4.66.1" \
   "cloudpickle>=3.0.0" \
   "datasets>=2.14.6" \
