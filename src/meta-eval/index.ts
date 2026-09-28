@@ -26,9 +26,14 @@ export {
   type EvaluatorAdmissionReport,
   type EvaluatorAuditInput,
   type EvaluatorAuditObservation,
+  type EvaluatorAuditPlan,
+  type EvaluatorAuditPlanInput,
   type EvaluatorErrorRate,
+  evaluatorAdmissionPolicySchema,
+  evaluatorAuditObservationSchema,
   type ProbabilityPolicyAuditInput,
   type ProbabilityPolicyAuditReport,
+  planEvaluatorAudit,
 } from './evaluator-admission'
 export type { CorrelationInterval, OutcomeReduction } from './outcome-observations'
 export * from './outcome-store'

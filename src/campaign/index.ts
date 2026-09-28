@@ -356,6 +356,11 @@ export {
   verifyLoopProvenanceRecord,
 } from './provenance'
 export {
+  createRetainedDispatch,
+  type RetainedDispatchOptions,
+  type RetainedDispatchOutcome,
+} from './retained-dispatch'
+export {
   type CampaignCellFailureReceipt,
   type CampaignCellRetryPolicy,
   type CampaignRunPlan,
