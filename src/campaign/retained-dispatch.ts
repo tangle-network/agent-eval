@@ -51,6 +51,8 @@ export interface RetainedDispatchOptions<Lane extends string, T> {
   /** Validate the complete retained result, including explicit failed/unknown execution outcomes. */
   parse: (value: unknown) => T
   storage?: CampaignStorage
+  /** The owning durable Run has started this scope; missing history must not issue another allowance. */
+  requireExisting?: boolean
 }
 
 /**
@@ -78,6 +80,8 @@ export function createRetainedDispatch<Lane extends string, T>(
   const calls = new Map<string, { lane: string; receipt?: string }>()
   const active = new Map<string, Promise<RetainedDispatchOutcome<T>>>()
   const indexPath = join(options.runDir, 'dispatches.jsonl')
+  const scopePath = join(options.runDir, 'dispatch-scope.json')
+  const scopeText = canonicalString(header)
   const receiptsDir = join(options.runDir, 'dispatch-results')
   const resultPath = (id: LedgerHash) => join(receiptsDir, `${id.slice(7)}.json`)
   storage.ensureDir(options.runDir)
@@ -103,6 +107,7 @@ export function createRetainedDispatch<Lane extends string, T>(
     }
   }
   const refresh = () => {
+    if (storage.read(scopePath) !== scopeText) fail('scope anchor is missing or changed')
     const stored = storage.read(indexPath)
     if (stored === undefined && storage.exists(indexPath)) fail('cannot read existing history')
     const text = stored ?? ''
@@ -134,6 +139,24 @@ export function createRetainedDispatch<Lane extends string, T>(
     else apply(event)
     return true
   }
+  // The immutable anchor distinguishes a new scope from a lost journal on restart.
+  // A half-initialized scope is held for reconciliation, never guessed to be unused.
+  if (options.requireExisting && (!storage.exists(scopePath) || !storage.exists(indexPath)))
+    fail('required retained history is missing')
+  if (storage.exists(scopePath)) {
+    if (storage.read(scopePath) !== scopeText) fail('resume changed its scope or allowances')
+    if (!storage.read(indexPath)?.trim()) fail('dispatch history is missing or empty')
+  } else {
+    if (storage.exists(indexPath))
+      fail('legacy history has no scope anchor; reconcile before migration')
+    const created = storage.append(scopePath, scopeText, 0)
+    if (created === undefined) {
+      if (storage.read(scopePath) !== scopeText || !storage.read(indexPath)?.trim())
+        fail('scope initialization is busy; retry the same scope')
+    } else if (created !== Buffer.byteLength(scopeText)) {
+      fail('storage returned an invalid scope revision')
+    }
+  }
   refresh()
   if (!opened && !append(header) && !opened)
     fail('history is busy; retry with the same run directory')
@@ -144,7 +167,10 @@ export function createRetainedDispatch<Lane extends string, T>(
     if (result.id !== id) return fail('retained result dispatch id mismatch')
     if (hashCanonical(result.value) !== result.receipt)
       return fail('retained result digest mismatch')
-    return { value: parse(result.value), receipt: result.receipt as LedgerHash }
+    const value = parse(result.value)
+    if (canonicalString(value) !== canonicalString(result.value))
+      return fail('result decoder changed retained output')
+    return { value, receipt: result.receipt as LedgerHash }
   }
   const settle = (id: LedgerHash, receipt: LedgerHash) => {
     while (true) {
@@ -181,13 +207,14 @@ export function createRetainedDispatch<Lane extends string, T>(
       dispatch: () => Promise<T>
       signal?: AbortSignal
     }): Promise<RetainedDispatchOutcome<T>> {
-      const id = hashCanonical([header.scope, request.lane, request.input])
+      const { lane, dispatch, signal } = request
+      const id = hashCanonical([header.scope, lane, request.input])
       const pending = active.get(id)
       if (pending) return pending
       const work = async (): Promise<RetainedDispatchOutcome<T>> => {
-        if (!limits.has(request.lane)) return fail('unknown allowance lane')
-        // Re-read an uncertain call: another process may have retained its result since our last read.
-        if (calls.has(id) && !calls.get(id)!.receipt) refresh()
+        if (!limits.has(lane)) return fail('unknown allowance lane')
+        // Replay must also validate retained history, not trust a stale in-memory result.
+        refresh()
         while (true) {
           const existing = calls.get(id)
           if (existing) {
@@ -203,20 +230,20 @@ export function createRetainedDispatch<Lane extends string, T>(
               replayed: true,
             }
           }
-          request.signal?.throwIfAborted()
-          if ((counts.get(request.lane) ?? 0) >= limits.get(request.lane)!) {
+          signal?.throwIfAborted()
+          if ((counts.get(lane) ?? 0) >= limits.get(lane)!) {
             return { succeeded: false, reason: 'allowance_exhausted', dispatchId: id }
           }
           const previousRevision = revision
-          if (append({ kind: 'started', id, lane: request.lane })) break
+          if (append({ kind: 'started', id, lane: lane })) break
           if (revision === previousRevision)
             return fail('history is busy; retry with the same input')
         }
         // A rejection leaves the committed intent in doubt, so return its diagnostic without settling it.
         let value: T
         try {
-          request.signal?.throwIfAborted()
-          value = parse(await request.dispatch())
+          signal?.throwIfAborted()
+          value = parse(await dispatch())
         } catch (error) {
           return {
             succeeded: false,
