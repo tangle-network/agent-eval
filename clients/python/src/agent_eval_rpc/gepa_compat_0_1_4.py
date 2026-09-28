@@ -8,7 +8,7 @@ from types import ModuleType
 from typing import Any
 
 GEPA_VERSION = "0.1.4"
-GEPA_REVISION = "f919db0a622e2e9f9204779b81fe00cc1b2d808f"
+GEPA_REVISION = "d771eb21b5dd3228bc3f567293d2ccfc423fc900"
 
 
 @dataclass

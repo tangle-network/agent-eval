@@ -75,7 +75,7 @@ def _assert_installed_gepa_runtime() -> None:
         "gepa",
         "0.1.4",
         "https://github.com/gepa-ai/gepa.git",
-        "f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+        "d771eb21b5dd3228bc3f567293d2ccfc423fc900",
     )
 
 
@@ -125,7 +125,7 @@ def test_installed_gepa_performs_nonzero_optimize_anything_work(
         "gepa",
         "0.1.4",
         "https://github.com/gepa-ai/gepa.git",
-        "f919db0a622e2e9f9204779b81fe00cc1b2d808f",
+        "d771eb21b5dd3228bc3f567293d2ccfc423fc900",
     )
     model = _DeterministicReflectionModel()
     evaluations: list[tuple[str, str]] = []
@@ -667,7 +667,7 @@ def test_installed_skillopt_runs_reflact_with_packaged_prompts(
         "skillopt",
         "0.2.0",
         "https://github.com/microsoft/SkillOpt.git",
-        "61735e3922efc2b90c6d6cab561e62e98452ca90",
+        "79124b37e9a6371e13b753f8bcd7adb1e493ade1",
     )
     prompt_root = resources.files("skillopt.prompts")
     installed_prompts = {
