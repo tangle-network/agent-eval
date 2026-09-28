@@ -234,8 +234,8 @@ export function createRetainedDispatch<Lane extends string, T>(
     advanceAnchor()
     return true
   }
-// The immutable scope and append-only history anchor distinguish fresh runs from lost journals.
-// A half-initialized scope is held for reconciliation, never guessed to be unused.
+  // The immutable scope and append-only history anchor distinguish fresh runs from lost journals.
+  // A half-initialized scope is held for reconciliation, never guessed to be unused.
   if (
     options.requireExisting &&
     (!storage.exists(scopePath) || !storage.exists(indexPath) || !storage.exists(anchorPath))
