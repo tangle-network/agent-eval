@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type JudgeConfig,
   type ProposeContext,
@@ -9,6 +9,10 @@ import {
   type Scenario,
   surfaceHash,
 } from '../../src/campaign/index'
+
+// These tests run complete optimization loops. One loop took 5.4 s on a CI
+// runner, above the 5 s default for unit tests.
+vi.setConfig({ testTimeout: 30_000 })
 
 interface TestScenario extends Scenario {
   id: string
