@@ -39,7 +39,8 @@ export type RetainedDispatchOutcome<T> =
       receiptDigest: LedgerHash
       replayed: boolean
     }
-  | { succeeded: false; reason: 'outcome_unknown' | 'allowance_exhausted'; dispatchId: LedgerHash }
+  | { succeeded: false; reason: 'outcome_unknown'; dispatchId: LedgerHash; diagnostic?: string }
+  | { succeeded: false; reason: 'allowance_exhausted'; dispatchId: LedgerHash }
 
 /** One logical run owns this directory. Callers bind authority and execution/decoder revisions in scope. */
 export interface RetainedDispatchOptions<Lane extends string, T> {
@@ -211,9 +212,19 @@ export function createRetainedDispatch<Lane extends string, T>(
           if (revision === previousRevision)
             return fail('history is busy; retry with the same input')
         }
-        // A throw, process death or lost result deliberately leaves the committed intent in doubt.
-        request.signal?.throwIfAborted()
-        const value = parse(await request.dispatch())
+        // A rejection leaves the committed intent in doubt, so return its diagnostic without settling it.
+        let value: T
+        try {
+          request.signal?.throwIfAborted()
+          value = parse(await request.dispatch())
+        } catch (error) {
+          return {
+            succeeded: false,
+            reason: 'outcome_unknown',
+            dispatchId: id,
+            diagnostic: error instanceof Error ? error.message : String(error),
+          }
+        }
         const encoded = canonicalString(value)
         const decoded: unknown = JSON.parse(encoded)
         const retainedValue = parse(decoded)

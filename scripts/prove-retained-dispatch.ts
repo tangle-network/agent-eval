@@ -29,6 +29,7 @@ async function child(runDir: string, mode: string) {
         process.send?.({ stage: 'external-completed' })
         await new Promise<void>((resolve) => process.once('message', () => resolve()))
       }
+      if (mode === 'dispatch-reject') throw new Error('provider timed out after external effect')
       if (mode === 'settlement-lock') {
         const lock = tryAcquireAtomicFileLock({ lockPath: path.join(runDir, 'dispatches.jsonl.lock') })
         if (!lock.acquired) throw new Error('could not acquire settlement test lock')
@@ -100,6 +101,28 @@ async function proof() {
     assert.equal(recovered.succeeded && recovered.replayed, true)
     assert.equal(await readFile(path.join(lockedDir, 'external-effects.txt'), 'utf8'), 'executed\n')
     checks.push('a real journal-lock conflict recovers the retained result without redispatch')
+    const rejectedDir = path.join(root, 'rejected-dispatch')
+    const rejectedChild = startChild(rejectedDir, 'dispatch-reject')
+    const rejectedExit = once(rejectedChild.processHandle, 'exit')
+    const rejectedMessage = await rejectedChild.waitMessage('result')
+    await rejectedExit
+    assert.deepEqual(rejectedMessage.result, {
+      succeeded: false,
+      reason: 'outcome_unknown',
+      dispatchId: rejectedMessage.result.dispatchId,
+      diagnostic: 'provider timed out after external effect',
+    })
+    let redispatched = false
+    const retryRejected = await open(rejectedDir).run({ lane: 'development', input: { task: 'one' }, dispatch: async () => {
+      redispatched = true
+      throw new Error('unknown outcomes must not redispatch')
+    } })
+    assert.equal(retryRejected.succeeded && retryRejected.replayed, false)
+    assert.equal(retryRejected.succeeded ? null : retryRejected.reason, 'outcome_unknown')
+    assert.equal(redispatched, false)
+    assert.equal(await readFile(path.join(rejectedDir, 'external-effects.txt'), 'utf8'), 'executed\n')
+    assert.equal(open(rejectedDir).committed().get('development'), 1)
+    checks.push('a rejected dispatch returns its diagnostic and keeps the committed outcome unknown')
     const second = await resumed.run({ lane: 'development', input: 'two', dispatch: async () => ({ ok: false, text: 'measured failure' }) })
     assert.equal(second.succeeded && second.value.ok, false)
     const exhausted = await resumed.run({ lane: 'development', input: 'three', dispatch: async () => { throw new Error('reserve was spent') } })
