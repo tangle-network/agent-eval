@@ -524,11 +524,6 @@ def _candidate_population_artifact(
     max_candidate_chars: int,
     selection_scenario_ids: list[str],
 ) -> dict[str, Any] | None:
-    # GEPA 0.1.4 returns GEPAResult directly. The pinned source API returns its
-    # public Result wrapper and preserves the exact GEPAResult in metadata.
-    official_result = _result_metadata(result).get("gepa_result")
-    if official_result is not None:
-        result = official_result
     field_names = (
         "candidates",
         "parents",
@@ -541,6 +536,11 @@ def _candidate_population_artifact(
         return None
     if any(not isinstance(value, list) for value in fields.values()):
         raise RuntimeError("GEPA produced an incomplete candidate population")
+    # GEPA returns a GEPAResult for every engine. Only the gepa engine fills a
+    # candidate pool with selection evidence; other engines return a
+    # single-candidate snapshot whose selection scores are all empty.
+    if not any(fields["val_subscores"]):
+        return None
 
     candidates = fields["candidates"]
     parents = fields["parents"]

@@ -1353,7 +1353,7 @@ def _find_deno_executable() -> Path:
         packaged = Path(find_deno_bin())
     except (FileNotFoundError, ImportError) as error:
         raise RuntimeError(
-            "DSPy RLM requires the deno==2.7.14 executable beside the Python interpreter"
+            "DSPy RLM requires the deno==2.9.7 executable beside the Python interpreter"
         ) from error
     if not packaged.is_file() or not os.access(packaged, os.X_OK):
         raise RuntimeError(f"DSPy RLM Deno executable is not executable: {packaged}")

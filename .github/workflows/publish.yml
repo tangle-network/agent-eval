@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: clients/python/uv.lock
@@ -174,13 +174,12 @@ jobs:
 
       # The id-token→publish-credential exchange is an npm-CLI feature (>= 11.5.1)
       # and Node 22 bundles npm 10, so install the CLI that can do the exchange.
-      # npm 12.0.0 (2026-07) ships a broken provenance publish (libnpmpublish
-      # requires 'sigstore' without bundling it), so pin an exact 11.x release
+      # npm 12.0.0 shipped a broken provenance publish, so pin an exact release
       # instead of a floating range, the same pin agent-sdk release.yml carries.
       - name: Pin the npm CLI that supports trusted publishing
         run: |
-          npm install -g npm@11.18.0
-          test "$(npm --version)" = '11.18.0'
+          npm install -g npm@12.1.0
+          test "$(npm --version)" = '12.1.0'
 
       # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
       # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over

@@ -1,0 +1,5 @@
+# Hold third-party releases for three days before installing them.
+# First-party releases install as soon as they publish.
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  - "@tangle-network/*"
