@@ -11,7 +11,7 @@ const prepare = fileURLToPath(new URL('./prepare-release.mjs', import.meta.url))
 const python = 'clients/python/pyproject.toml'
 const runtime = 'clients/python/src/agent_eval_rpc/__init__.py'
 
-function fixture(t, baseVersion = '1.2.3') {
+function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'agent-eval-release-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
@@ -50,7 +50,7 @@ function fixture(t, baseVersion = '1.2.3') {
   }
 
   git('init', '-q', '--initial-branch=main')
-  versions(baseVersion)
+  versions('1.2.3')
   write('CHANGELOG.md', '# Changelog\n\n---\n\n## Unreleased\n')
   write(
     'clients/python/uv.lock',
@@ -100,39 +100,46 @@ test('feature PRs accept source changes and reject version or changelog changes'
   assert.notEqual(f.check('feature/example').status, 0)
 })
 
-test('a human rerun of the bot-authored v0.202.1 release PR remains accepted', (t) => {
-  const f = fixture(t, '0.202.0')
-  f.git('switch', '-qc', 'release/v0.202.1')
-  execFileSync(process.execPath, [prepare, '0.202.1'], { cwd: f.root })
-  f.commit('chore(release): 0.202.1')
+test('bot-authored release PRs accept valid metadata after a maintainer update', (t) => {
+  const f = fixture(t)
+  f.git('switch', '-qc', 'release/v1.2.4')
+  execFileSync(process.execPath, [prepare, '1.2.4'], { cwd: f.root })
+  f.commit('chore(release): 1.2.4')
 
   assert.equal(
-    f.check('release/v0.202.1', {
-      actor: 'drewstone',
-      author: 'github-actions[bot]',
-    }).status,
-    0,
-  )
-  assert.equal(
-    f.check('release/v0.202.1', {
+    f.check('release/v1.2.4', {
       actor: 'github-actions[bot]',
       author: 'github-actions[bot]',
     }).status,
     0,
   )
+  assert.equal(
+    f.check('release/v1.2.4', {
+      actor: 'tangletools',
+      author: 'github-actions[bot]',
+    }).status,
+    0,
+  )
   assert.notEqual(
-    f.check('release/v0.202.1', {
-      actor: 'drewstone',
-      author: 'drewstone',
+    f.check('release/v1.2.4', {
+      actor: 'tangletools',
+      author: 'tangletools',
+    }).status,
+    0,
+  )
+  assert.notEqual(
+    f.check('release/v1.2.4', {
+      actor: 'github-actions[bot]',
+      author: 'tangletools',
     }).status,
     0,
   )
 
-  f.write(python, '[project]\nversion = "0.202.2"\n')
+  f.write(python, '[project]\nversion = "1.2.5"\n')
   f.commit('chore(release): mismatched Python metadata')
   assert.notEqual(
-    f.check('release/v0.202.1', {
-      actor: 'drewstone',
+    f.check('release/v1.2.4', {
+      actor: 'github-actions[bot]',
       author: 'github-actions[bot]',
     }).status,
     0,
