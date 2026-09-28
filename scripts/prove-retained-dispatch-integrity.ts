@@ -63,6 +63,26 @@ async function proof() {
     await once(empty)
     checks.push('empty history cannot restart an existing scope')
 
+    const truncated = start('truncated')
+    const journalPath = path.join(truncated, 'journal', 'dispatches.jsonl')
+    const scopePath = path.join(truncated, 'journal', 'dispatch-scope.json')
+    const scope = await readFile(scopePath, 'utf8')
+    const history = await readFile(journalPath, 'utf8')
+    // Keep the valid header line only: every started and settled event is erased.
+    await writeFile(journalPath, `${history.split('\n')[0]}\n`)
+    const restarted = child(truncated, true)
+    assert.notEqual(restarted.status, 0)
+    assert.match(restarted.stderr, /truncated below its durable anchor/)
+    assert.equal(restarted.stdout, '')
+    assert.equal(await readFile(scopePath, 'utf8'), scope)
+    await once(truncated)
+    // The committed high-water mark still exceeds the truncated history, so the
+    // started events cannot be forgotten and no allowance was reset for reuse.
+    const anchor = await readFile(path.join(truncated, 'journal', 'dispatch-anchor.jsonl'), 'utf8')
+    const highWater = JSON.parse(anchor.trimEnd().split('\n').at(-1)!) as { bytes: number }
+    assert.ok(highWater.bytes > Buffer.byteLength(`${history.split('\n')[0]}\n`))
+    checks.push('header-only truncation fails closed without redispatch or allowance reset')
+
     const absent = path.join(root, 'absent')
     assert.throws(() => open(absent, true), /required retained history/)
     const lostAll = start('lost-all')

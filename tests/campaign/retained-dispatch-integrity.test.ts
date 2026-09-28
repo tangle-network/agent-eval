@@ -9,6 +9,6 @@ it('refuses journal loss and changed receipt interpretation across process resta
   })
   const report = JSON.parse(output)
   expect(report.passed).toBe(true)
-  expect(report.checks).toHaveLength(7)
+  expect(report.checks).toHaveLength(8)
   expect(report.modelCalls).toBe(0)
 }, 65000)

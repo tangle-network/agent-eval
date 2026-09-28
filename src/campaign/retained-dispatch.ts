@@ -29,7 +29,17 @@ const resultSchema = z
     value: z.unknown(),
   })
   .strict()
+/** The committed byte length and cumulative digest of retained dispatch history. */
+const anchorEntrySchema = z
+  .object({
+    kind: z.literal('retained-dispatch-anchor-v1'),
+    scope: digest,
+    bytes: z.number().int().positive(),
+    digest,
+  })
+  .strict()
 type Event = z.infer<typeof eventSchema>
+type AnchorEntry = z.infer<typeof anchorEntrySchema>
 
 export type RetainedDispatchOutcome<T> =
   | {
@@ -58,6 +68,8 @@ export interface RetainedDispatchOptions<Lane extends string, T> {
 /**
  * Persist dispatch intent before an external call and its validated result afterward.
  * Replays settled calls; never repeats an uncertain call or refunds its allowance.
+ * Every journal event is durably anchored before it takes effect, and history that
+ * cannot be proven equal to its durable anchor fails closed.
  * This wraps a campaign's dispatch; runEval still owns scheduling, judging and reports.
  * Uses CampaignStorage's existing compare-and-append, not another database or scheduler.
  */
@@ -81,13 +93,16 @@ export function createRetainedDispatch<Lane extends string, T>(
   const active = new Map<string, Promise<RetainedDispatchOutcome<T>>>()
   const indexPath = join(options.runDir, 'dispatches.jsonl')
   const scopePath = join(options.runDir, 'dispatch-scope.json')
+  const anchorPath = join(options.runDir, 'dispatch-anchor.jsonl')
   const scopeText = canonicalString(header)
+  const scopeDigest = hashCanonical(header)
   const receiptsDir = join(options.runDir, 'dispatch-results')
   const resultPath = (id: LedgerHash) => join(receiptsDir, `${id.slice(7)}.json`)
   storage.ensureDir(options.runDir)
   storage.ensureDir(receiptsDir)
   let retainedText = ''
   let revision = 0
+  let chain: LedgerHash | null = null
   let opened = false
   const fail = (message: string): never => {
     throw new ValidationError(`retained dispatch: ${message}`)
@@ -106,6 +121,25 @@ export function createRetainedDispatch<Lane extends string, T>(
       existing.receipt = event.receipt
     }
   }
+  const readAnchor = () => {
+    const content = storage.read(anchorPath)
+    if (content === undefined && storage.exists(anchorPath)) fail('cannot read durable anchor')
+    const text = content ?? ''
+    if (text && !text.endsWith('\n')) fail('durable anchor is torn')
+    const entries: AnchorEntry[] = []
+    let previous = 0
+    const lines = text.split('\n')
+    if (lines.at(-1) === '') lines.pop()
+    if (lines.some((line) => !line)) fail('durable anchor contains an empty record')
+    for (const line of lines) {
+      const entry = anchorEntrySchema.parse(JSON.parse(line) as unknown)
+      if (entry.scope !== scopeDigest) fail('durable anchor scope changed')
+      if (entry.bytes <= previous) fail('durable anchor is not append-only')
+      previous = entry.bytes
+      entries.push(entry)
+    }
+    return { text, entries }
+  }
   const refresh = () => {
     if (storage.read(scopePath) !== scopeText) fail('scope anchor is missing or changed')
     const stored = storage.read(indexPath)
@@ -113,19 +147,47 @@ export function createRetainedDispatch<Lane extends string, T>(
     const text = stored ?? ''
     if (!text.startsWith(retainedText) || (text && !text.endsWith('\n')))
       fail('history was truncated, replaced or torn')
-    for (const line of text.slice(retainedText.length).split('\n').filter(Boolean)) {
-      const value: unknown = JSON.parse(line)
-      if (!opened) {
+    const { entries } = readAnchor()
+    const bytes = Buffer.byteLength(text)
+    const applied = Buffer.byteLength(retainedText)
+    if (text && !entries.length) fail('durable anchor is missing')
+    const highWater = entries[entries.length - 1]
+    if (highWater && bytes !== highWater.bytes) {
+      // Bytes beyond the durable anchor are never trusted, shortened or synthesized.
+      if (bytes < highWater.bytes) fail('history was truncated below its durable anchor')
+      fail('history extends beyond its durable anchor')
+    }
+    let offset = 0
+    let running: LedgerHash | null = null
+    let entryIndex = 0
+    let seenHeader = opened
+    for (const line of text.split('\n')) {
+      if (!line) continue
+      running = hashCanonical([running, line])
+      offset += Buffer.byteLength(line) + 1
+      while (entryIndex < entries.length && entries[entryIndex]!.bytes === offset) {
+        if (entries[entryIndex]!.digest !== running)
+          fail('history diverges from its durable anchor')
+        entryIndex += 1
+      }
+      if (offset <= applied) continue
+      if (!seenHeader) {
+        const value: unknown = JSON.parse(line)
         if (hashCanonical(headerSchema.parse(value)) !== hashCanonical(header))
           fail('resume changed its scope or allowances')
-        opened = true
-      } else apply(eventSchema.parse(value))
+        seenHeader = true
+      } else apply(eventSchema.parse(JSON.parse(line) as unknown))
     }
+    if (entries.length && entryIndex !== entries.length)
+      fail('history diverges from its durable anchor')
+    chain = running
     retainedText = text
-    revision = Buffer.byteLength(text)
+    revision = bytes
+    opened = seenHeader
   }
   const append = (event: typeof header | Event): boolean => {
-    const line = `${canonicalString(event)}\n`
+    const encoded = canonicalString(event)
+    const line = `${encoded}\n`
     const next = storage.append(indexPath, line, revision)
     if (next === undefined) {
       refresh()
@@ -133,21 +195,59 @@ export function createRetainedDispatch<Lane extends string, T>(
     }
     if (next !== revision + Buffer.byteLength(line))
       fail('storage returned an invalid append revision')
+    chain = hashCanonical([chain, encoded])
     retainedText += line
     revision = next
     if (event.kind === 'retained-dispatch-v1') opened = true
     else apply(event)
     return true
   }
-  // The immutable anchor distinguishes a new scope from a lost journal on restart.
-  // A half-initialized scope is held for reconciliation, never guessed to be unused.
-  if (options.requireExisting && (!storage.exists(scopePath) || !storage.exists(indexPath)))
+  const advanceAnchor = () => {
+    if (chain === null || revision <= 0) fail('cannot anchor an empty history')
+    const { text, entries } = readAnchor()
+    const last = entries[entries.length - 1]
+    if (last) {
+      if (last.bytes > revision) fail('history is behind its durable anchor')
+      if (last.bytes === revision) {
+        if (last.digest !== chain) fail('history diverges from its durable anchor')
+        return
+      }
+    }
+    const line = `${canonicalString({
+      kind: 'retained-dispatch-anchor-v1',
+      scope: scopeDigest,
+      bytes: revision,
+      digest: chain,
+    } satisfies AnchorEntry)}\n`
+    const next = storage.append(anchorPath, line, Buffer.byteLength(text))
+    if (next === undefined) {
+      const concurrent = readAnchor().entries.at(-1)
+      if (concurrent?.bytes === revision && concurrent.digest === chain) return
+      fail('durable anchor append is busy; retry with the same run directory')
+    }
+    if (next !== Buffer.byteLength(text) + Buffer.byteLength(line))
+      fail('storage returned an invalid durable anchor revision')
+  }
+  /** An event takes effect only after both its journal append and its anchor entry are durable. */
+  const commit = (event: typeof header | Event): boolean => {
+    if (!append(event)) return false
+    advanceAnchor()
+    return true
+  }
+// The immutable scope and append-only history anchor distinguish fresh runs from lost journals.
+// A half-initialized scope is held for reconciliation, never guessed to be unused.
+  if (
+    options.requireExisting &&
+    (!storage.exists(scopePath) || !storage.exists(indexPath) || !storage.exists(anchorPath))
+  )
     fail('required retained history is missing')
   if (storage.exists(scopePath)) {
     if (storage.read(scopePath) !== scopeText) fail('resume changed its scope or allowances')
     if (!storage.read(indexPath)?.trim()) fail('dispatch history is missing or empty')
+    // A history without its committed high-water mark is never treated as unused.
+    if (!storage.read(anchorPath)?.trim()) fail('durable anchor is missing')
   } else {
-    if (storage.exists(indexPath))
+    if (storage.exists(indexPath) || storage.exists(anchorPath))
       fail('legacy history has no scope anchor; reconcile before migration')
     const created = storage.append(scopePath, scopeText, 0)
     if (created === undefined) {
@@ -158,7 +258,7 @@ export function createRetainedDispatch<Lane extends string, T>(
     }
   }
   refresh()
-  if (!opened && !append(header) && !opened)
+  if (!opened && !commit(header) && !opened)
     fail('history is busy; retry with the same run directory')
   const readResult = (id: LedgerHash) => {
     const content = storage.read(resultPath(id))
@@ -181,7 +281,7 @@ export function createRetainedDispatch<Lane extends string, T>(
       }
       if (!existing) fail('settlement has no pending dispatch')
       const previousRevision = revision
-      if (append({ kind: 'settled', id, receipt })) return
+      if (commit({ kind: 'settled', id, receipt })) return
       if (revision === previousRevision)
         fail('settlement is busy; retained result awaits reconciliation')
     }
@@ -235,10 +335,12 @@ export function createRetainedDispatch<Lane extends string, T>(
             return { succeeded: false, reason: 'allowance_exhausted', dispatchId: id }
           }
           const previousRevision = revision
-          if (append({ kind: 'started', id, lane: lane })) break
+          if (commit({ kind: 'started', id, lane: lane })) break
           if (revision === previousRevision)
             return fail('history is busy; retry with the same input')
         }
+        // The started event is durably anchored above, so the external effect below is
+        // attributable to a committed intent that survives restarts and truncation.
         // A rejection leaves the committed intent in doubt, so return its diagnostic without settling it.
         let value: T
         try {
