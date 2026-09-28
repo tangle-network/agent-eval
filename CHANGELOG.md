@@ -4,6 +4,11 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.202.0] — 2026-09-28
+
+- feat(meta-eval): audit planning and canonical schemas for evaluator construction (#888)
+- fix(test): stop hosted receivers by process group and give loop tests room (#891)
+
 ## [0.201.0] — 2026-09-28
 
 - chore(deps): update all dependencies to latest (#889)
