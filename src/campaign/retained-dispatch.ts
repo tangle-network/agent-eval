@@ -203,13 +203,14 @@ export function createRetainedDispatch<Lane extends string, T>(
     return true
   }
   const advanceAnchor = () => {
-    if (chain === null || revision <= 0) fail('cannot anchor an empty history')
+    const currentChain = chain ?? fail('cannot anchor an empty history')
+    if (revision <= 0) fail('cannot anchor an empty history')
     const { text, entries } = readAnchor()
     const last = entries[entries.length - 1]
     if (last) {
       if (last.bytes > revision) fail('history is behind its durable anchor')
       if (last.bytes === revision) {
-        if (last.digest !== chain) fail('history diverges from its durable anchor')
+        if (last.digest !== currentChain) fail('history diverges from its durable anchor')
         return
       }
     }
@@ -217,7 +218,7 @@ export function createRetainedDispatch<Lane extends string, T>(
       kind: 'retained-dispatch-anchor-v1',
       scope: scopeDigest,
       bytes: revision,
-      digest: chain,
+      digest: currentChain,
     } satisfies AnchorEntry)}\n`
     const next = storage.append(anchorPath, line, Buffer.byteLength(text))
     if (next === undefined) {
