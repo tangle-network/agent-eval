@@ -194,7 +194,9 @@ function simultaneousIntervalConfidence(confidence: number): number {
 const capacitySchema = z
   .object({
     policy: evaluatorAdmissionPolicySchema,
-    controls: z.array(evaluatorAuditObservationSchema.omit({ observed: true, evidenceRef: true })).default([]),
+    controls: z
+      .array(evaluatorAuditObservationSchema.omit({ observed: true, evidenceRef: true }))
+      .default([]),
   })
   .strict()
 
@@ -203,10 +205,11 @@ export type EvaluatorAuditPlanInput = z.input<typeof capacitySchema>
 /** The zero-error eligibility floor, not a statistical power calculation. */
 function minimumAuditUnits(limit: number, level: number): number | null {
   if (limit === 0) return null
-  const clears = (n: number) => computeInterval(
-    { kind: 'clopper-pearson', level },
-    { kind: 'binomial', successes: 0, trials: n },
-  ).upper <= limit
+  const clears = (n: number) =>
+    computeInterval(
+      { kind: 'clopper-pearson', level },
+      { kind: 'binomial', successes: 0, trials: n },
+    ).upper <= limit
   let upper = 1
   while (!clears(upper)) {
     if (upper === Number.MAX_SAFE_INTEGER) return null
@@ -245,8 +248,16 @@ export function planEvaluatorAudit(input: EvaluatorAuditPlanInput) {
             { kind: 'binomial', successes: 0, trials: independentUnits },
           ).upper
     const minimumIndependentUnits = minimumAuditUnits(limit, level)
-    return { independentUnits, bestPossibleUpperBound, limit, minimumIndependentUnits,
-      additionalIndependentUnits: minimumIndependentUnits === null ? null : Math.max(0, minimumIndependentUnits - independentUnits) }
+    return {
+      independentUnits,
+      bestPossibleUpperBound,
+      limit,
+      minimumIndependentUnits,
+      additionalIndependentUnits:
+        minimumIndependentUnits === null
+          ? null
+          : Math.max(0, minimumIndependentUnits - independentUnits),
+    }
   }
   const falseAcceptance = capacity('reject', policy.maxFalseAcceptanceRate)
   const falseRejection = capacity('accept', policy.maxFalseRejectionRate)
