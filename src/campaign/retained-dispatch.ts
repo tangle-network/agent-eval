@@ -269,7 +269,7 @@ export function createRetainedDispatch<Lane extends string, T>(
     if (hashCanonical(result.value) !== result.receipt)
       return fail('retained result digest mismatch')
     const value = parse(result.value)
-    if (canonicalString(value) !== canonicalString(result.value))
+    if (hashCanonical(value) !== result.receipt)
       return fail('result decoder changed retained output')
     return { value, receipt: result.receipt as LedgerHash }
   }
