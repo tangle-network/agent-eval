@@ -25,7 +25,6 @@ const branch = process.env.GITHUB_HEAD_REF || ''
 const releaseVersion = /^release\/v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$/.exec(branch)?.[1]
 const generatedReleasePr =
   process.env.GITHUB_EVENT_NAME === 'pull_request' &&
-  process.env.GITHUB_ACTOR === 'github-actions[bot]' &&
   process.env.PR_AUTHOR_LOGIN === 'github-actions[bot]' &&
   releaseVersion === headNpm
 
