@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.201.0] — 2026-09-28
+
+- chore(deps): update all dependencies to latest (#889)
+
 ## [0.200.1] — 2026-09-27
 
 - fix(rl): only an exact scope rule calls a claim a hack (#886)
