@@ -66,7 +66,7 @@ async function proof() {
     const truncated = start('truncated')
     const journalPath = path.join(truncated, 'journal', 'dispatches.jsonl')
     const scopePath = path.join(truncated, 'journal', 'dispatch-scope.json')
-    const scope = await readFile(scopePath, 'utf8')
+    const scopeTextBefore = await readFile(scopePath, 'utf8')
     const history = await readFile(journalPath, 'utf8')
     // Keep the valid header line only: every started and settled event is erased.
     await writeFile(journalPath, `${history.split('\n')[0]}\n`)
@@ -74,7 +74,7 @@ async function proof() {
     assert.notEqual(restarted.status, 0)
     assert.match(restarted.stderr, /truncated below its durable anchor/)
     assert.equal(restarted.stdout, '')
-    assert.equal(await readFile(scopePath, 'utf8'), scope)
+    assert.equal(await readFile(scopePath, 'utf8'), scopeTextBefore)
     await once(truncated)
     // The committed high-water mark still exceeds the truncated history, so the
     // started events cannot be forgotten and no allowance was reset for reuse.
