@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.202.1] — 2026-09-28
+
+- fix(campaign): prevent lost history and changed decoders from resetting retained dispatch (#893)
+
 ## [0.202.0] — 2026-09-28
 
 - feat(meta-eval): audit planning and canonical schemas for evaluator construction (#888)
