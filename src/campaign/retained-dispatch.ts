@@ -21,6 +21,14 @@ const eventSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('started'), id: digest, lane: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('settled'), id: digest, receipt: digest }).strict(),
 ])
+const resultSchema = z
+  .object({
+    kind: z.literal('retained-dispatch-result-v1'),
+    id: digest,
+    receipt: digest,
+    value: z.unknown(),
+  })
+  .strict()
 type Event = z.infer<typeof eventSchema>
 
 export type RetainedDispatchOutcome<T> =
@@ -70,6 +78,7 @@ export function createRetainedDispatch<Lane extends string, T>(
   const active = new Map<string, Promise<RetainedDispatchOutcome<T>>>()
   const indexPath = join(options.runDir, 'dispatches.jsonl')
   const receiptsDir = join(options.runDir, 'dispatch-results')
+  const resultPath = (id: LedgerHash) => join(receiptsDir, `${id.slice(7)}.json`)
   storage.ensureDir(options.runDir)
   storage.ensureDir(receiptsDir)
   let retainedText = ''
@@ -127,14 +136,36 @@ export function createRetainedDispatch<Lane extends string, T>(
   refresh()
   if (!opened && !append(header) && !opened)
     fail('history is busy; retry with the same run directory')
+  const readResult = (id: LedgerHash) => {
+    const content = storage.read(resultPath(id))
+    if (content === undefined) return undefined
+    const result = resultSchema.parse(JSON.parse(content))
+    if (result.id !== id) return fail('retained result dispatch id mismatch')
+    if (hashCanonical(result.value) !== result.receipt)
+      return fail('retained result digest mismatch')
+    return { value: parse(result.value), receipt: result.receipt as LedgerHash }
+  }
+  const settle = (id: LedgerHash, receipt: LedgerHash) => {
+    while (true) {
+      const existing = calls.get(id)
+      if (existing?.receipt) {
+        if (existing.receipt !== receipt) fail('settled result digest mismatch')
+        return
+      }
+      if (!existing) fail('settlement has no pending dispatch')
+      const previousRevision = revision
+      if (append({ kind: 'settled', id, receipt })) return
+      if (revision === previousRevision)
+        fail('settlement is busy; retained result awaits reconciliation')
+    }
+  }
   const load = (id: LedgerHash, receipt: string): RetainedDispatchOutcome<T> => {
-    const content = storage.read(join(receiptsDir, `${receipt.slice(7)}.json`))
-    if (content === undefined) return fail('settled result is missing')
-    const decoded: unknown = JSON.parse(content)
-    if (hashCanonical(decoded) !== receipt) return fail('settled result digest mismatch')
+    const result = readResult(id)
+    if (!result) return fail('settled result is missing')
+    if (result.receipt !== receipt) return fail('settled result digest mismatch')
     return {
       succeeded: true,
-      value: parse(decoded),
+      value: result.value,
       dispatchId: id,
       receiptDigest: receipt as LedgerHash,
       replayed: true,
@@ -158,10 +189,19 @@ export function createRetainedDispatch<Lane extends string, T>(
         if (calls.has(id) && !calls.get(id)!.receipt) refresh()
         while (true) {
           const existing = calls.get(id)
-          if (existing)
-            return existing.receipt
-              ? load(id, existing.receipt)
-              : { succeeded: false, reason: 'outcome_unknown', dispatchId: id }
+          if (existing) {
+            if (existing.receipt) return load(id, existing.receipt)
+            const result = readResult(id)
+            if (!result) return { succeeded: false, reason: 'outcome_unknown', dispatchId: id }
+            settle(id, result.receipt)
+            return {
+              succeeded: true,
+              value: result.value,
+              dispatchId: id,
+              receiptDigest: result.receipt,
+              replayed: true,
+            }
+          }
           request.signal?.throwIfAborted()
           if ((counts.get(request.lane) ?? 0) >= limits.get(request.lane)!) {
             return { succeeded: false, reason: 'allowance_exhausted', dispatchId: id }
@@ -180,16 +220,20 @@ export function createRetainedDispatch<Lane extends string, T>(
         if (canonicalString(retainedValue) !== encoded)
           return fail('result decoder is not stable across serialization')
         const receipt = hashCanonical(decoded)
-        const file = join(receiptsDir, `${receipt.slice(7)}.json`)
-        if (storage.append(file, encoded, 0) === undefined && storage.read(file) !== encoded)
+        const retainedResult = canonicalString({
+          kind: 'retained-dispatch-result-v1',
+          id,
+          receipt,
+          value: decoded,
+        })
+        const file = resultPath(id)
+        if (
+          storage.append(file, retainedResult, 0) === undefined &&
+          storage.read(file) !== retainedResult
+        )
           fail('cannot retain dispatch result')
         // The receipt is durable before the settlement event can make it reusable.
-        while (true) {
-          const previousRevision = revision
-          if (append({ kind: 'settled', id, receipt })) break
-          if (revision === previousRevision)
-            return fail('settlement is busy; retained result awaits reconciliation')
-        }
+        settle(id, receipt)
         return {
           succeeded: true,
           value: retainedValue,

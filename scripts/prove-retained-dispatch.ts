@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import { tryAcquireAtomicFileLock } from '../src/ledger-core/atomic-file-lock.js'
 import { createRetainedDispatch } from '../src/campaign/index.js'
 
 const output = z.object({ ok: z.boolean(), text: z.string() }).strict()
@@ -21,15 +22,24 @@ function effect(file: string) {
   return { ok: true, text: 'executed' }
 }
 async function child(runDir: string, mode: string) {
-  const result = await open(runDir).run({ lane: 'development', input: { task: 'one' }, dispatch: async () => {
-    const value = effect(path.join(runDir, 'external-effects.txt'))
-    if (mode === 'hold') {
-      process.send?.({ stage: 'external-completed' })
-      await new Promise<void>((resolve) => process.once('message', () => resolve()))
-    }
-    return value
-  } })
-  process.send?.({ stage: 'result', result })
+  try {
+    const result = await open(runDir).run({ lane: 'development', input: { task: 'one' }, dispatch: async () => {
+      const value = effect(path.join(runDir, 'external-effects.txt'))
+      if (mode === 'hold') {
+        process.send?.({ stage: 'external-completed' })
+        await new Promise<void>((resolve) => process.once('message', () => resolve()))
+      }
+      if (mode === 'settlement-lock') {
+        const lock = tryAcquireAtomicFileLock({ lockPath: path.join(runDir, 'dispatches.jsonl.lock') })
+        if (!lock.acquired) throw new Error('could not acquire settlement test lock')
+        setTimeout(() => lock.lock.release(), 100)
+      }
+      return value
+    } })
+    process.send?.({ stage: 'result', result })
+  } catch (error) {
+    process.send?.({ stage: 'error', error: error instanceof Error ? error.message : String(error) })
+  }
   process.disconnect?.()
 }
 function startChild(runDir: string, mode: string) {
@@ -79,6 +89,17 @@ async function proof() {
     assert.equal(await readFile(path.join(killedDir, 'external-effects.txt'), 'utf8'), 'executed\n')
     assert.equal(resumed.committed().get('development'), 1)
     checks.push('SIGKILL after external effect keeps unknown intent and allowance without redispatch')
+    const lockedDir = path.join(root, 'locked-result')
+    open(lockedDir)
+    const locked = startChild(lockedDir, 'settlement-lock')
+    const settlement = await locked.waitMessage('error')
+    assert.match(settlement.error, /settlement is busy/)
+    const lockReleased = once(locked.processHandle, 'exit')
+    await lockReleased
+    const recovered = await open(lockedDir).run({ lane: 'development', input: { task: 'one' }, dispatch: async () => { throw new Error('retained result must be recovered') } })
+    assert.equal(recovered.succeeded && recovered.replayed, true)
+    assert.equal(await readFile(path.join(lockedDir, 'external-effects.txt'), 'utf8'), 'executed\n')
+    checks.push('a real journal-lock conflict recovers the retained result without redispatch')
     const second = await resumed.run({ lane: 'development', input: 'two', dispatch: async () => ({ ok: false, text: 'measured failure' }) })
     assert.equal(second.succeeded && second.value.ok, false)
     const exhausted = await resumed.run({ lane: 'development', input: 'three', dispatch: async () => { throw new Error('reserve was spent') } })
@@ -104,11 +125,13 @@ async function proof() {
     const canonical = open(path.join(root, 'canonical'))
     await canonical.run({ lane: 'development', input: 'a', dispatch: async () => ({ ok: true, text: 'same JSON' }) })
     await canonical.run({ lane: 'development', input: 'b', dispatch: async () => ({ text: 'same JSON', ok: true }) })
-    assert.equal((await readdir(path.join(root, 'canonical', 'dispatch-results'))).filter(f => f.endsWith('.json')).length, 1)
-    checks.push('equivalent JSON receipts share canonical storage without collisions')
+    assert.equal((await readdir(path.join(root, 'canonical', 'dispatch-results'))).filter(f => f.endsWith('.json')).length, 2)
+    checks.push('canonical result receipts remain bound to independent dispatch identities')
     const files = await readdir(path.join(runDir, 'dispatch-results'))
     const resultFile = files.find(f => f.endsWith('.json'))!
-    await writeFile(path.join(runDir, 'dispatch-results', resultFile), '{"ok":false,"text":"tampered"}')
+    const tampered = JSON.parse(await readFile(path.join(runDir, 'dispatch-results', resultFile), 'utf8'))
+    tampered.value = { ok: false, text: 'tampered' }
+    await writeFile(path.join(runDir, 'dispatch-results', resultFile), JSON.stringify(tampered))
     await assert.rejects(open(runDir).run({ lane: 'development', input: { task: 'one' }, dispatch: async () => { throw new Error('must not dispatch') } }), /digest mismatch/)
     await appendFile(path.join(killedDir, 'dispatches.jsonl'), '{"torn":')
     assert.throws(() => open(killedDir), /torn/)
