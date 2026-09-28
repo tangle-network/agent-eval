@@ -61,6 +61,10 @@ function candidateProposer(
 
 import type { CostReceipt } from '../../src/cost-ledger'
 
+// These tests run complete optimization loops. One loop took 5.4 s on a CI
+// runner, above the 5 s default for unit tests.
+vi.setConfig({ testTimeout: 30_000 })
+
 interface FakeScenario extends Scenario {
   id: string
   kind: string

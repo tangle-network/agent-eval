@@ -11,9 +11,11 @@ spec is broken.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import time
@@ -91,17 +93,25 @@ def receiver():
         cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
     url = f"http://127.0.0.1:{port}"
     try:
         _wait_for_health(url)
         yield {"url": url, "port": port}
     finally:
-        proc.terminate()
+        # The runner can be a wrapper that does not forward signals: corepack
+        # starts pnpm 12 as a separate native process. Stop the whole process
+        # group so the receiver cannot outlive the test.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
         try:
             proc.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            pass
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
 
 
 def _span(run_id: str) -> dict:
