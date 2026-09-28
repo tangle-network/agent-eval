@@ -32,6 +32,18 @@ describe('audit planning uses the admission rule without creating judgments', ()
     expect(result.falseAcceptance.additionalIndependentUnits).toBe(3)
     expect(result.falseRejection.additionalIndependentUnits).toBe(3)
   })
+  it('computes the 1e-6 zero-error threshold without enumerating hypothetical trials', () => {
+    const result = planEvaluatorAudit({
+      policy: { ...policy, maxFalseAcceptanceRate: 1e-6, maxFalseRejectionRate: 1e-6 },
+    })
+    const expected = 4_382_025
+    const level = 1 - (1 - policy.confidence) / 2
+    const upper = (trials: number) => -Math.expm1(Math.log((1 - level) / 2) / trials)
+    expect(result.falseAcceptance.minimumIndependentUnits).toBe(expected)
+    expect(result.falseRejection.minimumIndependentUnits).toBe(expected)
+    expect(upper(expected - 1)).toBeGreaterThan(1e-6)
+    expect(upper(expected)).toBeLessThanOrEqual(1e-6)
+  })
   it('agrees with zero-error audit decisions at the boundary', () => {
     for (const count of [0, 2, 78, 82, 84, 86, 100]) {
       const roster = controls(count)
@@ -53,12 +65,16 @@ describe('audit planning uses the admission rule without creating judgments', ()
         })),
       })
       expect(plan.sufficient).toBe(actual.verdict === 'admit')
-      expect(plan.falseAcceptance.bestPossibleUpperBound).toBe(
-        actual.falseAcceptance.interval?.upper ?? null,
-      )
-      expect(plan.falseRejection.bestPossibleUpperBound).toBe(
-        actual.falseRejection.interval?.upper ?? null,
-      )
+      for (const [planned, audited] of [
+        [
+          plan.falseAcceptance.bestPossibleUpperBound,
+          actual.falseAcceptance.interval?.upper ?? null,
+        ],
+        [plan.falseRejection.bestPossibleUpperBound, actual.falseRejection.interval?.upper ?? null],
+      ] as const) {
+        if (audited === null) expect(planned).toBeNull()
+        else expect(planned).toBeCloseTo(audited, 15)
+      }
     }
   })
   it('excludes development source units and does not count repeated variants', () => {

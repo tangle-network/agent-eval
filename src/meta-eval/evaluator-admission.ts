@@ -203,25 +203,22 @@ const capacitySchema = z
 export type EvaluatorAuditPlanInput = z.input<typeof capacitySchema>
 
 /** The zero-error eligibility floor, not a statistical power calculation. */
+function zeroErrorUpperBound(trials: number, level: number): number {
+  return -Math.expm1(Math.log((1 - level) / 2) / trials)
+}
+
 function minimumAuditUnits(limit: number, level: number): number | null {
   if (limit === 0) return null
-  const clears = (n: number) =>
-    computeInterval(
-      { kind: 'clopper-pearson', level },
-      { kind: 'binomial', successes: 0, trials: n },
-    ).upper <= limit
-  let upper = 1
-  while (!clears(upper)) {
-    if (upper === Number.MAX_SAFE_INTEGER) return null
-    upper = Math.min(Number.MAX_SAFE_INTEGER, upper * 2)
+  const estimate = Math.ceil(Math.log((1 - level) / 2) / Math.log1p(-limit))
+  if (!Number.isFinite(estimate) || estimate > Number.MAX_SAFE_INTEGER) return null
+  const clears = (trials: number) => zeroErrorUpperBound(trials, level) <= limit
+  let minimum = Math.max(1, estimate)
+  while (minimum > 1 && clears(minimum - 1)) minimum -= 1
+  while (!clears(minimum)) {
+    if (minimum === Number.MAX_SAFE_INTEGER) return null
+    minimum += 1
   }
-  let lower = 0
-  while (upper - lower > 1) {
-    const middle = lower + Math.floor((upper - lower) / 2)
-    if (clears(middle)) upper = middle
-    else lower = middle
-  }
-  return upper
+  return minimum
 }
 
 /**
@@ -241,12 +238,7 @@ export function planEvaluatorAudit(input: EvaluatorAuditPlanInput) {
       eligible.filter((row) => row.expected === expected).map((row) => row.independentUnitId),
     ).size
     const bestPossibleUpperBound =
-      independentUnits === 0
-        ? null
-        : computeInterval(
-            { kind: 'clopper-pearson', level },
-            { kind: 'binomial', successes: 0, trials: independentUnits },
-          ).upper
+      independentUnits === 0 ? null : zeroErrorUpperBound(independentUnits, level)
     const minimumIndependentUnits = minimumAuditUnits(limit, level)
     return {
       independentUnits,
