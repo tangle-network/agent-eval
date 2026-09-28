@@ -23,9 +23,9 @@ const headRuntime = runtimeVersionFrom(read(runtimePath))
 const changed = git('diff', '--name-only', base + '...HEAD').split('\n').filter(Boolean)
 const branch = process.env.GITHUB_HEAD_REF || ''
 const releaseVersion = /^release\/v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$/.exec(branch)?.[1]
+// Maintainer syncs change the event actor while preserving the bot-created PR author.
 const generatedReleasePr =
   process.env.GITHUB_EVENT_NAME === 'pull_request' &&
-  process.env.GITHUB_ACTOR === 'github-actions[bot]' &&
   process.env.PR_AUTHOR_LOGIN === 'github-actions[bot]' &&
   releaseVersion === headNpm
 

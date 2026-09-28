@@ -100,7 +100,7 @@ test('feature PRs accept source changes and reject version or changelog changes'
   assert.notEqual(f.check('feature/example').status, 0)
 })
 
-test('Prepare Release output is accepted only from the GitHub bot', (t) => {
+test('bot-authored release PRs accept valid metadata after a maintainer update', (t) => {
   const f = fixture(t)
   f.git('switch', '-qc', 'release/v1.2.4')
   execFileSync(process.execPath, [prepare, '1.2.4'], { cwd: f.root })
@@ -109,6 +109,13 @@ test('Prepare Release output is accepted only from the GitHub bot', (t) => {
   assert.equal(
     f.check('release/v1.2.4', {
       actor: 'github-actions[bot]',
+      author: 'github-actions[bot]',
+    }).status,
+    0,
+  )
+  assert.equal(
+    f.check('release/v1.2.4', {
+      actor: 'tangletools',
       author: 'github-actions[bot]',
     }).status,
     0,
