@@ -115,6 +115,21 @@ async function proof() {
     await once(decoded)
     checks.push('replay cannot reinterpret a receipt under a changed decoder')
 
+    const mutating = createRetainedDispatch({
+      runDir: path.join(decoded, 'journal'), scope, limits,
+      parse: value => {
+        resultSchema.parse(value)
+        Object.assign(value as object, { text: 'mutated in place' })
+        return resultSchema.parse(value)
+      },
+    })
+    await assert.rejects(mutating.run({ lane: 'development', input, dispatch: async () => effect(decoded) }), /decoder changed/)
+    const original = await open(decoded, true).run({ lane: 'development', input, dispatch: async () => effect(decoded) })
+    assert.ok(original.succeeded && original.replayed)
+    assert.equal(original.value.text, 'external operation completed')
+    await once(decoded)
+    checks.push('in-place decoder mutation is checked against the retained digest, without changing the receipt')
+
     console.log(JSON.stringify({ passed: true, checks, modelCalls: 0 }, null, 2))
   } finally {
     await rm(root, { recursive: true, force: true })
