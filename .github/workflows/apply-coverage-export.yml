@@ -1,0 +1,71 @@
+name: Qualify campaign coverage export
+on:
+  push:
+    branches: [refactor/public-campaign-coverage]
+    paths: [.github/workflows/apply-coverage-export.yml]
+permissions:
+  contents: write
+concurrency:
+  group: coverage-export-delivery
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.repository == 'tangle-network/agent-eval' && github.ref == 'refs/heads/refactor/public-campaign-coverage'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Apply only the audited export
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('src/campaign/index.ts')
+          assert subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() == '8d6a75fc69f0786b7b3168a323f8b98917595a4c', 'Campaign barrel moved; reconcile it'
+          s = p.read_text()
+          old = '  assertCampaignSplitIdentity,\n  campaignScenarioIdentity,'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, '  assertCampaignSplitIdentity,\n  type CampaignCoverage,\n  campaignCoverage,\n  campaignScenarioIdentity,'))
+          doc = Path('docs/campaign-coverage.md')
+          assert not doc.exists()
+          doc.write_text('''# Campaign coverage\n\nImport `campaignCoverage` and `CampaignCoverage` from `@tangle-network/agent-eval/campaign`. This is the same implementation used by campaign evidence and optimization; product adapters must not copy a weaker coverage loop.\n\n```ts\nimport { campaignCoverage } from '@tangle-network/agent-eval/campaign'\n\nconst coverage = campaignCoverage(campaign.cells, scenarios, reps, true)\nif (!coverage.complete) {\n  console.error(coverage.unscorableCells)\n}\n```\n\nThe intended scenarios and replicate count establish the denominator. The result identifies missing, duplicate, unexpected and incorrectly identified cells; absent artifacts; execution failures; failed or incomplete judge panels; and nonfinite scores. With `requireJudgeScore: true`, every intended cell needs a successful finite judgment.\n\nCoverage is not quality, provenance, cost completeness, or permission to promote. A failed task with a captured artifact and a valid zero score may be fully measured. A missing measurement is not a zero. Product adapters remain responsible for their named judge, required score dimensions, paired seeds, authenticated outcomes, and complete observed costs.\n\nWhen comparing arms from one campaign, preserve the original physical execution cell identity separately and project each arm to the intended task/replicate identities before checking coverage. Do not change the underlying retained campaign.\n\nVerification uses the existing `src/campaign/coverage.test.ts`, repository typecheck/build, and packed-package checks. This export adds no evaluator, execution dependency, scheduler, or new statistics. Consumers need the published release containing this export; a source branch is not a registry release.\n''')
+          PY
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec biome check src/campaign/index.ts
+      - run: pnpm typecheck
+      - run: pnpm exec vitest run src/campaign/coverage.test.ts
+      - name: Build and qualify the actual package
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          pnpm build
+          pnpm verify:package
+          node --input-type=module -e "import { campaignCoverage } from './dist/campaign/index.js'; if (typeof campaignCoverage !== 'function') throw new Error('Missing public coverage export')"
+      - name: Commit only the qualified source
+        run: |
+          rm .github/workflows/apply-coverage-export.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/campaign/index.ts docs/campaign-coverage.md .github/workflows/apply-coverage-export.yml
+          git commit -m 'feat(campaign): expose native coverage to product consumers'
+          git push origin HEAD:refs/heads/refactor/public-campaign-coverage
+      - name: Retain the qualified package and source identity
+        run: |
+          mkdir -p "$RUNNER_TEMP/coverage-export"
+          pnpm pack --pack-destination "$RUNNER_TEMP/coverage-export"
+          git rev-parse HEAD > "$RUNNER_TEMP/coverage-export/source-head.txt"
+          git diff HEAD^ HEAD --stat > "$RUNNER_TEMP/coverage-export/change-stat.txt"
+          sha256sum "$RUNNER_TEMP/coverage-export/"*.tgz > "$RUNNER_TEMP/coverage-export/package-sha256.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-campaign-coverage
+          path: ${{ runner.temp }}/coverage-export
+          retention-days: 7
+          if-no-files-found: error
