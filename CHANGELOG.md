@@ -4,6 +4,13 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.202.2] — 2026-09-29
+
+- fix(rollout): preserve attempt evidence and mark lossy projections (#900)
+- feat(campaign): expose native coverage for product adapters (#899)
+- docs(jev): ship executable offline inspection of recorded evaluations (#898)
+- feat(jev): preserve recorded evidence separately from live admission (#897)
+
 ## [0.202.1] — 2026-09-28
 
 - fix(campaign): prevent lost history and changed decoders from resetting retained dispatch (#893)
