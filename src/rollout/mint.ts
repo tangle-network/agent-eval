@@ -42,6 +42,7 @@ import {
   type ChatMessage,
   type MintedRolloutLine,
   ROLLOUT_SCHEMA,
+  type RolloutEvidenceAttempt,
   type RolloutRole,
   type RolloutSplit,
   type RolloutStep,
@@ -74,6 +75,13 @@ export interface MintRolloutOptions {
   messagesOf?: (
     runId: string,
   ) => readonly ChatMessage[] | undefined | Promise<readonly ChatMessage[] | undefined>
+  /** Provider attempts from a retained receipt bound to the exact run. */
+  evidenceOf?: (
+    runId: string,
+  ) =>
+    | { runId: string; attempts: readonly RolloutEvidenceAttempt[] }
+    | undefined
+    | Promise<{ runId: string; attempts: readonly RolloutEvidenceAttempt[] } | undefined>
   /** Cap steps per line (longest runs first drop middle steps). Default: no cap. */
   maxSteps?: number
   /** Role recorded on every minted line. Default 'agent' (a solo eval run). */
@@ -429,6 +437,8 @@ function mintLine(
   options: MintRolloutOptions,
   capturedAt: string,
   gap?: string,
+  attempts?: readonly RolloutEvidenceAttempt[],
+  lossyProjection = false,
 ): MintedRolloutLine {
   // Field presence first, and BEFORE `requireTaskScore`: that guard reads
   // `record.outcome.searchScore` on its way to the answer, so an absent
@@ -529,6 +539,9 @@ function mintLine(
       provenance: {
         captured_at: capturedAt,
         capture: 'mint',
+        ...(record.search !== undefined ? { search: { ...record.search } } : {}),
+        ...(attempts !== undefined ? { attempts: [...attempts] } : {}),
+        ...(lossyProjection ? { lossy_projection: true } : {}),
         ...(gap !== undefined ? { gap } : {}),
       },
     },
@@ -549,11 +562,50 @@ export async function mintRolloutRows(
 ): Promise<MintRolloutResult> {
   const scrub = options.scrub ?? ((t) => t)
   const capturedAt = (options.now?.() ?? new Date()).toISOString()
+  if (
+    options.maxSteps !== undefined &&
+    (!Number.isSafeInteger(options.maxSteps) || options.maxSteps < 1)
+  ) {
+    throw new ValidationError('maxSteps must be a positive integer')
+  }
   const rows: MintedRolloutLine[] = []
   const missingTraces: string[] = []
   for (const record of records) {
     const trajectory = await buildTrajectory(store, record.runId)
     const captured = options.messagesOf ? await options.messagesOf(record.runId) : undefined
+    const evidence = options.evidenceOf ? await options.evidenceOf(record.runId) : undefined
+    if (evidence !== undefined && evidence?.runId !== record.runId) {
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: capture evidence belongs to another run`,
+      )
+    }
+    if (
+      options.evidenceOf &&
+      (!evidence || !Array.isArray(evidence.attempts) || evidence.attempts.length === 0)
+    ) {
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: provider attempt evidence is missing`,
+      )
+    }
+    if (
+      evidence?.attempts.some(
+        (attempt) =>
+          !attempt ||
+          !Array.isArray(attempt.nativeSessionIds) ||
+          !Array.isArray(attempt.processIds) ||
+          !Array.isArray(attempt.missingReasons),
+      )
+    ) {
+      throw new ValidationError(
+        `Cannot mint rollout for run ${record.runId}: malformed provider attempt evidence`,
+      )
+    }
+    const attempts = evidence?.attempts.map((attempt) => ({
+      ...attempt,
+      nativeSessionIds: [...attempt.nativeSessionIds],
+      processIds: [...attempt.processIds],
+      missingReasons: attempt.missingReasons.map(scrub),
+    }))
     if (options.messagesOf && (!Array.isArray(captured) || captured.length === 0)) {
       throw new ValidationError(
         `Cannot mint rollout for run ${record.runId}: full capture is missing`,
@@ -571,12 +623,17 @@ export async function mintRolloutRows(
           options,
           capturedAt,
           'no trace spans recorded for this runId',
+          attempts,
         ),
       )
       continue
     }
     let steps = trajectory.steps.map((s) => projectStep(s.span, scrub))
-    if (options.maxSteps !== undefined && steps.length > options.maxSteps) {
+    const omittedSteps =
+      options.maxSteps !== undefined && steps.length > options.maxSteps
+        ? steps.length - options.maxSteps
+        : 0
+    if (options.maxSteps !== undefined && omittedSteps > 0) {
       // Keep the head and tail — the middle of a long run is the least
       // informative for outcome attribution.
       const head = Math.ceil(options.maxSteps / 2)
@@ -592,9 +649,32 @@ export async function mintRolloutRows(
       conversation.filter((message) => message.is_copied_context !== true),
       record.runId,
     )
-    const gap =
-      conversation.length === 0 ? 'trace has no llm spans — no conversation to inline' : undefined
-    rows.push(mintLine(record, lineage, steps, conversation, options, capturedAt, gap))
+    const gaps: string[] = []
+    if (conversation.length === 0) gaps.push('trace has no llm spans; no conversation to inline')
+    else if (!options.messagesOf) {
+      gaps.push('messages project only the last LLM context; full transcript was not captured')
+    }
+    if (omittedSteps > 0) gaps.push(`${omittedSteps} middle trace steps omitted by maxSteps`)
+    for (const attempt of attempts ?? []) {
+      if (attempt.missingReasons.length > 0) {
+        gaps.push(`provider attempt ${attempt.ordinal}: ${attempt.missingReasons.join(', ')}`)
+      }
+    }
+    rows.push(
+      mintLine(
+        record,
+        lineage,
+        steps,
+        conversation,
+        options,
+        capturedAt,
+        gaps.length > 0 ? gaps.join('; ') : undefined,
+        attempts,
+        (conversation.length > 0 && !options.messagesOf) ||
+          omittedSteps > 0 ||
+          (attempts?.some((attempt) => attempt.missingReasons.length > 0) ?? false),
+      ),
+    )
   }
   return { rows, missingTraces }
 }

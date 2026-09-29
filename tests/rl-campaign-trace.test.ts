@@ -110,7 +110,8 @@ describe('RL campaign capture join', () => {
     expect(new Set(stores.values()).size).toBe(2)
     expect(result.rolloutLines).toHaveLength(2)
     for (const line of result.rolloutLines) {
-      expect(line.provenance.gap).toBeUndefined()
+      expect(line.provenance.gap).toContain('last LLM context')
+      expect(line.provenance.lossy_projection).toBe(true)
       expect(line.messages).toEqual(captures.get(line.run_id))
       expect(line.messages[1]!.tool_calls![0]!.id).toBe(line.run_id)
       expect(line.messages[2]!.tool_call_id).toBe(line.run_id)

@@ -292,6 +292,12 @@ describe('runRLCampaign', () => {
       rawSinkFactory: () => new InMemoryRawProviderSink(),
       runner: defaultRunner,
       report: { comparator: 'baseline' },
+      rollout: {
+        messagesOf: (runId) => [
+          { role: 'user', content: `prompt-${runId}` },
+          { role: 'assistant', content: `completion-${runId}` },
+        ],
+      },
       trainerExport: {
         dpo: {
           promptOf: () => 'shared scenario prompt',

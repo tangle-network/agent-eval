@@ -251,9 +251,9 @@ describe('claudeCodeSupervisorRunReader', () => {
       expect(isUnavailable(v)).toBe(true)
       if (isUnavailable(v)) expect(v.unavailable).toMatch(/never a price/)
     }
-    // Manager tokens are complete, so they stay real numbers.
-    expect(report.economics.brain.tokensIn).toBe(100)
-    expect(report.economics.brain.cacheRead).toBe(9000)
+    // Earlier assistant tool calls have no usage, so a later count is only a subtotal.
+    expect(isUnavailable(report.economics.brain.tokensIn)).toBe(true)
+    expect(isUnavailable(report.economics.brain.cacheRead)).toBe(true)
     // Only one of two child transcripts survived. Its per-node number remains
     // usable, but the fleet total must not present the partial sum as complete.
     expect(report.economics.workers.tokensOut).toEqual({

@@ -36,6 +36,30 @@ describe('findClaudeTranscripts', () => {
 })
 
 describe('readClaudeTranscript', () => {
+  it('retains messages but reports malformed source and unknown usage', async () => {
+    const path = join(dir, 'broken.jsonl')
+    await writeFile(
+      path,
+      [
+        JSON.stringify({ type: 'user', message: { role: 'user', content: 'start' } }),
+        '{bad json',
+        JSON.stringify({
+          type: 'assistant',
+          message: { id: 'msg-1', role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+        }),
+      ].join('\n'),
+    )
+    const transcript = await readClaudeTranscript(path)
+    expect(transcript.messages.map((message) => message.role)).toEqual(['user', 'assistant'])
+    expect(transcript.gaps).toContain('line 2: malformed JSON')
+    expect(transcript.usage).toEqual({
+      tokensIn: null,
+      tokensOut: null,
+      cacheRead: null,
+      cacheWrite: null,
+    })
+  })
+
   it('converts user/assistant/tool lines, merges per-block assistant lines, counts usage once', async () => {
     const usage = {
       input_tokens: 10,

@@ -30,12 +30,12 @@ export interface OpencodeSessionRow {
   agent: string | null
   /** Raw session.model JSON: {id, providerID, variant} where present. */
   model: { id?: string; providerID?: string } | null
-  costUsd: number
-  tokensInput: number
-  tokensOutput: number
-  tokensReasoning: number
-  tokensCacheRead: number
-  tokensCacheWrite: number
+  costUsd: number | null
+  tokensInput: number | null
+  tokensOutput: number | null
+  tokensReasoning: number | null
+  tokensCacheRead: number | null
+  tokensCacheWrite: number | null
   timeCreated: number
   timeUpdated: number
 }
@@ -69,6 +69,10 @@ export async function openOpencodeDb(
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
+function observedNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
 function parseSessionRow(row: Record<string, unknown>): OpencodeSessionRow {
   let model: OpencodeSessionRow['model'] = null
   if (typeof row.model === 'string' && row.model.length > 0) {
@@ -85,12 +89,12 @@ function parseSessionRow(row: Record<string, unknown>): OpencodeSessionRow {
     directory: String(row.directory),
     agent: row.agent === null || row.agent === undefined ? null : String(row.agent),
     model,
-    costUsd: Number(row.cost ?? 0),
-    tokensInput: Number(row.tokens_input ?? 0),
-    tokensOutput: Number(row.tokens_output ?? 0),
-    tokensReasoning: Number(row.tokens_reasoning ?? 0),
-    tokensCacheRead: Number(row.tokens_cache_read ?? 0),
-    tokensCacheWrite: Number(row.tokens_cache_write ?? 0),
+    costUsd: observedNumber(row.cost),
+    tokensInput: observedNumber(row.tokens_input),
+    tokensOutput: observedNumber(row.tokens_output),
+    tokensReasoning: observedNumber(row.tokens_reasoning),
+    tokensCacheRead: observedNumber(row.tokens_cache_read),
+    tokensCacheWrite: observedNumber(row.tokens_cache_write),
     timeCreated: Number(row.time_created ?? 0),
     timeUpdated: Number(row.time_updated ?? 0),
   }
@@ -109,6 +113,16 @@ export function findOpencodeSessionsByDirectory(
     .all(directory) as Array<Record<string, unknown>>
   return rows.map(parseSessionRow)
 }
+
+const PROJECTED_PART_TYPES = new Set([
+  'text',
+  'reasoning',
+  'tool',
+  'step-start',
+  'step-finish',
+  'snapshot',
+  'patch',
+])
 
 interface OpencodePart {
   type?: string
@@ -134,26 +148,55 @@ export function readOpencodeSessionMessages(db: DatabaseSync, sessionId: string)
   const messageRows = db
     .prepare('SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created, id')
     .all(sessionId) as Array<{ id: string; data: string }>
-  const partsStmt = db.prepare('SELECT data FROM part WHERE message_id = ? ORDER BY id')
+  const partsStmt = db.prepare('SELECT id, data FROM part WHERE message_id = ? ORDER BY id')
 
   const messages: ChatMessage[] = []
   for (const messageRow of messageRows) {
     let data: Record<string, unknown>
     try {
       const parsed: unknown = JSON.parse(messageRow.data)
-      if (!isRecord(parsed)) continue
+      if (!isRecord(parsed)) {
+        throw new Error('message payload is not an object')
+      }
       data = parsed
-    } catch {
-      continue
+    } catch (error) {
+      throw new Error(`OpenCode session ${sessionId} message ${messageRow.id}: malformed payload`, {
+        cause: error,
+      })
     }
     const parts: OpencodePart[] = []
-    for (const row of partsStmt.all(messageRow.id) as Array<{ data: string }>) {
+    for (const row of partsStmt.all(messageRow.id) as Array<{ id: string; data: string }>) {
+      let parsed: unknown
       try {
-        const parsed: unknown = JSON.parse(row.data)
-        if (isRecord(parsed)) parts.push(parsed as OpencodePart)
-      } catch {
-        // Malformed part payload: skip the part, keep the message.
+        parsed = JSON.parse(row.data)
+      } catch (error) {
+        throw new Error(`OpenCode session ${sessionId} part ${row.id}: malformed JSON`, {
+          cause: error,
+        })
       }
+      if (!isRecord(parsed)) {
+        throw new Error(`OpenCode session ${sessionId} part ${row.id}: payload is not an object`)
+      }
+      if (typeof parsed.type !== 'string' || !PROJECTED_PART_TYPES.has(parsed.type)) {
+        throw new Error(
+          `OpenCode session ${sessionId} part ${row.id}: unsupported part type ${String(parsed.type)}`,
+        )
+      }
+      if (
+        ((parsed.type === 'text' || parsed.type === 'reasoning') &&
+          typeof parsed.text !== 'string') ||
+        (parsed.type === 'tool' &&
+          (typeof parsed.callID !== 'string' ||
+            !parsed.callID ||
+            !isRecord(parsed.state) ||
+            parsed.state.status !== 'completed' ||
+            parsed.state.output === undefined))
+      ) {
+        throw new Error(
+          `OpenCode session ${sessionId} part ${row.id}: incomplete ${parsed.type} part`,
+        )
+      }
+      parts.push(parsed as OpencodePart)
     }
 
     if (data.role === 'user') {
@@ -164,7 +207,11 @@ export function readOpencodeSessionMessages(db: DatabaseSync, sessionId: string)
       messages.push({ role: 'user', content: text })
       continue
     }
-    if (data.role !== 'assistant') continue
+    if (data.role !== 'assistant') {
+      throw new Error(
+        `OpenCode session ${sessionId} message ${messageRow.id}: unsupported role ${String(data.role)}`,
+      )
+    }
 
     // Split the row into steps at step-start boundaries; parts before the
     // first step-start (none observed, but tolerated) form an implicit step.

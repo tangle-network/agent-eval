@@ -3,7 +3,7 @@ import { ValidationError } from '../errors'
 import type { RunRecord } from '../run-record'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
-import { toRewardRows, toSftRows } from './exporters'
+import { toRewardRows, toRftItem, toSftRows, toVerifiersRolloutOutput } from './exporters'
 import { mintRolloutRows, unmintableReasons } from './mint'
 import { validateRolloutLine } from './schema'
 
@@ -107,6 +107,81 @@ describe('mintRolloutRows', () => {
     // conversation = final llm span messages + its output as assistant turn
     expect(line.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant'])
     expect(line.provenance.capture).toBe('mint')
+  })
+
+  it('keeps each provider attempt and marks last-context projection incomplete', async () => {
+    const runId = 'cell-1:2'
+    const search = { searchId: 'search-1', nodeId: 'node-1', cellId: 'cell-1', attempt: 2 }
+    const attempts = [
+      {
+        executionId: 'exec-1',
+        ordinal: 1,
+        providerSessionId: 'provider-1',
+        nativeSessionIds: ['native-1'],
+        processIds: ['process-1'],
+        outcome: 'failed' as const,
+        missingReasons: [] as string[],
+      },
+      {
+        executionId: 'exec-2',
+        ordinal: 2,
+        providerSessionId: 'provider-2',
+        nativeSessionIds: ['native-2'],
+        processIds: ['process-2'],
+        outcome: 'succeeded' as const,
+        missingReasons: ['one child transcript unavailable'],
+      },
+    ]
+    const { rows } = await mintRolloutRows([record({ runId, search })], await seededStore(runId), {
+      searchLineage: () => ({ depth: 1, ordinal: 4, rep: 0, containingRunId: null }),
+      evidenceOf: () => ({ runId, attempts }),
+    })
+    expect(rows[0]!.provenance.search).toEqual(search)
+    expect(rows[0]!.provenance.attempts).toEqual(attempts)
+    expect(rows[0]!.provenance.gap).toContain('last LLM context')
+    expect(rows[0]!.provenance.gap).toContain('one child transcript unavailable')
+  })
+
+  it('redacts attempt diagnostics without changing opaque ids or the receipt', async () => {
+    const attempt = {
+      executionId: 'exec-1',
+      ordinal: 1,
+      providerSessionId: 'provider-1',
+      nativeSessionIds: ['native-1'],
+      processIds: ['process-1'],
+      outcome: 'unknown' as const,
+      missingReasons: ['secret TOKEN'],
+    }
+    const { rows } = await mintRolloutRows([record()], await seededStore(), {
+      evidenceOf: () => ({ runId: 'run-1', attempts: [attempt] }),
+      messagesOf: () => [
+        { role: 'user', content: 'start' },
+        { role: 'assistant', content: 'done' },
+      ],
+      scrub: (value) => value.replaceAll('TOKEN', '[redacted]'),
+    })
+    expect(rows[0]!.provenance.attempts?.[0]?.executionId).toBe('exec-1')
+    expect(rows[0]!.provenance.attempts?.[0]?.missingReasons).toEqual(['secret [redacted]'])
+    expect(rows[0]!.provenance.gap).toContain('secret [redacted]')
+    expect(attempt.missingReasons).toEqual(['secret TOKEN'])
+  })
+
+  it('refuses provider evidence joined to another run', async () => {
+    await expect(
+      mintRolloutRows([record()], await seededStore(), {
+        evidenceOf: () => ({ runId: 'other-run', attempts: [] }),
+      }),
+    ).rejects.toThrow(/capture evidence belongs to another run/)
+  })
+
+  it('keeps partial last-context rows available for audit but out of training', async () => {
+    const { rows } = await mintRolloutRows([record({ splitTag: 'search' })], await seededStore())
+    expect(rows[0]!.provenance.gap).toContain('last LLM context')
+    expect(rows[0]!.provenance.lossy_projection).toBe(true)
+    expect(toSftRows(rows)).toEqual([])
+    expect(toRewardRows(rows)).toEqual([])
+    expect(() => toVerifiersRolloutOutput(rows[0]!)).toThrow(/lossy projection/)
+    expect(() => toRftItem(rows[0]!)).toThrow(/lossy projection/)
   })
 
   it('emits records with no spans as labeled gap lines AND lists them in missingTraces', async () => {
@@ -380,6 +455,12 @@ describe('minted lines through the exporters', () => {
         }),
       ],
       store,
+      {
+        messagesOf: () => [
+          { role: 'user', content: 'Do the work' },
+          { role: 'assistant', content: 'Done' },
+        ],
+      },
     )
     const sft = toSftRows(rows)
     expect(sft).toHaveLength(1)
@@ -409,6 +490,12 @@ describe('minted lines through the exporters', () => {
         record({ runId: 'run-unknown', splitTag: 'search', terminalOutcome: 'unknown' }),
       ],
       store,
+      {
+        messagesOf: () => [
+          { role: 'user', content: 'Do the work' },
+          { role: 'assistant', content: 'Done' },
+        ],
+      },
     )
 
     expect(toSftRows(rows).map((row) => row.metadata.run_id)).toEqual(['run-1'])

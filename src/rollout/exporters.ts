@@ -263,8 +263,15 @@ function firstAssistantIndex(messages: ChatMessage[]): number {
   return index === -1 ? messages.length : index
 }
 
+function assertCompleteProjection(line: MintedRolloutLine, context: string): void {
+  if (line.provenance.lossy_projection === true) {
+    throw new Error(`${context}: rollout ${line.rollout_id} has a lossy projection`)
+  }
+}
+
 export function toVerifiersRolloutOutput(line: MintedRolloutLine): VerifiersRolloutOutput {
   assertRewardGate(line, 'verifiers export')
+  assertCompleteProjection(line, 'verifiers export')
   const split = firstAssistantIndex(line.messages)
   return {
     prompt: line.messages.slice(0, split),
@@ -300,7 +307,12 @@ export function toVerifiersRolloutOutputs(
 ): VerifiersRolloutOutput[] {
   if (options.gatedLines === 'zero-and-flag') {
     return lines
-      .filter((line) => isSplitEligible(line, options) && line.messages.length > 0)
+      .filter(
+        (line) =>
+          isSplitEligible(line, options) &&
+          line.provenance.lossy_projection !== true &&
+          line.messages.length > 0,
+      )
       .map(toVerifiersRolloutOutput)
   }
   return lines
@@ -334,6 +346,7 @@ export interface RftItem {
 
 export function toRftItem(line: MintedRolloutLine): RftItem {
   assertRewardGate(line, 'RFT export')
+  assertCompleteProjection(line, 'RFT export')
   const split = firstAssistantIndex(line.messages)
   return {
     messages: line.messages.slice(0, split),
@@ -359,7 +372,7 @@ export function toRftItems(
     .filter(
       (line) =>
         (options.gatedLines === 'zero-and-flag'
-          ? isSplitEligible(line, options)
+          ? isSplitEligible(line, options) && line.provenance.lossy_projection !== true
           : isTrainingLineEligible(line, options)) &&
         line.messages.length > 0 &&
         firstAssistantIndex(line.messages) > 0,
@@ -420,5 +433,6 @@ export function isTrainingLineEligible(
     return false
   }
   if (line.outcome.realness_gated === true) return false
+  if (line.provenance.lossy_projection === true) return false
   return isSplitEligible(line, options)
 }
