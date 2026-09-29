@@ -1,0 +1,79 @@
+name: Import verified attempt-loop changes
+on:
+  push:
+    branches: [delivery/shared-attempt-budget-20260929]
+    paths: [.github/workflows/import-attempt-budget.yml]
+permissions:
+  contents: write
+jobs:
+  publish-source:
+    runs-on: [self-hosted, ci-linux]
+    timeout-minutes: 10
+    env:
+      EXPECTED_HEAD: 0e024697edefb934c2f29af7f8f037334db951b4
+      TARGET_BRANCH: fix/shared-physical-attempt-budget
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: 0e024697edefb934c2f29af7f8f037334db951b4
+      - name: Apply only the previously tested source transformations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          def blob(text):
+              data = text.encode()
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          def replace(text, before, after):
+              assert text.count(before) == 1, 'Source transformation is not unique'
+              return text.replace(before, after, 1)
+          p = Path('src/llm-client.ts')
+          text = p.read_text()
+          assert blob(text) == '28b4dc2d2e897ff0dbf9212febf07b15033213d8'
+          text = replace(text,
+              '/** Total provider attempts the transport may make for this call. Default 3. */',
+              '/** Total physical requests, including schema/parameter negotiation. Default 3. */')
+          text = replace(text,
+              '  // A rejected response schema can trigger one JSON-mode batch with the same output limit.\n  const batches = request.jsonSchema && !forceJsonObject ? 2 : 1\n  const usage = {\n    inputTokens: requestBytes * attempts * batches,\n    outputTokens: request.maxTokens * attempts * batches,\n  }',
+              '  // Schema and parameter negotiation share this same attempt budget. The native\n  // schema body bounds the smaller JSON-object fallback; neither starts a new batch.\n  const usage = {\n    inputTokens: requestBytes * attempts,\n    outputTokens: request.maxTokens * attempts,\n  }')
+          marker = '        if (\n          isTemperatureOneRejection(res.status, body) &&'
+          text = replace(text, marker,
+              "        if (\n          opts.jsonSchemaTransport !== 'json-object' &&\n          effectiveRequest.jsonSchema &&\n          isSchemaRejection(res.status, body) &&\n          attempt < maximumAttempts - 1 &&\n          !deadlineExceeded(deadlineStart, deadlineMs)\n        ) {\n          lastErr = err\n          effectiveRequest = { ...effectiveRequest, jsonMode: true, jsonSchema: undefined }\n          continue\n        }\n" + marker)
+          text = replace(text,
+              '  const result = await callLlmStructured(req, opts)',
+              '  const result = await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)')
+          start = text.index('/** Shared schema-to-JSON-mode fallback that preserves the raw result. */')
+          end = text.index('function parseJsonResult<T>(', start)
+          text = text[:start] + text[end:]
+          text = replace(text,
+              '    return req.jsonSchema ? callLlmStructured(req, options) : callLlm(req, options)',
+              '    return callLlm(req, options)')
+          assert blob(text) == '84220866b42b882849070c2158a1c722a6b4314e', 'Candidate source differs from tested bytes'
+          p.write_text(text)
+          p = Path('src/llm-client.test.ts')
+          text = p.read_text()
+          assert blob(text) == '42327d0c2361ac531a1b1ee6c7ed5a720edcb2d9'
+          text = replace(text,
+              "it('reserves both request batches when schema fallback is possible',",
+              "it('reserves one total attempt budget when schema fallback is possible',")
+          text = replace(text,
+              "expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)",
+              "expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(800)")
+          text = replace(text,
+              'expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(124)',
+              'expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(62)')
+          assert blob(text) == '58b6977da7e7e8fda169f90850eda9192588dc4c', 'Candidate test differs from tested bytes'
+          p.write_text(text)
+          assert blob(Path('tests/llm-schema-attempts-http.test.ts').read_text()) == '576b2ef7f8f9b587783179a69761607371567d38'
+          PY
+          git diff --check
+          git diff --stat
+          git add src/llm-client.ts src/llm-client.test.ts
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'refactor(llm): share one physical request budget across schema negotiation'
+          test "$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)" = "$EXPECTED_HEAD"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          git rev-parse HEAD 'HEAD^{tree}'
