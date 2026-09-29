@@ -161,6 +161,7 @@ export {
   type RolloutArtifacts,
   type RolloutCapture,
   type RolloutCostBlock,
+  type RolloutEvidenceAttempt,
   type RolloutLine,
   type RolloutOutcome,
   type RolloutPolicy,

@@ -285,12 +285,28 @@ export interface GatedEvidence {
   steps?: unknown
 }
 
+export interface RolloutEvidenceAttempt {
+  executionId: string
+  ordinal: number
+  providerSessionId: string | null
+  nativeSessionIds: string[]
+  processIds: string[]
+  outcome: 'succeeded' | 'failed' | 'cancelled' | 'unknown'
+  missingReasons: string[]
+}
+
 export interface RolloutProvenance {
   captured_at: string
   capture: RolloutCapture
+  /** Exact search-cell attempt; absent outside a search. */
+  search?: { searchId: string; nodeId: string; cellId: string; attempt: number }
+  /** Run-bound provider attempts; absent means this source was not observed. */
+  attempts?: RolloutEvidenceAttempt[]
+  /** A known lossy semantic projection. Training sinks refuse this line. */
+  lossy_projection?: true
   /**
-   * Why this line is incomplete. Required when `messages` is empty (the
-   * transcript could not be recovered); also set by interchange importers to
+   * Why this line is incomplete. Required when `messages` is empty and set
+   * for lossy last-context or capped-step projections. Importers also use it to
    * name a MISSING LABEL — an imported trajectory carries no verdict, so
    * `outcome.reward` is null and this says why.
    */
@@ -322,7 +338,7 @@ export interface RolloutLine {
   role: RolloutRole
   task: RolloutTask
   policy: RolloutPolicy
-  /** Full transcript, inline. [] = gap line (see provenance.gap). */
+  /** Inline conversation projection. Check provenance.gap before treating it as complete. */
   messages: ChatMessage[]
   tool_defs: ToolDef[]
   /** Trace-span projections, when minted from a trace. */
@@ -678,6 +694,68 @@ export function validateRolloutLine(value: unknown): string[] {
     errors,
   )
   if (isRecord(value.provenance)) {
+    if (
+      value.provenance.lossy_projection !== undefined &&
+      value.provenance.lossy_projection !== true
+    ) {
+      errors.push('provenance.lossy_projection: expected true when present')
+    }
+    if (
+      value.provenance.lossy_projection === true &&
+      (typeof value.provenance.gap !== 'string' || value.provenance.gap.length === 0)
+    ) {
+      errors.push('provenance.gap: required for a lossy projection')
+    }
+    const search = value.provenance.search
+    if (search !== undefined) {
+      if (
+        !isRecord(search) ||
+        typeof search.searchId !== 'string' ||
+        !search.searchId ||
+        typeof search.nodeId !== 'string' ||
+        !search.nodeId ||
+        typeof search.cellId !== 'string' ||
+        !search.cellId ||
+        !Number.isSafeInteger(search.attempt) ||
+        (search.attempt as number) < 1
+      ) {
+        errors.push('provenance.search: expected exact search, node, cell and positive attempt')
+      }
+    }
+    const attempts = value.provenance.attempts
+    if (attempts !== undefined) {
+      if (!Array.isArray(attempts)) {
+        errors.push('provenance.attempts: expected array when present')
+      } else {
+        const ids = new Set<string>()
+        for (const [i, attempt] of attempts.entries()) {
+          if (
+            !isRecord(attempt) ||
+            typeof attempt.executionId !== 'string' ||
+            !attempt.executionId ||
+            !Number.isSafeInteger(attempt.ordinal) ||
+            attempt.ordinal !== i + 1 ||
+            !isStringOrNull(attempt.providerSessionId) ||
+            !Array.isArray(attempt.nativeSessionIds) ||
+            !attempt.nativeSessionIds.every((id) => typeof id === 'string' && id.length > 0) ||
+            !Array.isArray(attempt.processIds) ||
+            !attempt.processIds.every((id) => typeof id === 'string' && id.length > 0) ||
+            !['succeeded', 'failed', 'cancelled', 'unknown'].includes(attempt.outcome as string) ||
+            !Array.isArray(attempt.missingReasons) ||
+            !attempt.missingReasons.every(
+              (reason) => typeof reason === 'string' && reason.length > 0,
+            )
+          ) {
+            errors.push(`provenance.attempts[${i}]: invalid attempt evidence`)
+            continue
+          }
+          if (ids.has(attempt.executionId as string)) {
+            errors.push(`provenance.attempts[${i}].executionId: duplicate`)
+          }
+          ids.add(attempt.executionId as string)
+        }
+      }
+    }
     if (value.provenance.gap !== undefined && typeof value.provenance.gap !== 'string') {
       errors.push('provenance.gap: must be string when present')
     }

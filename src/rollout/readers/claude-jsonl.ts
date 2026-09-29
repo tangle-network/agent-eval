@@ -42,10 +42,10 @@ export async function findClaudeTranscripts(
 }
 
 export interface ClaudeUsageTotals {
-  tokensIn: number
-  tokensOut: number
-  cacheRead: number
-  cacheWrite: number
+  tokensIn: number | null
+  tokensOut: number | null
+  cacheRead: number | null
+  cacheWrite: number | null
 }
 
 export interface ClaudeTranscript {
@@ -55,6 +55,8 @@ export interface ClaudeTranscript {
   startedAt: string | null
   endedAt: string | null
   model: string | null
+  /** Every parse or usage gap retained beside this semantic projection. */
+  gaps: string[]
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -84,21 +86,33 @@ export interface ClaudeEntry {
 }
 
 /** Parse transcript jsonl text into conversation lines. Non-conversation lines are dropped. */
-export function parseClaudeEntries(raw: string): ClaudeEntry[] {
+export function parseClaudeEntries(raw: string, onGap?: (gap: string) => void): ClaudeEntry[] {
   const out: ClaudeEntry[] = []
-  for (const line of raw.split('\n')) {
+  for (const [index, line] of raw.split('\n').entries()) {
     if (!line.trim()) continue
-    let entry: Record<string, unknown>
+    const gap = (reason: string): void => {
+      const detail = `line ${index + 1}: ${reason}`
+      if (onGap) onGap(detail)
+      else throw new Error(`Claude transcript ${detail}`)
+    }
+    let parsed: unknown
     try {
-      const parsed: unknown = JSON.parse(line)
-      if (!isRecord(parsed)) continue
-      entry = parsed
+      parsed = JSON.parse(line)
     } catch {
+      gap('malformed JSON')
       continue
     }
+    if (!isRecord(parsed)) {
+      gap('JSON value is not an object')
+      continue
+    }
+    const entry = parsed
     if (entry.type !== 'user' && entry.type !== 'assistant') continue
     const message = entry.message
-    if (!isRecord(message)) continue
+    if (!isRecord(message)) {
+      gap('conversation message is missing')
+      continue
+    }
     out.push({
       type: entry.type,
       timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : null,
@@ -118,6 +132,8 @@ export interface ReadClaudeTranscriptOptions {
    * lines end to end, so their usage is invisible without this.
    */
   readonly includeSidechain?: boolean
+  /** Parser diagnostics from the retained source; used by the shared reader. */
+  readonly sourceGaps?: readonly string[]
 }
 
 function blockText(content: unknown): string {
@@ -137,7 +153,9 @@ export async function readClaudeTranscript(
   path: string,
   options: ReadClaudeTranscriptOptions = {},
 ): Promise<ClaudeTranscript> {
-  return transcriptFromEntries(parseClaudeEntries(await readFile(path, 'utf8')), options)
+  const gaps: string[] = []
+  const entries = parseClaudeEntries(await readFile(path, 'utf8'), (gap) => gaps.push(gap))
+  return transcriptFromEntries(entries, { ...options, sourceGaps: gaps })
 }
 
 /** The messages+usage projection of already-parsed entries. */
@@ -148,6 +166,8 @@ export function transcriptFromEntries(
   const wantSidechain = options.includeSidechain === true
   const messages: ChatMessage[] = []
   const usage: ClaudeUsageTotals = { tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 }
+  const gaps = [...(options.sourceGaps ?? [])]
+  let usageObserved = false
   let startedAt: string | null = null
   let endedAt: string | null = null
   let model: string | null = null
@@ -199,15 +219,23 @@ export function transcriptFromEntries(
     const apiId = typeof message.id === 'string' ? message.id : null
     const continuesTurn = apiId !== null && apiId === lastAssistantApiId && lastAssistantIndex >= 0
     const msgUsage = message.usage
-    if (isRecord(msgUsage) && !continuesTurn) {
-      usage.tokensIn += typeof msgUsage.input_tokens === 'number' ? msgUsage.input_tokens : 0
-      usage.tokensOut += typeof msgUsage.output_tokens === 'number' ? msgUsage.output_tokens : 0
-      usage.cacheRead +=
-        typeof msgUsage.cache_read_input_tokens === 'number' ? msgUsage.cache_read_input_tokens : 0
-      usage.cacheWrite +=
-        typeof msgUsage.cache_creation_input_tokens === 'number'
-          ? msgUsage.cache_creation_input_tokens
-          : 0
+    if (!continuesTurn) {
+      usageObserved = true
+      const fields = [
+        ['tokensIn', 'input_tokens'],
+        ['tokensOut', 'output_tokens'],
+        ['cacheRead', 'cache_read_input_tokens'],
+        ['cacheWrite', 'cache_creation_input_tokens'],
+      ] as const
+      for (const [target, source] of fields) {
+        const value = isRecord(msgUsage) ? msgUsage[source] : undefined
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+          usage[target] = null
+          gaps.push(`assistant ${apiId ?? 'without id'}: ${source} unavailable`)
+        } else if (usage[target] !== null) {
+          usage[target] += value
+        }
+      }
     }
     const content = message.content
     if (!Array.isArray(content)) continue
@@ -258,5 +286,11 @@ export function transcriptFromEntries(
     lastAssistantIndex = messages.length - 1
   }
 
-  return { messages, usage, startedAt, endedAt, model }
+  if (!usageObserved) {
+    usage.tokensIn = null
+    usage.tokensOut = null
+    usage.cacheRead = null
+    usage.cacheWrite = null
+  }
+  return { messages, usage, startedAt, endedAt, model, gaps }
 }

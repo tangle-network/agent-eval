@@ -163,6 +163,56 @@ describe('openOpencodeDb', () => {
 })
 
 describe('opencode session reading', () => {
+  it('refuses malformed native parts instead of returning a partial conversation', async () => {
+    const path = join(dir, 'corrupt-opencode.db')
+    await buildFixtureDb(path)
+    const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite')
+    const writable = new DatabaseSync(path)
+    writable.prepare('UPDATE part SET data = ? WHERE id = ?').run('{bad', 'prt_b1')
+    writable.close()
+    const db = await openOpencodeDb(path)
+    expect(db).not.toBeNull()
+    if (db === null) return
+    try {
+      expect(() => readOpencodeSessionMessages(db, 'ses_1')).toThrow(
+        /session ses_1 part prt_b1: malformed JSON/,
+      )
+    } finally {
+      db.close()
+    }
+  })
+
+  it('refuses unsupported native content and unfinished tool results', async () => {
+    const cases = [
+      {
+        part: { type: 'image', url: 'data:image/png;base64,abc' },
+        expected: /unsupported part type image/,
+      },
+      {
+        part: { type: 'tool', tool: 'read', callID: 'call_1', state: { status: 'running' } },
+        expected: /incomplete tool part/,
+      },
+    ]
+    for (const [index, entry] of cases.entries()) {
+      const path = join(dir, `unsupported-${index}.db`)
+      await buildFixtureDb(path)
+      const { DatabaseSync } = nodeRequire('node:sqlite') as typeof import('node:sqlite')
+      const writable = new DatabaseSync(path)
+      writable
+        .prepare('UPDATE part SET data = ? WHERE id = ?')
+        .run(JSON.stringify(entry.part), 'prt_b4')
+      writable.close()
+      const db = await openOpencodeDb(path)
+      expect(db).not.toBeNull()
+      if (db === null) continue
+      try {
+        expect(() => readOpencodeSessionMessages(db, 'ses_1')).toThrow(entry.expected)
+      } finally {
+        db.close()
+      }
+    }
+  })
+
   it('finds sessions by worker cwd and converts message/part rows to canonical messages', async () => {
     const path = join(dir, 'opencode.db')
     await buildFixtureDb(path)

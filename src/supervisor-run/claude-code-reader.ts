@@ -243,10 +243,11 @@ interface ChildTranscript {
   readonly spawnToolUseId: string | null
   readonly spawnDepth: number | null
   readonly entries: ClaudeEntry[]
-  readonly tokensIn: number
-  readonly tokensOut: number
-  readonly cacheRead: number
-  readonly cacheWrite: number
+  readonly tokensIn: number | null
+  readonly tokensOut: number | null
+  readonly cacheRead: number | null
+  readonly cacheWrite: number | null
+  readonly gaps: readonly string[]
   readonly firstAt: string | null
   readonly lastAt: string | null
   readonly model: string | null
@@ -265,10 +266,11 @@ async function readChildren(dir: string): Promise<ChildTranscript[]> {
     const path = join(dir, name)
     const raw = await readFile(path, 'utf8').catch(() => null)
     if (raw === null) continue
-    const entries = parseClaudeEntries(raw)
+    const sourceGaps: string[] = []
+    const entries = parseClaudeEntries(raw, (gap) => sourceGaps.push(gap))
     // A subagent transcript is sidechain end to end — that flag is what marks it
     // a separate invocation rather than a turn of the parent.
-    const projected = transcriptFromEntries(entries, { includeSidechain: true })
+    const projected = transcriptFromEntries(entries, { includeSidechain: true, sourceGaps })
     const metaRaw = await readFile(path.replace(/\.jsonl$/, '.meta.json'), 'utf8').catch(() => null)
     let meta: Record<string, unknown> = {}
     if (metaRaw !== null) {
@@ -293,6 +295,7 @@ async function readChildren(dir: string): Promise<ChildTranscript[]> {
       tokensOut: projected.usage.tokensOut,
       cacheRead: projected.usage.cacheRead,
       cacheWrite: projected.usage.cacheWrite,
+      gaps: projected.gaps,
       firstAt: projected.startedAt,
       lastAt: projected.endedAt,
       model: projected.model,
@@ -368,9 +371,10 @@ export async function readClaudeCodeSupervisorRun(
     }
   }
 
-  const allEntries = parseClaudeEntries(raw)
+  const mainSourceGaps: string[] = []
+  const allEntries = parseClaudeEntries(raw, (gap) => mainSourceGaps.push(gap))
   const main = threadCalls(allEntries.filter((e) => !e.isSidechain))
-  const mainTranscript = transcriptFromEntries(allEntries)
+  const mainTranscript = transcriptFromEntries(allEntries, { sourceGaps: mainSourceGaps })
 
   const subagentsDir =
     opts.subagentsDir === undefined
@@ -504,21 +508,29 @@ export async function readClaudeCodeSupervisorRun(
   }
   // `metered` carries the brain's own inference. The token counts are real; the
   // usd stays absent and `limits.spendUsd` explains why.
-  journalLines.push(
-    line({
-      kind: 'metered',
-      id: sessionId,
-      spend: {
-        tokens: {
-          input: mainTranscript.usage.tokensIn,
-          output: mainTranscript.usage.tokensOut,
-          cacheRead: mainTranscript.usage.cacheRead,
-          cacheWrite: mainTranscript.usage.cacheWrite,
+  if (
+    mainTranscript.gaps.length === 0 &&
+    mainTranscript.usage.tokensIn !== null &&
+    mainTranscript.usage.tokensOut !== null &&
+    mainTranscript.usage.cacheRead !== null &&
+    mainTranscript.usage.cacheWrite !== null
+  ) {
+    journalLines.push(
+      line({
+        kind: 'metered',
+        id: sessionId,
+        spend: {
+          tokens: {
+            input: mainTranscript.usage.tokensIn,
+            output: mainTranscript.usage.tokensOut,
+            cacheRead: mainTranscript.usage.cacheRead,
+            cacheWrite: mainTranscript.usage.cacheWrite,
+          },
         },
-      },
-      at: completedAt,
-    }),
-  )
+        at: completedAt,
+      }),
+    )
+  }
 
   const settleAtByAgent = new Map(
     [...lastNotification.entries()].map(([id, n]) => [id, n.at] as const),
@@ -579,27 +591,36 @@ export async function readClaudeCodeSupervisorRun(
   }
 
   const joined = children.length
-  const harnessWorkerTokens =
-    joined === 0
-      ? null
-      : {
-          store: 'claude-code subagent transcripts',
-          sessions: joined,
-          input: children.reduce((a, c) => a + c.tokensIn, 0),
-          output: children.reduce((a, c) => a + c.tokensOut, 0),
-          cacheRead: children.reduce((a, c) => a + c.cacheRead, 0),
-          cacheWrite: children.reduce((a, c) => a + c.cacheWrite, 0),
-        }
-
-  const missingChildren = spawns.filter((s) => !childByAgentId.has(s.agentId)).length
+  const missingChildren = spawns.filter((spawn) => !childByAgentId.has(spawn.agentId)).length
+  const incompleteChildren = children.filter(
+    (child) =>
+      child.gaps.length > 0 ||
+      child.tokensIn === null ||
+      child.tokensOut === null ||
+      child.cacheRead === null ||
+      child.cacheWrite === null,
+  ).length
   const harnessMissingReason =
     subagentsDir === null
       ? 'subagent transcript join disabled'
       : joined === 0
         ? `no subagent transcripts under ${subagentsDir}`
-        : missingChildren === 0
-          ? null
-          : `${missingChildren}/${spawns.length} spawned agents have no retained transcript under ${subagentsDir} (Claude Code prunes them; their tokens are unrecoverable)`
+        : missingChildren > 0
+          ? `${missingChildren}/${spawns.length} spawned agents have no retained transcript under ${subagentsDir}`
+          : incompleteChildren > 0
+            ? `${incompleteChildren}/${joined} subagent transcripts have malformed lines or unknown usage`
+            : null
+  const harnessWorkerTokens =
+    joined === 0 || incompleteChildren > 0
+      ? null
+      : {
+          store: 'claude-code subagent transcripts',
+          sessions: joined,
+          input: children.reduce((a, child) => a + (child.tokensIn ?? 0), 0),
+          output: children.reduce((a, child) => a + (child.tokensOut ?? 0), 0),
+          cacheRead: children.reduce((a, child) => a + (child.cacheRead ?? 0), 0),
+          cacheWrite: children.reduce((a, child) => a + (child.cacheWrite ?? 0), 0),
+        }
 
   const liveWorkers = spawns.filter(
     (s) => !lastNotification.has(s.agentId) && !cancelledIds.has(s.agentId),
@@ -634,6 +655,10 @@ export async function readClaudeCodeSupervisorRun(
     harnessMissingReason,
     limits: {
       ...limits,
+      managerTokens:
+        mainTranscript.gaps.length > 0
+          ? `main transcript has ${mainTranscript.gaps.length} parse or usage gaps`
+          : null,
       workerTokens: spawns.length === 0 ? null : harnessMissingReason,
       deliverables: NO_DELIVERABLES,
     },
