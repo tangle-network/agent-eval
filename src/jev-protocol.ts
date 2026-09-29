@@ -26,12 +26,27 @@ export interface JevRequest<Q extends JevQuestions = JevQuestions> {
   questions: Q
 }
 
-type ScoreKeys<T extends JevScoreCriteria> = number extends T['length']
+/** Historical Tangle observations accepted null state and score levels. Not a live request. */
+export type JevRecordedQuestion =
+  | Exclude<JevQuestion, { type: 'score' }>
+  | {
+      type: 'score'
+      instructions?: JevDescription
+      criteria: readonly [JevDescription, JevDescription, ...JevDescription[]]
+    }
+export type JevRecordedQuestions = Record<string, JevRecordedQuestion>
+export interface JevRecordedRequest<Q extends JevRecordedQuestions = JevRecordedQuestions> {
+  model: string
+  state: JevDescription
+  questions: Q
+}
+
+type ScoreKeys<T extends readonly JevDescription[]> = number extends T['length']
   ? number
   : Extract<keyof T, `${number}`>
-export type JevAnswerFor<Q extends JevQuestion> = Q extends { type: 'noul' }
+export type JevAnswerFor<Q extends JevRecordedQuestion> = Q extends { type: 'noul' }
   ? { readonly type: 'noul'; readonly noul: number }
-  : Q extends { type: 'score'; criteria: infer C extends JevScoreCriteria }
+  : Q extends { type: 'score'; criteria: infer C extends readonly JevDescription[] }
     ? {
         readonly type: 'score'
         readonly score: number
@@ -48,7 +63,7 @@ export type JevAnswerFor<Q extends JevQuestion> = Q extends { type: 'noul' }
         }
       : never
 export type JevAnswer = JevAnswerFor<JevQuestion>
-export interface JevResult<Q extends JevQuestions = JevQuestions> {
+export interface JevResult<Q extends JevRecordedQuestions = JevQuestions> {
   readonly model: string
   readonly answers: { readonly [K in keyof Q]: JevAnswerFor<Q[K]> }
   readonly usage: { readonly input_tokens: number; readonly output_tokens: number }
@@ -85,6 +100,10 @@ function optionalTextOrJson(value: unknown, name: string): void {
 
 /** Validate named questions without a state, as a judge does before it has input. */
 export function parseJevQuestions(raw: unknown): JevQuestions {
+  return readQuestions(raw, false) as JevQuestions
+}
+
+function readQuestions(raw: unknown, recorded: boolean): JevRecordedQuestions {
   const questions = object(raw)
   if (!Object.keys(questions).length) throw new TypeError('At least one question is required')
   for (const [name, rawQuestion] of Object.entries(questions)) {
@@ -106,7 +125,10 @@ export function parseJevQuestions(raw: unknown): JevQuestions {
       if (!Array.isArray(question.criteria) || question.criteria.length < 2) {
         throw new TypeError('Score criteria require at least two ordered entries')
       }
-      for (const value of question.criteria) textOrJson(value, `${name} score level`)
+      for (const value of question.criteria) {
+        if (recorded && value === null) continue
+        textOrJson(value, `${name} score level`)
+      }
     } else if (question.type === 'choice') {
       const criteria = object(question.criteria)
       if (!Object.keys(criteria).length) throw new TypeError('Choice criteria cannot be empty')
@@ -115,17 +137,28 @@ export function parseJevQuestions(raw: unknown): JevQuestions {
       throw new TypeError('Unsupported native question type')
     }
   }
-  return raw as JevQuestions
+  return raw as JevRecordedQuestions
 }
 
 export function parseJevRequest(raw: unknown): JevRequest {
+  return readRequest(raw, false) as JevRequest
+}
+
+/** Read immutable historical evidence without rewriting it or authorizing new inference.
+ * Live transports must still call parseJevRequest, even for re-execution of an old request. */
+export function parseJevRecordedRequest(raw: unknown): JevRecordedRequest {
+  canonicalString(raw)
+  return readRequest(raw, true)
+}
+
+function readRequest(raw: unknown, recorded: boolean): JevRecordedRequest {
   const request = object(raw)
   if (typeof request.model !== 'string' || !request.model.trim()) {
     throw new TypeError('Evaluation requires a model')
   }
-  textOrJson(request.state, 'Evaluation state')
-  parseJevQuestions(request.questions)
-  return raw as JevRequest
+  if (!recorded || request.state !== null) textOrJson(request.state, 'Evaluation state')
+  readQuestions(request.questions, recorded)
+  return raw as JevRecordedRequest
 }
 
 export function jevUsage(raw: unknown): JevResult['usage'] {
@@ -155,9 +188,9 @@ function exactKeys(value: Record<string, unknown>, names: string[]): void {
 }
 
 /** Validate native evidence, not model alias policy or the caller's scoring rules. */
-export function parseJevResult<Q extends JevQuestions>(
+export function parseJevResult<Q extends JevRecordedQuestions>(
   raw: unknown,
-  request: JevRequest<Q>,
+  request: JevRecordedRequest<Q>,
 ): JevResult<Q> {
   // Preserve extension metadata, rejecting values that change when persisted as JSON.
   canonicalString(raw)
