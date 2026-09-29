@@ -58,6 +58,8 @@ export {
 export {
   assertCampaignDesign,
   assertCampaignSplitIdentity,
+  type CampaignCoverage,
+  campaignCoverage,
   campaignScenarioIdentity,
   campaignSplitDigest,
   campaignSplitDigestFromIdentities,
