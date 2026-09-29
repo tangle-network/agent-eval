@@ -134,7 +134,7 @@ export interface LlmCallRequest {
  * capped CostLedger to reject the call before execution. Pass
  * `customTokenPricing` when package pricing does not cover the model or endpoint. */
 export interface LlmChargeBounds {
-  /** Total provider attempts the transport may make for this call. Default 3. */
+  /** Total physical requests, including retries and schema/temperature fallback. Default 3. */
   maximumAttempts?: number
   /** The transport sends JSON mode instead of a response schema. */
   jsonSchemaTransport?: 'native' | 'json-object'
@@ -171,11 +171,10 @@ export function maximumChargeForLlmRequest(
   const requestBytes = new TextEncoder().encode(
     JSON.stringify(buildBody(request, forceJsonObject, options.thinking)),
   ).byteLength
-  // A rejected response schema can trigger one JSON-mode batch with the same output limit.
-  const batches = request.jsonSchema && !forceJsonObject ? 2 : 1
+  // Schema fallback shares the same physical-attempt budget; it cannot buy a second batch.
   const usage = {
-    inputTokens: requestBytes * attempts * batches,
-    outputTokens: request.maxTokens * attempts * batches,
+    inputTokens: requestBytes * attempts,
+    outputTokens: request.maxTokens * attempts,
   }
   return options.customTokenPricing
     ? { customTokenPricing: options.customTokenPricing, ...usage }
@@ -803,6 +802,16 @@ export async function callLlm(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<LlmCallResult> {
+  return callLlmAttempts(req, opts, false)
+}
+
+/** One retry owner for raw and structured calls. Fallback changes the next
+ * request, not the attempt allowance, deadline origin, or raw-event sequence. */
+async function callLlmAttempts(
+  req: LlmCallRequest,
+  opts: LlmClientOptions,
+  allowSchemaFallback: boolean,
+): Promise<LlmCallResult> {
   // No default endpoint. This client is internal to the `agent-eval` binary
   // and the loopback optimizer proxy; both name their endpoint explicitly, and
   // a fallback would let a misconfigured caller bill an unintended provider.
@@ -913,6 +922,18 @@ export async function callLlm(
         ) {
           lastErr = err
           effectiveRequest = { ...effectiveRequest, temperature: 1 }
+          continue
+        }
+        if (
+          allowSchemaFallback &&
+          opts.jsonSchemaTransport !== 'json-object' &&
+          effectiveRequest.jsonSchema &&
+          isSchemaRejection(res.status, body) &&
+          attempt < maximumAttempts - 1 &&
+          !deadlineExceeded(deadlineStart, deadlineMs)
+        ) {
+          lastErr = err
+          effectiveRequest = { ...effectiveRequest, jsonMode: true, jsonSchema: undefined }
           continue
         }
         if (
@@ -1164,20 +1185,7 @@ async function callLlmStructured(
   req: LlmCallRequest,
   opts: LlmClientOptions = {},
 ): Promise<LlmCallResult> {
-  try {
-    return await callLlm({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts)
-  } catch (err) {
-    if (
-      opts.jsonSchemaTransport !== 'json-object' &&
-      err instanceof LlmCallError &&
-      isSchemaRejection(err.status, err.body) &&
-      req.jsonSchema
-    ) {
-      const degradedReq: LlmCallRequest = { ...req, jsonMode: true, jsonSchema: undefined }
-      return await callLlm(degradedReq, opts)
-    }
-    throw err
-  }
+  return callLlmAttempts({ ...req, jsonMode: req.jsonMode ?? !req.jsonSchema }, opts, true)
 }
 
 function parseJsonResult<T>(

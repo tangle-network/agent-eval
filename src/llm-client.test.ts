@@ -35,7 +35,7 @@ describe('maximumChargeForLlmRequest', () => {
     expect(maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0).toBeGreaterThan(5)
   })
 
-  it('reserves both request batches when schema fallback is possible', () => {
+  it('shares the physical attempt limit with schema fallback', () => {
     const request = {
       model: 'gpt-4o',
       messages: [{ role: 'user' as const, content: 'hello' }],
@@ -51,7 +51,7 @@ describe('maximumChargeForLlmRequest', () => {
     )
 
     expect(plain && 'outputTokens' in plain ? plain.outputTokens : 0).toBe(800)
-    expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(1_600)
+    expect(structured && 'outputTokens' in structured ? structured.outputTokens : 0).toBe(800)
   })
 
   it('prices the exact thinking mode across retries and schema fallback', () => {
@@ -73,7 +73,7 @@ describe('maximumChargeForLlmRequest', () => {
     const inputTokens = (maximum: typeof providerDefault): number =>
       maximum && 'inputTokens' in maximum ? maximum.inputTokens : 0
 
-    expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(124)
+    expect(inputTokens(requestDisabled) - inputTokens(providerDefault)).toBe(62)
     expect(inputTokens(clientDisabled)).toBe(inputTokens(requestDisabled))
   })
 
