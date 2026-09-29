@@ -1,0 +1,77 @@
+name: Deliver exact LLM attempt source
+on:
+  push:
+    branches: [delivery/llm-attempt-budget-source]
+    paths: [.github/workflows/deliver-llm-attempt-source.yml]
+permissions:
+  contents: write
+jobs:
+  import-source:
+    if: github.repository == 'tangle-network/agent-eval'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Import two preverified files without running candidate code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, subprocess, tempfile, urllib.request, zlib
+          repo = 'tangle-network/agent-eval'
+          branch = 'fix/shared-llm-attempt-budget'
+          parent = 'f03bd8d0c6b9db6249163fbd4dc3c9e2b35ad530'
+          files = {
+              'src/llm-client.ts': ('28b4dc2d2e897ff0dbf9212febf07b15033213d8', '23de1b3c4ca8dec0e18bf2447366cc3e445cc352'),
+              'src/llm-client.test.ts': ('42327d0c2361ac531a1b1ee6c7ed5a720edcb2d9', 'af0ee306f9b8786cd0109278f306a2aa29b5feae'),
+          }
+          packed = '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'
+          # The hash must match the locally reviewed patch before any remote write.
+          patch = zlib.decompress(base64.b64decode(packed))
+          if hashlib.sha256(patch).hexdigest() != '2a10cab382ed90b7ef9ba69c111d445785d70a4349229710d60f149b4c77c11b':
+              raise RuntimeError('Patch digest differs from reviewed source')
+          def api(method, path, data=None):
+              body = None if data is None else json.dumps(data).encode()
+              req = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
+                  data=body, method=method, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(req, timeout=45) as response:
+                  return json.load(response)
+          def digest(content):
+              return hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+          def require_head():
+              if api('GET', 'git/ref/heads/' + branch)['object']['sha'] != parent:
+                  raise RuntimeError('Feature branch changed; refusing overwrite')
+          require_head()
+          parent_tree = api('GET', 'git/commits/' + parent)['tree']['sha']
+          with tempfile.TemporaryDirectory() as directory:
+              root = pathlib.Path(directory)
+              subprocess.run(['git', 'init', '-q', directory], check=True)
+              for path, (before, after) in files.items():
+                  row = api('GET', 'contents/' + path + '?ref=' + parent)
+                  content = base64.b64decode(row['content'])
+                  if row['sha'] != before or digest(content) != before:
+                      raise RuntimeError('Baseline changed: ' + path)
+                  target = root / path
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(content)
+              subprocess.run(['git', 'apply', '--check', '-'], cwd=root, input=patch, check=True)
+              subprocess.run(['git', 'apply', '-'], cwd=root, input=patch, check=True)
+              entries = []
+              for path, (before, after) in files.items():
+                  content = (root / path).read_bytes()
+                  if digest(content) != after:
+                      raise RuntimeError('Result differs from tested source: ' + path)
+                  row = api('POST', 'git/blobs', {'content': content.decode(), 'encoding': 'utf-8'})
+                  if row['sha'] != after:
+                      raise RuntimeError('Uploaded blob differs: ' + path)
+                  entries.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': after})
+              tree = api('POST', 'git/trees', {'base_tree': parent_tree, 'tree': entries})
+              commit = api('POST', 'git/commits', {'message': 'fix(llm): share physical attempt budget and deadline across fallbacks',
+                  'tree': tree['sha'], 'parents': [parent]})
+              require_head()
+              api('PATCH', 'git/refs/heads/' + branch, {'sha': commit['sha'], 'force': False})
+              print(json.dumps({'branch': branch, 'commit': commit['sha'], 'tree': tree['sha'], 'files': entries}, indent=2))
+          PY
