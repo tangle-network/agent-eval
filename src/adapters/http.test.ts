@@ -118,9 +118,7 @@ describe('remote dispatch retries and receipts', () => {
         auth: 'wrong-token',
         retries: 2,
       })
-      await expect(dispatch({ id: 's', kind: 'fixture' }, ctxFor('s:0'))).rejects.toThrow(
-        '(401)',
-      )
+      await expect(dispatch({ id: 's', kind: 'fixture' }, ctxFor('s:0'))).rejects.toThrow('(401)')
       expect(requests).toBe(1)
     } finally {
       await handle.close()
@@ -141,9 +139,7 @@ describe('remote dispatch retries and receipts', () => {
     })
     try {
       const dispatch = httpDispatch({ url: `http://127.0.0.1:${handle.port}/dispatch` })
-      await expect(dispatch({ id: 's', kind: 'fixture' }, ctxFor('s:0'))).rejects.toThrow(
-        '(500)',
-      )
+      await expect(dispatch({ id: 's', kind: 'fixture' }, ctxFor('s:0'))).rejects.toThrow('(500)')
       expect(await readFile(output, 'utf8')).toBe('effect\n')
     } finally {
       await handle.close()
