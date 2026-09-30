@@ -295,6 +295,20 @@ export interface RolloutEvidenceAttempt {
   missingReasons: string[]
 }
 
+/** One Runtime result blob and its unmodified provider capture receipt. */
+export interface RolloutWorkspaceCapture {
+  readonly outRef: string | null
+  readonly blobPath: string | null
+  /** JSON pointer to the receipt within its Runtime result. */
+  readonly receiptPointer: string | null
+  readonly receipt: unknown | null
+  readonly attempts: readonly unknown[] | null
+  /** The provider's claim, not an Eval verification of the archive bytes. */
+  readonly coverageComplete: boolean | null
+  readonly incompleteReason: string | null
+  readonly projectionGap: string | null
+}
+
 export interface RolloutProvenance {
   captured_at: string
   capture: RolloutCapture
@@ -302,6 +316,8 @@ export interface RolloutProvenance {
   search?: { searchId: string; nodeId: string; cellId: string; attempt: number }
   /** Run-bound provider attempts; absent means this source was not observed. */
   attempts?: RolloutEvidenceAttempt[]
+  /** Exact per-result receipts in source order. Null means Runtime had no result evidence. */
+  workspace_captures?: readonly RolloutWorkspaceCapture[] | null
   /** A known lossy semantic projection. Training sinks refuse this line. */
   lossy_projection?: true
   /**
@@ -722,19 +738,41 @@ export function validateRolloutLine(value: unknown): string[] {
         errors.push('provenance.search: expected exact search, node, cell and positive attempt')
       }
     }
+    const captures = value.provenance.workspace_captures
+    if (captures !== undefined && captures !== null) {
+      if (!Array.isArray(captures)) {
+        errors.push('provenance.workspace_captures: expected array|null when present')
+      } else {
+        for (const [i, capture] of captures.entries()) {
+          if (
+            !isRecord(capture) ||
+            !isStringOrNull(capture.outRef) ||
+            !isStringOrNull(capture.blobPath) ||
+            !isStringOrNull(capture.receiptPointer) ||
+            !('receipt' in capture) ||
+            (capture.attempts !== null && !Array.isArray(capture.attempts)) ||
+            (capture.coverageComplete !== null && typeof capture.coverageComplete !== 'boolean') ||
+            !isStringOrNull(capture.incompleteReason) ||
+            !isStringOrNull(capture.projectionGap)
+          ) {
+            errors.push(`provenance.workspace_captures[${i}]: invalid capture evidence`)
+          }
+        }
+      }
+    }
     const attempts = value.provenance.attempts
     if (attempts !== undefined) {
       if (!Array.isArray(attempts)) {
         errors.push('provenance.attempts: expected array when present')
       } else {
-        const ids = new Set<string>()
+        const ordinalsByExecution = new Map<string, Set<number>>()
         for (const [i, attempt] of attempts.entries()) {
           if (
             !isRecord(attempt) ||
             typeof attempt.executionId !== 'string' ||
             !attempt.executionId ||
             !Number.isSafeInteger(attempt.ordinal) ||
-            attempt.ordinal !== i + 1 ||
+            (attempt.ordinal as number) < 1 ||
             !isStringOrNull(attempt.providerSessionId) ||
             !Array.isArray(attempt.nativeSessionIds) ||
             !attempt.nativeSessionIds.every((id) => typeof id === 'string' && id.length > 0) ||
@@ -749,10 +787,21 @@ export function validateRolloutLine(value: unknown): string[] {
             errors.push(`provenance.attempts[${i}]: invalid attempt evidence`)
             continue
           }
-          if (ids.has(attempt.executionId as string)) {
-            errors.push(`provenance.attempts[${i}].executionId: duplicate`)
+          const executionId = attempt.executionId as string
+          const ordinal = attempt.ordinal as number
+          const seen = ordinalsByExecution.get(executionId) ?? new Set<number>()
+          if (seen.has(ordinal)) {
+            errors.push(`provenance.attempts[${i}]: duplicate execution/ordinal`)
           }
-          ids.add(attempt.executionId as string)
+          seen.add(ordinal)
+          ordinalsByExecution.set(executionId, seen)
+        }
+        for (const [executionId, ordinals] of ordinalsByExecution) {
+          for (let ordinal = 1; ordinal <= ordinals.size; ordinal++) {
+            if (!ordinals.has(ordinal)) {
+              errors.push(`provenance.attempts: ${executionId} is missing ordinal ${ordinal}`)
+            }
+          }
         }
       }
     }

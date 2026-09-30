@@ -643,7 +643,30 @@ export function analyzeSupervisorRunSources(
     },
   }
 
+  const noteCaptureGaps = (
+    owner: string,
+    captures: SupervisorRunSources['rootWorkspaceCaptures'],
+  ): void => {
+    if (captures === null || captures?.length === 0) {
+      gaps.push(`${owner} workspaceCapture: no retained output capture evidence`)
+    } else if (captures !== undefined) {
+      for (const [index, capture] of captures.entries()) {
+        const source = `${owner} workspaceCapture[${index + 1}]`
+        if (capture.projectionGap !== null) gaps.push(`${source}: ${capture.projectionGap}`)
+        if (capture.coverageComplete === false) {
+          gaps.push(
+            `${source}: ${capture.incompleteReason ?? 'provider reported incomplete coverage'}`,
+          )
+        }
+        if (capture.coverageComplete === null && capture.projectionGap === null) {
+          gaps.push(`${source}: capture coverage was not recorded`)
+        }
+      }
+    }
+  }
+  noteCaptureGaps(`root ${rootId ?? src.runRef}`, src.rootWorkspaceCaptures)
   const perWorker: PerWorkerRow[] = (src.workers ?? []).map((w) => {
+    noteCaptureGaps(`worker ${w.workerId ?? w.label}`, w.workspaceCaptures)
     const f = tree.workerLogs.get(workerSourceKey(w))
     const matchingSpawns = spawnsForSource(w)
     const spawn = spawnForSource(w)
@@ -686,6 +709,7 @@ export function analyzeSupervisorRunSources(
       patchBytes: w.patchBytes ?? f?.finishedPatchBytes ?? null,
       passed,
       score: close?.score ?? f?.score ?? null,
+      workspaceCaptures: w.workspaceCaptures ?? null,
     }
   })
   const wallDistribution = summarizeNumberSeries(
@@ -905,6 +929,7 @@ export function analyzeSupervisorRunSources(
     decision,
     economics,
     outcome,
+    rootWorkspaceCaptures: src.rootWorkspaceCaptures ?? null,
     gaps,
     traceCommand:
       src.traceCommand ??

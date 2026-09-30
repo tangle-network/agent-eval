@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { hashCanonical } from '../ledger-core/canonical'
+import { readRolloutJournal, writeRolloutLedger } from '../rollout/ledger'
 import { analyzeSupervisorRunSources } from './analyze'
 import { analyzeSupervisorRunIntegrity } from './integrity'
 import { analyzeSupervisorRun, findSupervisorRunDirs } from './reader'
@@ -301,6 +303,75 @@ async function writeJournal(
   )
 }
 
+async function runtimeCaptureRun(
+  outputs: readonly unknown[],
+  rootOutputs: readonly unknown[] = [],
+): Promise<string> {
+  const runDir = join(await mkdtemp(join(tmpdir(), 'runtime-capture-')), 'run')
+  const root = 'capture-root'
+  const worker = `${root}:s0`
+  const rows: Record<string, unknown>[] = [
+    begin(root, 0),
+    event(root, { kind: 'spawned', id: root, label: 'root', seq: 0, at: at(0) }),
+    event(root, {
+      kind: 'spawned',
+      id: worker,
+      parent: root,
+      label: 'provider-worker',
+      runtime: 'provider',
+      seq: 0,
+      at: at(1),
+    }),
+  ]
+  await mkdir(join(runDir, 'blobs'), { recursive: true })
+  for (const [nodeId, records] of [
+    [root, rootOutputs],
+    [worker, outputs],
+  ] as const) {
+    for (const [index, output] of records.entries()) {
+      const outRef = hashCanonical(output)
+      await writeFile(
+        join(runDir, 'blobs', `${outRef.replace(':', '-')}.json`),
+        JSON.stringify(output),
+      )
+      rows.push(
+        event(root, {
+          kind: 'execution-admitted',
+          id: nodeId,
+          admission: { phase: 'dispatched' },
+          seq: index * 2 + 1,
+          at: at(index * 2 + 2),
+        }),
+        event(root, {
+          kind: 'execution-result',
+          id: nodeId,
+          outRef,
+          seq: index * 2 + 2,
+          at: at(index * 2 + 3),
+        }),
+      )
+    }
+  }
+  rows.push(
+    event(root, {
+      kind: 'settled',
+      id: worker,
+      status: 'done',
+      seq: outputs.length * 2 + 1,
+      at: at(outputs.length * 2 + 4),
+    }),
+  )
+  await writeJournal(runDir, rows)
+  await writeFile(
+    join(runDir, 'result.json'),
+    JSON.stringify({
+      kind: 'no-winner',
+      tree: { root, nodes: [] },
+    }),
+  )
+  return runDir
+}
+
 async function nestedRuntimeRun(): Promise<string> {
   const parent = await mkdtemp(join(tmpdir(), 'runtime-supervisor-run-'))
   const runDir = join(parent, 'run-nested')
@@ -438,6 +509,490 @@ async function nestedRuntimeRun(): Promise<string> {
 }
 
 describe('Runtime FileRunContext supervisor reader', () => {
+  it('reads active and terminal output records through one collector without counting duplicate refs', async () => {
+    const runDir = join(await mkdtemp(join(tmpdir(), 'runtime-output-refs-')), 'run')
+    const root = 'output-root'
+    const retained = `${root}:s0`
+    const plain = `${root}:s1`
+    const steerable = `${root}:s2`
+    const capture = (id: string) => ({
+      executionId: id,
+      environmentId: `environment-${id}`,
+      snapshot: { kind: 'agent-candidate-workspace-snapshot', digest: `sha256:${'3'.repeat(64)}` },
+      provenance: {
+        attempts: [{ executionId: id, ordinal: 1, metadata: { count: 0, flag: false } }],
+      },
+      coverageComplete: true,
+    })
+    const output = (id: string, plural = false) => ({
+      content: id,
+      ...(plural ? { workspaceCaptures: [capture(id)] } : { workspaceCapture: capture(id) }),
+    })
+    const outputs = new Map([
+      [root, output(root)],
+      [retained, output(retained)],
+      [plain, output(plain)],
+      [steerable, output(steerable, true)],
+    ])
+    const refs = new Map<string, string>()
+    await mkdir(join(runDir, 'blobs'), { recursive: true })
+    for (const [id, value] of outputs) {
+      const ref = hashCanonical(value)
+      refs.set(id, ref)
+      await writeFile(join(runDir, 'blobs', `${ref.replace(':', '-')}.json`), JSON.stringify(value))
+    }
+    const rows = [
+      begin(root, 0),
+      event(root, { kind: 'spawned', id: root, label: 'director', seq: 0, at: at(0) }),
+      ...[retained, plain, steerable].map((id, index) =>
+        event(root, {
+          kind: 'spawned',
+          id,
+          parent: root,
+          label: id,
+          runtime: 'provider',
+          seq: 0,
+          at: at(index + 1),
+        }),
+      ),
+      event(root, {
+        kind: 'execution-result',
+        id: root,
+        outRef: refs.get(root),
+        seq: 1,
+        at: at(4),
+      }),
+      event(root, {
+        kind: 'execution-result',
+        id: retained,
+        outRef: refs.get(retained),
+        seq: 1,
+        at: at(5),
+      }),
+    ]
+    await writeJournal(runDir, rows)
+    const active = await readRuntimeSupervisorRun(runDir)
+    expect(active.rootWorkspaceCaptures?.[0]?.receipt).toEqual(capture(root))
+    expect(
+      active.workers?.find((worker) => worker.workerId === retained)?.workspaceCaptures,
+    ).toHaveLength(1)
+    expect(
+      active.workers?.find((worker) => worker.workerId === plain)?.workspaceCaptures,
+    ).toBeNull()
+
+    rows.push(
+      event(root, {
+        kind: 'settled',
+        id: plain,
+        status: 'done',
+        outRef: refs.get(plain),
+        seq: 1,
+        at: at(6),
+      }),
+      event(root, {
+        kind: 'cancelled',
+        id: steerable,
+        reason: 'stopped after capture',
+        outRef: refs.get(steerable),
+        seq: 1,
+        at: at(7),
+      }),
+      event(root, {
+        kind: 'settled',
+        id: retained,
+        status: 'done',
+        outRef: refs.get(retained),
+        seq: 2,
+        at: at(8),
+      }),
+    )
+    await writeJournal(runDir, rows)
+    const settled = await readRuntimeSupervisorRun(runDir)
+    const report = await analyzeSupervisorRun(runDir)
+    const tree = supervisorRunRolloutLines(settled, { capturedAt: at(10) })
+    expect(settled.workers?.map((worker) => worker.workspaceCaptures?.length)).toEqual([1, 1, 1])
+    expect(
+      settled.workers?.find((worker) => worker.workerId === steerable)?.workspaceCaptures?.[0],
+    ).toMatchObject({ receipt: capture(steerable), receiptPointer: '/workspaceCaptures/0' })
+    expect(settled.workers?.find((worker) => worker.workerId === plain)?.turns?.retained).toBe(0)
+    expect(settled.workers?.find((worker) => worker.workerId === retained)?.turns?.retained).toBe(1)
+    expect(report.rootWorkspaceCaptures).toEqual(settled.rootWorkspaceCaptures)
+    const ledger = join(runDir, 'terminal-output-ledger.jsonl')
+    await writeRolloutLedger(ledger, [...tree.nodes])
+    const retainedRows = await readRolloutJournal(ledger)
+    expect(retainedRows.map((row) => row.provenance.workspace_captures?.length)).toEqual([
+      1, 1, 1, 1,
+    ])
+    expect(retainedRows.every((row) => row.provenance.lossy_projection === true)).toBe(true)
+  })
+
+  it('projects Sandbox receipt arrays and retained root results through the same public ledger', async () => {
+    const capture = (id: string) => ({
+      executionId: id,
+      environmentId: `environment-${id}`,
+      profileDigest: CHILD_PROFILE,
+      providerSessionId: `provider-${id}`,
+      nativeSessionId: `native-${id}`,
+      snapshot: {
+        kind: 'agent-candidate-workspace-snapshot',
+        digest: `sha256:${'3'.repeat(64)}`,
+        material: { kind: 'agent-candidate-workspace-manifest', files: [] },
+        manifest: {
+          locator: { kind: 's3', bucket: 'evidence-fixture', key: `${id}/manifest.json` },
+          sha256: `sha256:${'4'.repeat(64)}`,
+          byteLength: 27,
+        },
+        archive: {
+          locator: { kind: 's3', bucket: 'evidence-fixture', key: `${id}/workspace.tar` },
+          sha256: `sha256:${'5'.repeat(64)}`,
+          byteLength: 1024,
+        },
+      },
+      provenance: {
+        status: 'reported',
+        provider: 'claude-code',
+        attempts: [
+          {
+            executionId: `sidecar-${id}`,
+            ordinal: 1,
+            providerSessionId: `provider-${id}`,
+            nativeSessionIds: [`native-${id}`],
+            processIds: [`process-${id}`],
+            outcome: 'succeeded',
+            missingReasons: [],
+            unknownAttemptMetadata: { count: 0, observed: false, annotation: null },
+          },
+        ],
+        missing: [],
+      },
+      coverageComplete: true,
+      unknownProviderMetadata: { label: '', counter: 0, flag: false, nested: [null] },
+    })
+    const first = capture('worker-first')
+    const second = capture('worker-second')
+    const third = capture('worker-third')
+    const director = capture('director')
+    // These are the maintained Sandbox steerable and ProviderLeafOut result shapes.
+    const sandboxOut = {
+      content: 'worker result',
+      output: null,
+      turns: 2,
+      toolCalls: 0,
+      workspaceCaptures: [first, second],
+    }
+    const leafOut = { content: 'worker leaf', events: [], workspaceCapture: third }
+    const rootOut = { content: 'director result', events: [], workspaceCapture: director }
+    const runDir = await runtimeCaptureRun([sandboxOut, leafOut], [rootOut])
+    const source = await readRuntimeSupervisorRun(runDir)
+    const report = await analyzeSupervisorRun(runDir)
+    const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
+    const workerCaptures = source.workers?.[0]?.workspaceCaptures
+    expect(workerCaptures?.map((entry) => entry.receipt)).toEqual([first, second, third])
+    expect(workerCaptures?.map((entry) => entry.receiptPointer)).toEqual([
+      '/workspaceCaptures/0',
+      '/workspaceCaptures/1',
+      '/workspaceCapture',
+    ])
+    expect(workerCaptures?.map((entry) => entry.outRef)).toEqual([
+      hashCanonical(sandboxOut),
+      hashCanonical(sandboxOut),
+      hashCanonical(leafOut),
+    ])
+    expect(workerCaptures?.every((entry) => entry.projectionGap === null)).toBe(true)
+    expect(source.rootWorkspaceCaptures?.[0]).toMatchObject({
+      receipt: director,
+      receiptPointer: '/workspaceCapture',
+      outRef: hashCanonical(rootOut),
+    })
+    expect(report.rootWorkspaceCaptures).toEqual(source.rootWorkspaceCaptures)
+    if (isUnavailable(report.economics.perWorker)) throw new Error('worker report unavailable')
+    expect(report.economics.perWorker[0]?.workspaceCaptures).toEqual(workerCaptures)
+    expect(
+      tree.nodes.find((row) => row.rollout_id === 'capture-root')?.provenance.workspace_captures,
+    ).toEqual(source.rootWorkspaceCaptures)
+    const ledger = join(runDir, 'capture-ledger.jsonl')
+    await writeRolloutLedger(ledger, [...tree.nodes])
+    const retained = await readRolloutJournal(ledger)
+    expect(
+      retained.find((row) => row.rollout_id === 'capture-root')?.provenance.workspace_captures,
+    ).toEqual(source.rootWorkspaceCaptures)
+    expect(
+      retained.find((row) => row.rollout_id === 'capture-root:s0')?.provenance.workspace_captures,
+    ).toEqual(workerCaptures)
+    expect(retained.every((row) => row.provenance.lossy_projection === true)).toBe(true)
+  })
+
+  it('retains malformed plural receipts and root capture gaps without losing later entries', async () => {
+    const malformed = { marker: 0, evidence: false }
+    const runDir = await runtimeCaptureRun(
+      [
+        { content: 'array', workspaceCaptures: [null, 'raw malformed receipt'] },
+        { content: 'wrong collection', workspaceCaptures: malformed },
+        { content: 'empty collection', workspaceCaptures: [] },
+      ],
+      [{ content: 'root', workspaceCaptures: [malformed] }],
+    )
+    const source = await readRuntimeSupervisorRun(runDir)
+    const report = await analyzeSupervisorRun(runDir)
+    const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
+    expect(source.workers?.[0]?.workspaceCaptures?.map((entry) => entry.receipt)).toEqual([
+      null,
+      'raw malformed receipt',
+      malformed,
+      [],
+    ])
+    expect(source.workers?.[0]?.workspaceCaptures?.map((entry) => entry.receiptPointer)).toEqual([
+      '/workspaceCaptures/0',
+      '/workspaceCaptures/1',
+      '/workspaceCaptures',
+      '/workspaceCaptures',
+    ])
+    expect(report.rootWorkspaceCaptures?.[0]?.receipt).toEqual(malformed)
+    expect(
+      report.gaps.some((gap) => gap.startsWith('root capture-root workspaceCapture[1]:')),
+    ).toBe(true)
+    expect(tree.gaps).toContainEqual(
+      expect.objectContaining({
+        code: 'workspace-capture-incomplete',
+        nodeId: 'capture-root',
+      }),
+    )
+    const ledger = join(runDir, 'malformed-capture-ledger.jsonl')
+    await writeRolloutLedger(ledger, [...tree.nodes])
+    const retained = await readRolloutJournal(ledger)
+    expect(
+      retained.find((row) => row.rollout_id === 'capture-root')?.provenance.workspace_captures,
+    ).toEqual(source.rootWorkspaceCaptures)
+    expect(
+      retained.find((row) => row.rollout_id === 'capture-root:s0')?.provenance.workspace_captures,
+    ).toEqual(source.workers?.[0]?.workspaceCaptures)
+  })
+
+  it('preserves complete and partial workspace receipts across retries and executions', async () => {
+    const attempts = [
+      {
+        executionId: 'exec-a',
+        ordinal: 1,
+        providerSessionId: 'backend-1',
+        nativeSessionIds: ['native-1'],
+        processIds: ['proc-1'],
+        outcome: 'failed',
+        missingReasons: [],
+      },
+      {
+        executionId: 'exec-a',
+        ordinal: 2,
+        providerSessionId: 'backend-1',
+        nativeSessionIds: ['native-2'],
+        processIds: ['proc-2'],
+        outcome: 'succeeded',
+        missingReasons: [],
+      },
+      {
+        executionId: 'exec-b',
+        ordinal: 1,
+        providerSessionId: 'backend-2',
+        nativeSessionIds: ['native-3'],
+        processIds: ['proc-3'],
+        outcome: 'succeeded',
+        missingReasons: [],
+      },
+    ]
+    const snapshot = {
+      kind: 'agent-candidate-workspace-snapshot',
+      digest: `sha256:${'3'.repeat(64)}`,
+      material: { kind: 'agent-candidate-workspace-manifest', files: [] },
+      manifest: {
+        locator: { kind: 's3', bucket: 'evidence-fixture', key: 'manifest.json' },
+        sha256: `sha256:${'4'.repeat(64)}`,
+        byteLength: 27,
+      },
+      archive: {
+        locator: { kind: 's3', bucket: 'evidence-fixture', key: 'workspace.tar' },
+        sha256: `sha256:${'5'.repeat(64)}`,
+        byteLength: 1024,
+      },
+    }
+    const completeReceipt = {
+      executionId: 'runtime-turn-1',
+      environmentId: 'sandbox-1',
+      profileDigest: CHILD_PROFILE,
+      providerSessionId: 'backend-1',
+      nativeSessionId: null,
+      snapshot,
+      provenance: {
+        status: 'reported',
+        provider: 'claude-code',
+        executionId: 'runtime-turn-1',
+        attempts,
+        sessions: [
+          {
+            id: 'sidecar-session',
+            executionId: 'exec-a',
+            nativeSessionId: 'native-1',
+            eventCount: 5,
+          },
+        ],
+        missing: [],
+      },
+      coverageComplete: true,
+    }
+    const partialReceipt = {
+      ...completeReceipt,
+      executionId: 'runtime-turn-2',
+      provenance: {
+        ...completeReceipt.provenance,
+        executionId: 'runtime-turn-2',
+        attempts: [
+          {
+            ...attempts[0],
+            executionId: 'exec-c',
+            ordinal: 1,
+            missingReasons: ['stdout-truncated'],
+          },
+        ],
+        missing: ['stdout-truncated'],
+      },
+      coverageComplete: false,
+      incompleteReason: 'stdout-truncated',
+    }
+    const outputs = [
+      {
+        content: 'first',
+        events: [],
+        workspaceSnapshot: snapshot,
+        workspaceCapture: completeReceipt,
+      },
+      {
+        content: 'second',
+        events: [],
+        workspaceSnapshot: snapshot,
+        workspaceCapture: partialReceipt,
+      },
+    ]
+    const runDir = await runtimeCaptureRun(outputs)
+    const source = await readRuntimeSupervisorRun(runDir)
+    const report = await analyzeSupervisorRun(runDir)
+    const tree = supervisorRunRolloutLines(source, { capturedAt: at(10) })
+
+    const captures = source.workers?.[0]?.workspaceCaptures
+    expect(captures).toHaveLength(2)
+    expect(captures?.[0]).toMatchObject({
+      outRef: hashCanonical(outputs[0]),
+      receipt: completeReceipt,
+      attempts,
+      coverageComplete: true,
+      incompleteReason: null,
+      projectionGap: null,
+    })
+    expect(captures?.[1]).toMatchObject({
+      outRef: hashCanonical(outputs[1]),
+      receipt: partialReceipt,
+      coverageComplete: false,
+      incompleteReason: 'stdout-truncated',
+      projectionGap: null,
+    })
+    if (isUnavailable(report.economics.perWorker)) throw new Error('worker report unavailable')
+    expect(report.economics.perWorker[0]?.workspaceCaptures).toEqual(captures)
+    expect(report.gaps).toContain('worker capture-root:s0 workspaceCapture[2]: stdout-truncated')
+    const worker = tree.nodes.find((node) => node.rollout_id === 'capture-root:s0')
+    expect(worker?.provenance.workspace_captures).toEqual(captures)
+    expect(worker?.provenance.lossy_projection).toBe(true)
+    expect(worker?.provenance.gap).toContain('workspace capture evidence incomplete')
+    expect(tree.gaps).toContainEqual(
+      expect.objectContaining({
+        code: 'workspace-capture-incomplete',
+        nodeId: 'capture-root:s0',
+      }),
+    )
+    const ledger = join(runDir, 'rollouts.jsonl')
+    await writeRolloutLedger(ledger, [...tree.nodes])
+    const reread = await readRolloutJournal(ledger)
+    expect(
+      reread.find((node) => node.rollout_id === 'capture-root:s0')?.provenance.workspace_captures,
+    ).toEqual(captures)
+  })
+
+  it('keeps historical absence and missing execution results unknown', async () => {
+    const historical = await analyzeSupervisorRun(
+      await runtimeCaptureRun([{ content: 'old result' }]),
+    )
+    if (isUnavailable(historical.economics.perWorker)) throw new Error('worker report unavailable')
+    expect(historical.economics.perWorker[0]?.workspaceCaptures?.[0]).toMatchObject({
+      receipt: null,
+      attempts: null,
+      coverageComplete: null,
+      incompleteReason: null,
+      projectionGap: 'workspaceCapture receipt is absent or malformed',
+    })
+    expect(historical.gaps).toContain(
+      'worker capture-root:s0 workspaceCapture[1]: workspaceCapture receipt is absent or malformed',
+    )
+    const historicalSource = await readRuntimeSupervisorRun(historical.runRef)
+    const historicalTree = supervisorRunRolloutLines(historicalSource, { capturedAt: at(10) })
+    expect(
+      historicalTree.nodes.find((node) => node.rollout_id === 'capture-root:s0')?.provenance
+        .workspace_captures,
+    ).toEqual(historical.economics.perWorker[0]?.workspaceCaptures)
+
+    const noResult = await analyzeSupervisorRun(await runtimeCaptureRun([]))
+    if (isUnavailable(noResult.economics.perWorker)) throw new Error('worker report unavailable')
+    expect(noResult.economics.perWorker[0]?.workspaceCaptures).toBeNull()
+    expect(noResult.gaps).toContain(
+      'worker capture-root:s0 workspaceCapture: no retained output capture evidence',
+    )
+    const noResultSource = await readRuntimeSupervisorRun(noResult.runRef)
+    const noResultTree = supervisorRunRolloutLines(noResultSource, { capturedAt: at(10) })
+    expect(
+      noResultTree.nodes.find((node) => node.rollout_id === 'capture-root:s0')?.provenance
+        .workspace_captures,
+    ).toBeNull()
+    expect(noResultTree.gaps).toContainEqual(
+      expect.objectContaining({
+        code: 'workspace-capture-unavailable',
+        nodeId: 'capture-root:s0',
+      }),
+    )
+  })
+
+  it('labels a result blob whose bytes do not match its Runtime content address', async () => {
+    const output = { content: 'original' }
+    const runDir = await runtimeCaptureRun([output])
+    const ref = hashCanonical(output)
+    await writeFile(
+      join(runDir, 'blobs', `${ref.replace(':', '-')}.json`),
+      JSON.stringify({ content: 'changed' }),
+    )
+    const report = await analyzeSupervisorRun(runDir)
+    if (isUnavailable(report.economics.perWorker)) throw new Error('worker report unavailable')
+    expect(report.economics.perWorker[0]?.workspaceCaptures?.[0]?.coverageComplete).toBeNull()
+    expect(report.gaps).toContain(
+      'worker capture-root:s0 workspaceCapture[1]: workspaceCapture receipt is absent or malformed; Runtime output content address does not match output blob',
+    )
+  })
+
+  it('retains malformed receipt values and attempt inventories with explicit gaps', async () => {
+    const malformedReceipt = 'unexpected receipt value'
+    const malformedInventory = {
+      coverageComplete: true,
+      snapshot: { digest: `sha256:${'4'.repeat(64)}` },
+      provenance: { status: 'reported', attempts: { executionId: 'wrong shape' } },
+    }
+    const report = await analyzeSupervisorRun(
+      await runtimeCaptureRun([
+        { content: 'first', workspaceCapture: malformedReceipt },
+        { content: 'second', workspaceCapture: malformedInventory },
+      ]),
+    )
+    if (isUnavailable(report.economics.perWorker)) throw new Error('worker report unavailable')
+    const captures = report.economics.perWorker[0]?.workspaceCaptures
+    expect(captures?.[0]?.receipt).toBe(malformedReceipt)
+    expect(captures?.[0]?.projectionGap).toBe('workspaceCapture receipt is absent or malformed')
+    expect(captures?.[1]?.receipt).toEqual(malformedInventory)
+    expect(captures?.[1]?.attempts).toBeNull()
+    expect(captures?.[1]?.projectionGap).toBe('workspaceCapture.provenance.attempts is absent')
+  })
+
   it('flattens nested tree envelopes and reuses the existing analyzer without double-counting', async () => {
     const runDir = await nestedRuntimeRun()
     const source = await readRuntimeSupervisorRun(runDir)

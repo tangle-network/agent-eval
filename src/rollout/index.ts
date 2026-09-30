@@ -170,6 +170,7 @@ export {
   type RolloutSplit,
   type RolloutStep,
   type RolloutTask,
+  type RolloutWorkspaceCapture,
   type ToolDef,
   validateRolloutLine,
 } from './schema'

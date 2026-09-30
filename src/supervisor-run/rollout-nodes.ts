@@ -11,8 +11,9 @@
  * in its harness store (opencode sqlite, Claude Code jsonl), which the
  * `src/rollout/readers/*` intake readers own. Rows minted here are therefore
  * GAP lines (`messages: []`, `provenance.gap` set) carrying identity,
- * structure, outcome and cost; hydrating them with messages is the readers'
- * job, keyed on `artifacts.transcript_ref`.
+ * structure, outcome and cost. Runtime workspace receipts remain attached in
+ * `provenance.workspace_captures`; their archives stay at the recorded refs.
+ * Hydrating messages is the intake readers' job, keyed on `artifacts.transcript_ref`.
  *
  * Timing lives in `outcome.metrics` (`spawned_at` / `settled_at` / `wall_ms`)
  * rather than a schema field: `tangle.rollout.v1` describes ONE invocation,
@@ -159,6 +160,40 @@ export function supervisorRunRolloutLinesFromFacts(
   } satisfies Partial<RolloutLine> & Record<string, unknown>
 
   const nodes: RolloutLine[] = []
+  const noteCaptureGaps = (
+    owner: string,
+    nodeId: string,
+    captures: SupervisorRunSources['rootWorkspaceCaptures'],
+  ): string | null => {
+    if (captures === null || captures?.length === 0) {
+      gaps.push({
+        code: 'workspace-capture-unavailable',
+        message: `${owner} has no retained output capture evidence`,
+        nodeId,
+      })
+      return 'workspace capture evidence unavailable'
+    }
+    let incomplete = false
+    for (const [index, capture] of captures?.entries() ?? []) {
+      const reasons = [
+        capture.projectionGap,
+        capture.coverageComplete === false
+          ? (capture.incompleteReason ?? 'provider reported incomplete coverage')
+          : capture.coverageComplete === null
+            ? 'capture coverage was not recorded'
+            : null,
+      ].filter((reason): reason is string => reason !== null)
+      if (reasons.length > 0) {
+        incomplete = true
+        gaps.push({
+          code: 'workspace-capture-incomplete',
+          message: `${owner} result ${index + 1}: ${reasons.join('; ')}`,
+          nodeId,
+        })
+      }
+    }
+    return incomplete ? 'workspace capture evidence incomplete' : null
+  }
 
   // ── root: the supervisor invocation ────────────────────────────────────
   if (rootId !== null) {
@@ -177,6 +212,8 @@ export function supervisorRunRolloutLinesFromFacts(
       tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
         ? tree.completedAt - tree.startedAt
         : null
+    const captures = src.rootWorkspaceCaptures
+    const captureGap = noteCaptureGaps(`root ${JSON.stringify(rootId)}`, rootId, captures)
     nodes.push({
       ...base,
       rollout_id: rootId,
@@ -259,10 +296,16 @@ export function supervisorRunRolloutLinesFromFacts(
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
-        gap:
+        lossy_projection: true,
+        ...(captures === undefined ? {} : { workspace_captures: captures }),
+        gap: [
           src.rootTranscriptRef == null
             ? 'supervision journal carries structure and spend, not the brain transcript'
             : 'brain transcript retained by reference; messages not inlined into this row',
+          captureGap,
+        ]
+          .filter((reason): reason is string => reason !== null)
+          .join('; '),
       },
     })
   } else {
@@ -310,6 +353,8 @@ export function supervisorRunRolloutLinesFromFacts(
       })
     }
     const isSupervisor = spawn.role === 'supervisor'
+    const captures = workerSource?.workspaceCaptures
+    const captureGap = noteCaptureGaps(`child ${JSON.stringify(spawn.label)}`, spawn.id, captures)
     nodes.push({
       ...base,
       rollout_id: spawn.id,
@@ -394,10 +439,16 @@ export function supervisorRunRolloutLinesFromFacts(
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
-        gap:
+        lossy_projection: true,
+        ...(captures === undefined ? {} : { workspace_captures: captures }),
+        gap: [
           workerSource?.transcriptRef == null
             ? 'no worker transcript was retained; messages unavailable'
             : 'worker transcript retained by reference; messages not inlined into this row',
+          captureGap,
+        ]
+          .filter((reason): reason is string => reason !== null)
+          .join('; '),
       },
     })
   }

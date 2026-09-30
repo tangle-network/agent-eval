@@ -24,7 +24,7 @@
  * opposite conclusions about the same architecture, so they never collapse.
  */
 
-import type { RolloutLine } from '../rollout/schema'
+import type { RolloutLine, RolloutWorkspaceCapture } from '../rollout/schema'
 import type { SeriesDistribution } from '../statistics'
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,8 @@ export interface WorkerLogSource {
    * store kept no receipt for this worker.
    */
   readonly nativeSession?: WorkerNativeSession | null
+  /** Capture receipts in output order. Null means none were retained; absent means this reader has no channel. */
+  readonly workspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
   readonly patchPath?: string | null
   /** This worker's own inference tokens, when the store records them per worker. */
@@ -231,6 +233,8 @@ export interface SupervisorRunSources {
    * retain one must set this to `null`, or omit the path entirely.
    */
   readonly rootTranscriptRef?: string | null
+  /** Root capture receipts in output order; null means no retained receipt. */
+  readonly rootWorkspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /**
    * The `traces` CLI command that covers this run's harness-session layer.
    * Null falls back to the analyzer's default (an opencode worker fleet).
@@ -369,6 +373,8 @@ export interface PerWorkerRow {
   readonly passed: boolean | null
   /** Numeric verdict score exactly as recorded; null means no score was recorded. */
   readonly score: number | null
+  /** Exact Runtime capture receipts in journal order; null means capture evidence is unknown. */
+  readonly workspaceCaptures: readonly RolloutWorkspaceCapture[] | null
 }
 
 /**
@@ -548,6 +554,8 @@ export interface SupervisorRunReport {
   readonly decision: DecisionMetrics
   readonly economics: EconomicsMetrics
   readonly outcome: OutcomeMetrics
+  /** Exact root capture receipts; null means capture evidence is unknown. */
+  readonly rootWorkspaceCaptures: readonly RolloutWorkspaceCapture[] | null
   /** Artifacts that were missing, in read order — the provenance of every `unavailable`. */
   readonly gaps: readonly string[]
   /** The `traces` CLI command that covers the harness-session layer for this run. */
@@ -619,6 +627,8 @@ export type SupervisorRunTreeGapCode =
   | 'root-reward-unavailable'
   | 'child-reward-unavailable'
   | 'node-role-unavailable'
+  | 'workspace-capture-unavailable'
+  | 'workspace-capture-incomplete'
   | 'node-schema-invalid'
 
 export interface SupervisorRunTreeGap {
