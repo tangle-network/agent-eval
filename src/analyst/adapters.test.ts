@@ -10,7 +10,7 @@ describe('createSemanticConceptJudgeAdapter', () => {
       createSemanticConceptJudgeAdapter({
         options: {
           model: 'gpt-4o',
-          chat: callerTransport(async () => judgeResponse(['one', 'two', 'three'], 0.25)),
+          chat: callerTransport(async () => judgeResponse(['one', 'two', 'three'], 0.01)),
         },
       }),
     )
@@ -33,10 +33,10 @@ describe('createSemanticConceptJudgeAdapter', () => {
       usage: {
         calls: 1,
         tokens: { input: 100, output: 50 },
-        cost: { kind: 'observed', usd: 0.25 },
+        cost: { kind: 'observed', usd: 0.01 },
       },
     })
-    expect(result.total_cost_usd).toBe(0.25)
+    expect(result.total_cost_usd).toBe(0.01)
   })
 
   it('waits for a cancelled provider to return its bill before completing the run', async () => {
