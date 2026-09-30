@@ -160,6 +160,40 @@ export function supervisorRunRolloutLinesFromFacts(
   } satisfies Partial<RolloutLine> & Record<string, unknown>
 
   const nodes: RolloutLine[] = []
+  const noteCaptureGaps = (
+    owner: string,
+    nodeId: string,
+    captures: SupervisorRunSources['rootWorkspaceCaptures'],
+  ): string | null => {
+    if (captures === null || captures?.length === 0) {
+      gaps.push({
+        code: 'workspace-capture-unavailable',
+        message: `${owner} has no execution-result capture evidence`,
+        nodeId,
+      })
+      return 'workspace capture evidence unavailable'
+    }
+    let incomplete = false
+    for (const [index, capture] of captures?.entries() ?? []) {
+      const reasons = [
+        capture.projectionGap,
+        capture.coverageComplete === false
+          ? (capture.incompleteReason ?? 'provider reported incomplete coverage')
+          : capture.coverageComplete === null
+            ? 'capture coverage was not recorded'
+            : null,
+      ].filter((reason): reason is string => reason !== null)
+      if (reasons.length > 0) {
+        incomplete = true
+        gaps.push({
+          code: 'workspace-capture-incomplete',
+          message: `${owner} result ${index + 1}: ${reasons.join('; ')}`,
+          nodeId,
+        })
+      }
+    }
+    return incomplete ? 'workspace capture evidence incomplete' : null
+  }
 
   // ── root: the supervisor invocation ────────────────────────────────────
   if (rootId !== null) {
@@ -178,6 +212,8 @@ export function supervisorRunRolloutLinesFromFacts(
       tree.startedAt !== null && tree.completedAt !== null && tree.completedAt >= tree.startedAt
         ? tree.completedAt - tree.startedAt
         : null
+    const captures = src.rootWorkspaceCaptures
+    const captureGap = noteCaptureGaps(`root ${JSON.stringify(rootId)}`, rootId, captures)
     nodes.push({
       ...base,
       rollout_id: rootId,
@@ -261,10 +297,15 @@ export function supervisorRunRolloutLinesFromFacts(
         captured_at: capturedAt,
         capture: 'backfill',
         lossy_projection: true,
-        gap:
+        ...(captures === undefined ? {} : { workspace_captures: captures }),
+        gap: [
           src.rootTranscriptRef == null
             ? 'supervision journal carries structure and spend, not the brain transcript'
             : 'brain transcript retained by reference; messages not inlined into this row',
+          captureGap,
+        ]
+          .filter((reason): reason is string => reason !== null)
+          .join('; '),
       },
     })
   } else {
@@ -313,38 +354,7 @@ export function supervisorRunRolloutLinesFromFacts(
     }
     const isSupervisor = spawn.role === 'supervisor'
     const captures = workerSource?.workspaceCaptures
-    if (captures === null || captures?.length === 0) {
-      gaps.push({
-        code: 'workspace-capture-unavailable',
-        message: `child ${JSON.stringify(spawn.label)} has no execution-result capture evidence`,
-        nodeId: spawn.id,
-      })
-    } else if (captures !== undefined) {
-      for (const [index, capture] of captures.entries()) {
-        const reason =
-          capture.projectionGap ??
-          (capture.coverageComplete === false
-            ? (capture.incompleteReason ?? 'provider reported incomplete coverage')
-            : capture.coverageComplete === null
-              ? 'capture coverage was not recorded'
-              : null)
-        if (reason !== null) {
-          gaps.push({
-            code: 'workspace-capture-incomplete',
-            message: `child ${JSON.stringify(spawn.label)} result ${index + 1}: ${reason}`,
-            nodeId: spawn.id,
-          })
-        }
-      }
-    }
-    const captureGap =
-      captures === null || captures?.length === 0
-        ? 'workspace capture evidence unavailable'
-        : captures?.some(
-              (capture) => capture.projectionGap !== null || capture.coverageComplete !== true,
-            )
-          ? 'workspace capture evidence incomplete'
-          : null
+    const captureGap = noteCaptureGaps(`child ${JSON.stringify(spawn.label)}`, spawn.id, captures)
     nodes.push({
       ...base,
       rollout_id: spawn.id,

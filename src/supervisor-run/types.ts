@@ -72,9 +72,6 @@ export type WorkerNativeSession =
   | { readonly status: 'available'; readonly ref: string }
   | { readonly status: 'unavailable'; readonly reason: string }
 
-/** One Runtime execution result's capture receipt, in journal order. */
-export type WorkerWorkspaceCapture = RolloutWorkspaceCapture
-
 /**
  * One worker's logs, as read. `null` means the artifact did not exist; `''`
  * means the artifact was captured and contained no rows.
@@ -108,7 +105,7 @@ export interface WorkerLogSource {
    */
   readonly nativeSession?: WorkerNativeSession | null
   /** One entry per Runtime execution result. Null means no result; absent means this reader has no channel. */
-  readonly workspaceCaptures?: readonly WorkerWorkspaceCapture[] | null
+  readonly workspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
   readonly patchPath?: string | null
   /** This worker's own inference tokens, when the store records them per worker. */
@@ -236,6 +233,8 @@ export interface SupervisorRunSources {
    * retain one must set this to `null`, or omit the path entirely.
    */
   readonly rootTranscriptRef?: string | null
+  /** Root execution-result capture receipts in source order; null means no retained result. */
+  readonly rootWorkspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /**
    * The `traces` CLI command that covers this run's harness-session layer.
    * Null falls back to the analyzer's default (an opencode worker fleet).
@@ -375,7 +374,7 @@ export interface PerWorkerRow {
   /** Numeric verdict score exactly as recorded; null means no score was recorded. */
   readonly score: number | null
   /** Exact Runtime capture receipts in journal order; null means capture evidence is unknown. */
-  readonly workspaceCaptures: readonly WorkerWorkspaceCapture[] | null
+  readonly workspaceCaptures: readonly RolloutWorkspaceCapture[] | null
 }
 
 /**
@@ -555,6 +554,8 @@ export interface SupervisorRunReport {
   readonly decision: DecisionMetrics
   readonly economics: EconomicsMetrics
   readonly outcome: OutcomeMetrics
+  /** Exact root capture receipts; null means capture evidence is unknown. */
+  readonly rootWorkspaceCaptures: readonly RolloutWorkspaceCapture[] | null
   /** Artifacts that were missing, in read order — the provenance of every `unavailable`. */
   readonly gaps: readonly string[]
   /** The `traces` CLI command that covers the harness-session layer for this run. */

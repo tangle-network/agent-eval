@@ -15,7 +15,7 @@
  *
  * Transcripts come from Runtime's own records too: `root-stream.jsonl` is the root's, each
  * worker's turn outputs and native-session receipt are read from the journal, and every blob
- * a record names is checked on disk (see `workerTranscripts`).
+ * a record names is checked on disk (see `nodeTranscripts`).
  *
  * The run's terminal record is Runtime's own: `result.json` is the
  * `SupervisedResult` that `supervise()` returned, verbatim, and its `kind`
@@ -36,6 +36,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { hashCanonical } from '../ledger-core/canonical'
+import type { RolloutWorkspaceCapture } from '../rollout/schema'
 import {
   NO_SOURCE_LIMITS,
   type SourceLimits,
@@ -43,7 +44,6 @@ import {
   type SupervisorRunSources,
   type WorkerLogSource,
   type WorkerNativeSession,
-  type WorkerWorkspaceCapture,
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
@@ -514,42 +514,43 @@ function blobFile(runDir: string, ref: unknown): string | null {
     : null
 }
 
-type WorkerTranscript = Pick<
+type NodeTranscript = Pick<
   WorkerLogSource,
   'transcriptRef' | 'turns' | 'nativeSession' | 'workspaceCaptures'
 >
 
-interface WorkerTranscriptFacts {
+interface NodeTranscriptFacts {
   dispatched: number
   readonly outputRefs: unknown[]
   receipt: Record<string, unknown> | null
 }
 
-async function workspaceCaptureFromOutput(
+async function workspaceCapturesFromOutput(
   runDir: string,
   ref: unknown,
-): Promise<WorkerWorkspaceCapture> {
+): Promise<RolloutWorkspaceCapture[]> {
   const outRef = typeof ref === 'string' ? ref : null
   const blobPath = blobFile(runDir, ref)
-  const missing = (projectionGap: string): WorkerWorkspaceCapture => ({
+  const missing = (projectionGap: string): RolloutWorkspaceCapture => ({
     outRef,
     blobPath,
+    receiptPointer: null,
     receipt: null,
     attempts: null,
     coverageComplete: null,
     incompleteReason: null,
     projectionGap,
   })
-  if (blobPath === null) return missing('execution-result has no valid content address')
+  if (blobPath === null) return [missing('execution-result has no valid content address')]
   if (!(await isFile(blobPath)))
-    return missing('execution-result output blob is missing or not a file')
+    return [missing('execution-result output blob is missing or not a file')]
   const raw = await readMaybe(blobPath)
-  if (raw === null) return missing('execution-result output blob is missing')
+  if (raw === null) return [missing('execution-result output blob is missing')]
   let output: unknown
   try {
     output = JSON.parse(raw)
   } catch {
-    return missing('execution-result output blob is not JSON')
+    return [missing('execution-result output blob is not JSON')]
   }
   let addressGap: string | null = null
   try {
@@ -559,13 +560,14 @@ async function workspaceCaptureFromOutput(
   } catch {
     addressGap = 'execution-result output cannot be canonically hashed'
   }
-  const rawReceipt = record(output)?.workspaceCapture ?? null
+  const project = (rawReceipt: unknown, receiptPointer: string | null): RolloutWorkspaceCapture => {
   const receipt = record(rawReceipt)
   if (receipt === null) {
     return {
       ...missing(
         `workspaceCapture receipt is absent or malformed${addressGap === null ? '' : `; ${addressGap}`}`,
       ),
+      receiptPointer,
       receipt: rawReceipt,
     }
   }
@@ -587,16 +589,42 @@ async function workspaceCaptureFromOutput(
   return {
     outRef,
     blobPath,
+    receiptPointer,
     receipt,
     attempts,
     coverageComplete,
     incompleteReason,
     projectionGap: gaps.length > 0 ? gaps.join('; ') : null,
   }
+  }
+  const result = record(output)
+  const captures: RolloutWorkspaceCapture[] = []
+  // Use the record's field order and each array's order so every retained source stays ordered.
+  for (const key of Object.keys(result ?? {})) {
+    if (key === 'workspaceCapture') {
+      captures.push(project(result?.[key], '/workspaceCapture'))
+    } else if (key === 'workspaceCaptures') {
+      const receipts = result?.[key]
+      if (Array.isArray(receipts) && receipts.length > 0) {
+        for (const [index, receipt] of receipts.entries()) {
+          captures.push(project(receipt, `/workspaceCaptures/${index}`))
+        }
+      } else {
+        captures.push({
+          ...missing(
+            `workspaceCaptures is empty or malformed${addressGap === null ? '' : `; ${addressGap}`}`,
+          ),
+          receiptPointer: '/workspaceCaptures',
+          receipt: receipts ?? null,
+        })
+      }
+    }
+  }
+  return captures.length > 0 ? captures : [project(null, null)]
 }
 
 /**
- * What Runtime retained of each worker's decisions, from its own records.
+ * What Runtime retained of each node's decisions, from its own records.
  *
  * - A turn is one `execution-admitted` event in the `dispatched` phase. Its `execution-result`
  *   names an output blob holding that turn's provider event stream (reasoning, tool calls and
@@ -609,13 +637,13 @@ async function workspaceCaptureFromOutput(
  * Blob files are checked on disk: a receipt that names a blob the directory no longer holds is
  * not a retained transcript.
  */
-async function workerTranscripts(
+async function nodeTranscripts(
   runDir: string,
   events: readonly Record<string, unknown>[],
-  workerIds: ReadonlySet<string>,
-): Promise<Map<string, WorkerTranscript>> {
-  const facts = new Map<string, WorkerTranscriptFacts>()
-  const entry = (id: string): WorkerTranscriptFacts => {
+  nodeIds: ReadonlySet<string>,
+): Promise<Map<string, NodeTranscript>> {
+  const facts = new Map<string, NodeTranscriptFacts>()
+  const entry = (id: string): NodeTranscriptFacts => {
     let found = facts.get(id)
     if (found === undefined) {
       found = { dispatched: 0, outputRefs: [], receipt: null }
@@ -625,7 +653,7 @@ async function workerTranscripts(
   }
   for (const event of events) {
     const id = nonEmptyString(event.id)
-    if (id === null || !workerIds.has(id)) continue
+    if (id === null || !nodeIds.has(id)) continue
     if (event.kind === 'execution-admitted' && record(event.admission)?.phase === 'dispatched') {
       entry(id).dispatched += 1
     } else if (event.kind === 'execution-result') {
@@ -635,14 +663,14 @@ async function workerTranscripts(
       if (receipt !== null) entry(id).receipt = receipt
     }
   }
-  const out = new Map<string, WorkerTranscript>()
+  const out = new Map<string, NodeTranscript>()
   for (const [id, fact] of facts) {
     const retained: string[] = []
-    const workspaceCaptures: WorkerWorkspaceCapture[] = []
+    const workspaceCaptures: RolloutWorkspaceCapture[] = []
     for (const ref of fact.outputRefs) {
       const file = blobFile(runDir, ref)
       if (file !== null && (await isFile(file))) retained.push(file)
-      workspaceCaptures.push(await workspaceCaptureFromOutput(runDir, ref))
+      workspaceCaptures.push(...(await workspaceCapturesFromOutput(runDir, ref)))
     }
     let nativeSession: WorkerNativeSession | null = null
     if (fact.receipt !== null) {
@@ -729,6 +757,7 @@ function absentRuntimeSupervisorRun(
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: NO_SOURCE_LIMITS,
     rootTranscriptRef: null,
+    rootWorkspaceCaptures: null,
     traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
   }
 }
@@ -782,7 +811,11 @@ export async function readRuntimeSupervisorRun(
   const workerIds = new Set(
     childSpawns.map((event) => nonEmptyString(event.id)).filter((id): id is string => id !== null),
   )
-  const transcripts = await workerTranscripts(runDir, normalized.events, workerIds)
+  const transcripts = await nodeTranscripts(
+    runDir,
+    normalized.events,
+    new Set([normalized.root, ...workerIds]),
+  )
   const workers: WorkerLogSource[] = childSpawns.map((event) => {
     const workerId = nonEmptyString(event.id) as string
     const transcript = transcripts.get(workerId)
@@ -825,6 +858,7 @@ export async function readRuntimeSupervisorRun(
     harnessMissingReason: 'Runtime FileRunContext has no external worker-token join',
     limits: sourceLimits(normalized.root, normalized.events, workerIds),
     rootTranscriptRef: (await isFile(rootStream)) ? rootStream : null,
+    rootWorkspaceCaptures: transcripts.get(normalized.root)?.workspaceCaptures ?? null,
     traceCommand: 'unavailable — Runtime FileRunContext records no provider-session trace identity',
   }
 }

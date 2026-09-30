@@ -299,6 +299,8 @@ export interface RolloutEvidenceAttempt {
 export interface RolloutWorkspaceCapture {
   readonly outRef: string | null
   readonly blobPath: string | null
+  /** JSON pointer to the receipt within its Runtime result. */
+  readonly receiptPointer: string | null
   readonly receipt: unknown | null
   readonly attempts: readonly unknown[] | null
   /** The provider's claim, not an Eval verification of the archive bytes. */
@@ -746,6 +748,7 @@ export function validateRolloutLine(value: unknown): string[] {
             !isRecord(capture) ||
             !isStringOrNull(capture.outRef) ||
             !isStringOrNull(capture.blobPath) ||
+            !isStringOrNull(capture.receiptPointer) ||
             !('receipt' in capture) ||
             (capture.attempts !== null && !Array.isArray(capture.attempts)) ||
             (capture.coverageComplete !== null && typeof capture.coverageComplete !== 'boolean') ||

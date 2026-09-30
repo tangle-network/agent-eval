@@ -52,6 +52,36 @@ Where each invariant lives:
 | native reader loss is visible | readers | Claude JSONL reports malformed lines in `gaps` and unknown token fields as `null`. OpenCode SQLite rejects malformed message or part JSON and leaves unavailable session usage as `null`. The raw source remains authoritative. |
 | scrub | release pipeline | `scrubLines` applies the 9 deterministic rules to every string before publication |
 
+## Runtime capture receipts
+
+`readRuntimeSupervisorRun()` reads each execution result in journal order.
+It verifies the result JSON against its recorded content address.
+It projects both Provider leaf receipts and Sandbox receipt arrays through one capture type.
+Array entries keep their source order.
+Each receipt keeps its JSON pointer within the result, including malformed values.
+Unknown receipt fields and attempt metadata remain unchanged.
+
+Worker receipts appear in `WorkerLogSource.workspaceCaptures` and the report's `economics.perWorker` rows.
+Director receipts appear in `SupervisorRunSources.rootWorkspaceCaptures` and the report's `rootWorkspaceCaptures`.
+`supervisorRunRolloutLines()` retains both in the corresponding node's `provenance.workspace_captures`.
+The rollout ledger preserves the same records.
+
+Each entry records the result address, local blob path, source pointer, receipt, attempts, provider coverage claim, incomplete reason, and projection gap.
+`null` marks unavailable evidence.
+Malformed values remain in `receipt`, with an explicit gap.
+Missing files and mismatched content addresses also produce gaps.
+Eval does not fetch or verify the referenced workspace archive.
+Runtime owns archive custody and verification.
+
+The provider's `coverageComplete` claim does not make a journal summary a complete transcript.
+Summary rows have `provenance.lossy_projection: true` and remain excluded from training exports.
+The rollout ledger keeps them for inspection.
+
+Attempt identity is the pair `(executionId, ordinal)`.
+Ordinals start at one and are contiguous within each execution.
+Retries share an execution ID; distinct executions can each have ordinal one.
+Validation preserves source order and rejects duplicate pairs or missing ordinals.
+
 ## Module map
 
 | concern | file | entry points |
