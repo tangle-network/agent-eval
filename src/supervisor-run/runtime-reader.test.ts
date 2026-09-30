@@ -519,7 +519,9 @@ describe('Runtime FileRunContext supervisor reader', () => {
       executionId: id,
       environmentId: `environment-${id}`,
       snapshot: { kind: 'agent-candidate-workspace-snapshot', digest: `sha256:${'3'.repeat(64)}` },
-      provenance: { attempts: [{ executionId: id, ordinal: 1, metadata: { count: 0, flag: false } }] },
+      provenance: {
+        attempts: [{ executionId: id, ordinal: 1, metadata: { count: 0, flag: false } }],
+      },
       coverageComplete: true,
     })
     const output = (id: string, plural = false) => ({
@@ -527,8 +529,10 @@ describe('Runtime FileRunContext supervisor reader', () => {
       ...(plural ? { workspaceCaptures: [capture(id)] } : { workspaceCapture: capture(id) }),
     })
     const outputs = new Map([
-      [root, output(root)], [retained, output(retained)],
-      [plain, output(plain)], [steerable, output(steerable, true)],
+      [root, output(root)],
+      [retained, output(retained)],
+      [plain, output(plain)],
+      [steerable, output(steerable, true)],
     ])
     const refs = new Map<string, string>()
     await mkdir(join(runDir, 'blobs'), { recursive: true })
@@ -540,38 +544,85 @@ describe('Runtime FileRunContext supervisor reader', () => {
     const rows = [
       begin(root, 0),
       event(root, { kind: 'spawned', id: root, label: 'director', seq: 0, at: at(0) }),
-      ...[retained, plain, steerable].map((id, index) => event(root, {
-        kind: 'spawned', id, parent: root, label: id, runtime: 'provider', seq: 0, at: at(index + 1),
-      })),
-      event(root, { kind: 'execution-result', id: root, outRef: refs.get(root), seq: 1, at: at(4) }),
-      event(root, { kind: 'execution-result', id: retained, outRef: refs.get(retained), seq: 1, at: at(5) }),
+      ...[retained, plain, steerable].map((id, index) =>
+        event(root, {
+          kind: 'spawned',
+          id,
+          parent: root,
+          label: id,
+          runtime: 'provider',
+          seq: 0,
+          at: at(index + 1),
+        }),
+      ),
+      event(root, {
+        kind: 'execution-result',
+        id: root,
+        outRef: refs.get(root),
+        seq: 1,
+        at: at(4),
+      }),
+      event(root, {
+        kind: 'execution-result',
+        id: retained,
+        outRef: refs.get(retained),
+        seq: 1,
+        at: at(5),
+      }),
     ]
     await writeJournal(runDir, rows)
     const active = await readRuntimeSupervisorRun(runDir)
     expect(active.rootWorkspaceCaptures?.[0]?.receipt).toEqual(capture(root))
-    expect(active.workers?.find((worker) => worker.workerId === retained)?.workspaceCaptures)
-      .toHaveLength(1)
-    expect(active.workers?.find((worker) => worker.workerId === plain)?.workspaceCaptures).toBeNull()
+    expect(
+      active.workers?.find((worker) => worker.workerId === retained)?.workspaceCaptures,
+    ).toHaveLength(1)
+    expect(
+      active.workers?.find((worker) => worker.workerId === plain)?.workspaceCaptures,
+    ).toBeNull()
 
     rows.push(
-      event(root, { kind: 'settled', id: plain, status: 'done', outRef: refs.get(plain), seq: 1, at: at(6) }),
-      event(root, { kind: 'cancelled', id: steerable, reason: 'stopped after capture', outRef: refs.get(steerable), seq: 1, at: at(7) }),
-      event(root, { kind: 'settled', id: retained, status: 'done', outRef: refs.get(retained), seq: 2, at: at(8) }),
+      event(root, {
+        kind: 'settled',
+        id: plain,
+        status: 'done',
+        outRef: refs.get(plain),
+        seq: 1,
+        at: at(6),
+      }),
+      event(root, {
+        kind: 'cancelled',
+        id: steerable,
+        reason: 'stopped after capture',
+        outRef: refs.get(steerable),
+        seq: 1,
+        at: at(7),
+      }),
+      event(root, {
+        kind: 'settled',
+        id: retained,
+        status: 'done',
+        outRef: refs.get(retained),
+        seq: 2,
+        at: at(8),
+      }),
     )
     await writeJournal(runDir, rows)
     const settled = await readRuntimeSupervisorRun(runDir)
     const report = await analyzeSupervisorRun(runDir)
     const tree = supervisorRunRolloutLines(settled, { capturedAt: at(10) })
     expect(settled.workers?.map((worker) => worker.workspaceCaptures?.length)).toEqual([1, 1, 1])
-    expect(settled.workers?.find((worker) => worker.workerId === steerable)?.workspaceCaptures?.[0])
-      .toMatchObject({ receipt: capture(steerable), receiptPointer: '/workspaceCaptures/0' })
+    expect(
+      settled.workers?.find((worker) => worker.workerId === steerable)?.workspaceCaptures?.[0],
+    ).toMatchObject({ receipt: capture(steerable), receiptPointer: '/workspaceCaptures/0' })
     expect(settled.workers?.find((worker) => worker.workerId === plain)?.turns?.retained).toBe(0)
     expect(settled.workers?.find((worker) => worker.workerId === retained)?.turns?.retained).toBe(1)
     expect(report.rootWorkspaceCaptures).toEqual(settled.rootWorkspaceCaptures)
     const ledger = join(runDir, 'terminal-output-ledger.jsonl')
     await writeRolloutLedger(ledger, [...tree.nodes])
     const retainedRows = await readRolloutJournal(ledger)
-    expect(retainedRows.map((row) => row.provenance.workspace_captures?.length)).toEqual([1, 1, 1, 1])
+    expect(retainedRows.map((row) => row.provenance.workspace_captures?.length)).toEqual([
+      1, 1, 1, 1,
+    ])
     expect(retainedRows.every((row) => row.provenance.lossy_projection === true)).toBe(true)
   })
 

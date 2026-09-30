@@ -543,8 +543,7 @@ async function workspaceCapturesFromOutput(
     projectionGap,
   })
   if (blobPath === null) return [missing('Runtime output has no valid content address')]
-  if (!(await isFile(blobPath)))
-    return [missing('Runtime output blob is missing or not a file')]
+  if (!(await isFile(blobPath))) return [missing('Runtime output blob is missing or not a file')]
   const raw = await readMaybe(blobPath)
   if (raw === null) return [missing('Runtime output blob is missing')]
   let output: unknown
