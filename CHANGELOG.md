@@ -4,6 +4,10 @@ All notable changes to `@tangle-network/agent-eval` and its sibling `agent-eval-
 
 ---
 
+## [0.203.0] — 2026-09-30
+
+- fix(capture): retain all runtime receipts and attempt identity (#903)
+
 ## [0.202.2] — 2026-09-29
 
 - fix(rollout): preserve attempt evidence and mark lossy projections (#900)
