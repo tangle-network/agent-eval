@@ -1,0 +1,34 @@
+name: Jev client qualification workspace
+on:
+  push:
+    branches: [delivery/jev-client-qualification-20260930]
+    paths: [.github/workflows/jev-client-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 64aeaf8683fff99bd9c99905d20a3ba1dea22717
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install the unchanged lockfile and capture only source and dependencies
+        run: |
+          set -eu
+          pnpm install --frozen-lockfile
+          mkdir -p /tmp/jev-client-qualification
+          git rev-parse HEAD > /tmp/jev-client-qualification/revision.txt
+          git archive --format=tar.gz HEAD > /tmp/jev-client-qualification/source.tgz
+          tar -czf /tmp/jev-client-qualification/dependencies.tgz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jev-client-qualification
+          path: /tmp/jev-client-qualification
+          retention-days: 2
+          if-no-files-found: error
