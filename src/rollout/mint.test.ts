@@ -1,9 +1,13 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../errors'
 import type { RunRecord } from '../run-record'
 import type { LlmSpan, ToolSpan } from '../trace/schema'
 import { InMemoryTraceStore } from '../trace/store'
 import { toRewardRows, toRftItem, toSftRows, toVerifiersRolloutOutput } from './exporters'
+import { readRolloutLedger, writeRolloutLedger } from './ledger'
 import { mintRolloutRows, unmintableReasons } from './mint'
 import { validateRolloutLine } from './schema'
 
@@ -123,11 +127,20 @@ describe('mintRolloutRows', () => {
         missingReasons: [] as string[],
       },
       {
-        executionId: 'exec-2',
+        executionId: 'exec-1',
         ordinal: 2,
-        providerSessionId: 'provider-2',
+        providerSessionId: 'provider-1',
         nativeSessionIds: ['native-2'],
         processIds: ['process-2'],
+        outcome: 'failed' as const,
+        missingReasons: [] as string[],
+      },
+      {
+        executionId: 'exec-2',
+        ordinal: 1,
+        providerSessionId: 'provider-2',
+        nativeSessionIds: ['native-3'],
+        processIds: ['process-3'],
         outcome: 'succeeded' as const,
         missingReasons: ['one child transcript unavailable'],
       },
@@ -140,6 +153,80 @@ describe('mintRolloutRows', () => {
     expect(rows[0]!.provenance.attempts).toEqual(attempts)
     expect(rows[0]!.provenance.gap).toContain('last LLM context')
     expect(rows[0]!.provenance.gap).toContain('one child transcript unavailable')
+  })
+
+  it('keeps retry identity and inventory order through public mint, write, and read', async () => {
+    const attempts = [
+      {
+        executionId: 'sidecar-exec-1',
+        ordinal: 1,
+        providerSessionId: 'backend-session-1',
+        nativeSessionIds: ['native-1'],
+        processIds: ['process-1'],
+        outcome: 'failed' as const,
+        missingReasons: [],
+      },
+      {
+        executionId: 'sidecar-exec-2',
+        ordinal: 1,
+        providerSessionId: 'backend-session-2',
+        nativeSessionIds: ['native-2'],
+        processIds: ['process-2'],
+        outcome: 'succeeded' as const,
+        missingReasons: [],
+      },
+      {
+        executionId: 'sidecar-exec-1',
+        ordinal: 2,
+        providerSessionId: 'backend-session-1',
+        nativeSessionIds: ['native-3'],
+        processIds: ['process-3'],
+        outcome: 'failed' as const,
+        missingReasons: [],
+      },
+    ]
+    const { rows } = await mintRolloutRows([record()], await seededStore(), {
+      evidenceOf: () => ({ runId: 'run-1', attempts }),
+      messagesOf: () => [
+        { role: 'user', content: 'Start the task.' },
+        { role: 'assistant', content: 'Task complete.' },
+      ],
+    })
+    expect(rows[0]!.provenance.attempts).toEqual(attempts)
+    expect(rows[0]!.provenance.lossy_projection).toBeUndefined()
+    expect(validateRolloutLine(rows[0]!)).toEqual([])
+
+    const dir = await mkdtemp(join(tmpdir(), 'rollout-attempts-'))
+    try {
+      const path = join(dir, 'rollouts.jsonl')
+      await writeRolloutLedger(path, rows)
+      const read = await readRolloutLedger(path)
+      expect(read[0]!.provenance.attempts).toEqual(attempts)
+      expect(read).toEqual(rows)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+
+    const duplicate = {
+      ...rows[0]!,
+      provenance: {
+        ...rows[0]!.provenance,
+        attempts: [...attempts, { ...attempts[0] }],
+      },
+    }
+    expect(validateRolloutLine(duplicate)).toContain(
+      'provenance.attempts[3]: duplicate execution/ordinal',
+    )
+    const missingOrdinal = {
+      ...rows[0]!,
+      provenance: {
+        ...rows[0]!.provenance,
+        attempts: [{ ...attempts[0], ordinal: 2 }, attempts[1]!],
+      },
+    }
+    expect(validateRolloutLine(missingOrdinal)).toContain(
+      'provenance.attempts: sidecar-exec-1 is missing ordinal 1',
+    )
   })
 
   it('redacts attempt diagnostics without changing opaque ids or the receipt', async () => {

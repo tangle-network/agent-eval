@@ -11,8 +11,9 @@
  * in its harness store (opencode sqlite, Claude Code jsonl), which the
  * `src/rollout/readers/*` intake readers own. Rows minted here are therefore
  * GAP lines (`messages: []`, `provenance.gap` set) carrying identity,
- * structure, outcome and cost; hydrating them with messages is the readers'
- * job, keyed on `artifacts.transcript_ref`.
+ * structure, outcome and cost. Runtime workspace receipts remain attached in
+ * `provenance.workspace_captures`; their archives stay at the recorded refs.
+ * Hydrating messages is the intake readers' job, keyed on `artifacts.transcript_ref`.
  *
  * Timing lives in `outcome.metrics` (`spawned_at` / `settled_at` / `wall_ms`)
  * rather than a schema field: `tangle.rollout.v1` describes ONE invocation,
@@ -259,6 +260,7 @@ export function supervisorRunRolloutLinesFromFacts(
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
+        lossy_projection: true,
         gap:
           src.rootTranscriptRef == null
             ? 'supervision journal carries structure and spend, not the brain transcript'
@@ -310,6 +312,39 @@ export function supervisorRunRolloutLinesFromFacts(
       })
     }
     const isSupervisor = spawn.role === 'supervisor'
+    const captures = workerSource?.workspaceCaptures
+    if (captures === null || captures?.length === 0) {
+      gaps.push({
+        code: 'workspace-capture-unavailable',
+        message: `child ${JSON.stringify(spawn.label)} has no execution-result capture evidence`,
+        nodeId: spawn.id,
+      })
+    } else if (captures !== undefined) {
+      for (const [index, capture] of captures.entries()) {
+        const reason =
+          capture.projectionGap ??
+          (capture.coverageComplete === false
+            ? (capture.incompleteReason ?? 'provider reported incomplete coverage')
+            : capture.coverageComplete === null
+              ? 'capture coverage was not recorded'
+              : null)
+        if (reason !== null) {
+          gaps.push({
+            code: 'workspace-capture-incomplete',
+            message: `child ${JSON.stringify(spawn.label)} result ${index + 1}: ${reason}`,
+            nodeId: spawn.id,
+          })
+        }
+      }
+    }
+    const captureGap =
+      captures === null || captures?.length === 0
+        ? 'workspace capture evidence unavailable'
+        : captures?.some(
+              (capture) => capture.projectionGap !== null || capture.coverageComplete !== true,
+            )
+          ? 'workspace capture evidence incomplete'
+          : null
     nodes.push({
       ...base,
       rollout_id: spawn.id,
@@ -394,10 +429,16 @@ export function supervisorRunRolloutLinesFromFacts(
       provenance: {
         captured_at: capturedAt,
         capture: 'backfill',
-        gap:
+        lossy_projection: true,
+        ...(captures === undefined ? {} : { workspace_captures: captures }),
+        gap: [
           workerSource?.transcriptRef == null
             ? 'no worker transcript was retained; messages unavailable'
             : 'worker transcript retained by reference; messages not inlined into this row',
+          captureGap,
+        ]
+          .filter((reason): reason is string => reason !== null)
+          .join('; '),
       },
     })
   }

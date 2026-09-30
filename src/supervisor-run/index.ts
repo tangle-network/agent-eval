@@ -112,4 +112,5 @@ export {
   type WorkerLogSource,
   type WorkerNativeSession,
   type WorkerTurnCoverage,
+  type WorkerWorkspaceCapture,
 } from './types'

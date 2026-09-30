@@ -24,7 +24,7 @@
  * opposite conclusions about the same architecture, so they never collapse.
  */
 
-import type { RolloutLine } from '../rollout/schema'
+import type { RolloutLine, RolloutWorkspaceCapture } from '../rollout/schema'
 import type { SeriesDistribution } from '../statistics'
 
 // ---------------------------------------------------------------------------
@@ -72,6 +72,9 @@ export type WorkerNativeSession =
   | { readonly status: 'available'; readonly ref: string }
   | { readonly status: 'unavailable'; readonly reason: string }
 
+/** One Runtime execution result's capture receipt, in journal order. */
+export type WorkerWorkspaceCapture = RolloutWorkspaceCapture
+
 /**
  * One worker's logs, as read. `null` means the artifact did not exist; `''`
  * means the artifact was captured and contained no rows.
@@ -104,6 +107,8 @@ export interface WorkerLogSource {
    * store kept no receipt for this worker.
    */
   readonly nativeSession?: WorkerNativeSession | null
+  /** One entry per Runtime execution result. Null means no result; absent means this reader has no channel. */
+  readonly workspaceCaptures?: readonly WorkerWorkspaceCapture[] | null
   /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
   readonly patchPath?: string | null
   /** This worker's own inference tokens, when the store records them per worker. */
@@ -369,6 +374,8 @@ export interface PerWorkerRow {
   readonly passed: boolean | null
   /** Numeric verdict score exactly as recorded; null means no score was recorded. */
   readonly score: number | null
+  /** Exact Runtime capture receipts in journal order; null means capture evidence is unknown. */
+  readonly workspaceCaptures: readonly WorkerWorkspaceCapture[] | null
 }
 
 /**
@@ -619,6 +626,8 @@ export type SupervisorRunTreeGapCode =
   | 'root-reward-unavailable'
   | 'child-reward-unavailable'
   | 'node-role-unavailable'
+  | 'workspace-capture-unavailable'
+  | 'workspace-capture-incomplete'
   | 'node-schema-invalid'
 
 export interface SupervisorRunTreeGap {

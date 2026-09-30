@@ -35,6 +35,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { hashCanonical } from '../ledger-core/canonical'
 import {
   NO_SOURCE_LIMITS,
   type SourceLimits,
@@ -42,6 +43,7 @@ import {
   type SupervisorRunSources,
   type WorkerLogSource,
   type WorkerNativeSession,
+  type WorkerWorkspaceCapture,
 } from './types'
 
 const JOURNAL_FILE = 'spawn-journal.jsonl'
@@ -512,12 +514,85 @@ function blobFile(runDir: string, ref: unknown): string | null {
     : null
 }
 
-type WorkerTranscript = Pick<WorkerLogSource, 'transcriptRef' | 'turns' | 'nativeSession'>
+type WorkerTranscript = Pick<
+  WorkerLogSource,
+  'transcriptRef' | 'turns' | 'nativeSession' | 'workspaceCaptures'
+>
 
 interface WorkerTranscriptFacts {
   dispatched: number
-  readonly outputFiles: string[]
+  readonly outputRefs: unknown[]
   receipt: Record<string, unknown> | null
+}
+
+async function workspaceCaptureFromOutput(
+  runDir: string,
+  ref: unknown,
+): Promise<WorkerWorkspaceCapture> {
+  const outRef = typeof ref === 'string' ? ref : null
+  const blobPath = blobFile(runDir, ref)
+  const missing = (projectionGap: string): WorkerWorkspaceCapture => ({
+    outRef,
+    blobPath,
+    receipt: null,
+    attempts: null,
+    coverageComplete: null,
+    incompleteReason: null,
+    projectionGap,
+  })
+  if (blobPath === null) return missing('execution-result has no valid content address')
+  if (!(await isFile(blobPath)))
+    return missing('execution-result output blob is missing or not a file')
+  const raw = await readMaybe(blobPath)
+  if (raw === null) return missing('execution-result output blob is missing')
+  let output: unknown
+  try {
+    output = JSON.parse(raw)
+  } catch {
+    return missing('execution-result output blob is not JSON')
+  }
+  let addressGap: string | null = null
+  try {
+    if (hashCanonical(output) !== outRef) {
+      addressGap = 'execution-result content address does not match output blob'
+    }
+  } catch {
+    addressGap = 'execution-result output cannot be canonically hashed'
+  }
+  const rawReceipt = record(output)?.workspaceCapture ?? null
+  const receipt = record(rawReceipt)
+  if (receipt === null) {
+    return {
+      ...missing(
+        `workspaceCapture receipt is absent or malformed${addressGap === null ? '' : `; ${addressGap}`}`,
+      ),
+      receipt: rawReceipt,
+    }
+  }
+  const provenance = record(receipt.provenance)
+  const attempts = Array.isArray(provenance?.attempts) ? provenance.attempts : null
+  const coverageComplete =
+    typeof receipt.coverageComplete === 'boolean' ? receipt.coverageComplete : null
+  const incompleteReason =
+    typeof receipt.incompleteReason === 'string' ? receipt.incompleteReason : null
+  const gaps: string[] = []
+  if (addressGap !== null) gaps.push(addressGap)
+  if (coverageComplete === null) gaps.push('workspaceCapture.coverageComplete is absent')
+  if (record(receipt.snapshot) === null) gaps.push('workspaceCapture.snapshot is absent')
+  if (provenance === null) gaps.push('workspaceCapture.provenance is absent')
+  if (attempts === null) gaps.push('workspaceCapture.provenance.attempts is absent')
+  else if (attempts.length === 0 || attempts.some((attempt) => record(attempt) === null)) {
+    gaps.push('workspaceCapture.provenance.attempts is empty or malformed')
+  }
+  return {
+    outRef,
+    blobPath,
+    receipt,
+    attempts,
+    coverageComplete,
+    incompleteReason,
+    projectionGap: gaps.length > 0 ? gaps.join('; ') : null,
+  }
 }
 
 /**
@@ -543,7 +618,7 @@ async function workerTranscripts(
   const entry = (id: string): WorkerTranscriptFacts => {
     let found = facts.get(id)
     if (found === undefined) {
-      found = { dispatched: 0, outputFiles: [], receipt: null }
+      found = { dispatched: 0, outputRefs: [], receipt: null }
       facts.set(id, found)
     }
     return found
@@ -554,8 +629,7 @@ async function workerTranscripts(
     if (event.kind === 'execution-admitted' && record(event.admission)?.phase === 'dispatched') {
       entry(id).dispatched += 1
     } else if (event.kind === 'execution-result') {
-      const file = blobFile(runDir, event.outRef)
-      if (file !== null) entry(id).outputFiles.push(file)
+      entry(id).outputRefs.push(event.outRef)
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       const receipt = record(event.harnessTranscript)
       if (receipt !== null) entry(id).receipt = receipt
@@ -564,7 +638,12 @@ async function workerTranscripts(
   const out = new Map<string, WorkerTranscript>()
   for (const [id, fact] of facts) {
     const retained: string[] = []
-    for (const file of fact.outputFiles) if (await isFile(file)) retained.push(file)
+    const workspaceCaptures: WorkerWorkspaceCapture[] = []
+    for (const ref of fact.outputRefs) {
+      const file = blobFile(runDir, ref)
+      if (file !== null && (await isFile(file))) retained.push(file)
+      workspaceCaptures.push(await workspaceCaptureFromOutput(runDir, ref))
+    }
     let nativeSession: WorkerNativeSession | null = null
     if (fact.receipt !== null) {
       if (fact.receipt.status === 'available') {
@@ -586,6 +665,7 @@ async function workerTranscripts(
         nativeSession?.status === 'available' ? nativeSession.ref : (retained.at(-1) ?? null),
       turns: { dispatched: fact.dispatched, retained: retained.length },
       nativeSession,
+      workspaceCaptures: workspaceCaptures.length > 0 ? workspaceCaptures : null,
     })
   }
   return out
@@ -715,6 +795,7 @@ export async function readRuntimeSupervisorRun(
       transcriptRef: transcript?.transcriptRef ?? null,
       turns: transcript?.turns ?? { dispatched: 0, retained: 0 },
       nativeSession: transcript?.nativeSession ?? null,
+      workspaceCaptures: transcript?.workspaceCaptures ?? null,
       patchPath: null,
     }
   })
