@@ -10,8 +10,8 @@
  *
  *   - **`httpDispatch({ url | resolveUrl, ... })`** — client. Returns a
  *     `Dispatch` that POSTs `{ scenario, ctx }` to a worker URL and parses
- *     the artifact back. AbortSignal-aware, retries on idempotent errors,
- *     bounded timeout per call.
+ *     the artifact back. AbortSignal-aware, one attempt by default,
+ *     bounded timeout per call. Explicit retries require worker-owned replay.
  *   - **`runDispatchServer({ dispatch, port, ... })`** — server. Wraps your
  *     local `Dispatch` as an HTTP endpoint. Handles auth, JSON parsing,
  *     error mapping, and cancellation when the client aborts.
@@ -26,9 +26,11 @@
  * local dispatch uses. A remote cell's spend therefore reaches the
  * coordinator's `CostLedger` — its summary, its cost ceiling, its
  * `CampaignCellResult.costUsd` — exactly like an in-process cell's does.
- * A worker with no `contextFactory` (or one that never touches `ctx.cost`)
- * sends no receipts, and the coordinator sees the cell as free, same as
- * today.
+ * The worker must authorize and bound spend before executing; importing its
+ * receipts cannot retroactively enforce the coordinator's ceiling.
+ * Paid work requires a real `contextFactory` cost meter. An empty receipt
+ * list does not establish free execution: the host must require usage evidence
+ * and reconcile the worker ledger when a client disconnects before delivery.
  *
  * # Topology examples
  *
@@ -70,7 +72,12 @@ export interface HttpDispatchOptions<TScenario extends Scenario, _TArtifact> {
   headers?: Record<string, string>
   /** Per-call timeout in ms. Default 5 minutes. */
   timeoutMs?: number
-  /** How many idempotent retries on 5xx / network errors. Default 2. */
+  /**
+   * Additional transport attempts. Default 0: a lost response does not prove
+   * the worker did no work. Set a positive value only when the worker durably
+   * deduplicates this runAttemptId/cellId and its external effects.
+   * 4xx (except 408/429), decoding and receipt-settlement failures are terminal.
+   */
   retries?: number
   /** Optional fetch override (auth wrappers, custom agent, mocks). */
   fetchImpl?: typeof fetch
@@ -99,7 +106,9 @@ export interface HttpDispatchResponseBody<TArtifact> {
   receipts?: CostReceipt[]
 }
 
-function resolveAuth(auth: HttpDispatchOptions<Scenario, unknown>['auth']): Promise<string | null> {
+function resolveAuth(
+  auth: HttpDispatchOptions<Scenario, unknown>['auth'],
+): Promise<string | null> {
   if (!auth) return Promise.resolve(null)
   if (typeof auth === 'string') return Promise.resolve(auth)
   return Promise.resolve(auth())
@@ -111,7 +120,8 @@ function resolveAuth(auth: HttpDispatchOptions<Scenario, unknown>['auth']): Prom
  *
  * Cancellation: the substrate's per-cell `AbortSignal` is forwarded; the
  * server's `runDispatchServer` translates the resulting `AbortError` into
- * a 499 (client-closed) so the client doesn't retry.
+ * a 499 (client-closed) so the client doesn't retry. The server is a transport,
+ * not a durable deduplication owner; its default Dispatch may have side effects.
  */
 export function httpDispatch<TScenario extends Scenario, TArtifact>(
   opts: HttpDispatchOptions<TScenario, TArtifact>,
@@ -123,13 +133,15 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
     throw new Error('httpDispatch: pass exactly one of `url` or `resolveUrl`, not both.')
   }
   const timeoutMs = opts.timeoutMs ?? 5 * 60 * 1000
-  const maxRetries = opts.retries ?? 2
+  const maxRetries = opts.retries ?? 0
+  if (!Number.isSafeInteger(maxRetries) || maxRetries < 0)
+    throw new Error('httpDispatch: retries must be a non-negative safe integer.')
   const f: typeof fetch = opts.fetchImpl ?? ((...args) => fetch(...args))
 
   return async (scenario, ctx) => {
+    ctx.signal.throwIfAborted()
     const url =
       opts.url ?? opts.resolveUrl!({ scenario, placement: ctx.placement, cellId: ctx.cellId })
-    const authValue = await resolveAuth(opts.auth)
     const body: HttpDispatchRequestBody<TScenario> = {
       scenario,
       cellId: ctx.cellId,
@@ -141,13 +153,16 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
       cycleId: ctx.cycleId,
     }
 
-    let lastError: unknown
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      // Compose the request signal: caller's signal OR our timeout.
-      const ourTimeout = AbortSignal.timeout(timeoutMs)
-      const combinedSignal = AbortSignal.any([ctx.signal, ourTimeout])
+    const encodedBody = JSON.stringify(body)
+    const authValue = await resolveAuth(opts.auth)
+    for (let attempt = 0; ; attempt++) {
+      ctx.signal.throwIfAborted()
+      const combinedSignal = AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)])
+      let res: Response
+      // Only a fetch failure can enter this catch. Parsing, receipt settlement
+      // and deliberate HTTP refusals must never repeat remote execution.
       try {
-        const res = await f(url, {
+        res = await f(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -160,52 +175,48 @@ export function httpDispatch<TScenario extends Scenario, TArtifact>(
               : {}),
             ...opts.headers,
           },
-          body: JSON.stringify(body),
+          body: encodedBody,
           signal: combinedSignal,
         })
-        if (!res.ok) {
-          const text = await res.text().catch(() => '')
-          // A dispatch that pays for part of its work before failing (a judge
-          // call that settles, then the provider call itself errors) still
-          // owes that spend to the coordinator's ledger — read it before
-          // deciding whether this attempt retries or this cell fails. A
-          // non-JSON error body (401/404/413's plain text) carries none.
-          for (const receipt of parseErrorReceipts(text)) {
-            await replayReceipt(ctx.cost, receipt)
-          }
-          // 4xx is non-retryable (caller error, auth, bad scenario shape).
-          // 5xx / 408 / 429 / 502 / 503 / 504 are retryable.
-          const retryable = res.status >= 500 || res.status === 408 || res.status === 429
-          if (!retryable || attempt === maxRetries) {
-            throw new Error(`httpDispatch ${url} failed (${res.status}): ${text.slice(0, 500)}`)
-          }
-          // exponential backoff with jitter
-          await sleep(2 ** attempt * 200 + Math.random() * 200)
-          continue
-        }
-        const parsed = (await res.json()) as HttpDispatchResponseBody<TArtifact>
-        for (const receipt of parsed.receipts ?? []) {
-          await replayReceipt(ctx.cost, receipt)
-        }
-        return parsed.artifact
       } catch (err) {
-        // Caller-driven abort is terminal — never retry.
-        if (ctx.signal.aborted) throw err
-        lastError = err
-        if (attempt === maxRetries) throw err
-        await sleep(2 ** attempt * 200 + Math.random() * 200)
+        if (ctx.signal.aborted || attempt >= maxRetries) throw err
+        await sleep(2 ** attempt * 200 + Math.random() * 200, ctx.signal)
+        continue
       }
+
+      if (res.ok) {
+        const parsed = (await res.json()) as HttpDispatchResponseBody<TArtifact>
+        for (const receipt of parsed?.receipts ?? []) await replayReceipt(ctx.cost, receipt)
+        if (!parsed || typeof parsed !== 'object' || !Object.hasOwn(parsed, 'artifact'))
+          throw new Error('httpDispatch: response is missing its artifact.')
+        return parsed.artifact
+      }
+
+      const text = await res.text()
+      // Partial spend is still spend. Account for it before surfacing the
+      // failure, outside the transport retry catch.
+      const receipts = parseErrorReceipts(text)
+      for (const receipt of receipts) await replayReceipt(ctx.cost, receipt)
+      const retryable = res.status >= 500 || res.status === 408 || res.status === 429
+      if (!retryable || receipts.length > 0 || attempt >= maxRetries)
+        throw new Error(`httpDispatch ${url} failed (${res.status}): ${text.slice(0, 500)}`)
+      await sleep(2 ** attempt * 200 + Math.random() * 200, ctx.signal)
     }
-    throw lastError ?? new Error('httpDispatch exhausted retries')
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
-    // Don't keep node process alive purely for backoff sleeps.
-    if (typeof (t as { unref?: () => void }).unref === 'function')
-      (t as { unref: () => void }).unref()
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -241,7 +252,9 @@ async function replayReceipt(cost: CampaignCostMeter, receipt: CostReceipt): Pro
     model: receipt.model,
     inputTokens: receipt.inputTokens,
     outputTokens: receipt.outputTokens,
-    ...(receipt.reasoningTokens === undefined ? {} : { reasoningTokens: receipt.reasoningTokens }),
+    ...(receipt.reasoningTokens === undefined
+      ? {}
+      : { reasoningTokens: receipt.reasoningTokens }),
     ...(receipt.cachedTokens === undefined ? {} : { cachedTokens: receipt.cachedTokens }),
     ...(receipt.cacheWriteTokens === undefined
       ? {}
@@ -422,7 +435,7 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
             cycleId: body.cycleId,
             trace: NOOP_TRACE,
             artifacts: NOOP_ARTIFACTS,
-            cost: NOOP_COST,
+            cost: UNCONFIGURED_COST,
           }
       if (ctx.runAttemptId !== body.runAttemptId) {
         throw new Error('runDispatchServer: contextFactory must preserve request runAttemptId')
@@ -452,13 +465,9 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
       success = true
     } catch (err) {
       errCaught = err
-      // Client-cancelled — they don't care about the result.
-      if ((err as Error)?.name === 'AbortError') {
-        res.statusCode = 499
-        res.end('client aborted')
-        return
-      }
-      res.statusCode = 500
+      // Cancellation does not erase work that was already charged. A client
+      // that can still read this response receives the same complete receipts.
+      res.statusCode = (err as Error)?.name === 'AbortError' ? 499 : 500
       res.setHeader('content-type', 'application/json')
       res.end(
         JSON.stringify({
@@ -493,7 +502,7 @@ export async function runDispatchServer<TScenario extends Scenario, TArtifact>(
   }
 }
 
-// ── No-op default ctx machinery (worker can replace via contextFactory) ──
+// ── Defaults for deterministic work; paid work needs a real context ──
 
 const NOOP_TRACE = {
   span: () => ({
@@ -511,7 +520,8 @@ const NOOP_ARTIFACTS = {
   list: async () => [],
 } as unknown as DispatchContext['artifacts']
 
-const NOOP_COST = {
-  record: () => {},
-  total: () => 0,
-} as unknown as DispatchContext['cost']
+const UNCONFIGURED_COST: CampaignCostMeter = {
+  async runPaidCall() {
+    throw new Error('runDispatchServer: paid work requires a contextFactory cost meter.')
+  },
+}
