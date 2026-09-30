@@ -4,31 +4,71 @@ on:
     branches: [delivery/jev-client-qualification-20260930]
     paths: [.github/workflows/jev-client-qualification.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  capture:
+  import:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 64aeaf8683fff99bd9c99905d20a3ba1dea22717
+          ref: ${{ github.sha }}
+          path: delivery
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7
         with:
-          node-version: 22
-      - name: Install the unchanged lockfile and capture only source and dependencies
+          ref: 64aeaf8683fff99bd9c99905d20a3ba1dea22717
+          path: source
+          persist-credentials: false
+      - name: Verify candidate bytes and upload immutable Git objects only
+        working-directory: source
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          pnpm install --frozen-lockfile
-          mkdir -p /tmp/jev-client-qualification
-          git rev-parse HEAD > /tmp/jev-client-qualification/revision.txt
-          git archive --format=tar.gz HEAD > /tmp/jev-client-qualification/source.tgz
-          tar -czf /tmp/jev-client-qualification/dependencies.tgz node_modules
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, urllib.request
+          base = '64aeaf8683fff99bd9c99905d20a3ba1dea22717'
+          patch = pathlib.Path('../delivery/.delivery/llm-lifetime.patch')
+          assert hashlib.sha256(patch.read_bytes()).hexdigest() == '8be8149eb26c7ddfeedf6544dfd2c8b932fd82d669ad2b7d8ed5531b15c2db97'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert git('rev-parse', 'HEAD') == base
+          subprocess.run(['git', 'apply', '--index', str(patch)], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          expected = {
+              'docs/changes/shared-model-request-lifetime.md': '73fc66d57d2a364567a1e218ce780e13795ea05d',
+              'src/analyst/benchmark-implementation.ts': '28fcb70f52c9d993f1553d53d75b7e344458be50',
+              'src/llm-client.test.ts': '845331508fee74cf081261b0bad9c8d2bc2b84b8',
+              'src/llm-client.ts': '10fc243cf4e5a4514f7dd851d1e149c7a293de94',
+              'tests/llm-physical-attempts.test.ts': '77af5246769925c23879d06ccd16047439278259',
+          }
+          assert sorted(git('diff', '--cached', '--name-only').splitlines()) == sorted(expected)
+          for path, sha in expected.items():
+              assert git('hash-object', path) == sha, path
+          def api(path, value):
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/tangle-network/agent-eval/' + path,
+                  data=json.dumps(value).encode(), method='POST',
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json',
+                           'Content-Type': 'application/json'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          elements = []
+          for path, sha in expected.items():
+              blob = api('git/blobs', {'content': pathlib.Path(path).read_text(), 'encoding': 'utf-8'})
+              assert blob['sha'] == sha, path
+              elements.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': sha})
+          tree = api('git/trees', {'base_tree': git('rev-parse', 'HEAD^{tree}'), 'tree': elements})
+          assert tree['sha'] == git('write-tree')
+          result = {'base': base, 'tree': tree['sha'], 'files': expected,
+                    'executedCandidateCode': False, 'updatedRefs': False}
+          pathlib.Path('/tmp/jev-client-import.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result, indent=2))
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: jev-client-qualification
-          path: /tmp/jev-client-qualification
+          name: jev-client-import
+          path: /tmp/jev-client-import.json
           retention-days: 2
           if-no-files-found: error
