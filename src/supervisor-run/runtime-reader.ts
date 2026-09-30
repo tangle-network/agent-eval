@@ -521,7 +521,8 @@ type NodeTranscript = Pick<
 
 interface NodeTranscriptFacts {
   dispatched: number
-  readonly outputRefs: unknown[]
+  readonly outputRefs: { value: unknown; turn: boolean }[]
+  readonly outputPositions: Map<string, number>
   receipt: Record<string, unknown> | null
 }
 
@@ -541,24 +542,24 @@ async function workspaceCapturesFromOutput(
     incompleteReason: null,
     projectionGap,
   })
-  if (blobPath === null) return [missing('execution-result has no valid content address')]
+  if (blobPath === null) return [missing('Runtime output has no valid content address')]
   if (!(await isFile(blobPath)))
-    return [missing('execution-result output blob is missing or not a file')]
+    return [missing('Runtime output blob is missing or not a file')]
   const raw = await readMaybe(blobPath)
-  if (raw === null) return [missing('execution-result output blob is missing')]
+  if (raw === null) return [missing('Runtime output blob is missing')]
   let output: unknown
   try {
     output = JSON.parse(raw)
   } catch {
-    return [missing('execution-result output blob is not JSON')]
+    return [missing('Runtime output blob is not JSON')]
   }
   let addressGap: string | null = null
   try {
     if (hashCanonical(output) !== outRef) {
-      addressGap = 'execution-result content address does not match output blob'
+      addressGap = 'Runtime output content address does not match output blob'
     }
   } catch {
-    addressGap = 'execution-result output cannot be canonically hashed'
+    addressGap = 'Runtime output cannot be canonically hashed'
   }
   const project = (rawReceipt: unknown, receiptPointer: string | null): RolloutWorkspaceCapture => {
     const receipt = record(rawReceipt)
@@ -630,6 +631,8 @@ async function workspaceCapturesFromOutput(
  *   names an output blob holding that turn's provider event stream (reasoning, tool calls and
  *   results as the harness reported them). A dispatched turn with no retained output lost its
  *   record, which is how a worker that went down mid-turn shows up.
+ * - Every event's `outRef` enters the same collector, once per node and address. Terminal
+ *   records retain ordinary and steerable results; they are not counted as dispatched turns.
  * - The terminal event's `harnessTranscript` receipt covers the harness's native session files.
  *   Those are the only record of the harness's own subagents, so an unavailable receipt is a
  *   separate gap from a missing turn, and its reason is Runtime's, verbatim.
@@ -646,7 +649,7 @@ async function nodeTranscripts(
   const entry = (id: string): NodeTranscriptFacts => {
     let found = facts.get(id)
     if (found === undefined) {
-      found = { dispatched: 0, outputRefs: [], receipt: null }
+      found = { dispatched: 0, outputRefs: [], outputPositions: new Map(), receipt: null }
       facts.set(id, found)
     }
     return found
@@ -654,10 +657,19 @@ async function nodeTranscripts(
   for (const event of events) {
     const id = nonEmptyString(event.id)
     if (id === null || !nodeIds.has(id)) continue
+    if (Object.hasOwn(event, 'outRef')) {
+      const fact = entry(id)
+      const ref = event.outRef
+      const position = typeof ref === 'string' ? fact.outputPositions.get(ref) : undefined
+      if (position !== undefined) {
+        if (event.kind === 'execution-result') fact.outputRefs[position]!.turn = true
+      } else {
+        if (typeof ref === 'string') fact.outputPositions.set(ref, fact.outputRefs.length)
+        fact.outputRefs.push({ value: ref, turn: event.kind === 'execution-result' })
+      }
+    }
     if (event.kind === 'execution-admitted' && record(event.admission)?.phase === 'dispatched') {
       entry(id).dispatched += 1
-    } else if (event.kind === 'execution-result') {
-      entry(id).outputRefs.push(event.outRef)
     } else if (event.kind === 'settled' || event.kind === 'cancelled') {
       const receipt = record(event.harnessTranscript)
       if (receipt !== null) entry(id).receipt = receipt
@@ -666,10 +678,14 @@ async function nodeTranscripts(
   const out = new Map<string, NodeTranscript>()
   for (const [id, fact] of facts) {
     const retained: string[] = []
+    let retainedTurns = 0
     const workspaceCaptures: RolloutWorkspaceCapture[] = []
-    for (const ref of fact.outputRefs) {
+    for (const { value: ref, turn } of fact.outputRefs) {
       const file = blobFile(runDir, ref)
-      if (file !== null && (await isFile(file))) retained.push(file)
+      if (file !== null && (await isFile(file))) {
+        retained.push(file)
+        if (turn) retainedTurns += 1
+      }
       workspaceCaptures.push(...(await workspaceCapturesFromOutput(runDir, ref)))
     }
     let nativeSession: WorkerNativeSession | null = null
@@ -691,7 +707,7 @@ async function nodeTranscripts(
       // The native session is the fuller record; the newest turn output is the next best.
       transcriptRef:
         nativeSession?.status === 'available' ? nativeSession.ref : (retained.at(-1) ?? null),
-      turns: { dispatched: fact.dispatched, retained: retained.length },
+      turns: { dispatched: fact.dispatched, retained: retainedTurns },
       nativeSession,
       workspaceCaptures: workspaceCaptures.length > 0 ? workspaceCaptures : null,
     })

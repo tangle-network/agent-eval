@@ -648,7 +648,7 @@ export function analyzeSupervisorRunSources(
     captures: SupervisorRunSources['rootWorkspaceCaptures'],
   ): void => {
     if (captures === null || captures?.length === 0) {
-      gaps.push(`${owner} workspaceCapture: no execution-result capture evidence`)
+      gaps.push(`${owner} workspaceCapture: no retained output capture evidence`)
     } else if (captures !== undefined) {
       for (const [index, capture] of captures.entries()) {
         const source = `${owner} workspaceCapture[${index + 1}]`

@@ -104,7 +104,7 @@ export interface WorkerLogSource {
    * store kept no receipt for this worker.
    */
   readonly nativeSession?: WorkerNativeSession | null
-  /** One entry per Runtime execution result. Null means no result; absent means this reader has no channel. */
+  /** Capture receipts in output order. Null means none were retained; absent means this reader has no channel. */
   readonly workspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /** Where this worker's delivered patch lives. Null = the store keeps no patch per worker. */
   readonly patchPath?: string | null
@@ -233,7 +233,7 @@ export interface SupervisorRunSources {
    * retain one must set this to `null`, or omit the path entirely.
    */
   readonly rootTranscriptRef?: string | null
-  /** Root execution-result capture receipts in source order; null means no retained result. */
+  /** Root capture receipts in output order; null means no retained receipt. */
   readonly rootWorkspaceCaptures?: readonly RolloutWorkspaceCapture[] | null
   /**
    * The `traces` CLI command that covers this run's harness-session layer.

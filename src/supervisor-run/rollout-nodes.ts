@@ -168,7 +168,7 @@ export function supervisorRunRolloutLinesFromFacts(
     if (captures === null || captures?.length === 0) {
       gaps.push({
         code: 'workspace-capture-unavailable',
-        message: `${owner} has no execution-result capture evidence`,
+        message: `${owner} has no retained output capture evidence`,
         nodeId,
       })
       return 'workspace capture evidence unavailable'

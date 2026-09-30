@@ -54,7 +54,9 @@ Where each invariant lives:
 
 ## Runtime capture receipts
 
-`readRuntimeSupervisorRun()` reads each execution result in journal order.
+`readRuntimeSupervisorRun()` reads output references in journal order.
+It reads retained execution results and terminal outputs through the same projector.
+It projects duplicate references to the same node and address once.
 It verifies the result JSON against its recorded content address.
 It projects both Provider leaf receipts and Sandbox receipt arrays through one capture type.
 Array entries keep their source order.
