@@ -38,6 +38,7 @@
  *
  */
 
+import { combineAbortSignals } from './abort-signal'
 import {
   type CostReceiptInput,
   type CustomTokenPricing,
@@ -685,28 +686,21 @@ function parseWireToolCalls(value: unknown, model: string): LlmToolCall[] | unde
   })
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/**
- * Combine the per-attempt timeout signal with an optional caller signal into
- * one signal the fetch listens on. Prefers the native `AbortSignal.any`; falls
- * back to manual wiring on runtimes that predate it. The caller signal is also
- * propagated to the timeout controller so aborting it cancels the in-flight
- * fetch immediately.
- */
-function linkSignals(timeoutController: AbortController, caller?: AbortSignal): AbortSignal {
-  if (!caller) return timeoutController.signal
-  if (typeof (AbortSignal as { any?: unknown }).any === 'function') {
-    return AbortSignal.any([timeoutController.signal, caller])
-  }
-  if (caller.aborted) {
-    timeoutController.abort()
-  } else {
-    caller.addEventListener('abort', () => timeoutController.abort(), { once: true })
-  }
-  return timeoutController.signal
+/** Backoff belongs to the caller's operation and must stop when it is cancelled. */
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /** True once the cross-attempt wall-clock budget (if any) is exhausted. */
@@ -836,6 +830,9 @@ async function callLlmAttempts(
 
   let lastErr: unknown
   let effectiveRequest = req
+  const remainingMs = () =>
+    deadlineMs === undefined ? Infinity : Math.max(0, deadlineMs - (Date.now() - deadlineStart))
+  const retryDelay = (ms: number) => sleep(Math.min(ms, remainingMs()), callerSignal)
   for (let attempt = 0; attempt < maximumAttempts; attempt++) {
     // A caller cancel is fatal — never retried. Checking before each attempt
     // means an already-aborted signal short-circuits without firing fetch.
@@ -844,49 +841,54 @@ async function callLlmAttempts(
     }
     // Stop retrying once the cross-attempt budget is spent rather than burning
     // a full per-attempt timeout on each remaining retry.
-    if (attempt > 0 && deadlineExceeded(deadlineStart, deadlineMs)) {
-      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+    if (deadlineExceeded(deadlineStart, deadlineMs)) {
+      throw lastErr instanceof Error
+        ? lastErr
+        : new DOMException('callLlm deadline exceeded', 'TimeoutError')
     }
-    const controller = new AbortController()
-    const attemptSignal = linkSignals(controller, callerSignal)
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
-    const started = Date.now()
     const requestBody = buildBody(
       effectiveRequest,
       opts.jsonSchemaTransport === 'json-object',
       opts.thinking,
     )
+    const controller = new AbortController()
+    const attemptSignal = combineAbortSignals(controller.signal, callerSignal)!
+    const timeoutHandle = setTimeout(() => controller.abort(), Math.min(timeoutMs, remainingMs()))
+    const started = Date.now()
     let attemptErrorRecorded = false
-    if (sink) {
-      await recordRaw(sink, redactor, {
-        eventId: newRecordId(),
-        runId: traceContext?.runId,
-        spanId: traceContext?.spanId,
-        provider,
-        model: req.model,
-        endpoint,
-        baseUrl,
-        attemptIndex: attempt,
-        direction: 'request',
-        timestamp: started,
-        requestHeaders: headers,
-        requestBody,
-        redactedFields: [],
-      })
-    }
-
     try {
+      if (sink) {
+        await recordRaw(sink, redactor, {
+          eventId: newRecordId(),
+          runId: traceContext?.runId,
+          spanId: traceContext?.spanId,
+          provider,
+          model: req.model,
+          endpoint,
+          baseUrl,
+          attemptIndex: attempt,
+          direction: 'request',
+          timestamp: started,
+          requestHeaders: headers,
+          requestBody,
+          redactedFields: [],
+        })
+      }
+      attemptSignal.throwIfAborted()
       const res = await fetchFn(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
         signal: attemptSignal,
       })
-      clearTimeout(timeoutHandle)
       const responseHeaders = sink ? headersToObject(res.headers) : undefined
+      // Headers are not completion: the same timeout/cancellation covers either response body.
+      const text = await res.text()
+      attemptSignal.throwIfAborted()
+      clearTimeout(timeoutHandle)
 
       if (!res.ok) {
-        const body = await res.text()
+        const body = text
         if (sink) {
           await recordRaw(sink, redactor, {
             eventId: newRecordId(),
@@ -943,13 +945,12 @@ async function callLlmAttempts(
         ) {
           lastErr = err
           const retryAfter = parseRetryAfter(res.headers)
-          await sleep(retryAfter ?? backoffMs(attempt))
+          await retryDelay(retryAfter ?? backoffMs(attempt))
           continue
         }
         throw err
       }
 
-      const text = await res.text()
       let json: Record<string, unknown>
       try {
         json = JSON.parse(text) as Record<string, unknown>
@@ -1037,7 +1038,7 @@ async function callLlmAttempts(
         (cachedRaw === undefined ||
           (cachedPromptTokens !== undefined && cachedPromptTokens <= promptTokens)) &&
         (totalTokens === undefined || totalTokens === promptTokens + completionTokens)
-      const costFromProxy = (json._response_cost ?? json.cost_usd) as number | undefined
+      const costFromProxy = providerReportedCost(json)
       const content = choice?.message?.content ?? ''
 
       const configuredCost =
@@ -1134,10 +1135,12 @@ async function callLlmAttempts(
         isTransientLlmError(err) &&
         !deadlineExceeded(deadlineStart, deadlineMs)
       ) {
-        await sleep(backoffMs(attempt))
+        await retryDelay(backoffMs(attempt))
         continue
       }
       throw err
+    } finally {
+      clearTimeout(timeoutHandle)
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))

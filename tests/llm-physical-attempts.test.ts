@@ -7,6 +7,7 @@ import { createChatClient } from '../src/analyst/chat-client'
 import {
   callLlm,
   callLlmJson,
+  costReceiptFromLlm,
   type LlmCallRequest,
   maximumChargeForLlmRequest,
 } from '../src/llm-client'
@@ -138,15 +139,15 @@ describe('one physical request budget across structured fallback', () => {
   it('does not reset an expired cross-attempt deadline at schema fallback', async () => {
     const { baseUrl, requests } = await endpoint(async (res, _body, ordinal) => {
       if (ordinal === 1) {
-        await delay(60)
+        await delay(300)
         schemaRejected(res)
         return
       }
       success(res)
     })
     await expect(
-      callLlmJson(request, { baseUrl, maximumAttempts: 3, deadlineMs: 5 }),
-    ).rejects.toMatchObject({ status: 400 })
+      callLlmJson(request, { baseUrl, maximumAttempts: 3, deadlineMs: 100 }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
     expect(requests).toHaveLength(1)
   })
 
@@ -186,4 +187,124 @@ describe('one physical request budget across structured fallback', () => {
       actualInputBytes,
     )
   })
+})
+
+describe('physical request lifetime and receipt consistency', () => {
+  it.each([200, 503])('bounds the complete HTTP %i body, not only its headers', async (status) => {
+    let closed!: () => void
+    const disconnected = new Promise<void>((resolve) => {
+      closed = resolve
+    })
+    const { baseUrl, requests } = await endpoint((res) => {
+      res.on('close', closed)
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.flushHeaders()
+      res.write('{"incomplete":')
+      // Deliberately never finish the body. The client's timeout must close the connection.
+    })
+    const watchdog = new AbortController()
+    const timer = setTimeout(() => watchdog.abort(new Error('test watchdog')), 2_000)
+    const started = performance.now()
+    try {
+      await expect(
+        callLlm(
+          { ...request, timeoutMs: 150 },
+          {
+            baseUrl,
+            maximumAttempts: 1,
+            signal: watchdog.signal,
+          },
+        ),
+      ).rejects.toMatchObject({ name: 'AbortError' })
+      expect(performance.now() - started).toBeLessThan(1_500)
+      await Promise.race([
+        disconnected,
+        delay(1_000).then(() => {
+          throw new Error('provider connection did not close')
+        }),
+      ])
+      expect(requests).toHaveLength(1)
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+
+  it('cancels Retry-After backoff without buying another request', async () => {
+    const controller = new AbortController()
+    const events: RawProviderEvent[] = []
+    const { baseUrl, requests } = await endpoint((res) => {
+      res.writeHead(429, { 'Retry-After': '2' })
+      res.end('busy')
+    })
+    let cancelledAt = 0
+    const result = callLlm(request, {
+      baseUrl,
+      maximumAttempts: 3,
+      signal: controller.signal,
+      rawSink: {
+        record(event) {
+          events.push(event)
+          if (event.direction === 'error' && event.statusCode === 429) {
+            setTimeout(() => {
+              cancelledAt = performance.now()
+              controller.abort(new Error('owner cancelled'))
+            }, 30)
+          }
+        },
+      },
+    })
+    await expect(result).rejects.toThrow('owner cancelled')
+    expect(performance.now() - cancelledAt).toBeLessThan(1_000)
+    expect(requests).toHaveLength(1)
+    expect(events.filter((event) => event.direction === 'request')).toHaveLength(1)
+  })
+
+  it('clamps server backoff to the remaining whole-operation deadline', async () => {
+    const { baseUrl, requests } = await endpoint((res) => {
+      res.writeHead(429, { 'Retry-After': '2' })
+      res.end('busy')
+    })
+    const started = performance.now()
+    await expect(
+      callLlm(request, {
+        baseUrl,
+        maximumAttempts: 3,
+        deadlineMs: 150,
+      }),
+    ).rejects.toMatchObject({ status: 429 })
+    expect(performance.now() - started).toBeLessThan(1_200)
+    expect(requests).toHaveLength(1)
+  })
+
+  it('does not dispatch when the whole-operation deadline is already exhausted', async () => {
+    const { baseUrl, requests } = await endpoint((res) => success(res))
+    await expect(callLlm(request, { baseUrl, deadlineMs: 0 })).rejects.toMatchObject({
+      name: 'TimeoutError',
+    })
+    expect(requests).toHaveLength(0)
+  })
+
+  it.each(['-1', '1e400', '0'])(
+    'interprets the same reported cost in response and receipt (%s)',
+    async (cost) => {
+      const { baseUrl } = await endpoint((res) => {
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          `{"model":"unpriced-fixture","choices":[{"message":{"content":"checked"}}],"cost_usd":${cost}}`,
+        )
+      })
+      const result = await callLlm(
+        { ...request, model: 'unpriced-fixture' },
+        {
+          baseUrl,
+          maximumAttempts: 1,
+        },
+      )
+      const receipt = costReceiptFromLlm(result)
+      expect(result.costUsd).toBe(cost === '0' ? 0 : null)
+      expect(receipt.actualCostUsd).toBe(cost === '0' ? 0 : undefined)
+      expect(receipt.estimatedCostUsd).toBeUndefined()
+      expect(result.usage.captured).toBe(false)
+    },
+  )
 })

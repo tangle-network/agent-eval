@@ -983,7 +983,8 @@ describe('llm-client — caller AbortSignal + cross-attempt deadline', () => {
         { model: 'm', messages: [] },
         { baseUrl: TEST_BASE_URL, fetch, maximumAttempts: 5, deadlineMs: 10 },
       ),
-    ).rejects.toBeInstanceOf(LlmCallError)
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    // The deadline aborts the whole first attempt, even if a transport returns late.
     // Without the deadline this would retry up to 5 times; the budget caps it at 1.
     expect(calls).toBe(1)
   })
