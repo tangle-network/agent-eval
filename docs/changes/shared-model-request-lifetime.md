@@ -27,4 +27,4 @@ for the maintained client and real-loopback HTTP contracts. These include a stal
 body after headers, cancellation during server-directed backoff, exhausted deadlines,
 request-count conservation, raw-capture ordering and malformed reported prices.
 Regenerate only the live analyst implementation pin with
-`pnpm pin:analyst-benchmark-implementation`; historical evidence pins remain fixed.
+`pnpm analyst:pin:implementation`; historical evidence pins remain fixed.
