@@ -561,41 +561,41 @@ async function workspaceCapturesFromOutput(
     addressGap = 'execution-result output cannot be canonically hashed'
   }
   const project = (rawReceipt: unknown, receiptPointer: string | null): RolloutWorkspaceCapture => {
-  const receipt = record(rawReceipt)
-  if (receipt === null) {
-    return {
-      ...missing(
-        `workspaceCapture receipt is absent or malformed${addressGap === null ? '' : `; ${addressGap}`}`,
-      ),
-      receiptPointer,
-      receipt: rawReceipt,
+    const receipt = record(rawReceipt)
+    if (receipt === null) {
+      return {
+        ...missing(
+          `workspaceCapture receipt is absent or malformed${addressGap === null ? '' : `; ${addressGap}`}`,
+        ),
+        receiptPointer,
+        receipt: rawReceipt,
+      }
     }
-  }
-  const provenance = record(receipt.provenance)
-  const attempts = Array.isArray(provenance?.attempts) ? provenance.attempts : null
-  const coverageComplete =
-    typeof receipt.coverageComplete === 'boolean' ? receipt.coverageComplete : null
-  const incompleteReason =
-    typeof receipt.incompleteReason === 'string' ? receipt.incompleteReason : null
-  const gaps: string[] = []
-  if (addressGap !== null) gaps.push(addressGap)
-  if (coverageComplete === null) gaps.push('workspaceCapture.coverageComplete is absent')
-  if (record(receipt.snapshot) === null) gaps.push('workspaceCapture.snapshot is absent')
-  if (provenance === null) gaps.push('workspaceCapture.provenance is absent')
-  if (attempts === null) gaps.push('workspaceCapture.provenance.attempts is absent')
-  else if (attempts.length === 0 || attempts.some((attempt) => record(attempt) === null)) {
-    gaps.push('workspaceCapture.provenance.attempts is empty or malformed')
-  }
-  return {
-    outRef,
-    blobPath,
-    receiptPointer,
-    receipt,
-    attempts,
-    coverageComplete,
-    incompleteReason,
-    projectionGap: gaps.length > 0 ? gaps.join('; ') : null,
-  }
+    const provenance = record(receipt.provenance)
+    const attempts = Array.isArray(provenance?.attempts) ? provenance.attempts : null
+    const coverageComplete =
+      typeof receipt.coverageComplete === 'boolean' ? receipt.coverageComplete : null
+    const incompleteReason =
+      typeof receipt.incompleteReason === 'string' ? receipt.incompleteReason : null
+    const gaps: string[] = []
+    if (addressGap !== null) gaps.push(addressGap)
+    if (coverageComplete === null) gaps.push('workspaceCapture.coverageComplete is absent')
+    if (record(receipt.snapshot) === null) gaps.push('workspaceCapture.snapshot is absent')
+    if (provenance === null) gaps.push('workspaceCapture.provenance is absent')
+    if (attempts === null) gaps.push('workspaceCapture.provenance.attempts is absent')
+    else if (attempts.length === 0 || attempts.some((attempt) => record(attempt) === null)) {
+      gaps.push('workspaceCapture.provenance.attempts is empty or malformed')
+    }
+    return {
+      outRef,
+      blobPath,
+      receiptPointer,
+      receipt,
+      attempts,
+      coverageComplete,
+      incompleteReason,
+      projectionGap: gaps.length > 0 ? gaps.join('; ') : null,
+    }
   }
   const result = record(output)
   const captures: RolloutWorkspaceCapture[] = []
