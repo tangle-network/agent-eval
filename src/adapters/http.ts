@@ -106,9 +106,7 @@ export interface HttpDispatchResponseBody<TArtifact> {
   receipts?: CostReceipt[]
 }
 
-function resolveAuth(
-  auth: HttpDispatchOptions<Scenario, unknown>['auth'],
-): Promise<string | null> {
+function resolveAuth(auth: HttpDispatchOptions<Scenario, unknown>['auth']): Promise<string | null> {
   if (!auth) return Promise.resolve(null)
   if (typeof auth === 'string') return Promise.resolve(auth)
   return Promise.resolve(auth())
@@ -252,9 +250,7 @@ async function replayReceipt(cost: CampaignCostMeter, receipt: CostReceipt): Pro
     model: receipt.model,
     inputTokens: receipt.inputTokens,
     outputTokens: receipt.outputTokens,
-    ...(receipt.reasoningTokens === undefined
-      ? {}
-      : { reasoningTokens: receipt.reasoningTokens }),
+    ...(receipt.reasoningTokens === undefined ? {} : { reasoningTokens: receipt.reasoningTokens }),
     ...(receipt.cachedTokens === undefined ? {} : { cachedTokens: receipt.cachedTokens }),
     ...(receipt.cacheWriteTokens === undefined
       ? {}
