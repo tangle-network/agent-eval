@@ -1,0 +1,20 @@
+[
+  {
+    "path": "/mnt/traces/eval-attempt-artifacts-20261001-r2/reproduction-retry/capture-retention_0/captured-response.json",
+    "value": {
+      "cellId": "capture-retention:0",
+      "runAttemptId": "928ae03a-a64d-4d2a-bb41-0b54ed5fa7d7",
+      "invocation": 1
+    },
+    "sha256": "eb737cc9d581881831f4f0092b590c11a3435a0ced7b689f8d987072140057d0"
+  },
+  {
+    "path": "/mnt/traces/eval-attempt-artifacts-20261001-r2/reproduction-retry/capture-retention_0/captured-response.json",
+    "value": {
+      "cellId": "capture-retention:0",
+      "runAttemptId": "928ae03a-a64d-4d2a-bb41-0b54ed5fa7d7",
+      "invocation": 2
+    },
+    "sha256": "e28d164f092d29a9e3259ec255efa7b0a6fc42f5148373d314ec5e26b29bdf3e"
+  }
+]

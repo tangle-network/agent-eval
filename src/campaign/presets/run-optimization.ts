@@ -28,7 +28,7 @@ import { type Objective, paretoFrontier } from '../../pareto'
 import { uniform } from '../allocation'
 import { computeManifestHash } from '../campaign-manifest'
 import { computeAggregates } from '../cell-aggregates'
-import { cellCachePath, cellDirectory } from '../cell-schedule'
+import { cellAttemptDirectory, cellCachePath, cellDirectory } from '../cell-schedule'
 import {
   assertCampaignSplitIdentity,
   type CampaignCoverage,
@@ -878,8 +878,6 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
     return this.cellResult(cell, work)
   }
 
-  /** A cell's result as its campaign stored it: the cache of a scored cell,
-   * the final failure receipt of a failed one. */
   /** A cell's result as its campaign stored it for this surface: the cache of
    * a scored cell, the final failure receipt of a failed one. A result another
    * surface left in the same directory does not count. */
@@ -891,6 +889,22 @@ class SurfaceNodes<TScenario extends Scenario, TArtifact> {
   ): CampaignCellResult<TArtifact> | undefined {
     const cellId = `${taskId}:${rep}`
     const manifestHash = this.manifestFor(surface)
+    const cellDir = cellDirectory(dir, cellId)
+    const latest = this.storage.read(join(cellDir, 'latest-attempt.json'))
+    if (latest !== undefined) {
+      const attempt: NonNullable<CampaignCellResult<TArtifact>['attempt']> = JSON.parse(latest)
+      const attemptDir = cellAttemptDirectory(cellDir, attempt)
+      const result = this.storage.read(join(attemptDir, 'result.json'))
+      const receipt = this.storage.read(join(attemptDir, 'failure-receipt.json'))
+      const cell: CampaignCellResult<TArtifact> | undefined =
+        result !== undefined
+          ? JSON.parse(result)
+          : receipt !== undefined
+            ? (JSON.parse(receipt) as CampaignCellFailureReceipt<TArtifact>).cell
+            : undefined
+      return cell?.manifestHash === manifestHash ? cell : undefined
+    }
+    // Historical cells predate execution-scoped directories and stay read-only.
     const cached = this.storage.read(cellCachePath(dir, cellId))
     const scored =
       cached === undefined ? undefined : (JSON.parse(cached) as CampaignCellResult<TArtifact>)

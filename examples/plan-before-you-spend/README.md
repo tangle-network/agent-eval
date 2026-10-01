@@ -41,7 +41,8 @@ Set `resumable: false` only when you intend to rerun the whole grid.
 That check covers the whole schedule before concurrent work begins, so one bad cache file cannot waste the paid calls of earlier cells.
 
 `abortOnCellError: true` stops the campaign on the first failed cell.
-The failed cell writes `<runDir>/<cell>/failure-receipt.json` first.
+The failed cell writes `<runDir>/<cell>/attempts/<runAttemptId>/attempt-<number>/failure-receipt.json` first.
+The cell’s `latest-attempt.json` locates that attempt.
 That file holds the original error, the cell result, the exact call ids, and the settled agent-plus-judge cost and token totals.
 Active sibling cells are cancelled and are allowed to record their own receipts before the campaign rejects.
 Leave the option unset to record the error and continue the remaining cases.

@@ -1,0 +1,140 @@
+{
+  "dispatchRunAttemptId": "e7949644-3d60-4ab9-817e-f80d0a48f5d8",
+  "judgeTags": {
+    "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-judge-attribution",
+    "cellId": "attribution:0",
+    "scenarioId": "attribution",
+    "rep": "0",
+    "runAttemptId": "e7949644-3d60-4ab9-817e-f80d0a48f5d8",
+    "attemptNumber": "1"
+  },
+  "report": {
+    "manifestHash": "12b1fd3b28adadf018749116f4680a6105e5c7b5cac8d2af339303fa547fef79",
+    "splitDigest": "sha256:e89df58336656867eafec16cfa0cd7af8564248b98f4aa3e1490c51cc18b5b86",
+    "seed": 42,
+    "reps": 1,
+    "startedAt": "2026-10-01T17:16:26.512Z",
+    "endedAt": "2026-10-01T17:16:26.515Z",
+    "durationMs": 3,
+    "cells": [
+      {
+        "manifestHash": "12b1fd3b28adadf018749116f4680a6105e5c7b5cac8d2af339303fa547fef79",
+        "attempt": {
+          "runAttemptId": "e7949644-3d60-4ab9-817e-f80d0a48f5d8",
+          "number": 1
+        },
+        "cellId": "attribution:0",
+        "scenarioId": "attribution",
+        "rep": 0,
+        "artifact": {
+          "captured": true
+        },
+        "judgeScores": {
+          "operational-attribution": {
+            "dimensions": {
+              "captured": 1
+            },
+            "composite": 1,
+            "notes": "Operational attribution; no research outcome."
+          }
+        },
+        "costUsd": 0,
+        "costProvenance": {
+          "kind": "observed",
+          "usd": 0
+        },
+        "costCallIds": [],
+        "tokenUsage": {
+          "input": 0,
+          "output": 0
+        },
+        "durationMs": 2,
+        "seed": 42,
+        "cached": false
+      }
+    ],
+    "aggregates": {
+      "byJudge": {
+        "operational-attribution": {
+          "mean": 1,
+          "stdev": 0,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 1,
+          "distribution": {
+            "n": 1,
+            "min": 1,
+            "p50": 1,
+            "p90": 1,
+            "max": 1,
+            "sum": 1
+          }
+        }
+      },
+      "byScenario": {
+        "attribution": {
+          "meanComposite": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 1,
+          "distribution": {
+            "n": 1,
+            "min": 1,
+            "p50": 1,
+            "p90": 1,
+            "max": 1,
+            "sum": 1
+          }
+        }
+      },
+      "cost": {
+        "totalCalls": 0,
+        "pendingCalls": 0,
+        "unresolvedCalls": 0,
+        "reservedCostUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "reasoningTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0,
+        "totalCostUsd": 0,
+        "costProvenance": {
+          "kind": "observed",
+          "usd": 0
+        },
+        "byChannel": [],
+        "unpricedModels": [],
+        "fullyPriced": true,
+        "usageComplete": true,
+        "accountingComplete": true,
+        "incompleteReasons": []
+      },
+      "cellsExecuted": 1,
+      "cellsSkipped": 0,
+      "cellsCached": 0,
+      "cellsFailed": 0,
+      "cellsDispatchFailed": 0,
+      "cellsJudgeFailed": 0,
+      "cellsUnclassifiedFailed": 0
+    },
+    "runDir": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-judge-attribution",
+    "artifactsByPath": {
+      "attribution:0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/identity.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-judge-attribution/attribution_0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/identity.json",
+      "attribution:0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/artifacts/capture.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-judge-attribution/attribution_0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/artifacts/capture.json",
+      "attribution:0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/result.json": "/mnt/traces/eval-attempt-artifacts-20261001-r2/after-judge-attribution/attribution_0/attempts/e7949644-3d60-4ab9-817e-f80d0a48f5d8/attempt-1/result.json"
+    },
+    "scenarios": [
+      {
+        "id": "attribution",
+        "kind": "operational",
+        "scenarioDigest": "sha256:9162e2bc75649b3699e3a3cd56d472ba5013590856802ecdf4b1ce56273eb878"
+      }
+    ]
+  },
+  "providerRequests": 0,
+  "researchUnits": 0
+}

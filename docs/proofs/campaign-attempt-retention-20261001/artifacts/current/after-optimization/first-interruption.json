@@ -1,0 +1,38 @@
+{
+  "firstError": "Operational stop after candidate settlement",
+  "proposals": 2,
+  "histories": [
+    {
+      "proposal": 1,
+      "history": []
+    },
+    {
+      "proposal": 2,
+      "history": [
+        {
+          "generationIndex": 0,
+          "candidates": [
+            {
+              "surfaceHash": "42b3fec6b7e55008",
+              "composite": null,
+              "eligibleForPromotion": false,
+              "coverage": {
+                "expectedCells": 1,
+                "scorableCells": 0,
+                "unscorableCells": [
+                  {
+                    "cellId": "capture-retention:0",
+                    "reason": "Operational candidate interruption; missing artifact"
+                  }
+                ]
+              },
+              "dimensions": {},
+              "scenarios": []
+            }
+          ],
+          "promoted": []
+        }
+      ]
+    }
+  ]
+}

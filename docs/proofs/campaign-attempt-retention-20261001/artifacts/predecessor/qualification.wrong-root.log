@@ -1,0 +1,9 @@
+file:///mnt/traces/eval-attempt-artifacts-20261001/qualify.mjs:32
+  if (mode === 'retry') reports.push(await runEval({ ...opts, cellRetry: { attempts: 2, retryable: f => f.error.message === interruption } }))
+                                           ^
+
+TypeError: runEval is not a function
+    at qualify (file:///mnt/traces/eval-attempt-artifacts-20261001/qualify.mjs:32:44)
+    at file:///mnt/traces/eval-attempt-artifacts-20261001/qualify.mjs:70:102
+
+Node.js v24.20.0

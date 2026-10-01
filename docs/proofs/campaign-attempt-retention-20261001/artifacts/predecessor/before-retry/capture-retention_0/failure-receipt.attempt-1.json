@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "runAttemptId": "64928c35-e5f2-4ae6-a4c1-266088c5ecf9",
+  "recordedAt": "2026-10-01T16:47:43.515Z",
+  "failure": {
+    "stage": "dispatch",
+    "error": {
+      "name": "Error",
+      "message": "Operational interruption after native artifact capture",
+      "stack": "Error: Operational interruption after native artifact capture\n    at Object.dispatch (file:///home/drew/webb/_wt/lab-autoroute-campaign-20261001/[eval1]:16:22)\n    at async executeCell (file:///home/drew/webb/_wt/lab-evidence-unified/node_modules/.pnpm/@tangle-network+agent-eval@0.203.0/node_modules/@tangle-network/agent-eval/dist/llm-judge-C-0P1WiT.js:459:19)\n    at async file:///home/drew/webb/_wt/lab-evidence-unified/node_modules/.pnpm/@tangle-network+agent-eval@0.203.0/node_modules/@tangle-network/agent-eval/dist/llm-judge-C-0P1WiT.js:888:15\n    at async Promise.allSettled (index 0)\n    at async runCampaign (file:///home/drew/webb/_wt/lab-evidence-unified/node_modules/.pnpm/@tangle-network+agent-eval@0.203.0/node_modules/@tangle-network/agent-eval/dist/llm-judge-C-0P1WiT.js:935:22)\n    at async file:///home/drew/webb/_wt/lab-autoroute-campaign-20261001/[eval1]:19:17"
+    }
+  },
+  "cell": {
+    "manifestHash": "6e492a4dc01bf06d2f7e169cdde455d0b0416e34bd4396c1ec7f72f795d57fa7",
+    "cellId": "capture-retention:0",
+    "scenarioId": "capture-retention",
+    "rep": 0,
+    "artifact": null,
+    "judgeScores": {},
+    "costUsd": 0,
+    "costProvenance": {
+      "kind": "observed",
+      "usd": 0
+    },
+    "costCallIds": [],
+    "tokenUsage": {
+      "input": 0,
+      "output": 0
+    },
+    "durationMs": 1,
+    "seed": 42,
+    "cached": false,
+    "errorStage": "dispatch",
+    "error": "Operational interruption after native artifact capture"
+  },
+  "cost": {
+    "totalCalls": 0,
+    "pendingCalls": 0,
+    "unresolvedCalls": 0,
+    "reservedCostUsd": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "reasoningTokens": 0,
+    "cachedTokens": 0,
+    "cacheWriteTokens": 0,
+    "totalCostUsd": 0,
+    "costProvenance": {
+      "kind": "observed",
+      "usd": 0
+    },
+    "byChannel": [],
+    "unpricedModels": [],
+    "fullyPriced": true,
+    "usageComplete": true,
+    "accountingComplete": true,
+    "incompleteReasons": []
+  }
+}

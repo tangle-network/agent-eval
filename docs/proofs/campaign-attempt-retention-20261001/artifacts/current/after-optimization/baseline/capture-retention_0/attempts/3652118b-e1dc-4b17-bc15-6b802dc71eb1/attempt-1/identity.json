@@ -1,0 +1,10 @@
+{
+  "runAttemptId": "3652118b-e1dc-4b17-bc15-6b802dc71eb1",
+  "number": 1,
+  "manifestHash": "481089fe6a54224e4b72ba7c72436736d97ffb1cb3599430ef99c426b76f8fc9",
+  "cellId": "capture-retention:0",
+  "scenarioId": "capture-retention",
+  "rep": 0,
+  "seed": 42,
+  "startedAt": "2026-10-01T17:12:45.127Z"
+}

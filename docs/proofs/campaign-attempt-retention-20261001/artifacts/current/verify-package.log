@@ -1,0 +1,340 @@
+$ pnpm check:analyst-benchmark && pnpm run check:skill && pnpm run check:model-ids && pnpm run check:canonical-json && pnpm run check:collation-ordering && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run contract:finding:check && pnpm run evidence:check
+$ node scripts/check-analyst-benchmark-implementation.mjs
+public analyst benchmark digests valid: implementation 65afefb4ed822b6400865ba85817d45826a6351209b8509deb07b3cabb059d70 (111 files), dependency lock e57c71c31ecb3ec79d6cf08dc6f1603aa8109bafee4208e63f0e3a1234619d5a (4 files)
+$ node scripts/check-skill.mjs
+agent-eval skill valid: 89 description chars, 8957 bytes
+$ node scripts/check-model-id-requests.mjs
+model id request gate valid: every model id under src is either asserted against the served id or waived (6 waivers, all matched)
+$ node scripts/check-canonical-json.mjs
+canonical json gate valid: src/ledger-core/canonical.ts is the only encoder under src/
+$ node scripts/check-collation-ordering.mjs
+collation ordering gate valid: no canonicalizing function orders with localeCompare
+Running publint v0.3.24 for @tangle-network/agent-eval...
+Packing files with `pnpm pack`...
+Linting...
+All good!
+
+@tangle-network/agent-eval v0.203.1
+
+Build tools:
+- @arethetypeswrong/cli@^0.18.5
+- typescript@^7.0.2
+- esbuild@^0.28.2
+- tsdown@^0.23.0
+
+ (ignoring resolutions: 'node10', 'node16-cjs')
+
+(ignored per resolution) ⚠️ A require call resolved to an ESM JavaScript file, which is an error in Node and some bundlers. CommonJS consumers will need to use a dynamic import. https://github.com/arethetypeswrong/arethetypeswrong.github.io/blob/main/docs/problems/CJSResolvesToESM.md
+
+(ignored per resolution) 💀 Import failed to resolve to type declarations or JavaScript files. https://github.com/arethetypeswrong/arethetypeswrong.github.io/blob/main/docs/problems/NoResolution.md
+
+
+"@tangle-network/agent-eval"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 🟢 
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/jev"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/profile-cell"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/analyst"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/reporting"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/rl"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/fuzz"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/traces"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/trace-attributes"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/wire"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/benchmarks"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/pipelines"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/meta-eval"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/builder-eval"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/matrix"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/multishot"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/multishot/golden"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/campaign"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/search"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/ledger-core"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/authenticity"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/contract"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/rollout"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/supervisor-run"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/hosted"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/trace-repair"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/diagnosis"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/experiment"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/trajectory-replay"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/openapi.json"
+
+node16 (from ESM): 🟢 (JSON)
+bundler: 🟢 (JSON)
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) 🟢 (JSON)
+
+***********************************
+
+"@tangle-network/agent-eval/storyboard"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/adapters/http"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/evaluation"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+
+"@tangle-network/agent-eval/jev/protocol"
+
+node16 (from ESM): 🟢 (ESM)
+bundler: 🟢 
+node10: (ignored) 💀 Resolution failed
+node16 (from CJS): (ignored) ⚠️ ESM (dynamic import only)
+
+***********************************
+$ tsx scripts/emit-finding-contract.ts --check
+finding contract is fresh: version 1, 22 subject patterns
+$ tsx scripts/render-evidence-index.ts --check
+evidence index is fresh: 10 records, index matches
