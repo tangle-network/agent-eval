@@ -1,0 +1,18 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The input did not match the regular expression /Operational stop after candidate settlement/. Input:
+
+'campaignMeanComposite: campaign has no complete cell-quality scores'
+
+    at file:///mnt/traces/eval-attempt-artifacts-20261001/qualify.mjs:137:8 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'campaignMeanComposite: campaign has no complete cell-quality scores',
+  expected: /Operational stop after candidate settlement/,
+  operator: 'match',
+  diff: 'simple'
+}
+
+Node.js v24.20.0
